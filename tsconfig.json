@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/core"
+    },
+    {
+      "path": "./apps/gateway"
+    },
+    {
+      "path": "./apps/discord-bot"
+    }
+  ]
+}

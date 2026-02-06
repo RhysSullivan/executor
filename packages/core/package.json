@@ -1,0 +1,17 @@
+{
+  "name": "@openassistant/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "with-env": "bun run --env-file=../../.env --",
+    "with-env:prod": "bun run --env-file=../../.env.production --",
+    "typecheck": "tsgo --noEmit --incremental false -p tsconfig.json",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; for (const p of ['dist','node_modules','.turbo','coverage','.tsbuildinfo']) rmSync(p,{recursive:true,force:true});\""
+  },
+  "dependencies": {
+    "effect": "latest"
+  }
+}

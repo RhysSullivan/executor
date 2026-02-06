@@ -1,0 +1,22 @@
+{
+  "name": "@openassistant/discord-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "with-env": "bun run --env-file=../../.env --",
+    "with-env:prod": "bun run --env-file=../../.env.production --",
+    "dev": "bun with-env bun run src/index.ts",
+    "start": "bun with-env bun run src/index.ts",
+    "start:prod": "bun with-env:prod bun run src/index.ts",
+    "typecheck": "tsgo --noEmit --incremental false -p tsconfig.json",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; for (const p of ['dist','node_modules','.turbo','coverage','.tsbuildinfo']) rmSync(p,{recursive:true,force:true});\""
+  },
+  "dependencies": {
+    "@openassistant/core": "workspace:*",
+    "ai": "^6.0.73",
+    "ai-sdk-provider-claude-code": "^3.3.6",
+    "discord.js": "^14.17.3",
+    "effect": "latest",
+    "zod": "^4.3.6"
+  }
+}
