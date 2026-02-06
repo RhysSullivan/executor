@@ -1,6 +1,10 @@
 import { FetchHttpClient } from "@effect/platform";
 import { RpcClient, RpcSerialization } from "@effect/rpc";
-import { AgentRpcs, type RunTurnOutput } from "@openassistant/core";
+import {
+  AgentRpcs,
+  type ResolveApprovalOutput,
+  type TurnResult,
+} from "@openassistant/gateway/rpc";
 import { Effect, Layer } from "effect";
 
 const gatewayUrl = readEnv("OPENASSISTANT_GATEWAY_URL") ?? "http://127.0.0.1:8787/rpc";
@@ -15,7 +19,7 @@ export interface RunGatewayTurnInput {
   channelId: string;
 }
 
-export async function runGatewayTurn(input: RunGatewayTurnInput): Promise<RunTurnOutput> {
+export async function runGatewayTurn(input: RunGatewayTurnInput): Promise<TurnResult> {
   return Effect.runPromise(
     Effect.gen(function* () {
       const client = yield* RpcClient.make(AgentRpcs);
@@ -25,6 +29,29 @@ export async function runGatewayTurn(input: RunGatewayTurnInput): Promise<RunTur
         channelId: input.channelId,
         nowIso: new Date().toISOString(),
       });
+    }).pipe(Effect.scoped, Effect.provide(GatewayRpcClientLive)),
+  );
+}
+
+export async function continueGatewayTurn(turnId: string): Promise<TurnResult> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const client = yield* RpcClient.make(AgentRpcs);
+      return yield* client.ContinueTurn({ turnId });
+    }).pipe(Effect.scoped, Effect.provide(GatewayRpcClientLive)),
+  );
+}
+
+export async function resolveGatewayApproval(input: {
+  turnId: string;
+  callId: string;
+  actorId: string;
+  decision: "approved" | "denied";
+}): Promise<ResolveApprovalOutput> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const client = yield* RpcClient.make(AgentRpcs);
+      return yield* client.ResolveApproval(input);
     }).pipe(Effect.scoped, Effect.provide(GatewayRpcClientLive)),
   );
 }

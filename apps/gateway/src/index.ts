@@ -1,43 +1,67 @@
 import { HttpRouter } from "@effect/platform";
 import { BunHttpServer, BunRuntime } from "@effect/platform-bun";
 import { RpcSerialization, RpcServer } from "@effect/rpc";
-import { AgentRpcs, RunTurnOutput, createCodeModeRunner } from "@openassistant/core";
 import { Effect, Layer } from "effect";
-import { runAgentLoop } from "./agent-loop.js";
 import { InMemoryCalendarStore } from "./calendar-store.js";
+import { AgentRpcs, ResolveApprovalOutput, type TurnResult } from "./rpc.js";
 import { createToolTree } from "./tools.js";
+import { TurnManager } from "./turn-manager.js";
 
 const port = Number(readEnv("OPENASSISTANT_GATEWAY_PORT") ?? "8787");
 
 const calendarStore = new InMemoryCalendarStore();
 const tools = createToolTree(calendarStore);
-const runner = createCodeModeRunner({
-  tools,
-  requestApproval: () => Effect.succeed("approved"),
-});
+const turnManager = new TurnManager(tools, isVerboseMode());
 
 const AgentHandlersLive = AgentRpcs.toLayer(
   Effect.succeed({
-    RunTurn: (input: { prompt: string; nowIso: string }) =>
+    RunTurn: (input: { prompt: string; requesterId: string; channelId: string; nowIso: string }) =>
       Effect.tryPromise({
         try: async () => {
-          const generated = await runAgentLoop(
-            input.prompt,
-            (code) => Effect.runPromise(runner.run({ code })),
-            {
-              now: new Date(input.nowIso),
-            },
-          );
-
-          return new RunTurnOutput({
-            message: generated.text,
-            planner: generated.planner,
-            codeRuns: generated.runs.length,
-            ...(isVerboseMode() ? { footer: generated.planner } : {}),
+          const turnId = turnManager.start({
+            prompt: input.prompt,
+            requesterId: input.requesterId,
+            channelId: input.channelId,
+            now: new Date(input.nowIso),
           });
+          const event = await turnManager.waitForNext(turnId);
+          if (!event) {
+            return {
+              status: "failed",
+              turnId,
+              error: "Turn not found.",
+            } as TurnResult;
+          }
+          return event;
         },
         catch: (error) => `RunTurn failed: ${describeUnknown(error)}`,
       }),
+    ContinueTurn: (input: { turnId: string }) =>
+      Effect.tryPromise({
+        try: async () => {
+          const event = await turnManager.waitForNext(input.turnId);
+          if (!event) {
+            return {
+              status: "failed",
+              turnId: input.turnId,
+              error: "Turn not found.",
+            } as TurnResult;
+          }
+          return event;
+        },
+        catch: (error) => `ContinueTurn failed: ${describeUnknown(error)}`,
+      }),
+    ResolveApproval: (input: { turnId: string; callId: string; actorId: string; decision: "approved" | "denied" }) =>
+      Effect.succeed(
+        new ResolveApprovalOutput({
+          status: turnManager.resolveApproval({
+            turnId: input.turnId,
+            callId: input.callId,
+            actorId: input.actorId,
+            decision: input.decision,
+          }),
+        }),
+      ),
   }),
 );
 

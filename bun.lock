@@ -20,6 +20,7 @@
         "@effect/platform": "latest",
         "@effect/rpc": "latest",
         "@openassistant/core": "workspace:*",
+        "@openassistant/gateway": "workspace:*",
         "@openassistant/reacord": "workspace:*",
         "ai": "^6.0.73",
         "discord.js": "^14.17.3",
@@ -47,7 +48,6 @@
     "packages/core": {
       "name": "@openassistant/core",
       "dependencies": {
-        "@effect/rpc": "latest",
         "effect": "latest",
       },
     },

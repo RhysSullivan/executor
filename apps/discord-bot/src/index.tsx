@@ -9,14 +9,13 @@ import {
   type SendableChannels,
 } from "discord.js";
 import { Effect } from "effect";
-import { AssistantReplyView, AssistantWorkingView } from "./discord-views.js";
-import { formatDiscordResponse } from "./format-response.js";
-import { runGatewayTurn } from "./gateway-client.js";
+import { AgentSessionView } from "./agent-session-view.js";
 
 const token = Bun.env.DISCORD_BOT_TOKEN;
 if (!token) {
   throw new Error("Missing DISCORD_BOT_TOKEN");
 }
+const approvalTimeoutMs = Number(Bun.env.OPENASSISTANT_APPROVAL_TIMEOUT_MS ?? 300_000);
 
 const client = new Client({
   intents: [
@@ -48,38 +47,26 @@ function shouldIgnore(message: Message): boolean {
 }
 
 async function handleMessage(message: Message): Promise<void> {
-  const approvalChannel = asSendableChannel(message.channel);
-  if (!approvalChannel) {
+  const replyChannel = asSendableChannel(message.channel);
+  if (!replyChannel) {
     await message.reply("This channel does not support assistant responses.");
     return;
   }
 
-  const instance = await Effect.runPromise(
-    reacord.send(approvalChannel, <AssistantWorkingView />, {
-      reply: { messageReference: message.id },
-    }),
-  );
-
-  try {
-    const generated = await runGatewayTurn({
-      prompt: message.content,
-      requesterId: message.author.id,
-      channelId: message.channelId,
-    });
-
-    const response = formatDiscordResponse({
-      text: generated.message,
-      footer: generated.footer,
-    });
-
-    instance.render(<AssistantReplyView message={response.message} footer={response.footer} />);
-  } catch (error) {
-    instance.render(
-      <AssistantReplyView
-        message={`I hit an unexpected error while processing that request: ${describeUnknown(error)}`}
+  await Effect.runPromise(
+    reacord.send(
+      replyChannel,
+      <AgentSessionView
+        prompt={message.content}
+        requesterId={message.author.id}
+        channelId={message.channelId}
+        approvalTimeoutMs={approvalTimeoutMs}
       />,
-    );
-  }
+      {
+        reply: { messageReference: message.id },
+      },
+    ),
+  );
 }
 
 function asSendableChannel(channel: unknown): SendableChannels | null {
@@ -90,11 +77,4 @@ function asSendableChannel(channel: unknown): SendableChannels | null {
     return null;
   }
   return channel as SendableChannels;
-}
-
-function describeUnknown(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
 }
