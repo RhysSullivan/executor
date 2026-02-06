@@ -15,8 +15,11 @@ import {
   Separator,
   ActionRow,
   Button,
+  ModalButton,
   Loading,
   useInstance,
+  type ModalField,
+  type ModalFieldValues,
 } from "@openassistant/reacord";
 import type { Client as ApiClient } from "@openassistant/server/client";
 import { unwrap } from "@openassistant/server/client";
@@ -41,6 +44,8 @@ interface TaskState {
   readonly pendingApprovals: PendingApproval[];
   readonly agentMessage: string | null;
   readonly error: string | null;
+  /** Whether an approval rule has been created for this task. */
+  readonly hasRule: boolean;
 }
 
 const INITIAL_STATE: TaskState = {
@@ -51,6 +56,7 @@ const INITIAL_STATE: TaskState = {
   pendingApprovals: [],
   agentMessage: null,
   error: null,
+  hasRule: false,
 };
 
 function reduceEvent(state: TaskState, event: TaskEvent): TaskState {
@@ -81,7 +87,9 @@ function reduceEvent(state: TaskState, event: TaskEvent): TaskState {
     case "tool_result": {
       const r = event.receipt;
       const icon = r.status === "succeeded" ? "\u2705" : r.status === "denied" ? "\u26d4" : "\u274c";
-      const line = `${icon} \`${r.toolPath}\`${r.outputPreview ? ` \u2192 ${r.outputPreview.slice(0, 100)}` : ""}`;
+      const shortName = formatToolName(r.toolPath);
+      const output = formatToolOutput(r.toolPath, r.outputPreview);
+      const line = `${icon} ${shortName}${output}`;
       return { ...state, toolResults: [...state.toolResults, line] };
     }
 
@@ -176,12 +184,19 @@ export function TaskMessage({ taskId, prompt, api }: TaskMessageProps) {
       {state.toolResults.length > 0 && (
         <>
           <Separator />
-          <TextDisplay>{state.toolResults.slice(-10).join("\n")}</TextDisplay>
+          <TextDisplay>{collapseToolResults(state.toolResults, 10).join("\n")}</TextDisplay>
         </>
       )}
 
       {state.pendingApprovals.map((approval) => (
-        <ApprovalButtons key={approval.id} approval={approval} api={api} />
+        <ApprovalButtons
+          key={approval.id}
+          approval={approval}
+          api={api}
+          taskId={taskId}
+          hasRule={state.hasRule}
+          onRuleCreated={() => setState((s) => ({ ...s, hasRule: true }))}
+        />
       ))}
 
       {state.error && (
@@ -213,7 +228,19 @@ export function TaskMessage({ taskId, prompt, api }: TaskMessageProps) {
 // Approval buttons
 // ---------------------------------------------------------------------------
 
-function ApprovalButtons({ approval, api }: { approval: PendingApproval; api: ApiClient }) {
+function ApprovalButtons({
+  approval,
+  api,
+  taskId,
+  hasRule,
+  onRuleCreated,
+}: {
+  approval: PendingApproval;
+  api: ApiClient;
+  taskId: string;
+  hasRule: boolean;
+  onRuleCreated: () => void;
+}) {
   const [resolved, setResolved] = useState(false);
   const argsPreview = formatApprovalInput(approval.input);
 
@@ -226,21 +253,133 @@ function ApprovalButtons({ approval, api }: { approval: PendingApproval; api: Ap
     }
   };
 
+  // Extract field names from the input for the rule builder
+  const inputFields = extractFieldNames(approval.input);
+
+  const ruleFields: ModalField[] = [
+    {
+      type: "stringSelect",
+      id: "field",
+      label: "Field",
+      description: "Which input field to check",
+      placeholder: "Select a field...",
+      required: true,
+      options: inputFields.map((f) => ({
+        label: f.name,
+        value: f.path,
+        description: f.preview ? `Current: ${f.preview}` : undefined,
+      })),
+    },
+    {
+      type: "stringSelect",
+      id: "operator",
+      label: "Condition",
+      description: "How to compare the field value",
+      required: true,
+      options: [
+        { label: "equals", value: "equals" },
+        { label: "does not equal", value: "not_equals" },
+        { label: "includes", value: "includes" },
+        { label: "does not include", value: "not_includes" },
+      ],
+    },
+    {
+      type: "textInput",
+      id: "value",
+      label: "Value",
+      description: "Value to compare against",
+      placeholder: "e.g. rhys.dev",
+      style: "short",
+      required: true,
+    },
+    {
+      type: "stringSelect",
+      id: "decision",
+      label: "Action",
+      description: "What to do when the rule matches",
+      required: true,
+      options: [
+        { label: "Approve matching", value: "approved" },
+        { label: "Deny matching", value: "denied" },
+      ],
+    },
+  ];
+
+  const handleRuleSubmit = async (values: ModalFieldValues) => {
+    const field = values.getStringSelect("field")?.[0];
+    const operator = values.getStringSelect("operator")?.[0];
+    const value = values.getTextInput("value");
+    const decision = values.getStringSelect("decision")?.[0];
+
+    if (!field || !operator || value === undefined || !decision) return;
+
+    try {
+      await unwrap(
+        api.api.tasks({ id: taskId })["approval-rules"].post({
+          toolPath: approval.toolPath,
+          field,
+          operator: operator as "equals" | "not_equals" | "includes" | "not_includes",
+          value,
+          decision: decision as "approved" | "denied",
+        }),
+      );
+      onRuleCreated();
+    } catch (err) {
+      console.error(`[rule creation]`, err);
+    }
+  };
+
   return (
     <>
       <Separator />
       <TextDisplay>
         {`\u{1f6e1}\ufe0f **Approval required:** ${approval.preview.title}${approval.preview.details ? `\n${approval.preview.details}` : ""}${approval.preview.link ? `\n${approval.preview.link}` : ""}`}
       </TextDisplay>
-      <TextDisplay>{`\`\`\`json\n${argsPreview}\n\`\`\``}</TextDisplay>
       {!resolved && (
         <ActionRow>
           <Button label="Approve" style="success" onClick={() => handle("approved")} />
           <Button label="Deny" style="danger" onClick={() => handle("denied")} />
+          {!hasRule && inputFields.length > 0 && (
+            <ModalButton
+              label="Create Rule"
+              style="secondary"
+              modalTitle="Auto-approve/deny rule"
+              fields={ruleFields}
+              onSubmit={handleRuleSubmit}
+            />
+          )}
         </ActionRow>
       )}
     </>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Field extraction for rule builder
+// ---------------------------------------------------------------------------
+
+interface FieldInfo {
+  readonly name: string;
+  readonly path: string;
+  readonly preview?: string;
+}
+
+function extractFieldNames(input: unknown, prefix = ""): FieldInfo[] {
+  if (!input || typeof input !== "object") return [];
+  const fields: FieldInfo[] = [];
+
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      // Recurse into nested objects
+      fields.push(...extractFieldNames(value, path));
+    } else {
+      const preview = value === undefined ? undefined : String(value).slice(0, 50);
+      fields.push({ name: path, path, preview });
+    }
+  }
+
+  return fields.slice(0, 25); // Discord select max 25 options
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +393,75 @@ function statusEmoji(status: TaskState["status"]): string {
     case "failed": return "\u274c";
     case "cancelled": return "\u26d4";
   }
+}
+
+/**
+ * Shorten a tool path for display.
+ * "github.issues.issues_list_for_repo" → "issues_list_for_repo"
+ * "discover" → "discover"
+ */
+function formatToolName(toolPath: string): string {
+  const parts = toolPath.split(".");
+  return `\`${parts[parts.length - 1]}\``;
+}
+
+/**
+ * Format tool output for display. Special-cases discover results
+ * and truncates raw JSON.
+ */
+function formatToolOutput(toolPath: string, outputPreview: string | undefined): string {
+  if (!outputPreview) return "";
+
+  // Special-case discover results
+  if (toolPath === "discover" || toolPath.endsWith(".discover")) {
+    try {
+      const parsed = JSON.parse(outputPreview.endsWith("...") ? outputPreview.slice(0, -3) + "}" : outputPreview);
+      if (parsed.total !== undefined) {
+        return ` \u2192 found ${parsed.total} tools`;
+      }
+    } catch { /* fall through */ }
+  }
+
+  // For other results, show a short preview
+  const clean = outputPreview.length > 80 ? outputPreview.slice(0, 80) + "..." : outputPreview;
+  return ` \u2192 ${clean}`;
+}
+
+/**
+ * Collapse consecutive identical tool results into counts.
+ * ["✅ `delete` → ...", "✅ `delete` → ...", "✅ `delete` → ..."]
+ * becomes ["✅ `delete` ×3"]
+ */
+function collapseToolResults(results: string[], maxLines: number): string[] {
+  if (results.length === 0) return [];
+
+  const collapsed: string[] = [];
+  let lastBase = "";
+  let count = 0;
+
+  for (const line of results) {
+    // Extract the tool name part (icon + name)
+    const base = line.replace(/ \u2192 .*$/, "");
+    if (base === lastBase) {
+      count++;
+    } else {
+      if (lastBase && count > 0) {
+        collapsed.push(count === 1 ? results[collapsed.length] || lastBase : `${lastBase} \u00d7${count}`);
+      }
+      lastBase = base;
+      count = 1;
+    }
+  }
+  // Push the last group
+  if (lastBase && count > 0) {
+    if (count === 1) {
+      collapsed.push(results[results.length - 1]!);
+    } else {
+      collapsed.push(`${lastBase} \u00d7${count}`);
+    }
+  }
+
+  return collapsed.slice(-maxLines);
 }
 
 function formatApprovalInput(input: unknown): string {

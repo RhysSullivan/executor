@@ -55,15 +55,79 @@ export interface Runner {
 const MAX_PREVIEW = 180;
 const MAX_APPROVAL_DETAILS = 500;
 
+/**
+ * Generate a human-readable preview of a tool's output value.
+ * Instead of raw JSON, extracts meaningful fields and formats them concisely.
+ */
 function preview(value: unknown): string {
   if (value === undefined) return "undefined";
   if (value === null) return "null";
-  try {
-    const s = typeof value === "string" ? value : JSON.stringify(value);
-    return s.length > MAX_PREVIEW ? s.slice(0, MAX_PREVIEW) + "..." : s;
-  } catch {
-    return String(value);
+  if (typeof value === "string") {
+    return value.length > MAX_PREVIEW ? value.slice(0, MAX_PREVIEW) + "..." : value;
   }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+
+  // Arrays — show count + preview of first item
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[] (empty)";
+    const first = previewObject(value[0]);
+    return value.length === 1 ? `[${first}]` : `${value.length} items, first: ${first}`;
+  }
+
+  // Objects — show key fields concisely
+  if (typeof value === "object" && value !== null) {
+    return previewObject(value);
+  }
+
+  return String(value);
+}
+
+/**
+ * Preview an object by extracting its most meaningful fields.
+ * Prioritizes fields like name, title, id, status, message, count, total.
+ */
+function previewObject(obj: unknown): string {
+  if (!obj || typeof obj !== "object") return String(obj);
+
+  const record = obj as Record<string, unknown>;
+  const keys = Object.keys(record);
+
+  // Priority fields — show these first if they exist
+  const priority = ["name", "title", "id", "status", "state", "message", "count", "total", "url", "login", "number"];
+  const parts: string[] = [];
+
+  for (const key of priority) {
+    if (key in record && record[key] != null) {
+      const val = record[key];
+      if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+        parts.push(`${key}: ${val}`);
+      }
+    }
+    if (parts.length >= 3) break;
+  }
+
+  // If no priority fields matched, show the first few keys
+  if (parts.length === 0) {
+    for (const key of keys.slice(0, 3)) {
+      const val = record[key];
+      if (val == null) continue;
+      if (typeof val === "string") {
+        parts.push(`${key}: ${val.length > 40 ? val.slice(0, 40) + "..." : val}`);
+      } else if (typeof val === "number" || typeof val === "boolean") {
+        parts.push(`${key}: ${val}`);
+      } else if (Array.isArray(val)) {
+        parts.push(`${key}: [${val.length} items]`);
+      } else {
+        parts.push(`${key}: {...}`);
+      }
+    }
+  }
+
+  if (parts.length === 0) return `{${keys.length} fields}`;
+
+  const extra = keys.length > parts.length ? ` +${keys.length - parts.length} more` : "";
+  const result = parts.join(", ") + extra;
+  return result.length > MAX_PREVIEW ? result.slice(0, MAX_PREVIEW) + "..." : result;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

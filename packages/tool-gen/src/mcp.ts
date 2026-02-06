@@ -171,9 +171,32 @@ async function connectMcp(
 export async function generateMcpTools(
   source: McpToolSource,
 ): Promise<McpGenerateResult> {
-  const { client, close } = await connectMcp(source.url, source.transport);
+  let connection = await connectMcp(source.url, source.transport);
 
-  const { tools: mcpTools } = await client.listTools();
+  /**
+   * Call an MCP tool with automatic reconnection on socket errors.
+   * If the connection dropped, reconnect and retry once.
+   */
+  async function callToolWithReconnect(
+    toolName: string,
+    args: Record<string, unknown>,
+  ) {
+    try {
+      return await connection.client.callTool({ name: toolName, arguments: args });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      // Detect connection errors and retry with a fresh connection
+      if (msg.includes("socket") || msg.includes("closed") || msg.includes("ECONNRESET") || msg.includes("fetch failed")) {
+        console.warn(`[MCP ${source.name}] Connection lost, reconnecting...`);
+        try { await connection.close(); } catch { /* ignore */ }
+        connection = await connectMcp(source.url, source.transport);
+        return await connection.client.callTool({ name: toolName, arguments: args });
+      }
+      throw error;
+    }
+  }
+
+  const { tools: mcpTools } = await connection.client.listTools();
 
   const toolTree: Record<string, ReturnType<typeof defineTool>> = {};
   const typeLines: string[] = [];
@@ -206,10 +229,10 @@ export async function generateMcpTools(
         // MCP tools don't declare output schemas, so no returnsType
       },
       run: async (input: unknown) => {
-        const result = await client.callTool({
-          name: toolName,
-          arguments: input as Record<string, unknown>,
-        });
+        const result = await callToolWithReconnect(
+          toolName,
+          input as Record<string, unknown>,
+        );
         // MCP returns { content: [{ type, text, ... }] }
         // Extract text content for simplicity
         if (result.content && Array.isArray(result.content)) {
@@ -242,7 +265,7 @@ export async function generateMcpTools(
     tools: { [source.name]: toolTree },
     typeDeclaration,
     promptGuidance,
-    client,
-    close,
+    client: connection.client,
+    close: () => connection.close(),
   };
 }

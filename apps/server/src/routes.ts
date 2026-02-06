@@ -13,6 +13,7 @@
 
 import { Elysia, sse, t } from "elysia";
 import {
+  addApprovalRule,
   createTask,
   generateTaskId,
   getTask,
@@ -20,6 +21,7 @@ import {
   listPendingApprovals,
   resolveApproval,
   subscribeToTask,
+  type RuleOperator,
 } from "./state.js";
 import { runTask, type TaskRunnerOptions } from "./task-runner.js";
 
@@ -34,6 +36,19 @@ const CreateTaskBody = t.Object({
 });
 
 const ApprovalBody = t.Object({
+  decision: t.Union([t.Literal("approved"), t.Literal("denied")]),
+});
+
+const ApprovalRuleBody = t.Object({
+  toolPath: t.String({ minLength: 1 }),
+  field: t.String({ minLength: 1 }),
+  operator: t.Union([
+    t.Literal("equals"),
+    t.Literal("not_equals"),
+    t.Literal("includes"),
+    t.Literal("not_includes"),
+  ]),
+  value: t.String(),
   decision: t.Union([t.Literal("approved"), t.Literal("denied")]),
 });
 
@@ -207,6 +222,33 @@ export function createApp(runnerOptions: TaskRunnerOptions) {
         return { callId: params.callId, decision: body.decision };
       },
       { body: ApprovalBody },
+    )
+
+    // -----------------------------------------------------------------------
+    // POST /api/tasks/:id/approval-rules — add an auto-approval rule
+    // -----------------------------------------------------------------------
+    .post(
+      "/api/tasks/:id/approval-rules",
+      ({ params, body, status }) => {
+        const task = getTask(params.id);
+        if (!task) {
+          return status(404, { error: "Task not found" as const });
+        }
+
+        const ruleId = `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const resolved = addApprovalRule({
+          id: ruleId,
+          taskId: params.id,
+          toolPath: body.toolPath,
+          field: body.field,
+          operator: body.operator as RuleOperator,
+          value: body.value,
+          decision: body.decision,
+        });
+
+        return { ruleId, resolved, toolPath: body.toolPath, field: body.field, operator: body.operator, value: body.value, decision: body.decision };
+      },
+      { body: ApprovalRuleBody },
     );
 
   return app;

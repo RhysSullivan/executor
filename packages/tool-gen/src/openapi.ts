@@ -457,7 +457,22 @@ export async function generateOpenApiTools(
             fetchInit.body = JSON.stringify(remainingInput);
           }
 
-          const response = await fetch(url, fetchInit);
+          // Retry once on any fetch error (stale keep-alive sockets, DNS, etc.).
+          // On retry, force Connection: close to bypass dead pooled sockets.
+          let response: Response;
+          try {
+            response = await fetch(url, fetchInit);
+          } catch (firstError) {
+            try {
+              const retryInit = {
+                ...fetchInit,
+                headers: { ...(fetchInit.headers as Record<string, string>), Connection: "close" },
+              };
+              response = await fetch(url, retryInit);
+            } catch {
+              throw firstError; // retry failed too, throw the original
+            }
+          }
 
           if (!response.ok) {
             const text = await response.text().catch(() => "");

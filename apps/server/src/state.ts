@@ -36,12 +36,27 @@ export interface PendingApproval {
   resolve: (decision: ApprovalDecision) => void;
 }
 
+export type RuleOperator = "equals" | "not_equals" | "includes" | "not_includes";
+
+export interface ApprovalRule {
+  readonly id: string;
+  readonly taskId: string;
+  /** Tool path the rule applies to (e.g. "vercel.projects.removeProjectDomain") */
+  readonly toolPath: string;
+  /** Dot-path into the input object (e.g. "idOrName", "owner") */
+  readonly field: string;
+  readonly operator: RuleOperator;
+  readonly value: string;
+  readonly decision: ApprovalDecision;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
 const tasks = new Map<string, Task>();
 const pendingApprovals = new Map<string, PendingApproval>();
+const approvalRules = new Map<string, ApprovalRule[]>(); // taskId → rules
 
 let taskCounter = 0;
 
@@ -125,6 +140,13 @@ export function subscribeToTask(
 // -- Approvals --
 
 export function registerApproval(approval: PendingApproval): void {
+  // Check rules first — auto-resolve if matched (scoped to same tool)
+  const autoDecision = checkApprovalRules(approval.taskId, approval.toolPath, approval.input);
+  if (autoDecision) {
+    // Resolve immediately without registering as pending
+    approval.resolve(autoDecision);
+    return;
+  }
   pendingApprovals.set(approval.callId, approval);
 }
 
@@ -150,4 +172,70 @@ export function listPendingApprovals(taskId?: string): PendingApproval[] {
     return all.filter((a) => a.taskId === taskId);
   }
   return all;
+}
+
+// -- Approval Rules --
+
+/**
+ * Get the value at a dot-path in an object.
+ * e.g. getFieldValue({ a: { b: "c" } }, "a.b") → "c"
+ */
+function getFieldValue(obj: unknown, path: string): unknown {
+  let current: unknown = obj;
+  for (const key of path.split(".")) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return current;
+}
+
+/**
+ * Check if an approval input matches a rule.
+ */
+function matchesRule(input: unknown, rule: ApprovalRule): boolean {
+  const fieldValue = String(getFieldValue(input, rule.field) ?? "");
+  switch (rule.operator) {
+    case "equals": return fieldValue === rule.value;
+    case "not_equals": return fieldValue !== rule.value;
+    case "includes": return fieldValue.includes(rule.value);
+    case "not_includes": return !fieldValue.includes(rule.value);
+  }
+}
+
+/**
+ * Check if any rules match this approval. Returns the decision if matched.
+ * Rules only apply to the same tool path they were created for.
+ */
+export function checkApprovalRules(taskId: string, toolPath: string, input: unknown): ApprovalDecision | undefined {
+  const rules = approvalRules.get(taskId);
+  if (!rules || rules.length === 0) return undefined;
+  for (const rule of rules) {
+    if (rule.toolPath === toolPath && matchesRule(input, rule)) return rule.decision;
+  }
+  return undefined;
+}
+
+/**
+ * Add a rule for a task. Also retroactively applies to pending approvals
+ * for the same tool. Returns the number of approvals that were auto-resolved.
+ */
+export function addApprovalRule(rule: ApprovalRule): number {
+  const existing = approvalRules.get(rule.taskId) ?? [];
+  existing.push(rule);
+  approvalRules.set(rule.taskId, existing);
+
+  // Retroactively apply to pending approvals for the same tool
+  let resolved = 0;
+  const pending = listPendingApprovals(rule.taskId);
+  for (const approval of pending) {
+    if (approval.toolPath === rule.toolPath && matchesRule(approval.input, rule)) {
+      resolveApproval(approval.callId, rule.decision);
+      resolved++;
+    }
+  }
+  return resolved;
+}
+
+export function listApprovalRules(taskId: string): ApprovalRule[] {
+  return approvalRules.get(taskId) ?? [];
 }

@@ -67,6 +67,9 @@ const commands = [
         .setDescription("What do you want the assistant to do?")
         .setRequired(true),
     ),
+  new SlashCommandBuilder()
+    .setName("clear")
+    .setDescription("Push chat history out of view"),
 ];
 
 // ---------------------------------------------------------------------------
@@ -97,6 +100,9 @@ client.on("interactionCreate", async (interaction) => {
   switch (interaction.commandName) {
     case "ask":
       await handleAskCommand(interaction, { api, reacord });
+      break;
+    case "clear":
+      await interaction.reply({ content: `_${"\n".repeat(50)}_` });
       break;
     default:
       await interaction.reply({ content: `Unknown command: ${interaction.commandName}` });
