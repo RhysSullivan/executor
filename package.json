@@ -10,15 +10,14 @@
     "with-env": "bun run --env-file=.env --",
     "with-env:prod": "bun run --env-file=.env.production --",
     "prepare": "effect-language-service patch",
-    "typecheck": "bun run --filter '@openassistant/core' typecheck && bun run --filter '@openassistant/reacord' typecheck && bun run --filter '@openassistant/gateway' typecheck && bun run --filter '@openassistant/discord-bot' typecheck",
-    "typecheck:tsc": "tsc --noEmit --incremental false -p packages/core/tsconfig.json && tsc --noEmit --incremental false -p apps/gateway/tsconfig.json && tsc --noEmit --incremental false -p apps/discord-bot/tsconfig.json",
+    "typecheck": "bun run --filter '@openassistant/core' typecheck && bun run --filter '@openassistant/reacord' typecheck && bun run --filter '@openassistant/server' typecheck",
+    "typecheck:tsc": "tsc --build",
     "build": "bun run typecheck",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "clean": "bun run --filter '@openassistant/core' clean && bun run --filter '@openassistant/reacord' clean && bun run --filter '@openassistant/gateway' clean && bun run --filter '@openassistant/discord-bot' clean",
-    "dev": "bun run dev:gateway & bun run dev:discord & wait",
-    "dev:gateway": "bun run --cwd apps/gateway dev",
-    "dev:discord": "bun run --cwd apps/discord-bot dev"
+    "test": "bun test packages/ apps/",
+    "test:watch": "bun test --watch packages/ apps/",
+    "dev": "bun run dev:server & bun run dev:bot & wait",
+    "dev:server": "bun run --filter '@openassistant/server' dev",
+    "dev:bot": "bun run --filter '@openassistant/bot' dev"
   },
   "devDependencies": {
     "@effect/language-service": "latest",
