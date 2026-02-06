@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "bun run --filter '@openassistant/core' clean && bun run --filter '@openassistant/reacord' clean && bun run --filter '@openassistant/gateway' clean && bun run --filter '@openassistant/discord-bot' clean",
+    "dev": "bun run dev:gateway & bun run dev:discord & wait",
     "dev:gateway": "bun run --cwd apps/gateway dev",
     "dev:discord": "bun run --cwd apps/discord-bot dev"
   },
@@ -26,5 +27,21 @@
     "@typescript/native-preview": "7.0.0-dev.20260205.1",
     "typescript": "latest",
     "vitest": "^3.2.0"
+  },
+  "overrides": {
+    "@ai-sdk/anthropic": "^2.0.0",
+    "@effect/platform": "latest",
+    "@effect/platform-bun": "latest",
+    "@effect/rpc": "latest",
+    "@effect-atom/atom": "^0.4.11",
+    "@effect-atom/atom-react": "^0.4.4",
+    "@types/react": "^19.0.0",
+    "@types/react-reconciler": "^0.31.0",
+    "ai": "^6.0.73",
+    "discord.js": "^14.17.3",
+    "effect": "latest",
+    "react": "^19.0.0",
+    "react-reconciler": "^0.31.0",
+    "zod": "^4.3.6"
   }
 }

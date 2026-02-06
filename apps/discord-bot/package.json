@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.0",
+    "@effect/platform": "latest",
+    "@effect/rpc": "latest",
     "@openassistant/core": "workspace:*",
     "@openassistant/reacord": "workspace:*",
     "ai": "^6.0.73",

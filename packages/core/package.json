@@ -12,6 +12,7 @@
     "clean": "bun -e \"import { rmSync } from 'node:fs'; for (const p of ['dist','node_modules','.turbo','coverage','.tsbuildinfo']) rmSync(p,{recursive:true,force:true});\""
   },
   "dependencies": {
+    "@effect/rpc": "latest",
     "effect": "latest"
   }
 }

@@ -1,4 +1,3 @@
-import { createCodeModeRunner } from "@openassistant/core";
 import { makeReacord } from "@openassistant/reacord";
 import {
   ChannelType,
@@ -10,19 +9,14 @@ import {
   type SendableChannels,
 } from "discord.js";
 import { Effect } from "effect";
-import { DiscordApprovalBridge } from "./approval-bridge.js";
-import { runAgentLoop } from "./agent-loop.js";
-import { InMemoryCalendarStore } from "./calendar-store.js";
 import { AssistantReplyView, AssistantWorkingView } from "./discord-views.js";
 import { formatDiscordResponse } from "./format-response.js";
-import { createToolTree } from "./tools.js";
+import { runGatewayTurn } from "./gateway-client.js";
 
 const token = Bun.env.DISCORD_BOT_TOKEN;
 if (!token) {
   throw new Error("Missing DISCORD_BOT_TOKEN");
 }
-
-const approvalTimeoutMs = Number(Bun.env.OPENASSISTANT_APPROVAL_TIMEOUT_MS ?? 300_000);
 
 const client = new Client({
   intents: [
@@ -34,10 +28,7 @@ const client = new Client({
   partials: [Partials.Channel],
 });
 
-const approvalBridge = new DiscordApprovalBridge(client, approvalTimeoutMs);
 const reacord = makeReacord(client);
-const calendarStore = new InMemoryCalendarStore();
-const tools = createToolTree(calendarStore);
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`[discord-bot] logged in as ${readyClient.user.tag}`);
@@ -70,29 +61,15 @@ async function handleMessage(message: Message): Promise<void> {
   );
 
   try {
-    const runner = createCodeModeRunner({
-      tools,
-      requestApproval: (request) =>
-        Effect.tryPromise({
-          try: () =>
-            approvalBridge.requestApproval({
-              request,
-              channel: approvalChannel,
-              requesterId: message.author.id,
-            }),
-          catch: (error) => error,
-        }),
+    const generated = await runGatewayTurn({
+      prompt: message.content,
+      requesterId: message.author.id,
+      channelId: message.channelId,
     });
 
-    const generated = await runAgentLoop(message.content, (code) =>
-      Effect.runPromise(runner.run({ code })),
-    );
     const response = formatDiscordResponse({
-      prompt: message.content,
-      text: generated.text,
-      planner: generated.planner,
-      provider: generated.provider,
-      runs: generated.runs,
+      text: generated.message,
+      footer: generated.footer,
     });
 
     instance.render(<AssistantReplyView message={response.message} footer={response.footer} />);
