@@ -35,6 +35,7 @@ interface PendingApproval {
 interface TaskState {
   readonly status: "running" | "completed" | "failed" | "cancelled";
   readonly statusMessage: string;
+  readonly lastCode: string | null;
   readonly toolResults: string[];
   readonly pendingApprovals: PendingApproval[];
   readonly agentMessage: string | null;
@@ -44,6 +45,7 @@ interface TaskState {
 const INITIAL_STATE: TaskState = {
   status: "running",
   statusMessage: "Thinking...",
+  lastCode: null,
   toolResults: [],
   pendingApprovals: [],
   agentMessage: null,
@@ -56,7 +58,7 @@ function reduceEvent(state: TaskState, event: TaskEvent): TaskState {
       return { ...state, statusMessage: event.message };
 
     case "code_generated":
-      return { ...state, statusMessage: "Running code..." };
+      return { ...state, lastCode: event.code, statusMessage: "Running code..." };
 
     case "approval_request":
       return {
@@ -162,6 +164,13 @@ export function TaskMessage({ taskId, prompt, api }: TaskMessageProps) {
     <Container accentColor={accentColor}>
       <TextDisplay>{`${statusEmoji(state.status)} **${state.statusMessage}**`}</TextDisplay>
       <TextDisplay>{`> ${prompt.length > 200 ? prompt.slice(0, 200) + "..." : prompt}`}</TextDisplay>
+
+      {state.lastCode && (
+        <>
+          <Separator />
+          <TextDisplay>{`\`\`\`ts\n${state.lastCode.length > 800 ? state.lastCode.slice(0, 800) + "\n// ..." : state.lastCode}\n\`\`\``}</TextDisplay>
+        </>
+      )}
 
       {state.toolResults.length > 0 && (
         <>
