@@ -53,6 +53,7 @@ export interface Runner {
 // ---------------------------------------------------------------------------
 
 const MAX_PREVIEW = 180;
+const MAX_APPROVAL_DETAILS = 500;
 
 function preview(value: unknown): string {
   if (value === undefined) return "undefined";
@@ -63,6 +64,96 @@ function preview(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function inferApprovalAction(toolPath: string): {
+  action: NonNullable<ApprovalPresentation["action"]>;
+  isDestructive: boolean;
+} {
+  const lower = toolPath.toLowerCase();
+  if (/(delete|remove|destroy|purge)/.test(lower)) {
+    return { action: "delete", isDestructive: true };
+  }
+  if (/(create|add|insert|provision)/.test(lower)) {
+    return { action: "create", isDestructive: false };
+  }
+  if (/(update|set|patch|edit|rename)/.test(lower)) {
+    return { action: "update", isDestructive: false };
+  }
+  if (/(get|list|search|find|read)/.test(lower)) {
+    return { action: "read", isDestructive: false };
+  }
+  return { action: "execute", isDestructive: false };
+}
+
+function inferResourceType(toolPath: string): string | undefined {
+  const parts = toolPath.split(".").filter(Boolean);
+  const candidate = parts.at(-2) ?? parts.at(-1);
+  if (!candidate) return undefined;
+  return candidate
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function extractResourceIds(input: unknown): string[] {
+  if (!isRecord(input)) return [];
+  const ids: string[] = [];
+  const candidateKeys = ["id", "ids", "name", "slug", "key", "idOrName"];
+  for (const key of candidateKeys) {
+    const value = input[key];
+    if (typeof value === "string" || typeof value === "number") {
+      ids.push(String(value));
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string" || typeof item === "number") {
+          ids.push(String(item));
+        }
+      }
+    }
+  }
+  return ids.slice(0, 5);
+}
+
+function extractCount(input: unknown): number | undefined {
+  if (!isRecord(input)) return undefined;
+  const raw = input["count"];
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function buildDefaultApprovalPresentation(
+  toolPath: string,
+  input: unknown,
+): ApprovalPresentation {
+  const { action, isDestructive } = inferApprovalAction(toolPath);
+  const actionVerb = action === "execute"
+    ? "Run"
+    : action.charAt(0).toUpperCase() + action.slice(1);
+  const resourceType = inferResourceType(toolPath);
+  const resourceIds = extractResourceIds(input);
+  const count = extractCount(input);
+  const rawPreview = preview(input);
+
+  const idDetail = resourceIds.length > 0 ? `Target: ${resourceIds.join(", ")}` : undefined;
+  const argsDetail = `Arguments: ${rawPreview}`;
+  const details = [idDetail, argsDetail].filter(Boolean).join("\n");
+
+  return {
+    title: `${actionVerb} via ${toolPath}`,
+    details: details.length > MAX_APPROVAL_DETAILS
+      ? `${details.slice(0, MAX_APPROVAL_DETAILS)}...`
+      : details,
+    action,
+    resourceType,
+    resourceIds: resourceIds.length > 0 ? resourceIds : undefined,
+    count,
+    isDestructive,
+  };
 }
 
 function describeError(error: unknown): string {
@@ -177,7 +268,7 @@ function createToolInvoker(
     if (tool.approval === "required") {
       const presentation: ApprovalPresentation = tool.formatApproval
         ? tool.formatApproval(validatedInput)
-        : { title: `Approve ${toolPath}` };
+        : buildDefaultApprovalPresentation(toolPath, validatedInput);
 
       const decision = await ctx.requestApproval({
         callId,

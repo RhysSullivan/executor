@@ -186,19 +186,31 @@ function buildSystemPrompt(guidance: string, discoveryMode: boolean): string {
     ? `
 ## Tool Discovery
 
-Some tool namespaces are too large to list here. Use \`tools.discover({ query: "..." })\` to search for tools by keyword.
-It returns matching tool paths, descriptions, and TypeScript signatures.
+Some tool namespaces are too large to list here. Use \`tools.discover({ query, depth? })\` to search for tools by keyword.
 
-**Workflow:** First call discover to learn what tools are available. Then write a SINGLE self-contained script that does the entire task — fetching data, looping, transforming, and writing back. Don't split the actual work across multiple run_code calls.
+The \`depth\` parameter controls how much type detail you get:
+- **depth 0** (default): tool paths, descriptions, and input arg types only. Fast, use for browsing.
+- **depth 1**: adds return types (comments stripped). Use when you need to know response shapes before writing code.
+- **depth 2**: full signatures with JSDoc comments and examples. Use when you need exact details.
+
+**Workflow:**
+1. Discover tools at depth 0 to find what's available
+2. If you need to know response shapes, re-discover at depth 1 for the specific tools you'll use
+3. Write a SINGLE self-contained script that does the entire task
 
 Example — "close all open issues on acme/myapp":
 
-Call 1 (discovery):
+Call 1 (find tools):
 \`\`\`ts
 return await tools.discover({ query: "issues list update repo" });
 \`\`\`
 
-Call 2 (do the work — everything in one script):
+Call 2 (get return types for the tools you'll use):
+\`\`\`ts
+return await tools.discover({ query: "issues list_for_repo update", depth: 1 });
+\`\`\`
+
+Call 3 (do the work — everything in one script):
 \`\`\`ts
 const issues = await tools.github.issues.issues_list_for_repo({
   owner: "acme", repo: "myapp", state: "open", per_page: 100

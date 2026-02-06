@@ -3,6 +3,56 @@ import { walkToolTree, isToolDefinition } from "@openassistant/core";
 import { generateOpenApiTools } from "./openapi.js";
 
 describe("generateOpenApiTools — FastSpring spec", () => {
+  test("generated write tools include approval preview formatter", async () => {
+    const result = await generateOpenApiTools({
+      name: "vercel",
+      spec: {
+        openapi: "3.0.0",
+        info: { title: "Test", version: "1.0.0" },
+        servers: [{ url: "https://api.example.com" }],
+        paths: {
+          "/v1/projects/{idOrName}": {
+            delete: {
+              tags: ["projects"],
+              operationId: "deleteProject",
+              summary: "Delete project",
+              parameters: [
+                {
+                  name: "idOrName",
+                  in: "path",
+                  required: true,
+                  schema: { type: "string" },
+                },
+              ],
+              responses: {
+                "200": {
+                  description: "ok",
+                  content: {
+                    "application/json": {
+                      schema: { type: "object", properties: { ok: { type: "boolean" } } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const ns = result.tools["vercel"] as Record<string, unknown>;
+    const projects = ns["projects"] as Record<string, unknown>;
+    const deleteTool = projects["deleteProject"];
+
+    expect(isToolDefinition(deleteTool)).toBe(true);
+    const preview = deleteTool.formatApproval?.({ idOrName: "prj_123" });
+    expect(preview).toBeDefined();
+    expect(preview?.title).toBe("DELETE /v1/projects/{idOrName}");
+    expect(preview?.details).toContain("Target: prj_123");
+    expect(preview?.action).toBe("delete");
+    expect(preview?.isDestructive).toBe(true);
+  });
+
   test("parses the FastSpring OpenAPI spec and generates tools", async () => {
     const result = await generateOpenApiTools({
       name: "fastspring",

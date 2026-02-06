@@ -30,6 +30,7 @@ describe("generateMcpTools — AnswerOverflow MCP", () => {
         expect(tool.description).toBeDefined();
         expect(tool.description.length).toBeGreaterThan(0);
         expect(tool.approval).toBe("auto"); // default
+        expect(typeof tool.formatApproval).toBe("function");
       });
 
       // TypeScript declarations should be generated
@@ -87,6 +88,32 @@ describe("generateMcpTools — AnswerOverflow MCP", () => {
       // Actually call the MCP tool
       const searchResult = await searchTool!.run({ query: "discord" });
       expect(searchResult).toBeDefined();
+    } finally {
+      await result.close();
+    }
+  }, { timeout: 30_000 });
+
+  test("generated tools include approval preview formatter", async () => {
+    const result = await generateMcpTools({
+      name: "answeroverflow",
+      url: "https://www.answeroverflow.com/mcp",
+      overrides: {
+        search_servers: { approval: "required" },
+      },
+    });
+
+    try {
+      let foundPreview = false;
+      walkToolTree(result.tools, (path, tool) => {
+        if (path === "answeroverflow.search_servers") {
+          const preview = tool.formatApproval?.({ query: "bun" });
+          expect(preview).toBeDefined();
+          expect(preview?.title).toBe("Run search_servers");
+          expect(preview?.details).toContain("query");
+          foundPreview = true;
+        }
+      });
+      expect(foundPreview).toBe(true);
     } finally {
       await result.close();
     }

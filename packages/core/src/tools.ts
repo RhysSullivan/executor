@@ -27,6 +27,16 @@ export interface ApprovalPresentation {
   title: string;
   details?: string;
   link?: string;
+  /**
+   * Optional structured metadata for policy and richer UIs.
+   * These fields are additive and backward-compatible.
+   */
+  action?: "create" | "update" | "delete" | "read" | "execute" | "other";
+  resourceType?: string;
+  resourceIds?: string[];
+  count?: number;
+  isDestructive?: boolean;
+  selector?: string;
 }
 
 /**

@@ -329,6 +329,49 @@ describe("runner — approval flow", () => {
     const req = capturedRequest as { preview: { title: string } };
     expect(req.preview.title).toBe("Delete user_42 from users");
   });
+
+  test("approval request falls back to default preview when formatApproval is missing", async () => {
+    let capturedRequest: unknown;
+    const tools: ToolTree = {
+      vercel: {
+        projects: {
+          deleteProject: defineTool({
+            description: "Delete a project",
+            approval: "required",
+            args: z.object({ idOrName: z.string() }),
+            returns: z.object({ ok: z.boolean() }),
+            run: async () => ({ ok: true }),
+          }),
+        },
+      },
+    };
+
+    const runner = createRunner({
+      tools,
+      requestApproval: async (req) => {
+        capturedRequest = req;
+        return "denied";
+      },
+      newCallId: testCallId,
+    });
+
+    await runner.run('await tools.vercel.projects.deleteProject({ idOrName: "prj_123" })');
+
+    const req = capturedRequest as {
+      preview: {
+        title: string;
+        details?: string;
+        action?: string;
+        resourceIds?: string[];
+        isDestructive?: boolean;
+      };
+    };
+    expect(req.preview.title).toBe("Delete via vercel.projects.deleteProject");
+    expect(req.preview.details).toContain("Target: prj_123");
+    expect(req.preview.action).toBe("delete");
+    expect(req.preview.resourceIds).toEqual(["prj_123"]);
+    expect(req.preview.isDestructive).toBe(true);
+  });
 });
 
 describe("runner — error handling", () => {

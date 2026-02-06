@@ -81,6 +81,7 @@ interface ParsedParameter {
 // ---------------------------------------------------------------------------
 
 const READ_METHODS = new Set(["get", "head", "options"]);
+const MAX_APPROVAL_PREVIEW = 240;
 
 
 function buildAuthHeaders(auth: OpenApiAuth | undefined): Record<string, string> {
@@ -139,6 +140,109 @@ function sanitizeTag(tag: string): string {
     .replace(/[^a-zA-Z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_|_$/g, "") || "default";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toPreview(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  try {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text.length > MAX_APPROVAL_PREVIEW
+      ? `${text.slice(0, MAX_APPROVAL_PREVIEW)}...`
+      : text;
+  } catch {
+    return String(value);
+  }
+}
+
+function actionFromMethod(method: string): "create" | "update" | "delete" | "read" | "execute" {
+  switch (method.toLowerCase()) {
+    case "get":
+    case "head":
+    case "options":
+      return "read";
+    case "post":
+      return "create";
+    case "put":
+    case "patch":
+      return "update";
+    case "delete":
+      return "delete";
+    default:
+      return "execute";
+  }
+}
+
+function resourceTypeFromPath(path: string): string | undefined {
+  const segments = path.split("/").filter(Boolean).filter((segment) => !segment.startsWith("{"));
+  const raw = segments.at(-1);
+  if (!raw) return undefined;
+  const normalized = raw.endsWith("s") ? raw.slice(0, -1) : raw;
+  return normalized.replace(/[_-]/g, " ");
+}
+
+function extractIds(input: unknown): string[] {
+  if (!isRecord(input)) return [];
+  const ids: string[] = [];
+  for (const key of ["id", "ids", "idOrName", "name", "slug", "projectId"]) {
+    const value = input[key];
+    if (typeof value === "string" || typeof value === "number") {
+      ids.push(String(value));
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string" || typeof item === "number") {
+          ids.push(String(item));
+        }
+      }
+    }
+  }
+  return ids.slice(0, 5);
+}
+
+function buildSelector(input: unknown): string | undefined {
+  if (!isRecord(input)) return undefined;
+  const selectors: string[] = [];
+  for (const [key, value] of Object.entries(input)) {
+    if (key === "id" || key === "ids" || key === "idOrName") continue;
+    if (value === undefined || value === null) continue;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      selectors.push(`${key}=${String(value)}`);
+      if (selectors.length >= 3) break;
+    }
+  }
+  return selectors.length > 0 ? selectors.join(", ") : undefined;
+}
+
+function buildOpenApiApprovalPreview(
+  op: Pick<ParsedOperation, "method" | "path" | "operationId">,
+  input: unknown,
+) {
+  const action = actionFromMethod(op.method);
+  const ids = extractIds(input);
+  const selector = buildSelector(input);
+  const resourceType = resourceTypeFromPath(op.path);
+  const title = `${op.method.toUpperCase()} ${op.path}`;
+  const detailsParts = [
+    `Operation: ${op.operationId}`,
+    ids.length > 0 ? `Target: ${ids.join(", ")}` : undefined,
+    selector ? `Selector: ${selector}` : undefined,
+    `Arguments: ${toPreview(input)}`,
+  ].filter(Boolean);
+  return {
+    title,
+    details: detailsParts.join("\n"),
+    action,
+    resourceType,
+    resourceIds: ids.length > 0 ? ids : undefined,
+    isDestructive: action === "delete",
+    selector,
+  } as const;
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +470,7 @@ export async function generateOpenApiTools(
           }
           return response.text();
         },
+        formatApproval: (input) => buildOpenApiApprovalPreview(op, input),
       });
 
       // Build TypeScript declaration

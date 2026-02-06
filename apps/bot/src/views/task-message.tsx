@@ -29,7 +29,8 @@ import type { TaskEvent } from "@openassistant/core/events";
 interface PendingApproval {
   readonly id: string;
   readonly toolPath: string;
-  readonly preview: { title: string; details?: string };
+  readonly input: unknown;
+  readonly preview: { title: string; details?: string; link?: string };
 }
 
 interface TaskState {
@@ -65,7 +66,7 @@ function reduceEvent(state: TaskState, event: TaskEvent): TaskState {
         ...state,
         pendingApprovals: [
           ...state.pendingApprovals,
-          { id: event.id, toolPath: event.toolPath, preview: event.preview },
+          { id: event.id, toolPath: event.toolPath, input: event.input, preview: event.preview },
         ],
         statusMessage: "Waiting for approval...",
       };
@@ -214,6 +215,7 @@ export function TaskMessage({ taskId, prompt, api }: TaskMessageProps) {
 
 function ApprovalButtons({ approval, api }: { approval: PendingApproval; api: ApiClient }) {
   const [resolved, setResolved] = useState(false);
+  const argsPreview = formatApprovalInput(approval.input);
 
   const handle = async (decision: "approved" | "denied") => {
     setResolved(true);
@@ -228,8 +230,9 @@ function ApprovalButtons({ approval, api }: { approval: PendingApproval; api: Ap
     <>
       <Separator />
       <TextDisplay>
-        {`\u{1f6e1}\ufe0f **Approval required:** ${approval.preview.title}${approval.preview.details ? `\n${approval.preview.details}` : ""}`}
+        {`\u{1f6e1}\ufe0f **Approval required:** ${approval.preview.title}${approval.preview.details ? `\n${approval.preview.details}` : ""}${approval.preview.link ? `\n${approval.preview.link}` : ""}`}
       </TextDisplay>
+      <TextDisplay>{`\`\`\`json\n${argsPreview}\n\`\`\``}</TextDisplay>
       {!resolved && (
         <ActionRow>
           <Button label="Approve" style="success" onClick={() => handle("approved")} />
@@ -250,5 +253,17 @@ function statusEmoji(status: TaskState["status"]): string {
     case "completed": return "\u2705";
     case "failed": return "\u274c";
     case "cancelled": return "\u26d4";
+  }
+}
+
+function formatApprovalInput(input: unknown): string {
+  if (input === undefined) return "undefined";
+  if (input === null) return "null";
+  try {
+    const serialized = JSON.stringify(input, null, 2);
+    if (!serialized) return String(input);
+    return serialized.length > 1000 ? `${serialized.slice(0, 1000)}...` : serialized;
+  } catch {
+    return String(input);
   }
 }

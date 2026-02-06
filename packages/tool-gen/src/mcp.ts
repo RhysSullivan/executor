@@ -53,6 +53,82 @@ export interface McpGenerateResult {
 // Connection
 // ---------------------------------------------------------------------------
 
+const MAX_APPROVAL_PREVIEW = 240;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toPreview(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (value === null) return "null";
+  try {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text.length > MAX_APPROVAL_PREVIEW
+      ? `${text.slice(0, MAX_APPROVAL_PREVIEW)}...`
+      : text;
+  } catch {
+    return String(value);
+  }
+}
+
+function inferMcpAction(toolName: string): {
+  action: "create" | "update" | "delete" | "read" | "execute" | "other";
+  isDestructive: boolean;
+} {
+  const lower = toolName.toLowerCase();
+  if (/(delete|remove|destroy|purge)/.test(lower)) {
+    return { action: "delete", isDestructive: true };
+  }
+  if (/(create|add|insert)/.test(lower)) {
+    return { action: "create", isDestructive: false };
+  }
+  if (/(update|set|patch|edit)/.test(lower)) {
+    return { action: "update", isDestructive: false };
+  }
+  if (/(get|list|search|find|read)/.test(lower)) {
+    return { action: "read", isDestructive: false };
+  }
+  return { action: "execute", isDestructive: false };
+}
+
+function extractIds(input: unknown): string[] {
+  if (!isRecord(input)) return [];
+  const ids: string[] = [];
+  for (const key of ["id", "ids", "idOrName", "name", "slug", "key"]) {
+    const value = input[key];
+    if (typeof value === "string" || typeof value === "number") {
+      ids.push(String(value));
+      continue;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string" || typeof item === "number") {
+          ids.push(String(item));
+        }
+      }
+    }
+  }
+  return ids.slice(0, 5);
+}
+
+function buildMcpApprovalPreview(toolName: string, input: unknown) {
+  const { action, isDestructive } = inferMcpAction(toolName);
+  const ids = extractIds(input);
+  const details = [
+    ids.length > 0 ? `Target: ${ids.join(", ")}` : undefined,
+    `Arguments: ${toPreview(input)}`,
+  ].filter(Boolean).join("\n");
+  return {
+    title: `Run ${toolName}`,
+    details,
+    action,
+    resourceType: toolName.replace(/[_-]/g, " "),
+    resourceIds: ids.length > 0 ? ids : undefined,
+    isDestructive,
+  } as const;
+}
+
 async function connectMcp(
   url: string,
   transport?: "sse" | "streamable-http",
@@ -146,6 +222,7 @@ export async function generateMcpTools(
         }
         return result.content;
       },
+      formatApproval: (input) => buildMcpApprovalPreview(toolName, input),
     });
 
     // Build TypeScript declaration

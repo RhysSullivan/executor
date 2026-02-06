@@ -1,10 +1,12 @@
 /**
  * Tool discovery — searchable index of tools for large APIs.
  *
- * When there are too many tools to fit in the LLM context window,
- * the agent uses `tools.discover({ query })` to search for relevant
- * tools by name, path, and description. Returns type signatures so
- * the LLM knows how to call what it finds.
+ * The LLM uses `tools.discover({ query, depth? })` to find tools and
+ * control how much type detail to retrieve:
+ *
+ *  - depth 0 (default): paths, descriptions, input args only. Cheap in tokens.
+ *  - depth 1: adds return types with top-level properties.
+ *  - depth 2: full return types with nested objects expanded.
  *
  * The discovered tools are already wired in the sandbox — the LLM
  * just doesn't get told about all of them in the system prompt.
@@ -26,8 +28,10 @@ export interface ToolIndexEntry {
   readonly description: string;
   /** Approval mode */
   readonly approval: "auto" | "required";
-  /** TypeScript signature: "(input: { ... }): Promise<{ ... }>" */
-  readonly signature: string;
+  /** Full args type string (always available) */
+  readonly argsType: string;
+  /** Full returns type string (may be large for OpenAPI tools) */
+  readonly returnsType: string;
   /** Searchable text (lowercase): path + description */
   readonly searchText: string;
 }
@@ -44,13 +48,12 @@ export function buildToolIndex(tree: ToolTree): ToolIndexEntry[] {
       const path = prefix ? `${prefix}.${key}` : key;
       if (isToolDefinition(value)) {
         const tool = value as ToolDefinition;
-        const argsType = getArgsTypeString(tool);
-        const returnsType = getReturnsTypeString(tool);
         entries.push({
           path,
           description: tool.description,
           approval: tool.approval,
-          signature: `(input: ${argsType}): Promise<${returnsType}>`,
+          argsType: getArgsTypeString(tool),
+          returnsType: getReturnsTypeString(tool),
           searchText: `${path} ${tool.description}`.toLowerCase(),
         });
       } else {
@@ -61,6 +64,38 @@ export function buildToolIndex(tree: ToolTree): ToolIndexEntry[] {
 
   walk(tree, "");
   return entries;
+}
+
+// ---------------------------------------------------------------------------
+// Strip JSDoc comments from type strings
+// ---------------------------------------------------------------------------
+
+function stripJSDoc(typeStr: string): string {
+  return typeStr
+    .replace(/\/\*\*[^]*?\*\//g, "")    // block comments
+    .replace(/\n\s*\n/g, "\n")           // collapse blank lines
+    .trim();
+}
+
+// ---------------------------------------------------------------------------
+// Format signature at different depths
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a signature string for a tool at a given depth:
+ *  - depth 0: input args only, no return type
+ *  - depth 1: input args + return type (JSDoc stripped for conciseness)
+ *  - depth 2: input args + full return type (with JSDoc)
+ */
+function formatSignature(entry: ToolIndexEntry, depth: number): string {
+  const args = depth >= 2 ? entry.argsType : stripJSDoc(entry.argsType);
+
+  if (depth === 0) {
+    return `(input: ${args}): Promise<...>`;
+  }
+
+  const returns = depth >= 2 ? entry.returnsType : stripJSDoc(entry.returnsType);
+  return `(input: ${args}): Promise<${returns}>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -128,9 +163,17 @@ export interface DiscoverToolOptions {
  * Create a `discover` tool that searches the tool index.
  *
  * Usage in LLM-generated code:
+ *   // Step 1: find tools (cheap — no return types)
  *   const results = await tools.discover({ query: "feature flags" });
- *   // results is an array of { path, description, approval, signature }
- *   // Then call: await tools.posthog.feature_flags.list({ ... })
+ *
+ *   // Step 2: get full types for the tools you'll use
+ *   const details = await tools.discover({
+ *     query: "feature flags list",
+ *     depth: 1
+ *   });
+ *
+ *   // Step 3: call the tool
+ *   await tools.posthog.feature_flags.list({ ... })
  */
 export function createDiscoverTool(
   tree: ToolTree,
@@ -140,10 +183,16 @@ export function createDiscoverTool(
   const maxResults = options?.maxResults ?? 20;
 
   return defineTool({
-    description: `Search for available tools by keyword. Returns matching tool paths, descriptions, and TypeScript signatures. Use this when you need to find tools for a specific task. There are ${index.length} tools available across all connected services.`,
+    description: `Search for available tools by keyword. Returns matching tool paths, descriptions, and type signatures. There are ${index.length} tools available.
+
+depth controls how much type detail to return:
+- depth 0 (default): input args only, return type hidden. Fast, cheap in tokens. Use for browsing.
+- depth 1: input args + return types (comments stripped). Use when you need to know response shapes.
+- depth 2: full signatures with JSDoc comments and examples. Use when you need exact details.`,
     approval: "auto" as const,
     args: z.object({
-      query: z.string().describe("Search keywords (e.g. 'feature flags', 'create user', 'analytics events')"),
+      query: z.string().describe("Search keywords (e.g. 'feature flags', 'create user', 'list issues')"),
+      depth: z.number().optional().describe("Type detail level: 0 (default) = args only, 1 = + return types, 2 = + JSDoc comments"),
     }),
     returns: z.object({
       results: z.array(z.object({
@@ -155,13 +204,14 @@ export function createDiscoverTool(
       total: z.number(),
     }),
     run: async (input) => {
+      const depth = input.depth ?? 0;
       const results = searchIndex(index, input.query, maxResults);
       return {
         results: results.map((e) => ({
           path: e.path,
           description: e.description,
           approval: e.approval,
-          signature: e.signature,
+          signature: formatSignature(e, depth),
         })),
         total: results.length,
       };
