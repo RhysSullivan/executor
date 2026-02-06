@@ -56,9 +56,9 @@ describe("MCP → runner integration", () => {
       // Generate full declarations from the tool tree
       const declarations = generateToolDeclarations(mcpResult.tools);
 
-      // Valid code should pass
+      // Valid code should pass (limit is required by the MCP schema)
       const validResult = typecheckCode(
-        `const servers = await tools.answeroverflow.search_servers({ query: "test" });\nreturn servers;`,
+        `const servers = await tools.answeroverflow.search_servers({ query: "test", limit: 10 });\nreturn servers;`,
         declarations,
       );
       expect(validResult.ok).toBe(true);
