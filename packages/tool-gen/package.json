@@ -1,23 +1,23 @@
 {
-  "name": "@openassistant/core",
+  "name": "@openassistant/tool-gen",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./tools": "./src/tools.ts",
-    "./runner": "./src/runner.ts",
-    "./typechecker": "./src/typechecker.ts",
-    "./agent": "./src/agent.ts",
-    "./events": "./src/events.ts"
+    "./mcp": "./src/mcp.ts",
+    "./openapi": "./src/openapi.ts"
   },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsgo --noEmit --incremental false -p tsconfig.json"
   },
   "dependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@mariozechner/pi-ai": "^0.52.6",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@openassistant/core": "workspace:*",
     "@sinclair/typebox": "^0.34.48",
-    "effect": "latest",
+    "yaml": "^2.8.2",
     "zod": "^4.3.6"
   }
 }
