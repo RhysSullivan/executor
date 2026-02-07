@@ -1,4 +1,3 @@
-import webApp from "../../web/index.html";
 import { ExecutorDatabase } from "./database";
 import { TaskEventHub } from "./events";
 import { LocalBunRuntime } from "./runtimes/local-bun-runtime";
@@ -48,7 +47,10 @@ const toolSourceConfigs = (() => {
   }
 })();
 
-const externalTools = await loadExternalTools(toolSourceConfigs);
+const { tools: externalTools, warnings: externalToolWarnings } = await loadExternalTools(toolSourceConfigs);
+if (externalToolWarnings.length > 0) {
+  for (const w of externalToolWarnings) console.warn(`[executor] ${w}`);
+}
 const tools = [...DEFAULT_TOOLS, ...externalTools];
 
 const service = new ExecutorService(new ExecutorDatabase(), new TaskEventHub(), [
@@ -63,7 +65,7 @@ const service = new ExecutorService(new ExecutorDatabase(), new TaskEventHub(), 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
   "access-control-allow-headers": "content-type",
 };
 
@@ -171,7 +173,6 @@ function createTaskEventsResponse(taskId: string): Response {
 const server = Bun.serve({
   port,
   routes: {
-    "/": webApp,
     "/api/health": {
       GET: () => json({ ok: true, tools: service.getBaseToolCount() }),
     },

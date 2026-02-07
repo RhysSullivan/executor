@@ -413,6 +413,7 @@ export function parseToolSourcesFromEnv(raw: string | undefined): ExternalToolSo
 
 export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Promise<ToolDefinition[]> {
   const loaded: ToolDefinition[] = [];
+  const warnings: string[] = [];
 
   for (const source of sources) {
     try {
@@ -423,9 +424,10 @@ export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Pr
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`Failed to load ${source.type} source '${source.name}': ${message}`);
       console.warn(`[executor] failed to load tool source ${source.type}:${source.name}: ${message}`);
     }
   }
 
-  return loaded;
+  return { tools: loaded, warnings };
 }

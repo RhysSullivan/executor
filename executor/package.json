@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "dev": "bun run --cwd apps/server dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "dev:all": "bun run dev & bun run dev:web",
     "start": "bun run --cwd apps/server start",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"

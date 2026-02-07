@@ -109,6 +109,7 @@ export class ExecutorService {
     string,
     { signature: string; loadedAt: number; tools: Map<string, ToolDefinition> }
   >();
+  private readonly workspaceToolLoadWarnings = new Map<string, string[]>();
   private readonly inFlightTaskIds = new Set<string>();
   private readonly approvalWaiters = new Map<string, ApprovalWaiter>();
 
@@ -224,7 +225,8 @@ export class ExecutorService {
     const source = this.db.upsertToolSource(input);
     this.workspaceToolCache.delete(source.workspaceId);
     await this.getWorkspaceTools(source.workspaceId);
-    return source;
+    const warnings = this.workspaceToolLoadWarnings.get(source.workspaceId) ?? [];
+    return { ...source, warnings };
   }
 
   async deleteToolSource(workspaceId: string, sourceId: string): Promise<boolean> {
@@ -472,16 +474,20 @@ export class ExecutorService {
     }
 
     const configs: ExternalToolSourceConfig[] = [];
+    const warnings: string[] = [];
     for (const source of sources) {
       try {
         configs.push(normalizeExternalToolSource(source));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`Source '${source.name}': ${message}`);
         console.warn(`[executor] skipping invalid source ${source.id}: ${message}`);
       }
     }
 
-    const externalTools = await loadExternalTools(configs);
+    const { tools: externalTools, warnings: loadWarnings } = await loadExternalTools(configs);
+    warnings.push(...loadWarnings);
+    this.workspaceToolLoadWarnings.set(workspaceId, warnings);
 
     const merged = new Map<string, ToolDefinition>();
     for (const tool of this.baseTools.values()) {
