@@ -199,22 +199,19 @@ async function ensureAnonymousIdentity(
     .withIndex("by_legacy_workspace_id", (q) => q.eq("legacyWorkspaceId", params.workspaceId))
     .unique();
 
-  let organizationId = workspace?.organizationId;
+  let organizationId: Doc<"organizations">["_id"];
 
-  if (!organizationId) {
-    const organizationName = workspace?.name ?? "Guest Workspace";
-    const organizationSlug = await ensureUniqueOrganizationSlug(ctx, organizationName);
+  if (!workspace) {
+    const organizationSlug = await ensureUniqueOrganizationSlug(ctx, "Guest Workspace");
     organizationId = await ctx.db.insert("organizations", {
       slug: organizationSlug,
-      name: organizationName,
+      name: "Guest Workspace",
       status: "active",
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,
     });
-  }
 
-  if (!workspace) {
     const workspaceId = await ctx.db.insert("workspaces", {
       organizationId,
       legacyWorkspaceId: params.workspaceId,
@@ -231,19 +228,8 @@ async function ensureAnonymousIdentity(
     if (!workspace) {
       throw new Error("Failed to create anonymous workspace");
     }
-  } else if (!workspace.organizationId) {
-    await ctx.db.patch(workspace._id, {
-      organizationId,
-      updatedAt: now,
-    });
-    workspace = await ctx.db.get(workspace._id);
-    if (!workspace) {
-      throw new Error("Failed to update anonymous workspace organization");
-    }
-  }
-
-  if (!organizationId) {
-    throw new Error("Failed to resolve workspace organization");
+  } else {
+    organizationId = workspace.organizationId;
   }
 
   await upsertOrganizationMembership(ctx, {

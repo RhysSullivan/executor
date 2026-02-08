@@ -20,7 +20,7 @@ export default defineSchema({
 
   workspaces: defineTable({
     workosOrgId: v.optional(v.string()),
-    organizationId: v.optional(v.id("organizations")),
+    organizationId: v.id("organizations"),
     legacyWorkspaceId: v.optional(v.string()),
     slug: v.string(),
     name: v.string(),

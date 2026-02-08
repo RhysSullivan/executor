@@ -119,49 +119,6 @@ async function upsertOrganizationMembership(
   });
 }
 
-async function ensureOrganizationForWorkspace(
-  ctx: DbCtx,
-  args: {
-    workspace: Doc<"workspaces">;
-    accountId?: Id<"accounts">;
-    now: number;
-    preferredName?: string;
-    workosOrgId?: string;
-  },
-): Promise<Id<"organizations">> {
-  if (args.workspace.organizationId) {
-    const existing = await ctx.db.get(args.workspace.organizationId);
-    if (existing) {
-      if (args.workosOrgId && existing.workosOrgId !== args.workosOrgId) {
-        await ctx.db.patch(existing._id, {
-          workosOrgId: args.workosOrgId,
-          updatedAt: args.now,
-        });
-      }
-      return existing._id;
-    }
-  }
-
-  const organizationName = args.preferredName ?? args.workspace.name;
-  const organizationSlug = await ensureUniqueOrganizationSlug(ctx, organizationName);
-  const organizationId = await ctx.db.insert("organizations", {
-    workosOrgId: args.workosOrgId,
-    slug: organizationSlug,
-    name: organizationName,
-    status: "active",
-    createdByAccountId: args.accountId,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
-
-  await ctx.db.patch(args.workspace._id, {
-    organizationId,
-    updatedAt: args.now,
-  });
-
-  return organizationId;
-}
-
 async function markPendingInvitesAcceptedByEmail(
   ctx: DbCtx,
   args: {
@@ -204,14 +161,8 @@ async function ensurePersonalWorkspace(
   for (const membership of memberships) {
     const workspace = await ctx.db.get(membership.workspaceId);
     if (workspace?.kind === "personal") {
-      const organizationId = await ensureOrganizationForWorkspace(ctx, {
-        workspace,
-        accountId,
-        now: opts.now,
-        preferredName: workspace.name,
-      });
       await upsertOrganizationMembership(ctx, {
-        organizationId,
+        organizationId: workspace.organizationId,
         accountId,
         role: "owner",
         status: "active",
@@ -439,7 +390,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
     const workspace = await getWorkspaceByWorkosOrgId(ctx, event.data.id);
     if (!workspace) return;
     await ctx.db.patch(workspace._id, {
-      organizationId: workspace.organizationId ?? organization?._id,
+      organizationId: workspace.organizationId,
       name: event.data.name,
       updatedAt: Date.now(),
     });
@@ -489,12 +440,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
     ]);
     if (!account || !workspace) return;
 
-    const organizationId = await ensureOrganizationForWorkspace(ctx, {
-      workspace,
-      now,
-      preferredName: workspace.name,
-      workosOrgId,
-    });
+    const organizationId = workspace.organizationId;
 
     const existing = await ctx.db
       .query("users")
@@ -588,13 +534,7 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
       return;
     }
 
-    const workosOrgId = data.organization_id ?? data.organizationId ?? workspace.workosOrgId;
-    const organizationId = await ensureOrganizationForWorkspace(ctx, {
-      workspace,
-      now,
-      preferredName: workspace.name,
-      workosOrgId: workosOrgId ?? undefined,
-    });
+    const organizationId = workspace.organizationId;
 
     const workosRole = data.role?.slug ?? "member";
     const status = data.status === "active" ? "active" : "pending";

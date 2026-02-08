@@ -7,7 +7,7 @@ import { ensureUniqueSlug } from "./lib/slug";
 
 type WorkspaceSummary = {
   id: Id<"workspaces">;
-  organizationId: Id<"organizations"> | null;
+  organizationId: Id<"organizations">;
   name: string;
   slug: string;
   kind: string;
@@ -33,7 +33,7 @@ async function mapWorkspaceWithIcon(
   const iconUrl = workspace.iconStorageId ? await ctx.storage.getUrl(workspace.iconStorageId) : null;
   return {
     id: workspace._id,
-    organizationId: workspace.organizationId ?? null,
+    organizationId: workspace.organizationId,
     name: workspace.name,
     slug: workspace.slug,
     kind: workspace.kind,
@@ -166,7 +166,7 @@ export const getNavigationState = optionalAccountQuery({
       }
 
       return {
-        currentOrganizationId: null,
+        currentOrganizationId: workspaces[0]?.organizationId ?? null,
         currentWorkspaceId: workspaces[0]?.runtimeWorkspaceId ?? null,
         organizations,
         workspaces,
@@ -208,7 +208,7 @@ export const getNavigationState = optionalAccountQuery({
       .withIndex("by_creator_created", (q) => q.eq("createdByAccountId", account._id))
       .collect();
     for (const workspace of personalWorkspaces) {
-      if (workspace.organizationId) {
+      if (workspace.kind !== "personal") {
         continue;
       }
       workspaces.push(await mapWorkspaceWithIcon(ctx, workspace));

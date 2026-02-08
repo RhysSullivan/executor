@@ -7,7 +7,7 @@ import { ensureUniqueSlug } from "./lib/slug";
 
 type WorkspaceResult = {
   id: Id<"workspaces">;
-  organizationId: Id<"organizations"> | null;
+  organizationId: Id<"organizations">;
   name: string;
   slug: string;
   kind: string;
@@ -16,9 +16,20 @@ type WorkspaceResult = {
   createdAt: number;
 };
 
+async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
+  const baseSlug = slugify(baseName);
+  return await ensureUniqueSlug(baseSlug, async (candidate) => {
+    const collision = await ctx.db
+      .query("organizations")
+      .withIndex("by_slug", (q) => q.eq("slug", candidate))
+      .unique();
+    return collision !== null;
+  });
+}
+
 async function ensureUniqueWorkspaceSlug(
   ctx: Pick<MutationCtx, "db">,
-  organizationId: Id<"organizations"> | undefined,
+  organizationId: Id<"organizations">,
   baseName: string,
 ): Promise<string> {
   const baseSlug = slugify(baseName);
@@ -38,7 +49,7 @@ async function toWorkspaceResult(
   const iconUrl = workspace.iconStorageId ? await ctx.storage.getUrl(workspace.iconStorageId) : null;
   return {
     id: workspace._id,
-    organizationId: workspace.organizationId ?? null,
+    organizationId: workspace.organizationId,
     name: workspace.name,
     slug: workspace.slug,
     kind: workspace.kind,
@@ -61,18 +72,41 @@ export const create = authedMutation({
       throw new Error("Workspace name must be at least 2 characters");
     }
 
-    if (args.organizationId) {
-      const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
+    let organizationId = args.organizationId;
+    if (organizationId) {
+      const membership = await getOrganizationMembership(ctx, organizationId, account._id);
       if (!membership || membership.status !== "active") {
         throw new Error("You are not a member of this organization");
       }
+    } else {
+      const now = Date.now();
+      const organizationSlug = await ensureUniqueOrganizationSlug(ctx, name);
+      organizationId = await ctx.db.insert("organizations", {
+        slug: organizationSlug,
+        name,
+        status: "active",
+        createdByAccountId: account._id,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await ctx.db.insert("organizationMembers", {
+        organizationId,
+        accountId: account._id,
+        role: "owner",
+        status: "active",
+        billable: true,
+        joinedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
 
     const now = Date.now();
-    const slug = await ensureUniqueWorkspaceSlug(ctx, args.organizationId, name);
+    const slug = await ensureUniqueWorkspaceSlug(ctx, organizationId, name);
 
     const workspaceId = await ctx.db.insert("workspaces", {
-      organizationId: args.organizationId,
+      organizationId,
       slug,
       name,
       iconStorageId: args.iconStorageId,
@@ -122,7 +156,7 @@ export const list = optionalAccountQuery({
       .withIndex("by_creator_created", (q) => q.eq("createdByAccountId", account._id))
       .collect();
 
-    const personal = docs.filter((workspace) => !workspace.organizationId);
+    const personal = docs.filter((workspace) => workspace.kind === "personal");
     return await Promise.all(personal.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
   },
 });
