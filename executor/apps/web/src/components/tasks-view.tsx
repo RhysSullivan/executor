@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useSession } from "@/lib/session-context";
+import { executor } from "@/lib/executor-client";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
@@ -73,21 +74,16 @@ function TaskComposer() {
     if (!context || !code.trim()) return;
     setSubmitting(true);
     try {
-      const response = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          code,
-          runtimeId,
-          timeoutMs: parseInt(timeoutMs) || 15000,
-          workspaceId: context.workspaceId,
-          actorId: context.actorId,
-          clientId: context.clientId,
-        }),
+      const { data, error } = await executor.api.tasks.post({
+        code,
+        runtimeId,
+        timeoutMs: parseInt(timeoutMs) || 15000,
+        workspaceId: context.workspaceId,
+        actorId: context.actorId,
+        clientId: context.clientId,
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to create task");
+      if (error) {
+        throw error;
       }
       toast.success(`Task created: ${data.taskId}`);
     } catch (err) {
@@ -142,7 +138,7 @@ function TaskComposer() {
             <CodeEditor
               value={code}
               onChange={setCode}
-              tools={tools ?? []}
+              tools={tools}
               height="400px"
             />
           </div>

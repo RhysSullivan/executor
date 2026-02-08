@@ -21,6 +21,7 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
+    "@elysiajs/eden": "^1.4.6",
     "@types/bun": "latest",
     "typescript": "^5.9.3"
   }

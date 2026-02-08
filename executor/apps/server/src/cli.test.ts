@@ -11,6 +11,8 @@ import { test, expect, afterAll } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ConvexClient } from "convex/browser";
+import { treaty } from "@elysiajs/eden";
+import type { App } from "./index";
 import { api } from "../../../convex/_generated/api";
 import { resolve } from "node:path";
 
@@ -21,6 +23,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 
 let proc: Bun.Subprocess | null = null;
 let convex: ConvexClient | null = null;
+let executor: ReturnType<typeof treaty<App>>;
 
 afterAll(async () => {
   proc?.kill();
@@ -52,11 +55,9 @@ function connectMcp(workspaceId: string, actorId: string) {
 }
 
 async function bootstrap(): Promise<{ workspaceId: string; actorId: string; sessionId: string }> {
-  return fetch(`${BASE}/api/auth/anonymous/bootstrap`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({}),
-  }).then((r) => r.json()) as any;
+  const { data, error } = await executor.api.auth.anonymous.bootstrap.post({});
+  if (error) throw error;
+  return data!;
 }
 
 /** Subscribe to Convex and resolve the instant a pending approval for `toolPath` appears. */
@@ -136,12 +137,11 @@ test("server starts", async () => {
 
   await waitForHealth();
 
-  const health = (await fetch(`${BASE}/api/health`).then((r) => r.json())) as {
-    ok: boolean;
-    tools: number;
-  };
-  expect(health.ok).toBe(true);
-  expect(health.tools).toBeGreaterThan(0);
+  executor = treaty<App>(BASE);
+
+  const { data: health } = await executor.api.health.get();
+  expect(health!.ok).toBe(true);
+  expect(health!.tools).toBeGreaterThan(0);
 }, 45_000);
 
 // ── MCP ──
@@ -220,16 +220,12 @@ test("approval-required tool blocks until approved", async () => {
     const approvalId = await waitForApproval(session.workspaceId, "admin.send_announcement");
 
     // Approve it
-    const approveResp = await fetch(`${BASE}/api/approvals/${approvalId}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        workspaceId: session.workspaceId,
-        decision: "approved",
-        reviewerId: "e2e-test",
-      }),
+    const { data: approveResult } = await executor.api.approvals({ approvalId }).post({
+      workspaceId: session.workspaceId,
+      decision: "approved",
+      reviewerId: "e2e-test",
     });
-    expect(approveResp.status).toBe(200);
+    expect(approveResult).toBeTruthy();
 
     // Now the tool call completes
     const result = (await resultP) as {
@@ -261,14 +257,10 @@ test("denied approval propagates failure", async () => {
 
     const approvalId = await waitForApproval(session.workspaceId, "admin.delete_data");
 
-    await fetch(`${BASE}/api/approvals/${approvalId}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        workspaceId: session.workspaceId,
-        decision: "denied",
-        reason: "too dangerous",
-      }),
+    await executor.api.approvals({ approvalId }).post({
+      workspaceId: session.workspaceId,
+      decision: "denied",
+      reason: "too dangerous",
     });
 
     const result = (await resultP) as {
@@ -288,15 +280,13 @@ test("tasks are persisted and queryable via Convex subscription", async () => {
   const session = await bootstrap();
 
   // Create via REST
-  const { taskId } = (await fetch(`${BASE}/api/tasks`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      code: "return 'persisted'",
-      workspaceId: session.workspaceId,
-      actorId: session.actorId,
-    }),
-  }).then((r) => r.json())) as { taskId: string };
+  const { data: created, error: createError } = await executor.api.tasks.post({
+    code: "return 'persisted'",
+    workspaceId: session.workspaceId,
+    actorId: session.actorId,
+  });
+  if (createError) throw createError;
+  const taskId = created!.taskId as string;
 
   // Wait for completion via Convex subscription — no polling
   const task = await waitForTask(taskId);
@@ -304,10 +294,11 @@ test("tasks are persisted and queryable via Convex subscription", async () => {
   expect(task.stdout).toContain("persisted");
 
   // Verify it shows up in the list via REST
-  const tasks = (await fetch(
-    `${BASE}/api/tasks?workspaceId=${session.workspaceId}`,
-  ).then((r) => r.json())) as Array<{ id: string }>;
-  expect(tasks.some((t) => t.id === taskId)).toBe(true);
+  const { data: tasks, error: listError } = await executor.api.tasks.get({
+    query: { workspaceId: session.workspaceId },
+  });
+  if (listError) throw listError;
+  expect(tasks!.some((t) => t.id === taskId)).toBe(true);
 }, 30_000);
 
 // ── Shutdown ──
