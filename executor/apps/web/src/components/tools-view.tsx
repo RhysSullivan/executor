@@ -11,6 +11,7 @@ import {
   Server,
   Zap,
   Search,
+  ChevronRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -42,6 +48,163 @@ import type { ToolSourceRecord, ToolDescriptor } from "@/lib/types";
 import { parse as parseDomain } from "tldts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+
+// ── API Presets ──
+
+interface ApiPreset {
+  name: string;
+  label: string;
+  description: string;
+  type: "openapi" | "mcp";
+  spec?: string;
+  url?: string;
+  baseUrl?: string;
+  authNote?: string;
+}
+
+const API_PRESETS: ApiPreset[] = [
+  {
+    name: "github",
+    label: "GitHub",
+    description: "Repos, issues, PRs, actions, users, orgs",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml",
+    baseUrl: "https://api.github.com",
+    authNote: "Add a bearer credential with a PAT for authenticated access",
+  },
+  {
+    name: "vercel",
+    label: "Vercel",
+    description: "Deployments, projects, domains, env vars, teams",
+    type: "openapi",
+    spec: "https://openapi.vercel.sh",
+    baseUrl: "https://api.vercel.com",
+    authNote: "Requires API token as bearer credential",
+  },
+  {
+    name: "slack",
+    label: "Slack",
+    description: "Messages, channels, users, reactions, files",
+    type: "openapi",
+    spec: "https://api.slack.com/specs/openapi/v2/slack_web.json",
+    baseUrl: "https://slack.com/api",
+    authNote: "Requires a bot token as bearer credential",
+  },
+  {
+    name: "stripe",
+    label: "Stripe",
+    description: "Payments, customers, subscriptions, invoices",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    baseUrl: "https://api.stripe.com",
+    authNote: "Requires API key as bearer credential",
+  },
+
+  {
+    name: "openai",
+    label: "OpenAI",
+    description: "Chat completions, embeddings, images, files",
+    type: "openapi",
+    spec: "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
+    baseUrl: "https://api.openai.com",
+    authNote: "Requires API key as bearer credential",
+  },
+  {
+    name: "cloudflare",
+    label: "Cloudflare",
+    description: "DNS, zones, workers, KV, R2, firewall",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml",
+    baseUrl: "https://api.cloudflare.com/client/v4",
+    authNote: "Requires API token as bearer credential",
+  },
+  {
+    name: "sentry",
+    label: "Sentry",
+    description: "Issues, events, projects, releases, alerts",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/refs/heads/main/openapi-derefed.json",
+    baseUrl: "https://sentry.io/api/0",
+    authNote: "Requires auth token as bearer credential",
+  },
+  {
+    name: "jira",
+    label: "Jira",
+    description: "Issues, projects, boards, sprints, users",
+    type: "openapi",
+    spec: "https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
+    baseUrl: "https://your-domain.atlassian.net/rest/api/3",
+    authNote: "Requires API token with basic auth (email:token)",
+  },
+  {
+    name: "pagerduty",
+    label: "PagerDuty",
+    description: "Incidents, services, schedules, escalations",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json",
+    baseUrl: "https://api.pagerduty.com",
+    authNote: "Requires API key as bearer credential",
+  },
+  {
+    name: "digitalocean",
+    label: "DigitalOcean",
+    description: "Droplets, databases, domains, apps, spaces",
+    type: "openapi",
+    spec: "https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci/DigitalOcean-public.v2.yaml",
+    baseUrl: "https://api.digitalocean.com",
+    authNote: "Requires API token as bearer credential",
+  },
+  {
+    name: "twilio",
+    label: "Twilio",
+    description: "SMS, calls, conversations, verify, phone numbers",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/json/twilio_api_v2010.json",
+    baseUrl: "https://api.twilio.com",
+    authNote: "Requires Account SID + Auth Token as basic auth",
+  },
+  {
+    name: "notion",
+    label: "Notion",
+    description: "Pages, databases, blocks, search, users",
+    type: "openapi",
+    spec: "https://developers.notion.com/openapi.json",
+    baseUrl: "https://api.notion.com",
+    authNote: "Requires integration token as bearer credential",
+  },
+
+  {
+    name: "resend",
+    label: "Resend",
+    description: "Send emails, manage domains, API keys",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml",
+    baseUrl: "https://api.resend.com",
+  },
+];
+
+/** Derive a favicon URL from any URL string via Google's favicon service. */
+function faviconForUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  try {
+    const domain = new URL(url).hostname;
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  } catch {
+    return null;
+  }
+}
+
+function getFaviconUrl(preset: ApiPreset): string | null {
+  return faviconForUrl(preset.baseUrl ?? preset.url);
+}
+
+function getSourceFavicon(source: ToolSourceRecord): string | null {
+  const url =
+    source.type === "mcp"
+      ? (source.config.url as string)
+      : (source.config.baseUrl as string) ?? (source.config.spec as string);
+  return faviconForUrl(url);
+}
 
 // ── Add Source Dialog ──
 
@@ -57,14 +220,11 @@ function inferNameFromUrl(url: string): string {
     const u = new URL(url);
     const parsed = parseDomain(url);
 
-    // For raw/CDN hosts, infer from the first meaningful path segment
-    // e.g. raw.githubusercontent.com/github/rest-api-description/... -> "github"
     if (RAW_HOSTS.has(u.hostname)) {
       const segments = u.pathname.split("/").filter(Boolean);
       if (segments.length > 0) return segments[0].toLowerCase();
     }
 
-    // For subdomains like "api.github.com", prefer the domain name
     if (parsed.domainWithoutSuffix) {
       return parsed.domainWithoutSuffix;
     }
@@ -79,19 +239,26 @@ function inferNameFromUrl(url: string): string {
   }
 }
 
-function AddSourceDialog({ onAdded }: { onAdded: () => void }) {
+function AddSourceDialog({
+  onAdded,
+  existingSourceNames,
+}: {
+  onAdded: () => void;
+  existingSourceNames: Set<string>;
+}) {
   const { context } = useSession();
   const [open, setOpen] = useState(false);
+  const [presetsOpen, setPresetsOpen] = useState(false);
   const [type, setType] = useState<"mcp" | "openapi">("mcp");
   const [name, setName] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [endpoint, setEndpoint] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [addingPreset, setAddingPreset] = useState<string | null>(null);
 
   const handleEndpointChange = (value: string) => {
     setEndpoint(value);
-    // Auto-infer name from URL if user hasn't manually edited the name
     if (!nameManuallyEdited) {
       const inferred = inferNameFromUrl(value);
       if (inferred) setName(inferred);
@@ -103,18 +270,67 @@ function AddSourceDialog({ onAdded }: { onAdded: () => void }) {
     setNameManuallyEdited(true);
   };
 
+  const resetForm = () => {
+    setName("");
+    setEndpoint("");
+    setBaseUrl("");
+    setNameManuallyEdited(false);
+    setPresetsOpen(false);
+    setAddingPreset(null);
+  };
+
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
-    if (!isOpen) {
-      // Reset on close
-      setName("");
-      setEndpoint("");
-      setBaseUrl("");
-      setNameManuallyEdited(false);
+    if (!isOpen) resetForm();
+  };
+
+  const addSource = async (
+    sourceName: string,
+    sourceType: "mcp" | "openapi",
+    config: Record<string, unknown>,
+  ) => {
+    if (!context) return;
+    const result = await api.upsertToolSource({
+      workspaceId: context.workspaceId,
+      name: sourceName,
+      type: sourceType,
+      config,
+    });
+    const warnings = (result as unknown as Record<string, unknown>)
+      .warnings as string[] | undefined;
+    if (warnings && warnings.length > 0) {
+      toast.warning(`Source "${sourceName}" saved but had issues`, {
+        description: warnings.join("\n"),
+        duration: 10000,
+      });
+    } else {
+      toast.success(`Source "${sourceName}" added`);
     }
   };
 
-  const handleSubmit = async () => {
+  const handlePresetAdd = async (preset: ApiPreset) => {
+    setAddingPreset(preset.name);
+    try {
+      const config: Record<string, unknown> =
+        preset.type === "mcp"
+          ? { url: preset.url }
+          : {
+              spec: preset.spec,
+              ...(preset.baseUrl ? { baseUrl: preset.baseUrl } : {}),
+            };
+      await addSource(preset.name, preset.type, config);
+      if (preset.authNote) {
+        toast.info(preset.authNote, { duration: 6000 });
+      }
+      onAdded();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add source");
+    } finally {
+      setAddingPreset(null);
+    }
+  };
+
+  const handleCustomSubmit = async () => {
     if (!context || !name.trim() || !endpoint.trim()) return;
     setSubmitting(true);
     try {
@@ -122,26 +338,8 @@ function AddSourceDialog({ onAdded }: { onAdded: () => void }) {
         type === "mcp"
           ? { url: endpoint }
           : { spec: endpoint, ...(baseUrl ? { baseUrl } : {}) };
-
-      const result = await api.upsertToolSource({
-        workspaceId: context.workspaceId,
-        name: name.trim(),
-        type,
-        config,
-      });
-      const warnings = (result as unknown as Record<string, unknown>).warnings as string[] | undefined;
-      if (warnings && warnings.length > 0) {
-        toast.warning(`Source "${name}" saved but had issues`, {
-          description: warnings.join("\n"),
-          duration: 10000,
-        });
-      } else {
-        toast.success(`Source "${name}" added`);
-      }
-      setName("");
-      setEndpoint("");
-      setBaseUrl("");
-      setNameManuallyEdited(false);
+      await addSource(name.trim(), type, config);
+      resetForm();
       setOpen(false);
       onAdded();
     } catch (err) {
@@ -159,77 +357,159 @@ function AddSourceDialog({ onAdded }: { onAdded: () => void }) {
           Add Source
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-card border-border sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="bg-card border-border sm:max-w-md p-0 gap-0">
+        <DialogHeader className="px-5 pt-5 pb-0">
           <DialogTitle className="text-sm font-medium">
             Add Tool Source
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Type</Label>
-            <Select
-              value={type}
-              onValueChange={(v) => setType(v as "mcp" | "openapi")}
-            >
-              <SelectTrigger className="h-8 text-xs bg-background">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mcp" className="text-xs">
-                  MCP Server
-                </SelectItem>
-                <SelectItem value="openapi" className="text-xs">
-                  OpenAPI Spec
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              {type === "mcp" ? "Endpoint URL" : "Spec URL"}
-            </Label>
-            <Input
-              value={endpoint}
-              onChange={(e) => handleEndpointChange(e.target.value)}
-              placeholder={
-                type === "mcp"
-                  ? "https://mcp-server.example.com/sse"
-                  : "https://api.example.com/openapi.json"
-              }
-              className="h-8 text-xs font-mono bg-background"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Name</Label>
-            <Input
-              value={name}
-              onChange={(e) => handleNameChange(e.target.value)}
-              placeholder="e.g. my-service"
-              className="h-8 text-xs font-mono bg-background"
-            />
-          </div>
-          {type === "openapi" && (
+
+        <div className="p-5 space-y-4">
+          {/* Custom source form — always visible */}
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Type</Label>
+              <Select
+                value={type}
+                onValueChange={(v) => setType(v as "mcp" | "openapi")}
+              >
+                <SelectTrigger className="h-8 text-xs bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mcp" className="text-xs">
+                    MCP Server
+                  </SelectItem>
+                  <SelectItem value="openapi" className="text-xs">
+                    OpenAPI Spec
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">
-                Base URL (optional)
+                {type === "mcp" ? "Endpoint URL" : "Spec URL"}
               </Label>
               <Input
-                value={baseUrl}
-                onChange={(e) => setBaseUrl(e.target.value)}
-                placeholder="https://api.example.com"
+                value={endpoint}
+                onChange={(e) => handleEndpointChange(e.target.value)}
+                placeholder={
+                  type === "mcp"
+                    ? "https://mcp-server.example.com/sse"
+                    : "https://api.example.com/openapi.json"
+                }
                 className="h-8 text-xs font-mono bg-background"
               />
             </div>
-          )}
-          <Button
-            onClick={handleSubmit}
-            disabled={submitting || !name.trim() || !endpoint.trim()}
-            className="w-full h-9"
-            size="sm"
-          >
-            {submitting ? "Adding..." : "Add Source"}
-          </Button>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Name</Label>
+              <Input
+                value={name}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="e.g. my-service"
+                className="h-8 text-xs font-mono bg-background"
+              />
+            </div>
+            {type === "openapi" && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  Base URL (optional)
+                </Label>
+                <Input
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="https://api.example.com"
+                  className="h-8 text-xs font-mono bg-background"
+                />
+              </div>
+            )}
+            <Button
+              onClick={handleCustomSubmit}
+              disabled={submitting || !name.trim() || !endpoint.trim()}
+              className="w-full h-9"
+              size="sm"
+            >
+              {submitting ? "Adding..." : "Add Source"}
+            </Button>
+          </div>
+
+          {/* Collapsible presets */}
+          <Separator />
+          <Collapsible open={presetsOpen} onOpenChange={setPresetsOpen}>
+            <CollapsibleTrigger className="flex items-center gap-2 w-full py-1 text-xs text-muted-foreground hover:text-foreground transition-colors group">
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200",
+                  presetsOpen && "rotate-90",
+                )}
+              />
+              <span>Quick add from catalog</span>
+              <span className="text-[10px] font-mono text-muted-foreground/60">
+                {API_PRESETS.length}
+              </span>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="pt-3 space-y-1">
+                {API_PRESETS.map((preset) => {
+                  const alreadyAdded = existingSourceNames.has(preset.name);
+                  const isAdding = addingPreset === preset.name;
+                  return (
+                    <button
+                      key={preset.name}
+                      onClick={() => !alreadyAdded && handlePresetAdd(preset)}
+                      disabled={alreadyAdded || addingPreset !== null}
+                      className={cn(
+                        "flex items-center gap-3 w-full px-3 py-2 rounded-md text-left transition-colors",
+                        alreadyAdded
+                          ? "opacity-50 cursor-default"
+                          : "hover:bg-accent/30 cursor-pointer",
+                        isAdding && "bg-primary/5",
+                      )}
+                    >
+                      <span className="flex items-center justify-center h-6 w-6 rounded bg-muted shrink-0 overflow-hidden">
+                        {(() => {
+                          const favicon = getFaviconUrl(preset);
+                          return favicon ? (
+                            <img
+                              src={favicon}
+                              alt=""
+                              width={16}
+                              height={16}
+                              className="w-4 h-4"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <span className="text-[9px] font-bold font-mono text-muted-foreground">
+                              {preset.name.slice(0, 2).toUpperCase()}
+                            </span>
+                          );
+                        })()}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className="text-xs font-medium text-foreground">
+                          {preset.label}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground ml-2">
+                          {preset.description}
+                        </span>
+                      </div>
+                      {alreadyAdded ? (
+                        <span className="text-[9px] font-mono text-terminal-green shrink-0">
+                          added
+                        </span>
+                      ) : isAdding ? (
+                        <span className="text-[9px] font-mono text-terminal-amber shrink-0">
+                          adding...
+                        </span>
+                      ) : (
+                        <Plus className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </DialogContent>
     </Dialog>
@@ -263,11 +543,16 @@ function SourceCard({
   };
 
   const TypeIcon = source.type === "mcp" ? Server : Globe;
+  const favicon = getSourceFavicon(source);
 
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40 group">
-      <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0">
-        <TypeIcon className="h-4 w-4 text-muted-foreground" />
+      <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+        {favicon ? (
+          <img src={favicon} alt="" width={20} height={20} className="w-5 h-5" loading="lazy" />
+        ) : (
+          <TypeIcon className="h-4 w-4 text-muted-foreground" />
+        )}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -460,7 +745,7 @@ export function ToolsView() {
                   <Server className="h-4 w-4 text-muted-foreground" />
                   Tool Sources
                 </CardTitle>
-                <AddSourceDialog onAdded={refreshAll} />
+                <AddSourceDialog onAdded={refreshAll} existingSourceNames={new Set((sources ?? []).map(s => s.name))} />
               </div>
             </CardHeader>
             <CardContent className="pt-0">
