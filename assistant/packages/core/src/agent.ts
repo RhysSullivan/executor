@@ -1,75 +1,61 @@
 /**
- * Agent loop — orchestrates Claude + executor.
+ * Agent loop — orchestrates Claude + executor via MCP.
  *
- * 1. Fetch tool inventory from executor
- * 2. Build system prompt with tool descriptions
+ * 1. Connect to executor MCP server
+ * 2. List tools (gets run_code with sandbox tool inventory in description)
  * 3. Call Claude → get run_code({ code }) tool call
- * 4. Send code to executor via sync endpoint (blocks until done)
+ * 4. Forward to executor via MCP tools/call (blocks until done)
  * 5. Feed result back to Claude
  * 6. Loop until Claude responds with text
  */
 
-import type { ExecutorClient } from "@assistant/agent-executor-adapter";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { TaskEvent } from "./events";
-import type { Message, GenerateResult } from "./model";
+import type { Message, GenerateResult, ToolCall, ToolDef } from "./model";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ToolDescriptor {
-  path: string;
-  description: string;
-  approval: "auto" | "required";
-  source?: string;
-  argsType?: string;
-  returnsType?: string;
+export interface McpTool {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
 }
 
 export interface AgentOptions {
-  readonly executor: ExecutorClient;
-  readonly generate: (messages: Message[]) => Promise<GenerateResult>;
+  readonly executorUrl: string;
+  readonly generate: (messages: Message[], tools?: ToolDef[]) => Promise<GenerateResult>;
   readonly workspaceId: string;
   readonly actorId: string;
   readonly clientId?: string;
   readonly context?: string;
-  readonly maxCodeRuns?: number;
-  readonly timeoutMs?: number;
+  readonly maxToolCalls?: number;
 }
 
 export interface AgentResult {
   readonly text: string;
-  readonly codeRuns: number;
+  readonly toolCalls: number;
 }
 
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(tools: ToolDescriptor[], context?: string): string {
-  const toolGuidance = tools
-    .map((t) => {
-      const args = t.argsType ?? "unknown";
-      const returns = t.returnsType ?? "unknown";
-      const approval = t.approval === "required" ? " (approval required)" : "";
-      return `- tools.${t.path}(${args}): Promise<${returns}>${approval} — ${t.description}`;
-    })
-    .join("\n");
-
-  const discoveryNote = tools.some((t) => t.path === "discover")
-    ? `\n\n## Tool Discovery\n\nUse \`tools.discover({ query })\` to search for tools by keyword when you need to find specific capabilities.\n`
-    : "";
+function buildSystemPrompt(tools: McpTool[], context?: string): string {
+  const toolSection = tools
+    .map((t) => `### ${t.name}\n${t.description ?? "No description."}`)
+    .join("\n\n");
 
   const contextSection = context ? `\n## Context\n\n${context}\n` : "";
 
-  return `You are an AI assistant that executes tasks by generating TypeScript code.
-
-You have access to tools via the \`tools\` object. Generate TypeScript code that calls these tools to accomplish the user's task.
+  return `You are an AI assistant that executes tasks by writing TypeScript code.
 ${contextSection}
 ## Available Tools
 
-${toolGuidance}
-${discoveryNote}
+${toolSection}
+
 ## Instructions
 
 - Use the \`run_code\` tool to execute TypeScript code
@@ -81,123 +67,155 @@ ${discoveryNote}
 }
 
 // ---------------------------------------------------------------------------
+// MCP client helpers
+// ---------------------------------------------------------------------------
+
+async function connectMcp(executorUrl: string, workspaceId: string, actorId: string, clientId?: string): Promise<Client> {
+  const url = new URL(`${executorUrl}/mcp`);
+  url.searchParams.set("workspaceId", workspaceId);
+  url.searchParams.set("actorId", actorId);
+  if (clientId) url.searchParams.set("clientId", clientId);
+
+  const transport = new StreamableHTTPClientTransport(url);
+  const client = new Client({ name: "assistant-agent", version: "0.1.0" });
+  await client.connect(transport);
+  return client;
+}
+
+async function listMcpTools(client: Client): Promise<McpTool[]> {
+  const result = await client.listTools();
+  return result.tools.map((t) => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema as Record<string, unknown> | undefined,
+  }));
+}
+
+async function callMcpTool(client: Client, name: string, args: Record<string, unknown>): Promise<{
+  content: string;
+  isError: boolean;
+}> {
+  const result = await client.callTool({ name, arguments: args });
+  const text = (result.content as Array<{ type: string; text?: string }>)
+    .filter((c) => c.type === "text" && c.text)
+    .map((c) => c.text!)
+    .join("\n");
+  return { content: text, isError: result.isError === true };
+}
+
+// ---------------------------------------------------------------------------
 // Agent
 // ---------------------------------------------------------------------------
 
-export function createAgent(options: Omit<AgentOptions, "onEvent">) {
+export function createAgent(options: AgentOptions) {
   return {
     async run(prompt: string, onEvent?: (event: TaskEvent) => void): Promise<AgentResult> {
       const {
-        executor,
+        executorUrl,
         generate,
         workspaceId,
         actorId,
         clientId,
         context,
-        maxCodeRuns = 20,
-        timeoutMs = 30_000,
+        maxToolCalls = 20,
       } = options;
 
       function emit(event: TaskEvent): void {
         onEvent?.(event);
       }
 
-      // 1. Fetch tool inventory
-      emit({ type: "status", message: "Loading tools..." });
-      const { data: tools, error: toolsError } = await executor.api.tools.get({
-        query: { workspaceId, actorId, clientId },
-      });
-
-      if (toolsError || !tools) {
-        const msg = "Failed to load tools from executor";
+      // 1. Connect to executor MCP
+      emit({ type: "status", message: "Connecting..." });
+      let mcp: Client;
+      try {
+        mcp = await connectMcp(executorUrl, workspaceId, actorId, clientId);
+      } catch (err) {
+        const msg = `Failed to connect to executor MCP: ${err instanceof Error ? err.message : String(err)}`;
         emit({ type: "error", error: msg });
         emit({ type: "completed" });
-        return { text: msg, codeRuns: 0 };
+        return { text: msg, toolCalls: 0 };
       }
 
-      // 2. Build system prompt + messages
-      const systemPrompt = buildSystemPrompt(tools as ToolDescriptor[], context);
-      const messages: Message[] = [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt },
-      ];
+      try {
+        // 2. List tools (run_code description includes sandbox tool inventory)
+        emit({ type: "status", message: "Loading tools..." });
+        const tools = await listMcpTools(mcp);
 
-      emit({ type: "status", message: "Thinking..." });
-
-      let codeRunCount = 0;
-
-      // 3. Agent loop
-      while (codeRunCount < maxCodeRuns) {
-        const response = await generate(messages);
-
-        // No tool calls → done
-        if (!response.toolCalls || response.toolCalls.length === 0) {
-          const text = response.text ?? "";
-          emit({ type: "agent_message", text });
+        if (tools.length === 0) {
+          const msg = "No tools available from executor";
+          emit({ type: "error", error: msg });
           emit({ type: "completed" });
-          return { text, codeRuns: codeRunCount };
+          return { text: msg, toolCalls: 0 };
         }
 
-        for (const toolCall of response.toolCalls) {
-          if (toolCall.name !== "run_code") {
+        // 3. Build system prompt + messages
+        const systemPrompt = buildSystemPrompt(tools, context);
+        const messages: Message[] = [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
+        ];
+
+        // Convert MCP tools to model tool defs
+        const toolDefs: ToolDef[] = tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        }));
+
+        emit({ type: "status", message: "Thinking..." });
+
+        let toolCallCount = 0;
+
+        // 4. Agent loop
+        while (toolCallCount < maxToolCalls) {
+          const response = await generate(messages, toolDefs);
+
+          // No tool calls → done
+          if (!response.toolCalls || response.toolCalls.length === 0) {
+            const text = response.text ?? "";
+            emit({ type: "agent_message", text });
+            emit({ type: "completed" });
+            return { text, toolCalls: toolCallCount };
+          }
+
+          for (const toolCall of response.toolCalls) {
+            toolCallCount++;
+
+            // Emit events
+            if (toolCall.name === "run_code" && toolCall.args["code"]) {
+              emit({ type: "code_generated", code: String(toolCall.args["code"]) });
+            }
+            emit({ type: "status", message: `Running ${toolCall.name}...` });
+
+            // 5. Forward to executor via MCP
+            const result = await callMcpTool(mcp, toolCall.name, toolCall.args);
+
+            // Emit result
+            emit({
+              type: "code_result",
+              taskId: "",
+              status: result.isError ? "failed" : "completed",
+              stdout: result.isError ? undefined : result.content,
+              error: result.isError ? result.content : undefined,
+            });
+
+            // 6. Feed result back to model
             messages.push({ role: "assistant", content: "", toolCalls: [toolCall] });
             messages.push({
               role: "tool",
               toolCallId: toolCall.id,
-              content: `Error: Unknown tool "${toolCall.name}". Use run_code to execute TypeScript code.`,
+              content: result.content,
             });
-            continue;
           }
-
-          const code = String(toolCall.args["code"] ?? "");
-          codeRunCount++;
-
-          emit({ type: "code_generated", code });
-          emit({ type: "status", message: "Running code..." });
-
-          // 4. Sync call to executor — blocks until task completes
-          const { data: result, error: runError } = await executor.api.tasks.run.post({
-            code,
-            workspaceId,
-            actorId,
-            clientId,
-            timeoutMs,
-          });
-
-          if (runError || !result) {
-            const errMsg = "Failed to execute code on executor";
-            messages.push({ role: "assistant", content: "", toolCalls: [toolCall] });
-            messages.push({ role: "tool", toolCallId: toolCall.id, content: `Error: ${errMsg}` });
-            continue;
-          }
-
-          const r = result as { taskId?: string; status: string; stdout?: string; stderr?: string; error?: string; exitCode?: number };
-
-          // 5. Emit result event
-          emit({
-            type: "code_result",
-            taskId: r.taskId ?? "",
-            status: r.status,
-            exitCode: r.exitCode,
-            stdout: r.stdout,
-            stderr: r.stderr,
-            error: r.error,
-          });
-
-          // 6. Feed result back to model
-          const resultContent = r.status === "completed"
-            ? `Code executed successfully.\n${r.stdout ? `\nOutput:\n${r.stdout}` : ""}${r.stderr ? `\nStderr:\n${r.stderr}` : ""}`
-            : `Code execution failed (${r.status}).\n${r.error ? `Error: ${r.error}` : ""}${r.stderr ? `\nStderr:\n${r.stderr}` : ""}`;
-
-          messages.push({ role: "assistant", content: "", toolCalls: [toolCall] });
-          messages.push({ role: "tool", toolCallId: toolCall.id, content: resultContent });
         }
-      }
 
-      const text = "Reached maximum number of code executions.";
-      emit({ type: "agent_message", text });
-      emit({ type: "completed" });
-      return { text, codeRuns: codeRunCount };
+        const text = "Reached maximum number of tool calls.";
+        emit({ type: "agent_message", text });
+        emit({ type: "completed" });
+        return { text, toolCalls: toolCallCount };
+      } finally {
+        await mcp.close().catch(() => {});
+      }
     },
   };
 }

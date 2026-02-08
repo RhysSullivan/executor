@@ -50,9 +50,8 @@
     "assistant/packages/core": {
       "name": "@assistant/core",
       "dependencies": {
-        "@assistant/agent-executor-adapter": "workspace:*",
         "@mariozechner/pi-ai": "^0.52.6",
-        "@sinclair/typebox": "^0.34.48",
+        "@modelcontextprotocol/sdk": "^1.26.0",
       },
       "devDependencies": {
         "@elysiajs/eden": "^1.4.6",
@@ -62,7 +61,6 @@
     "assistant/packages/server": {
       "name": "@assistant/server",
       "dependencies": {
-        "@assistant/agent-executor-adapter": "workspace:*",
         "@assistant/core": "workspace:*",
         "@elysiajs/eden": "latest",
         "convex": "^1.31.7",

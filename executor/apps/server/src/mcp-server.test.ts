@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { handleMcpRequest } from "./mcp-server";
-import type { AnonymousContext, CreateTaskInput, TaskRecord } from "./types";
+import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 
 class FakeMcpService {
   private readonly tasks = new Map<string, TaskRecord>();
@@ -70,6 +70,12 @@ class FakeMcpService {
     };
     this.sessions.set(context.sessionId, context);
     return context;
+  }
+
+  async listTools(_context?: { workspaceId: string; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]> {
+    return [
+      { path: "utils.get_time", description: "Get the current time", approval: "auto" },
+    ];
   }
 }
 

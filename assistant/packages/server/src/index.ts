@@ -1,13 +1,13 @@
 /**
  * Assistant Server entry point.
  *
- * Connects to the executor, sets up the agent, and serves the API.
+ * Bootstraps executor context, sets up the agent, and serves the API.
+ * The agent connects to the executor via MCP — no Eden Treaty needed here.
  */
 
 import { readFileSync } from "node:fs";
 import { createApp } from "./routes";
 import { createModel } from "@assistant/core";
-import { createExecutorClient } from "@assistant/agent-executor-adapter";
 
 // ---------------------------------------------------------------------------
 // API key resolution
@@ -38,6 +38,7 @@ function getAnthropicApiKey(): string | undefined {
 
 const PORT = Number(Bun.env.PORT ?? 3000);
 const EXECUTOR_URL = Bun.env.EXECUTOR_URL ?? "http://localhost:4001";
+const CONVEX_URL = Bun.env.CONVEX_URL ?? "http://127.0.0.1:3210";
 
 const apiKey = getAnthropicApiKey();
 if (!apiKey) {
@@ -48,15 +49,25 @@ if (!apiKey) {
 // Boot
 // ---------------------------------------------------------------------------
 
-const executor = createExecutorClient(EXECUTOR_URL);
 const model = createModel({ apiKey });
 
-// Bootstrap an anonymous context on the executor for this server instance
-const { data: anonCtx, error: bootstrapError } = await executor.api.auth.anonymous.bootstrap.post({});
-if (bootstrapError || !anonCtx) {
+// Bootstrap an anonymous context on the executor
+const bootstrapResp = await fetch(`${EXECUTOR_URL}/api/auth/anonymous/bootstrap`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({}),
+});
+
+if (!bootstrapResp.ok) {
   console.error("Failed to bootstrap executor context. Is the executor running at", EXECUTOR_URL, "?");
   process.exit(1);
 }
+
+const anonCtx = await bootstrapResp.json() as {
+  workspaceId: string;
+  actorId: string;
+  clientId: string;
+};
 
 console.log(`[assistant] executor context: workspace=${anonCtx.workspaceId} actor=${anonCtx.actorId}`);
 
@@ -66,11 +77,9 @@ if (Bun.env.POSTHOG_PROJECT_ID) {
   contextLines.push(`- PostHog project ID: ${Bun.env.POSTHOG_PROJECT_ID}`);
 }
 
-const CONVEX_URL = Bun.env.CONVEX_URL ?? "http://127.0.0.1:3210";
-
 const app = createApp({
-  executor,
-  generate: (messages) => model.generate(messages),
+  executorUrl: EXECUTOR_URL,
+  generate: (messages, tools) => model.generate(messages, tools),
   workspaceId: anonCtx.workspaceId,
   actorId: anonCtx.actorId,
   clientId: anonCtx.clientId,

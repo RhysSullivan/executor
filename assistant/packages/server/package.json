@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@assistant/core": "workspace:*",
-    "@assistant/agent-executor-adapter": "workspace:*",
     "convex": "^1.31.7",
     "elysia": "latest",
     "@elysiajs/eden": "latest"

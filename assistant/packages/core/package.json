@@ -6,12 +6,12 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@assistant/agent-executor-adapter": "workspace:*",
     "@mariozechner/pi-ai": "^0.52.6",
-    "@sinclair/typebox": "^0.34.48"
+    "@modelcontextprotocol/sdk": "^1.26.0"
   },
   "devDependencies": {
     "@elysiajs/eden": "^1.4.6",
-    "elysia": "^1.4.22"
+    "elysia": "^1.4.22",
+    "zod": "^4.3.6"
   }
 }

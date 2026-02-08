@@ -1,5 +1,7 @@
 /**
  * LLM adapter — wraps pi-ai to implement a simple generate interface.
+ *
+ * Tools are passed dynamically per call (from MCP tools/list).
  */
 
 import {
@@ -15,7 +17,6 @@ import {
   type TextContent,
   type ToolCall as PiToolCall,
 } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +35,12 @@ export interface ToolCall {
   args: Record<string, unknown>;
 }
 
+export interface ToolDef {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+}
+
 export interface GenerateResult {
   text?: string;
   toolCalls?: ToolCall[];
@@ -48,19 +55,16 @@ export interface ModelOptions {
 }
 
 // ---------------------------------------------------------------------------
-// run_code tool (the only tool the model can call)
+// Tool conversion (MCP → pi-ai)
 // ---------------------------------------------------------------------------
 
-const RUN_CODE_TOOL: PiTool = {
-  name: "run_code",
-  description:
-    "Execute TypeScript code in a sandboxed environment. The code has access to a `tools` object with typed methods for interacting with external services. Use `return` to return a value.",
-  parameters: Type.Object({
-    code: Type.String({
-      description: "TypeScript code to execute. Use `await tools.<namespace>.<method>(input)` to call tools. Use `return` to return a value.",
-    }),
-  }),
-};
+function convertTool(tool: ToolDef): PiTool {
+  return {
+    name: tool.name,
+    description: tool.description ?? "",
+    parameters: (tool.inputSchema ?? { type: "object", properties: {} }) as PiTool["parameters"],
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Message conversion
@@ -178,12 +182,14 @@ export function createModel(options: ModelOptions = {}) {
   const model = getModel(provider as Parameters<typeof getModel>[0], modelId as never);
 
   return {
-    async generate(messages: Message[]): Promise<GenerateResult> {
+    async generate(messages: Message[], tools?: ToolDef[]): Promise<GenerateResult> {
       const { systemPrompt, piMessages } = convertMessages(messages);
+
+      const piTools: PiTool[] = tools?.map(convertTool) ?? [];
 
       const context: PiContext = {
         messages: piMessages,
-        tools: [RUN_CODE_TOOL],
+        tools: piTools,
       };
       if (systemPrompt !== undefined) {
         context.systemPrompt = systemPrompt;

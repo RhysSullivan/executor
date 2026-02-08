@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 import { ExecutorDatabase } from "./database";
 import { TaskEventHub } from "./events";
-import { handleMcpRequest } from "./mcp-server";
+import { handleMcpRequest, type McpWorkspaceContext } from "./mcp-server";
 import { LocalBunRuntime } from "./runtimes/local-bun-runtime";
 import { VercelSandboxRuntime } from "./runtimes/vercel-sandbox-runtime";
 import { ExecutorService, getTaskTerminalState } from "./service";
@@ -151,6 +151,14 @@ function isInternalAuthorized(request: Request): boolean {
   return header.slice("Bearer ".length) === internalToken;
 }
 
+function parseMcpContext(url: URL): McpWorkspaceContext | undefined {
+  const workspaceId = url.searchParams.get("workspaceId");
+  const actorId = url.searchParams.get("actorId");
+  if (!workspaceId || !actorId) return undefined;
+  const clientId = url.searchParams.get("clientId") ?? undefined;
+  return { workspaceId, actorId, clientId };
+}
+
 // ── Elysia app ──
 
 const app = new Elysia()
@@ -163,9 +171,23 @@ const app = new Elysia()
   .options("/*", () => new Response(null, { status: 204 }))
 
   // ── MCP (raw protocol passthrough) ──
-  .post("/mcp", async ({ request }) => await handleMcpRequest(service, request))
-  .get("/mcp", async ({ request }) => await handleMcpRequest(service, request))
-  .delete("/mcp", async ({ request }) => await handleMcpRequest(service, request))
+  // Optional query params: ?workspaceId=...&actorId=... to bind workspace context.
+  // When bound, run_code description includes sandbox tool inventory and input is simplified.
+  .post("/mcp", async ({ request }) => {
+    const url = new URL(request.url);
+    const context = parseMcpContext(url);
+    return await handleMcpRequest(service, request, context);
+  })
+  .get("/mcp", async ({ request }) => {
+    const url = new URL(request.url);
+    const context = parseMcpContext(url);
+    return await handleMcpRequest(service, request, context);
+  })
+  .delete("/mcp", async ({ request }) => {
+    const url = new URL(request.url);
+    const context = parseMcpContext(url);
+    return await handleMcpRequest(service, request, context);
+  })
 
   // ── Health ──
   .get("/api/health", () => ({
@@ -260,53 +282,6 @@ const app = new Elysia()
   }, {
     params: t.Object({ sourceId: t.String() }),
     query: t.Object({ workspaceId: t.String() }),
-  })
-
-  // ── Sync run (blocks until task completes, returns result inline) ──
-  .post("/api/tasks/run", async ({ body, set }) => {
-    try {
-      const { task } = await service.createTask(body);
-      // createTask fires executeTask in background when autoExecute is on.
-      // We need to wait for it to finish.
-      const deadline = Date.now() + (body.timeoutMs ?? 30_000) + 15_000;
-
-      while (Date.now() < deadline) {
-        const current = await service.getTask(task.id);
-        if (!current) break;
-
-        if (current.status === "completed" || current.status === "failed" || current.status === "timed_out" || current.status === "denied") {
-          return {
-            taskId: current.id,
-            status: current.status,
-            stdout: current.stdout,
-            stderr: current.stderr,
-            exitCode: current.exitCode,
-            error: current.error,
-          };
-        }
-
-        await Bun.sleep(200);
-      }
-
-      return {
-        taskId: task.id,
-        status: "timed_out" as const,
-        error: "Task did not complete within deadline",
-      };
-    } catch (cause) {
-      set.status = 400;
-      return { error: cause instanceof Error ? cause.message : String(cause) };
-    }
-  }, {
-    body: t.Object({
-      code: t.String(),
-      timeoutMs: t.Optional(t.Number()),
-      runtimeId: t.Optional(t.String()),
-      metadata: t.Optional(t.Record(t.String(), t.Unknown())),
-      workspaceId: t.String(),
-      actorId: t.String(),
-      clientId: t.Optional(t.String()),
-    }),
   })
 
   // ── Tasks ──
