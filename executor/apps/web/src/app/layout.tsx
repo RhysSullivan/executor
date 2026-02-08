@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { JetBrains_Mono, Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import { AppConvexProvider } from "@/lib/convex-provider";
+import { QueryProvider } from "@/lib/query-provider";
 import { SessionProvider } from "@/lib/session-context";
 import "./globals.css";
 
@@ -31,9 +32,11 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
       >
         <AppConvexProvider>
-          <SessionProvider>
-            {children}
-          </SessionProvider>
+          <QueryProvider>
+            <SessionProvider>
+              {children}
+            </SessionProvider>
+          </QueryProvider>
         </AppConvexProvider>
         <Toaster
           theme="dark"

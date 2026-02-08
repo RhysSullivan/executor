@@ -27,7 +27,6 @@ type MutationName =
   | "database:upsertAccessPolicy"
   | "database:upsertCredential"
   | "database:upsertToolSource"
-  | "database:syncWorkspaceTools"
   | "database:deleteToolSource"
   | "database:createTaskEvent";
 
@@ -46,7 +45,6 @@ type QueryName =
   | "database:resolveCredential"
   | "database:listToolSources"
   | "database:listToolSourceWorkspaceUpdates"
-  | "database:listWorkspaceToolsForContext"
   | "database:listTaskEvents";
 
 export class ExecutorDatabase {
@@ -223,21 +221,6 @@ export class ExecutorDatabase {
 
   async listToolSourceWorkspaceUpdates(): Promise<Array<{ workspaceId: string; updatedAt: number }>> {
     return await this.query("database:listToolSourceWorkspaceUpdates", {});
-  }
-
-  async syncWorkspaceTools(params: {
-    workspaceId: string;
-    tools: ToolDescriptor[];
-  }): Promise<boolean> {
-    return await this.mutation("database:syncWorkspaceTools", params);
-  }
-
-  async listWorkspaceToolsForContext(params: {
-    workspaceId: string;
-    actorId?: string;
-    clientId?: string;
-  }): Promise<ToolDescriptor[]> {
-    return await this.query("database:listWorkspaceToolsForContext", params);
   }
 
   async deleteToolSource(workspaceId: string, sourceId: string): Promise<boolean> {

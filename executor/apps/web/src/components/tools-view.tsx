@@ -304,24 +304,13 @@ function AddSourceDialog({
     config: Record<string, unknown>,
   ) => {
     if (!context) return;
-    // Write the tool source to the database
     await upsertToolSource({
       workspaceId: context.workspaceId,
       name: sourceName,
       type: sourceType,
       config,
     });
-    toast.success(`Source "${sourceName}" added`);
-
-    // Trigger a server-side tool refresh so the workspace tools inventory
-    // is updated immediately (instead of waiting for the worker poll).
-    // Fetching the tools list forces the server to load external sources
-    // and sync the workspaceTools table.
-    try {
-      await fetch(`/api/tools?workspaceId=${encodeURIComponent(context.workspaceId)}`);
-    } catch {
-      // Server-side refresh is best-effort; the worker will eventually sync.
-    }
+    toast.success(`Source "${sourceName}" added — loading tools…`);
   };
 
   const handlePresetAdd = async (preset: ApiPreset) => {
@@ -763,11 +752,9 @@ export function ToolsView() {
           </TabsTrigger>
           <TabsTrigger value="inventory" className="text-xs data-[state=active]:bg-background">
             Inventory
-            {tools && (
-              <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-                {tools.length}
-              </span>
-            )}
+            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
+              {toolsLoading ? "…" : tools.length}
+            </span>
           </TabsTrigger>
         </TabsList>
 
@@ -818,11 +805,9 @@ export function ToolsView() {
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <Zap className="h-4 w-4 text-primary" />
                 Available Tools
-                {tools && (
-                  <span className="text-[10px] font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                    {tools.length}
-                  </span>
-                )}
+                <span className="text-[10px] font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                  {toolsLoading ? "…" : tools.length}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
@@ -833,7 +818,7 @@ export function ToolsView() {
                   ))}
                 </div>
               ) : (
-                <ToolInventory tools={tools ?? []} />
+                <ToolInventory tools={tools} />
               )}
             </CardContent>
           </Card>

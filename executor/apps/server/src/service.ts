@@ -131,7 +131,6 @@ export class ExecutorService {
     string,
     { signature: string; loadedAt: number; tools: Map<string, ToolDefinition> }
   >();
-  private readonly workspaceToolInventorySignatures = new Map<string, string>();
   private readonly workspaceToolLoadWarnings = new Map<string, string[]>();
   private readonly inFlightTaskIds = new Set<string>();
   private readonly autoExecuteTasks: boolean;
@@ -491,9 +490,6 @@ export class ExecutorService {
     const signature = sourceSignature(workspaceId, sources);
     const cached = this.workspaceToolCache.get(workspaceId);
     if (cached && cached.signature === signature) {
-      if (this.workspaceToolInventorySignatures.get(workspaceId) !== signature) {
-        await this.syncWorkspaceToolInventory(workspaceId, cached.tools, signature);
-      }
       return cached.tools;
     }
 
@@ -531,30 +527,7 @@ export class ExecutorService {
       tools: merged,
     });
 
-    await this.syncWorkspaceToolInventory(workspaceId, merged, signature);
-
     return merged;
-  }
-
-  private async syncWorkspaceToolInventory(
-    workspaceId: string,
-    tools: Map<string, ToolDefinition>,
-    signature: string,
-  ): Promise<void> {
-    const inventory = [...tools.values()].map((tool) => ({
-      path: tool.path,
-      description: tool.description,
-      approval: tool.approval,
-      source: tool.source,
-      argsType: tool.metadata?.argsType,
-      returnsType: tool.metadata?.returnsType,
-    }));
-
-    await this.db.syncWorkspaceTools({
-      workspaceId,
-      tools: inventory,
-    });
-    this.workspaceToolInventorySignatures.set(workspaceId, signature);
   }
 
   private getToolDecision(

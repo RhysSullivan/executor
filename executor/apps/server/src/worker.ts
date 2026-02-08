@@ -51,7 +51,6 @@ const convexClient = new ConvexClient(convexUrl, {
 });
 
 let draining = false;
-let syncingToolInventories = false;
 
 async function drainQueue(trigger: string): Promise<void> {
   if (draining) {
@@ -79,30 +78,6 @@ async function drainQueue(trigger: string): Promise<void> {
   }
 }
 
-async function syncWorkspaceToolInventories(trigger: string): Promise<void> {
-  if (syncingToolInventories) {
-    return;
-  }
-
-  syncingToolInventories = true;
-  try {
-    const updates = await service.listToolSourceWorkspaceUpdates();
-    if (updates.length === 0) {
-      return;
-    }
-
-    console.log(`[worker] ${trigger}: syncing tool inventories for ${updates.length} workspace(s)`);
-    for (const update of updates) {
-      await service.refreshWorkspaceTools(update.workspaceId);
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[worker] tool inventory sync failed: ${message}`);
-  } finally {
-    syncingToolInventories = false;
-  }
-}
-
 const queueSubscription = convexClient.onUpdate(
   api.database.listQueuedTaskIds,
   { limit: 1 },
@@ -116,31 +91,15 @@ const queueSubscription = convexClient.onUpdate(
   },
 );
 
-const toolSourceSubscription = convexClient.onUpdate(
-  api.database.listToolSourceWorkspaceUpdates,
-  {},
-  (updates) => {
-    if (updates.length > 0) {
-      void syncWorkspaceToolInventories("onUpdate");
-    }
-  },
-  (error) => {
-    console.warn(`[worker] tool source watcher error: ${error.message}`);
-  },
-);
-
 const interval = setInterval(() => {
   void drainQueue("interval");
-  void syncWorkspaceToolInventories("interval");
 }, pollMs);
 
 await drainQueue("startup");
-await syncWorkspaceToolInventories("startup");
 
 function shutdown(signal: string): void {
   console.log(`[worker] received ${signal}, shutting down...`);
   queueSubscription.unsubscribe();
-  toolSourceSubscription.unsubscribe();
   clearInterval(interval);
   void convexClient.close();
   process.exit(0);

@@ -251,7 +251,7 @@ export function DashboardView() {
       </div>
 
       {/* Tools summary */}
-      {tools && tools.length > 0 && (
+      {tools.length > 0 && (
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
