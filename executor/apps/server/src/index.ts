@@ -262,6 +262,53 @@ const app = new Elysia()
     query: t.Object({ workspaceId: t.String() }),
   })
 
+  // ── Sync run (blocks until task completes, returns result inline) ──
+  .post("/api/tasks/run", async ({ body, set }) => {
+    try {
+      const { task } = await service.createTask(body);
+      // createTask fires executeTask in background when autoExecute is on.
+      // We need to wait for it to finish.
+      const deadline = Date.now() + (body.timeoutMs ?? 30_000) + 15_000;
+
+      while (Date.now() < deadline) {
+        const current = await service.getTask(task.id);
+        if (!current) break;
+
+        if (current.status === "completed" || current.status === "failed" || current.status === "timed_out" || current.status === "denied") {
+          return {
+            taskId: current.id,
+            status: current.status,
+            stdout: current.stdout,
+            stderr: current.stderr,
+            exitCode: current.exitCode,
+            error: current.error,
+          };
+        }
+
+        await Bun.sleep(200);
+      }
+
+      return {
+        taskId: task.id,
+        status: "timed_out" as const,
+        error: "Task did not complete within deadline",
+      };
+    } catch (cause) {
+      set.status = 400;
+      return { error: cause instanceof Error ? cause.message : String(cause) };
+    }
+  }, {
+    body: t.Object({
+      code: t.String(),
+      timeoutMs: t.Optional(t.Number()),
+      runtimeId: t.Optional(t.String()),
+      metadata: t.Optional(t.Record(t.String(), t.Unknown())),
+      workspaceId: t.String(),
+      actorId: t.String(),
+      clientId: t.Optional(t.String()),
+    }),
+  })
+
   // ── Tasks ──
   .get("/api/tasks", async ({ query, set }) => {
     if (!query.workspaceId) {

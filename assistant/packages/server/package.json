@@ -1,0 +1,22 @@
+{
+  "name": "@assistant/server",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts"
+  },
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@assistant/core": "workspace:*",
+    "@assistant/agent-executor-adapter": "workspace:*",
+    "elysia": "latest",
+    "@elysiajs/eden": "latest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@assistant/bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts"
+  },
+  "dependencies": {
+    "@assistant/core": "workspace:*",
+    "@assistant/server": "workspace:*",
+    "@elysiajs/eden": "latest",
+    "@openassistant/reacord": "workspace:*",
+    "convex": "^1.31.7",
+    "discord.js": "^14.17.3",
+    "effect": "latest",
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.0.0"
+  }
+}

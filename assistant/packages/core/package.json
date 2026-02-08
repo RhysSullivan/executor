@@ -1,0 +1,17 @@
+{
+  "name": "@assistant/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@assistant/agent-executor-adapter": "workspace:*",
+    "@mariozechner/pi-ai": "^0.52.6",
+    "@sinclair/typebox": "^0.34.48"
+  },
+  "devDependencies": {
+    "@elysiajs/eden": "^1.4.6",
+    "elysia": "^1.4.22"
+  }
+}

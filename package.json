@@ -2,9 +2,20 @@
   "name": "proto-monorepo",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "executor/apps/*",
+    "executor/packages/*",
+    "assistant/packages/*",
+    "assistant/legacy/openassistant/packages/reacord"
+  ],
   "scripts": {
+    "dev": "bun run dev.ts",
     "dev:executor": "bun run --cwd executor dev",
+    "dev:assistant": "bun run --cwd assistant dev:server",
+    "dev:bot": "bun run --cwd assistant dev:bot",
+    "test": "bun run test:executor && bun run test:assistant",
     "test:executor": "bun run --cwd executor test",
+    "test:assistant": "bun run --cwd assistant test",
     "typecheck:executor": "bun run --cwd executor typecheck"
   }
 }
