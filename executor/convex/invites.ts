@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalAction, internalMutation } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { getOrganizationMembership } from "./lib/identity";
 import { authedMutation, organizationMutation, organizationQuery } from "./lib/functionBuilders";
 
@@ -19,6 +19,25 @@ type WorkosInvitationResponse = {
   state: string;
   expires_at?: string;
 };
+
+async function revokeWorkosInvitation(invitationId: string): Promise<void> {
+  const apiKey = process.env.WORKOS_API_KEY;
+  if (!apiKey) {
+    throw new Error("WORKOS_API_KEY is required to revoke invites");
+  }
+
+  const response = await fetch(`https://api.workos.com/user_management/invitations/${invitationId}/revoke`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`WorkOS invitation revoke failed: ${response.status} ${message}`);
+  }
+}
 
 async function sendWorkosInvitation(args: {
   email: string;
@@ -89,7 +108,7 @@ export const list = organizationQuery({
 
     return {
       items: invites.map((invite) => ({
-        id: String(invite._id),
+        id: invite._id,
         organizationId: String(invite.organizationId),
         email: invite.email,
         role: invite.role,
@@ -216,6 +235,13 @@ export const deliverWorkosInvite = internalAction({
     roleSlug: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const invite = await ctx.runQuery(internal.invites.getInviteById, {
+      inviteId: args.inviteId,
+    });
+    if (!invite || invite.status !== "pending") {
+      return;
+    }
+
     try {
       const response = await sendWorkosInvitation({
         email: args.email,
@@ -236,6 +262,63 @@ export const deliverWorkosInvite = internalAction({
         errorMessage: message,
       });
     }
+  },
+});
+
+export const revoke = organizationMutation({
+  requireAdmin: true,
+  args: {
+    inviteId: v.id("invites"),
+  },
+  handler: async (ctx, args) => {
+    const invite = await ctx.db.get(args.inviteId);
+    if (!invite || invite.organizationId !== ctx.organizationId) {
+      throw new Error("Invite not found");
+    }
+
+    if (invite.status !== "pending" && invite.status !== "failed") {
+      throw new Error("Only pending invites can be removed");
+    }
+
+    await ctx.db.patch(args.inviteId, {
+      status: "revoked",
+      updatedAt: Date.now(),
+    });
+
+    if (invite.providerInviteId) {
+      await ctx.scheduler.runAfter(0, internal.invites.revokeWorkosInvite, {
+        inviteId: invite._id,
+        providerInviteId: invite.providerInviteId,
+      });
+    }
+
+    return { ok: true };
+  },
+});
+
+export const revokeWorkosInvite = internalAction({
+  args: {
+    inviteId: v.id("invites"),
+    providerInviteId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const invite = await ctx.runQuery(internal.invites.getInviteById, {
+      inviteId: args.inviteId,
+    });
+    if (!invite || invite.status !== "revoked") {
+      return;
+    }
+
+    await revokeWorkosInvitation(args.providerInviteId);
+  },
+});
+
+export const getInviteById = internalQuery({
+  args: {
+    inviteId: v.id("invites"),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.inviteId);
   },
 });
 

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Mail, UserMinus, Users } from "lucide-react";
+import { Mail, UserMinus, Users, X } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,15 +47,18 @@ export function MembersView() {
       : "skip",
   );
   const createInvite = useMutation(convexApi.invites.create);
+  const revokeInvite = useMutation(convexApi.invites.revoke);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("member");
   const [inviteState, setInviteState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
   const [busyMemberAccountId, setBusyMemberAccountId] = useState<string | null>(null);
+  const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
 
   const memberItems = members?.items ?? [];
   const inviteItems = listInvites?.items ?? [];
+  const pendingInviteItems = inviteItems.filter((invite) => invite.status === "pending" || invite.status === "failed");
   const actorMembership = memberItems.find((member) =>
     context?.accountId ? String(member.accountId) === context.accountId : false,
   );
@@ -277,14 +280,43 @@ export function MembersView() {
           <CardTitle className="text-sm">Pending Invites</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
-          {inviteItems.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No invites yet.</p>
+          {pendingInviteItems.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No pending invites.</p>
           ) : (
-            inviteItems.map((invite) => (
+            pendingInviteItems.map((invite) => (
               <div key={invite.id} className="rounded-md border border-border p-3 text-sm">
-                <p className="font-medium">{invite.email}</p>
-                <p className="text-xs text-muted-foreground">Role: {invite.role}</p>
-                <p className="text-xs text-muted-foreground">Status: {invite.status}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">{invite.email}</p>
+                    <p className="text-xs text-muted-foreground">Role: {invite.role}</p>
+                    <p className="text-xs text-muted-foreground">Status: {invite.status}</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={!canManageMembers || busyInviteId === String(invite.id)}
+                    onClick={async () => {
+                      if (!typedOrganizationId) {
+                        return;
+                      }
+
+                      setBusyInviteId(String(invite.id));
+                      try {
+                        await revokeInvite({
+                          organizationId: typedOrganizationId,
+                          inviteId: invite.id,
+                          sessionId: context?.sessionId ?? undefined,
+                        });
+                      } finally {
+                        setBusyInviteId(null);
+                      }
+                    }}
+                  >
+                    <X className="mr-1 h-3.5 w-3.5" />
+                    Revoke
+                  </Button>
+                </div>
               </div>
             ))
           )}
