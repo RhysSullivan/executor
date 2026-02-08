@@ -262,26 +262,6 @@ async function ensureAnonymousIdentity(
     await ctx.db.patch(user._id, { updatedAt: now });
   }
 
-  const existingSession = await ctx.db
-    .query("accountSessions")
-    .withIndex("by_session_id", (q) => q.eq("sessionId", params.sessionId))
-    .unique();
-
-  if (existingSession) {
-    await ctx.db.patch(existingSession._id, {
-      accountId: account._id,
-      lastSeenAt: now,
-      revokedAt: undefined,
-    });
-  } else {
-    await ctx.db.insert("accountSessions", {
-      accountId: account._id,
-      sessionId: params.sessionId,
-      createdAt: now,
-      lastSeenAt: now,
-    });
-  }
-
   return {
     accountId: account._id,
     workspaceDocId: workspace._id,

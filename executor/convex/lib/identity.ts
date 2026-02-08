@@ -39,14 +39,6 @@ export async function resolveAccountForRequest(
     return null;
   }
 
-  const explicitSession = await ctx.db
-    .query("accountSessions")
-    .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-    .unique();
-  if (explicitSession?.accountId) {
-    return await ctx.db.get(explicitSession.accountId);
-  }
-
   const anonymous = await ctx.db
     .query("anonymousSessions")
     .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))

@@ -26,8 +26,6 @@ const authKitInstance = workosEnabled
         "organization_membership.created",
         "organization_membership.updated",
         "organization_membership.deleted",
-        "session.created",
-        "session.revoked",
       ],
     })
   : null;
@@ -314,14 +312,6 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
       await ctx.db.delete(membership._id);
     }
 
-    const sessions = await ctx.db
-      .query("accountSessions")
-      .withIndex("by_account_created", (q) => q.eq("accountId", account._id))
-      .collect();
-    for (const session of sessions) {
-      await ctx.db.delete(session._id);
-    }
-
     await ctx.db.delete(account._id);
   },
 
@@ -580,65 +570,6 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
 
     await ctx.db.delete(membership._id);
   },
-
-  "session.created": async (ctx, event) => {
-    const now = Date.now();
-    const data = event.data as {
-      id?: string;
-      user_id?: string;
-      userId?: string;
-      expires_at?: string;
-      expiresAt?: string;
-    };
-    const workosUserId = data.user_id ?? data.userId;
-    if (!workosUserId || !data.id) return;
-
-    const account = await getAccountByWorkosId(ctx, workosUserId);
-    if (!account) return;
-
-    const existing = await ctx.db
-      .query("accountSessions")
-      .withIndex("by_provider_session_id", (q) => q.eq("providerSessionId", data.id))
-      .unique();
-
-    const expiresAtRaw = data.expires_at ?? data.expiresAt;
-    const expiresAt = expiresAtRaw ? Date.parse(expiresAtRaw) : undefined;
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        accountId: account._id,
-        expiresAt: Number.isNaN(expiresAt) ? undefined : expiresAt,
-        lastSeenAt: now,
-        revokedAt: undefined,
-      });
-      return;
-    }
-
-    await ctx.db.insert("accountSessions", {
-      accountId: account._id,
-      providerSessionId: data.id,
-      issuedAt: now,
-      expiresAt: Number.isNaN(expiresAt) ? undefined : expiresAt,
-      createdAt: now,
-      lastSeenAt: now,
-    });
-  },
-
-  "session.revoked": async (ctx, event) => {
-    const data = event.data as { id?: string };
-    if (!data.id) return;
-
-    const existing = await ctx.db
-      .query("accountSessions")
-      .withIndex("by_provider_session_id", (q) => q.eq("providerSessionId", data.id))
-      .unique();
-    if (!existing) return;
-
-    await ctx.db.patch(existing._id, {
-      revokedAt: Date.now(),
-      lastSeenAt: Date.now(),
-    });
-  },
 };
 
 export const authKitEvent =
@@ -739,34 +670,6 @@ export const bootstrapCurrentWorkosAccount = mutation({
       now,
       workspaceName: `${firstName ?? "My"}'s Workspace`,
     });
-
-    const sessionSuffix = getIdentityString(identityRecord, [
-      "sid",
-      "session_id",
-      "https://workos.com/session_id",
-    ]);
-    const fallbackSessionId = `workos_${subject}_${now}`;
-    const sessionId = sessionSuffix ? `workos_${sessionSuffix}` : fallbackSessionId;
-
-    const existingSession = await ctx.db
-      .query("accountSessions")
-      .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-      .unique();
-
-    if (existingSession) {
-      await ctx.db.patch(existingSession._id, {
-        accountId: account._id,
-        lastSeenAt: now,
-        revokedAt: undefined,
-      });
-    } else {
-      await ctx.db.insert("accountSessions", {
-        accountId: account._id,
-        sessionId,
-        createdAt: now,
-        lastSeenAt: now,
-      });
-    }
 
     return account;
   },

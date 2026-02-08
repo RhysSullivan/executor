@@ -160,25 +160,6 @@ export default defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workos_membership_id", ["workosOrgMembershipId"]),
 
-  accountSessions: defineTable({
-    accountId: v.id("accounts"),
-    sessionId: v.optional(v.string()),
-    providerSessionId: v.optional(v.string()),
-    tokenHash: v.optional(v.string()),
-    tokenCiphertext: v.optional(v.string()),
-    issuedAt: v.optional(v.number()),
-    expiresAt: v.optional(v.number()),
-    revokedAt: v.optional(v.number()),
-    userAgent: v.optional(v.string()),
-    ip: v.optional(v.string()),
-    createdAt: v.number(),
-    lastSeenAt: v.number(),
-  })
-    .index("by_account_created", ["accountId", "createdAt"])
-    .index("by_session_id", ["sessionId"])
-    .index("by_provider_session_id", ["providerSessionId"])
-    .index("by_token_hash", ["tokenHash"]),
-
   tasks: defineTable({
     taskId: v.string(),
     code: v.string(),
