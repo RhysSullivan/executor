@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Inter } from "next/font/google";
 import { Toaster } from "sonner";
+import { AppConvexProvider } from "@/lib/convex-provider";
 import { SessionProvider } from "@/lib/session-context";
 import "./globals.css";
 
@@ -29,9 +30,11 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        <SessionProvider>
-          {children}
-        </SessionProvider>
+        <AppConvexProvider>
+          <SessionProvider>
+            {children}
+          </SessionProvider>
+        </AppConvexProvider>
         <Toaster
           theme="dark"
           position="bottom-right"

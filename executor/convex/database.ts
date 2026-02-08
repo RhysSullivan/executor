@@ -123,6 +123,32 @@ function mapTaskEvent(doc: any) {
   };
 }
 
+function mapWorkspaceTool(doc: any) {
+  return {
+    path: doc.path,
+    description: doc.description,
+    approval: doc.approval,
+    source: doc.source,
+    argsType: doc.argsType,
+    returnsType: doc.returnsType,
+  };
+}
+
+function matchesToolPath(pattern: string, toolPath: string): boolean {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  const regex = new RegExp(`^${escaped}$`);
+  return regex.test(toolPath);
+}
+
+function policySpecificity(policy: any, actorId?: string, clientId?: string): number {
+  let score = 0;
+  if (policy.actorId && actorId && policy.actorId === actorId) score += 4;
+  if (policy.clientId && clientId && policy.clientId === clientId) score += 2;
+  score += Math.max(1, String(policy.toolPathPattern ?? "").replace(/\*/g, "").length);
+  score += Number(policy.priority ?? 0);
+  return score;
+}
+
 async function getTaskDoc(ctx: any, taskId: string) {
   return await ctx.db.query("tasks").withIndex("by_task_id", (q: any) => q.eq("taskId", taskId)).unique();
 }
@@ -194,6 +220,37 @@ export const listTasks = query({
   },
 });
 
+export const listQueuedTaskIds = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const docs = await ctx.db
+      .query("tasks")
+      .withIndex("by_status_created", (q: any) => q.eq("status", "queued"))
+      .order("asc")
+      .take(args.limit ?? 20);
+
+    return docs.map((doc: any) => doc.taskId);
+  },
+});
+
+export const listRuntimeTargets = query({
+  args: {},
+  handler: async () => {
+    return [
+      {
+        id: "local-bun",
+        label: "Local JS Runtime",
+        description: "Runs generated code in-process using Bun",
+      },
+      {
+        id: "vercel-sandbox",
+        label: "Vercel Sandbox Runtime",
+        description: "Executes generated code in Vercel Sandbox VMs",
+      },
+    ];
+  },
+});
+
 export const getTaskInWorkspace = query({
   args: { taskId: v.string(), workspaceId: v.string() },
   handler: async (ctx, args) => {
@@ -209,7 +266,7 @@ export const markTaskRunning = mutation({
   args: { taskId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
-    if (!doc) {
+    if (!doc || doc.status !== "queued") {
       return null;
     }
 
@@ -703,6 +760,99 @@ export const listToolSources = query({
       .order("desc")
       .collect();
     return docs.map(mapSource);
+  },
+});
+
+export const syncWorkspaceTools = mutation({
+  args: {
+    workspaceId: v.string(),
+    tools: v.array(
+      v.object({
+        path: v.string(),
+        description: v.string(),
+        approval: v.string(),
+        source: v.optional(v.string()),
+        argsType: v.optional(v.string()),
+        returnsType: v.optional(v.string()),
+      }),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("workspaceTools")
+      .withIndex("by_workspace_updated", (q: any) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+
+    for (const doc of existing) {
+      await ctx.db.delete(doc._id);
+    }
+
+    const now = Date.now();
+    for (const tool of args.tools) {
+      await ctx.db.insert("workspaceTools", {
+        workspaceId: args.workspaceId,
+        path: tool.path,
+        description: tool.description,
+        approval: tool.approval,
+        source: tool.source,
+        argsType: tool.argsType,
+        returnsType: tool.returnsType,
+        updatedAt: now,
+      });
+    }
+
+    return true;
+  },
+});
+
+export const listWorkspaceToolsForContext = query({
+  args: {
+    workspaceId: v.string(),
+    actorId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const [tools, policies] = await Promise.all([
+      ctx.db
+        .query("workspaceTools")
+        .withIndex("by_workspace_path", (q: any) => q.eq("workspaceId", args.workspaceId))
+        .collect(),
+      ctx.db
+        .query("accessPolicies")
+        .withIndex("by_workspace_created", (q: any) => q.eq("workspaceId", args.workspaceId))
+        .collect(),
+    ]);
+
+    return tools
+      .map((toolDoc: any) => {
+        const baseDecision = toolDoc.approval === "required" ? "require_approval" : "allow";
+        const candidates = policies
+          .filter((policy: any) => {
+            const policyActorId = optionalFromNormalized(policy.actorId);
+            const policyClientId = optionalFromNormalized(policy.clientId);
+            if (policyActorId && policyActorId !== args.actorId) return false;
+            if (policyClientId && policyClientId !== args.clientId) return false;
+            return matchesToolPath(policy.toolPathPattern, toolDoc.path);
+          })
+          .sort((a: any, b: any) => {
+            const bScore = policySpecificity(b, args.actorId, args.clientId);
+            const aScore = policySpecificity(a, args.actorId, args.clientId);
+            return bScore - aScore;
+          });
+
+        const decision = candidates[0]?.decision ?? baseDecision;
+        if (decision === "deny") {
+          return null;
+        }
+
+        const tool = mapWorkspaceTool(toolDoc);
+        return {
+          ...tool,
+          approval: decision === "require_approval" ? "required" : "auto",
+        };
+      })
+      .filter((tool: any) => tool !== null)
+      .sort((a: any, b: any) => a.path.localeCompare(b.path));
   },
 });
 

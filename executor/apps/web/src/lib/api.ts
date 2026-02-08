@@ -13,7 +13,6 @@ import type {
   ToolSourceRecord,
   AccessPolicyRecord,
   CredentialDescriptor,
-  TaskEventRecord,
 } from "./types";
 
 const BASE = "";
@@ -219,31 +218,4 @@ export async function upsertCredential(request: {
     body: JSON.stringify(request),
   });
   return json<CredentialDescriptor>(res);
-}
-
-// ── SSE ──
-
-export function subscribeToTaskEvents(
-  taskId: string,
-  workspaceId: string,
-  onEvent: (
-    eventName: TaskEventRecord["eventName"],
-    event: TaskEventRecord,
-  ) => void,
-): EventSource {
-  const source = new EventSource(
-    `${BASE}/api/tasks/${encodeURIComponent(taskId)}/events?workspaceId=${encodeURIComponent(workspaceId)}`,
-  );
-
-  source.addEventListener("task", (event) => {
-    const message = event as MessageEvent<string>;
-    onEvent("task", JSON.parse(message.data) as TaskEventRecord);
-  });
-
-  source.addEventListener("approval", (event) => {
-    const message = event as MessageEvent<string>;
-    onEvent("approval", JSON.parse(message.data) as TaskEventRecord);
-  });
-
-  return source;
 }

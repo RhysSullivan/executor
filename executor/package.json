@@ -8,9 +8,10 @@
   ],
   "scripts": {
     "dev": "bun run --cwd apps/server dev",
+    "dev:worker": "bun run --cwd apps/server worker",
     "dev:convex": "bunx convex dev --local",
     "dev:web": "bun run --cwd apps/web dev",
-    "dev:all": "bun run dev:convex & bun run dev & bun run dev:web",
+    "dev:all": "bun run dev:convex & bun run dev & bun run dev:worker & bun run dev:web",
     "start": "bun run --cwd apps/server start",
     "convex:codegen": "bunx convex codegen",
     "test": "bun test",

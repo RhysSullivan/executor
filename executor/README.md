@@ -7,9 +7,10 @@ Prototype executor control plane for running AI-generated code with tool-call ap
 - `apps/server`: Bun server with:
   - task execution API
   - per-tool-call approval API
-  - task event stream (SSE)
+  - internal runtime callback API
   - Convex-backed task and approval history
   - pluggable sandbox runtime interface
+  - separate worker process for queue execution
 - `apps/web`: web interface for:
   - pending approvals
   - task history
@@ -136,6 +137,12 @@ Terminal 2:
 bun run dev
 ```
 
-Server defaults to `http://localhost:4001`.
+Terminal 3:
+
+```bash
+bun run dev:worker
+```
+
+Server defaults to `http://localhost:4001`. Worker is required unless `EXECUTOR_SERVER_AUTO_EXECUTE=1`.
 
 `dev:convex` runs `convex dev --local`, so persistence stays local (no cloud deployment).

@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
   Play,
-  RefreshCw,
   ChevronRight,
   X,
   Send,
@@ -26,13 +25,11 @@ import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useSession } from "@/lib/session-context";
-import { usePoll } from "@/hooks/use-poll";
-import * as api from "@/lib/api";
+import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
+import { useMutation, useQuery } from "convex/react";
+import { convexApi } from "@/lib/convex-api";
 import type {
   TaskRecord,
-  RuntimeTargetDescriptor,
-  TaskEventRecord,
-  ToolDescriptor,
 } from "@/lib/types";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -69,35 +66,23 @@ function formatDate(ts: number) {
 
 // ── Task Composer ──
 
-function TaskComposer({ onCreated }: { onCreated: () => void }) {
+function TaskComposer() {
   const { context } = useSession();
   const [code, setCode] = useState(DEFAULT_CODE);
   const [runtimeId, setRuntimeId] = useState("local-bun");
   const [timeoutMs, setTimeoutMs] = useState("15000");
   const [submitting, setSubmitting] = useState(false);
+  const createTask = useMutation(convexApi.database.createTask);
 
-  const { data: runtimes } = usePoll({
-    fetcher: api.listRuntimeTargets,
-    interval: 30000,
-    enabled: !!context,
-  });
-
-  const { data: tools } = usePoll({
-    fetcher: () =>
-      api.listToolsForContext({
-        workspaceId: context!.workspaceId,
-        actorId: context!.actorId,
-        clientId: context!.clientId,
-      }),
-    enabled: !!context,
-    interval: 10000,
-  });
+  const runtimes = useQuery(convexApi.database.listRuntimeTargets, {});
+  const { tools } = useWorkspaceTools(context ?? null);
 
   const handleSubmit = async () => {
     if (!context || !code.trim()) return;
     setSubmitting(true);
     try {
-      const result = await api.createTask({
+      const task = await createTask({
+        id: `task_${crypto.randomUUID()}`,
         code,
         runtimeId,
         timeoutMs: parseInt(timeoutMs) || 15000,
@@ -105,8 +90,7 @@ function TaskComposer({ onCreated }: { onCreated: () => void }) {
         actorId: context.actorId,
         clientId: context.clientId,
       });
-      toast.success(`Task created: ${result.taskId}`);
-      onCreated();
+      toast.success(`Task created: ${task.id}`);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to create task",
@@ -231,49 +215,35 @@ function TaskDetail({
   workspaceId: string;
   onClose: () => void;
 }) {
-  const [liveTask, setLiveTask] = useState(task);
-  const [liveStdout, setLiveStdout] = useState(task.stdout ?? "");
-  const [liveStderr, setLiveStderr] = useState(task.stderr ?? "");
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const liveTaskData = useQuery(
+    convexApi.database.getTaskInWorkspace,
+    workspaceId ? { taskId: task.id, workspaceId } : "skip",
+  );
+  const taskEvents = useQuery(
+    convexApi.database.listTaskEvents,
+    workspaceId ? { taskId: task.id } : "skip",
+  );
 
-  useEffect(() => {
-    setLiveTask(task);
-    setLiveStdout(task.stdout ?? "");
-    setLiveStderr(task.stderr ?? "");
-  }, [task]);
+  const liveTask = liveTaskData ?? task;
+  const liveStdout = useMemo(() => {
+    const stdoutLines = (taskEvents ?? [])
+      .filter((event) => event.type === "task.stdout")
+      .map((event) => String((event.payload as Record<string, unknown>)?.line ?? ""));
+    if (stdoutLines.length > 0) {
+      return stdoutLines.join("\n");
+    }
+    return liveTask.stdout ?? "";
+  }, [taskEvents, liveTask.stdout]);
 
-  useEffect(() => {
-    const isTerminal = ["completed", "failed", "timed_out", "denied"].includes(
-      liveTask.status,
-    );
-    if (isTerminal) return;
-
-    const source = api.subscribeToTaskEvents(
-      task.id,
-      workspaceId,
-      (_eventName: string, event: TaskEventRecord) => {
-        const payload = event.payload as Record<string, unknown>;
-        if (event.type === "task.completed" || event.type === "task.failed" || event.type === "task.timed_out" || event.type === "task.denied") {
-          // Refetch full task
-          api.getTask(task.id, workspaceId).then(setLiveTask);
-        }
-        if (event.type === "task.running") {
-          setLiveTask((prev) => ({ ...prev, status: "running" }));
-        }
-        if (event.type === "task.stdout") {
-          setLiveStdout((prev) => prev + (payload.line as string) + "\n");
-        }
-        if (event.type === "task.stderr") {
-          setLiveStderr((prev) => prev + (payload.line as string) + "\n");
-        }
-      },
-    );
-    eventSourceRef.current = source;
-
-    return () => {
-      source.close();
-    };
-  }, [task.id, workspaceId, liveTask.status]);
+  const liveStderr = useMemo(() => {
+    const stderrLines = (taskEvents ?? [])
+      .filter((event) => event.type === "task.stderr")
+      .map((event) => String((event.payload as Record<string, unknown>)?.line ?? ""));
+    if (stderrLines.length > 0) {
+      return stderrLines.join("\n");
+    }
+    return liveTask.stderr ?? "";
+  }, [taskEvents, liveTask.stderr]);
 
   const duration =
     liveTask.completedAt && liveTask.startedAt
@@ -384,14 +354,11 @@ export function TasksView() {
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("selected");
 
-  const {
-    data: tasks,
-    loading: tasksLoading,
-    refresh,
-  } = usePoll({
-    fetcher: () => api.listTasks(context!.workspaceId),
-    enabled: !!context,
-  });
+  const tasks = useQuery(
+    convexApi.database.listTasks,
+    context ? { workspaceId: context.workspaceId } : "skip",
+  );
+  const tasksLoading = !!context && tasks === undefined;
 
   const selectedTask = tasks?.find((t) => t.id === selectedId);
 
@@ -420,22 +387,12 @@ export function TasksView() {
       <PageHeader
         title="Tasks"
         description="Execute code and manage task history"
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs"
-          onClick={refresh}
-        >
-          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-          Refresh
-        </Button>
-      </PageHeader>
+      />
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Left: composer + list */}
         <div className="space-y-6">
-          <TaskComposer onCreated={refresh} />
+          <TaskComposer />
 
           <Card className="bg-card border-border">
             <CardHeader className="pb-3">

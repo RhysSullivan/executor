@@ -27,7 +27,21 @@ Terminal 2:
 bun run --cwd executor dev
 ```
 
+Terminal 3:
+
+```bash
+bun run --cwd executor dev:worker
+```
+
+Terminal 4:
+
+```bash
+bun run --cwd executor dev:web
+```
+
 This starts:
 
-- Executor API server (task execution, approvals, Convex storage)
+- Local Convex backend
+- Executor API server (control plane + internal runtime callbacks)
+- Executor worker (queued task execution)
 - Executor web UI (pending approvals + task history)

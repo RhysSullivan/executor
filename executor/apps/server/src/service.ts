@@ -30,10 +30,6 @@ import type {
   ToolRunContext,
 } from "./types";
 
-interface ApprovalWaiter {
-  resolve: (decision: Exclude<ApprovalStatus, "pending">) => void;
-}
-
 function createTaskId(): string {
   return `task_${crypto.randomUUID()}`;
 }
@@ -117,18 +113,21 @@ export class ExecutorService {
     string,
     { signature: string; loadedAt: number; tools: Map<string, ToolDefinition> }
   >();
+  private readonly workspaceToolInventorySignatures = new Map<string, string>();
   private readonly workspaceToolLoadWarnings = new Map<string, string[]>();
   private readonly inFlightTaskIds = new Set<string>();
-  private readonly approvalWaiters = new Map<string, ApprovalWaiter>();
+  private readonly autoExecuteTasks: boolean;
 
   constructor(
     db: ExecutorDatabase,
     hub: TaskEventHub,
     runtimes: SandboxRuntime[],
     tools: ToolDefinition[],
+    options?: { autoExecuteTasks?: boolean },
   ) {
     this.db = db;
     this.hub = hub;
+    this.autoExecuteTasks = options?.autoExecuteTasks ?? true;
     for (const runtime of runtimes) {
       this.runtimes.set(runtime.id, runtime);
     }
@@ -139,6 +138,14 @@ export class ExecutorService {
 
   async listTasks(workspaceId: string): Promise<TaskRecord[]> {
     return await this.db.listTasks(workspaceId);
+  }
+
+  async listQueuedTaskIds(limit = 20): Promise<string[]> {
+    return await this.db.listQueuedTaskIds(limit);
+  }
+
+  async runTask(taskId: string): Promise<void> {
+    await this.executeTask(taskId);
   }
 
   async getTask(taskId: string, workspaceId?: string): Promise<TaskRecord | null> {
@@ -334,7 +341,9 @@ export class ExecutorService {
       status: "queued",
     });
 
-    void this.executeTask(task.id);
+    if (this.autoExecuteTasks) {
+      void this.executeTask(task.id);
+    }
     return { task };
   }
 
@@ -370,12 +379,6 @@ export class ExecutorService {
       reason: approval.reason,
       resolvedAt: approval.resolvedAt,
     });
-
-    const waiter = this.approvalWaiters.get(approval.id);
-    if (waiter) {
-      this.approvalWaiters.delete(approval.id);
-      waiter.resolve(approval.status as "approved" | "denied");
-    }
 
     const task = await this.db.getTask(approval.taskId);
     if (!task) {
@@ -443,18 +446,18 @@ export class ExecutorService {
   }
 
   private async waitForApproval(approvalId: string): Promise<"approved" | "denied"> {
-    const approval = await this.db.getApproval(approvalId);
-    if (!approval) {
-      throw new Error(`Approval ${approvalId} not found`);
-    }
+    while (true) {
+      const approval = await this.db.getApproval(approvalId);
+      if (!approval) {
+        throw new Error(`Approval ${approvalId} not found`);
+      }
 
-    if (approval.status !== "pending") {
-      return approval.status as "approved" | "denied";
-    }
+      if (approval.status !== "pending") {
+        return approval.status as "approved" | "denied";
+      }
 
-    return await new Promise<"approved" | "denied">((resolve) => {
-      this.approvalWaiters.set(approvalId, { resolve });
-    });
+      await Bun.sleep(600);
+    }
   }
 
   private async getWorkspaceTools(workspaceId: string): Promise<Map<string, ToolDefinition>> {
@@ -462,6 +465,9 @@ export class ExecutorService {
     const signature = sourceSignature(workspaceId, sources);
     const cached = this.workspaceToolCache.get(workspaceId);
     if (cached && cached.signature === signature) {
+      if (this.workspaceToolInventorySignatures.get(workspaceId) !== signature) {
+        await this.syncWorkspaceToolInventory(workspaceId, cached.tools, signature);
+      }
       return cached.tools;
     }
 
@@ -498,7 +504,31 @@ export class ExecutorService {
       loadedAt: Date.now(),
       tools: merged,
     });
+
+    await this.syncWorkspaceToolInventory(workspaceId, merged, signature);
+
     return merged;
+  }
+
+  private async syncWorkspaceToolInventory(
+    workspaceId: string,
+    tools: Map<string, ToolDefinition>,
+    signature: string,
+  ): Promise<void> {
+    const inventory = [...tools.values()].map((tool) => ({
+      path: tool.path,
+      description: tool.description,
+      approval: tool.approval,
+      source: tool.source,
+      argsType: tool.metadata?.argsType,
+      returnsType: tool.metadata?.returnsType,
+    }));
+
+    await this.db.syncWorkspaceTools({
+      workspaceId,
+      tools: inventory,
+    });
+    this.workspaceToolInventorySignatures.set(workspaceId, signature);
   }
 
   private getToolDecision(

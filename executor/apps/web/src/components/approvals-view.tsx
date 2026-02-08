@@ -4,19 +4,17 @@ import { useState } from "react";
 import {
   ShieldCheck,
   ShieldX,
-  RefreshCw,
   CheckCircle2,
   Clock,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useSession } from "@/lib/session-context";
-import { usePoll } from "@/hooks/use-poll";
-import * as api from "@/lib/api";
+import { convexApi } from "@/lib/convex-api";
+import { useMutation, useQuery } from "convex/react";
 import type { PendingApprovalRecord } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -29,12 +27,11 @@ function formatTimeAgo(ts: number) {
 
 function ApprovalCard({
   approval,
-  onResolve,
 }: {
   approval: PendingApprovalRecord;
-  onResolve: () => void;
 }) {
   const { context } = useSession();
+  const resolveApproval = useMutation(convexApi.database.resolveApproval);
   const [resolving, setResolving] = useState<"approved" | "denied" | null>(
     null,
   );
@@ -43,8 +40,8 @@ function ApprovalCard({
     if (!context) return;
     setResolving(decision);
     try {
-      await api.resolveApproval(approval.id, {
-        workspaceId: context.workspaceId,
+      await resolveApproval({
+        approvalId: approval.id,
         decision,
         reviewerId: context.actorId,
       });
@@ -53,7 +50,6 @@ function ApprovalCard({
           ? `Approved: ${approval.toolPath}`
           : `Denied: ${approval.toolPath}`,
       );
-      onResolve();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to resolve");
     } finally {
@@ -135,15 +131,11 @@ function ApprovalCard({
 export function ApprovalsView() {
   const { context, loading: sessionLoading } = useSession();
 
-  const {
-    data: approvals,
-    loading: approvalsLoading,
-    refresh,
-  } = usePoll({
-    fetcher: () => api.listPendingApprovals(context!.workspaceId),
-    enabled: !!context,
-    interval: 3000,
-  });
+  const approvals = useQuery(
+    convexApi.database.listPendingApprovals,
+    context ? { workspaceId: context.workspaceId } : "skip",
+  );
+  const approvalsLoading = !!context && approvals === undefined;
 
   if (sessionLoading) {
     return (
@@ -165,17 +157,7 @@ export function ApprovalsView() {
       <PageHeader
         title="Approvals"
         description="Review and approve pending tool calls"
-      >
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs"
-          onClick={refresh}
-        >
-          <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-          Refresh
-        </Button>
-      </PageHeader>
+      />
 
       {approvalsLoading ? (
         <div className="space-y-4">
@@ -204,7 +186,7 @@ export function ApprovalsView() {
             {count} pending approval{count !== 1 ? "s" : ""}
           </div>
           {approvals!.map((a) => (
-            <ApprovalCard key={a.id} approval={a} onResolve={refresh} />
+            <ApprovalCard key={a.id} approval={a} />
           ))}
         </div>
       )}

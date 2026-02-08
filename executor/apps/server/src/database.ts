@@ -11,6 +11,7 @@ import type {
   TaskEventRecord,
   TaskRecord,
   TaskStatus,
+  ToolDescriptor,
   ToolSourceRecord,
 } from "./types";
 
@@ -26,12 +27,15 @@ type MutationName =
   | "database:upsertAccessPolicy"
   | "database:upsertCredential"
   | "database:upsertToolSource"
+  | "database:syncWorkspaceTools"
   | "database:deleteToolSource"
   | "database:createTaskEvent";
 
 type QueryName =
   | "database:getTask"
   | "database:listTasks"
+  | "database:listQueuedTaskIds"
+  | "database:listRuntimeTargets"
   | "database:getTaskInWorkspace"
   | "database:getApproval"
   | "database:listApprovals"
@@ -41,6 +45,7 @@ type QueryName =
   | "database:listCredentials"
   | "database:resolveCredential"
   | "database:listToolSources"
+  | "database:listWorkspaceToolsForContext"
   | "database:listTaskEvents";
 
 export class ExecutorDatabase {
@@ -83,6 +88,14 @@ export class ExecutorDatabase {
 
   async listTasks(workspaceId: string): Promise<TaskRecord[]> {
     return await this.query("database:listTasks", { workspaceId });
+  }
+
+  async listQueuedTaskIds(limit = 20): Promise<string[]> {
+    return await this.query("database:listQueuedTaskIds", { limit });
+  }
+
+  async listRuntimeTargets(): Promise<Array<{ id: string; label: string; description: string }>> {
+    return await this.query("database:listRuntimeTargets", {});
   }
 
   async getTaskInWorkspace(taskId: string, workspaceId: string): Promise<TaskRecord | null> {
@@ -195,6 +208,21 @@ export class ExecutorDatabase {
 
   async listToolSources(workspaceId: string): Promise<ToolSourceRecord[]> {
     return await this.query("database:listToolSources", { workspaceId });
+  }
+
+  async syncWorkspaceTools(params: {
+    workspaceId: string;
+    tools: ToolDescriptor[];
+  }): Promise<boolean> {
+    return await this.mutation("database:syncWorkspaceTools", params);
+  }
+
+  async listWorkspaceToolsForContext(params: {
+    workspaceId: string;
+    actorId?: string;
+    clientId?: string;
+  }): Promise<ToolDescriptor[]> {
+    return await this.query("database:listWorkspaceToolsForContext", params);
   }
 
   async deleteToolSource(workspaceId: string, sourceId: string): Promise<boolean> {

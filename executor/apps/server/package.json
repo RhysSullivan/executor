@@ -10,6 +10,7 @@
   },
   "scripts": {
     "dev": "bun --hot src/index.ts",
+    "worker": "bun --hot src/worker.ts",
     "start": "bun src/index.ts",
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit"

@@ -9,6 +9,7 @@ import type {
   PendingApprovalRecord,
   TaskEventRecord,
   TaskRecord,
+  ToolDescriptor,
   ToolSourceRecord,
   SandboxExecutionRequest,
   SandboxExecutionResult,
@@ -207,6 +208,14 @@ class TestExecutorDatabase extends ExecutorDatabase {
     return [];
   }
 
+  async syncWorkspaceTools(): Promise<boolean> {
+    return true;
+  }
+
+  async listWorkspaceToolsForContext(): Promise<ToolDescriptor[]> {
+    return [];
+  }
+
   async listAccessPolicies(_workspaceId: string): Promise<AccessPolicyRecord[]> {
     return [];
   }
@@ -317,8 +326,12 @@ test("tool-level approval gates individual function call", async () => {
   const resolved = await service.resolveApproval("ws_test", approvals[0]!.id, "approved", "test-user");
   expect(resolved).toBeTruthy();
 
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const task = await service.getTask(created.task.id);
+  let task = await service.getTask(created.task.id);
+  const waitUntil = Date.now() + 2_000;
+  while (task?.status !== "completed" && Date.now() < waitUntil) {
+    await Bun.sleep(25);
+    task = await service.getTask(created.task.id);
+  }
 
   expect(task?.status).toBe("completed");
   expect((await service.listApprovals("ws_test", "approved")).length).toBe(1);

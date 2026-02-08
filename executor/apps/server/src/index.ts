@@ -20,7 +20,7 @@ import type {
 const port = Number(Bun.env.PORT ?? "4001");
 const autoFunnelEnabled = Bun.env.EXECUTOR_AUTO_TAILSCALE_FUNNEL !== "0";
 const explicitInternalBaseUrl = Bun.env.EXECUTOR_INTERNAL_BASE_URL ?? Bun.env.EXECUTOR_PUBLIC_BASE_URL;
-const generatedInternalToken = Bun.env.EXECUTOR_INTERNAL_TOKEN ?? `executor_internal_${crypto.randomUUID()}`;
+const generatedInternalToken = Bun.env.EXECUTOR_INTERNAL_TOKEN ?? "executor_internal_local_dev_token";
 const internalToken = generatedInternalToken;
 
 let internalBaseUrl = explicitInternalBaseUrl ?? `http://127.0.0.1:${port}`;
@@ -60,7 +60,9 @@ const service = new ExecutorService(new ExecutorDatabase(), new TaskEventHub(), 
     internalToken,
     runtime: Bun.env.EXECUTOR_VERCEL_SANDBOX_RUNTIME as "node24" | "node22" | undefined,
   }),
-], tools);
+], tools, {
+  autoExecuteTasks: Bun.env.EXECUTOR_SERVER_AUTO_EXECUTE === "1",
+});
 
 const jsonHeaders = {
   "content-type": "application/json; charset=utf-8",
@@ -527,3 +529,4 @@ console.log(`executor server listening on http://localhost:${server.port}`);
 console.log(`[executor] internal callback base: ${internalBaseUrl} (${internalBaseSource})`);
 console.log(`[executor] internal callback auth token enabled: yes`);
 console.log(`[executor] tools loaded: ${tools.length} (${externalTools.length} external)`);
+console.log(`[executor] server auto execute enabled: ${Bun.env.EXECUTOR_SERVER_AUTO_EXECUTE === "1" ? "yes" : "no"}`);

@@ -16,8 +16,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useSession } from "@/lib/session-context";
-import { usePoll } from "@/hooks/use-poll";
-import * as api from "@/lib/api";
+import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
+import { useQuery } from "convex/react";
+import { convexApi } from "@/lib/convex-api";
 import type { TaskRecord, PendingApprovalRecord } from "@/lib/types";
 
 function formatTime(ts: number) {
@@ -118,26 +119,17 @@ function RecentTaskRow({ task }: { task: TaskRecord }) {
 export function DashboardView() {
   const { context, loading: sessionLoading } = useSession();
 
-  const { data: tasks } = usePoll({
-    fetcher: () => api.listTasks(context!.workspaceId),
-    enabled: !!context,
-  });
+  const tasks = useQuery(
+    convexApi.database.listTasks,
+    context ? { workspaceId: context.workspaceId } : "skip",
+  );
 
-  const { data: approvals } = usePoll({
-    fetcher: () => api.listPendingApprovals(context!.workspaceId),
-    enabled: !!context,
-  });
+  const approvals = useQuery(
+    convexApi.database.listPendingApprovals,
+    context ? { workspaceId: context.workspaceId } : "skip",
+  );
 
-  const { data: tools } = usePoll({
-    fetcher: () =>
-      api.listToolsForContext({
-        workspaceId: context!.workspaceId,
-        actorId: context!.actorId,
-        clientId: context!.clientId,
-      }),
-    enabled: !!context,
-    interval: 10000,
-  });
+  const { tools } = useWorkspaceTools(context ?? null);
 
   if (sessionLoading) {
     return (

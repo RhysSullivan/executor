@@ -8,7 +8,8 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
-import { bootstrapAnonymousContext } from "./api";
+import { useMutation } from "convex/react";
+import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
 
 interface SessionState {
@@ -28,6 +29,7 @@ const SessionContext = createContext<SessionState>({
 const SESSION_KEY = "executor_session_id";
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const bootstrapAnonymousSession = useMutation(convexApi.database.bootstrapAnonymousSession);
   const [context, setContext] = useState<AnonymousContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +38,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const ctx = await bootstrapAnonymousContext(sessionId);
+      const ctx = await bootstrapAnonymousSession({ sessionId });
       localStorage.setItem(SESSION_KEY, ctx.sessionId);
       setContext(ctx);
     } catch (err) {
@@ -44,7 +46,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [bootstrapAnonymousSession]);
 
   useEffect(() => {
     const stored = localStorage.getItem(SESSION_KEY);

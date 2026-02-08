@@ -22,7 +22,8 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_task_id", ["taskId"])
-    .index("by_workspace_created", ["workspaceId", "createdAt"]),
+    .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_status_created", ["status", "createdAt"]),
 
   approvals: defineTable({
     approvalId: v.string(),
@@ -105,4 +106,17 @@ export default defineSchema({
   })
     .index("by_session_id", ["sessionId"])
     .index("by_workspace_actor", ["workspaceId", "actorId"]),
+
+  workspaceTools: defineTable({
+    workspaceId: v.string(),
+    path: v.string(),
+    description: v.string(),
+    approval: v.string(),
+    source: v.optional(v.string()),
+    argsType: v.optional(v.string()),
+    returnsType: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace_updated", ["workspaceId", "updatedAt"])
+    .index("by_workspace_path", ["workspaceId", "path"]),
 });

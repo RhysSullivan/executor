@@ -42,8 +42,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { useSession } from "@/lib/session-context";
-import { usePoll } from "@/hooks/use-poll";
-import * as api from "@/lib/api";
+import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
+import { useMutation, useQuery } from "convex/react";
+import { convexApi } from "@/lib/convex-api";
 import type { ToolSourceRecord, ToolDescriptor } from "@/lib/types";
 import { parse as parseDomain } from "tldts";
 import { toast } from "sonner";
@@ -258,6 +259,7 @@ function AddSourceDialog({
   existingSourceNames: Set<string>;
 }) {
   const { context } = useSession();
+  const upsertToolSource = useMutation(convexApi.database.upsertToolSource);
   const [open, setOpen] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [type, setType] = useState<"mcp" | "openapi" | "graphql">("mcp");
@@ -301,22 +303,13 @@ function AddSourceDialog({
     config: Record<string, unknown>,
   ) => {
     if (!context) return;
-    const result = await api.upsertToolSource({
+    await upsertToolSource({
       workspaceId: context.workspaceId,
       name: sourceName,
       type: sourceType,
       config,
     });
-    const warnings = (result as unknown as Record<string, unknown>)
-      .warnings as string[] | undefined;
-    if (warnings && warnings.length > 0) {
-      toast.warning(`Source "${sourceName}" saved but had issues`, {
-        description: warnings.join("\n"),
-        duration: 10000,
-      });
-    } else {
-      toast.success(`Source "${sourceName}" added`);
-    }
+    toast.success(`Source "${sourceName}" added`);
   };
 
   const handlePresetAdd = async (preset: ApiPreset) => {
@@ -546,13 +539,14 @@ function SourceCard({
   onDeleted: () => void;
 }) {
   const { context } = useSession();
+  const deleteToolSource = useMutation(convexApi.database.deleteToolSource);
   const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
     if (!context) return;
     setDeleting(true);
     try {
-      await api.deleteToolSource(context.workspaceId, source.id);
+      await deleteToolSource({ workspaceId: context.workspaceId, sourceId: source.id });
       toast.success(`Removed "${source.name}"`);
       onDeleted();
     } catch (err) {
@@ -683,35 +677,13 @@ function ToolInventory({ tools }: { tools: ToolDescriptor[] }) {
 export function ToolsView() {
   const { context, loading: sessionLoading } = useSession();
 
-  const {
-    data: sources,
-    loading: sourcesLoading,
-    refresh: refreshSources,
-  } = usePoll({
-    fetcher: () => api.listToolSources(context!.workspaceId),
-    enabled: !!context,
-    interval: 10000,
-  });
+  const sources = useQuery(
+    convexApi.database.listToolSources,
+    context ? { workspaceId: context.workspaceId } : "skip",
+  );
+  const sourcesLoading = !!context && sources === undefined;
 
-  const {
-    data: tools,
-    loading: toolsLoading,
-    refresh: refreshTools,
-  } = usePoll({
-    fetcher: () =>
-      api.listToolsForContext({
-        workspaceId: context!.workspaceId,
-        actorId: context!.actorId,
-        clientId: context!.clientId,
-      }),
-    enabled: !!context,
-    interval: 10000,
-  });
-
-  const refreshAll = () => {
-    refreshSources();
-    refreshTools();
-  };
+  const { tools, loading: toolsLoading, refresh: refreshInventory } = useWorkspaceTools(context ?? null);
 
   if (sessionLoading) {
     return (
@@ -732,7 +704,7 @@ export function ToolsView() {
           variant="outline"
           size="sm"
           className="h-8 text-xs"
-          onClick={refreshAll}
+          onClick={() => void refreshInventory()}
         >
           <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
           Refresh
@@ -767,7 +739,7 @@ export function ToolsView() {
                   <Server className="h-4 w-4 text-muted-foreground" />
                   Tool Sources
                 </CardTitle>
-                <AddSourceDialog onAdded={refreshAll} existingSourceNames={new Set((sources ?? []).map(s => s.name))} />
+                <AddSourceDialog onAdded={() => void refreshInventory()} existingSourceNames={new Set((sources ?? []).map(s => s.name))} />
               </div>
             </CardHeader>
             <CardContent className="pt-0">
@@ -792,7 +764,7 @@ export function ToolsView() {
               ) : (
                 <div className="space-y-2">
                   {sources.map((s) => (
-                    <SourceCard key={s.id} source={s} onDeleted={refreshAll} />
+                    <SourceCard key={s.id} source={s} onDeleted={() => void refreshInventory()} />
                   ))}
                 </div>
               )}
