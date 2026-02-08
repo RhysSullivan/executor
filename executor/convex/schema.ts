@@ -1,16 +1,32 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const accountProvider = v.union(v.literal("workos"), v.literal("anonymous"));
+const accountStatus = v.union(v.literal("active"), v.literal("deleted"));
+const organizationStatus = v.union(v.literal("active"), v.literal("deleted"));
+const orgRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"), v.literal("billing_admin"));
+const orgMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
+const workspaceMemberRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"));
+const workspaceMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
+const inviteStatus = v.union(
+  v.literal("pending"),
+  v.literal("accepted"),
+  v.literal("expired"),
+  v.literal("revoked"),
+  v.literal("failed"),
+);
+const inviteProvider = v.literal("workos");
+
 export default defineSchema({
   accounts: defineTable({
-    provider: v.string(),
+    provider: accountProvider,
     providerAccountId: v.string(),
     email: v.string(),
     name: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
-    status: v.string(),
+    status: accountStatus,
     createdAt: v.number(),
     updatedAt: v.number(),
     lastLoginAt: v.optional(v.number()),
@@ -39,7 +55,7 @@ export default defineSchema({
     workosOrgId: v.optional(v.string()),
     slug: v.string(),
     name: v.string(),
-    status: v.string(),
+    status: organizationStatus,
     createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -51,8 +67,8 @@ export default defineSchema({
   organizationMembers: defineTable({
     organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
-    role: v.string(),
-    status: v.string(),
+    role: orgRole,
+    status: orgMemberStatus,
     billable: v.boolean(),
     invitedByAccountId: v.optional(v.id("accounts")),
     joinedAt: v.optional(v.number()),
@@ -68,37 +84,26 @@ export default defineSchema({
   workspaceMembers: defineTable({
     workspaceId: v.id("workspaces"),
     accountId: v.id("accounts"),
-    role: v.string(),
-    status: v.string(),
+    workosOrgMembershipId: v.optional(v.string()),
+    role: workspaceMemberRole,
+    status: workspaceMemberStatus,
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_account", ["workspaceId", "accountId"])
     .index("by_account", ["accountId"])
-    .index("by_workspace_status", ["workspaceId", "status"]),
-
-  accountIdentities: defineTable({
-    accountId: v.id("accounts"),
-    provider: v.string(),
-    providerUserId: v.string(),
-    providerEmail: v.optional(v.string()),
-    rawClaims: v.optional(v.any()),
-    lastLoginAt: v.optional(v.number()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_account", ["accountId"])
-    .index("by_provider_user", ["provider", "providerUserId"]),
+    .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_workos_membership_id", ["workosOrgMembershipId"]),
 
   invites: defineTable({
     organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
     email: v.string(),
-    role: v.string(),
-    status: v.string(),
+    role: orgRole,
+    status: inviteStatus,
     tokenHash: v.string(),
-    provider: v.string(),
+    provider: inviteProvider,
     providerInviteId: v.optional(v.string()),
     invitedByAccountId: v.id("accounts"),
     expiresAt: v.number(),
@@ -145,20 +150,6 @@ export default defineSchema({
     syncError: v.optional(v.string()),
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
-
-  users: defineTable({
-    workspaceId: v.id("workspaces"),
-    accountId: v.id("accounts"),
-    workosOrgMembershipId: v.optional(v.string()),
-    role: v.string(),
-    status: v.string(),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_workspace_account", ["workspaceId", "accountId"])
-    .index("by_account", ["accountId"])
-    .index("by_workspace", ["workspaceId"])
-    .index("by_workos_membership_id", ["workosOrgMembershipId"]),
 
   tasks: defineTable({
     taskId: v.string(),
@@ -277,8 +268,7 @@ export default defineSchema({
     actorId: v.string(),
     clientId: v.string(),
     accountId: v.optional(v.id("accounts")),
-    workspaceDocId: v.optional(v.id("workspaces")),
-    userId: v.optional(v.id("users")),
+    userId: v.optional(v.id("workspaceMembers")),
     createdAt: v.number(),
     lastSeenAt: v.number(),
   })

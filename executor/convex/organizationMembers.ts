@@ -3,6 +3,13 @@ import { internal } from "./_generated/api";
 import { getOrganizationMembership } from "./lib/identity";
 import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
 
+const organizationRoleValidator = v.union(
+  v.literal("owner"),
+  v.literal("admin"),
+  v.literal("member"),
+  v.literal("billing_admin"),
+);
+
 export const list = organizationQuery({
   args: {},
   handler: async (ctx) => {
@@ -36,7 +43,7 @@ export const list = organizationQuery({
 export const updateRole = organizationMutation({
   args: {
     accountId: v.id("accounts"),
-    role: v.string(),
+    role: organizationRoleValidator,
   },
   requireAdmin: true,
   handler: async (ctx, args) => {

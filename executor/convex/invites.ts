@@ -7,6 +7,14 @@ import { authedMutation, organizationMutation, organizationQuery } from "./lib/f
 
 const workosEnabled = Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY);
 const workosClient = process.env.WORKOS_API_KEY ? new WorkOS(process.env.WORKOS_API_KEY) : null;
+type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
+
+const organizationRoleValidator = v.union(
+  v.literal("owner"),
+  v.literal("admin"),
+  v.literal("member"),
+  v.literal("billing_admin"),
+);
 
 async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
@@ -65,7 +73,7 @@ async function revokeWorkosInvitation(invitationId: string): Promise<void> {
   await workos.userManagement.revokeInvitation(invitationId);
 }
 
-function mapRoleToWorkosRoleSlug(role: string): string | undefined {
+function mapRoleToWorkosRoleSlug(role: OrganizationRole): string | undefined {
   if (role === "admin" || role === "owner") {
     return "admin";
   }
@@ -103,7 +111,7 @@ export const create = organizationMutation({
   requireAdmin: true,
   args: {
     email: v.string(),
-    role: v.string(),
+    role: organizationRoleValidator,
     workspaceId: v.optional(v.id("workspaces")),
     expiresInDays: v.optional(v.number()),
   },
@@ -123,17 +131,10 @@ export const create = organizationMutation({
       }
     }
 
-    const inviterWorkosUserId = ctx.account.provider === "workos"
-      ? ctx.account.providerAccountId
-      : (await ctx.db
-          .query("accountIdentities")
-          .withIndex("by_account", (q) => q.eq("accountId", ctx.account._id))
-          .filter((q) => q.eq(q.field("provider"), "workos"))
-          .first())?.providerUserId;
-
-    if (!inviterWorkosUserId) {
+    if (ctx.account.provider !== "workos") {
       throw new Error("Inviter is not linked to WorkOS");
     }
+    const inviterWorkosUserId = ctx.account.providerAccountId;
 
     const token = `invite_${crypto.randomUUID()}`;
     const tokenHash = await sha256Hex(token);

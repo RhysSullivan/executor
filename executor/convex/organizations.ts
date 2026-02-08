@@ -11,7 +11,6 @@ type WorkspaceSummary = {
   name: string;
   slug: string;
   iconUrl: string | null;
-  runtimeWorkspaceId: string;
 };
 
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
@@ -36,7 +35,6 @@ async function mapWorkspaceWithIcon(
     name: workspace.name,
     slug: workspace.slug,
     iconUrl,
-    runtimeWorkspaceId: workspace._id,
   };
 }
 
@@ -152,8 +150,8 @@ export const getNavigationState = optionalAccountQuery({
           .query("anonymousSessions")
           .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
           .unique();
-        if (anonymousSession?.workspaceDocId) {
-          const workspace = await ctx.db.get(anonymousSession.workspaceDocId);
+        if (anonymousSession?.workspaceId) {
+          const workspace = await ctx.db.get(anonymousSession.workspaceId);
           if (workspace) {
             workspaces.push(await mapWorkspaceWithIcon(ctx, workspace));
           }
@@ -162,7 +160,7 @@ export const getNavigationState = optionalAccountQuery({
 
       return {
         currentOrganizationId: workspaces[0]?.organizationId ?? null,
-        currentWorkspaceId: workspaces[0]?.runtimeWorkspaceId ?? null,
+        currentWorkspaceId: workspaces[0]?.id ?? null,
         organizations,
         workspaces,
       };
@@ -199,12 +197,12 @@ export const getNavigationState = optionalAccountQuery({
     }
 
     const uniqueWorkspaces = Array.from(
-      new Map(workspaces.map((workspace) => [workspace.runtimeWorkspaceId, workspace])).values(),
+      new Map(workspaces.map((workspace) => [workspace.id, workspace])).values(),
     );
 
     return {
       currentOrganizationId: organizations[0]?.id ?? null,
-      currentWorkspaceId: uniqueWorkspaces[0]?.runtimeWorkspaceId ?? null,
+      currentWorkspaceId: uniqueWorkspaces[0]?.id ?? null,
       organizations,
       workspaces: uniqueWorkspaces,
     };

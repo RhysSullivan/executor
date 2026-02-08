@@ -9,6 +9,8 @@ import { ensureUniqueSlug } from "./lib/slug";
 type DbCtx = Pick<MutationCtx, "db">;
 type RunQueryCtx = Pick<MutationCtx, "runQuery">;
 type WorkosEventCtx = Pick<MutationCtx, "db" | "runQuery">;
+type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
+type OrganizationMemberStatus = "active" | "pending" | "removed";
 
 const workosEnabled = Boolean(
   process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,
@@ -81,8 +83,8 @@ async function upsertOrganizationMembership(
   args: {
     organizationId: Id<"organizations">;
     accountId: Id<"accounts">;
-    role: string;
-    status: string;
+    role: OrganizationRole;
+    status: OrganizationMemberStatus;
     billable: boolean;
     invitedByAccountId?: Id<"accounts">;
     now: number;
@@ -153,7 +155,7 @@ async function ensurePersonalWorkspace(
   opts: { email: string; firstName?: string; workosUserId: string; now: number; workspaceName?: string },
 ) {
   const memberships = await ctx.db
-    .query("users")
+    .query("workspaceMembers")
     .withIndex("by_account", (q) => q.eq("accountId", accountId))
     .collect();
 
@@ -204,7 +206,7 @@ async function ensurePersonalWorkspace(
     now: opts.now,
   });
 
-  const userId = await ctx.db.insert("users", {
+  const userId = await ctx.db.insert("workspaceMembers", {
     workspaceId,
     accountId,
     role: "owner",
@@ -305,7 +307,7 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
     if (!account) return;
 
     const memberships = await ctx.db
-      .query("users")
+      .query("workspaceMembers")
       .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .collect();
     for (const membership of memberships) {
@@ -394,7 +396,7 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
     if (!workspace) return;
 
     const members = await ctx.db
-      .query("users")
+      .query("workspaceMembers")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
       .collect();
     for (const member of members) {
@@ -428,7 +430,7 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
     const organizationId = workspace.organizationId;
 
     const existing = await ctx.db
-      .query("users")
+      .query("workspaceMembers")
       .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
       .unique();
 
@@ -463,7 +465,7 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
       return;
     }
 
-    await ctx.db.insert("users", {
+    await ctx.db.insert("workspaceMembers", {
       workspaceId: workspace._id,
       accountId: account._id,
       workosOrgMembershipId: event.data.id,
@@ -487,7 +489,7 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
     };
 
     let membership = await ctx.db
-      .query("users")
+      .query("workspaceMembers")
       .withIndex("by_workos_membership_id", (q) => q.eq("workosOrgMembershipId", data.id))
       .unique();
 
@@ -506,7 +508,7 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
       const workspaceId = workspace._id;
       const accountId = account._id;
       membership = await ctx.db
-        .query("users")
+        .query("workspaceMembers")
         .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
         .unique();
       if (!membership) return;
@@ -551,7 +553,7 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
   "organization_membership.deleted": async (ctx, event) => {
     const now = Date.now();
     const membership = await ctx.db
-      .query("users")
+      .query("workspaceMembers")
       .withIndex("by_workos_membership_id", (q) => q.eq("workosOrgMembershipId", event.data.id))
       .unique();
     if (!membership) return;
@@ -723,7 +725,7 @@ export const createWorkspace = mutation({
       now,
     });
 
-    const userId = await ctx.db.insert("users", {
+    const userId = await ctx.db.insert("workspaceMembers", {
       workspaceId,
       accountId: account._id,
       role: "owner",
@@ -750,7 +752,6 @@ export const createWorkspace = mutation({
       userId: user._id,
       role: user.role,
       status: user.status,
-      runtimeWorkspaceId: workspace._id,
     };
   },
 });
@@ -804,7 +805,7 @@ export const getMyWorkspaces = query({
     if (!account) return [];
 
     const memberships = await ctx.db
-      .query("users")
+      .query("workspaceMembers")
       .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .collect();
 
@@ -823,7 +824,6 @@ export const getMyWorkspaces = query({
             userId: membership._id,
             role: membership.role,
             status: membership.status,
-            runtimeWorkspaceId: workspace._id,
           };
         }),
     );
@@ -839,7 +839,7 @@ export const getMyAccountsWithWorkspaces = query({
     if (!account) return [];
 
     const memberships = await ctx.db
-      .query("users")
+      .query("workspaceMembers")
       .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .collect();
 
@@ -858,7 +858,6 @@ export const getMyAccountsWithWorkspaces = query({
             userId: membership._id,
             role: membership.role,
             status: membership.status,
-            runtimeWorkspaceId: workspace._id,
           };
         }),
     );

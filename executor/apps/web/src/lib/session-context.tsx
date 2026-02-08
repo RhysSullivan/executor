@@ -30,20 +30,20 @@ interface SessionState {
   } | null;
   mode: "guest" | "workos";
   organizations: Array<{
-    id: string;
+    id: Id<"organizations">;
     name: string;
     slug: string;
     status: string;
     role: string;
   }>;
   workspaces: Array<{
-    id: string;
+    id: Id<"workspaces">;
     docId: Id<"workspaces"> | null;
     name: string;
     organizationId: Id<"organizations"> | null;
     iconUrl?: string | null;
   }>;
-  switchWorkspace: (workspaceId: string) => void;
+  switchWorkspace: (workspaceId: Id<"workspaces">) => void;
   creatingWorkspace: boolean;
   createWorkspace: (name: string, iconFile?: File | null) => Promise<void>;
   isSignedInToWorkos: boolean;
@@ -77,16 +77,16 @@ const ACTIVE_WORKSPACE_BY_ACCOUNT_KEY = "executor_active_workspace_by_account";
 
 function readWorkspaceByAccount() {
   const raw = localStorage.getItem(ACTIVE_WORKSPACE_BY_ACCOUNT_KEY);
-  if (!raw) return {} as Record<string, string>;
+  if (!raw) return {} as Record<string, Id<"workspaces">>;
   try {
-    const parsed = JSON.parse(raw) as Record<string, string>;
+    const parsed = JSON.parse(raw) as Record<string, Id<"workspaces">>;
     return parsed ?? {};
   } catch {
     return {};
   }
 }
 
-function writeWorkspaceByAccount(value: Record<string, string>) {
+function writeWorkspaceByAccount(value: Record<string, Id<"workspaces">>) {
   localStorage.setItem(ACTIVE_WORKSPACE_BY_ACCOUNT_KEY, JSON.stringify(value));
 }
 
@@ -98,11 +98,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     return localStorage.getItem(SESSION_KEY);
   });
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(() => {
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<Id<"workspaces"> | null>(() => {
     if (typeof window === "undefined") {
       return null;
     }
-    return localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+    const stored = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+    return stored as Id<"workspaces"> | null;
   });
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
@@ -148,17 +149,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return activeWorkspaceId;
     }
 
-    if (activeWorkspaceId && workspaces.some((workspace) => workspace.runtimeWorkspaceId === activeWorkspaceId)) {
+    if (activeWorkspaceId && workspaces.some((workspace) => workspace._id === activeWorkspaceId)) {
       return activeWorkspaceId;
     }
 
-    const accountId = account?.provider === "workos" ? String(account._id) : null;
+    const accountId = account?.provider === "workos" ? account._id : null;
     const accountStoredWorkspace = accountId ? readWorkspaceByAccount()[accountId] : null;
-    if (accountStoredWorkspace && workspaces.some((workspace) => workspace.runtimeWorkspaceId === accountStoredWorkspace)) {
+    if (accountStoredWorkspace && workspaces.some((workspace) => workspace._id === accountStoredWorkspace)) {
       return accountStoredWorkspace;
     }
 
-    return workspaces[0]?.runtimeWorkspaceId ?? null;
+    return workspaces[0]?._id ?? null;
   }, [workspaces, activeWorkspaceId, account]);
 
   const bootstrapWorkosAccountQuery = useTanstackQuery({
@@ -177,12 +178,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setRuntimeError(null);
   }, []);
 
-  const switchWorkspace = useCallback((workspaceId: string) => {
+  const switchWorkspace = useCallback((workspaceId: Id<"workspaces">) => {
     setActiveWorkspaceId(workspaceId);
     localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
 
     if (account?.provider === "workos") {
-      const accountId = String(account._id);
+      const accountId = account._id;
       const byAccount = readWorkspaceByAccount();
       writeWorkspaceByAccount({
         ...byAccount,
@@ -227,8 +228,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         sessionId: storedSessionId ?? undefined,
       });
 
-      if (created?.runtimeWorkspaceId) {
-        switchWorkspace(created.runtimeWorkspaceId);
+      if (created?._id) {
+        switchWorkspace(created._id);
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Failed to create workspace";
@@ -250,7 +251,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     const activeWorkspace =
-      workspaces.find((workspace) => workspace.runtimeWorkspaceId === resolvedActiveWorkspaceId)
+      workspaces.find((workspace) => workspace._id === resolvedActiveWorkspaceId)
       ?? workspaces[0]
       ?? null;
     if (!activeWorkspace) {
@@ -258,13 +259,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     return {
-      sessionId: `workos_${String(account._id)}`,
-      workspaceId: activeWorkspace.runtimeWorkspaceId,
-      actorId: String(activeWorkspace.userId),
+      sessionId: `workos_${account._id}`,
+      workspaceId: activeWorkspace._id,
+      actorId: activeWorkspace.userId,
       clientId: "web",
-      accountId: String(account._id),
-      workspaceDocId: String(activeWorkspace._id),
-      userId: String(activeWorkspace.userId),
+      accountId: account._id,
+      userId: activeWorkspace.userId,
       createdAt: Date.now(),
       lastSeenAt: Date.now(),
     };
@@ -301,7 +301,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const workspaceOptions = useMemo(() => {
     if (mode === "workos" && workspaces) {
       return workspaces.map((workspace): SessionState["workspaces"][number] => ({
-        id: workspace.runtimeWorkspaceId,
+        id: workspace._id,
         docId: workspace._id,
         name: workspace.name,
         organizationId: workspace.organizationId ?? null,
@@ -312,7 +312,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (guestContext) {
       return [
         {
-          id: guestContext.workspaceId,
+          id: guestContext.workspaceId as Id<"workspaces">,
           docId: null,
           name: "Guest Workspace",
           organizationId: null,

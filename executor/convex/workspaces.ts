@@ -11,7 +11,6 @@ type WorkspaceResult = {
   name: string;
   slug: string;
   iconUrl: string | null;
-  runtimeWorkspaceId: string;
   createdAt: number;
 };
 
@@ -52,7 +51,6 @@ async function toWorkspaceResult(
     name: workspace.name,
     slug: workspace.slug,
     iconUrl,
-    runtimeWorkspaceId: workspace._id,
     createdAt: workspace.createdAt,
   };
 }

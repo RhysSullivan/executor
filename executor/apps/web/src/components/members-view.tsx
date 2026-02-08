@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 type Role = "owner" | "admin" | "member" | "billing_admin";
 
@@ -52,14 +53,14 @@ export function MembersView() {
   const [inviteRole, setInviteRole] = useState<Role>("member");
   const [inviteState, setInviteState] = useState<"idle" | "sending" | "sent" | "failed">("idle");
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
-  const [busyMemberAccountId, setBusyMemberAccountId] = useState<string | null>(null);
-  const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
+  const [busyMemberAccountId, setBusyMemberAccountId] = useState<Id<"accounts"> | null>(null);
+  const [busyInviteId, setBusyInviteId] = useState<Id<"invites"> | null>(null);
 
   const memberItems = members?.items ?? [];
   const inviteItems = listInvites?.items ?? [];
   const pendingInviteItems = inviteItems.filter((invite) => invite.status === "pending" || invite.status === "failed");
   const actorMembership = memberItems.find((member) =>
-    context?.accountId ? String(member.accountId) === context.accountId : false,
+    context?.accountId ? member.accountId === context.accountId : false,
   );
   const actorRole = actorMembership?.role ?? null;
   const canManageMembers = actorRole === "owner" || actorRole === "admin";
@@ -276,20 +277,20 @@ export function MembersView() {
                     <p className="text-xs text-muted-foreground">Role: {invite.role}</p>
                     <p className="text-xs text-muted-foreground">Status: {invite.status}</p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    disabled={!canManageMembers || busyInviteId === String(invite.id)}
-                    onClick={async () => {
-                      if (!typedOrganizationId) {
-                        return;
-                      }
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      disabled={!canManageMembers || busyInviteId === invite.id}
+                      onClick={async () => {
+                        if (!typedOrganizationId) {
+                          return;
+                        }
 
-                      setBusyInviteId(String(invite.id));
-                      try {
-                        await revokeInvite({
-                          organizationId: typedOrganizationId,
+                        setBusyInviteId(invite.id);
+                        try {
+                          await revokeInvite({
+                            organizationId: typedOrganizationId,
                           inviteId: invite.id,
                           sessionId: context?.sessionId ?? undefined,
                         });

@@ -5,6 +5,8 @@ import { mutation, query } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
+type OrganizationMemberStatus = "active" | "pending" | "removed";
 
 function normalizeOptional(value?: string): string {
   if (typeof value !== "string") {
@@ -45,8 +47,8 @@ async function upsertOrganizationMembership(
   args: {
     organizationId: Doc<"organizations">["_id"];
     accountId: Doc<"accounts">["_id"];
-    role: string;
-    status: string;
+    role: OrganizationRole;
+    status: OrganizationMemberStatus;
     billable: boolean;
     now: number;
   },
@@ -168,7 +170,7 @@ async function ensureAnonymousIdentity(
   ctx: MutationCtx,
   params: {
     sessionId: string;
-    workspaceDocId?: Doc<"workspaces">["_id"];
+    workspaceId?: Doc<"workspaces">["_id"];
     actorId: string;
     timestamp: number;
   },
@@ -199,7 +201,7 @@ async function ensureAnonymousIdentity(
     await ctx.db.patch(account._id, { updatedAt: now, lastLoginAt: now });
   }
 
-  let workspace = params.workspaceDocId ? await ctx.db.get(params.workspaceDocId) : null;
+  let workspace = params.workspaceId ? await ctx.db.get(params.workspaceId) : null;
 
   let organizationId: Doc<"organizations">["_id"];
 
@@ -241,12 +243,12 @@ async function ensureAnonymousIdentity(
   });
 
   let user = await ctx.db
-    .query("users")
+    .query("workspaceMembers")
     .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
     .unique();
 
   if (!user) {
-    const userId = await ctx.db.insert("users", {
+    const userId = await ctx.db.insert("workspaceMembers", {
       workspaceId: workspace._id,
       accountId: account._id,
       role: "owner",
@@ -264,7 +266,7 @@ async function ensureAnonymousIdentity(
 
   return {
     accountId: account._id,
-    workspaceDocId: workspace._id,
+    workspaceId: workspace._id,
     userId: user._id,
   };
 }
@@ -276,7 +278,6 @@ function mapAnonymousContext(doc: Doc<"anonymousSessions">) {
     actorId: doc.actorId,
     clientId: doc.clientId,
     accountId: doc.accountId,
-    workspaceDocId: doc.workspaceDocId,
     userId: doc.userId,
     createdAt: doc.createdAt,
     lastSeenAt: doc.lastSeenAt,
@@ -708,15 +709,14 @@ export const bootstrapAnonymousSession = mutation({
       if (existing) {
         const identity = await ensureAnonymousIdentity(ctx, {
           sessionId,
-          workspaceDocId: existing.workspaceDocId,
+          workspaceId: existing.workspaceId,
           actorId: existing.actorId,
           timestamp: now,
         });
 
         await ctx.db.patch(existing._id, {
-          workspaceId: identity.workspaceDocId,
+          workspaceId: identity.workspaceId,
           accountId: identity.accountId,
-          workspaceDocId: identity.workspaceDocId,
           userId: identity.userId,
           lastSeenAt: now,
         });
@@ -744,11 +744,10 @@ export const bootstrapAnonymousSession = mutation({
 
     await ctx.db.insert("anonymousSessions", {
       sessionId,
-      workspaceId: identity.workspaceDocId,
+      workspaceId: identity.workspaceId,
       actorId,
       clientId,
       accountId: identity.accountId,
-      workspaceDocId: identity.workspaceDocId,
       userId: identity.userId,
       createdAt: now,
       lastSeenAt: now,

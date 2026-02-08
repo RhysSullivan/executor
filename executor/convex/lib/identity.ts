@@ -25,14 +25,6 @@ export async function resolveAccountForRequest(
     if (fromAccounts) {
       return fromAccounts;
     }
-
-    const fromIdentity = await ctx.db
-      .query("accountIdentities")
-      .withIndex("by_provider_user", (q) => q.eq("provider", "workos").eq("providerUserId", identity.subject))
-      .unique();
-    if (fromIdentity?.accountId) {
-      return await ctx.db.get(fromIdentity.accountId);
-    }
   }
 
   if (!sessionId) {

@@ -118,7 +118,6 @@ export interface AnonymousContext {
   actorId: string;
   clientId: string;
   accountId?: string;
-  workspaceDocId?: string;
   userId?: string;
   createdAt: number;
   lastSeenAt: number;
