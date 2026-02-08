@@ -34,3 +34,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# Convex local backend state
+convex_local_backend.sqlite3
+convex_local_storage/
+
+# Generated push env file
+executor/.env.executor-push

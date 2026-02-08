@@ -545,11 +545,13 @@ const app = new Elysia()
     }),
   })
 
-  .listen(port);
+  ;
 
 export type App = typeof app;
 
-console.log(`executor server listening on http://localhost:${app.server!.port}`);
+app.listen(port);
+
+console.log(`executor server listening on http://localhost:${port}`);
 console.log(`[executor] internal callback base: ${internalBaseUrl} (${internalBaseSource})`);
 console.log(`[executor] internal callback auth token enabled: yes`);
 console.log(`[executor] tools loaded: ${tools.length} (${externalTools.length} external)`);
