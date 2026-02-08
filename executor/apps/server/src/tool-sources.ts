@@ -2,6 +2,7 @@ import SwaggerParser from "@apidevtools/swagger-parser";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { astToString, transformSchemaObject } from "openapi-typescript";
 import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition } from "./types";
 
 type JsonSchema = Record<string, unknown>;
@@ -65,7 +66,51 @@ function sanitizeSegment(value: string): string {
   return cleaned.length > 0 ? cleaned : "default";
 }
 
-function jsonSchemaTypeHint(schema: unknown, depth = 0): string {
+// openapi-typescript context for standalone schema conversion
+function makeTransformCtx() {
+  return {
+    additionalProperties: false,
+    alphabetize: false,
+    arrayLength: false,
+    defaultNonNullable: true,
+    discriminators: { refsHandled: [] as string[], objects: {} as Record<string, unknown> },
+    emptyObjectsUnknown: false,
+    enum: false,
+    enumValues: false,
+    excludeDeprecated: false,
+    exportType: false,
+    immutable: false,
+    indentLv: 0,
+    pathParamsAsTypes: false,
+    postTransform: undefined,
+    propertiesRequiredByDefault: false,
+    redoc: undefined,
+    silent: true,
+    resolve(_ref: string) { return undefined as unknown; },
+  };
+}
+
+/**
+ * Convert a JSON Schema to a TypeScript type string using openapi-typescript.
+ * Handles allOf, oneOf, enums, nullable, additionalProperties, etc.
+ * Falls back to the simple hand-rolled version on error.
+ */
+function jsonSchemaToTypeString(schema: unknown): string {
+  if (!schema || typeof schema !== "object") return "unknown";
+  try {
+    const node = transformSchemaObject(schema as never, {
+      path: "#",
+      ctx: makeTransformCtx() as never,
+    });
+    const result = astToString(node).trim();
+    return result || "unknown";
+  } catch {
+    return jsonSchemaTypeHintFallback(schema);
+  }
+}
+
+/** Simple fallback for when openapi-typescript can't handle the schema */
+function jsonSchemaTypeHintFallback(schema: unknown, depth = 0): string {
   if (!schema || typeof schema !== "object") return "unknown";
   if (depth > 4) return "unknown";
 
@@ -77,12 +122,12 @@ function jsonSchemaTypeHint(schema: unknown, depth = 0): string {
 
   const oneOf = Array.isArray(shape.oneOf) ? shape.oneOf : undefined;
   if (oneOf && oneOf.length > 0) {
-    return oneOf.map((entry) => jsonSchemaTypeHint(entry, depth + 1)).join(" | ");
+    return oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1)).join(" | ");
   }
 
   const anyOf = Array.isArray(shape.anyOf) ? shape.anyOf : undefined;
   if (anyOf && anyOf.length > 0) {
-    return anyOf.map((entry) => jsonSchemaTypeHint(entry, depth + 1)).join(" | ");
+    return anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1)).join(" | ");
   }
 
   const type = typeof shape.type === "string" ? shape.type : undefined;
@@ -91,7 +136,7 @@ function jsonSchemaTypeHint(schema: unknown, depth = 0): string {
   }
 
   if (type === "array") {
-    return `${jsonSchemaTypeHint(shape.items, depth + 1)}[]`;
+    return `${jsonSchemaTypeHintFallback(shape.items, depth + 1)}[]`;
   }
 
   const props = toObject(shape.properties);
@@ -104,7 +149,7 @@ function jsonSchemaTypeHint(schema: unknown, depth = 0): string {
     }
     const inner = propEntries
       .slice(0, 12)
-      .map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHint(value, depth + 1)}`)
+      .map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1)}`)
       .join("; ");
     return `{ ${inner} }`;
   }
@@ -191,7 +236,7 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
       approval: config.overrides?.[toolName]?.approval ?? config.defaultApproval ?? "auto",
       description: String(tool.description ?? `MCP tool ${toolName}`),
       metadata: {
-        argsType: jsonSchemaTypeHint(inputSchema),
+        argsType: jsonSchemaToTypeString(inputSchema),
         returnsType: "unknown",
       },
       run: async (input: unknown) => {
@@ -390,8 +435,8 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
         approval,
         description: String(operation.summary ?? operation.description ?? `${method.toUpperCase()} ${pathTemplate}`),
         metadata: {
-          argsType: jsonSchemaTypeHint(combinedSchema),
-          returnsType: jsonSchemaTypeHint(responseSchema),
+          argsType: jsonSchemaToTypeString(combinedSchema),
+          returnsType: jsonSchemaToTypeString(responseSchema),
         },
         credential: credentialSpec,
         run: async (input: unknown, context) => {

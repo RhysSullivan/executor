@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { getTaskTerminalState } from "./service";
+import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 
@@ -113,18 +114,9 @@ function waitForTerminalTask(
 
 function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
   const base =
-    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns stdout/stderr.";
+    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns stdout/stderr. Code is typechecked before execution — type errors are returned without running.";
 
-  if (!tools || tools.length === 0) return base;
-
-  const toolLines = tools.map((t) => {
-    const args = t.argsType ?? "unknown";
-    const returns = t.returnsType ?? "unknown";
-    const approval = t.approval === "required" ? " [approval required]" : "";
-    return `  - tools.${t.path}(${args}): ${returns}${approval} — ${t.description}`;
-  });
-
-  return `${base}\n\nAvailable tools in the sandbox:\n${toolLines.join("\n")}`;
+  return base + generateToolInventory(tools ?? []);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +166,36 @@ function createRunCodeTool(
         actorId: anonymous.actorId,
         clientId: input.clientId ?? anonymous.clientId,
         sessionId: anonymous.sessionId,
+      };
+    }
+
+    // Typecheck code before execution — get tool inventory for declarations
+    const toolsForContext = await service.listTools({
+      workspaceId: context.workspaceId,
+      actorId: context.actorId,
+      clientId: context.clientId,
+    });
+    const declarations = generateToolDeclarations(toolsForContext);
+    const typecheck = typecheckCode(input.code, declarations);
+
+    if (!typecheck.ok) {
+      const errorText = [
+        "TypeScript type errors in generated code:",
+        "",
+        ...typecheck.errors.map((e) => `  ${e}`),
+        "",
+        "Fix the type errors and try again.",
+      ].join("\n");
+
+      return {
+        content: [textContent(errorText)],
+        isError: true,
+        structuredContent: {
+          typecheckErrors: typecheck.errors,
+          workspaceId: context.workspaceId,
+          actorId: context.actorId,
+          sessionId: context.sessionId,
+        },
       };
     }
 

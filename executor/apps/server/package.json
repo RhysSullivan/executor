@@ -9,6 +9,7 @@
     "@vercel/sandbox": "latest",
     "convex": "latest",
     "elysia": "^1.4.22",
+    "openapi-typescript": "^7.10.1",
     "zod": "^4.3.6"
   },
   "scripts": {
@@ -21,6 +22,6 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "typescript": "latest"
+    "typescript": "^5.9.3"
   }
 }
