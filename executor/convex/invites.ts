@@ -1,3 +1,4 @@
+import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
@@ -5,6 +6,7 @@ import { getOrganizationMembership } from "./lib/identity";
 import { authedMutation, organizationMutation, organizationQuery } from "./lib/functionBuilders";
 
 const workosEnabled = Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY);
+const workosClient = process.env.WORKOS_API_KEY ? new WorkOS(process.env.WORKOS_API_KEY) : null;
 
 async function sha256Hex(value: string): Promise<string> {
   const bytes = new TextEncoder().encode(value);
@@ -20,27 +22,11 @@ type WorkosInvitationResponse = {
   expires_at?: string;
 };
 
-type WorkosOrganizationResponse = {
-  id: string;
-};
-
-async function revokeWorkosInvitation(invitationId: string): Promise<void> {
-  const apiKey = process.env.WORKOS_API_KEY;
-  if (!apiKey) {
-    throw new Error("WORKOS_API_KEY is required to revoke invites");
+function requireWorkosClient(): WorkOS {
+  if (!workosClient) {
+    throw new Error("WORKOS_API_KEY is required for WorkOS invite operations");
   }
-
-  const response = await fetch(`https://api.workos.com/user_management/invitations/${invitationId}/revoke`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`WorkOS invitation revoke failed: ${response.status} ${message}`);
-  }
+  return workosClient;
 }
 
 async function sendWorkosInvitation(args: {
@@ -50,67 +36,33 @@ async function sendWorkosInvitation(args: {
   expiresInDays?: number;
   roleSlug?: string;
 }): Promise<WorkosInvitationResponse> {
-  const apiKey = process.env.WORKOS_API_KEY;
-  if (!apiKey) {
-    throw new Error("WORKOS_API_KEY is required to send invites");
-  }
-
-  const payload: {
-    email: string;
-    organization_id: string;
-    inviter_user_id: string;
-    expires_in_days?: number;
-    role_slug?: string;
-  } = {
+  const workos = requireWorkosClient();
+  const invitation = await workos.userManagement.sendInvitation({
     email: args.email,
-    organization_id: args.workosOrgId,
-    inviter_user_id: args.inviterWorkosUserId,
-  };
-  if (args.expiresInDays !== undefined) {
-    payload.expires_in_days = args.expiresInDays;
-  }
-  if (args.roleSlug) {
-    payload.role_slug = args.roleSlug;
-  }
-
-  const response = await fetch("https://api.workos.com/user_management/invitations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+    organizationId: args.workosOrgId,
+    inviterUserId: args.inviterWorkosUserId,
+    expiresInDays: args.expiresInDays,
+    roleSlug: args.roleSlug,
   });
 
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`WorkOS invitation failed: ${response.status} ${message}`);
-  }
-
-  return (await response.json()) as WorkosInvitationResponse;
+  return {
+    id: invitation.id,
+    state: invitation.state,
+    expires_at: invitation.expiresAt?.toISOString(),
+  };
 }
 
-async function createWorkosOrganization(name: string): Promise<WorkosOrganizationResponse> {
-  const apiKey = process.env.WORKOS_API_KEY;
-  if (!apiKey) {
-    throw new Error("WORKOS_API_KEY is required to create WorkOS organizations");
-  }
+async function createWorkosOrganization(name: string): Promise<{ id: string }> {
+  const workos = requireWorkosClient();
+  const organization = await workos.organizations.createOrganization({ name });
+  return {
+    id: organization.id,
+  };
+}
 
-  const response = await fetch("https://api.workos.com/organizations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ name }),
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(`WorkOS organization create failed: ${response.status} ${message}`);
-  }
-
-  return (await response.json()) as WorkosOrganizationResponse;
+async function revokeWorkosInvitation(invitationId: string): Promise<void> {
+  const workos = requireWorkosClient();
+  await workos.userManagement.revokeInvitation(invitationId);
 }
 
 function mapRoleToWorkosRoleSlug(role: string): string | undefined {
@@ -164,44 +116,10 @@ export const create = organizationMutation({
     const expiresAt = now + (args.expiresInDays ?? 7) * 24 * 60 * 60 * 1000;
     const normalizedEmail = args.email.toLowerCase().trim();
 
-    const organization = await ctx.db.get(ctx.organizationId);
-    if (!organization) {
-      throw new Error("Organization not found");
-    }
-
-    let workosOrgId = organization.workosOrgId;
-    if (!workosOrgId && args.workspaceId) {
+    if (args.workspaceId) {
       const workspace = await ctx.db.get(args.workspaceId);
       if (workspace?.organizationId !== ctx.organizationId) {
         throw new Error("Workspace does not belong to this organization");
-      }
-
-      if (workspace.workosOrgId) {
-        workosOrgId = workspace.workosOrgId;
-        await ctx.db.patch(ctx.organizationId, {
-          workosOrgId,
-          updatedAt: now,
-        });
-      }
-    }
-
-    if (!workosOrgId) {
-      const workosOrganization = await createWorkosOrganization(organization.name);
-      workosOrgId = workosOrganization.id;
-
-      await ctx.db.patch(ctx.organizationId, {
-        workosOrgId,
-        updatedAt: now,
-      });
-
-      if (args.workspaceId) {
-        const workspace = await ctx.db.get(args.workspaceId);
-        if (workspace?.organizationId === ctx.organizationId && !workspace.workosOrgId) {
-          await ctx.db.patch(args.workspaceId, {
-            workosOrgId,
-            updatedAt: now,
-          });
-        }
       }
     }
 
@@ -237,8 +155,6 @@ export const create = organizationMutation({
 
     await ctx.scheduler.runAfter(0, internal.invites.deliverWorkosInvite, {
       inviteId,
-      email: normalizedEmail,
-      workosOrgId,
       inviterWorkosUserId,
       expiresInDays: args.expiresInDays,
       roleSlug: mapRoleToWorkosRoleSlug(args.role),
@@ -271,24 +187,39 @@ export const create = organizationMutation({
 export const deliverWorkosInvite = internalAction({
   args: {
     inviteId: v.id("invites"),
-    email: v.string(),
-    workosOrgId: v.string(),
     inviterWorkosUserId: v.string(),
     expiresInDays: v.optional(v.number()),
     roleSlug: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const invite = await ctx.runQuery(internal.invites.getInviteById, {
+    const context = await ctx.runQuery(internal.invites.getInviteDeliveryContext, {
       inviteId: args.inviteId,
     });
-    if (!invite || invite.status !== "pending") {
+    if (!context || context.invite.status !== "pending") {
       return;
     }
 
+    let workosOrgId = context.organization.workosOrgId ?? context.workspace?.workosOrgId ?? null;
+
     try {
+      if (!workosOrgId) {
+        const created = await createWorkosOrganization(context.organization.name);
+        workosOrgId = created.id;
+
+        await ctx.runMutation(internal.invites.linkOrganizationToWorkos, {
+          organizationId: context.organization._id,
+          workspaceId: context.workspace?._id,
+          workosOrgId,
+        });
+      }
+
+      if (!workosOrgId) {
+        throw new Error("Failed to resolve WorkOS organization");
+      }
+
       const response = await sendWorkosInvitation({
-        email: args.email,
-        workosOrgId: args.workosOrgId,
+        email: context.invite.email,
+        workosOrgId,
         inviterWorkosUserId: args.inviterWorkosUserId,
         expiresInDays: args.expiresInDays,
         roleSlug: args.roleSlug,
@@ -353,6 +284,61 @@ export const revokeWorkosInvite = internalAction({
     }
 
     await revokeWorkosInvitation(args.providerInviteId);
+  },
+});
+
+export const getInviteDeliveryContext = internalQuery({
+  args: {
+    inviteId: v.id("invites"),
+  },
+  handler: async (ctx, args) => {
+    const invite = await ctx.db.get(args.inviteId);
+    if (!invite) {
+      return null;
+    }
+
+    const organization = await ctx.db.get(invite.organizationId);
+    if (!organization) {
+      return null;
+    }
+
+    const workspace = invite.workspaceId ? await ctx.db.get(invite.workspaceId) : null;
+
+    return {
+      invite,
+      organization,
+      workspace,
+    };
+  },
+});
+
+export const linkOrganizationToWorkos = internalMutation({
+  args: {
+    organizationId: v.id("organizations"),
+    workspaceId: v.optional(v.id("workspaces")),
+    workosOrgId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    await ctx.db.patch(args.organizationId, {
+      workosOrgId: args.workosOrgId,
+      updatedAt: now,
+    });
+
+    if (!args.workspaceId) {
+      return;
+    }
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace || workspace.organizationId !== args.organizationId) {
+      return;
+    }
+
+    await ctx.db.patch(args.workspaceId, {
+      workosOrgId: args.workosOrgId,
+      updatedAt: now,
+    });
   },
 });
 

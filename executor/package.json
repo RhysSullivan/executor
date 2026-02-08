@@ -20,10 +20,12 @@
   "dependencies": {
     "@convex-dev/stripe": "^0.1.3",
     "@convex-dev/workos-authkit": "^0.1.6",
+    "@workos-inc/node": "^8.2.0",
     "convex": "^1.31.7",
     "convex-helpers": "^0.1.111"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/bun": "latest",
     "convex-test": "^0.0.41",
     "typescript": "latest"
