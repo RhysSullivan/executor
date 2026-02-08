@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { Mail, UserMinus, Users } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -18,8 +18,6 @@ export function MembersView() {
   const {
     context,
     clientConfig,
-    organizations,
-    selectedOrganizationId,
     workspaces,
   } = useSession();
 
@@ -30,8 +28,7 @@ export function MembersView() {
     ? workspaces.find((workspace) => workspace.id === context.workspaceId) ?? null
     : null;
   const typedOrganizationId = derivedOrganizationId;
-  const effectiveOrganizationId = typedOrganizationId ?? selectedOrganizationId;
-  const hasLegacyOrganizationWorkspace = Boolean(activeWorkspace) && !typedOrganizationId;
+  const hasLegacyOrganizationWorkspace = activeWorkspace?.kind === "organization" && !typedOrganizationId;
 
   const members = useQuery(
     convexApi.organizationMembers.list,
@@ -43,6 +40,13 @@ export function MembersView() {
   const updateRole = useMutation(convexApi.organizationMembers.updateRole);
   const updateBillable = useMutation(convexApi.organizationMembers.updateBillable);
   const removeMember = useMutation(convexApi.organizationMembers.remove);
+  const listInvites = useQuery(
+    convexApi.invites.list,
+    typedOrganizationId
+      ? { organizationId: typedOrganizationId, sessionId: context?.sessionId ?? undefined }
+      : "skip",
+  );
+  const createInvite = useMutation(convexApi.invites.create);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("member");
@@ -50,20 +54,14 @@ export function MembersView() {
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
   const [busyMemberAccountId, setBusyMemberAccountId] = useState<string | null>(null);
 
-  const activeOrganization = useMemo(
-    () => organizations.find((organization) => organization.id === effectiveOrganizationId) ?? null,
-    [organizations, effectiveOrganizationId],
-  );
-
-  const canManageMembers = activeOrganization
-    ? activeOrganization.role === "owner" || activeOrganization.role === "admin"
-    : false;
-  const canManageBilling = activeOrganization
-    ? activeOrganization.role === "owner" || activeOrganization.role === "admin" || activeOrganization.role === "billing_admin"
-    : false;
-
   const memberItems = members?.items ?? [];
-  const inviteItems: Array<{ id: string; email: string; role: string; status: string }> = [];
+  const inviteItems = listInvites?.items ?? [];
+  const actorMembership = memberItems.find((member) =>
+    context?.accountId ? String(member.accountId) === context.accountId : false,
+  );
+  const actorRole = actorMembership?.role ?? null;
+  const canManageMembers = actorRole === "owner" || actorRole === "admin";
+  const canManageBilling = actorRole === "owner" || actorRole === "admin" || actorRole === "billing_admin";
 
   const submitInvite = async () => {
     if (!typedOrganizationId) {
@@ -72,10 +70,17 @@ export function MembersView() {
     setInviteState("sending");
     setInviteMessage(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const deliveryProvider = clientConfig?.invitesProvider ?? "local";
-      setInviteState("failed");
-      setInviteMessage(`Invite creation via ${deliveryProvider} is not wired yet on backend.`);
+      const result = await createInvite({
+        organizationId: typedOrganizationId,
+        email: inviteEmail.trim(),
+        role: inviteRole,
+        workspaceId: activeWorkspace?.docId ?? undefined,
+        sessionId: context?.sessionId ?? undefined,
+      });
+      setInviteState("sent");
+      const deliveryProvider = result.delivery.provider;
+      setInviteMessage(`Invite ${result.delivery.state} via ${deliveryProvider}.`);
+      setInviteEmail("");
     } catch (error) {
       setInviteState("failed");
       setInviteMessage(error instanceof Error ? error.message : "Failed to send invite");
@@ -88,7 +93,7 @@ export function MembersView() {
         <PageHeader title="Members" description="Manage organization membership and invites" />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            Select an organization from the switcher to manage members.
+            Select a workspace to manage members.
           </CardContent>
         </Card>
       </div>
@@ -101,8 +106,8 @@ export function MembersView() {
         <PageHeader title="Members" description="Manage organization membership and invites" />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            Member management is waiting for an organization record for this workspace. The active
-            workspace does not have a linked `organizationId` yet.
+            Member management is waiting for workspace provisioning to finish. This workspace is
+            missing its internal organization link.
           </CardContent>
         </Card>
       </div>
@@ -166,7 +171,7 @@ export function MembersView() {
         <CardHeader>
           <CardTitle className="text-sm flex items-center gap-2">
             <Users className="h-4 w-4" />
-            Organization Members
+            Workspace Members
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -189,6 +194,9 @@ export function MembersView() {
                       onChange={async (event) => {
                         setBusyMemberAccountId(member.accountId);
                         try {
+                          if (!typedOrganizationId) {
+                            return;
+                          }
                           await updateRole({
                             organizationId: typedOrganizationId,
                             accountId: member.accountId,
@@ -215,6 +223,9 @@ export function MembersView() {
                       onClick={async () => {
                         setBusyMemberAccountId(member.accountId);
                         try {
+                          if (!typedOrganizationId) {
+                            return;
+                          }
                           await updateBillable({
                             organizationId: typedOrganizationId,
                             accountId: member.accountId,
@@ -237,6 +248,9 @@ export function MembersView() {
                       onClick={async () => {
                         setBusyMemberAccountId(member.accountId);
                         try {
+                          if (!typedOrganizationId) {
+                            return;
+                          }
                           await removeMember({
                             organizationId: typedOrganizationId,
                             accountId: member.accountId,

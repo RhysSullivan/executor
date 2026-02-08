@@ -84,8 +84,6 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
     context,
     mode,
     clientConfig,
-    organizations,
-    selectedOrganizationId,
     workspaces,
     switchWorkspace,
     creatingWorkspace,
@@ -99,24 +97,8 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
   const activeWorkspace = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)
     : null;
-  const currentOrganizationId = activeWorkspace?.organizationId ?? selectedOrganizationId;
-  const activeOrganization =
-    currentOrganizationId
-      ? organizations.find((organization) => organization.id === currentOrganizationId) ?? null
-      : null;
   const activeWorkspaceLabel = activeWorkspace?.name ?? (mode === "guest" ? "Guest Workspace" : "Select workspace");
-  const activeOrganizationLabel = activeOrganization?.name
-    ?? (activeWorkspace?.kind === "organization" ? "Organization" : mode === "guest" ? "Guest" : "Personal");
   const activeWorkspaceInitial = (activeWorkspaceLabel[0] ?? "W").toUpperCase();
-
-  const organizationGroups = organizations
-    .map((organization) => ({
-      organization,
-      workspaces: workspaces.filter((workspace) => workspace.organizationId === organization.id),
-    }))
-    .filter((group) => group.workspaces.length > 0);
-  const personalWorkspaces = workspaces.filter((workspace) => workspace.organizationId === null);
-  const showOrganizationHeaders = organizationGroups.length > 1;
 
   const openCreateWorkspace = () => {
     setCreateError(null);
@@ -172,9 +154,6 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
               )}
               <span className="min-w-0">
                 <span className="truncate block">{activeWorkspaceLabel}</span>
-                {mode === "workos" ? (
-                  <span className="truncate block text-[10px] text-muted-foreground">{activeOrganizationLabel}</span>
-                ) : null}
               </span>
             </span>
             <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
@@ -184,75 +163,32 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
           {mode === "workos"
             ? (
               <>
-                {organizationGroups.map((group, index) => (
-                  <div key={group.organization.id}>
-                    {showOrganizationHeaders ? (
-                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                        {group.organization.name}
-                      </DropdownMenuLabel>
-                    ) : null}
-                    {group.workspaces.map((workspace) => {
-                      const isActive = workspace.id === context?.workspaceId;
-                      return (
-                        <DropdownMenuItem
-                          key={workspace.id}
-                          onSelect={() => switchWorkspace(workspace.id)}
-                          className="text-xs"
-                        >
-                          <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
-                          {workspace.iconUrl ? (
-                            <img
-                              src={workspace.iconUrl}
-                              alt={workspace.name}
-                              className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
-                            />
-                          ) : (
-                            <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
-                              {(workspace.name[0] ?? "W").toUpperCase()}
-                            </span>
-                          )}
-                          <span className="truncate">{workspace.name}</span>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                    {showOrganizationHeaders && index < organizationGroups.length - 1 ? <DropdownMenuSeparator /> : null}
-                  </div>
-                ))}
+                {workspaces.map((workspace) => {
+                  const isActive = workspace.id === context?.workspaceId;
+                  return (
+                    <DropdownMenuItem
+                      key={workspace.id}
+                      onSelect={() => switchWorkspace(workspace.id)}
+                      className="text-xs"
+                    >
+                      <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
+                      {workspace.iconUrl ? (
+                        <img
+                          src={workspace.iconUrl}
+                          alt={workspace.name}
+                          className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
+                        />
+                      ) : (
+                        <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
+                          {(workspace.name[0] ?? "W").toUpperCase()}
+                        </span>
+                      )}
+                      <span className="truncate">{workspace.name}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
 
-                {personalWorkspaces.length > 0 ? (
-                  <>
-                    {organizationGroups.length > 0 ? <DropdownMenuSeparator /> : null}
-                    <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                      Personal
-                    </DropdownMenuLabel>
-                    {personalWorkspaces.map((workspace) => {
-                      const isActive = workspace.id === context?.workspaceId;
-                      return (
-                        <DropdownMenuItem
-                          key={workspace.id}
-                          onSelect={() => switchWorkspace(workspace.id)}
-                          className="text-xs"
-                        >
-                          <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
-                          {workspace.iconUrl ? (
-                            <img
-                              src={workspace.iconUrl}
-                              alt={workspace.name}
-                              className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
-                            />
-                          ) : (
-                            <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
-                              {(workspace.name[0] ?? "W").toUpperCase()}
-                            </span>
-                          )}
-                          <span className="truncate">{workspace.name}</span>
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </>
-                ) : null}
-
-                {organizationGroups.length === 0 && personalWorkspaces.length === 0 ? (
+                {workspaces.length === 0 ? (
                   <DropdownMenuItem disabled className="text-xs">
                     No workspaces
                   </DropdownMenuItem>

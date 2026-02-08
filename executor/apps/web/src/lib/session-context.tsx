@@ -20,8 +20,8 @@ interface SessionState {
   loading: boolean;
   error: string | null;
   clientConfig: {
-    authProviderMode: "workos" | "local";
-    invitesProvider: "workos" | "local";
+    authProviderMode: string;
+    invitesProvider: string;
     features: {
       organizations: boolean;
       billing: boolean;
@@ -40,6 +40,7 @@ interface SessionState {
   switchOrganization: (organizationId: string | null) => void;
   workspaces: Array<{
     id: string;
+    docId: Id<"workspaces"> | null;
     name: string;
     kind: "organization" | "personal" | "anonymous";
     organizationId: Id<"organizations"> | null;
@@ -236,7 +237,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (
       !workosEnabled
-      || account !== null
+      || account === undefined
       || bootstrappingWorkos
       || workosBootstrapAttempted
     ) {
@@ -333,7 +334,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setCreatingWorkspace(true);
     setError(null);
     try {
-      let iconStorageId: string | undefined;
+      let iconStorageId: Id<"_storage"> | undefined;
 
       if (iconFile) {
         const uploadUrl = await generateWorkspaceIconUploadUrl({
@@ -356,7 +357,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!json.storageId) {
           throw new Error("Upload did not return a storage id");
         }
-        iconStorageId = json.storageId;
+        iconStorageId = json.storageId as Id<"_storage">;
       }
 
       const created = await createWorkspaceMutation({
@@ -423,8 +424,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
   const workspaceOptions = useMemo(() => {
     if (mode === "workos" && workspaces) {
-      return workspaces.map((workspace) => ({
+      return workspaces.map((workspace): SessionState["workspaces"][number] => ({
         id: workspace.runtimeWorkspaceId,
+        docId: workspace._id,
         name: workspace.name,
         kind:
           workspace.kind === "organization" || workspace.kind === "org"
@@ -441,6 +443,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return [
         {
           id: guestContext.workspaceId,
+          docId: null,
           name: "Guest Workspace",
           kind: "anonymous" as const,
           organizationId: null,

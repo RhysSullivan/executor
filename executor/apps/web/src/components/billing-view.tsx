@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "@/lib/session-context";
 
 export function BillingView() {
-  const { context, organizations, selectedOrganizationId, workspaces } = useSession();
+  const { context, organizations, workspaces } = useSession();
   const [actionState, setActionState] = useState<"idle" | "running" | "error">("idle");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -18,8 +18,8 @@ export function BillingView() {
   const activeWorkspace = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId) ?? null
     : null;
-  const effectiveOrganizationId = derivedOrganizationId ?? selectedOrganizationId;
-  const hasLegacyOrganizationWorkspace = Boolean(activeWorkspace) && !effectiveOrganizationId;
+  const effectiveOrganizationId = derivedOrganizationId;
+  const hasLegacyOrganizationWorkspace = activeWorkspace?.kind === "organization" && !effectiveOrganizationId;
 
   const activeOrganization = useMemo(
     () => organizations.find((organization) => organization.id === effectiveOrganizationId) ?? null,
@@ -40,7 +40,7 @@ export function BillingView() {
         <PageHeader title="Billing" description="Plan, seats, and subscription management" />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            Select an organization from the switcher to manage billing.
+            Select a workspace to manage billing.
           </CardContent>
         </Card>
       </div>
@@ -53,8 +53,8 @@ export function BillingView() {
         <PageHeader title="Billing" description="Plan, seats, and subscription management" />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
-            Billing is waiting for an organization record for this workspace. The active workspace
-            does not have a linked `organizationId` yet.
+            Billing is waiting for workspace provisioning to finish. This workspace is missing its
+            internal organization link.
           </CardContent>
         </Card>
       </div>
