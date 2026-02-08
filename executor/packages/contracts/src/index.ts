@@ -108,6 +108,8 @@ export interface ToolDescriptor {
   source?: string;
   argsType?: string;
   returnsType?: string;
+  /** Schema type aliases needed by argsType/returnsType (shared across tools from same source) */
+  schemaTypes?: Record<string, string>;
 }
 
 export interface AnonymousContext {
@@ -116,7 +118,6 @@ export interface AnonymousContext {
   actorId: string;
   clientId: string;
   accountId?: string;
-  workspaceDocId?: string;
   userId?: string;
   createdAt: number;
   lastSeenAt: number;

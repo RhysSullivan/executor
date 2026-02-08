@@ -8,6 +8,8 @@ import {
   Play,
   ShieldCheck,
   Wrench,
+  Users,
+  CreditCard,
   Menu,
   X,
   ChevronsUpDown,
@@ -41,6 +43,8 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/tasks", label: "Tasks", icon: Play },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
+  { href: "/members", label: "Members", icon: Users },
+  { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
 
@@ -76,7 +80,15 @@ function NavLinks({ onClick }: { onClick?: () => void }) {
 }
 
 function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
-  const { context, mode, workspaces, switchWorkspace, creatingWorkspace, createWorkspace } = useSession();
+  const {
+    context,
+    mode,
+    clientConfig,
+    workspaces,
+    switchWorkspace,
+    creatingWorkspace,
+    createWorkspace,
+  } = useSession();
   const [createOpen, setCreateOpen] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [newWorkspaceIcon, setNewWorkspaceIcon] = useState<File | null>(null);
@@ -140,40 +152,49 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                   {activeWorkspaceInitial}
                 </span>
               )}
-              <span className="truncate">{activeWorkspaceLabel}</span>
+              <span className="min-w-0">
+                <span className="truncate block">{activeWorkspaceLabel}</span>
+              </span>
             </span>
             <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">
           {mode === "workos"
-            ? workspaces.map((workspace) => {
-                const isActive = workspace.id === context?.workspaceId;
-                return (
-                  <DropdownMenuItem
-                    key={workspace.id}
-                    onSelect={() => switchWorkspace(workspace.id)}
-                    className="text-xs"
-                  >
-                    <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
-                    {workspace.iconUrl ? (
-                      <img
-                        src={workspace.iconUrl}
-                        alt={workspace.name}
-                        className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
-                      />
-                    ) : (
-                      <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
-                        {(workspace.name[0] ?? "W").toUpperCase()}
-                      </span>
-                    )}
-                    <span className="truncate">{workspace.name}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">
-                      {workspace.kind === "organization" ? "Org" : "Hobby"}
-                    </span>
+            ? (
+              <>
+                {workspaces.map((workspace) => {
+                  const isActive = workspace.id === context?.workspaceId;
+                  return (
+                    <DropdownMenuItem
+                      key={workspace.id}
+                      onSelect={() => switchWorkspace(workspace.id)}
+                      className="text-xs"
+                    >
+                      <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
+                      {workspace.iconUrl ? (
+                        <img
+                          src={workspace.iconUrl}
+                          alt={workspace.name}
+                          className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
+                        />
+                      ) : (
+                        <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
+                          {(workspace.name[0] ?? "W").toUpperCase()}
+                        </span>
+                      )}
+                      <span className="truncate">{workspace.name}</span>
+                    </DropdownMenuItem>
+                  );
+                })}
+
+                {workspaces.length === 0 ? (
+                  <DropdownMenuItem disabled className="text-xs">
+                    No workspaces
                   </DropdownMenuItem>
-                );
-              })
+                ) : null}
+              </>
+            )
             : (
               <DropdownMenuItem disabled className="text-xs">
                 Guest workspace
@@ -186,6 +207,9 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                 <Plus className="mr-2 h-3.5 w-3.5" />
                 New workspace
               </DropdownMenuItem>
+              <DropdownMenuLabel className="text-[10px] text-muted-foreground">
+                Invites via WorkOS
+              </DropdownMenuLabel>
             </>
           ) : null}
         </DropdownMenuContent>
@@ -197,7 +221,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
             <DialogHeader>
               <DialogTitle>Create workspace</DialogTitle>
               <DialogDescription>
-                Create a new hobby workspace for your account.
+                Create a new personal workspace for your account.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-2">
@@ -248,7 +272,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
 }
 
 function SessionInfo() {
-  const { loading, isSignedInToWorkos, workosProfile } = useSession();
+  const { loading, clientConfig, isSignedInToWorkos, workosProfile } = useSession();
   const avatarUrl = workosProfile?.avatarUrl ?? null;
   const avatarLabel = workosProfile?.name || workosProfile?.email || "User";
   const avatarInitial = (avatarLabel[0] ?? "U").toUpperCase();
@@ -317,6 +341,11 @@ function SessionInfo() {
             </Link>
           </div>
         ) : null}
+        <div className="px-3 pt-1 pb-2">
+          <p className="text-[10px] text-muted-foreground">
+            Auth: {clientConfig?.authProviderMode === "workos" ? "WorkOS" : "local"}
+          </p>
+        </div>
     </div>
   );
 }

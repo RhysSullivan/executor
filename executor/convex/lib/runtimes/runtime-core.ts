@@ -10,6 +10,31 @@ import type {
   SandboxExecutionResult,
 } from "../types";
 
+async function transpileForRuntime(code: string): Promise<string> {
+  let ts: typeof import("typescript");
+  try {
+    ts = await import("typescript");
+  } catch {
+    return code;
+  }
+
+  const result = ts.transpileModule(code, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+    },
+    reportDiagnostics: true,
+  });
+
+  if (result.diagnostics && result.diagnostics.length > 0) {
+    const first = result.diagnostics[0];
+    const message = ts.flattenDiagnosticMessageText(first.messageText, "\n");
+    throw new Error(`TypeScript transpile error: ${message}`);
+  }
+
+  return result.outputText || code;
+}
+
 function formatArgs(args: unknown[]): string {
   return args
     .map((value) => {
@@ -121,7 +146,8 @@ export async function runCodeWithAdapter(
     },
   });
 
-  const runnerScript = new Script(`(async () => {\n"use strict";\n${request.code}\n})()`);
+  const executableCode = await transpileForRuntime(request.code);
+  const runnerScript = new Script(`(async () => {\n"use strict";\n${executableCode}\n})()`);
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {

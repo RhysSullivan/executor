@@ -4,8 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./client": "./src/client.ts",
-    "./executor-client": "./src/executor-client.ts"
+    "./client": "./src/client.ts"
   },
   "scripts": {
     "dev": "bun --hot src/index.ts",

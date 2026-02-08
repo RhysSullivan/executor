@@ -5,7 +5,6 @@
 import type { ChatInputCommandInteraction, CommandInteraction } from "discord.js";
 import type { Client } from "@assistant/server/client";
 import { unwrap } from "@assistant/server/client";
-import type { ExecutorClient } from "@assistant/server/executor-client";
 import type { ConvexReactClient } from "convex/react";
 import { ConvexProvider } from "convex/react";
 import type { ReacordInstance } from "@openassistant/reacord";
@@ -14,7 +13,6 @@ import { TaskMessage } from "../views/task-message";
 
 interface AskCommandDeps {
   readonly api: Client;
-  readonly executor: ExecutorClient;
   readonly convex: ConvexReactClient;
   readonly reacord: {
     reply: (interaction: CommandInteraction, content: React.ReactNode) => Effect.Effect<ReacordInstance>;
@@ -53,7 +51,6 @@ export async function handleAskCommand(
           agentTaskId={agentTaskId}
           prompt={prompt}
           workspaceId={workspaceId}
-          executor={deps.executor}
         />
       </ConvexProvider>,
     ),

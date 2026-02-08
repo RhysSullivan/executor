@@ -109,6 +109,8 @@ export interface ToolRunContext {
 export interface ToolTypeMetadata {
   argsType?: string;
   returnsType?: string;
+  /** Schema type aliases needed by argsType/returnsType (e.g. `{ "Account": "{ id: string; ... }" }`) */
+  schemaTypes?: Record<string, string>;
 }
 
 export interface ToolDefinition {

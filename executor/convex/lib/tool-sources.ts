@@ -2,7 +2,7 @@ import SwaggerParser from "@apidevtools/swagger-parser";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { astToString, transformSchemaObject } from "openapi-typescript";
+import openapiTS, { astToString } from "openapi-typescript";
 import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition } from "./types";
 import { asRecord } from "./utils";
 
@@ -61,50 +61,349 @@ function sanitizeSegment(value: string): string {
   return cleaned.length > 0 ? cleaned : "default";
 }
 
-// openapi-typescript context for standalone schema conversion
-function makeTransformCtx() {
-  return {
-    additionalProperties: false,
-    alphabetize: false,
-    arrayLength: false,
-    defaultNonNullable: true,
-    discriminators: { refsHandled: [] as string[], objects: {} as Record<string, unknown> },
-    emptyObjectsUnknown: false,
-    enum: false,
-    enumValues: false,
-    excludeDeprecated: false,
-    exportType: false,
-    immutable: false,
-    indentLv: 0,
-    pathParamsAsTypes: false,
-    postTransform: undefined,
-    propertiesRequiredByDefault: false,
-    redoc: undefined,
-    silent: true,
-    resolve(_ref: string) { return undefined as unknown; },
-  };
-}
+// ── Type generation from OpenAPI specs ──────────────────────────────────────
+//
+// We use `openapiTS(spec)` — the same thing as `npx openapi-typescript` — to
+// generate a full .d.ts from the spec. This handles $ref resolution, circular
+// references, discriminators, etc. correctly by emitting named type aliases
+// instead of inlining everything.
+//
+// From the generated output we extract per-operation type strings. The output
+// has a predictable structure:
+//
+//   export interface operations {
+//     operationId: {
+//       parameters: { query: { ... }; path: { ... }; ... };
+//       requestBody?: { content: { "application/json": { ... } } };
+//       responses: { 200: { content: { "application/json": { ... } } } };
+//     };
+//   }
+//
+// We parse this with TypeScript's compiler API to extract the parameter,
+// request body, and response types per operation.
 
 /**
- * Convert a JSON Schema to a TypeScript type string using openapi-typescript.
- * Handles allOf, oneOf, enums, nullable, additionalProperties, etc.
- * Falls back to the simple hand-rolled version on error.
+ * Generate TypeScript types for an entire OpenAPI spec using openapi-typescript.
+ * Returns a map of operationId → { argsType, returnsType } strings.
+ *
+ * Falls back to the hand-rolled type hint generator on failure (e.g. Swagger 2.0
+ * specs, broken $refs).
  */
-function jsonSchemaToTypeString(schema: unknown): string {
-  if (!schema || typeof schema !== "object") return "unknown";
+async function generateOpenApiTypes(
+  spec: string | Record<string, unknown>,
+): Promise<ExtractedTypes | null> {
   try {
-    const node = transformSchemaObject(schema as never, {
-      path: "#",
-      ctx: makeTransformCtx() as never,
-    });
-    const result = astToString(node).trim();
-    return result || "unknown";
-  } catch {
-    return jsonSchemaTypeHintFallback(schema);
+    const input = typeof spec === "string" ? new URL(spec) : (spec as never);
+    const ast = await openapiTS(input, { silent: true });
+    const dts = astToString(ast);
+    return extractOperationTypes(dts);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] openapi-typescript failed, using fallback types: ${msg}`);
+    return null;
   }
 }
 
-/** Simple fallback for when openapi-typescript can't handle the schema */
+/** Result of extracting types from a generated .d.ts */
+interface ExtractedTypes {
+  /** Per-operation type strings (operationId → args/returns) */
+  operations: Map<string, { argsType: string; returnsType: string }>;
+  /**
+   * Schema type aliases referenced by operations. These need to be included
+   * in the typechecker context for the operation types to be valid.
+   * e.g. `{ "Account": "{ id: string; type: string; ... }" }`
+   */
+  schemas: Map<string, string>;
+}
+
+/**
+ * Parse the generated .d.ts to extract per-operation args/returns type strings.
+ * Resolves `components["schemas"]["X"]` references into named type aliases
+ * so the extracted types are self-contained.
+ */
+function extractOperationTypes(dts: string): ExtractedTypes {
+  let ts: typeof import("typescript");
+  try {
+    ts = require("typescript");
+  } catch {
+    return { operations: new Map(), schemas: new Map() };
+  }
+
+  const sourceFile = ts.createSourceFile("openapi.d.ts", dts, ts.ScriptTarget.ESNext, true);
+  const operations = new Map<string, { argsType: string; returnsType: string }>();
+
+  // Find the `operations` interface
+  let operationsInterface: import("typescript").InterfaceDeclaration | undefined;
+  for (const stmt of sourceFile.statements) {
+    if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === "operations") {
+      operationsInterface = stmt;
+      break;
+    }
+  }
+  if (!operationsInterface) return { operations, schemas: new Map() };
+
+  // Extract raw per-operation types (may contain components["schemas"]["..."] refs)
+  for (const member of operationsInterface.members) {
+    if (!ts.isPropertySignature(member) || !member.name) continue;
+    const operationId = ts.isStringLiteral(member.name)
+      ? member.name.text
+      : ts.isIdentifier(member.name)
+        ? member.name.text
+        : undefined;
+    if (!operationId || !member.type || !ts.isTypeLiteralNode(member.type)) continue;
+
+    const opType = member.type;
+    const argsType = extractArgsType(ts, opType, sourceFile);
+    const returnsType = extractReturnsType(ts, opType, sourceFile);
+
+    operations.set(operationId, { argsType, returnsType });
+  }
+
+  // Collect all referenced schema names from the operation type strings
+  const referencedSchemas = new Set<string>();
+  const refPattern = /components\["schemas"\]\["([^"]+)"\]/g;
+  for (const { argsType, returnsType } of operations.values()) {
+    for (const match of argsType.matchAll(refPattern)) referencedSchemas.add(match[1]!);
+    for (const match of returnsType.matchAll(refPattern)) referencedSchemas.add(match[1]!);
+  }
+
+  // Build schema lookup from the components interface in the .d.ts
+  const schemaTypeMap = new Map<string, string>();
+  if (referencedSchemas.size > 0) {
+    const schemasNode = findComponentsSchemas(ts, sourceFile);
+    if (schemasNode) {
+      // First pass: extract all schema type texts (we need them for transitive refs)
+      const allSchemaTexts = new Map<string, string>();
+      for (const m of schemasNode.members) {
+        if (!ts.isPropertySignature(m) || !m.name || !m.type) continue;
+        const name = ts.isIdentifier(m.name) ? m.name.text : ts.isStringLiteral(m.name) ? m.name.text : undefined;
+        if (!name) continue;
+        allSchemaTexts.set(name, m.type.getText(sourceFile).replace(/\s+/g, " ").trim());
+      }
+
+      // Resolve referenced schemas (one level deep — resolve transitive refs too)
+      const toResolve = new Set(referencedSchemas);
+      const resolved = new Set<string>();
+      while (toResolve.size > 0) {
+        const next = toResolve.values().next().value!;
+        toResolve.delete(next);
+        if (resolved.has(next)) continue;
+        resolved.add(next);
+
+        const typeText = allSchemaTexts.get(next);
+        if (!typeText) continue;
+
+        schemaTypeMap.set(next, typeText);
+
+        // Find transitive refs in this schema — but cap total schemas to avoid blowup
+        if (resolved.size < 200) {
+          for (const match of typeText.matchAll(refPattern)) {
+            if (!resolved.has(match[1]!)) toResolve.add(match[1]!);
+          }
+        }
+      }
+    }
+  }
+
+  // Replace components["schemas"]["X"] with the schema name as a type alias
+  // in all operation type strings, and collect the needed schema definitions
+  const schemas = new Map<string, string>();
+  const schemaNameMap = new Map<string, string>(); // "checkout.session" → "CheckoutSession"
+
+  for (const schemaName of schemaTypeMap.keys()) {
+    // Convert schema name to a valid TS identifier: "checkout.session" → "CheckoutSession"
+    const tsName = schemaName
+      .split(/[._-]/)
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join("");
+    schemaNameMap.set(schemaName, tsName);
+  }
+
+  // Replace refs in schema definitions themselves (transitive refs)
+  for (const [schemaName, typeText] of schemaTypeMap) {
+    const tsName = schemaNameMap.get(schemaName)!;
+    let resolved = typeText;
+    for (const [refName, refTsName] of schemaNameMap) {
+      resolved = resolved.replaceAll(`components["schemas"]["${refName}"]`, refTsName);
+    }
+    // Any remaining unresolved refs → unknown
+    resolved = resolved.replace(refPattern, "unknown");
+    schemas.set(tsName, resolved);
+  }
+
+  // Replace refs in operation type strings
+  for (const [opId, types] of operations) {
+    let { argsType, returnsType } = types;
+    for (const [refName, refTsName] of schemaNameMap) {
+      argsType = argsType.replaceAll(`components["schemas"]["${refName}"]`, refTsName);
+      returnsType = returnsType.replaceAll(`components["schemas"]["${refName}"]`, refTsName);
+    }
+    // Any remaining unresolved refs → unknown
+    argsType = argsType.replace(refPattern, "unknown");
+    returnsType = returnsType.replace(refPattern, "unknown");
+    operations.set(opId, { argsType, returnsType });
+  }
+
+  // Also resolve components["parameters"]["X"] refs to unknown (less common)
+  const paramRefPattern = /components\["parameters"\]\["[^"]+"\]/g;
+  for (const [opId, types] of operations) {
+    operations.set(opId, {
+      argsType: types.argsType.replace(paramRefPattern, "unknown"),
+      returnsType: types.returnsType.replace(paramRefPattern, "unknown"),
+    });
+  }
+
+  return { operations, schemas };
+}
+
+/** Find the components.schemas type literal in the .d.ts AST */
+function findComponentsSchemas(
+  ts: typeof import("typescript"),
+  sourceFile: import("typescript").SourceFile,
+): import("typescript").TypeLiteralNode | undefined {
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isInterfaceDeclaration(stmt) || stmt.name.text !== "components") continue;
+    for (const member of stmt.members) {
+      if (!ts.isPropertySignature(member) || !member.name) continue;
+      const name = ts.isIdentifier(member.name) ? member.name.text : undefined;
+      if (name === "schemas" && member.type && ts.isTypeLiteralNode(member.type)) {
+        return member.type;
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractArgsType(
+  ts: typeof import("typescript"),
+  opType: import("typescript").TypeLiteralNode,
+  sourceFile: import("typescript").SourceFile,
+): string {
+  const parts: string[] = [];
+
+  // Extract parameters (query, path, header)
+  const paramsMember = findMember(ts, opType, "parameters");
+  if (paramsMember?.type && ts.isTypeLiteralNode(paramsMember.type)) {
+    for (const locationMember of paramsMember.type.members) {
+      if (!ts.isPropertySignature(locationMember) || !locationMember.name) continue;
+      const locName = ts.isIdentifier(locationMember.name) ? locationMember.name.text : "";
+      if (!["query", "path", "header"].includes(locName)) continue;
+      if (!locationMember.type || !ts.isTypeLiteralNode(locationMember.type)) continue;
+
+      for (const param of locationMember.type.members) {
+        if (!ts.isPropertySignature(param) || !param.name || !param.type) continue;
+        const paramName = ts.isIdentifier(param.name)
+          ? param.name.text
+          : ts.isStringLiteral(param.name)
+            ? param.name.text
+            : undefined;
+        if (!paramName) continue;
+        const optional = param.questionToken ? "?" : "";
+        const typeText = param.type.getText(sourceFile).replace(/\s+/g, " ").trim();
+        parts.push(`${paramName}${optional}: ${typeText}`);
+      }
+    }
+  }
+
+  // Extract requestBody content
+  const bodyMember = findMember(ts, opType, "requestBody");
+  if (bodyMember?.type) {
+    const bodyTypeNode = ts.isTypeLiteralNode(bodyMember.type) ? bodyMember.type : null;
+    if (bodyTypeNode) {
+      const contentMember = findMember(ts, bodyTypeNode, "content");
+      if (contentMember?.type && ts.isTypeLiteralNode(contentMember.type)) {
+        // Look for application/json or */* or first content type
+        for (const ct of contentMember.type.members) {
+          if (!ts.isPropertySignature(ct) || !ct.name || !ct.type) continue;
+          const ctName = ts.isStringLiteral(ct.name) ? ct.name.text : ts.isIdentifier(ct.name) ? ct.name.text : "";
+          if (ctName === "application/json" || ctName === "*/*") {
+            // The body type — try to merge its properties into the args
+            if (ts.isTypeLiteralNode(ct.type)) {
+              for (const bodyProp of ct.type.members) {
+                if (!ts.isPropertySignature(bodyProp) || !bodyProp.name || !bodyProp.type) continue;
+                const propName = ts.isIdentifier(bodyProp.name)
+                  ? bodyProp.name.text
+                  : ts.isStringLiteral(bodyProp.name)
+                    ? bodyProp.name.text
+                    : undefined;
+                if (!propName) continue;
+                const optional = bodyProp.questionToken ? "?" : "";
+                const typeText = bodyProp.type.getText(sourceFile).replace(/\s+/g, " ").trim();
+                parts.push(`${propName}${optional}: ${typeText}`);
+              }
+            } else {
+              // Non-literal body type (e.g. components["schemas"]["..."]) — inline as `body`
+              const typeText = ct.type.getText(sourceFile).replace(/\s+/g, " ").trim();
+              if (typeText && typeText !== "never") {
+                parts.push(`body: ${typeText}`);
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  if (parts.length === 0) return "Record<string, unknown>";
+  return `{ ${parts.join("; ")} }`;
+}
+
+function extractReturnsType(
+  ts: typeof import("typescript"),
+  opType: import("typescript").TypeLiteralNode,
+  sourceFile: import("typescript").SourceFile,
+): string {
+  const responsesMember = findMember(ts, opType, "responses");
+  if (!responsesMember?.type || !ts.isTypeLiteralNode(responsesMember.type)) return "unknown";
+
+  // Find the first 2xx response
+  for (const resp of responsesMember.type.members) {
+    if (!ts.isPropertySignature(resp) || !resp.name || !resp.type) continue;
+    const status = ts.isNumericLiteral(resp.name)
+      ? resp.name.text
+      : ts.isStringLiteral(resp.name)
+        ? resp.name.text
+        : ts.isIdentifier(resp.name)
+          ? resp.name.text
+          : "";
+    if (!status.startsWith("2")) continue;
+    if (!ts.isTypeLiteralNode(resp.type)) continue;
+
+    const contentMember = findMember(ts, resp.type, "content");
+    if (!contentMember?.type || !ts.isTypeLiteralNode(contentMember.type)) continue;
+
+    for (const ct of contentMember.type.members) {
+      if (!ts.isPropertySignature(ct) || !ct.name || !ct.type) continue;
+      const ctName = ts.isStringLiteral(ct.name) ? ct.name.text : ts.isIdentifier(ct.name) ? ct.name.text : "";
+      if (ctName === "application/json" || ctName === "*/*") {
+        const typeText = ct.type.getText(sourceFile).replace(/\s+/g, " ").trim();
+        return typeText || "unknown";
+      }
+    }
+  }
+
+  return "unknown";
+}
+
+function findMember(
+  ts: typeof import("typescript"),
+  typeLiteral: import("typescript").TypeLiteralNode,
+  name: string,
+): import("typescript").PropertySignature | undefined {
+  for (const member of typeLiteral.members) {
+    if (!ts.isPropertySignature(member) || !member.name) continue;
+    const memberName = ts.isIdentifier(member.name)
+      ? member.name.text
+      : ts.isStringLiteral(member.name)
+        ? member.name.text
+        : undefined;
+    if (memberName === name) return member;
+  }
+  return undefined;
+}
+
+/** Simple depth-limited type hint generator for schemas (used as fallback) */
 function jsonSchemaTypeHintFallback(schema: unknown, depth = 0): string {
   if (!schema || typeof schema !== "object") return "unknown";
   if (depth > 4) return "unknown";
@@ -231,7 +530,7 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
       approval: config.overrides?.[toolName]?.approval ?? config.defaultApproval ?? "auto",
       description: String(tool.description ?? `MCP tool ${toolName}`),
       metadata: {
-        argsType: jsonSchemaToTypeString(inputSchema),
+        argsType: jsonSchemaTypeHintFallback(inputSchema),
         returnsType: "unknown",
       },
       run: async (input: unknown) => {
@@ -342,10 +641,16 @@ function buildOpenApiUrl(
 }
 
 async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDefinition[]> {
-  const api = (await (SwaggerParser as unknown as {
-    dereference(spec: unknown): Promise<unknown>;
-  }).dereference(config.spec)) as Record<string, unknown>;
-  const servers = Array.isArray(api.servers) ? (api.servers as Array<{ url?: unknown }>) : [];
+  // Run two things concurrently:
+  // 1. Parse the spec structure (bundle resolves external $refs but keeps internal ones)
+  // 2. Generate proper TypeScript types via openapiTS (handles circular refs correctly)
+  const [bundled, typeMap] = await Promise.all([
+    (SwaggerParser as unknown as { bundle(spec: unknown): Promise<unknown> }).bundle(config.spec)
+      .then((api) => api as Record<string, unknown>),
+    generateOpenApiTypes(config.spec),
+  ]);
+
+  const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
   const baseUrl = config.baseUrl ?? String(servers[0]?.url ?? "");
   if (!baseUrl) {
     throw new Error(`OpenAPI source ${config.name} has no base URL (set baseUrl)`);
@@ -354,8 +659,15 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
   const authHeaders = buildStaticAuthHeaders(config.auth);
   const sourceKey = `openapi:${config.name}`;
   const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
-  const paths = asRecord(api.paths);
+  const paths = asRecord(bundled.paths);
   const tools: ToolDefinition[] = [];
+
+  // Schema type aliases referenced by operations — stored on the first tool only
+  // to avoid duplicating hundreds of KB across every tool from this source.
+  const schemaTypes = typeMap?.schemas.size
+    ? Object.fromEntries(typeMap.schemas)
+    : undefined;
+  let schemaTypesEmitted = false;
 
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const readMethods = new Set(["get", "head", "options"]);
@@ -386,38 +698,52 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
         schema: asRecord(entry.schema),
       }));
 
-      const requestBody = asRecord(operation.requestBody);
-      const requestBodyContent = asRecord(requestBody.content);
-      const requestBodySchema = asRecord(
-        asRecord(requestBodyContent["application/json"])["schema"] ??
-        asRecord(requestBodyContent["*/*"])["schema"],
-      );
+      // Use openapiTS-generated types if available, otherwise fall back to schema hints
+      const generatedTypes = typeMap?.operations.get(operationIdRaw);
+      let argsType: string;
+      let returnsType: string;
 
-      const responses = asRecord(operation.responses);
-      let responseSchema: Record<string, unknown> = {};
-      for (const [status, responseValue] of Object.entries(responses)) {
-        if (!status.startsWith("2")) continue;
-        const responseContent = asRecord(asRecord(responseValue).content);
-        responseSchema = asRecord(
-          asRecord(responseContent["application/json"])["schema"] ??
-          asRecord(responseContent["*/*"])["schema"],
+      if (generatedTypes) {
+        argsType = generatedTypes.argsType;
+        returnsType = generatedTypes.returnsType;
+      } else {
+        // Fallback: build types from the bundled schema using the depth-limited hint generator
+        const requestBody = asRecord(operation.requestBody);
+        const requestBodyContent = asRecord(requestBody.content);
+        const requestBodySchema = asRecord(
+          asRecord(requestBodyContent["application/json"])["schema"] ??
+          asRecord(requestBodyContent["*/*"])["schema"],
         );
-        if (Object.keys(responseSchema).length > 0) break;
-      }
 
-      const combinedSchema: JsonSchema = {
-        type: "object",
-        properties: {
-          ...Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
-          ...asRecord(requestBodySchema.properties),
-        },
-        required: [
-          ...parameters.filter((param) => param.required).map((param) => param.name),
-          ...((Array.isArray(requestBodySchema.required)
-            ? requestBodySchema.required.filter((item): item is string => typeof item === "string")
-            : []) as string[]),
-        ],
-      };
+        const responses = asRecord(operation.responses);
+        let responseSchema: Record<string, unknown> = {};
+        for (const [status, responseValue] of Object.entries(responses)) {
+          if (!status.startsWith("2")) continue;
+          const responseContent = asRecord(asRecord(responseValue).content);
+          responseSchema = asRecord(
+            asRecord(responseContent["application/json"])["schema"] ??
+            asRecord(responseContent["*/*"])["schema"],
+          );
+          if (Object.keys(responseSchema).length > 0) break;
+        }
+
+        const combinedSchema: JsonSchema = {
+          type: "object",
+          properties: {
+            ...Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
+            ...asRecord(requestBodySchema.properties),
+          },
+          required: [
+            ...parameters.filter((param) => param.required).map((param) => param.name),
+            ...((Array.isArray(requestBodySchema.required)
+              ? requestBodySchema.required.filter((item): item is string => typeof item === "string")
+              : []) as string[]),
+          ],
+        };
+
+        argsType = jsonSchemaTypeHintFallback(combinedSchema);
+        returnsType = jsonSchemaTypeHintFallback(responseSchema);
+      }
 
       const approval = config.overrides?.[operationIdRaw]?.approval
         ?? (readMethods.has(method)
@@ -430,8 +756,10 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
         approval,
         description: String(operation.summary ?? operation.description ?? `${method.toUpperCase()} ${pathTemplate}`),
         metadata: {
-          argsType: jsonSchemaToTypeString(combinedSchema),
-          returnsType: jsonSchemaToTypeString(responseSchema),
+          argsType,
+          returnsType,
+          // Only attach schemas to the first tool to avoid duplicating hundreds of KB
+          ...(schemaTypes && !schemaTypesEmitted ? { schemaTypes } : {}),
         },
         credential: credentialSpec,
         run: async (input: unknown, context) => {
@@ -461,6 +789,11 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
           return await response.text();
         },
       });
+
+      // Mark schemas as emitted so subsequent tools from this source don't duplicate them
+      if (schemaTypes && !schemaTypesEmitted) {
+        schemaTypesEmitted = true;
+      }
     }
   }
 

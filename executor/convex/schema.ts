@@ -1,16 +1,55 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const accountProvider = v.union(v.literal("workos"), v.literal("anonymous"));
+const accountStatus = v.union(v.literal("active"), v.literal("deleted"));
+const organizationStatus = v.union(v.literal("active"), v.literal("deleted"));
+const orgRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"), v.literal("billing_admin"));
+const orgMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
+const workspaceMemberRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"));
+const workspaceMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
+const billingSubscriptionStatus = v.union(
+  v.literal("incomplete"),
+  v.literal("incomplete_expired"),
+  v.literal("trialing"),
+  v.literal("active"),
+  v.literal("past_due"),
+  v.literal("canceled"),
+  v.literal("unpaid"),
+  v.literal("paused"),
+);
+const inviteStatus = v.union(
+  v.literal("pending"),
+  v.literal("accepted"),
+  v.literal("expired"),
+  v.literal("revoked"),
+  v.literal("failed"),
+);
+const inviteProvider = v.literal("workos");
+const taskStatus = v.union(
+  v.literal("queued"),
+  v.literal("running"),
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("timed_out"),
+  v.literal("denied"),
+);
+const approvalStatus = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
+const policyDecision = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
+const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
+const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+const agentTaskStatus = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
+
 export default defineSchema({
   accounts: defineTable({
-    provider: v.string(),
+    provider: accountProvider,
     providerAccountId: v.string(),
     email: v.string(),
     name: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
-    status: v.string(),
+    status: accountStatus,
     createdAt: v.number(),
     updatedAt: v.number(),
     lastLoginAt: v.optional(v.number()),
@@ -20,52 +59,118 @@ export default defineSchema({
 
   workspaces: defineTable({
     workosOrgId: v.optional(v.string()),
-    legacyWorkspaceId: v.optional(v.string()),
+    organizationId: v.id("organizations"),
     slug: v.string(),
     name: v.string(),
     iconStorageId: v.optional(v.id("_storage")),
-    kind: v.string(),
     plan: v.string(),
     createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_workos_org_id", ["workosOrgId"])
-    .index("by_legacy_workspace_id", ["legacyWorkspaceId"])
+    .index("by_organization_created", ["organizationId", "createdAt"])
+    .index("by_organization_slug", ["organizationId", "slug"])
+    .index("by_creator_created", ["createdByAccountId", "createdAt"])
     .index("by_slug", ["slug"]),
 
-  users: defineTable({
-    workspaceId: v.id("workspaces"),
-    accountId: v.id("accounts"),
-    workosOrgMembershipId: v.optional(v.string()),
-    role: v.string(),
-    status: v.string(),
+  organizations: defineTable({
+    workosOrgId: v.optional(v.string()),
+    slug: v.string(),
+    name: v.string(),
+    status: organizationStatus,
+    createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    .index("by_workos_org_id", ["workosOrgId"])
+    .index("by_slug", ["slug"])
+    .index("by_status_created", ["status", "createdAt"]),
+
+  organizationMembers: defineTable({
+    organizationId: v.id("organizations"),
+    accountId: v.id("accounts"),
+    role: orgRole,
+    status: orgMemberStatus,
+    billable: v.boolean(),
+    invitedByAccountId: v.optional(v.id("accounts")),
+    joinedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_account", ["organizationId", "accountId"])
+    .index("by_account", ["accountId"])
+    .index("by_org_status", ["organizationId", "status"])
+    .index("by_org_billable_status", ["organizationId", "billable", "status"]),
+
+  workspaceMembers: defineTable({
+    workspaceId: v.id("workspaces"),
+    accountId: v.id("accounts"),
+    workosOrgMembershipId: v.optional(v.string()),
+    role: workspaceMemberRole,
+    status: workspaceMemberStatus,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
     .index("by_workspace_account", ["workspaceId", "accountId"])
     .index("by_account", ["accountId"])
-    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_status", ["workspaceId", "status"])
     .index("by_workos_membership_id", ["workosOrgMembershipId"]),
 
-  accountSessions: defineTable({
-    accountId: v.id("accounts"),
-    sessionId: v.optional(v.string()),
-    providerSessionId: v.optional(v.string()),
-    tokenHash: v.optional(v.string()),
-    tokenCiphertext: v.optional(v.string()),
-    issuedAt: v.optional(v.number()),
-    expiresAt: v.optional(v.number()),
-    revokedAt: v.optional(v.number()),
-    userAgent: v.optional(v.string()),
-    ip: v.optional(v.string()),
+  invites: defineTable({
+    organizationId: v.id("organizations"),
+    workspaceId: v.optional(v.id("workspaces")),
+    email: v.string(),
+    role: orgRole,
+    status: inviteStatus,
+    provider: inviteProvider,
+    providerInviteId: v.optional(v.string()),
+    invitedByAccountId: v.id("accounts"),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
     createdAt: v.number(),
-    lastSeenAt: v.number(),
+    updatedAt: v.number(),
   })
-    .index("by_account_created", ["accountId", "createdAt"])
-    .index("by_session_id", ["sessionId"])
-    .index("by_provider_session_id", ["providerSessionId"])
-    .index("by_token_hash", ["tokenHash"]),
+    .index("by_org", ["organizationId"])
+    .index("by_org_status_created", ["organizationId", "status", "createdAt"])
+    .index("by_org_email_status", ["organizationId", "email", "status"]),
+
+  billingCustomers: defineTable({
+    organizationId: v.id("organizations"),
+    stripeCustomerId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_stripe_customer_id", ["stripeCustomerId"]),
+
+  billingSubscriptions: defineTable({
+    organizationId: v.id("organizations"),
+    stripeSubscriptionId: v.string(),
+    stripePriceId: v.string(),
+    status: billingSubscriptionStatus,
+    currentPeriodStart: v.optional(v.number()),
+    currentPeriodEnd: v.optional(v.number()),
+    cancelAtPeriodEnd: v.boolean(),
+    canceledAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_status", ["organizationId", "status"])
+    .index("by_stripe_subscription_id", ["stripeSubscriptionId"]),
+
+  billingSeatState: defineTable({
+    organizationId: v.id("organizations"),
+    desiredSeats: v.number(),
+    lastAppliedSeats: v.optional(v.number()),
+    syncVersion: v.number(),
+    lastSyncAt: v.optional(v.number()),
+    syncError: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
 
   tasks: defineTable({
     taskId: v.string(),
@@ -74,7 +179,7 @@ export default defineSchema({
     workspaceId: v.string(),
     actorId: v.string(),
     clientId: v.string(),
-    status: v.string(),
+    status: taskStatus,
     timeoutMs: v.number(),
     metadata: v.any(),
     error: v.optional(v.string()),
@@ -96,7 +201,7 @@ export default defineSchema({
     workspaceId: v.string(),
     toolPath: v.string(),
     input: v.any(),
-    status: v.string(),
+    status: approvalStatus,
     reason: v.optional(v.string()),
     reviewerId: v.optional(v.string()),
     createdAt: v.number(),
@@ -124,7 +229,7 @@ export default defineSchema({
     actorId: v.string(),
     clientId: v.string(),
     toolPathPattern: v.string(),
-    decision: v.string(),
+    decision: policyDecision,
     priority: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -136,7 +241,7 @@ export default defineSchema({
     credentialId: v.string(),
     workspaceId: v.string(),
     sourceKey: v.string(),
-    scope: v.string(),
+    scope: credentialScope,
     actorId: v.string(),
     secretJson: v.any(),
     createdAt: v.number(),
@@ -150,7 +255,7 @@ export default defineSchema({
     sourceId: v.string(),
     workspaceId: v.string(),
     name: v.string(),
-    type: v.string(),
+    type: toolSourceType,
     config: v.any(),
     enabled: v.boolean(),
     createdAt: v.number(),
@@ -167,7 +272,7 @@ export default defineSchema({
     requesterId: v.string(),
     workspaceId: v.string(),
     actorId: v.string(),
-    status: v.string(), // "running" | "completed" | "failed"
+    status: agentTaskStatus,
     resultText: v.optional(v.string()),
     error: v.optional(v.string()),
     codeRuns: v.number(),
@@ -180,12 +285,11 @@ export default defineSchema({
 
   anonymousSessions: defineTable({
     sessionId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.string(),
     accountId: v.optional(v.id("accounts")),
-    workspaceDocId: v.optional(v.id("workspaces")),
-    userId: v.optional(v.id("users")),
+    userId: v.optional(v.id("workspaceMembers")),
     createdAt: v.number(),
     lastSeenAt: v.number(),
   })

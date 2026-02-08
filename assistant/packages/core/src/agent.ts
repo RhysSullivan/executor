@@ -57,6 +57,23 @@ interface McpTool {
   inputSchema?: Record<string, unknown>;
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 export interface AgentOptions {
   readonly executorUrl: string;
   readonly workspaceId: string;
@@ -143,6 +160,12 @@ export function createAgent(options: AgentOptions) {
 
   const resolvedApiKey = resolveApiKey(apiKey);
   const model = getModel("anthropic", modelId as never);
+  const executorBaseUrl = (() => {
+    const raw = executorUrl.trim().replace(/\/$/, "");
+    if (/^https?:\/\//.test(raw)) return raw;
+    if (raw.includes(".convex.cloud")) return raw.replace(".convex.cloud", ".convex.site");
+    throw new Error(`Invalid executorUrl: expected http(s) URL, got '${executorUrl}'`);
+  })();
 
   async function generate(messages: Message[], tools: McpTool[]) {
     const { systemPrompt, piMessages } = toPiMessages(messages);
@@ -167,7 +190,7 @@ export function createAgent(options: AgentOptions) {
 
       // Connect to executor MCP
       emit({ type: "status", message: "Connecting..." });
-      const mcpUrl = new URL(`${executorUrl}/mcp`);
+      const mcpUrl = new URL(`${executorBaseUrl}/mcp`);
       mcpUrl.searchParams.set("workspaceId", workspaceId);
       mcpUrl.searchParams.set("actorId", actorId);
       if (clientId) mcpUrl.searchParams.set("clientId", clientId);
@@ -177,7 +200,7 @@ export function createAgent(options: AgentOptions) {
 
       let mcpConnected = false;
       try {
-        await mcp.connect(transport);
+        await withTimeout(mcp.connect(transport), 20_000, "MCP connection");
         mcpConnected = true;
       } catch (err) {
         const msg = `Failed to connect to executor MCP: ${err instanceof Error ? err.message : String(err)}`;
@@ -189,7 +212,7 @@ export function createAgent(options: AgentOptions) {
       try {
         // List tools
         emit({ type: "status", message: "Loading tools..." });
-        const { tools: rawTools } = await mcp.listTools();
+        const { tools: rawTools } = await withTimeout(mcp.listTools(), 20_000, "MCP listTools");
         const tools: McpTool[] = rawTools.map((t) => ({
           name: t.name,
           description: t.description,
@@ -219,6 +242,7 @@ ${toolSection}
 
 - Use the \`run_code\` tool to execute TypeScript code
 - Write complete, self-contained scripts — do all work in a single run_code call when possible
+- TypeScript syntax is allowed; prefer simple runnable scripts over heavy type scaffolding
 - The code runs in a sandbox — only \`tools.*\` calls are available (no fetch, require, import)
 - Handle errors with try/catch
 - Return a structured result, then summarize what happened
@@ -235,7 +259,7 @@ ${toolSection}
 
         // Agent loop
         while (toolCallCount < maxToolCalls) {
-          const response = await generate(messages, tools);
+          const response = await withTimeout(generate(messages, tools), 90_000, "Model response");
 
           if (!response.toolCalls?.length) {
             const text = response.text ?? "";
@@ -253,7 +277,11 @@ ${toolSection}
             emit({ type: "status", message: `Running ${tc.name}...` });
 
             // Call tool via MCP
-            const result = await mcp.callTool({ name: tc.name, arguments: tc.args });
+            const result = await withTimeout(
+              mcp.callTool({ name: tc.name, arguments: tc.args }),
+              120_000,
+              `MCP tool call (${tc.name})`,
+            );
             const text = (result.content as Array<{ type: string; text?: string }>)
               .filter((c) => c.type === "text" && c.text)
               .map((c) => c.text!)

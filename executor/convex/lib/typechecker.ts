@@ -21,6 +21,18 @@ import type { ToolDescriptor } from "./types";
  * and nested into a type tree.
  */
 export function generateToolDeclarations(tools: ToolDescriptor[]): string {
+  // Collect all schema type aliases from all tools (deduplicated by name)
+  const allSchemas = new Map<string, string>();
+  for (const tool of tools) {
+    if (tool.schemaTypes) {
+      for (const [name, type] of Object.entries(tool.schemaTypes)) {
+        if (!allSchemas.has(name)) {
+          allSchemas.set(name, type);
+        }
+      }
+    }
+  }
+
   // Build a nested tree from flat tool paths
   interface TreeNode {
     children: Map<string, TreeNode>;
@@ -63,7 +75,14 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
     return lines.join("\n");
   }
 
-  return `declare const tools: {\n${renderNode(root, 1)}\n};`;
+  // Emit schema type aliases before the tools declaration so they're in scope
+  const schemaLines: string[] = [];
+  for (const [name, type] of allSchemas) {
+    schemaLines.push(`type ${name} = ${type};`);
+  }
+
+  const schemaBlock = schemaLines.length > 0 ? schemaLines.join("\n") + "\n" : "";
+  return `${schemaBlock}declare const tools: {\n${renderNode(root, 1)}\n};`;
 }
 
 /**

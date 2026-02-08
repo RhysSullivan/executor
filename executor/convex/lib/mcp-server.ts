@@ -1,10 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
-import { getTaskTerminalState } from "./service";
 import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
+
+function getTaskTerminalState(status: string): boolean {
+  return status === "completed" || status === "failed" || status === "timed_out" || status === "denied";
+}
 
 // ---------------------------------------------------------------------------
 // Service interface
@@ -74,37 +77,48 @@ function waitForTerminalTask(
   return new Promise((resolve) => {
     let settled = false;
     let unsubscribe: (() => void) | undefined;
+    let poll: ReturnType<typeof setInterval> | undefined;
 
     const done = async () => {
       if (settled) return;
       settled = true;
+      if (poll) clearInterval(poll);
       unsubscribe?.();
       resolve(await service.getTask(taskId, workspaceId));
     };
 
     const timeout = setTimeout(done, waitTimeoutMs);
 
-    // Check if already terminal before subscribing (race condition guard)
-    service.getTask(taskId, workspaceId).then((task) => {
+    const checkTask = async () => {
       if (settled) return;
+      const task = await service.getTask(taskId, workspaceId);
       if (task && getTaskTerminalState(task.status)) {
         clearTimeout(timeout);
-        settled = true;
-        resolve(task);
-        return;
+        await done();
       }
+    };
 
-      // Subscribe for live events
+    poll = setInterval(() => {
+      void checkTask();
+    }, 400);
+
+    // Check if already terminal before subscribing (race condition guard)
+    void checkTask();
+
+    // Subscribe for live events when available; polling remains as fallback.
+    try {
       unsubscribe = service.subscribe(taskId, (event) => {
         const type = typeof event.payload === "object" && event.payload
           ? (event.payload as Record<string, unknown>).status
           : undefined;
         if (typeof type === "string" && getTaskTerminalState(type)) {
           clearTimeout(timeout);
-          done();
+          void done();
         }
       });
-    });
+    } catch {
+      // Ignore subscription errors and rely on polling.
+    }
   });
 }
 
@@ -146,6 +160,8 @@ function createRunCodeTool(
     structuredContent?: Record<string, unknown>;
     isError?: boolean;
   }> => {
+    const requestedTimeoutMs = input.timeoutMs ?? 300_000;
+
     // Resolve context: bound context takes priority, then input, then anonymous
     let context: { workspaceId: string; actorId: string; clientId?: string; sessionId?: string };
 
@@ -201,7 +217,7 @@ function createRunCodeTool(
 
     const created = await service.createTask({
       code: input.code,
-      timeoutMs: input.timeoutMs,
+      timeoutMs: requestedTimeoutMs,
       runtimeId: input.runtimeId,
       metadata: input.metadata,
       workspaceId: context.workspaceId,
@@ -223,7 +239,7 @@ function createRunCodeTool(
       };
     }
 
-    const waitTimeoutMs = input.resultTimeoutMs ?? Math.max((input.timeoutMs ?? created.task.timeoutMs) + 10_000, 15_000);
+    const waitTimeoutMs = input.resultTimeoutMs ?? Math.max(requestedTimeoutMs + 30_000, 120_000);
     const task = await waitForTerminalTask(service, created.task.id, context.workspaceId, waitTimeoutMs);
 
     if (!task) {

@@ -103,3 +103,20 @@ test("anonymous bootstrap links guest account membership", async () => {
   expect(again.userId).toBe(first.userId);
 });
 
+test("bootstrap honors caller-provided session id", async () => {
+  const t = setup();
+
+  const seeded = await t.mutation(api.database.bootstrapAnonymousSession, {
+    sessionId: "assistant-discord-dev",
+  });
+
+  expect(seeded.sessionId).toBe("assistant-discord-dev");
+
+  const again = await t.mutation(api.database.bootstrapAnonymousSession, {
+    sessionId: "assistant-discord-dev",
+  });
+
+  expect(again.sessionId).toBe("assistant-discord-dev");
+  expect(again.workspaceId).toBe(seeded.workspaceId);
+  expect(again.actorId).toBe(seeded.actorId);
+});

@@ -6,17 +6,15 @@
  * Starts:
  *   1. Convex cloud dev function push (once)
  *   2. Convex cloud dev function watcher
- *   3. Executor server (port 4001)
- *   4. Executor web UI (port 3002)
- *   5. Assistant server (port 3000)
- *   6. Discord bot
+ *   3. Executor web UI (port 3002)
+ *   4. Assistant server (port 3000)
+ *   5. Discord bot
  *
  * All processes are killed when this script exits (Ctrl+C).
  */
 
 const colors = {
   convex: "\x1b[36m",   // cyan
-  executor: "\x1b[33m", // yellow
   web: "\x1b[34m",      // blue
   assistant: "\x1b[32m", // green
   bot: "\x1b[35m",      // magenta
@@ -31,9 +29,18 @@ function prefix(name: ServiceName, line: string): string {
 
 const procs: Bun.Subprocess[] = [];
 
-async function resolveExecutorConvexUrl(): Promise<string> {
+function toSiteUrl(convexUrl: string): string {
+  if (convexUrl.includes(".convex.cloud")) {
+    return convexUrl.replace(".convex.cloud", ".convex.site");
+  }
+  return convexUrl;
+}
+
+async function resolveExecutorUrls(): Promise<{ convexUrl: string; executorUrl: string }> {
   if (Bun.env.CONVEX_URL) {
-    return Bun.env.CONVEX_URL;
+    const convexUrl = Bun.env.CONVEX_URL;
+    const executorUrl = Bun.env.CONVEX_SITE_URL ?? toSiteUrl(convexUrl);
+    return { convexUrl, executorUrl };
   }
 
   const envFile = Bun.file("./executor/.env.local");
@@ -42,20 +49,27 @@ async function resolveExecutorConvexUrl(): Promise<string> {
   }
 
   const content = await envFile.text();
-  const line = content
+  const lines = content
     .split("\n")
-    .map((entry) => entry.trim())
-    .find((entry) => entry.startsWith("CONVEX_URL="));
+    .map((entry) => entry.trim());
 
-  if (!line) {
+  const convexLine = lines.find((entry) => entry.startsWith("CONVEX_URL="));
+  const siteLine = lines.find((entry) => entry.startsWith("CONVEX_SITE_URL="));
+
+  if (!convexLine) {
     throw new Error("CONVEX_URL not found in executor/.env.local");
   }
 
-  const url = line.slice("CONVEX_URL=".length).trim();
-  if (!url) {
+  const convexUrl = convexLine.slice("CONVEX_URL=".length).trim();
+  if (!convexUrl) {
     throw new Error("CONVEX_URL is empty in executor/.env.local");
   }
-  return url;
+
+  const executorUrl = siteLine
+    ? siteLine.slice("CONVEX_SITE_URL=".length).trim()
+    : toSiteUrl(convexUrl);
+
+  return { convexUrl, executorUrl };
 }
 
 function spawnService(name: ServiceName, cmd: string[], opts: {
@@ -147,8 +161,9 @@ if (!Bun.env.DISCORD_BOT_TOKEN) {
 // 1. Push functions (must complete before executor starts)
 await pushConvexFunctions();
 
-const executorConvexUrl = await resolveExecutorConvexUrl();
-console.log(prefix("convex", `Using deployment URL: ${executorConvexUrl}`));
+const urls = await resolveExecutorUrls();
+console.log(prefix("convex", `Using Convex URL: ${urls.convexUrl}`));
+console.log(prefix("convex", `Using executor HTTP URL: ${urls.executorUrl}`));
 
 // 2. Start Convex file watcher (repushes on changes)
 spawnService("convex", [
@@ -159,26 +174,20 @@ spawnService("convex", [
 });
 
 // 3. Everything else in parallel
-spawnService("executor", ["bun", "--hot", "apps/server/src/index.ts"], {
-  cwd: "./executor",
-  env: {
-    EXECUTOR_SERVER_AUTO_EXECUTE: "1",
-    CONVEX_URL: executorConvexUrl,
-    EXECUTOR_CONVEX_URL: executorConvexUrl,
-  },
-});
-
 spawnService("web", ["bun", "run", "dev", "--", "-p", "3002"], {
   cwd: "./executor/apps/web",
 });
 
-// Small delay for executor to be ready
-await Bun.sleep(2000);
+// Small delay for web to be ready
+await Bun.sleep(1200);
 
 spawnService("assistant", ["bun", "run", "--cwd", "packages/server", "dev"], {
   cwd: "./assistant",
   env: {
-    CONVEX_URL: executorConvexUrl,
+    EXECUTOR_URL: urls.executorUrl,
+    CONVEX_URL: urls.convexUrl,
+    EXECUTOR_ANON_SESSION_ID: Bun.env.EXECUTOR_ANON_SESSION_ID ?? "assistant-discord-dev",
+    EXECUTOR_CLIENT_ID: Bun.env.EXECUTOR_CLIENT_ID ?? "bot",
   },
 });
 
@@ -187,7 +196,7 @@ if (Bun.env.DISCORD_BOT_TOKEN) {
   spawnService("bot", ["bun", "run", "--cwd", "packages/bot", "dev"], {
     cwd: "./assistant",
     env: {
-      CONVEX_URL: executorConvexUrl,
+      CONVEX_URL: urls.convexUrl,
     },
   });
 }

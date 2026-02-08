@@ -1,10 +1,8 @@
 "use client";
 
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
-import { useQuery as useConvexQuery } from "convex/react";
+import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import { executor } from "@/lib/executor-client";
-import type { ToolDescriptor } from "@/lib/types";
 
 interface WorkspaceContext {
   workspaceId: string;
@@ -13,13 +11,14 @@ interface WorkspaceContext {
 }
 
 /**
- * Fetches tool metadata from the server API (`GET /api/tools`) via Eden Treaty,
- * cached and deduplicated by TanStack Query.
+ * Fetches tool metadata from a Convex action, cached by TanStack Query.
  *
  * Automatically re-fetches when the Convex `toolSources` subscription changes
  * (the reactive value is included in the query key).
  */
 export function useWorkspaceTools(context: WorkspaceContext | null) {
+  const listTools = useAction(convexApi.executorNode.listTools);
+
   // Watch tool sources reactively so we invalidate when sources change
   const toolSources = useConvexQuery(
     convexApi.database.listToolSources,
@@ -36,15 +35,11 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
     ],
     queryFn: async () => {
       if (!context) return [];
-      const { data, error } = await executor.api.tools.get({
-        query: {
-          workspaceId: context.workspaceId,
-          ...(context.actorId && { actorId: context.actorId }),
-          ...(context.clientId && { clientId: context.clientId }),
-        },
+      return await listTools({
+        workspaceId: context.workspaceId,
+        ...(context.actorId && { actorId: context.actorId }),
+        ...(context.clientId && { clientId: context.clientId }),
       });
-      if (error) throw error;
-      return data as ToolDescriptor[];
     },
     enabled: !!context,
   });

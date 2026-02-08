@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Inter } from "next/font/google";
 import { Toaster } from "sonner";
+import { AppShell } from "@/components/app-shell";
 import { AppConvexProvider } from "@/lib/convex-provider";
 import { QueryProvider } from "@/lib/query-provider";
 import { SessionProvider } from "@/lib/session-context";
@@ -34,7 +35,7 @@ export default function RootLayout({
         <AppConvexProvider>
           <QueryProvider>
             <SessionProvider>
-              {children}
+              <AppShell>{children}</AppShell>
             </SessionProvider>
           </QueryProvider>
         </AppConvexProvider>

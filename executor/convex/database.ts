@@ -2,8 +2,23 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { ensureUniqueSlug } from "./lib/slug";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
+type OrganizationMemberStatus = "active" | "pending" | "removed";
+
+const completedTaskStatusValidator = v.union(
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("timed_out"),
+  v.literal("denied"),
+);
+const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
+const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
+const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
+const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+const agentTaskStatusValidator = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
 
 function normalizeOptional(value?: string): string {
   if (typeof value !== "string") {
@@ -20,7 +35,65 @@ function optionalFromNormalized(value?: string): string | undefined {
   return value;
 }
 
-// NOTE: Canonical version lives in apps/server/src/utils.ts.
+function slugify(input: string): string {
+  const slug = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : "workspace";
+}
+
+async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
+  const baseSlug = slugify(baseName);
+  return await ensureUniqueSlug(baseSlug, async (candidate) => {
+    const collision = await ctx.db
+      .query("organizations")
+      .withIndex("by_slug", (q) => q.eq("slug", candidate))
+      .unique();
+    return collision !== null;
+  });
+}
+
+async function upsertOrganizationMembership(
+  ctx: Pick<MutationCtx, "db">,
+  args: {
+    organizationId: Doc<"organizations">["_id"];
+    accountId: Doc<"accounts">["_id"];
+    role: OrganizationRole;
+    status: OrganizationMemberStatus;
+    billable: boolean;
+    now: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
+    .unique();
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      role: args.role,
+      status: args.status,
+      billable: args.billable,
+      joinedAt: args.status === "active" ? (existing.joinedAt ?? args.now) : existing.joinedAt,
+      updatedAt: args.now,
+    });
+    return;
+  }
+
+  await ctx.db.insert("organizationMembers", {
+    organizationId: args.organizationId,
+    accountId: args.accountId,
+    role: args.role,
+    status: args.status,
+    billable: args.billable,
+    joinedAt: args.status === "active" ? args.now : undefined,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+}
+
+// NOTE: Canonical version lives in convex/lib/utils.ts.
 // Convex can't import from the server, so this is a local copy.
 function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -107,7 +180,12 @@ function mapSource(doc: Doc<"toolSources">) {
 
 async function ensureAnonymousIdentity(
   ctx: MutationCtx,
-  params: { sessionId: string; workspaceId: string; actorId: string; timestamp: number },
+  params: {
+    sessionId: string;
+    workspaceId?: Doc<"workspaces">["_id"];
+    actorId: string;
+    timestamp: number;
+  },
 ) {
   const now = params.timestamp;
 
@@ -135,17 +213,25 @@ async function ensureAnonymousIdentity(
     await ctx.db.patch(account._id, { updatedAt: now, lastLoginAt: now });
   }
 
-  let workspace = await ctx.db
-    .query("workspaces")
-    .withIndex("by_legacy_workspace_id", (q) => q.eq("legacyWorkspaceId", params.workspaceId))
-    .unique();
+  let workspace = params.workspaceId ? await ctx.db.get(params.workspaceId) : null;
+
+  let organizationId: Doc<"organizations">["_id"];
 
   if (!workspace) {
-    const workspaceId = await ctx.db.insert("workspaces", {
-      legacyWorkspaceId: params.workspaceId,
-      slug: `guest-${params.workspaceId.slice(-8)}`,
+    const organizationSlug = await ensureUniqueOrganizationSlug(ctx, "Guest Workspace");
+    organizationId = await ctx.db.insert("organizations", {
+      slug: organizationSlug,
       name: "Guest Workspace",
-      kind: "personal",
+      status: "active",
+      createdByAccountId: account._id,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const workspaceId = await ctx.db.insert("workspaces", {
+      organizationId,
+      slug: `guest-${crypto.randomUUID().slice(0, 8)}`,
+      name: "Guest Workspace",
       plan: "free",
       createdByAccountId: account._id,
       createdAt: now,
@@ -155,15 +241,26 @@ async function ensureAnonymousIdentity(
     if (!workspace) {
       throw new Error("Failed to create anonymous workspace");
     }
+  } else {
+    organizationId = workspace.organizationId;
   }
 
+  await upsertOrganizationMembership(ctx, {
+    organizationId,
+    accountId: account._id,
+    role: "owner",
+    status: "active",
+    billable: true,
+    now,
+  });
+
   let user = await ctx.db
-    .query("users")
+    .query("workspaceMembers")
     .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
     .unique();
 
   if (!user) {
-    const userId = await ctx.db.insert("users", {
+    const userId = await ctx.db.insert("workspaceMembers", {
       workspaceId: workspace._id,
       accountId: account._id,
       role: "owner",
@@ -179,29 +276,9 @@ async function ensureAnonymousIdentity(
     await ctx.db.patch(user._id, { updatedAt: now });
   }
 
-  const existingSession = await ctx.db
-    .query("accountSessions")
-    .withIndex("by_session_id", (q) => q.eq("sessionId", params.sessionId))
-    .unique();
-
-  if (existingSession) {
-    await ctx.db.patch(existingSession._id, {
-      accountId: account._id,
-      lastSeenAt: now,
-      revokedAt: undefined,
-    });
-  } else {
-    await ctx.db.insert("accountSessions", {
-      accountId: account._id,
-      sessionId: params.sessionId,
-      createdAt: now,
-      lastSeenAt: now,
-    });
-  }
-
   return {
     accountId: account._id,
-    workspaceDocId: workspace._id,
+    workspaceId: workspace._id,
     userId: user._id,
   };
 }
@@ -213,7 +290,6 @@ function mapAnonymousContext(doc: Doc<"anonymousSessions">) {
     actorId: doc.actorId,
     clientId: doc.clientId,
     accountId: doc.accountId,
-    workspaceDocId: doc.workspaceDocId,
     userId: doc.userId,
     createdAt: doc.createdAt,
     lastSeenAt: doc.lastSeenAt,
@@ -324,11 +400,6 @@ export const listRuntimeTargets = query({
         label: "Local JS Runtime",
         description: "Runs generated code in-process using Bun",
       },
-      {
-        id: "vercel-sandbox",
-        label: "Vercel Sandbox Runtime",
-        description: "Executes generated code in Vercel Sandbox VMs",
-      },
     ];
   },
 });
@@ -367,7 +438,7 @@ export const markTaskRunning = mutation({
 export const markTaskFinished = mutation({
   args: {
     taskId: v.string(),
-    status: v.string(),
+    status: completedTaskStatusValidator,
     stdout: v.string(),
     stderr: v.string(),
     exitCode: v.optional(v.number()),
@@ -443,7 +514,7 @@ export const getApproval = query({
 export const listApprovals = query({
   args: {
     workspaceId: v.string(),
-    status: v.optional(v.string()),
+    status: v.optional(approvalStatusValidator),
   },
   handler: async (ctx, args) => {
     if (args.status) {
@@ -511,7 +582,7 @@ export const listPendingApprovals = query({
 export const resolveApproval = mutation({
   args: {
     approvalId: v.string(),
-    decision: v.string(),
+    decision: v.union(v.literal("approved"), v.literal("denied")),
     reviewerId: v.optional(v.string()),
     reason: v.optional(v.string()),
   },
@@ -614,7 +685,7 @@ export const getAgentTask = query({
 export const updateAgentTask = mutation({
   args: {
     agentTaskId: v.string(),
-    status: v.optional(v.string()),
+    status: v.optional(agentTaskStatusValidator),
     resultText: v.optional(v.string()),
     error: v.optional(v.string()),
     codeRuns: v.optional(v.number()),
@@ -639,9 +710,10 @@ export const bootstrapAnonymousSession = mutation({
   args: { sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const requestedSessionId = normalizeOptional(args.sessionId);
 
-    if (args.sessionId) {
-      const sessionId = args.sessionId;
+    if (requestedSessionId) {
+      const sessionId = requestedSessionId;
       const existing = await ctx.db
         .query("anonymousSessions")
         .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
@@ -655,8 +727,8 @@ export const bootstrapAnonymousSession = mutation({
         });
 
         await ctx.db.patch(existing._id, {
+          workspaceId: identity.workspaceId,
           accountId: identity.accountId,
-          workspaceDocId: identity.workspaceDocId,
           userId: identity.userId,
           lastSeenAt: now,
         });
@@ -672,25 +744,22 @@ export const bootstrapAnonymousSession = mutation({
       }
     }
 
-    const sessionId = `anon_session_${crypto.randomUUID()}`;
-    const workspaceId = `ws_${crypto.randomUUID()}`;
+    const sessionId = requestedSessionId || `anon_session_${crypto.randomUUID()}`;
     const actorId = `anon_${crypto.randomUUID()}`;
     const clientId = "web";
 
     const identity = await ensureAnonymousIdentity(ctx, {
       sessionId,
-      workspaceId,
       actorId,
       timestamp: now,
     });
 
     await ctx.db.insert("anonymousSessions", {
       sessionId,
-      workspaceId,
+      workspaceId: identity.workspaceId,
       actorId,
       clientId,
       accountId: identity.accountId,
-      workspaceDocId: identity.workspaceDocId,
       userId: identity.userId,
       createdAt: now,
       lastSeenAt: now,
@@ -715,7 +784,7 @@ export const upsertAccessPolicy = mutation({
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
     toolPathPattern: v.string(),
-    decision: v.string(),
+    decision: policyDecisionValidator,
     priority: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -785,7 +854,7 @@ export const upsertCredential = mutation({
     id: v.optional(v.string()),
     workspaceId: v.string(),
     sourceKey: v.string(),
-    scope: v.string(),
+    scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
     secretJson: v.any(),
   },
@@ -857,7 +926,7 @@ export const resolveCredential = query({
   args: {
     workspaceId: v.string(),
     sourceKey: v.string(),
-    scope: v.string(),
+    scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -901,7 +970,7 @@ export const upsertToolSource = mutation({
     id: v.optional(v.string()),
     workspaceId: v.string(),
     name: v.string(),
-    type: v.string(),
+    type: toolSourceTypeValidator,
     config: v.any(),
     enabled: v.optional(v.boolean()),
   },

@@ -14,7 +14,6 @@ import {
 } from "discord.js";
 import { makeReacord } from "@openassistant/reacord";
 import { createClient } from "@assistant/server/client";
-import { createExecutorClient } from "@assistant/server/executor-client";
 import { ConvexReactClient } from "convex/react";
 import { handleAskCommand } from "./commands/ask";
 
@@ -28,7 +27,6 @@ if (!DISCORD_TOKEN) {
 }
 
 const SERVER_URL = Bun.env.ASSISTANT_SERVER_URL ?? "http://localhost:3000";
-const EXECUTOR_URL = Bun.env.EXECUTOR_URL ?? "http://localhost:4001";
 const CONVEX_URL = Bun.env.CONVEX_URL ?? "http://127.0.0.1:3210";
 
 // ---------------------------------------------------------------------------
@@ -44,7 +42,6 @@ const client = new Client({
 
 const reacord = makeReacord(client, { maxInstances: 50 });
 const api = createClient(SERVER_URL);
-const executor = createExecutorClient(EXECUTOR_URL);
 const convex = new ConvexReactClient(CONVEX_URL, {
   unsavedChangesWarning: false,
 });
@@ -87,7 +84,7 @@ client.on("interactionCreate", async (interaction) => {
 
   switch (interaction.commandName) {
     case "ask":
-      await handleAskCommand(interaction, { api, executor, convex, reacord });
+      await handleAskCommand(interaction, { api, convex, reacord });
       break;
     case "clear":
       await interaction.reply({ content: `_${"\n".repeat(50)}_` });
@@ -105,7 +102,6 @@ client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user?.tag}`);
   await registerCommands();
   console.log(`Connected to server at ${SERVER_URL}`);
-  console.log(`Executor at ${EXECUTOR_URL}`);
   console.log(`Convex at ${CONVEX_URL}`);
 });
 

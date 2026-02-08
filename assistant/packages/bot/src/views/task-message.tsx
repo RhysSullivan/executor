@@ -3,7 +3,7 @@
  *
  * - Watches agentTask in Convex for status, result, error (reactive, no polling)
  * - Watches pending approvals in Convex (reactive)
- * - Approval buttons resolve via executor REST API
+ * - Approval buttons resolve via Convex mutation
  */
 
 import { useState, useCallback } from "react";
@@ -16,9 +16,8 @@ import {
   Loading,
   useInstance,
 } from "@openassistant/reacord";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@executor/convex/_generated/api";
-import type { ExecutorClient } from "@assistant/server/executor-client";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -28,11 +27,11 @@ export interface TaskMessageProps {
   readonly agentTaskId: string;
   readonly prompt: string;
   readonly workspaceId: string;
-  readonly executor: ExecutorClient;
 }
 
-export function TaskMessage({ agentTaskId, prompt, workspaceId, executor }: TaskMessageProps) {
+export function TaskMessage({ agentTaskId, prompt, workspaceId }: TaskMessageProps) {
   const instance = useInstance();
+  const resolveApproval = useMutation(api.executor.resolveApproval);
 
   // Reactive queries — no polling!
   const agentTask = useQuery(api.database.getAgentTask, { agentTaskId });
@@ -48,14 +47,15 @@ export function TaskMessage({ agentTaskId, prompt, workspaceId, executor }: Task
 
   const handleApproval = useCallback(async (approvalId: string, decision: "approved" | "denied") => {
     try {
-      await executor.api.approvals({ approvalId }).post({
+      await resolveApproval({
         workspaceId,
+        approvalId,
         decision,
       });
     } catch (err) {
       console.error(`[approval ${approvalId}]`, err);
     }
-  }, [executor, workspaceId]);
+  }, [resolveApproval, workspaceId]);
 
   const accentColor = isDone
     ? status === "completed" ? 0x57f287 : 0xed4245
