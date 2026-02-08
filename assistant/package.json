@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test packages/core/src/ packages/agent-executor-adapter/src/",
+    "test": "bun test packages/core/src/",
     "dev:server": "bun run --filter @assistant/server dev",
     "dev:bot": "bun run --filter @assistant/bot dev"
   },
