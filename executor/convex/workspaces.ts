@@ -166,3 +166,11 @@ export const list = optionalAccountQuery({
     return Array.from(new Map(allWorkspaces.map((workspace) => [workspace.id, workspace])).values());
   },
 });
+
+export const generateWorkspaceIconUploadUrl = authedMutation({
+  args: {},
+  handler: async (ctx) => {
+    void ctx.account;
+    return await ctx.storage.generateUploadUrl();
+  },
+});

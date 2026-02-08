@@ -109,10 +109,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const clientConfig = useConvexQuery(convexApi.app.getClientConfig, {});
 
-  const authApi = convexApi.auth;
-  const bootstrapCurrentWorkosAccount = useMutation(authApi.bootstrapCurrentWorkosAccount);
-  const createWorkspaceMutation = useMutation(authApi.createWorkspace);
-  const generateWorkspaceIconUploadUrl = useMutation(authApi.generateWorkspaceIconUploadUrl);
+  const bootstrapCurrentWorkosAccount = useMutation(convexApi.auth.bootstrapCurrentWorkosAccount);
+  const createWorkspaceMutation = useMutation(convexApi.workspaces.create);
+  const generateWorkspaceIconUploadUrl = useMutation(convexApi.workspaces.generateWorkspaceIconUploadUrl);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
 
   const bootstrapSessionQuery = useTanstackQuery({
@@ -132,11 +131,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const guestContext: AnonymousContext | null = bootstrapSessionQuery.data ?? null;
 
   const account = useConvexQuery(
-    authApi.getCurrentAccount,
+    convexApi.app.getCurrentAccount,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
   );
   const workspaces = useConvexQuery(
-    authApi.getMyWorkspaces,
+    convexApi.workspaces.list,
     workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
   );
   const organizations = useConvexQuery(
@@ -149,17 +148,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return activeWorkspaceId;
     }
 
-    if (activeWorkspaceId && workspaces.some((workspace) => workspace._id === activeWorkspaceId)) {
+    if (activeWorkspaceId && workspaces.some((workspace) => workspace.id === activeWorkspaceId)) {
       return activeWorkspaceId;
     }
 
     const accountId = account?.provider === "workos" ? account._id : null;
     const accountStoredWorkspace = accountId ? readWorkspaceByAccount()[accountId] : null;
-    if (accountStoredWorkspace && workspaces.some((workspace) => workspace._id === accountStoredWorkspace)) {
+    if (accountStoredWorkspace && workspaces.some((workspace) => workspace.id === accountStoredWorkspace)) {
       return accountStoredWorkspace;
     }
 
-    return workspaces[0]?._id ?? null;
+    return workspaces[0]?.id ?? null;
   }, [workspaces, activeWorkspaceId, account]);
 
   const bootstrapWorkosAccountQuery = useTanstackQuery({
@@ -228,8 +227,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         sessionId: storedSessionId ?? undefined,
       });
 
-      if (created?._id) {
-        switchWorkspace(created._id);
+      if (created?.id) {
+        switchWorkspace(created.id);
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Failed to create workspace";
@@ -251,7 +250,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     const activeWorkspace =
-      workspaces.find((workspace) => workspace._id === resolvedActiveWorkspaceId)
+      workspaces.find((workspace) => workspace.id === resolvedActiveWorkspaceId)
       ?? workspaces[0]
       ?? null;
     if (!activeWorkspace) {
@@ -260,11 +259,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     return {
       sessionId: `workos_${account._id}`,
-      workspaceId: activeWorkspace._id,
-      actorId: activeWorkspace.userId,
+      workspaceId: activeWorkspace.id,
+      actorId: account._id,
       clientId: "web",
       accountId: account._id,
-      userId: activeWorkspace.userId,
+      userId: account._id,
       createdAt: Date.now(),
       lastSeenAt: Date.now(),
     };
@@ -301,8 +300,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const workspaceOptions = useMemo(() => {
     if (mode === "workos" && workspaces) {
       return workspaces.map((workspace): SessionState["workspaces"][number] => ({
-        id: workspace._id,
-        docId: workspace._id,
+        id: workspace.id,
+        docId: workspace.id,
         name: workspace.name,
         organizationId: workspace.organizationId ?? null,
         iconUrl: workspace.iconUrl,
