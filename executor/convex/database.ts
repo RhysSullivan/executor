@@ -324,11 +324,6 @@ export const listRuntimeTargets = query({
         label: "Local JS Runtime",
         description: "Runs generated code in-process using Bun",
       },
-      {
-        id: "vercel-sandbox",
-        label: "Vercel Sandbox Runtime",
-        description: "Executes generated code in Vercel Sandbox VMs",
-      },
     ];
   },
 });

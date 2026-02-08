@@ -13,16 +13,36 @@ import { useMutation, useQuery } from "convex/react";
 import { workosEnabled } from "@/lib/auth-capabilities";
 import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
+import type { Id } from "../../../../convex/_generated/dataModel";
 
 interface SessionState {
   context: AnonymousContext | null;
   loading: boolean;
   error: string | null;
+  clientConfig: {
+    authProviderMode: "workos" | "local";
+    invitesProvider: "workos" | "local";
+    features: {
+      organizations: boolean;
+      billing: boolean;
+      workspaceRestrictions: boolean;
+    };
+  } | null;
   mode: "guest" | "workos";
+  organizations: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+    role: string;
+  }>;
+  selectedOrganizationId: string | null;
+  switchOrganization: (organizationId: string | null) => void;
   workspaces: Array<{
     id: string;
     name: string;
-    kind: "organization" | "personal";
+    kind: "organization" | "personal" | "anonymous";
+    organizationId: Id<"organizations"> | null;
     iconUrl?: string | null;
   }>;
   switchWorkspace: (workspaceId: string) => void;
@@ -41,7 +61,11 @@ const SessionContext = createContext<SessionState>({
   context: null,
   loading: true,
   error: null,
+  clientConfig: null,
   mode: "guest",
+  organizations: [],
+  selectedOrganizationId: null,
+  switchOrganization: () => {},
   workspaces: [],
   switchWorkspace: () => {},
   creatingWorkspace: false,
@@ -53,6 +77,7 @@ const SessionContext = createContext<SessionState>({
 
 const SESSION_KEY = "executor_session_id";
 const ACTIVE_WORKSPACE_KEY = "executor_active_workspace_id";
+const ACTIVE_ORGANIZATION_KEY = "executor_active_organization_id";
 const ACTIVE_WORKSPACE_BY_ACCOUNT_KEY = "executor_active_workspace_by_account";
 
 function readWorkspaceByAccount() {
@@ -75,31 +100,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [guestContext, setGuestContext] = useState<AnonymousContext | null>(null);
   const [storedSessionId, setStoredSessionId] = useState<string | null>(null);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const authApi = (convexApi as any).auth;
-  const getCurrentAccountRef = authApi?.getCurrentAccount ?? convexApi.database.listRuntimeTargets;
-  const getMyWorkspacesRef = authApi?.getMyWorkspaces ?? convexApi.database.listRuntimeTargets;
-  const bootstrapCurrentWorkosAccountRef =
-    authApi?.bootstrapCurrentWorkosAccount ?? convexApi.database.bootstrapAnonymousSession;
-  const createWorkspaceRef = authApi?.createWorkspace ?? convexApi.database.bootstrapAnonymousSession;
-  const generateWorkspaceIconUploadUrlRef =
-    authApi?.generateWorkspaceIconUploadUrl ?? convexApi.database.bootstrapAnonymousSession;
-  const bootstrapCurrentWorkosAccount = useMutation(bootstrapCurrentWorkosAccountRef);
-  const createWorkspaceMutation = useMutation(createWorkspaceRef as any);
-  const generateWorkspaceIconUploadUrl = useMutation(generateWorkspaceIconUploadUrlRef as any);
+  const clientConfig = useQuery(convexApi.app.getClientConfig, {});
+
+  const authApi = convexApi.auth;
+  const bootstrapCurrentWorkosAccount = useMutation(authApi.bootstrapCurrentWorkosAccount);
+  const createWorkspaceMutation = useMutation(authApi.createWorkspace);
+  const generateWorkspaceIconUploadUrl = useMutation(authApi.generateWorkspaceIconUploadUrl);
   const [bootstrappingWorkos, setBootstrappingWorkos] = useState(false);
   const [workosBootstrapAttempted, setWorkosBootstrapAttempted] = useState(false);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
 
   const account = useQuery(
-    getCurrentAccountRef,
-    workosEnabled && authApi?.getCurrentAccount ? { sessionId: storedSessionId ?? undefined } : "skip",
+    authApi.getCurrentAccount,
+    workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
   );
   const workspaces = useQuery(
-    getMyWorkspacesRef,
-    workosEnabled && authApi?.getMyWorkspaces ? { sessionId: storedSessionId ?? undefined } : "skip",
+    authApi.getMyWorkspaces,
+    workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
+  );
+  const organizations = useQuery(
+    convexApi.organizations.listMine,
+    workosEnabled ? { sessionId: storedSessionId ?? undefined } : "skip",
   );
 
   const bootstrap = useCallback(async (sessionId?: string) => {
@@ -120,8 +145,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = localStorage.getItem(SESSION_KEY);
     const activeWorkspace = localStorage.getItem(ACTIVE_WORKSPACE_KEY);
+    const activeOrganization = localStorage.getItem(ACTIVE_ORGANIZATION_KEY);
     if (activeWorkspace) {
       setActiveWorkspaceId(activeWorkspace);
+    }
+    if (activeOrganization) {
+      setSelectedOrganizationId(activeOrganization);
     }
     void bootstrap(stored ?? undefined);
   }, [bootstrap]);
@@ -143,7 +172,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const organizationWorkspace = workspaces.find((workspace) => workspace.kind === "organization");
+    const organizationWorkspace = workspaces.find(
+      (workspace) => workspace.kind === "organization" || workspace.kind === "org",
+    );
     const nextWorkspace = organizationWorkspace?.runtimeWorkspaceId ?? workspaces[0]?.runtimeWorkspaceId;
     if (!nextWorkspace) {
       return;
@@ -160,9 +191,51 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [workspaces, activeWorkspaceId, account]);
 
   useEffect(() => {
+    if (!organizations || organizations.length === 0) {
+      if (selectedOrganizationId !== null) {
+        setSelectedOrganizationId(null);
+        localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
+      }
+      return;
+    }
+
+    if (selectedOrganizationId && organizations.some((organization) => organization.id === selectedOrganizationId)) {
+      return;
+    }
+
+    const nextOrganizationId = organizations[0]?.id ?? null;
+    setSelectedOrganizationId(nextOrganizationId);
+    if (nextOrganizationId) {
+      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, nextOrganizationId);
+    }
+  }, [organizations, selectedOrganizationId]);
+
+  useEffect(() => {
+    if (!workspaces || workspaces.length === 0 || !activeWorkspaceId) {
+      return;
+    }
+
+    const activeWorkspace = workspaces.find((workspace) => workspace.runtimeWorkspaceId === activeWorkspaceId);
+    if (!activeWorkspace) {
+      return;
+    }
+
+    const workspaceOrganizationId = activeWorkspace.organizationId ? String(activeWorkspace.organizationId) : null;
+    if (workspaceOrganizationId === selectedOrganizationId) {
+      return;
+    }
+
+    setSelectedOrganizationId(workspaceOrganizationId);
+    if (workspaceOrganizationId) {
+      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, workspaceOrganizationId);
+    } else {
+      localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
+    }
+  }, [workspaces, activeWorkspaceId, selectedOrganizationId]);
+
+  useEffect(() => {
     if (
       !workosEnabled
-      || !authApi?.bootstrapCurrentWorkosAccount
       || account !== null
       || bootstrappingWorkos
       || workosBootstrapAttempted
@@ -190,7 +263,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [account, authApi, bootstrapCurrentWorkosAccount, bootstrappingWorkos, workosBootstrapAttempted]);
+  }, [account, bootstrapCurrentWorkosAccount, bootstrappingWorkos, workosBootstrapAttempted]);
 
   useEffect(() => {
     if (account === undefined) {
@@ -201,14 +274,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const resetWorkspace = useCallback(async () => {
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
+    localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
     setStoredSessionId(null);
     setActiveWorkspaceId(null);
+    setSelectedOrganizationId(null);
     await bootstrap();
   }, [bootstrap]);
 
   const switchWorkspace = useCallback((workspaceId: string) => {
     setActiveWorkspaceId(workspaceId);
     localStorage.setItem(ACTIVE_WORKSPACE_KEY, workspaceId);
+
+    const selectedWorkspace = workspaces?.find((workspace) => workspace.runtimeWorkspaceId === workspaceId) ?? null;
+    const nextOrganizationId = selectedWorkspace?.organizationId ? String(selectedWorkspace.organizationId) : null;
+    setSelectedOrganizationId(nextOrganizationId);
+    if (nextOrganizationId) {
+      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, nextOrganizationId);
+    } else {
+      localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
+    }
 
     if (account?.provider === "workos") {
       const accountId = String(account._id);
@@ -218,23 +302,40 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         [accountId]: workspaceId,
       });
     }
-  }, [account]);
+  }, [account, workspaces]);
 
-  const createWorkspace = useCallback(async (name: string, iconFile?: File | null) => {
-    if (!authApi?.createWorkspace) {
-      throw new Error("Workspace creation requires authenticated mode");
+  const switchOrganization = useCallback((organizationId: string | null) => {
+    setSelectedOrganizationId(organizationId);
+    if (organizationId) {
+      localStorage.setItem(ACTIVE_ORGANIZATION_KEY, organizationId);
+    } else {
+      localStorage.removeItem(ACTIVE_ORGANIZATION_KEY);
     }
 
+    if (!workspaces || workspaces.length === 0) {
+      return;
+    }
+
+    const firstWorkspaceForOrg = workspaces.find((workspace) => {
+      const workspaceOrgId = workspace.organizationId ? String(workspace.organizationId) : null;
+      if (organizationId === null) {
+        return workspaceOrgId === null;
+      }
+      return workspaceOrgId === organizationId;
+    });
+
+    if (firstWorkspaceForOrg?.runtimeWorkspaceId) {
+      switchWorkspace(firstWorkspaceForOrg.runtimeWorkspaceId);
+    }
+  }, [switchWorkspace, workspaces]);
+
+  const createWorkspace = useCallback(async (name: string, iconFile?: File | null) => {
     setCreatingWorkspace(true);
     setError(null);
     try {
       let iconStorageId: string | undefined;
 
       if (iconFile) {
-        if (!authApi?.generateWorkspaceIconUploadUrl) {
-          throw new Error("Workspace icon uploads are unavailable right now");
-        }
-
         const uploadUrl = await generateWorkspaceIconUploadUrl({
           sessionId: storedSessionId ?? undefined,
         });
@@ -275,7 +376,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setCreatingWorkspace(false);
     }
   }, [
-    authApi,
     createWorkspaceMutation,
     generateWorkspaceIconUploadUrl,
     storedSessionId,
@@ -312,7 +412,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const context = workosContext ?? guestContext;
   const waitingForWorkosAccount = Boolean(
     workosEnabled
-    && authApi?.getCurrentAccount
     && account === undefined
     && !guestContext
     && !bootstrappingWorkos,
@@ -327,7 +426,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return workspaces.map((workspace) => ({
         id: workspace.runtimeWorkspaceId,
         name: workspace.name,
-        kind: (workspace.kind === "organization" ? "organization" : "personal") as "organization" | "personal",
+        kind:
+          workspace.kind === "organization" || workspace.kind === "org"
+            ? "organization"
+            : workspace.kind === "personal"
+              ? "personal"
+              : "anonymous",
+        organizationId: workspace.organizationId ?? null,
         iconUrl: workspace.iconUrl,
       }));
     }
@@ -337,7 +442,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         {
           id: guestContext.workspaceId,
           name: "Guest Workspace",
-          kind: "personal" as const,
+          kind: "anonymous" as const,
+          organizationId: null,
         },
       ];
     }
@@ -351,7 +457,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         context,
         loading: effectiveLoading,
         error,
+        clientConfig: clientConfig ?? null,
         mode,
+        organizations: organizations ?? [],
+        selectedOrganizationId,
+        switchOrganization,
         workspaces: workspaceOptions,
         switchWorkspace,
         creatingWorkspace,

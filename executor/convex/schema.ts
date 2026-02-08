@@ -20,19 +20,133 @@ export default defineSchema({
 
   workspaces: defineTable({
     workosOrgId: v.optional(v.string()),
+    organizationId: v.optional(v.id("organizations")),
     legacyWorkspaceId: v.optional(v.string()),
     slug: v.string(),
     name: v.string(),
     iconStorageId: v.optional(v.id("_storage")),
     kind: v.string(),
+    visibility: v.optional(v.string()),
     plan: v.string(),
     createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_workos_org_id", ["workosOrgId"])
+    .index("by_organization_created", ["organizationId", "createdAt"])
+    .index("by_organization_slug", ["organizationId", "slug"])
+    .index("by_creator_created", ["createdByAccountId", "createdAt"])
     .index("by_legacy_workspace_id", ["legacyWorkspaceId"])
     .index("by_slug", ["slug"]),
+
+  organizations: defineTable({
+    slug: v.string(),
+    name: v.string(),
+    status: v.string(),
+    createdByAccountId: v.optional(v.id("accounts")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_status_created", ["status", "createdAt"]),
+
+  organizationMembers: defineTable({
+    organizationId: v.id("organizations"),
+    accountId: v.id("accounts"),
+    role: v.string(),
+    status: v.string(),
+    billable: v.boolean(),
+    invitedByAccountId: v.optional(v.id("accounts")),
+    joinedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_account", ["organizationId", "accountId"])
+    .index("by_account", ["accountId"])
+    .index("by_org_status", ["organizationId", "status"])
+    .index("by_org_billable_status", ["organizationId", "billable", "status"]),
+
+  workspaceMembers: defineTable({
+    workspaceId: v.id("workspaces"),
+    accountId: v.id("accounts"),
+    role: v.string(),
+    status: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_account", ["workspaceId", "accountId"])
+    .index("by_account", ["accountId"])
+    .index("by_workspace_status", ["workspaceId", "status"]),
+
+  accountIdentities: defineTable({
+    accountId: v.id("accounts"),
+    provider: v.string(),
+    providerUserId: v.string(),
+    providerEmail: v.optional(v.string()),
+    rawClaims: v.optional(v.any()),
+    lastLoginAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_account", ["accountId"])
+    .index("by_provider_user", ["provider", "providerUserId"]),
+
+  invites: defineTable({
+    organizationId: v.id("organizations"),
+    workspaceId: v.optional(v.id("workspaces")),
+    email: v.string(),
+    role: v.string(),
+    status: v.string(),
+    tokenHash: v.string(),
+    provider: v.string(),
+    providerInviteId: v.optional(v.string()),
+    invitedByAccountId: v.id("accounts"),
+    expiresAt: v.number(),
+    acceptedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_org", ["organizationId"])
+    .index("by_org_status_created", ["organizationId", "status", "createdAt"])
+    .index("by_org_email_status", ["organizationId", "email", "status"]),
+
+  billingCustomers: defineTable({
+    organizationId: v.id("organizations"),
+    stripeCustomerId: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_stripe_customer_id", ["stripeCustomerId"]),
+
+  billingSubscriptions: defineTable({
+    organizationId: v.id("organizations"),
+    stripeSubscriptionId: v.string(),
+    stripePriceId: v.string(),
+    status: v.string(),
+    currentPeriodStart: v.optional(v.number()),
+    currentPeriodEnd: v.optional(v.number()),
+    cancelAtPeriodEnd: v.boolean(),
+    canceledAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_org", ["organizationId"])
+    .index("by_org_status", ["organizationId", "status"])
+    .index("by_stripe_subscription_id", ["stripeSubscriptionId"]),
+
+  billingSeatState: defineTable({
+    organizationId: v.id("organizations"),
+    desiredSeats: v.number(),
+    lastAppliedSeats: v.optional(v.number()),
+    syncVersion: v.number(),
+    lastSyncAt: v.optional(v.number()),
+    syncError: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_org", ["organizationId"]),
 
   users: defineTable({
     workspaceId: v.id("workspaces"),

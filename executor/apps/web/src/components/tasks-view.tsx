@@ -25,9 +25,8 @@ import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useSession } from "@/lib/session-context";
-import { executor } from "@/lib/executor-client";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type {
   TaskRecord,
@@ -68,13 +67,14 @@ function TaskComposer() {
   const [submitting, setSubmitting] = useState(false);
 
   const runtimes = useQuery(convexApi.database.listRuntimeTargets, {});
+  const createTask = useMutation(convexApi.executor.createTask);
   const { tools, loading: toolsLoading } = useWorkspaceTools(context ?? null);
 
   const handleSubmit = async () => {
     if (!context || !code.trim()) return;
     setSubmitting(true);
     try {
-      const { data, error } = await executor.api.tasks.post({
+      const data = await createTask({
         code,
         runtimeId,
         timeoutMs: parseInt(timeoutMs) || 15000,
@@ -82,10 +82,7 @@ function TaskComposer() {
         actorId: context.actorId,
         clientId: context.clientId,
       });
-      if (error) {
-        throw error;
-      }
-      toast.success(`Task created: ${data.taskId}`);
+      toast.success(`Task created: ${data.task.id}`);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to create task",

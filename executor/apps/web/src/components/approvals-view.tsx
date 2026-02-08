@@ -26,7 +26,7 @@ function ApprovalCard({
   approval: PendingApprovalRecord;
 }) {
   const { context } = useSession();
-  const resolveApproval = useMutation(convexApi.database.resolveApproval);
+  const resolveApproval = useMutation(convexApi.executor.resolveApproval);
   const [resolving, setResolving] = useState<"approved" | "denied" | null>(
     null,
   );
@@ -36,6 +36,7 @@ function ApprovalCard({
     setResolving(decision);
     try {
       await resolveApproval({
+        workspaceId: context.workspaceId,
         approvalId: approval.id,
         decision,
         reviewerId: context.actorId,
