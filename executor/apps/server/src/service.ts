@@ -230,14 +230,6 @@ export class ExecutorService {
     return await this.db.listToolSources(workspaceId);
   }
 
-  async listToolSourceWorkspaceUpdates(): Promise<Array<{ workspaceId: string; updatedAt: number }>> {
-    return await this.db.listToolSourceWorkspaceUpdates();
-  }
-
-  async refreshWorkspaceTools(workspaceId: string): Promise<void> {
-    await this.getWorkspaceTools(workspaceId);
-  }
-
   async upsertToolSource(input: {
     id?: string;
     workspaceId: string;

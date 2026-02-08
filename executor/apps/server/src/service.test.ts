@@ -9,7 +9,6 @@ import type {
   PendingApprovalRecord,
   TaskEventRecord,
   TaskRecord,
-  ToolDescriptor,
   ToolSourceRecord,
   SandboxExecutionRequest,
   SandboxExecutionResult,
@@ -206,14 +205,6 @@ class TestExecutorDatabase extends ExecutorDatabase {
   }
 
   async listToolSources(_workspaceId: string): Promise<ToolSourceRecord[]> {
-    return [];
-  }
-
-  async syncWorkspaceTools(): Promise<boolean> {
-    return true;
-  }
-
-  async listWorkspaceToolsForContext(): Promise<ToolDescriptor[]> {
     return [];
   }
 

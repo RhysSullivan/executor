@@ -11,7 +11,6 @@ import type {
   TaskEventRecord,
   TaskRecord,
   TaskStatus,
-  ToolDescriptor,
   ToolSourceRecord,
 } from "./types";
 
@@ -44,7 +43,6 @@ type QueryName =
   | "database:listCredentials"
   | "database:resolveCredential"
   | "database:listToolSources"
-  | "database:listToolSourceWorkspaceUpdates"
   | "database:listTaskEvents";
 
 export class ExecutorDatabase {
@@ -217,10 +215,6 @@ export class ExecutorDatabase {
 
   async listToolSources(workspaceId: string): Promise<ToolSourceRecord[]> {
     return await this.query("database:listToolSources", { workspaceId });
-  }
-
-  async listToolSourceWorkspaceUpdates(): Promise<Array<{ workspaceId: string; updatedAt: number }>> {
-    return await this.query("database:listToolSourceWorkspaceUpdates", {});
   }
 
   async deleteToolSource(workspaceId: string, sourceId: string): Promise<boolean> {
