@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { ensureUniqueSlug } from "./lib/slug";
 
 const workosEnabled = Boolean(
   process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,
@@ -63,26 +64,13 @@ async function getOrganizationByWorkosOrgId(ctx: { db: any }, workosOrgId: strin
 
 async function ensureUniqueOrganizationSlug(ctx: { db: any }, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName);
-  const existing = await ctx.db
-    .query("organizations")
-    .withIndex("by_slug", (q: any) => q.eq("slug", baseSlug))
-    .unique();
-  if (!existing) {
-    return baseSlug;
-  }
-
-  for (let i = 0; i < 20; i += 1) {
-    const candidate = `${baseSlug}-${crypto.randomUUID().slice(0, 6)}`;
+  return await ensureUniqueSlug(baseSlug, async (candidate) => {
     const collision = await ctx.db
       .query("organizations")
       .withIndex("by_slug", (q: any) => q.eq("slug", candidate))
       .unique();
-    if (!collision) {
-      return candidate;
-    }
-  }
-
-  return `${baseSlug}-${Date.now()}`;
+    return collision !== null;
+  });
 }
 
 async function upsertOrganizationMembership(

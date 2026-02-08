@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
+import { ensureUniqueSlug } from "./lib/slug";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
@@ -30,26 +31,13 @@ function slugify(input: string): string {
 
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName);
-  const existing = await ctx.db
-    .query("organizations")
-    .withIndex("by_slug", (q) => q.eq("slug", baseSlug))
-    .unique();
-  if (!existing) {
-    return baseSlug;
-  }
-
-  for (let i = 0; i < 20; i += 1) {
-    const candidate = `${baseSlug}-${crypto.randomUUID().slice(0, 6)}`;
+  return await ensureUniqueSlug(baseSlug, async (candidate) => {
     const collision = await ctx.db
       .query("organizations")
       .withIndex("by_slug", (q) => q.eq("slug", candidate))
       .unique();
-    if (!collision) {
-      return candidate;
-    }
-  }
-
-  return `${baseSlug}-${Date.now()}`;
+    return collision !== null;
+  });
 }
 
 async function upsertOrganizationMembership(

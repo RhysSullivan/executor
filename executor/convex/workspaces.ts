@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
 import { getOrganizationMembership, slugify } from "./lib/identity";
+import { ensureUniqueSlug } from "./lib/slug";
 
 type WorkspaceResult = {
   id: Id<"workspaces">;
@@ -21,26 +22,13 @@ async function ensureUniqueWorkspaceSlug(
   baseName: string,
 ): Promise<string> {
   const baseSlug = slugify(baseName);
-  const existing = await ctx.db
-    .query("workspaces")
-    .withIndex("by_organization_slug", (q) => q.eq("organizationId", organizationId).eq("slug", baseSlug))
-    .unique();
-  if (!existing) {
-    return baseSlug;
-  }
-
-  for (let i = 0; i < 20; i += 1) {
-    const candidate = `${baseSlug}-${crypto.randomUUID().slice(0, 6)}`;
+  return await ensureUniqueSlug(baseSlug, async (candidate) => {
     const collision = await ctx.db
       .query("workspaces")
       .withIndex("by_organization_slug", (q) => q.eq("organizationId", organizationId).eq("slug", candidate))
       .unique();
-    if (!collision) {
-      return candidate;
-    }
-  }
-
-  return `${baseSlug}-${Date.now()}`;
+    return collision !== null;
+  });
 }
 
 async function toWorkspaceResult(
