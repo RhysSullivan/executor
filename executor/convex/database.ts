@@ -166,7 +166,12 @@ function mapSource(doc: Doc<"toolSources">) {
 
 async function ensureAnonymousIdentity(
   ctx: MutationCtx,
-  params: { sessionId: string; workspaceId: string; actorId: string; timestamp: number },
+  params: {
+    sessionId: string;
+    workspaceDocId?: Doc<"workspaces">["_id"];
+    actorId: string;
+    timestamp: number;
+  },
 ) {
   const now = params.timestamp;
 
@@ -194,10 +199,7 @@ async function ensureAnonymousIdentity(
     await ctx.db.patch(account._id, { updatedAt: now, lastLoginAt: now });
   }
 
-  let workspace = await ctx.db
-    .query("workspaces")
-    .withIndex("by_legacy_workspace_id", (q) => q.eq("legacyWorkspaceId", params.workspaceId))
-    .unique();
+  let workspace = params.workspaceDocId ? await ctx.db.get(params.workspaceDocId) : null;
 
   let organizationId: Doc<"organizations">["_id"];
 
@@ -214,8 +216,7 @@ async function ensureAnonymousIdentity(
 
     const workspaceId = await ctx.db.insert("workspaces", {
       organizationId,
-      legacyWorkspaceId: params.workspaceId,
-      slug: `guest-${params.workspaceId.slice(-8)}`,
+      slug: `guest-${crypto.randomUUID().slice(0, 8)}`,
       name: "Guest Workspace",
       visibility: "private",
       plan: "free",
@@ -728,12 +729,13 @@ export const bootstrapAnonymousSession = mutation({
       if (existing) {
         const identity = await ensureAnonymousIdentity(ctx, {
           sessionId,
-          workspaceId: existing.workspaceId,
+          workspaceDocId: existing.workspaceDocId,
           actorId: existing.actorId,
           timestamp: now,
         });
 
         await ctx.db.patch(existing._id, {
+          workspaceId: identity.workspaceDocId,
           accountId: identity.accountId,
           workspaceDocId: identity.workspaceDocId,
           userId: identity.userId,
@@ -752,20 +754,18 @@ export const bootstrapAnonymousSession = mutation({
     }
 
     const sessionId = requestedSessionId || `anon_session_${crypto.randomUUID()}`;
-    const workspaceId = `ws_${crypto.randomUUID()}`;
     const actorId = `anon_${crypto.randomUUID()}`;
     const clientId = "web";
 
     const identity = await ensureAnonymousIdentity(ctx, {
       sessionId,
-      workspaceId,
       actorId,
       timestamp: now,
     });
 
     await ctx.db.insert("anonymousSessions", {
       sessionId,
-      workspaceId,
+      workspaceId: identity.workspaceDocId,
       actorId,
       clientId,
       accountId: identity.accountId,

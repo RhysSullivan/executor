@@ -52,7 +52,7 @@ async function toWorkspaceResult(
     name: workspace.name,
     slug: workspace.slug,
     iconUrl,
-    runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
+    runtimeWorkspaceId: workspace._id,
     createdAt: workspace.createdAt,
   };
 }
@@ -110,7 +110,6 @@ export const create = authedMutation({
       iconStorageId: args.iconStorageId,
       visibility: args.organizationId ? "organization" : "private",
       plan: "free",
-      legacyWorkspaceId: `ws_${crypto.randomUUID()}`,
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,

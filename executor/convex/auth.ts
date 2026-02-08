@@ -189,7 +189,6 @@ async function ensurePersonalWorkspace(
   const baseSlug = slugify(opts.email.split("@")[0] ?? opts.workosUserId);
   const workspaceId = await ctx.db.insert("workspaces", {
     organizationId,
-    legacyWorkspaceId: `ws_${crypto.randomUUID()}`,
     slug: `${baseSlug}-${opts.workosUserId.slice(-6)}`,
     name: workspaceName,
     visibility: "private",
@@ -367,7 +366,6 @@ const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => P
     await ctx.db.insert("workspaces", {
       workosOrgId: event.data.id,
       organizationId: organization._id,
-      legacyWorkspaceId: `ws_org_${event.data.id}`,
       slug: `${slugify(event.data.name)}-${event.data.id.slice(-6)}`,
       name: event.data.name,
       visibility: "organization",
@@ -811,7 +809,6 @@ export const createWorkspace = mutation({
       iconStorageId: args.iconStorageId,
       visibility: "private",
       plan: "free",
-      legacyWorkspaceId: `ws_${crypto.randomUUID()}`,
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,
@@ -853,7 +850,7 @@ export const createWorkspace = mutation({
       userId: user._id,
       role: user.role,
       status: user.status,
-      runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
+      runtimeWorkspaceId: workspace._id,
     };
   },
 });
@@ -926,7 +923,7 @@ export const getMyWorkspaces = query({
             userId: membership._id,
             role: membership.role,
             status: membership.status,
-            runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
+            runtimeWorkspaceId: workspace._id,
           };
         }),
     );
@@ -961,7 +958,7 @@ export const getMyAccountsWithWorkspaces = query({
             userId: membership._id,
             role: membership.role,
             status: membership.status,
-            runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
+            runtimeWorkspaceId: workspace._id,
           };
         }),
     );

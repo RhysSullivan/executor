@@ -36,7 +36,7 @@ async function mapWorkspaceWithIcon(
     name: workspace.name,
     slug: workspace.slug,
     iconUrl,
-    runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
+    runtimeWorkspaceId: workspace._id,
   };
 }
 
@@ -79,7 +79,6 @@ export const create = authedMutation({
       name: "Default Workspace",
       visibility: "organization",
       plan: "free",
-      legacyWorkspaceId: `ws_${crypto.randomUUID()}`,
       createdByAccountId: account._id,
       createdAt: now,
       updatedAt: now,

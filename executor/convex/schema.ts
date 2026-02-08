@@ -21,7 +21,6 @@ export default defineSchema({
   workspaces: defineTable({
     workosOrgId: v.optional(v.string()),
     organizationId: v.id("organizations"),
-    legacyWorkspaceId: v.optional(v.string()),
     slug: v.string(),
     name: v.string(),
     iconStorageId: v.optional(v.id("_storage")),
@@ -35,7 +34,6 @@ export default defineSchema({
     .index("by_organization_created", ["organizationId", "createdAt"])
     .index("by_organization_slug", ["organizationId", "slug"])
     .index("by_creator_created", ["createdByAccountId", "createdAt"])
-    .index("by_legacy_workspace_id", ["legacyWorkspaceId"])
     .index("by_slug", ["slug"]),
 
   organizations: defineTable({
@@ -295,7 +293,7 @@ export default defineSchema({
 
   anonymousSessions: defineTable({
     sessionId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.string(),
     accountId: v.optional(v.id("accounts")),
