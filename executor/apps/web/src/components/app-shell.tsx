@@ -16,11 +16,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
-import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -255,57 +255,68 @@ function SessionInfo() {
 
   if (loading) {
     return (
-      <div className="px-3 space-y-3">
-        <Separator />
+      <div className="border-t border-border px-3 py-2">
         <span className="text-[11px] font-mono text-muted-foreground">Loading session...</span>
       </div>
     );
   }
 
   return (
-    <div className="px-3 space-y-3">
-      <Separator />
-      <div className="space-y-2 rounded-md border border-border/70 bg-card/30 p-2.5">
+    <div className="border-t border-border">
         {isSignedInToWorkos ? (
-          <div className="flex items-center gap-2 rounded-md bg-background/60 px-2 py-1.5">
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={avatarLabel}
-                className="h-6 w-6 rounded-full border border-border object-cover"
-              />
-            ) : (
-              <div className="h-6 w-6 rounded-full border border-border bg-muted text-[10px] font-mono text-muted-foreground flex items-center justify-center">
-                {avatarInitial}
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium truncate">{avatarLabel}</p>
-              {workosProfile?.email ? (
-                <p className="text-[10px] text-muted-foreground truncate">{workosProfile.email}</p>
-              ) : null}
-            </div>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="h-14 w-full justify-between rounded-none border-0 bg-transparent px-3 py-0 text-left shadow-none hover:bg-accent/40"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={avatarLabel}
+                      className="h-6 w-6 rounded-full border border-border object-cover"
+                    />
+                  ) : (
+                    <span className="h-6 w-6 rounded-full border border-border bg-muted text-[10px] font-mono text-muted-foreground flex items-center justify-center">
+                      {avatarInitial}
+                    </span>
+                  )}
+                  <span className="min-w-0">
+                    <span className="text-[11px] font-medium truncate block">{avatarLabel}</span>
+                    {workosProfile?.email ? (
+                      <span className="text-[10px] text-muted-foreground truncate block">{workosProfile.email}</span>
+                    ) : null}
+                  </span>
+                </span>
+                <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuLabel className="text-xs">
+                Account
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild className="text-xs">
+                <Link href="/sign-out">Sign out</Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : (
-          <p className="text-[11px] text-muted-foreground px-1">Guest mode</p>
+          <div className="px-3 py-2">
+            <p className="text-[11px] text-muted-foreground">Guest mode</p>
+          </div>
         )}
 
         {!isSignedInToWorkos && workosEnabled ? (
-          <Link href="/sign-in" className="inline-flex">
-            <Button variant="outline" size="sm" className="h-7 text-[11px]">
-              Sign in
-            </Button>
-          </Link>
+          <div className="px-3 pb-3">
+            <Link href="/sign-in" className="inline-flex">
+              <Button variant="outline" size="sm" className="h-7 text-[11px]">
+                Sign in
+              </Button>
+            </Link>
+          </div>
         ) : null}
-
-        {isSignedInToWorkos ? (
-          <Link href="/sign-out" className="inline-flex">
-            <Button variant="ghost" size="sm" className="h-7 text-[11px] text-muted-foreground hover:text-foreground">
-              Sign out
-            </Button>
-          </Link>
-        ) : null}
-      </div>
     </div>
   );
 }
