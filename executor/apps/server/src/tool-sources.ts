@@ -862,20 +862,29 @@ export function parseToolSourcesFromEnv(raw: string | undefined): ExternalToolSo
 }
 
 export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
+  const results = await Promise.allSettled(
+    sources.map(async (source) => {
+      if (source.type === "mcp") {
+        return await loadMcpTools(source);
+      } else if (source.type === "openapi") {
+        return await loadOpenApiTools(source);
+      } else if (source.type === "graphql") {
+        return await loadGraphqlTools(source);
+      }
+      return [];
+    }),
+  );
+
   const loaded: ToolDefinition[] = [];
   const warnings: string[] = [];
 
-  for (const source of sources) {
-    try {
-      if (source.type === "mcp") {
-        loaded.push(...(await loadMcpTools(source)));
-      } else if (source.type === "openapi") {
-        loaded.push(...(await loadOpenApiTools(source)));
-      } else if (source.type === "graphql") {
-        loaded.push(...(await loadGraphqlTools(source)));
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]!;
+    if (result.status === "fulfilled") {
+      loaded.push(...result.value);
+    } else {
+      const source = sources[i]!;
+      const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
       warnings.push(`Failed to load ${source.type} source '${source.name}': ${message}`);
       console.warn(`[executor] failed to load tool source ${source.type}:${source.name}: ${message}`);
     }

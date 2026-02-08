@@ -254,8 +254,10 @@ const workosEventHandlers = {
     const workosOrgId = data.organization_id ?? data.organizationId;
     if (!workosUserId || !workosOrgId) return;
 
-    const account = await getAccountByWorkosId(ctx, workosUserId);
-    const workspace = await getWorkspaceByWorkosOrgId(ctx, workosOrgId);
+    const [account, workspace] = await Promise.all([
+      getAccountByWorkosId(ctx, workosUserId),
+      getWorkspaceByWorkosOrgId(ctx, workosOrgId),
+    ]);
     if (!account || !workspace) return;
 
     const existing = await ctx.db
@@ -309,8 +311,10 @@ const workosEventHandlers = {
       const workosUserId = data.user_id ?? data.userId;
       const workosOrgId = data.organization_id ?? data.organizationId;
       if (!workosUserId || !workosOrgId) return;
-      const account = await getAccountByWorkosId(ctx, workosUserId);
-      const workspace = await getWorkspaceByWorkosOrgId(ctx, workosOrgId);
+      const [account, workspace] = await Promise.all([
+        getAccountByWorkosId(ctx, workosUserId),
+        getWorkspaceByWorkosOrgId(ctx, workosOrgId),
+      ]);
       if (!account || !workspace) return;
       membership = await ctx.db
         .query("users")
@@ -551,8 +555,10 @@ export const createWorkspace = mutation({
       updatedAt: now,
     });
 
-    const workspace = await ctx.db.get(workspaceId);
-    const user = await ctx.db.get(userId);
+    const [workspace, user] = await Promise.all([
+      ctx.db.get(workspaceId),
+      ctx.db.get(userId),
+    ]);
     if (!workspace || !user) {
       throw new Error("Failed to create workspace");
     }

@@ -478,13 +478,16 @@ export const listPendingApprovals = query({
       .order("asc")
       .collect();
 
+    const tasks = await Promise.all(docs.map((approval) => getTaskDoc(ctx, approval.taskId)));
+
     const results: Array<
       ReturnType<typeof mapApproval> & {
         task: { id: string; status: string; runtimeId: string; timeoutMs: number; createdAt: number };
       }
     > = [];
-    for (const approval of docs) {
-      const task = await getTaskDoc(ctx, approval.taskId);
+    for (let i = 0; i < docs.length; i++) {
+      const approval = docs[i]!;
+      const task = tasks[i];
       if (!task) {
         continue;
       }
@@ -905,15 +908,16 @@ export const upsertToolSource = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
-    const existing = await ctx.db
-      .query("toolSources")
-      .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
-      .unique();
-
-    const conflict = await ctx.db
-      .query("toolSources")
-      .withIndex("by_workspace_name", (q) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
-      .unique();
+    const [existing, conflict] = await Promise.all([
+      ctx.db
+        .query("toolSources")
+        .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
+        .unique(),
+      ctx.db
+        .query("toolSources")
+        .withIndex("by_workspace_name", (q) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
+        .unique(),
+    ]);
 
     if (conflict && conflict.sourceId !== sourceId) {
       throw new Error(`Tool source name '${args.name}' already exists in workspace ${args.workspaceId}`);

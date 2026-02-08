@@ -267,11 +267,8 @@ export class ExecutorService {
     actorId?: string;
     clientId?: string;
   }): Promise<ToolDescriptor[]> {
-    const all = context
-      ? [...(await this.getWorkspaceTools(context.workspaceId)).values()]
-      : [...this.baseTools.values()];
-
     if (!context) {
+      const all = [...this.baseTools.values()];
       return all.map((tool) => ({
         path: tool.path,
         description: tool.description,
@@ -282,7 +279,11 @@ export class ExecutorService {
       }));
     }
 
-    const policies = await this.db.listAccessPolicies(context.workspaceId);
+    const [workspaceTools, policies] = await Promise.all([
+      this.getWorkspaceTools(context.workspaceId),
+      this.db.listAccessPolicies(context.workspaceId),
+    ]);
+    const all = [...workspaceTools.values()];
     return all
       .filter((tool) => {
         const decision = this.getDecisionForContext(tool, context, policies);
@@ -679,8 +680,10 @@ export class ExecutorService {
 
   private async invokeTool(task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
     const { toolPath, input, callId } = call;
-    const workspaceTools = await this.getWorkspaceTools(task.workspaceId);
-    const policies = await this.db.listAccessPolicies(task.workspaceId);
+    const [workspaceTools, policies] = await Promise.all([
+      this.getWorkspaceTools(task.workspaceId),
+      this.db.listAccessPolicies(task.workspaceId),
+    ]);
     const tool = workspaceTools.get(toolPath);
     if (!tool) {
       throw new Error(`Unknown tool: ${toolPath}`);
