@@ -22,6 +22,7 @@ function buildRunnerScript(codeFilePath: string): string {
   return `
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import vm from "node:vm";
 
 const RESULT_MARKER = ${JSON.stringify(RESULT_MARKER)};
 const runId = process.env.EXECUTOR_RUN_ID;
@@ -145,8 +146,13 @@ const consoleProxy = {
   error: (...args) => appendStderr(formatArgs(args)),
 };
 
-const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-const runner = new AsyncFunction("tools", "console", '"use strict";\\n' + userCode);
+const context = vm.createContext({
+  tools,
+  console: consoleProxy,
+  setTimeout,
+  clearTimeout,
+});
+const runnerScript = new vm.Script("(async () => {\\n\"use strict\";\\n" + userCode + "\\n})()");
 
 const timeoutPromise = new Promise((_, reject) => {
   setTimeout(() => reject(new Error("TASK_TIMEOUT")), requestTimeoutMs);
@@ -154,7 +160,10 @@ const timeoutPromise = new Promise((_, reject) => {
 
 let result;
 try {
-  const value = await Promise.race([runner(tools, consoleProxy), timeoutPromise]);
+  const value = await Promise.race([
+    Promise.resolve(runnerScript.runInContext(context, { timeout: Math.max(1, requestTimeoutMs) })),
+    timeoutPromise,
+  ]);
   if (value !== undefined) {
     appendStdout("result: " + formatArgs([value]));
   }
@@ -169,7 +178,7 @@ try {
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
 
-  if (message === "TASK_TIMEOUT") {
+  if (message === "TASK_TIMEOUT" || message.includes("Script execution timed out")) {
     const timeoutMessage = "Execution timed out after " + requestTimeoutMs + "ms";
     appendStderr(timeoutMessage);
     result = {

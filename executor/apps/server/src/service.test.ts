@@ -21,6 +21,7 @@ class TestExecutorDatabase extends ExecutorDatabase {
   private readonly tasks = new Map<string, TaskRecord>();
   private readonly approvals = new Map<string, ApprovalRecord>();
   private readonly events = new Map<string, TaskEventRecord[]>();
+  private readonly policies = new Map<string, AccessPolicyRecord>();
 
   constructor() {
     super("http://127.0.0.1:3210");
@@ -217,7 +218,43 @@ class TestExecutorDatabase extends ExecutorDatabase {
   }
 
   async listAccessPolicies(_workspaceId: string): Promise<AccessPolicyRecord[]> {
-    return [];
+    return [...this.policies.values()]
+      .filter((policy) => policy.workspaceId === _workspaceId)
+      .sort((a, b) => {
+        if (a.priority !== b.priority) {
+          return b.priority - a.priority;
+        }
+        return a.createdAt - b.createdAt;
+      });
+  }
+
+  async upsertAccessPolicy(params: {
+    id?: string;
+    workspaceId: string;
+    actorId?: string;
+    clientId?: string;
+    toolPathPattern: string;
+    decision: "allow" | "require_approval" | "deny";
+    priority?: number;
+  }): Promise<AccessPolicyRecord> {
+    const now = Date.now();
+    const id = params.id ?? `policy_${crypto.randomUUID()}`;
+    const existing = this.policies.get(id);
+
+    const record: AccessPolicyRecord = {
+      id,
+      workspaceId: params.workspaceId,
+      actorId: params.actorId,
+      clientId: params.clientId,
+      toolPathPattern: params.toolPathPattern,
+      decision: params.decision,
+      priority: params.priority ?? 100,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+
+    this.policies.set(id, record);
+    return record;
   }
 
   async resolveCredential(): Promise<null> {
@@ -254,6 +291,11 @@ class InlineToolRuntime implements SandboxRuntime {
   readonly label = "Inline";
   readonly description = "Calls one tool then exits";
 
+  constructor(
+    private readonly toolPath = "admin.delete_data",
+    private readonly input: unknown = { key: "abc" },
+  ) {}
+
   async run(
     request: SandboxExecutionRequest,
     adapter: ExecutionAdapter,
@@ -262,8 +304,8 @@ class InlineToolRuntime implements SandboxRuntime {
     const result = await adapter.invokeTool({
       runId: request.taskId,
       callId: "call_inline_1",
-      toolPath: "admin.delete_data",
-      input: { key: "abc" },
+      toolPath: this.toolPath,
+      input: this.input,
     });
 
     if (!result.ok) {
@@ -302,6 +344,21 @@ const tools: ToolDefinition[] = [
   },
 ];
 
+async function waitForTaskStatus(
+  service: ExecutorService,
+  taskId: string,
+  expected: TaskRecord["status"],
+  timeoutMs = 2_000,
+): Promise<TaskRecord | null> {
+  let task = await service.getTask(taskId);
+  const waitUntil = Date.now() + timeoutMs;
+  while (task?.status !== expected && Date.now() < waitUntil) {
+    await Bun.sleep(25);
+    task = await service.getTask(taskId);
+  }
+  return task;
+}
+
 test("tool-level approval gates individual function call", async () => {
   const service = new ExecutorService(
     new TestExecutorDatabase(),
@@ -326,13 +383,55 @@ test("tool-level approval gates individual function call", async () => {
   const resolved = await service.resolveApproval("ws_test", approvals[0]!.id, "approved", "test-user");
   expect(resolved).toBeTruthy();
 
-  let task = await service.getTask(created.task.id);
-  const waitUntil = Date.now() + 2_000;
-  while (task?.status !== "completed" && Date.now() < waitUntil) {
-    await Bun.sleep(25);
-    task = await service.getTask(created.task.id);
-  }
+  const task = await waitForTaskStatus(service, created.task.id, "completed");
 
   expect(task?.status).toBe("completed");
   expect((await service.listApprovals("ws_test", "approved")).length).toBe(1);
+});
+
+test("policy deny blocks tool call without creating approval", async () => {
+  const service = new ExecutorService(
+    new TestExecutorDatabase(),
+    new TaskEventHub(),
+    [new InlineToolRuntime()],
+    tools,
+  );
+
+  await service.upsertAccessPolicy({
+    workspaceId: "ws_deny",
+    toolPathPattern: "admin.delete_data",
+    decision: "deny",
+    priority: 500,
+  });
+
+  const created = await service.createTask({
+    code: "unused",
+    runtimeId: "inline",
+    workspaceId: "ws_deny",
+    actorId: "actor_test",
+  });
+
+  const task = await waitForTaskStatus(service, created.task.id, "denied");
+  expect(task?.status).toBe("denied");
+  expect((await service.listPendingApprovals("ws_deny")).length).toBe(0);
+});
+
+test("unknown tool path fails task execution", async () => {
+  const service = new ExecutorService(
+    new TestExecutorDatabase(),
+    new TaskEventHub(),
+    [new InlineToolRuntime("admin.missing_tool")],
+    tools,
+  );
+
+  const created = await service.createTask({
+    code: "unused",
+    runtimeId: "inline",
+    workspaceId: "ws_unknown",
+    actorId: "actor_test",
+  });
+
+  const task = await waitForTaskStatus(service, created.task.id, "failed");
+  expect(task?.status).toBe("failed");
+  expect(task?.error).toContain("Unknown tool");
 });

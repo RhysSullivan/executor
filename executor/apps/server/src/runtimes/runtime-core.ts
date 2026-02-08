@@ -1,4 +1,5 @@
 import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution-constants";
+import { Script, createContext } from "node:vm";
 import type {
   ExecutionAdapter,
   SandboxExecutionRequest,
@@ -70,9 +71,6 @@ export async function runCodeWithAdapter(
   const startedAt = Date.now();
   const stdoutLines: string[] = [];
   const stderrLines: string[] = [];
-  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor as new (
-    ...args: string[]
-  ) => (...inputs: unknown[]) => Promise<unknown>;
 
   const appendStdout = (line: string): void => {
     stdoutLines.push(line);
@@ -106,11 +104,14 @@ export async function runCodeWithAdapter(
     error: (...args: unknown[]) => appendStderr(formatArgs(args)),
   };
 
-  const runner = new AsyncFunction(
-    "tools",
-    "console",
-    `"use strict";\n${request.code}`,
-  );
+  const context = createContext({
+    tools,
+    console: consoleProxy,
+    setTimeout,
+    clearTimeout,
+  });
+
+  const runnerScript = new Script(`(async () => {\n"use strict";\n${request.code}\n})()`);
 
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
@@ -121,7 +122,7 @@ export async function runCodeWithAdapter(
 
   try {
     const value = await Promise.race([
-      runner(tools, consoleProxy),
+      Promise.resolve(runnerScript.runInContext(context, { timeout: Math.max(1, request.timeoutMs) })),
       timeoutPromise,
     ]);
 
@@ -138,7 +139,7 @@ export async function runCodeWithAdapter(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message === TASK_TIMEOUT_MARKER) {
+    if (message === TASK_TIMEOUT_MARKER || message.includes("Script execution timed out")) {
       const timeoutMessage = `Execution timed out after ${request.timeoutMs}ms`;
       appendStderr(timeoutMessage);
       return {

@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "convex-test": "^0.0.41",
     "typescript": "latest"
   }
 }
