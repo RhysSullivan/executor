@@ -20,6 +20,10 @@ type WorkosInvitationResponse = {
   expires_at?: string;
 };
 
+type WorkosOrganizationResponse = {
+  id: string;
+};
+
 async function revokeWorkosInvitation(invitationId: string): Promise<void> {
   const apiKey = process.env.WORKOS_API_KEY;
   if (!apiKey) {
@@ -84,6 +88,29 @@ async function sendWorkosInvitation(args: {
   }
 
   return (await response.json()) as WorkosInvitationResponse;
+}
+
+async function createWorkosOrganization(name: string): Promise<WorkosOrganizationResponse> {
+  const apiKey = process.env.WORKOS_API_KEY;
+  if (!apiKey) {
+    throw new Error("WORKOS_API_KEY is required to create WorkOS organizations");
+  }
+
+  const response = await fetch("https://api.workos.com/organizations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`WorkOS organization create failed: ${response.status} ${message}`);
+  }
+
+  return (await response.json()) as WorkosOrganizationResponse;
 }
 
 function mapRoleToWorkosRoleSlug(role: string): string | undefined {
@@ -159,7 +186,23 @@ export const create = organizationMutation({
     }
 
     if (!workosOrgId) {
-      throw new Error("Organization is not linked to WorkOS yet");
+      const workosOrganization = await createWorkosOrganization(organization.name);
+      workosOrgId = workosOrganization.id;
+
+      await ctx.db.patch(ctx.organizationId, {
+        workosOrgId,
+        updatedAt: now,
+      });
+
+      if (args.workspaceId) {
+        const workspace = await ctx.db.get(args.workspaceId);
+        if (workspace?.organizationId === ctx.organizationId && !workspace.workosOrgId) {
+          await ctx.db.patch(args.workspaceId, {
+            workosOrgId,
+            updatedAt: now,
+          });
+        }
+      }
     }
 
     const inviterWorkosUserId = ctx.account.provider === "workos"
