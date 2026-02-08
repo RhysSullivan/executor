@@ -15,11 +15,7 @@ export function BillingView() {
   const derivedOrganizationId = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)?.organizationId ?? null
     : null;
-  const activeWorkspace = context
-    ? workspaces.find((workspace) => workspace.id === context.workspaceId) ?? null
-    : null;
   const effectiveOrganizationId = derivedOrganizationId;
-  const hasLegacyOrganizationWorkspace = activeWorkspace?.kind === "organization" && !effectiveOrganizationId;
 
   const activeOrganization = useMemo(
     () => organizations.find((organization) => organization.id === effectiveOrganizationId) ?? null,
@@ -34,27 +30,13 @@ export function BillingView() {
     setActionMessage("Billing actions are waiting on backend endpoints.");
   };
 
-  if (!effectiveOrganizationId && !hasLegacyOrganizationWorkspace) {
+  if (!effectiveOrganizationId) {
     return (
       <div className="space-y-6">
         <PageHeader title="Billing" description="Plan, seats, and subscription management" />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
             Select a workspace to manage billing.
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!effectiveOrganizationId && hasLegacyOrganizationWorkspace) {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Billing" description="Plan, seats, and subscription management" />
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            Billing is waiting for workspace provisioning to finish. This workspace is missing its
-            internal organization link.
           </CardContent>
         </Card>
       </div>

@@ -6,8 +6,9 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, mutation, query } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
 
-type DbCtx = Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">;
-type RunQueryCtx = Pick<MutationCtx, "runQuery"> | Pick<QueryCtx, "runQuery">;
+type DbCtx = Pick<MutationCtx, "db">;
+type RunQueryCtx = Pick<MutationCtx, "runQuery">;
+type WorkosEventCtx = Pick<MutationCtx, "db" | "runQuery">;
 
 const workosEnabled = Boolean(
   process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,
@@ -160,7 +161,7 @@ async function ensurePersonalWorkspace(
 
   for (const membership of memberships) {
     const workspace = await ctx.db.get(membership.workspaceId);
-    if (workspace?.kind === "personal") {
+    if (workspace && workspace.createdByAccountId === accountId) {
       await upsertOrganizationMembership(ctx, {
         organizationId: workspace.organizationId,
         accountId,
@@ -191,7 +192,6 @@ async function ensurePersonalWorkspace(
     legacyWorkspaceId: `ws_${crypto.randomUUID()}`,
     slug: `${baseSlug}-${opts.workosUserId.slice(-6)}`,
     name: workspaceName,
-    kind: "personal",
     visibility: "private",
     plan: "free",
     createdByAccountId: accountId,
@@ -243,7 +243,7 @@ async function getAuthKitUserProfile(ctx: RunQueryCtx, workosUserId: string) {
   }
 }
 
-const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void>> = {
+const workosEventHandlers: Record<string, (ctx: WorkosEventCtx, event: any) => Promise<void>> = {
   "user.created": async (ctx, event) => {
     const now = Date.now();
     const data = event.data;
@@ -370,7 +370,6 @@ const workosEventHandlers: Record<string, (ctx: any, event: any) => Promise<void
       legacyWorkspaceId: `ws_org_${event.data.id}`,
       slug: `${slugify(event.data.name)}-${event.data.id.slice(-6)}`,
       name: event.data.name,
-      kind: "organization",
       visibility: "organization",
       plan: "free",
       createdAt: now,
@@ -810,7 +809,6 @@ export const createWorkspace = mutation({
       slug: `${slugify(trimmedName)}-${crypto.randomUUID().slice(0, 6)}`,
       name: trimmedName,
       iconStorageId: args.iconStorageId,
-      kind: "personal",
       visibility: "private",
       plan: "free",
       legacyWorkspaceId: `ws_${crypto.randomUUID()}`,

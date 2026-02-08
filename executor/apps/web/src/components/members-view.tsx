@@ -28,7 +28,6 @@ export function MembersView() {
     ? workspaces.find((workspace) => workspace.id === context.workspaceId) ?? null
     : null;
   const typedOrganizationId = derivedOrganizationId;
-  const hasLegacyOrganizationWorkspace = activeWorkspace?.kind === "organization" && !typedOrganizationId;
 
   const members = useQuery(
     convexApi.organizationMembers.list,
@@ -90,27 +89,13 @@ export function MembersView() {
     }
   };
 
-  if (!typedOrganizationId && !hasLegacyOrganizationWorkspace) {
+  if (!typedOrganizationId) {
     return (
       <div className="space-y-6">
         <PageHeader title="Members" description="Manage organization membership and invites" />
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
             Select a workspace to manage members.
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (!typedOrganizationId && hasLegacyOrganizationWorkspace) {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Members" description="Manage organization membership and invites" />
-        <Card>
-          <CardContent className="p-6 text-sm text-muted-foreground">
-            Member management is waiting for workspace provisioning to finish. This workspace is
-            missing its internal organization link.
           </CardContent>
         </Card>
       </div>

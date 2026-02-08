@@ -48,7 +48,7 @@ async function sendWorkosInvitation(args: {
   return {
     id: invitation.id,
     state: invitation.state,
-    expires_at: invitation.expiresAt?.toISOString(),
+    expires_at: invitation.expiresAt ?? undefined,
   };
 }
 

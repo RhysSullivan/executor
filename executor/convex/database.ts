@@ -217,7 +217,6 @@ async function ensureAnonymousIdentity(
       legacyWorkspaceId: params.workspaceId,
       slug: `guest-${params.workspaceId.slice(-8)}`,
       name: "Guest Workspace",
-      kind: "personal",
       visibility: "private",
       plan: "free",
       createdByAccountId: account._id,

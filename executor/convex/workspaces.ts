@@ -10,7 +10,6 @@ type WorkspaceResult = {
   organizationId: Id<"organizations">;
   name: string;
   slug: string;
-  kind: string;
   iconUrl: string | null;
   runtimeWorkspaceId: string;
   createdAt: number;
@@ -52,7 +51,6 @@ async function toWorkspaceResult(
     organizationId: workspace.organizationId,
     name: workspace.name,
     slug: workspace.slug,
-    kind: workspace.kind,
     iconUrl,
     runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
     createdAt: workspace.createdAt,
@@ -110,7 +108,6 @@ export const create = authedMutation({
       slug,
       name,
       iconStorageId: args.iconStorageId,
-      kind: args.organizationId ? "organization" : "personal",
       visibility: args.organizationId ? "organization" : "private",
       plan: "free",
       legacyWorkspaceId: `ws_${crypto.randomUUID()}`,
@@ -138,25 +135,38 @@ export const list = optionalAccountQuery({
       return [];
     }
 
-    if (args.organizationId) {
-      const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
+    const organizationId = args.organizationId;
+    if (organizationId) {
+      const membership = await getOrganizationMembership(ctx, organizationId, account._id);
       if (!membership || membership.status !== "active") {
         return [];
       }
 
       const docs = await ctx.db
         .query("workspaces")
-        .withIndex("by_organization_created", (q) => q.eq("organizationId", args.organizationId))
+        .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
         .collect();
       return await Promise.all(docs.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
     }
 
-    const docs = await ctx.db
-      .query("workspaces")
-      .withIndex("by_creator_created", (q) => q.eq("createdByAccountId", account._id))
+    const memberships = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
       .collect();
 
-    const personal = docs.filter((workspace) => workspace.kind === "personal");
-    return await Promise.all(personal.map(async (workspace) => await toWorkspaceResult(ctx, workspace)));
+    const activeMemberships = memberships.filter((membership) => membership.status === "active");
+    const allWorkspaces: WorkspaceResult[] = [];
+
+    for (const membership of activeMemberships) {
+      const docs = await ctx.db
+        .query("workspaces")
+        .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
+        .collect();
+      for (const workspace of docs) {
+        allWorkspaces.push(await toWorkspaceResult(ctx, workspace));
+      }
+    }
+
+    return Array.from(new Map(allWorkspaces.map((workspace) => [workspace.id, workspace])).values());
   },
 });

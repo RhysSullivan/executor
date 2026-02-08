@@ -40,7 +40,6 @@ interface SessionState {
     id: string;
     docId: Id<"workspaces"> | null;
     name: string;
-    kind: "organization" | "personal" | "anonymous";
     organizationId: Id<"organizations"> | null;
     iconUrl?: string | null;
   }>;
@@ -159,10 +158,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return accountStoredWorkspace;
     }
 
-    const organizationWorkspace = workspaces.find(
-      (workspace) => workspace.kind === "organization" || workspace.kind === "org",
-    );
-    return organizationWorkspace?.runtimeWorkspaceId ?? workspaces[0]?.runtimeWorkspaceId ?? null;
+    return workspaces[0]?.runtimeWorkspaceId ?? null;
   }, [workspaces, activeWorkspaceId, account]);
 
   const bootstrapWorkosAccountQuery = useTanstackQuery({
@@ -308,12 +304,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         id: workspace.runtimeWorkspaceId,
         docId: workspace._id,
         name: workspace.name,
-        kind:
-          workspace.kind === "organization" || workspace.kind === "org"
-            ? "organization"
-            : workspace.kind === "personal"
-              ? "personal"
-              : "anonymous",
         organizationId: workspace.organizationId ?? null,
         iconUrl: workspace.iconUrl,
       }));
@@ -325,7 +315,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           id: guestContext.workspaceId,
           docId: null,
           name: "Guest Workspace",
-          kind: "anonymous" as const,
           organizationId: null,
         },
       ];

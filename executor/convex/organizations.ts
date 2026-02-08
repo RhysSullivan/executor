@@ -10,7 +10,6 @@ type WorkspaceSummary = {
   organizationId: Id<"organizations">;
   name: string;
   slug: string;
-  kind: string;
   iconUrl: string | null;
   runtimeWorkspaceId: string;
 };
@@ -36,7 +35,6 @@ async function mapWorkspaceWithIcon(
     organizationId: workspace.organizationId,
     name: workspace.name,
     slug: workspace.slug,
-    kind: workspace.kind,
     iconUrl,
     runtimeWorkspaceId: workspace.legacyWorkspaceId ?? `ws_${workspace._id}`,
   };
@@ -79,7 +77,6 @@ export const create = authedMutation({
       organizationId,
       slug: "default",
       name: "Default Workspace",
-      kind: "organization",
       visibility: "organization",
       plan: "free",
       legacyWorkspaceId: `ws_${crypto.randomUUID()}`,
@@ -201,17 +198,6 @@ export const getNavigationState = optionalAccountQuery({
       for (const workspace of orgWorkspaces) {
         workspaces.push(await mapWorkspaceWithIcon(ctx, workspace));
       }
-    }
-
-    const personalWorkspaces = await ctx.db
-      .query("workspaces")
-      .withIndex("by_creator_created", (q) => q.eq("createdByAccountId", account._id))
-      .collect();
-    for (const workspace of personalWorkspaces) {
-      if (workspace.kind !== "personal") {
-        continue;
-      }
-      workspaces.push(await mapWorkspaceWithIcon(ctx, workspace));
     }
 
     const uniqueWorkspaces = Array.from(
