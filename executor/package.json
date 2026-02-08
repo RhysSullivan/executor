@@ -2,6 +2,10 @@
   "name": "executor-monorepo",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "bun run --cwd apps/server dev",
     "dev:worker": "bun run --cwd apps/server worker",
@@ -14,12 +18,11 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "convex": "latest"
+    "convex": "^1.31.7"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "convex-test": "^0.0.41",
-    "esbuild": "^0.27.3",
     "typescript": "latest"
   }
 }

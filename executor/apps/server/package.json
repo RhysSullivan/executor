@@ -3,11 +3,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@executor/contracts": "workspace:*",
     "@apidevtools/swagger-parser": "^12.1.0",
-    "@elysiajs/eden": "^1.4.6",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@vercel/sandbox": "latest",
-    "convex": "latest",
+    "convex": "^1.31.7",
     "elysia": "^1.4.22",
     "openapi-typescript": "^7.10.1",
     "zod": "^4.3.6"

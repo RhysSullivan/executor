@@ -9,10 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@executor/contracts": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "convex": "latest",
+    "convex": "^1.31.7",
     "lucide-react": "^0.563.0",
     "monaco-editor": "^0.55.1",
     "next": "16.1.6",
