@@ -2,10 +2,6 @@
   "name": "assistant-monorepo",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*",
-    "legacy/openassistant/packages/reacord"
-  ],
   "scripts": {
     "test": "bun test packages/core/src/ packages/agent-executor-adapter/src/",
     "dev:server": "bun run --filter @assistant/server dev",

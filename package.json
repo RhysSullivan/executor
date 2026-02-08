@@ -3,8 +3,10 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "executor",
     "executor/apps/*",
     "executor/packages/*",
+    "assistant",
     "assistant/packages/*",
     "assistant/legacy/openassistant/packages/reacord"
   ],

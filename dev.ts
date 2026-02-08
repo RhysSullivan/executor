@@ -4,10 +4,11 @@
  * Usage: bun dev
  *
  * Starts:
- *   1. Convex local backend
+ *   1. Convex local backend (port 3210)
  *   2. Executor server (port 4001)
- *   3. Assistant server (port 3000)
- *   4. Discord bot
+ *   3. Executor web UI (port 3002)
+ *   4. Assistant server (port 3000)
+ *   5. Discord bot
  *
  * All processes are killed when this script exits (Ctrl+C).
  */
@@ -15,6 +16,7 @@
 const colors = {
   convex: "\x1b[36m",   // cyan
   executor: "\x1b[33m", // yellow
+  web: "\x1b[34m",      // blue
   assistant: "\x1b[32m", // green
   bot: "\x1b[35m",      // magenta
   reset: "\x1b[0m",
@@ -40,6 +42,12 @@ const services: Service[] = [
     cwd: "./executor",
     delay: 2000, // wait for convex to start
     env: { EXECUTOR_SERVER_AUTO_EXECUTE: "1" },
+  },
+  {
+    name: "web",
+    cmd: ["bun", "run", "dev", "--", "-p", "3002"],
+    cwd: "./executor/apps/web",
+    delay: 2000, // wait for executor to start
   },
   {
     name: "assistant",

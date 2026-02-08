@@ -2,10 +2,6 @@
   "name": "executor-monorepo",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
     "dev": "bun run --cwd apps/server dev",
     "dev:worker": "bun run --cwd apps/server worker",
