@@ -111,6 +111,41 @@ export interface TypecheckResult {
   readonly errors: readonly string[];
 }
 
+let warnedMissingCompilerHostSupport = false;
+let warnedSemanticFallback = false;
+
+function runSyntaxOnlyTypecheck(
+  ts: typeof import("typescript"),
+  wrappedCode: string,
+  headerLineCount: number,
+  formatError: (
+    diagnostic: import("typescript").Diagnostic,
+    headerLineCount: number,
+  ) => string,
+): TypecheckResult {
+  try {
+    const sourceFile = ts.createSourceFile(
+      "generated.ts",
+      wrappedCode,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+    const diagnostics = (
+      sourceFile as unknown as { parseDiagnostics?: import("typescript").Diagnostic[] }
+    ).parseDiagnostics ?? [];
+    if (diagnostics.length === 0) {
+      return { ok: true, errors: [] };
+    }
+    return {
+      ok: false,
+      errors: diagnostics.map((d: import("typescript").Diagnostic) => formatError(d, headerLineCount)),
+    };
+  } catch {
+    return { ok: true, errors: [] };
+  }
+}
+
 /**
  * Typecheck LLM-generated code against tool declarations.
  *
@@ -142,52 +177,82 @@ export function typecheckCode(
     "}",
   ].join("\n");
 
-  const sourceFile = ts.createSourceFile(
-    "generated.ts",
-    wrappedCode,
-    ts.ScriptTarget.ESNext,
-    true,
-    ts.ScriptKind.TS,
-  );
-
-  const compilerOptions: import("typescript").CompilerOptions = {
-    target: ts.ScriptTarget.ESNext,
-    module: ts.ModuleKind.ESNext,
-    strict: true,
-    noEmit: true,
-    lib: ["lib.es2022.d.ts"],
-    types: [], // prevent automatic @types/* (e.g. @types/node) from conflicting with our sandbox declarations
-  };
-
-  const host = ts.createCompilerHost(compilerOptions);
-  const originalGetSourceFile = host.getSourceFile.bind(host);
-  host.getSourceFile = (fileName, languageVersion) => {
-    if (fileName === "generated.ts") return sourceFile;
-    return originalGetSourceFile(fileName, languageVersion);
-  };
-
-  const program = ts.createProgram(["generated.ts"], compilerOptions, host);
-  const diagnostics = program.getSemanticDiagnostics(sourceFile);
-
-  if (diagnostics.length === 0) {
-    return { ok: true, errors: [] };
-  }
-
-  // Count header lines so we can adjust line numbers
-  const headerLineCount =
-    toolDeclarations.split("\n").length + 4; // +4 for console, setTimeout, clearTimeout, function header
-
-  const errors = diagnostics.map((d) => {
-    const message = ts.flattenDiagnosticMessageText(d.messageText, "\n");
-    if (d.start !== undefined && d.file) {
-      const { line } = d.file.getLineAndCharacterOfPosition(d.start);
+  const formatError = (
+    diagnostic: import("typescript").Diagnostic,
+    headerLineCount: number,
+  ): string => {
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+    if (diagnostic.start !== undefined && diagnostic.file) {
+      const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
       const adjustedLine = line + 1 - headerLineCount;
       if (adjustedLine > 0) {
         return `Line ${adjustedLine}: ${message}`;
       }
     }
     return message;
-  });
+  };
 
-  return { ok: false, errors };
+  // Count header lines so we can adjust line numbers
+  const headerLineCount =
+    toolDeclarations.split("\n").length + 4; // +4 for console, setTimeout, clearTimeout, function header
+
+  if (!ts.sys || typeof ts.sys.useCaseSensitiveFileNames !== "boolean") {
+    if (!warnedMissingCompilerHostSupport) {
+      warnedMissingCompilerHostSupport = true;
+      console.warn(
+        "[executor] TypeScript semantic typecheck unavailable in this runtime, using syntax-only checks.",
+      );
+    }
+    return runSyntaxOnlyTypecheck(ts, wrappedCode, headerLineCount, formatError);
+  }
+
+  try {
+    const sourceFile = ts.createSourceFile(
+      "generated.ts",
+      wrappedCode,
+      ts.ScriptTarget.ESNext,
+      true,
+      ts.ScriptKind.TS,
+    );
+
+    const compilerOptions: import("typescript").CompilerOptions = {
+      target: ts.ScriptTarget.ESNext,
+      module: ts.ModuleKind.ESNext,
+      strict: true,
+      noEmit: true,
+      lib: ["lib.es2022.d.ts"],
+      types: [], // prevent automatic @types/* (e.g. @types/node) from conflicting with our sandbox declarations
+    };
+
+    const host = ts.createCompilerHost(compilerOptions);
+    const originalGetSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (fileName, languageVersion) => {
+      if (fileName === "generated.ts") return sourceFile;
+      return originalGetSourceFile(fileName, languageVersion);
+    };
+
+    const program = ts.createProgram(["generated.ts"], compilerOptions, host);
+    const diagnostics = program.getSemanticDiagnostics(sourceFile);
+
+    if (diagnostics.length === 0) {
+      return { ok: true, errors: [] };
+    }
+
+    return {
+      ok: false,
+      errors: diagnostics.map((d) => formatError(d, headerLineCount)),
+    };
+  } catch (error) {
+    // Some runtimes (e.g. Convex action isolates) can lack the full Node-backed
+    // TypeScript host environment. If semantic typechecking cannot initialize,
+    // fall back to syntax-only parsing instead of failing the MCP call.
+    if (!warnedSemanticFallback) {
+      warnedSemanticFallback = true;
+      console.warn(
+        `[executor] TypeScript semantic typecheck unavailable, falling back to syntax-only checks: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return runSyntaxOnlyTypecheck(ts, wrappedCode, headerLineCount, formatError);
+  }
 }

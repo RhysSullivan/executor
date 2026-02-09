@@ -1,4 +1,5 @@
 import { registerRoutes as registerStripeRoutes } from "@convex-dev/stripe";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { httpRouter } from "convex/server";
 import { api, components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
@@ -8,10 +9,74 @@ import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescripto
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? "executor_internal_local_dev_token";
+const mcpAuthorizationServer =
+  process.env.MCP_AUTHORIZATION_SERVER
+  ?? process.env.MCP_AUTHORIZATION_SERVER_URL
+  ?? process.env.WORKOS_AUTHKIT_ISSUER
+  ?? process.env.WORKOS_AUTHKIT_DOMAIN;
+const mcpAuthEnabled = Boolean(mcpAuthorizationServer);
+const mcpJwks = mcpAuthorizationServer
+  ? createRemoteJWKSet(new URL("/oauth2/jwks", mcpAuthorizationServer))
+  : null;
 
-function parseMcpContext(url: URL): McpWorkspaceContext | undefined {
+function parseBearerToken(request: Request): string | null {
+  const header = request.headers.get("authorization");
+  if (!header || !header.startsWith("Bearer ")) return null;
+  const token = header.slice("Bearer ".length).trim();
+  return token.length > 0 ? token : null;
+}
+
+function resourceMetadataUrl(request: Request): string {
+  const url = new URL(request.url);
+  return `${url.origin}/.well-known/oauth-protected-resource`;
+}
+
+function unauthorizedMcpResponse(request: Request, message: string): Response {
+  const challenge = [
+    'Bearer error="unauthorized"',
+    'error_description="Authorization needed"',
+    `resource_metadata="${resourceMetadataUrl(request)}"`,
+  ].join(", ");
+
+  return Response.json(
+    { error: message },
+    {
+      status: 401,
+      headers: {
+        "WWW-Authenticate": challenge,
+      },
+    },
+  );
+}
+
+async function verifyMcpToken(request: Request): Promise<{ subject: string } | null> {
+  if (!mcpAuthEnabled || !mcpAuthorizationServer || !mcpJwks) {
+    return { subject: "" };
+  }
+
+  const token = parseBearerToken(request);
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, mcpJwks, {
+      issuer: mcpAuthorizationServer,
+    });
+
+    if (typeof payload.sub !== "string" || payload.sub.length === 0) {
+      return null;
+    }
+
+    return { subject: payload.sub };
+  } catch {
+    return null;
+  }
+}
+
+function parseMcpContext(url: URL, tokenSubject?: string): McpWorkspaceContext | undefined {
   const workspaceId = url.searchParams.get("workspaceId");
-  const actorId = url.searchParams.get("actorId");
+  const actorId = tokenSubject ?? url.searchParams.get("actorId");
   if (!workspaceId || !actorId) return undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
   return { workspaceId, actorId, clientId };
@@ -41,7 +106,20 @@ function parseInternalRunPath(pathname: string): { runId: string; endpoint: "too
 
 const mcpHandler = httpAction(async (ctx, request) => {
   const url = new URL(request.url);
-  const context = parseMcpContext(url);
+  const auth = await verifyMcpToken(request);
+  if (!auth) {
+    return unauthorizedMcpResponse(request, "No valid bearer token provided.");
+  }
+
+  const tokenSubject = mcpAuthEnabled ? auth.subject : undefined;
+  const context = parseMcpContext(url, tokenSubject);
+
+  if (mcpAuthEnabled && !context) {
+    return Response.json(
+      { error: "workspaceId query parameter is required when MCP OAuth is enabled" },
+      { status: 400 },
+    );
+  }
 
   const service = {
     createTask: async (input: {
@@ -85,6 +163,38 @@ const mcpHandler = httpAction(async (ctx, request) => {
   };
 
   return await handleMcpRequest(service, request, context);
+});
+
+const oauthProtectedResourceHandler = httpAction(async (_ctx, request) => {
+  if (!mcpAuthEnabled || !mcpAuthorizationServer) {
+    return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
+  }
+
+  const url = new URL(request.url);
+  return Response.json({
+    resource: `${url.origin}/mcp`,
+    authorization_servers: [mcpAuthorizationServer],
+    bearer_methods_supported: ["header"],
+  });
+});
+
+const oauthAuthorizationServerProxyHandler = httpAction(async (_ctx, request) => {
+  if (!mcpAuthEnabled || !mcpAuthorizationServer) {
+    return Response.json({ error: "MCP OAuth is not configured" }, { status: 404 });
+  }
+
+  const upstream = new URL("/.well-known/oauth-authorization-server", mcpAuthorizationServer);
+  const response = await fetch(upstream.toString(), {
+    headers: { accept: "application/json" },
+  });
+
+  const text = await response.text();
+  return new Response(text, {
+    status: response.status,
+    headers: {
+      "content-type": response.headers.get("content-type") ?? "application/json",
+    },
+  });
 });
 
 const internalRunsHandler = httpAction(async (ctx, request) => {
@@ -151,6 +261,8 @@ registerStripeRoutes(http, components.stripe, {
 http.route({ path: "/mcp", method: "POST", handler: mcpHandler });
 http.route({ path: "/mcp", method: "GET", handler: mcpHandler });
 http.route({ path: "/mcp", method: "DELETE", handler: mcpHandler });
+http.route({ path: "/.well-known/oauth-protected-resource", method: "GET", handler: oauthProtectedResourceHandler });
+http.route({ path: "/.well-known/oauth-authorization-server", method: "GET", handler: oauthAuthorizationServerProxyHandler });
 
 http.route({
   pathPrefix: "/internal/runs/",

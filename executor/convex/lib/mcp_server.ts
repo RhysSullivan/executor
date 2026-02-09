@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { HandleRequestOptions } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
@@ -114,9 +115,16 @@ function waitForTerminalTask(
       && service.listPendingApprovals
       && service.resolveApproval,
     );
+    let loggedElicitationFallback = false;
     const seenApprovalIds = new Set<string>();
     let unsubscribe: (() => void) | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
+
+    const logElicitationFallback = (reason: string) => {
+      if (loggedElicitationFallback) return;
+      loggedElicitationFallback = true;
+      console.warn(`[executor] MCP approval elicitation unavailable, using out-of-band approvals: ${reason}`);
+    };
 
     const done = async () => {
       if (settled) return;
@@ -143,15 +151,17 @@ function waitForTerminalTask(
         let decision: ApprovalPromptDecision | null;
         try {
           decision = await onApprovalPrompt(approval, approvalContext);
-        } catch {
+        } catch (error) {
           // Client likely doesn't support elicitation; fallback to existing out-of-band approvals.
           elicitationEnabled = false;
+          logElicitationFallback(error instanceof Error ? error.message : String(error));
           return;
         }
 
         if (!decision) {
           // Client doesn't support elicitation; stop retrying in this request.
           elicitationEnabled = false;
+          logElicitationFallback("client did not provide elicitation response support");
           return;
         }
 
@@ -417,21 +427,6 @@ async function createMcpServer(
   }
 
   const approvalPrompt: ApprovalPrompt = async (approval) => {
-    const mcpServer = mcp as unknown as {
-      server?: {
-        elicitInput?: (input: {
-          mode: "form";
-          message: string;
-          requestedSchema: Record<string, unknown>;
-        }) => Promise<{ action?: string; content?: unknown }>;
-      };
-    };
-
-    const elicitInput = mcpServer.server?.elicitInput;
-    if (typeof elicitInput !== "function") {
-      return null;
-    }
-
     const inputPreview = (() => {
       try {
         const text = JSON.stringify(approval.input ?? {});
@@ -441,7 +436,7 @@ async function createMcpServer(
       }
     })();
 
-    const result = await elicitInput({
+    const result = await mcp.elicitInput({
       mode: "form",
       message: `Approval required for tool call '${approval.toolPath}'. Input: ${inputPreview}`,
       requestedSchema: {
@@ -499,22 +494,178 @@ async function createMcpServer(
 // Request handler
 // ---------------------------------------------------------------------------
 
+interface SessionServiceRef {
+  current: McpExecutorService;
+}
+
+interface McpSessionState {
+  mcp: McpServer;
+  transport: WebStandardStreamableHTTPServerTransport;
+  serviceRef: SessionServiceRef;
+  queue: Promise<void>;
+  lastSeenAt: number;
+}
+
+const mcpSessions = new Map<string, McpSessionState>();
+
+function jsonRpcErrorResponse(status: number, code: number, message: string): Response {
+  return Response.json(
+    {
+      jsonrpc: "2.0",
+      error: { code, message },
+      id: null,
+    },
+    { status },
+  );
+}
+
+function createServiceProxy(serviceRef: SessionServiceRef): McpExecutorService {
+  const listPendingApprovals = serviceRef.current.listPendingApprovals
+    ? async (workspaceId: string) => {
+      const fn = serviceRef.current.listPendingApprovals;
+      if (!fn) return [];
+      return await fn(workspaceId);
+    }
+    : undefined;
+
+  const resolveApproval = serviceRef.current.resolveApproval
+    ? async (input: {
+      workspaceId: string;
+      approvalId: string;
+      decision: "approved" | "denied";
+      reviewerId?: string;
+      reason?: string;
+    }) => {
+      const fn = serviceRef.current.resolveApproval;
+      if (!fn) {
+        throw new Error("resolveApproval is not available");
+      }
+      return await fn(input);
+    }
+    : undefined;
+
+  return {
+    createTask: async (input) => await serviceRef.current.createTask(input),
+    getTask: async (taskId, workspaceId) => await serviceRef.current.getTask(taskId, workspaceId),
+    subscribe: (taskId, listener) => serviceRef.current.subscribe(taskId, listener),
+    bootstrapAnonymousContext: async (sessionId) => await serviceRef.current.bootstrapAnonymousContext(sessionId),
+    listTools: async (context) => await serviceRef.current.listTools(context),
+    listPendingApprovals,
+    resolveApproval,
+  };
+}
+
+async function createSessionState(
+  service: McpExecutorService,
+  context?: McpWorkspaceContext,
+): Promise<McpSessionState> {
+  const serviceRef: SessionServiceRef = { current: service };
+  const proxyService = createServiceProxy(serviceRef);
+  let state: McpSessionState;
+
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+    onsessioninitialized: (sessionId) => {
+      mcpSessions.set(sessionId, state);
+    },
+    onsessionclosed: async (sessionId) => {
+      const existing = mcpSessions.get(sessionId);
+      if (existing === state) {
+        mcpSessions.delete(sessionId);
+      }
+      await state.mcp.close().catch(() => {});
+    },
+  });
+
+  const mcp = await createMcpServer(proxyService, context);
+  state = {
+    mcp,
+    transport,
+    serviceRef,
+    queue: Promise.resolve(),
+    lastSeenAt: Date.now(),
+  };
+
+  await mcp.connect(transport);
+  return state;
+}
+
+async function closeSessionState(state: McpSessionState): Promise<void> {
+  await state.transport.close().catch(() => {});
+  await state.mcp.close().catch(() => {});
+}
+
+async function handleWithSession(
+  state: McpSessionState,
+  service: McpExecutorService,
+  request: Request,
+  requestOptions?: HandleRequestOptions,
+): Promise<Response> {
+  const run = async () => {
+    state.serviceRef.current = service;
+    state.lastSeenAt = Date.now();
+    return await state.transport.handleRequest(request, requestOptions);
+  };
+
+  const next = state.queue.then(run, run);
+  state.queue = next.then(() => undefined, () => undefined);
+  return await next;
+}
+
+async function parseRequestBody(request: Request): Promise<HandleRequestOptions | undefined> {
+  if (request.method !== "POST") return undefined;
+  try {
+    const parsedBody = await request.clone().json();
+    const messages = Array.isArray(parsedBody) ? parsedBody : [parsedBody];
+    for (const message of messages) {
+      if (!message || typeof message !== "object") continue;
+      const method = (message as { method?: unknown }).method;
+      if (method !== "initialize") continue;
+      const params = (message as { params?: unknown }).params;
+      const capabilities = params && typeof params === "object"
+        ? (params as { capabilities?: unknown }).capabilities
+        : undefined;
+      console.warn(
+        `[executor] MCP initialize client capabilities: ${JSON.stringify(capabilities ?? {})}`,
+      );
+      break;
+    }
+
+    return { parsedBody };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function handleMcpRequest(
   service: McpExecutorService,
   request: Request,
   context?: McpWorkspaceContext,
 ): Promise<Response> {
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-  const mcp = await createMcpServer(service, context);
+  const requestOptions = await parseRequestBody(request);
+  const sessionId = request.headers.get("mcp-session-id")?.trim() ?? "";
 
+  if (sessionId) {
+    const existing = mcpSessions.get(sessionId);
+    if (!existing) {
+      return jsonRpcErrorResponse(404, -32001, "Session not found");
+    }
+    return await handleWithSession(existing, service, request, requestOptions);
+  }
+
+  if (request.method !== "POST") {
+    return jsonRpcErrorResponse(400, -32000, "Bad Request: Mcp-Session-Id header is required");
+  }
+
+  const session = await createSessionState(service, context);
   try {
-    await mcp.connect(transport);
-    return await transport.handleRequest(request);
-  } finally {
-    await transport.close().catch(() => {});
-    await mcp.close().catch(() => {});
+    const response = await handleWithSession(session, service, request, requestOptions);
+    if (!session.transport.sessionId) {
+      await closeSessionState(session);
+    }
+    return response;
+  } catch (error) {
+    await closeSessionState(session);
+    throw error;
   }
 }

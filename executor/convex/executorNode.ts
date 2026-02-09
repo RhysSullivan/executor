@@ -53,10 +53,11 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
 }
 
 function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
+  const signatureVersion = "v2";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
-  return `${workspaceId}|${parts.join(",")}`;
+  return `${signatureVersion}|${workspaceId}|${parts.join(",")}`;
 }
 
 function normalizeExternalToolSource(raw: {
@@ -140,9 +141,16 @@ const openApiSpecCache = new ActionCache(actionCacheComponent.actionCache as nev
   name: "openapi-spec-transform-v1",
   ttl: OPENAPI_SPEC_CACHE_TTL_MS,
 });
+const MAX_ACTION_CACHE_VALUE_BYTES = 900_000;
+const OVERSIZED_OPENAPI_LOCAL_CACHE_TTL_MS = 5 * 60 * 60_000;
+const oversizedOpenApiSpecCache = new Map<
+  string,
+  { loadedAt: number; prepared: PreparedOpenApiSpec }
+>();
 
 interface PreparedOpenApiSpecCacheValue {
   preparedJson: string;
+  oversized?: boolean;
 }
 
 function isWorkspaceToolCacheFresh(
@@ -201,7 +209,25 @@ export const prepareOpenApiSpecForCache = internalAction({
     // Action cache values must be valid Convex values. Raw OpenAPI objects can
     // contain keys like "$ref", which Convex object fields disallow, so we
     // store the prepared payload as a JSON string.
-    return { preparedJson: JSON.stringify(prepared) };
+    let preparedJson = JSON.stringify(prepared);
+
+    if (preparedJson.length > MAX_ACTION_CACHE_VALUE_BYTES) {
+      const reduced: PreparedOpenApiSpec = {
+        servers: prepared.servers,
+        paths: prepared.paths,
+        warnings: [
+          ...(prepared.warnings ?? []),
+          "OpenAPI type metadata omitted due cache size limits.",
+        ],
+      };
+      preparedJson = JSON.stringify(reduced);
+    }
+
+    if (preparedJson.length > MAX_ACTION_CACHE_VALUE_BYTES) {
+      return { preparedJson: "", oversized: true };
+    }
+
+    return { preparedJson };
   },
 });
 
@@ -209,15 +235,57 @@ async function loadSourceTools(
   ctx: any,
   source: ExternalToolSourceConfig,
 ): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
+  const loadOpenApiDirect = async (extraWarnings: string[] = []) => {
+    const specUrl = source.spec;
+    const now = Date.now();
+    const cached = oversizedOpenApiSpecCache.get(specUrl);
+    const prepared = (cached && (now - cached.loadedAt) < OVERSIZED_OPENAPI_LOCAL_CACHE_TTL_MS)
+      ? cached.prepared
+      : await prepareOpenApiSpec(specUrl, source.name);
+
+    if (!cached || (now - cached.loadedAt) >= OVERSIZED_OPENAPI_LOCAL_CACHE_TTL_MS) {
+      oversizedOpenApiSpecCache.set(specUrl, { loadedAt: now, prepared });
+    }
+
+    const tools = buildOpenApiToolsFromPrepared(source, prepared);
+    return {
+      tools,
+      warnings: [
+        ...extraWarnings,
+        ...(prepared.warnings ?? []).map((warning) => `Source '${source.name}': ${warning}`),
+      ],
+    };
+  };
+
   if (source.type === "openapi" && typeof source.spec === "string") {
     try {
       const cached = await openApiSpecCache.fetch(ctx, { specUrl: source.spec }) as PreparedOpenApiSpecCacheValue;
+      if (cached.oversized || !cached.preparedJson) {
+        return await loadOpenApiDirect([
+          `Source '${source.name}': OpenAPI metadata is too large for global cache; using direct load.`,
+        ]);
+      }
       const prepared = JSON.parse(cached.preparedJson) as PreparedOpenApiSpec;
       const tools = buildOpenApiToolsFromPrepared(source, prepared);
       const warnings = (prepared.warnings ?? []).map((warning) => `Source '${source.name}': ${warning}`);
       return { tools, warnings };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+
+      if (/Value is too large/i.test(message)) {
+        try {
+          return await loadOpenApiDirect([
+            `Source '${source.name}': OpenAPI metadata exceeded global cache limits; using direct load.`,
+          ]);
+        } catch (fallbackError) {
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          return {
+            tools: [],
+            warnings: [`Failed to load openapi source '${source.name}': ${fallbackMessage}`],
+          };
+        }
+      }
+
       return {
         tools: [],
         warnings: [`Failed to load openapi source '${source.name}': ${message}`],

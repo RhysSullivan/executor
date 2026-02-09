@@ -41,6 +41,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
+import { McpSetupCard } from "@/components/mcp-setup-card";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useMutation, useQuery } from "convex/react";
@@ -744,6 +745,9 @@ export function ToolsView() {
               {toolsLoading ? "…" : tools.length}
             </span>
           </TabsTrigger>
+          <TabsTrigger value="mcp" className="text-xs data-[state=active]:bg-background">
+            MCP Setup
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="sources" className="mt-4">
@@ -836,6 +840,23 @@ export function ToolsView() {
               ) : (
                 <ToolInventory tools={tools} />
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="mcp" className="mt-4">
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Server className="h-4 w-4 text-primary" />
+                MCP Client Installation
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <McpSetupCard
+                workspaceId={context?.workspaceId}
+                actorId={context?.actorId}
+              />
             </CardContent>
           </Card>
         </TabsContent>

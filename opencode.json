@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "executor-kn7agh4e": {
+      "type": "remote",
+      "url": "https://perceptive-pigeon-577.convex.site/mcp?workspaceId=kn7agh4e6v5nx8mw03byq5f15580vg4c",
+      "enabled": true
+    }
+  }
+}

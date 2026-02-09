@@ -55,12 +55,44 @@ export type ExternalToolSourceConfig =
   | GraphqlToolSourceConfig;
 
 function sanitizeSegment(value: string): string {
-  const cleaned = value
+  const cleanedBase = value
     .toLowerCase()
     .replace(/[^a-z0-9_]/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_|_$/g, "");
-  return cleaned.length > 0 ? cleaned : "default";
+  const cleaned = cleanedBase.length > 0 ? cleanedBase : "default";
+  return /^[0-9]/.test(cleaned) ? `_${cleaned}` : cleaned;
+}
+
+function isValidTsIdentifier(value: string): boolean {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
+}
+
+function formatTsObjectKey(name: string): string {
+  return isValidTsIdentifier(name) ? name : JSON.stringify(name);
+}
+
+function toTypeAliasName(schemaName: string, used: Set<string>): string {
+  const raw = schemaName
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+  const base = raw.length > 0 ? raw : "Schema";
+  const prefixed = /^[A-Za-z_]/.test(base) ? base : `Schema${base}`;
+
+  if (!used.has(prefixed)) {
+    used.add(prefixed);
+    return prefixed;
+  }
+
+  let suffix = 2;
+  while (used.has(`${prefixed}${suffix}`)) {
+    suffix += 1;
+  }
+  const unique = `${prefixed}${suffix}`;
+  used.add(unique);
+  return unique;
 }
 
 // ── Type generation from OpenAPI specs ──────────────────────────────────────
@@ -211,13 +243,11 @@ function extractOperationTypes(dts: string): ExtractedTypes {
   // in all operation type strings, and collect the needed schema definitions
   const schemas = new Map<string, string>();
   const schemaNameMap = new Map<string, string>(); // "checkout.session" → "CheckoutSession"
+  const usedAliasNames = new Set<string>();
 
   for (const schemaName of schemaTypeMap.keys()) {
-    // Convert schema name to a valid TS identifier: "checkout.session" → "CheckoutSession"
-    const tsName = schemaName
-      .split(/[._-]/)
-      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-      .join("");
+    // Convert schema name to a valid, unique TS identifier.
+    const tsName = toTypeAliasName(schemaName, usedAliasNames);
     schemaNameMap.set(schemaName, tsName);
   }
 
@@ -302,7 +332,7 @@ function extractArgsType(
         if (!paramName) continue;
         const optional = param.questionToken ? "?" : "";
         const typeText = param.type.getText(sourceFile).replace(/\s+/g, " ").trim();
-        parts.push(`${paramName}${optional}: ${typeText}`);
+        parts.push(`${formatTsObjectKey(paramName)}${optional}: ${typeText}`);
       }
     }
   }
@@ -331,7 +361,7 @@ function extractArgsType(
                 if (!propName) continue;
                 const optional = bodyProp.questionToken ? "?" : "";
                 const typeText = bodyProp.type.getText(sourceFile).replace(/\s+/g, " ").trim();
-                parts.push(`${propName}${optional}: ${typeText}`);
+                parts.push(`${formatTsObjectKey(propName)}${optional}: ${typeText}`);
               }
             } else {
               // Non-literal body type (e.g. components["schemas"]["..."]) — inline as `body`
@@ -667,6 +697,107 @@ function buildOpenApiUrl(
   };
 }
 
+function compactOpenApiPaths(
+  pathsValue: unknown,
+  operationTypeIds: Set<string>,
+): Record<string, unknown> {
+  const paths = asRecord(pathsValue);
+  const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
+  const compactPaths: Record<string, unknown> = {};
+
+  const normalizeParameters = (entries: unknown): Array<Record<string, unknown>> => {
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .map((entry) => asRecord(entry))
+      .filter((entry) => typeof entry.name === "string" && typeof entry.in === "string")
+      .map((entry) => ({
+        name: String(entry.name),
+        in: String(entry.in),
+        required: Boolean(entry.required),
+        schema: asRecord(entry.schema),
+      }));
+  };
+
+  for (const [pathTemplate, pathValue] of Object.entries(paths)) {
+    const pathObject = asRecord(pathValue);
+    const compactPathObject: Record<string, unknown> = {};
+    const sharedParameters = normalizeParameters(pathObject.parameters);
+    if (sharedParameters.length > 0) {
+      compactPathObject.parameters = sharedParameters;
+    }
+
+    for (const method of methods) {
+      const operation = asRecord(pathObject[method]);
+      if (Object.keys(operation).length === 0) continue;
+
+      const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
+      const hasGeneratedTypes = operationTypeIds.has(operationIdRaw);
+
+      const compactOperation: Record<string, unknown> = {};
+      if (Array.isArray(operation.tags) && operation.tags.length > 0) {
+        compactOperation.tags = operation.tags;
+      }
+      if (operation.operationId !== undefined) {
+        compactOperation.operationId = operationIdRaw;
+      }
+      if (typeof operation.summary === "string") {
+        compactOperation.summary = operation.summary;
+      }
+      if (typeof operation.description === "string") {
+        compactOperation.description = operation.description;
+      }
+
+      const operationParameters = normalizeParameters(operation.parameters);
+      if (operationParameters.length > 0) {
+        compactOperation.parameters = operationParameters;
+      }
+
+      // Only keep request/response schemas when we need schema-hint fallback.
+      if (!hasGeneratedTypes) {
+        const requestBody = asRecord(operation.requestBody);
+        const requestBodyContent = asRecord(requestBody.content);
+        const requestBodySchema = getPreferredContentSchema(requestBodyContent);
+        if (Object.keys(requestBodySchema).length > 0) {
+          compactOperation.requestBody = {
+            content: {
+              "application/json": {
+                schema: requestBodySchema,
+              },
+            },
+          };
+        }
+
+        const responses = asRecord(operation.responses);
+        for (const [status, responseValue] of Object.entries(responses)) {
+          if (!status.startsWith("2")) continue;
+          const responseContent = asRecord(asRecord(responseValue).content);
+          const responseSchema = getPreferredContentSchema(responseContent);
+          compactOperation.responses = {
+            [status]: Object.keys(responseSchema).length > 0
+              ? {
+                  content: {
+                    "application/json": {
+                      schema: responseSchema,
+                    },
+                  },
+                }
+              : {},
+          };
+          break;
+        }
+      }
+
+      compactPathObject[method] = compactOperation;
+    }
+
+    if (Object.keys(compactPathObject).length > 0) {
+      compactPaths[pathTemplate] = compactPathObject;
+    }
+  }
+
+  return compactPaths;
+}
+
 export interface PreparedOpenApiSpec {
   servers: string[];
   paths: Record<string, unknown>;
@@ -708,12 +839,13 @@ export async function prepareOpenApiSpec(
 
   const typeMap = await typeMapPromise;
   const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
+  const operationTypeIds = new Set<string>(typeMap ? [...typeMap.operations.keys()] : []);
 
   return {
     servers: servers
       .map((server) => (typeof server.url === "string" ? server.url : ""))
       .filter((url) => url.length > 0),
-    paths: asRecord(bundled.paths),
+    paths: compactOpenApiPaths(bundled.paths, operationTypeIds),
     ...(typeMap
       ? {
           operationTypes: Object.fromEntries(typeMap.operations),

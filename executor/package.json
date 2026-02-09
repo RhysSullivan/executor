@@ -23,7 +23,8 @@
     "@convex-dev/workos-authkit": "^0.1.6",
     "@workos-inc/node": "^8.2.0",
     "convex": "^1.31.7",
-    "convex-helpers": "^0.1.111"
+    "convex-helpers": "^0.1.111",
+    "jose": "^6.1.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
