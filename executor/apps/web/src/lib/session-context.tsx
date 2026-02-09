@@ -158,13 +158,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return activeWorkspaceId;
     }
 
-    if (activeWorkspaceId && workspaces.some((workspace) => workspace.id === activeWorkspaceId)) {
+    if (activeWorkspaceId && workspaces.some((workspace: any) => workspace.id === activeWorkspaceId)) {
       return activeWorkspaceId;
     }
 
     const accountId = account?.provider === "workos" ? account._id : null;
     const accountStoredWorkspace = accountId ? readWorkspaceByAccount()[accountId] : null;
-    if (accountStoredWorkspace && workspaces.some((workspace) => workspace.id === accountStoredWorkspace)) {
+    if (accountStoredWorkspace && workspaces.some((workspace: any) => workspace.id === accountStoredWorkspace)) {
       return accountStoredWorkspace;
     }
 
@@ -265,7 +265,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     const activeWorkspace =
-      workspaces.find((workspace) => workspace.id === resolvedActiveWorkspaceId)
+      workspaces.find((workspace: any) => workspace.id === resolvedActiveWorkspaceId)
       ?? workspaces[0]
       ?? null;
     if (!activeWorkspace) {
@@ -318,7 +318,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
   const workspaceOptions = useMemo(() => {
     if (mode === "workos" && workspaces) {
-      return workspaces.map((workspace): SessionState["workspaces"][number] => ({
+      return workspaces.map((workspace: any): SessionState["workspaces"][number] => ({
         id: workspace.id,
         docId: workspace.id,
         name: workspace.name,

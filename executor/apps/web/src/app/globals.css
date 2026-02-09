@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+@source "../../../node_modules/streamdown/dist/*.js";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -45,15 +47,61 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
-  --color-terminal-green: oklch(0.75 0.18 155);
-  --color-terminal-amber: oklch(0.78 0.16 75);
-  --color-terminal-red: oklch(0.65 0.22 25);
-  --color-terminal-cyan: oklch(0.75 0.12 200);
+  --color-terminal-green: var(--terminal-green);
+  --color-terminal-amber: var(--terminal-amber);
+  --color-terminal-red: var(--terminal-red);
+  --color-terminal-cyan: var(--terminal-cyan);
   --color-surface-raised: var(--card);
 }
 
+/* ── Light theme (default) ─────────────────────────────────────────────────── */
 :root {
   --radius: 0.5rem;
+  --background: oklch(0.985 0.002 260);
+  --foreground: oklch(0.18 0.01 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 260);
+  --primary: oklch(0.45 0.18 155);
+  --primary-foreground: oklch(0.98 0.005 155);
+  --secondary: oklch(0.95 0.005 260);
+  --secondary-foreground: oklch(0.30 0.01 260);
+  --muted: oklch(0.94 0.005 260);
+  --muted-foreground: oklch(0.45 0.01 260);
+  --accent: oklch(0.94 0.008 260);
+  --accent-foreground: oklch(0.18 0.01 260);
+  --destructive: oklch(0.55 0.22 25);
+  --border: oklch(0.88 0.008 260);
+  --input: oklch(0.88 0.008 260);
+  --ring: oklch(0.45 0.18 155);
+  --chart-1: oklch(0.45 0.18 155);
+  --chart-2: oklch(0.60 0.16 75);
+  --chart-3: oklch(0.50 0.12 200);
+  --chart-4: oklch(0.55 0.22 25);
+  --chart-5: oklch(0.55 0.15 300);
+  --sidebar: oklch(0.97 0.004 260);
+  --sidebar-foreground: oklch(0.30 0.01 260);
+  --sidebar-primary: oklch(0.45 0.18 155);
+  --sidebar-primary-foreground: oklch(0.98 0.005 155);
+  --sidebar-accent: oklch(0.94 0.006 260);
+  --sidebar-accent-foreground: oklch(0.18 0.01 260);
+  --sidebar-border: oklch(0.88 0.008 260);
+  --sidebar-ring: oklch(0.45 0.18 155);
+  --terminal-green: oklch(0.45 0.18 155);
+  --terminal-amber: oklch(0.55 0.16 75);
+  --terminal-red: oklch(0.50 0.22 25);
+  --terminal-cyan: oklch(0.45 0.12 200);
+
+  /* Shiki theme variables */
+  --shiki-light: #24292e;
+  --shiki-light-bg: #ffffff;
+  --shiki-dark: #e1e4e8;
+  --shiki-dark-bg: #0d1117;
+}
+
+/* ── Dark theme ────────────────────────────────────────────────────────────── */
+.dark {
   --background: oklch(0.11 0.005 260);
   --foreground: oklch(0.88 0.01 250);
   --card: oklch(0.15 0.005 260);
@@ -85,6 +133,10 @@
   --sidebar-accent-foreground: oklch(0.88 0.01 250);
   --sidebar-border: oklch(0.22 0.008 260);
   --sidebar-ring: oklch(0.75 0.18 155);
+  --terminal-green: oklch(0.75 0.18 155);
+  --terminal-amber: oklch(0.78 0.16 75);
+  --terminal-red: oklch(0.65 0.22 25);
+  --terminal-cyan: oklch(0.75 0.12 200);
 }
 
 @layer base {
@@ -96,6 +148,31 @@
   }
 }
 
+/* ── Shiki / Streamdown code block theme overrides ─────────────────────────── */
+/* Light mode: use shiki-light tokens */
+[style*="--shiki-light"] {
+  color: var(--shiki-light) !important;
+  background-color: transparent !important;
+}
+
+/* Dark mode: swap to shiki-dark tokens */
+.dark [style*="--shiki-dark"] {
+  color: var(--shiki-dark) !important;
+  background-color: transparent !important;
+}
+
+.dark [style*="--shiki-light"] {
+  color: var(--shiki-dark) !important;
+  background-color: transparent !important;
+}
+
+/* Streamdown code block container — follows theme background */
+[data-streamdown="code-block-body"] {
+  background-color: var(--muted) !important;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
@@ -105,17 +182,17 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: oklch(0.3 0.005 260);
+  background: var(--border);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: oklch(0.4 0.005 260);
+  background: var(--muted-foreground);
 }
 
 /* Terminal code blocks */
 .terminal-block {
-  background: oklch(0.09 0.005 260);
-  border: 1px solid oklch(0.2 0.008 260);
+  background: var(--muted);
+  border: 1px solid var(--border);
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 0.8125rem;
   line-height: 1.6;
@@ -140,15 +217,15 @@
   );
 }
 
-/* Glow effects */
+/* Glow effects — use color-mix for alpha since relative oklch has limited support */
 .glow-green {
-  box-shadow: 0 0 20px oklch(0.75 0.18 155 / 0.15), 0 0 60px oklch(0.75 0.18 155 / 0.05);
+  box-shadow: 0 0 20px color-mix(in oklch, var(--terminal-green) 15%, transparent), 0 0 60px color-mix(in oklch, var(--terminal-green) 5%, transparent);
 }
 .glow-amber {
-  box-shadow: 0 0 20px oklch(0.78 0.16 75 / 0.15), 0 0 60px oklch(0.78 0.16 75 / 0.05);
+  box-shadow: 0 0 20px color-mix(in oklch, var(--terminal-amber) 15%, transparent), 0 0 60px color-mix(in oklch, var(--terminal-amber) 5%, transparent);
 }
 .glow-red {
-  box-shadow: 0 0 20px oklch(0.65 0.22 25 / 0.15), 0 0 60px oklch(0.65 0.22 25 / 0.05);
+  box-shadow: 0 0 20px color-mix(in oklch, var(--terminal-red) 15%, transparent), 0 0 60px color-mix(in oklch, var(--terminal-red) 5%, transparent);
 }
 
 /* Pulse animation for pending indicators */
@@ -163,7 +240,118 @@
 /* Subtle grid background */
 .grid-bg {
   background-image:
-    linear-gradient(oklch(0.2 0.005 260 / 0.5) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(0.2 0.005 260 / 0.5) 1px, transparent 1px);
+    linear-gradient(color-mix(in oklch, var(--border) 50%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklch, var(--border) 50%, transparent) 1px, transparent 1px);
   background-size: 24px 24px;
+}
+
+/* ── Tool description (Streamdown markdown rendering) ──────────────────────── */
+.tool-description {
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+.tool-description p {
+  margin-bottom: 0.35em;
+}
+.tool-description p:last-child {
+  margin-bottom: 0;
+}
+.tool-description strong,
+.tool-description b {
+  color: var(--foreground);
+  font-weight: 600;
+}
+.tool-description code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.1em 0.35em;
+  color: var(--terminal-cyan);
+}
+.tool-description pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  margin: 0.4em 0;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+}
+.tool-description pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+.tool-description a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in oklch, var(--primary) 30%, transparent);
+}
+.tool-description a:hover {
+  text-decoration-color: color-mix(in oklch, var(--primary) 80%, transparent);
+}
+.tool-description ul,
+.tool-description ol {
+  padding-left: 1.25em;
+  margin: 0.3em 0;
+}
+.tool-description li {
+  margin-bottom: 0.15em;
+}
+.tool-description li::marker {
+  color: var(--muted-foreground);
+}
+.tool-description table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.6875rem;
+  margin: 0.5em 0;
+}
+.tool-description th,
+.tool-description td {
+  border: 1px solid var(--border);
+  padding: 0.3em 0.5em;
+  text-align: left;
+}
+.tool-description th {
+  background: var(--muted);
+  font-weight: 600;
+  color: var(--foreground);
+}
+.tool-description td {
+  background: var(--background);
+}
+.tool-description h1,
+.tool-description h2,
+.tool-description h3,
+.tool-description h4 {
+  font-weight: 600;
+  color: var(--foreground);
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+}
+.tool-description h1 { font-size: 0.875rem; }
+.tool-description h2 { font-size: 0.8125rem; }
+.tool-description h3 { font-size: 0.75rem; }
+.tool-description h4 { font-size: 0.75rem; }
+.tool-description blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.75em;
+  margin: 0.4em 0;
+  color: var(--muted-foreground);
+}
+.tool-description hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.5em 0;
+}
+.tool-description img {
+  max-width: 100%;
+  border-radius: 0.25rem;
 }

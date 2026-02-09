@@ -181,7 +181,7 @@ export function ApprovalsView() {
             <Clock className="h-3.5 w-3.5" />
             {count} pending approval{count !== 1 ? "s" : ""}
           </div>
-          {approvals!.map((a) => (
+          {approvals!.map((a: PendingApprovalRecord) => (
             <ApprovalCard key={a.id} approval={a} />
           ))}
         </div>

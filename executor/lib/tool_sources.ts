@@ -518,38 +518,73 @@ function compactOpenApiPaths(
         compactOperation.parameters = operationParameters;
       }
 
-      // Only keep request/response schemas when we need schema-hint fallback.
-      if (!hasGeneratedTypes) {
+      // Extract request/response schemas for type hints.
+      // When .d.ts types exist, pre-compute lightweight hints and skip storing full schemas.
+      {
         const requestBody = asRecord(operation.requestBody);
         const requestBodyContent = asRecord(requestBody.content);
         const requestBodySchema = getPreferredContentSchema(requestBodyContent);
-        if (Object.keys(requestBodySchema).length > 0) {
-          compactOperation.requestBody = {
-            content: {
-              "application/json": {
-                schema: requestBodySchema,
-              },
-            },
-          };
-        }
 
         const responses = asRecord(operation.responses);
+        let responseSchema: Record<string, unknown> = {};
+        let responseStatus = "";
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
           const responseContent = asRecord(asRecord(responseValue).content);
-          const responseSchema = getPreferredContentSchema(responseContent);
-          compactOperation.responses = {
-            [status]: Object.keys(responseSchema).length > 0
-              ? {
-                  content: {
-                    "application/json": {
-                      schema: responseSchema,
-                    },
-                  },
-                }
-              : {},
+          responseSchema = getPreferredContentSchema(responseContent);
+          responseStatus = status;
+          if (Object.keys(responseSchema).length > 0) break;
+        }
+
+        if (hasGeneratedTypes) {
+          // Pre-compute lightweight type hint strings (the full schemas are in the .d.ts)
+          const combinedSchema: JsonSchema = {
+            type: "object",
+            properties: {
+              ...Object.fromEntries(
+                normalizeParameters(operation.parameters)
+                  .concat(sharedParameters)
+                  .map((param) => [param.name, param.schema]),
+              ),
+              ...asRecord(requestBodySchema.properties),
+            },
+            required: [
+              ...normalizeParameters(operation.parameters)
+                .concat(sharedParameters)
+                .filter((param) => param.required)
+                .map((param) => param.name as string),
+              ...((Array.isArray(requestBodySchema.required)
+                ? requestBodySchema.required.filter((item): item is string => typeof item === "string")
+                : []) as string[]),
+            ],
           };
-          break;
+          compactOperation._argsTypeHint = jsonSchemaTypeHintFallback(combinedSchema);
+          compactOperation._returnsTypeHint = jsonSchemaTypeHintFallback(responseSchema);
+        } else {
+          // Keep full schemas for the fallback path
+          if (Object.keys(requestBodySchema).length > 0) {
+            compactOperation.requestBody = {
+              content: {
+                "application/json": {
+                  schema: requestBodySchema,
+                },
+              },
+            };
+          }
+
+          if (responseStatus) {
+            compactOperation.responses = {
+              [responseStatus]: Object.keys(responseSchema).length > 0
+                ? {
+                    content: {
+                      "application/json": {
+                        schema: responseSchema,
+                      },
+                    },
+                  }
+                : {},
+            };
+          }
         }
       }
 
@@ -687,36 +722,44 @@ export function buildOpenApiToolsFromPrepared(
         schema: asRecord(entry.schema),
       }));
 
-      // Lightweight type hints for LLM prompt / discover tool (from JSON Schema fallback)
-      const requestBody = asRecord(operation.requestBody);
-      const requestBodyContent = asRecord(requestBody.content);
-      const requestBodySchema = getPreferredContentSchema(requestBodyContent);
+      // Lightweight type hints for LLM prompt / discover tool.
+      // Pre-computed during compaction when .d.ts types exist (schemas stripped to save space).
+      let argsType: string;
+      let returnsType: string;
+      if (typeof operation._argsTypeHint === "string" && typeof operation._returnsTypeHint === "string") {
+        argsType = operation._argsTypeHint as string;
+        returnsType = operation._returnsTypeHint as string;
+      } else {
+        const requestBody = asRecord(operation.requestBody);
+        const requestBodyContent = asRecord(requestBody.content);
+        const requestBodySchema = getPreferredContentSchema(requestBodyContent);
 
-      const responses = asRecord(operation.responses);
-      let responseSchema: Record<string, unknown> = {};
-      for (const [status, responseValue] of Object.entries(responses)) {
-        if (!status.startsWith("2")) continue;
-        const responseContent = asRecord(asRecord(responseValue).content);
-        responseSchema = getPreferredContentSchema(responseContent);
-        if (Object.keys(responseSchema).length > 0) break;
+        const responses = asRecord(operation.responses);
+        let responseSchema: Record<string, unknown> = {};
+        for (const [status, responseValue] of Object.entries(responses)) {
+          if (!status.startsWith("2")) continue;
+          const responseContent = asRecord(asRecord(responseValue).content);
+          responseSchema = getPreferredContentSchema(responseContent);
+          if (Object.keys(responseSchema).length > 0) break;
+        }
+
+        const combinedSchema: JsonSchema = {
+          type: "object",
+          properties: {
+            ...Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
+            ...asRecord(requestBodySchema.properties),
+          },
+          required: [
+            ...parameters.filter((param) => param.required).map((param) => param.name),
+            ...((Array.isArray(requestBodySchema.required)
+              ? requestBodySchema.required.filter((item): item is string => typeof item === "string")
+              : []) as string[]),
+          ],
+        };
+
+        argsType = jsonSchemaTypeHintFallback(combinedSchema);
+        returnsType = jsonSchemaTypeHintFallback(responseSchema);
       }
-
-      const combinedSchema: JsonSchema = {
-        type: "object",
-        properties: {
-          ...Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
-          ...asRecord(requestBodySchema.properties),
-        },
-        required: [
-          ...parameters.filter((param) => param.required).map((param) => param.name),
-          ...((Array.isArray(requestBodySchema.required)
-            ? requestBodySchema.required.filter((item): item is string => typeof item === "string")
-            : []) as string[]),
-        ],
-      };
-
-      const argsType = jsonSchemaTypeHintFallback(combinedSchema);
-      const returnsType = jsonSchemaTypeHintFallback(responseSchema);
 
       const approval = config.overrides?.[operationIdRaw]?.approval
         ?? (readMethods.has(method)

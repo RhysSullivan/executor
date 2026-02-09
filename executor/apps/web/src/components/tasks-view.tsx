@@ -110,7 +110,7 @@ function TaskComposer() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(runtimes ?? []).map((r) => (
+                {(runtimes ?? []).map((r: any) => (
                   <SelectItem key={r.id} value={r.id} className="text-xs">
                     {r.label}
                   </SelectItem>
@@ -224,8 +224,8 @@ function TaskDetail({
   const liveTask = liveTaskData ?? task;
   const liveStdout = useMemo(() => {
     const stdoutLines = (taskEvents ?? [])
-      .filter((event) => event.type === "task.stdout")
-      .map((event) => String((event.payload as Record<string, unknown>)?.line ?? ""));
+      .filter((event: any) => event.type === "task.stdout")
+      .map((event: any) => String((event.payload as Record<string, unknown>)?.line ?? ""));
     if (stdoutLines.length > 0) {
       return stdoutLines.join("\n");
     }
@@ -234,8 +234,8 @@ function TaskDetail({
 
   const liveStderr = useMemo(() => {
     const stderrLines = (taskEvents ?? [])
-      .filter((event) => event.type === "task.stderr")
-      .map((event) => String((event.payload as Record<string, unknown>)?.line ?? ""));
+      .filter((event: any) => event.type === "task.stderr")
+      .map((event: any) => String((event.payload as Record<string, unknown>)?.line ?? ""));
     if (stderrLines.length > 0) {
       return stderrLines.join("\n");
     }
@@ -357,7 +357,7 @@ export function TasksView() {
   );
   const tasksLoading = !!context && tasks === undefined;
 
-  const selectedTask = tasks?.find((t) => t.id === selectedId);
+  const selectedTask = tasks?.find((t: any) => t.id === selectedId);
 
   const selectTask = useCallback(
     (taskId: string | null) => {
@@ -415,7 +415,7 @@ export function TasksView() {
                 </div>
               ) : (
                 <div className="space-y-1 max-h-[500px] overflow-y-auto">
-                  {tasks.map((task) => (
+                  {tasks.map((task: any) => (
                     <TaskListItem
                       key={task.id}
                       task={task}

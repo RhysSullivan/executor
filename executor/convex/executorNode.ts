@@ -128,40 +128,10 @@ interface DtsStorageEntry {
   storageId: string;
 }
 
-const workspaceToolCache = new Map<
-  string,
-  { signature: string; loadedAt: number; tools: Map<string, ToolDefinition>; warnings: string[]; dtsStorageIds: DtsStorageEntry[] }
->();
-const workspaceToolLoadsInFlight = new Map<
-  string,
-  {
-    signature: string;
-    promise: Promise<{ tools: Map<string, ToolDefinition>; warnings: string[]; dtsStorageIds: DtsStorageEntry[] }>;
-  }
->();
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
-const WORKSPACE_TOOL_CACHE_TTL_MS = 5 * 60 * 60_000;
-const WORKSPACE_TOOL_CACHE_RETRY_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version — bump when PreparedOpenApiSpec shape changes. */
-const OPENAPI_CACHE_VERSION = "v3";
-
-function isWorkspaceToolCacheFresh(
-  cached: { signature: string; loadedAt: number; warnings: string[] },
-  signature: string,
-  now: number,
-): boolean {
-  if (cached.signature !== signature) {
-    return false;
-  }
-
-  const ageMs = now - cached.loadedAt;
-  const ttlMs = cached.warnings.length > 0
-    ? WORKSPACE_TOOL_CACHE_RETRY_TTL_MS
-    : WORKSPACE_TOOL_CACHE_TTL_MS;
-
-  return ageMs < ttlMs;
-}
+const OPENAPI_CACHE_VERSION = "v4";
 
 async function publish(
   ctx: any,
@@ -277,173 +247,127 @@ async function loadSourceTools(
 
 interface WorkspaceToolsResult {
   tools: Map<string, ToolDefinition>;
+  warnings: string[];
   dtsStorageIds: DtsStorageEntry[];
 }
 
 async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<WorkspaceToolsResult> {
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
-  const now = Date.now();
   const signature = sourceSignature(workspaceId, sources);
 
-  // ── Layer 1: In-memory cache (same warm worker) ───────────────────────
-  const cached = workspaceToolCache.get(workspaceId);
-  if (cached && isWorkspaceToolCacheFresh(cached, signature, now)) {
-    return { tools: cached.tools, dtsStorageIds: cached.dtsStorageIds };
-  }
-
-  // ── Layer 2: In-flight dedup (concurrent requests on same worker) ─────
-  const inFlight = workspaceToolLoadsInFlight.get(workspaceId);
-  if (inFlight && inFlight.signature === signature) {
-    const loaded = await inFlight.promise;
-    return { tools: loaded.tools, dtsStorageIds: loaded.dtsStorageIds };
-  }
-
-  const loadPromise = (async () => {
-    // ── Layer 3: Persistent workspace cache (Convex file storage) ──────
-    // Single blob with all tool descriptors + run specs. Avoids per-source
-    // storage reads, JSON parses, and TS compiler runs on cold start.
-    try {
-      const cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
-        workspaceId,
-        signature,
-      });
-
-      if (cacheEntry) {
-        const blob = await ctx.storage.get(cacheEntry.storageId);
-        if (blob) {
-          const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
-          const rehydrated = rehydrateTools(snapshot.tools, baseTools);
-
-          const merged = new Map<string, ToolDefinition>();
-          for (const tool of rehydrated) {
-            merged.set(tool.path, tool);
-          }
-          // Recreate discover tool (it captures the full tool list in a closure)
-          const discover = createDiscoverTool([...merged.values()]);
-          merged.set(discover.path, discover);
-
-          const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
-
-          workspaceToolCache.set(workspaceId, {
-            signature,
-            loadedAt: Date.now(),
-            tools: merged,
-            warnings: snapshot.warnings,
-            dtsStorageIds,
-          });
-
-          return { tools: merged, warnings: snapshot.warnings, dtsStorageIds };
-        }
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`[executor] workspace tool cache read failed for '${workspaceId}': ${msg}`);
-    }
-
-    // ── Layer 4: Full rebuild from sources ─────────────────────────────
-    const configs: ExternalToolSourceConfig[] = [];
-    const warnings: string[] = [];
-    for (const source of sources) {
-      try {
-        configs.push(normalizeExternalToolSource(source));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        warnings.push(`Source '${source.name}': ${message}`);
-      }
-    }
-
-    const loadedSources = await Promise.all(configs.map((config) => loadSourceTools(ctx, config)));
-    const externalTools = loadedSources.flatMap((loaded) => loaded.tools);
-    warnings.push(...loadedSources.flatMap((loaded) => loaded.warnings));
-
-    const merged = new Map<string, ToolDefinition>();
-    for (const tool of baseTools.values()) {
-      if (tool.path === "discover") continue;
-      merged.set(tool.path, tool);
-    }
-    for (const tool of externalTools) {
-      merged.set(tool.path, tool);
-    }
-
-    const discover = createDiscoverTool([...merged.values()]);
-    merged.set(discover.path, discover);
-
-    // ── Write to persistent workspace cache (best-effort) ─────────────
-    let dtsStorageIds: DtsStorageEntry[] = [];
-    try {
-      const allTools = [...merged.values()];
-
-      // Extract and store .d.ts blobs per source (too large for action responses)
-      const seenDtsSources = new Set<string>();
-      const dtsEntries: { sourceKey: string; content: string }[] = [];
-      for (const tool of allTools) {
-        if (tool.metadata?.sourceDts && tool.source && !seenDtsSources.has(tool.source)) {
-          seenDtsSources.add(tool.source);
-          dtsEntries.push({ sourceKey: tool.source, content: tool.metadata.sourceDts });
-        }
-      }
-
-      // Store .d.ts blobs in parallel
-      const storedDts = await Promise.all(
-        dtsEntries.map(async (entry) => {
-          const dtsBlob = new Blob([entry.content], { type: "text/plain" });
-          const sid = await ctx.storage.store(dtsBlob);
-          return { sourceKey: entry.sourceKey, storageId: String(sid) };
-        }),
-      );
-      dtsStorageIds = storedDts;
-
-      // Strip sourceDts from serialized tools (it's stored separately)
-      const snapshot: WorkspaceToolSnapshot = {
-        tools: serializeTools(allTools),
-        warnings,
-      };
-      // Remove sourceDts from the serialized snapshot to keep it small
-      for (const st of snapshot.tools) {
-        if (st.metadata?.sourceDts) {
-          delete (st.metadata as Record<string, unknown>).sourceDts;
-        }
-      }
-
-      const json = JSON.stringify(snapshot);
-      const blob = new Blob([json], { type: "application/json" });
-      const storageId = await ctx.storage.store(blob);
-      await ctx.runMutation(internal.workspaceToolCache.putEntry, {
-        workspaceId,
-        signature,
-        storageId,
-        dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId as any })),
-        toolCount: allTools.length,
-        sizeBytes: json.length,
-      });
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.warn(`[executor] workspace tool cache write failed for '${workspaceId}': ${msg}`);
-    }
-
-    workspaceToolCache.set(workspaceId, {
+  // ── Layer 1: Persistent workspace cache (Convex file storage) ──────
+  try {
+    const cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
+      workspaceId,
       signature,
-      loadedAt: Date.now(),
-      tools: merged,
-      warnings,
-      dtsStorageIds,
     });
 
-    return { tools: merged, warnings, dtsStorageIds };
-  })();
+    if (cacheEntry) {
+      const blob = await ctx.storage.get(cacheEntry.storageId);
+      if (blob) {
+        const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
+        const rehydrated = rehydrateTools(snapshot.tools, baseTools);
 
-  workspaceToolLoadsInFlight.set(workspaceId, { signature, promise: loadPromise });
+        const merged = new Map<string, ToolDefinition>();
+        for (const tool of rehydrated) {
+          merged.set(tool.path, tool);
+        }
+        // Recreate discover tool (it captures the full tool list in a closure)
+        const discover = createDiscoverTool([...merged.values()]);
+        merged.set(discover.path, discover);
 
-  try {
-    const loaded = await loadPromise;
-    return { tools: loaded.tools, dtsStorageIds: loaded.dtsStorageIds };
-  } finally {
-    const current = workspaceToolLoadsInFlight.get(workspaceId);
-    if (current?.promise === loadPromise) {
-      workspaceToolLoadsInFlight.delete(workspaceId);
+        const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
+
+        return { tools: merged, warnings: snapshot.warnings, dtsStorageIds };
+      }
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] workspace tool cache read failed for '${workspaceId}': ${msg}`);
+  }
+
+  // ── Layer 2: Full rebuild from sources ─────────────────────────────
+  const configs: ExternalToolSourceConfig[] = [];
+  const warnings: string[] = [];
+  for (const source of sources) {
+    try {
+      configs.push(normalizeExternalToolSource(source));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`Source '${source.name}': ${message}`);
     }
   }
+
+  const loadedSources = await Promise.all(configs.map((config) => loadSourceTools(ctx, config)));
+  const externalTools = loadedSources.flatMap((loaded) => loaded.tools);
+  warnings.push(...loadedSources.flatMap((loaded) => loaded.warnings));
+
+  const merged = new Map<string, ToolDefinition>();
+  for (const tool of baseTools.values()) {
+    if (tool.path === "discover") continue;
+    merged.set(tool.path, tool);
+  }
+  for (const tool of externalTools) {
+    merged.set(tool.path, tool);
+  }
+
+  const discover = createDiscoverTool([...merged.values()]);
+  merged.set(discover.path, discover);
+
+  // ── Write to persistent workspace cache (best-effort) ─────────────
+  let dtsStorageIds: DtsStorageEntry[] = [];
+  try {
+    const allTools = [...merged.values()];
+
+    // Extract and store .d.ts blobs per source (too large for action responses)
+    const seenDtsSources = new Set<string>();
+    const dtsEntries: { sourceKey: string; content: string }[] = [];
+    for (const tool of allTools) {
+      if (tool.metadata?.sourceDts && tool.source && !seenDtsSources.has(tool.source)) {
+        seenDtsSources.add(tool.source);
+        dtsEntries.push({ sourceKey: tool.source, content: tool.metadata.sourceDts });
+      }
+    }
+
+    // Store .d.ts blobs in parallel
+    const storedDts = await Promise.all(
+      dtsEntries.map(async (entry) => {
+        const dtsBlob = new Blob([entry.content], { type: "text/plain" });
+        const sid = await ctx.storage.store(dtsBlob);
+        return { sourceKey: entry.sourceKey, storageId: String(sid) };
+      }),
+    );
+    dtsStorageIds = storedDts;
+
+    // Strip sourceDts from serialized tools (it's stored separately)
+    const snapshot: WorkspaceToolSnapshot = {
+      tools: serializeTools(allTools),
+      warnings,
+    };
+    for (const st of snapshot.tools) {
+      if (st.metadata?.sourceDts) {
+        delete (st.metadata as Record<string, unknown>).sourceDts;
+      }
+    }
+
+    const json = JSON.stringify(snapshot);
+    const blob = new Blob([json], { type: "application/json" });
+    const storageId = await ctx.storage.store(blob);
+    await ctx.runMutation(internal.workspaceToolCache.putEntry, {
+      workspaceId,
+      signature,
+      storageId,
+      dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId as any })),
+      toolCount: allTools.length,
+      sizeBytes: json.length,
+    });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn(`[executor] workspace tool cache write failed for '${workspaceId}': ${msg}`);
+  }
+
+  return { tools: merged, warnings, dtsStorageIds };
 }
 
 function getDecisionForContext(
@@ -536,7 +460,6 @@ async function listToolsWithWarningsForContext(
   ]);
   const typedPolicies = policies as AccessPolicyRecord[];
   const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies);
-  const cachedEntry = workspaceToolCache.get(context.workspaceId);
 
   // Generate download URLs for .d.ts blobs
   const dtsUrls: Record<string, string> = {};
@@ -551,7 +474,7 @@ async function listToolsWithWarningsForContext(
 
   return {
     tools,
-    warnings: cachedEntry?.warnings ?? [],
+    warnings: result.warnings,
     dtsUrls,
   };
 }

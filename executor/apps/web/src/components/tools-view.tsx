@@ -8,8 +8,6 @@ import {
   ShieldCheck,
   Globe,
   Server,
-  Zap,
-  Search,
   ChevronRight,
   AlertTriangle,
   KeyRound,
@@ -45,6 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { McpSetupCard } from "@/components/mcp-setup-card";
+import { ToolExplorer } from "@/components/tool-explorer";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -1331,72 +1330,11 @@ function CredentialsPanel({
   );
 }
 
-// ── Tool Inventory ──
-
-function ToolInventory({ tools }: { tools: ToolDescriptor[] }) {
-  const [search, setSearch] = useState("");
-
-  const filtered = tools.filter(
-    (t) =>
-      t.path.toLowerCase().includes(search.toLowerCase()) ||
-      t.description.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search tools..."
-          className="h-8 text-xs pl-8 bg-background"
-        />
-      </div>
-      <div className="space-y-1 max-h-[500px] overflow-y-auto">
-        {filtered.length === 0 ? (
-          <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-            {search ? "No tools match your search" : "No tools available"}
-          </div>
-        ) : (
-          filtered.map((tool) => (
-            <div
-              key={tool.path}
-              className="flex items-start gap-3 px-3 py-2.5 rounded-md hover:bg-accent/30 transition-colors"
-            >
-              <Zap className="h-3.5 w-3.5 mt-0.5 text-primary shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-mono font-medium">
-                    {tool.path}
-                  </span>
-                  {tool.approval === "required" && (
-                    <span className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider text-terminal-amber bg-terminal-amber/10 px-1.5 py-0.5 rounded border border-terminal-amber/20">
-                      <ShieldCheck className="h-2.5 w-2.5" />
-                      approval
-                    </span>
-                  )}
-                  {tool.source && (
-                    <span className="text-[9px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                      {tool.source}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                  {tool.description}
-                </p>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
+// ── Tool Inventory (legacy removed — replaced by ToolExplorer) ──
 
 // ── Tools View ──
 
-export function ToolsView() {
+export function ToolsView({ initialSource }: { initialSource?: string | null }) {
   const { context, loading: sessionLoading } = useSession();
 
   const sources = useQuery(
@@ -1429,7 +1367,7 @@ export function ToolsView() {
         description="Manage sources, auth, credentials, and available tools"
       />
 
-      <Tabs defaultValue="sources" className="w-full">
+      <Tabs defaultValue={initialSource ? "inventory" : "sources"} className="w-full">
         <TabsList className="bg-muted/50 h-9">
           <TabsTrigger value="sources" className="text-xs data-[state=active]:bg-background">
             Sources
@@ -1466,7 +1404,7 @@ export function ToolsView() {
                   <Server className="h-4 w-4 text-muted-foreground" />
                   Tool Sources
                 </CardTitle>
-                <AddSourceDialog existingSourceNames={new Set((sources ?? []).map(s => s.name))} />
+                <AddSourceDialog existingSourceNames={new Set((sources ?? []).map((s: any) => s.name))} />
               </div>
             </CardHeader>
             <CardContent className="pt-0">
@@ -1497,7 +1435,7 @@ export function ToolsView() {
                         Source load warnings ({warnings.length})
                       </div>
                       <div className="mt-1.5 space-y-1">
-                        {warnings.slice(0, 3).map((warning, i) => (
+                        {warnings.slice(0, 3).map((warning: any, i: any) => (
                           <p key={`${warning}-${i}`} className="text-[11px] text-terminal-amber/90">
                             {warning}
                           </p>
@@ -1510,7 +1448,7 @@ export function ToolsView() {
                       </div>
                     </div>
                   )}
-                  {sources.map((s) => (
+                  {sources.map((s: any) => (
                     <SourceCard key={s.id} source={s} />
                   ))}
                 </div>
@@ -1528,36 +1466,13 @@ export function ToolsView() {
         </TabsContent>
 
         <TabsContent value="inventory" className="mt-4">
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Zap className="h-4 w-4 text-primary" />
-                Available Tools
-                <span className="text-[10px] font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                  {toolsLoading ? "…" : tools.length}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {warnings.length > 0 && !toolsLoading && (
-                <div className="mb-3 rounded-md border border-terminal-amber/30 bg-terminal-amber/10 px-3 py-2.5">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium text-terminal-amber">
-                    <AlertTriangle className="h-3.5 w-3.5" />
-                    Some sources failed to load; inventory may be incomplete
-                  </div>
-                </div>
-              )}
-              {toolsLoading ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-14" />
-                  ))}
-                </div>
-              ) : (
-                <ToolInventory tools={tools} />
-              )}
-            </CardContent>
-          </Card>
+          <ToolExplorer
+            tools={tools}
+            sources={sources ?? []}
+            loading={toolsLoading}
+            warnings={warnings}
+            initialSource={initialSource}
+          />
         </TabsContent>
 
         <TabsContent value="mcp" className="mt-4">

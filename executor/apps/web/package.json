@@ -12,10 +12,12 @@
   "dependencies": {
     "@convex-dev/workos": "^0.0.1",
     "@elysiajs/eden": "^1.4.6",
-    "@tanstack/react-query": "^5.80.7",
-    "@workos-inc/authkit-nextjs": "^2.13.0",
     "@executor/contracts": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
+    "@streamdown/code": "^1.0.1",
+    "@tanstack/react-query": "^5.80.7",
+
+    "@workos-inc/authkit-nextjs": "^2.13.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "convex": "^1.31.7",
@@ -27,6 +29,7 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "sonner": "^2.0.7",
+    "streamdown": "^2.1.0",
     "tailwind-merge": "^3.4.0",
     "tldts": "^7.0.22"
   },

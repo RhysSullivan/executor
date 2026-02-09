@@ -38,7 +38,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
   );
 
   const memberItems = members?.items ?? [];
-  const actorMembership = memberItems.find((member) =>
+  const actorMembership = memberItems.find((member: { accountId?: string; role?: string }) =>
     context?.accountId ? member.accountId === context.accountId : false,
   );
   const actorRole = actorMembership?.role ?? null;
@@ -65,7 +65,8 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
   const [busyInviteId, setBusyInviteId] = useState<Id<"invites"> | null>(null);
 
   const inviteItems = listInvites?.items ?? [];
-  const pendingInviteItems = inviteItems.filter((invite) => invite.status === "pending" || invite.status === "failed");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pendingInviteItems = inviteItems.filter((invite: any) => invite.status === "pending" || invite.status === "failed");
 
   const submitInvite = async () => {
     if (!typedOrganizationId) {
@@ -173,7 +174,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
           {memberItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">No members found.</p>
           ) : (
-            memberItems.map((member) => (
+            memberItems.map((member: any) => (
               <div key={member.id} className="rounded-md border border-border p-3">
                 <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                   <div>
@@ -277,7 +278,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
           ) : pendingInviteItems.length === 0 ? (
             <p className="text-sm text-muted-foreground">No pending invites.</p>
           ) : (
-            pendingInviteItems.map((invite) => (
+            pendingInviteItems.map((invite: any) => (
               <div key={invite.id} className="rounded-md border border-border p-3 text-sm">
                 <div className="flex items-start justify-between gap-2">
                   <div>

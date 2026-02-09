@@ -39,6 +39,7 @@ import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import { workosEnabled } from "@/lib/auth-capabilities";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -509,6 +510,9 @@ function Sidebar() {
       <div className="flex-1 overflow-y-auto py-4 px-2">
         <NavLinks />
       </div>
+      <div className="px-3 py-2">
+        <ThemeSwitcher />
+      </div>
       <div className="pb-4">
         <Suspense>
           <SessionInfo />
@@ -539,6 +543,9 @@ function MobileHeader() {
           </div>
           <div className="py-4 px-2">
             <NavLinks onClick={() => setOpen(false)} />
+          </div>
+          <div className="px-3 py-2">
+            <ThemeSwitcher />
           </div>
           <div className="mt-auto pb-4">
             <Suspense>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Inter } from "next/font/google";
-import { Toaster } from "sonner";
+import { ThemeProvider } from "next-themes";
+import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/components/app-shell";
 import { AppConvexProvider } from "@/lib/convex-provider";
 import { QueryProvider } from "@/lib/query-provider";
@@ -28,28 +29,25 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        <AppConvexProvider>
-          <QueryProvider>
-            <SessionProvider>
-              <AppShell>{children}</AppShell>
-            </SessionProvider>
-          </QueryProvider>
-        </AppConvexProvider>
-        <Toaster
-          theme="dark"
-          position="bottom-right"
-          toastOptions={{
-            style: {
-              background: "oklch(0.15 0.005 260)",
-              border: "1px solid oklch(0.24 0.008 260)",
-              color: "oklch(0.88 0.01 250)",
-            },
-          }}
-        />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          enableColorScheme
+        >
+          <AppConvexProvider>
+            <QueryProvider>
+              <SessionProvider>
+                <AppShell>{children}</AppShell>
+              </SessionProvider>
+            </QueryProvider>
+          </AppConvexProvider>
+          <Toaster position="bottom-right" />
+        </ThemeProvider>
       </body>
     </html>
   );

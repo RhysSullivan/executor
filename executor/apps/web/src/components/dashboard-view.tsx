@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Play,
@@ -9,6 +10,10 @@ import {
   XCircle,
   AlertTriangle,
   ArrowRight,
+  Wrench,
+  ChevronRight,
+  Server,
+  Globe,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,7 +24,7 @@ import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import type { TaskRecord, PendingApprovalRecord } from "@/lib/types";
+import type { TaskRecord, PendingApprovalRecord, ToolDescriptor } from "@/lib/types";
 import { formatTime, formatTimeAgo } from "@/lib/format";
 
 function StatCard({
@@ -102,6 +107,128 @@ function RecentTaskRow({ task }: { task: TaskRecord }) {
   );
 }
 
+/** Derive the "source name" from a tool's source field (e.g. "openapi:github" → "github"). */
+function sourceLabel(source?: string): string {
+  if (!source) return "built-in";
+  const colonIdx = source.indexOf(":");
+  return colonIdx >= 0 ? source.slice(colonIdx + 1) : source;
+}
+
+/** Derive the source type prefix (e.g. "openapi", "mcp", "graphql"). */
+function sourceType(source?: string): string {
+  if (!source) return "local";
+  const colonIdx = source.indexOf(":");
+  return colonIdx >= 0 ? source.slice(0, colonIdx) : "local";
+}
+
+function ToolsSummaryCard({ tools }: { tools: ToolDescriptor[] }) {
+  const router = useRouter();
+
+  const groups = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        name: string;
+        type: string;
+        tools: ToolDescriptor[];
+        namespaces: Set<string>;
+        approvalCount: number;
+      }
+    >();
+
+    for (const tool of tools) {
+      const name = sourceLabel(tool.source);
+      const type = sourceType(tool.source);
+      let group = map.get(name);
+      if (!group) {
+        group = { name, type, tools: [], namespaces: new Set(), approvalCount: 0 };
+        map.set(name, group);
+      }
+      group.tools.push(tool);
+      // Extract namespace: first two segments of the path (e.g. "github.repos" from "github.repos.list")
+      const parts = tool.path.split(".");
+      if (parts.length >= 2) {
+        group.namespaces.add(`${parts[0]}.${parts[1]}`);
+      }
+      if (tool.approval === "required") {
+        group.approvalCount++;
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.tools.length - a.tools.length);
+  }, [tools]);
+
+  const totalApprovals = tools.filter((t) => t.approval === "required").length;
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-muted-foreground" />
+            Tool Sources
+            <span className="text-[10px] font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+              {tools.length} tools
+            </span>
+            {totalApprovals > 0 && (
+              <span className="text-[10px] font-mono bg-terminal-amber/10 text-terminal-amber px-1.5 py-0.5 rounded">
+                {totalApprovals} gated
+              </span>
+            )}
+          </CardTitle>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => router.push("/tools")}
+          >
+            Manage
+            <ArrowRight className="h-3 w-3 ml-1" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="grid gap-1">
+          {groups.map((group) => {
+            const SourceIcon = group.type === "mcp" ? Server : Globe;
+            return (
+              <button
+                key={group.name}
+                onClick={() => router.push(`/tools?source=${encodeURIComponent(group.name)}`)}
+                className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent/40 transition-colors text-left group/row w-full"
+              >
+                <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0">
+                  <SourceIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-mono font-medium text-foreground">
+                      {group.name}
+                    </span>
+                    <span className="text-[10px] font-mono text-muted-foreground/70 uppercase tracking-wider">
+                      {group.type}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-muted-foreground">
+                    {group.tools.length} tool{group.tools.length !== 1 ? "s" : ""}
+                    {group.namespaces.size > 0 && (
+                      <> · {group.namespaces.size} namespace{group.namespaces.size !== 1 ? "s" : ""}</>
+                    )}
+                    {group.approvalCount > 0 && (
+                      <> · <span className="text-terminal-amber">{group.approvalCount} gated</span></>
+                    )}
+                  </span>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 opacity-0 group-hover/row:opacity-100 transition-opacity shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function DashboardView() {
   const { context, loading: sessionLoading } = useSession();
 
@@ -132,11 +259,11 @@ export function DashboardView() {
 
   const pendingCount = approvals?.length ?? 0;
   const runningCount =
-    tasks?.filter((t) => t.status === "running").length ?? 0;
+    tasks?.filter((t: TaskRecord) => t.status === "running").length ?? 0;
   const completedCount =
-    tasks?.filter((t) => t.status === "completed").length ?? 0;
+    tasks?.filter((t: TaskRecord) => t.status === "completed").length ?? 0;
   const failedCount =
-    tasks?.filter((t) => ["failed", "timed_out", "denied"].includes(t.status))
+    tasks?.filter((t: TaskRecord) => ["failed", "timed_out", "denied"].includes(t.status))
       .length ?? 0;
   const recentTasks = (tasks ?? []).slice(0, 8);
 
@@ -208,7 +335,7 @@ export function DashboardView() {
               </div>
             ) : (
               <div className="space-y-0.5">
-                {(approvals ?? []).slice(0, 5).map((a) => (
+                {(approvals ?? []).slice(0, 5).map((a: PendingApprovalRecord) => (
                   <PendingApprovalRow key={a.id} approval={a} />
                 ))}
               </div>
@@ -241,7 +368,7 @@ export function DashboardView() {
               </div>
             ) : (
               <div className="space-y-0.5">
-                {recentTasks.map((t) => (
+                {recentTasks.map((t: TaskRecord) => (
                   <RecentTaskRow key={t.id} task={t} />
                 ))}
               </div>
@@ -250,34 +377,8 @@ export function DashboardView() {
         </Card>
       </div>
 
-      {/* Tools summary */}
-      {tools.length > 0 && (
-        <Card className="bg-card border-border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              Available Tools
-              <span className="text-[10px] font-mono bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                {tools.length}
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="flex flex-wrap gap-2">
-              {tools.map((tool) => (
-                <span
-                  key={tool.path}
-                  className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded bg-muted text-muted-foreground"
-                >
-                  {tool.approval === "required" && (
-                    <ShieldCheck className="h-3 w-3 text-terminal-amber" />
-                  )}
-                  {tool.path}
-                </span>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Tools summary — grouped by source */}
+      {tools.length > 0 && <ToolsSummaryCard tools={tools} />}
     </div>
   );
 }
