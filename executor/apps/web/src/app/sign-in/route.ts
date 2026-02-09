@@ -21,10 +21,34 @@ function readOptionalQueryParam(request: NextRequest, keys: string[]): string | 
   return undefined;
 }
 
+function readOptionalReferrerQueryParam(request: NextRequest, keys: string[]): string | undefined {
+  const referrer = request.headers.get("referer");
+  if (!referrer) {
+    return undefined;
+  }
+
+  let referrerUrl: URL;
+  try {
+    referrerUrl = new URL(referrer);
+  } catch {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = referrerUrl.searchParams.get(key);
+    if (value && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
 const AUTHKIT_PASSTHROUGH_QUERY_KEYS = [
   "authorization_session_id",
   "redirect_uri",
   "state",
+  "client_id",
 ];
 
 function appendAuthkitPassthroughQueryParams(request: NextRequest, authorizationUrl: string): string {
@@ -80,7 +104,16 @@ export async function GET(request: NextRequest) {
     return redirect("/");
   }
 
-  const redirectUri = `${getExternalOrigin(request)}/callback`;
+  const oauthRedirectUri =
+    readOptionalQueryParam(request, ["redirect_uri", "redirectUri"])
+    ?? readOptionalReferrerQueryParam(request, ["redirect_uri", "redirectUri"]);
+  const oauthState =
+    readOptionalQueryParam(request, ["state"])
+    ?? readOptionalReferrerQueryParam(request, ["state"]);
+  const oauthClientId =
+    readOptionalQueryParam(request, ["client_id", "clientId"])
+    ?? readOptionalReferrerQueryParam(request, ["client_id", "clientId"]);
+  const redirectUri = oauthRedirectUri ?? `${getExternalOrigin(request)}/callback`;
   const organizationId = await resolveOrganizationHint(request);
   const loginHint = readOptionalQueryParam(request, ["loginHint", "login_hint", "email"]);
 
@@ -89,8 +122,21 @@ export async function GET(request: NextRequest) {
     redirectUri,
     organizationId,
     loginHint,
+    state: oauthState,
   });
 
   const authorizationUrl = appendAuthkitPassthroughQueryParams(request, baseAuthorizationUrl);
-  return redirect(authorizationUrl);
+  const finalUrl = new URL(authorizationUrl);
+
+  if (oauthRedirectUri) {
+    finalUrl.searchParams.set("redirect_uri", oauthRedirectUri);
+  }
+  if (oauthState) {
+    finalUrl.searchParams.set("state", oauthState);
+  }
+  if (oauthClientId && oauthClientId.startsWith("client_")) {
+    finalUrl.searchParams.set("client_id", oauthClientId);
+  }
+
+  return redirect(finalUrl.toString());
 }

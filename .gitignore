@@ -44,3 +44,6 @@ executor/.env.executor-push
 
 # Dev runner PID file
 .dev.pids
+*.har
+.vercel
+.env*.local
