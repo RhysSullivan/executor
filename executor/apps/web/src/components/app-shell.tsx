@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation } from "convex/react";
@@ -513,7 +513,9 @@ function Sidebar() {
         <NavLinks />
       </div>
       <div className="pb-4">
-        <SessionInfo />
+        <Suspense>
+          <SessionInfo />
+        </Suspense>
       </div>
     </aside>
   );
@@ -542,7 +544,9 @@ function MobileHeader() {
             <NavLinks onClick={() => setOpen(false)} />
           </div>
           <div className="mt-auto pb-4">
-            <SessionInfo />
+            <Suspense>
+              <SessionInfo />
+            </Suspense>
           </div>
         </SheetContent>
       </Sheet>
