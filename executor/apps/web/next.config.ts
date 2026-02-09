@@ -1,11 +1,13 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const workspaceRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const nextConfig: NextConfig = {
-  // Required for Turbopack (Next.js 16 default) – even if empty,
-  // it silences the "no turbopack config" warning.
-  turbopack: {},
-  // Transpile workspace packages so Next.js resolves their raw .ts sources
-  // when they appear in the type graph (e.g. convex/database.ts imports @executor/contracts).
+  turbopack: {
+    root: workspaceRoot,
+  },
   transpilePackages: ["@executor/contracts"],
 };
 
