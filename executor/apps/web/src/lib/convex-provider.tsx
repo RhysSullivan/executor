@@ -1,6 +1,7 @@
 "use client";
 
-import { ConvexProviderWithAuthKit } from "@convex-dev/workos";
+import { createContext, useContext, useMemo } from "react";
+import { ConvexProviderWithAuth } from "convex/react";
 import {
   AuthKitProvider,
   useAccessToken,
@@ -18,23 +19,55 @@ const convexClient = new ConvexReactClient(convexUrl, {
   unsavedChangesWarning: false,
 });
 
-function useConvexWorkosAuth() {
+/** Exposes whether the WorkOS auth token is still being resolved. */
+const WorkosAuthLoadingContext = createContext(false);
+export function useWorkosAuthLoading() {
+  return useContext(WorkosAuthLoadingContext);
+}
+
+function useConvexAuthFromWorkos() {
   const { loading, user } = useWorkosAuth();
   const { getAccessToken } = useAccessToken();
-  return {
-    isLoading: loading,
-    user,
-    getAccessToken: async () => (await getAccessToken()) ?? null,
-  };
+
+  const fetchAccessToken = useMemo(
+    () => async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
+      try {
+        const token = await getAccessToken();
+        return token ?? null;
+      } catch {
+        return null;
+      }
+    },
+    [getAccessToken],
+  );
+
+  return useMemo(
+    () => ({
+      isLoading: loading,
+      isAuthenticated: !!user,
+      fetchAccessToken,
+    }),
+    [loading, user, fetchAccessToken],
+  );
+}
+
+function ConvexWithWorkos({ children }: { children: ReactNode }) {
+  const { loading } = useWorkosAuth();
+
+  return (
+    <WorkosAuthLoadingContext.Provider value={loading}>
+      <ConvexProviderWithAuth client={convexClient} useAuth={useConvexAuthFromWorkos}>
+        {children}
+      </ConvexProviderWithAuth>
+    </WorkosAuthLoadingContext.Provider>
+  );
 }
 
 export function AppConvexProvider({ children }: { children: ReactNode }) {
   if (workosEnabled) {
     return (
       <AuthKitProvider>
-        <ConvexProviderWithAuthKit client={convexClient} useAuth={useConvexWorkosAuth}>
-          {children}
-        </ConvexProviderWithAuthKit>
+        <ConvexWithWorkos>{children}</ConvexWithWorkos>
       </AuthKitProvider>
     );
   }

@@ -11,6 +11,7 @@ import {
 import { useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { workosEnabled } from "@/lib/auth-capabilities";
+import { useWorkosAuthLoading } from "@/lib/convex-provider";
 import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
 import type { Id } from "../../../../convex/_generated/dataModel";
@@ -99,6 +100,7 @@ function writeWorkspaceByAccount(value: Record<string, Id<"workspaces">>) {
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const workosAuthLoading = useWorkosAuthLoading();
   const bootstrapAnonymousSession = useMutation(convexApi.database.bootstrapAnonymousSession);
   const [storedSessionId, setStoredSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") {
@@ -282,8 +284,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [account, resolvedActiveWorkspaceId, workspaces]);
 
+  // When WorkOS is enabled, don't fall back to guest context until the
+  // WorkOS auth token has been resolved AND the Convex account query has
+  // returned a definitive result. This prevents a flash where the UI briefly
+  // shows guest mode while auth is still loading.
+  const workosStillLoading = workosEnabled && (workosAuthLoading || account === undefined);
   const mode: "guest" | "workos" = workosContext ? "workos" : "guest";
-  const context = workosContext ?? guestContext;
+  const context = workosContext ?? (workosStillLoading ? null : guestContext);
 
   const bootstrapSessionError =
     bootstrapSessionQuery.error instanceof Error
@@ -299,15 +306,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         : null;
   const error = runtimeError ?? bootstrapSessionError ?? bootstrapWorkosError;
 
-  const waitingForWorkosAccount = Boolean(
-    workosEnabled
-    && account === undefined
-    && !guestContext
-    && !bootstrapWorkosAccountQuery.isFetching,
-  );
   const effectiveLoading = !context && !error && (
     bootstrapSessionQuery.isLoading
-    || waitingForWorkosAccount
+    || workosStillLoading
     || bootstrapWorkosAccountQuery.isFetching
   );
   const workspaceOptions = useMemo(() => {
