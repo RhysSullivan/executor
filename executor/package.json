@@ -29,7 +29,6 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/bun": "latest",
     "convex-test": "^0.0.41",
-    "next": "16.1.6",
     "typescript": "latest"
   }
 }
