@@ -136,7 +136,7 @@ const WORKSPACE_TOOL_CACHE_TTL_MS = 5 * 60 * 60_000;
 const WORKSPACE_TOOL_CACHE_RETRY_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version — bump when PreparedOpenApiSpec shape changes. */
-const OPENAPI_CACHE_VERSION = "v2";
+const OPENAPI_CACHE_VERSION = "v3";
 
 function isWorkspaceToolCacheFresh(
   cached: { signature: string; loadedAt: number; warnings: string[] },

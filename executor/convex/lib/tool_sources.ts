@@ -117,23 +117,34 @@ function toTypeAliasName(schemaName: string, used: Set<string>): string {
 // request body, and response types per operation.
 
 /**
- * Generate TypeScript types for an entire OpenAPI spec using openapi-typescript.
- * Returns a map of operationId → { argsType, returnsType } strings.
+ * Generate a .d.ts string for an OpenAPI spec using openapi-typescript.
  *
- * Falls back to the hand-rolled type hint generator on failure (e.g. Swagger 2.0
- * specs, broken $refs).
+ * Accepts a pre-parsed object to avoid a redundant HTTP fetch — the caller
+ * should have already fetched and parsed the spec.
+ *
+ * Falls back to null on failure (e.g. Swagger 2.0, broken $refs).
  */
-async function generateOpenApiTypes(
-  spec: string | Record<string, unknown>,
-): Promise<ExtractedTypes | null> {
+async function generateOpenApiDts(
+  spec: Record<string, unknown>,
+): Promise<string | null> {
   try {
-    const input = typeof spec === "string" ? new URL(spec) : (spec as never);
-    const ast = await openapiTS(input, { silent: true });
-    const dts = astToString(ast);
-    return extractOperationTypes(dts);
+    const ast = await openapiTS(spec as never, { silent: true });
+    return astToString(ast);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.warn(`[executor] openapi-typescript failed, using fallback types: ${msg}`);
+    return null;
+  }
+}
+
+/**
+ * Extract per-operation types from a .d.ts string.
+ * Wraps the TS compiler AST walk — pure CPU, no I/O.
+ */
+function extractTypesFromDts(dts: string): ExtractedTypes | null {
+  try {
+    return extractOperationTypes(dts);
+  } catch {
     return null;
   }
 }
@@ -801,7 +812,11 @@ function compactOpenApiPaths(
 export interface PreparedOpenApiSpec {
   servers: string[];
   paths: Record<string, unknown>;
+  /** Raw .d.ts from openapiTS — cached as-is, extracted lazily on read */
+  dts?: string;
+  /** @deprecated Kept for cache compat — new entries use `dts` instead */
   operationTypes?: Record<string, { argsType: string; returnsType: string }>;
+  /** @deprecated Kept for cache compat — new entries use `dts` instead */
   schemaTypes?: Record<string, string>;
   warnings: string[];
 }
@@ -810,48 +825,59 @@ export async function prepareOpenApiSpec(
   spec: string | Record<string, unknown>,
   sourceName = "openapi",
 ): Promise<PreparedOpenApiSpec> {
-  // Run type generation in parallel with spec loading.
-  // We prefer `bundle` so external refs are resolved, but some real-world specs
-  // contain broken internal refs. In that case, fall back to `parse` so we can
-  // still load operation paths and expose usable tools.
-  const typeMapPromise = generateOpenApiTypes(spec);
   const parser = SwaggerParser as unknown as {
     bundle(spec: unknown): Promise<unknown>;
     parse(spec: unknown): Promise<unknown>;
   };
 
   const warnings: string[] = [];
+
+  // ── Step 1: Single fetch ──────────────────────────────────────────────
+  // If `spec` is a URL string, parse it once to get a JS object.
+  // Both openapiTS and SwaggerParser.bundle then work from this object
+  // instead of each independently fetching the same multi-MB URL.
+  let parsed: Record<string, unknown>;
+  if (typeof spec === "string") {
+    try {
+      parsed = (await parser.parse(spec)) as Record<string, unknown>;
+    } catch (parseError) {
+      const msg = parseError instanceof Error ? parseError.message : String(parseError);
+      throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${msg}`);
+    }
+  } else {
+    parsed = spec;
+  }
+
+  // ── Step 2: Generate .d.ts and bundle in parallel ─────────────────────
+  // Both now operate on the in-memory object — no additional HTTP fetches.
+  const dtsPromise = generateOpenApiDts(parsed);
+
   let bundled: Record<string, unknown>;
   try {
-    bundled = await parser.bundle(spec).then((api) => api as Record<string, unknown>);
+    bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
   } catch (bundleError) {
     const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
     warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
-    try {
-      bundled = await parser.parse(spec).then((api) => api as Record<string, unknown>);
-    } catch (parseError) {
-      const parseMessage = parseError instanceof Error ? parseError.message : String(parseError);
-      throw new Error(
-        `Failed to load OpenAPI source '${sourceName}': bundle error (${bundleMessage}); parse error (${parseMessage})`,
-      );
-    }
+    bundled = parsed;
   }
 
-  const typeMap = await typeMapPromise;
-  const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
+  const dts = await dtsPromise;
+
+  // ── Step 3: Extract operation type IDs for compaction ──────────────────
+  // We extract types here to know which operations have generated types
+  // (so compactOpenApiPaths can strip schemas for those operations).
+  // This is pure CPU — no I/O.
+  const typeMap = dts ? extractTypesFromDts(dts) : null;
   const operationTypeIds = new Set<string>(typeMap ? [...typeMap.operations.keys()] : []);
+
+  const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
 
   return {
     servers: servers
       .map((server) => (typeof server.url === "string" ? server.url : ""))
       .filter((url) => url.length > 0),
     paths: compactOpenApiPaths(bundled.paths, operationTypeIds),
-    ...(typeMap
-      ? {
-          operationTypes: Object.fromEntries(typeMap.operations),
-          ...(typeMap.schemas.size > 0 ? { schemaTypes: Object.fromEntries(typeMap.schemas) } : {}),
-        }
-      : {}),
+    dts: dts ?? undefined,
     warnings,
   };
 }
@@ -865,6 +891,18 @@ export function buildOpenApiToolsFromPrepared(
     throw new Error(`OpenAPI source ${config.name} has no base URL (set baseUrl)`);
   }
 
+  // Extract per-operation types from cached .d.ts (or use legacy pre-extracted types)
+  let typeMap: ExtractedTypes | null = null;
+  if (prepared.dts) {
+    typeMap = extractTypesFromDts(prepared.dts);
+  } else if (prepared.operationTypes) {
+    // Legacy cache compat: old entries have pre-extracted types
+    typeMap = {
+      operations: new Map(Object.entries(prepared.operationTypes)),
+      schemas: new Map(Object.entries(prepared.schemaTypes ?? {})),
+    };
+  }
+
   const authHeaders = buildStaticAuthHeaders(config.auth);
   const sourceKey = `openapi:${config.name}`;
   const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
@@ -873,8 +911,8 @@ export function buildOpenApiToolsFromPrepared(
 
   // Schema type aliases referenced by operations — stored on the first tool only
   // to avoid duplicating hundreds of KB across every tool from this source.
-  const schemaTypes = prepared.schemaTypes && Object.keys(prepared.schemaTypes).length > 0
-    ? prepared.schemaTypes
+  const schemaTypes = typeMap && typeMap.schemas.size > 0
+    ? Object.fromEntries(typeMap.schemas)
     : undefined;
   let schemaTypesEmitted = false;
 
@@ -908,7 +946,7 @@ export function buildOpenApiToolsFromPrepared(
       }));
 
       // Use openapiTS-generated types if available, otherwise fall back to schema hints
-      const generatedTypes = prepared.operationTypes?.[operationIdRaw];
+      const generatedTypes = typeMap?.operations.get(operationIdRaw);
       let argsType: string;
       let returnsType: string;
 
