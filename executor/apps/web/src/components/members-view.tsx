@@ -81,7 +81,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
         sessionId: context?.sessionId ?? undefined,
       });
       setInviteState("sent");
-      const deliveryProvider = result.delivery.provider ?? "WorkOS";
+      const deliveryProvider = result.delivery.provider ?? "email";
       const deliveryState = result.delivery.state ?? "queued";
       setInviteMessage(`Invite ${deliveryState} via ${deliveryProvider}.`);
       setInviteEmail("");
@@ -153,7 +153,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
               {inviteState === "sending" ? "Sending..." : "Send invite"}
             </Button>
           </form>
-          <p className="text-xs text-muted-foreground">Provider: WorkOS</p>
+
           {inviteMessage ? (
             <p className={inviteState === "failed" ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
               {inviteMessage}

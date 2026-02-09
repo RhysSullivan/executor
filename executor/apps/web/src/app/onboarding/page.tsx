@@ -60,7 +60,7 @@ export default function OnboardingPage() {
           <CardHeader>
             <CardTitle>Sign in required</CardTitle>
             <CardDescription>
-              You need to sign in with WorkOS before setting up an organization.
+              You need to sign in before setting up an organization.
             </CardDescription>
           </CardHeader>
           <CardFooter className="justify-between gap-2">

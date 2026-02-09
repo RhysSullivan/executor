@@ -15,6 +15,7 @@ import {
   Plus,
   Check,
   Settings,
+  LogIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
@@ -324,9 +325,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                 <Plus className="mr-2 h-3.5 w-3.5" />
                 New organization
               </DropdownMenuItem>
-              <DropdownMenuLabel className="text-[10px] text-muted-foreground">
-                Invites via WorkOS
-              </DropdownMenuLabel>
+
             </>
           ) : null}
         </DropdownMenuContent>
@@ -480,25 +479,23 @@ function SessionInfo() {
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <div className="px-3 py-2">
-            <p className="text-[11px] text-muted-foreground">Guest mode</p>
+          <div className="px-3 py-3 space-y-2">
+            {workosEnabled ? (
+              <Link href={signInHref} className="block">
+                <Button
+                  variant="outline"
+                  className="w-full h-9 justify-center gap-2 text-xs font-medium"
+                >
+                  <LogIn className="h-3.5 w-3.5" />
+                  Sign in
+                </Button>
+              </Link>
+            ) : (
+              <p className="text-[11px] text-muted-foreground text-center">Guest mode</p>
+            )}
           </div>
         )}
 
-        {!isSignedInToWorkos && workosEnabled ? (
-          <div className="px-3 pb-3">
-            <Link href={signInHref} className="inline-flex">
-              <Button variant="outline" size="sm" className="h-7 text-[11px]">
-                Sign in
-              </Button>
-            </Link>
-          </div>
-        ) : null}
-        <div className="px-3 pt-1 pb-2">
-          <p className="text-[10px] text-muted-foreground">
-            Auth: {clientConfig?.authProviderMode === "workos" ? "WorkOS" : "local"}
-          </p>
-        </div>
     </div>
   );
 }

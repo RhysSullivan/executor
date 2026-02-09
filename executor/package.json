@@ -1,0 +1,8 @@
+{
+  "name": "executor",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "convex": "^1.31.7"
+  }
+}
