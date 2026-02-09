@@ -21,6 +21,26 @@ function readOptionalQueryParam(request: NextRequest, keys: string[]): string | 
   return undefined;
 }
 
+const AUTHKIT_PASSTHROUGH_QUERY_KEYS = [
+  "authorization_session_id",
+  "redirect_uri",
+  "state",
+];
+
+function appendAuthkitPassthroughQueryParams(request: NextRequest, authorizationUrl: string): string {
+  const nextUrl = new URL(authorizationUrl);
+
+  for (const key of AUTHKIT_PASSTHROUGH_QUERY_KEYS) {
+    const value = request.nextUrl.searchParams.get(key);
+    if (!value || value.trim().length === 0) {
+      continue;
+    }
+    nextUrl.searchParams.set(key, value.trim());
+  }
+
+  return nextUrl.toString();
+}
+
 const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL ?? process.env.CONVEX_URL;
 const convexClient = convexUrl ? new ConvexHttpClient(convexUrl) : null;
 
@@ -65,10 +85,11 @@ export async function GET(request: NextRequest) {
   const loginHint = readOptionalQueryParam(request, ["loginHint", "login_hint", "email"]);
 
   const { getSignUpUrl } = await import("@workos-inc/authkit-nextjs");
-  const authorizationUrl = await getSignUpUrl({
+  const baseAuthorizationUrl = await getSignUpUrl({
     redirectUri,
     organizationId,
     loginHint,
   });
+  const authorizationUrl = appendAuthkitPassthroughQueryParams(request, baseAuthorizationUrl);
   return redirect(authorizationUrl);
 }
