@@ -2,10 +2,6 @@
   "name": "executor-monorepo",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
     "dev": "bun run dev:convex",
     "dev:convex": "bunx convex dev",
