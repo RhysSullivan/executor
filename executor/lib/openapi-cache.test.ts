@@ -422,6 +422,345 @@ describe("buildOpenApiToolsFromPrepared", () => {
     expect(tool!.metadata?.returnsType).not.toBe("unknown");
   });
 
+  test("resolves OpenAPI component schema refs for return type hints", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Ref return type", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          Runner: {
+            type: "object",
+            properties: {
+              id: { type: "number" },
+              name: { type: "string" },
+            },
+            required: ["id", "name"],
+          },
+        },
+      },
+      paths: {
+        "/orgs/{org}/actions/hosted-runners": {
+          post: {
+            operationId: "actions/create-hosted-runner-for-org",
+            tags: ["actions"],
+            parameters: [
+              { name: "org", in: "path", required: true, schema: { type: "string" } },
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                    },
+                    required: ["name"],
+                  },
+                },
+              },
+            },
+            responses: {
+              "201": {
+                description: "created",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/Runner" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "ref-return");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "github",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "actions/create-hosted-runner-for-org");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.returnsType).toContain("id");
+    expect(tool!.metadata?.returnsType).toContain("name");
+    expect(tool!.metadata?.returnsType).not.toBe("unknown");
+  });
+
+  test("resolves OpenAPI component response refs for return type hints", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Response ref type", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          BudgetList: {
+            type: "object",
+            properties: {
+              total: { type: "number" },
+            },
+            required: ["total"],
+          },
+        },
+        responses: {
+          BudgetResponse: {
+            description: "ok",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/BudgetList" },
+              },
+            },
+          },
+        },
+      },
+      paths: {
+        "/organizations/{org}/settings/billing/budgets": {
+          get: {
+            operationId: "billing/get-all-budgets-org",
+            tags: ["billing"],
+            parameters: [
+              { name: "org", in: "path", required: true, schema: { type: "string" } },
+            ],
+            responses: {
+              "200": { $ref: "#/components/responses/BudgetResponse" },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "response-ref");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "github",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "billing/get-all-budgets-org");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.returnsType).toContain("total");
+    expect(tool!.metadata?.returnsType).not.toBe("unknown");
+  });
+
+  test("resolves nested schema refs inside array items", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Nested refs", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          Budget: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+            },
+            required: ["id"],
+          },
+          BudgetList: {
+            type: "object",
+            properties: {
+              budgets: {
+                type: "array",
+                items: { $ref: "#/components/schemas/Budget" },
+              },
+            },
+          },
+        },
+      },
+      paths: {
+        "/organizations/{org}/settings/billing/budgets": {
+          get: {
+            operationId: "billing/get-all-budgets-org",
+            tags: ["billing"],
+            parameters: [
+              { name: "org", in: "path", required: true, schema: { type: "string" } },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/BudgetList" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "nested-refs");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "github",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "billing/get-all-budgets-org");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.returnsType).toContain("budgets");
+    expect(tool!.metadata?.returnsType).toContain("id: string");
+    expect(tool!.metadata?.returnsType).not.toContain("unknown[]");
+  });
+
+  test("supports allOf-composed response schemas", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "AllOf response", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          Envelope: {
+            type: "object",
+            properties: {
+              success: { type: "boolean" },
+            },
+            required: ["success"],
+          },
+          Account: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+            },
+            required: ["id"],
+          },
+          AccountResponse: {
+            allOf: [
+              { $ref: "#/components/schemas/Envelope" },
+              {
+                type: "object",
+                properties: {
+                  result: { $ref: "#/components/schemas/Account" },
+                },
+              },
+            ],
+          },
+        },
+      },
+      paths: {
+        "/accounts/{id}": {
+          get: {
+            operationId: "accounts/get",
+            tags: ["accounts"],
+            parameters: [
+              { name: "id", in: "path", required: true, schema: { type: "string" } },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: { $ref: "#/components/schemas/AccountResponse" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "allof");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "cf",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "accounts/get");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.returnsType).toContain("success");
+    expect(tool!.metadata?.returnsType).toContain("result");
+    expect(tool!.metadata?.returnsType).not.toBe("unknown");
+  });
+
+  test("supports schemas that encode unions via top-level items arrays", async () => {
+    const spec: Record<string, unknown> = {
+      swagger: "2.0",
+      info: { title: "Tuple-style union", version: "1.0.0" },
+      host: "api.example.com",
+      schemes: ["https"],
+      paths: {
+        "/users.identity": {
+          get: {
+            operationId: "users_identity",
+            tags: ["users"],
+            responses: {
+              "200": {
+                description: "ok",
+                schema: {
+                  items: [
+                    {
+                      type: "object",
+                      properties: {
+                        ok: { type: "boolean" },
+                        user: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      type: "object",
+                      properties: {
+                        ok: { type: "boolean" },
+                        user: {
+                          type: "object",
+                          properties: {
+                            id: { type: "string" },
+                            email: { type: "string" },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "tuple-union");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "slack",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "users_identity");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.returnsType).toContain(" | ");
+    expect(tool!.metadata?.returnsType).not.toBe("unknown");
+  });
+
   test("schemaTypes only attached to first tool from a source", async () => {
     const specWithSchemas: Record<string, unknown> = {
       openapi: "3.0.3",

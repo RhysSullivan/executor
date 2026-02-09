@@ -15,6 +15,7 @@ export type {
   CredentialRecord,
   ToolSourceRecord,
   ToolDescriptor,
+  OpenApiSourceQuality,
   AnonymousContext,
 } from "@executor/contracts";
 

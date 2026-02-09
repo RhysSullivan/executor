@@ -48,7 +48,13 @@ import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import type { ToolSourceRecord, ToolDescriptor, CredentialRecord, CredentialScope } from "@/lib/types";
+import type {
+  ToolSourceRecord,
+  ToolDescriptor,
+  CredentialRecord,
+  CredentialScope,
+  OpenApiSourceQuality,
+} from "@/lib/types";
 import { parse as parseDomain } from "tldts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -294,6 +300,20 @@ function formatSourceAuthBadge(source: ToolSourceRecord): string | null {
   if (auth.type === "none") return null;
   const mode = auth.mode ?? "workspace";
   return `${auth.type}:${mode}`;
+}
+
+function formatQualityPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function qualityBadgeClass(quality: OpenApiSourceQuality): string {
+  if (quality.overallQuality >= 0.95) {
+    return "text-terminal-green border-terminal-green/30";
+  }
+  if (quality.overallQuality >= 0.85) {
+    return "text-terminal-amber border-terminal-amber/30";
+  }
+  return "text-terminal-red border-terminal-red/30";
 }
 
 // ── Add Source Dialog ──
@@ -785,8 +805,12 @@ function ConfigureSourceAuthDialog({
 
 function SourceCard({
   source,
+  quality,
+  qualityLoading,
 }: {
   source: ToolSourceRecord;
+  quality?: OpenApiSourceQuality;
+  qualityLoading?: boolean;
 }) {
   const { context } = useSession();
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
@@ -849,6 +873,14 @@ function SourceCard({
               {authBadge}
             </Badge>
           )}
+          {source.type === "openapi" && quality && (
+            <Badge
+              variant="outline"
+              className={cn("text-[9px] font-mono uppercase tracking-wider", qualityBadgeClass(quality))}
+            >
+              quality {formatQualityPercent(quality.overallQuality)}
+            </Badge>
+          )}
         </div>
         <span className="text-[11px] text-muted-foreground font-mono truncate block">
           {source.type === "mcp"
@@ -857,6 +889,19 @@ function SourceCard({
               ? (source.config.endpoint as string)
               : (source.config.spec as string)}
         </span>
+        {source.type === "openapi" && quality && (
+          <span className="text-[10px] text-muted-foreground/90 font-mono truncate block mt-0.5">
+            args {formatQualityPercent(quality.argsQuality)} | returns {formatQualityPercent(quality.returnsQuality)}
+            {quality.unknownReturnsCount > 0
+              ? ` | ${quality.unknownReturnsCount} unknown returns`
+              : " | fully typed returns"}
+          </span>
+        )}
+        {source.type === "openapi" && !quality && qualityLoading && (
+          <span className="text-[10px] text-muted-foreground/70 font-mono truncate block mt-0.5">
+            Computing OpenAPI type quality...
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0">
         <ConfigureSourceAuthDialog source={source} />
@@ -1377,7 +1422,7 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
   );
   const credentialsLoading = !!context && credentials === undefined;
 
-  const { tools, warnings, loading: toolsLoading } = useWorkspaceTools(context ?? null);
+  const { tools, warnings, sourceQuality, loading: toolsLoading } = useWorkspaceTools(context ?? null);
 
   if (sessionLoading) {
     return (
@@ -1476,9 +1521,18 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
                       </div>
                     </div>
                   )}
-                  {sources.map((s: any) => (
-                    <SourceCard key={s.id} source={s} />
-                  ))}
+                  {sources.map((s: any) => {
+                    const sourceKey = sourceKeyForSource(s);
+                    const quality = sourceKey ? sourceQuality[sourceKey] : undefined;
+                    return (
+                      <SourceCard
+                        key={s.id}
+                        source={s}
+                        quality={quality}
+                        qualityLoading={toolsLoading}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

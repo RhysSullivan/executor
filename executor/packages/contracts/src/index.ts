@@ -119,6 +119,18 @@ export interface ToolDescriptor {
   schemaTypes?: Record<string, string>;
 }
 
+export interface OpenApiSourceQuality {
+  sourceKey: string;
+  toolCount: number;
+  unknownArgsCount: number;
+  unknownReturnsCount: number;
+  partialUnknownArgsCount: number;
+  partialUnknownReturnsCount: number;
+  argsQuality: number;
+  returnsQuality: number;
+  overallQuality: number;
+}
+
 export interface AnonymousContext {
   sessionId: string;
   workspaceId: string;

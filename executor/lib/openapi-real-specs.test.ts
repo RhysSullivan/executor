@@ -207,6 +207,66 @@ describe("real-world OpenAPI specs", () => {
   );
 
   test(
+    "github: create hosted runner for org has non-unknown return hint",
+    async () => {
+      const githubUrl =
+        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
+
+      const prepared = await prepareOpenApiSpec(githubUrl, "github");
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "github",
+          spec: githubUrl,
+          baseUrl: prepared.servers[0] || "https://api.github.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "actions/create-hosted-runner-for-org",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("github.actions.actions_create_hosted_runner_for_org");
+      expect(tool!.metadata!.argsType).toContain("org: string");
+      expect(tool!.metadata!.returnsType).toContain("id");
+      expect(tool!.metadata!.returnsType).not.toBe("unknown");
+    },
+    300_000,
+  );
+
+  test(
+    "github: all budgets for org has non-unknown return hint",
+    async () => {
+      const githubUrl =
+        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
+
+      const prepared = await prepareOpenApiSpec(githubUrl, "github");
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "github",
+          spec: githubUrl,
+          baseUrl: prepared.servers[0] || "https://api.github.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "billing/get-all-budgets-org",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("github.billing.billing_get_all_budgets_org");
+      expect(tool!.metadata!.argsType).toContain("org: string");
+      expect(tool!.metadata!.returnsType).toContain("budgets");
+      expect(tool!.metadata!.returnsType).not.toBe("unknown");
+    },
+    300_000,
+  );
+
+  test(
     "slack: approved apps list keeps typed query params and non-unknown output",
     async () => {
       const slackUrl = "https://api.slack.com/specs/openapi/v2/slack_web.json";

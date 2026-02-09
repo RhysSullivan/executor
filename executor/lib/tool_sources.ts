@@ -266,6 +266,42 @@ function resolveSchemaRef(
   return resolved;
 }
 
+function resolveRequestBodyRef(
+  requestBody: Record<string, unknown>,
+  componentRequestBodies: Record<string, unknown>,
+): Record<string, unknown> {
+  const ref = typeof requestBody.$ref === "string" ? requestBody.$ref : "";
+  const prefix = "#/components/requestBodies/";
+  if (!ref.startsWith(prefix)) {
+    return requestBody;
+  }
+
+  const key = ref.slice(prefix.length);
+  const resolved = asRecord(componentRequestBodies[key]);
+  if (Object.keys(resolved).length === 0) {
+    return requestBody;
+  }
+  return resolved;
+}
+
+function resolveResponseRef(
+  response: Record<string, unknown>,
+  componentResponses: Record<string, unknown>,
+): Record<string, unknown> {
+  const ref = typeof response.$ref === "string" ? response.$ref : "";
+  const prefix = "#/components/responses/";
+  if (!ref.startsWith(prefix)) {
+    return response;
+  }
+
+  const key = ref.slice(prefix.length);
+  const resolved = asRecord(componentResponses[key]);
+  if (Object.keys(resolved).length === 0) {
+    return response;
+  }
+  return resolved;
+}
+
 function parameterSchemaFromEntry(entry: Record<string, unknown>): Record<string, unknown> {
   // OpenAPI 3.x (and Swagger body params) use `schema`
   const schema = asRecord(entry.schema);
@@ -291,9 +327,13 @@ function parameterSchemaFromEntry(entry: Record<string, unknown>): Record<string
   return fallback;
 }
 
-function responseTypeHintFromSchema(responseSchema: Record<string, unknown>, responseStatus: string): string {
+function responseTypeHintFromSchema(
+  responseSchema: Record<string, unknown>,
+  responseStatus: string,
+  componentSchemas?: Record<string, unknown>,
+): string {
   if (Object.keys(responseSchema).length > 0) {
-    return jsonSchemaTypeHintFallback(responseSchema);
+    return jsonSchemaTypeHintFallback(responseSchema, 0, componentSchemas);
   }
 
   // No-content success responses should be represented as void.
@@ -305,11 +345,27 @@ function responseTypeHintFromSchema(responseSchema: Record<string, unknown>, res
 }
 
 /** Simple depth-limited type hint generator for schemas (used as fallback) */
-function jsonSchemaTypeHintFallback(schema: unknown, depth = 0): string {
+function jsonSchemaTypeHintFallback(
+  schema: unknown,
+  depth = 0,
+  componentSchemas?: Record<string, unknown>,
+): string {
   if (!schema || typeof schema !== "object") return "unknown";
   if (depth > 4) return "unknown";
 
   const shape = schema as JsonSchema;
+  if (typeof shape.$ref === "string") {
+    const ref = shape.$ref;
+    const prefix = "#/components/schemas/";
+    if (ref.startsWith(prefix)) {
+      const key = ref.slice(prefix.length);
+      const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
+      if (Object.keys(resolved).length > 0) {
+        return jsonSchemaTypeHintFallback(resolved, depth + 1, componentSchemas);
+      }
+    }
+  }
+
   const enumValues = Array.isArray(shape.enum) ? shape.enum : undefined;
   if (enumValues && enumValues.length > 0) {
     return enumValues.map((value) => JSON.stringify(value)).join(" | ");
@@ -317,35 +373,55 @@ function jsonSchemaTypeHintFallback(schema: unknown, depth = 0): string {
 
   const oneOf = Array.isArray(shape.oneOf) ? shape.oneOf : undefined;
   if (oneOf && oneOf.length > 0) {
-    return oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1)).join(" | ");
+    return oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas)).join(" | ");
   }
 
   const anyOf = Array.isArray(shape.anyOf) ? shape.anyOf : undefined;
   if (anyOf && anyOf.length > 0) {
-    return anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1)).join(" | ");
+    return anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas)).join(" | ");
+  }
+
+  const allOf = Array.isArray(shape.allOf) ? shape.allOf : undefined;
+  if (allOf && allOf.length > 0) {
+    const parts = allOf
+      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas))
+      .filter((part) => part.length > 0 && part !== "unknown");
+    if (parts.length > 0) {
+      return parts.join(" & ");
+    }
   }
 
   const type = typeof shape.type === "string" ? shape.type : undefined;
+  const tupleItems = Array.isArray(shape.items) ? shape.items : undefined;
+  if (!type && tupleItems && tupleItems.length > 0) {
+    return tupleItems
+      .map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas))
+      .join(" | ");
+  }
   if (type === "integer") return "number";
   if (type === "string" || type === "number" || type === "boolean" || type === "null") {
     return type;
   }
 
   if (type === "array") {
-    return `${jsonSchemaTypeHintFallback(shape.items, depth + 1)}[]`;
+    return `${jsonSchemaTypeHintFallback(shape.items, depth + 1, componentSchemas)}[]`;
   }
 
   const props = asRecord(shape.properties);
+  const additionalProperties = shape.additionalProperties;
   const requiredRaw = Array.isArray(shape.required) ? shape.required : [];
   const required = new Set(requiredRaw.filter((item): item is string => typeof item === "string"));
   const propEntries = Object.entries(props);
   if (type === "object" || propEntries.length > 0) {
     if (propEntries.length === 0) {
+      if (additionalProperties && typeof additionalProperties === "object") {
+        return `Record<string, ${jsonSchemaTypeHintFallback(additionalProperties, depth + 1, componentSchemas)}>`;
+      }
       return "Record<string, unknown>";
     }
     const inner = propEntries
       .slice(0, 12)
-      .map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1)}`)
+      .map(([key, value]) => `${key}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1, componentSchemas)}`)
       .join("; ");
     return `{ ${inner} }`;
   }
@@ -541,12 +617,16 @@ function compactOpenApiPaths(
   operationTypeIds: Set<string>,
   componentParameters?: Record<string, unknown>,
   componentSchemas?: Record<string, unknown>,
+  componentResponses?: Record<string, unknown>,
+  componentRequestBodies?: Record<string, unknown>,
 ): Record<string, unknown> {
   const paths = asRecord(pathsValue);
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const compactPaths: Record<string, unknown> = {};
   const compParams = componentParameters ? asRecord(componentParameters) : {};
   const compSchemas = componentSchemas ? asRecord(componentSchemas) : {};
+  const compResponses = componentResponses ? asRecord(componentResponses) : {};
+  const compRequestBodies = componentRequestBodies ? asRecord(componentRequestBodies) : {};
 
   const resolveParam = (entry: Record<string, unknown>): Record<string, unknown> => {
     if (typeof entry.$ref === "string") {
@@ -612,7 +692,7 @@ function compactOpenApiPaths(
       // Extract request/response schemas for type hints.
       // When .d.ts types exist, pre-compute lightweight hints and skip storing full schemas.
       {
-        const requestBody = asRecord(operation.requestBody);
+        const requestBody = resolveRequestBodyRef(asRecord(operation.requestBody), compRequestBodies);
         const requestBodyContent = asRecord(requestBody.content);
         const requestBodySchema = resolveSchemaRef(
           getPreferredContentSchema(requestBodyContent),
@@ -624,8 +704,9 @@ function compactOpenApiPaths(
         let responseStatus = "";
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
+          const resolvedResponse = resolveResponseRef(asRecord(responseValue), compResponses);
           responseSchema = resolveSchemaRef(
-            getPreferredResponseSchema(asRecord(responseValue)),
+            getPreferredResponseSchema(resolvedResponse),
             compSchemas,
           );
           responseStatus = status;
@@ -654,8 +735,8 @@ function compactOpenApiPaths(
                 : []) as string[]),
             ],
           };
-          compactOperation._argsTypeHint = jsonSchemaTypeHintFallback(combinedSchema);
-          compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus);
+          compactOperation._argsTypeHint = jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas);
+          compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
         } else {
           // Keep full schemas for the fallback path
           if (Object.keys(requestBodySchema).length > 0) {
@@ -766,6 +847,8 @@ export async function prepareOpenApiSpec(
       operationTypeIds,
       asRecord(asRecord(bundled.components).parameters),
       asRecord(asRecord(bundled.components).schemas),
+      asRecord(asRecord(bundled.components).responses),
+      asRecord(asRecord(bundled.components).requestBodies),
     ),
     dts: dts ?? undefined,
     warnings,

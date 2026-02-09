@@ -31,6 +31,7 @@ import type {
   ToolCredentialSpec,
   ToolDefinition,
   ToolDescriptor,
+  OpenApiSourceQuality,
   ToolSourceRecord,
   ToolRunContext,
 } from "../lib/types";
@@ -56,7 +57,7 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
 }
 
 function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
-  const signatureVersion = "v4";
+  const signatureVersion = "v8";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
@@ -131,7 +132,7 @@ interface DtsStorageEntry {
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version — bump when PreparedOpenApiSpec shape changes. */
-const OPENAPI_CACHE_VERSION = "v7";
+const OPENAPI_CACHE_VERSION = "v11";
 
 async function publish(
   ctx: any,
@@ -419,6 +420,67 @@ function toToolDescriptor(tool: ToolDefinition, approval: "auto" | "required"): 
   };
 }
 
+function computeOpenApiSourceQuality(
+  workspaceTools: Map<string, ToolDefinition>,
+): Record<string, OpenApiSourceQuality> {
+  const grouped = new Map<string, ToolDefinition[]>();
+
+  for (const tool of workspaceTools.values()) {
+    const sourceKey = tool.source;
+    if (!sourceKey || !sourceKey.startsWith("openapi:")) continue;
+    const list = grouped.get(sourceKey) ?? [];
+    list.push(tool);
+    grouped.set(sourceKey, list);
+  }
+
+  const qualityBySource: Record<string, OpenApiSourceQuality> = {};
+
+  for (const [sourceKey, tools] of grouped.entries()) {
+    const toolCount = tools.length;
+
+    let unknownArgsCount = 0;
+    let unknownReturnsCount = 0;
+    let partialUnknownArgsCount = 0;
+    let partialUnknownReturnsCount = 0;
+
+    for (const tool of tools) {
+      const argsType = tool.metadata?.argsType?.trim() ?? "";
+      const returnsType = tool.metadata?.returnsType?.trim() ?? "";
+
+      if (!argsType || argsType === "Record<string, unknown>") {
+        unknownArgsCount += 1;
+      }
+      if (!returnsType || returnsType === "unknown") {
+        unknownReturnsCount += 1;
+      }
+      if (argsType.includes("unknown")) {
+        partialUnknownArgsCount += 1;
+      }
+      if (returnsType.includes("unknown")) {
+        partialUnknownReturnsCount += 1;
+      }
+    }
+
+    const argsQuality = toolCount > 0 ? (toolCount - unknownArgsCount) / toolCount : 1;
+    const returnsQuality = toolCount > 0 ? (toolCount - unknownReturnsCount) / toolCount : 1;
+    const overallQuality = (argsQuality + returnsQuality) / 2;
+
+    qualityBySource[sourceKey] = {
+      sourceKey,
+      toolCount,
+      unknownArgsCount,
+      unknownReturnsCount,
+      partialUnknownArgsCount,
+      partialUnknownReturnsCount,
+      argsQuality,
+      returnsQuality,
+      overallQuality,
+    };
+  }
+
+  return qualityBySource;
+}
+
 function listVisibleToolDescriptors(
   workspaceTools: Map<string, ToolDefinition>,
   context: { workspaceId: string; actorId?: string; clientId?: string },
@@ -453,13 +515,19 @@ async function listToolsForContext(
 async function listToolsWithWarningsForContext(
   ctx: any,
   context: { workspaceId: string; actorId?: string; clientId?: string },
-): Promise<{ tools: ToolDescriptor[]; warnings: string[]; dtsUrls: Record<string, string> }> {
+): Promise<{
+  tools: ToolDescriptor[];
+  warnings: string[];
+  dtsUrls: Record<string, string>;
+  sourceQuality: Record<string, OpenApiSourceQuality>;
+}> {
   const [result, policies] = await Promise.all([
     getWorkspaceTools(ctx, context.workspaceId),
     ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
   ]);
   const typedPolicies = policies as AccessPolicyRecord[];
   const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies);
+  const sourceQuality = computeOpenApiSourceQuality(result.tools);
 
   // Generate download URLs for .d.ts blobs
   const dtsUrls: Record<string, string> = {};
@@ -476,6 +544,7 @@ async function listToolsWithWarningsForContext(
     tools,
     warnings: result.warnings,
     dtsUrls,
+    sourceQuality,
   };
 }
 
@@ -754,7 +823,12 @@ export const listToolsWithWarnings = action({
   handler: async (
     ctx,
     args,
-  ): Promise<{ tools: ToolDescriptor[]; warnings: string[]; dtsUrls: Record<string, string> }> => {
+  ): Promise<{
+    tools: ToolDescriptor[];
+    warnings: string[];
+    dtsUrls: Record<string, string>;
+    sourceQuality: Record<string, OpenApiSourceQuality>;
+  }> => {
     const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
       workspaceId: args.workspaceId,
       sessionId: args.sessionId,
@@ -793,7 +867,15 @@ export const listToolsWithWarningsInternal = internalAction({
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<{ tools: ToolDescriptor[]; warnings: string[]; dtsUrls: Record<string, string> }> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    tools: ToolDescriptor[];
+    warnings: string[];
+    dtsUrls: Record<string, string>;
+    sourceQuality: Record<string, OpenApiSourceQuality>;
+  }> => {
     return await listToolsWithWarningsForContext(ctx, args);
   },
 });

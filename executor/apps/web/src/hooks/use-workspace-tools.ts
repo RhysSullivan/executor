@@ -3,6 +3,7 @@
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
+import type { OpenApiSourceQuality } from "@/lib/types";
 
 interface WorkspaceContext {
   workspaceId: string;
@@ -35,7 +36,7 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       toolSources,
     ],
     queryFn: async () => {
-      if (!context) return { tools: [], warnings: [], dtsUrls: {} };
+      if (!context) return { tools: [], warnings: [], dtsUrls: {}, sourceQuality: {} };
       return await listToolsWithWarnings({
         workspaceId: context.workspaceId,
         ...(context.actorId && { actorId: context.actorId }),
@@ -51,6 +52,8 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
     warnings: data?.warnings ?? [],
     /** Per-source .d.ts download URLs for Monaco IntelliSense. Keyed by source key (e.g. "openapi:cloudflare"). */
     dtsUrls: (data as any)?.dtsUrls ?? {},
+    /** Per-source OpenAPI quality metrics (unknown/fallback type rates). */
+    sourceQuality: ((data as any)?.sourceQuality ?? {}) as Record<string, OpenApiSourceQuality>,
     loading: !!context && isLoading,
   };
 }
