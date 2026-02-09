@@ -108,9 +108,18 @@ export interface ToolRunContext {
 }
 
 export interface ToolTypeMetadata {
+  /** Lightweight TS type hint for args (for LLM prompt / discover tool). */
   argsType?: string;
+  /** Lightweight TS type hint for return value (for LLM prompt / discover tool). */
   returnsType?: string;
-  /** Schema type aliases needed by argsType/returnsType (e.g. `{ "Account": "{ id: string; ... }" }`) */
+  /** Raw operationId from the OpenAPI spec (used to generate typechecker wrapper). */
+  operationId?: string;
+  /**
+   * Raw .d.ts from openapi-typescript for this tool's source.
+   * Only set on the FIRST tool per source to avoid duplication.
+   */
+  sourceDts?: string;
+  /** @deprecated Use sourceDts instead. Kept for cache compat. */
   schemaTypes?: Record<string, string>;
 }
 

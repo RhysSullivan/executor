@@ -60,8 +60,9 @@ const SPECS: SpecFixture[] = [
     name: "cloudflare",
     url: "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml",
     minPaths: 500,
-    // openapiTS fails on broken discriminator $ref mappings in this spec
-    expectDts: false,
+    // Cloudflare has broken discriminator $ref mappings but generateOpenApiDts
+    // now auto-patches them, so DTS generation succeeds.
+    expectDts: true,
   },
   {
     name: "sentry",
@@ -136,12 +137,23 @@ describe("real-world OpenAPI specs", () => {
           expect(tool.metadata!.returnsType).toBeDefined();
         }
 
-        // If we have .d.ts, at least some tools should have richer types than "unknown"
+        // If we have .d.ts, tools should carry operationId + sourceDts for typechecking
         if (fixture.expectDts) {
-          const withRichReturns = tools.filter(
-            (t) => t.metadata!.returnsType !== "unknown",
+          // At least some tools should have operationId set
+          const withOperationId = tools.filter(
+            (t) => t.metadata!.operationId != null,
           );
-          expect(withRichReturns.length).toBeGreaterThan(0);
+          expect(withOperationId.length).toBeGreaterThan(0);
+
+          // At least one tool per source should carry the raw .d.ts
+          const withSourceDts = tools.filter(
+            (t) => t.metadata!.sourceDts != null && t.metadata!.sourceDts!.length > 0,
+          );
+          expect(withSourceDts.length).toBeGreaterThan(0);
+
+          // The sourceDts should contain operations interface
+          const dts = withSourceDts[0].metadata!.sourceDts!;
+          expect(dts).toContain("operations");
         }
 
         if (prepared.warnings.length > 0) {

@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
 import type { TaskStatus } from "@executor/contracts";
 
@@ -324,7 +324,7 @@ async function getApprovalDoc(ctx: { db: QueryCtx["db"] }, approvalId: string) {
     .unique();
 }
 
-export const createTask = mutation({
+export const createTask = internalMutation({
   args: {
     id: v.string(),
     code: v.string(),
@@ -364,7 +364,7 @@ export const createTask = mutation({
   },
 });
 
-export const getTask = query({
+export const getTask = internalQuery({
   args: { taskId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
@@ -372,7 +372,7 @@ export const getTask = query({
   },
 });
 
-export const listTasks = query({
+export const listTasks = internalQuery({
   args: { workspaceId: v.string() },
   handler: async (ctx, args) => {
     const docs = await ctx.db
@@ -384,7 +384,7 @@ export const listTasks = query({
   },
 });
 
-export const listQueuedTaskIds = query({
+export const listQueuedTaskIds = internalQuery({
   args: { limit: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const docs = await ctx.db
@@ -397,7 +397,7 @@ export const listQueuedTaskIds = query({
   },
 });
 
-export const listRuntimeTargets = query({
+export const listRuntimeTargets = internalQuery({
   args: {},
   handler: async () => {
     return [
@@ -410,7 +410,7 @@ export const listRuntimeTargets = query({
   },
 });
 
-export const getTaskInWorkspace = query({
+export const getTaskInWorkspace = internalQuery({
   args: { taskId: v.string(), workspaceId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
@@ -421,7 +421,7 @@ export const getTaskInWorkspace = query({
   },
 });
 
-export const markTaskRunning = mutation({
+export const markTaskRunning = internalMutation({
   args: { taskId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
@@ -441,7 +441,7 @@ export const markTaskRunning = mutation({
   },
 });
 
-export const markTaskFinished = mutation({
+export const markTaskFinished = internalMutation({
   args: {
     taskId: v.string(),
     status: completedTaskStatusValidator,
@@ -472,7 +472,7 @@ export const markTaskFinished = mutation({
   },
 });
 
-export const createApproval = mutation({
+export const createApproval = internalMutation({
   args: {
     id: v.string(),
     taskId: v.string(),
@@ -509,7 +509,7 @@ export const createApproval = mutation({
   },
 });
 
-export const getApproval = query({
+export const getApproval = internalQuery({
   args: { approvalId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getApprovalDoc(ctx, args.approvalId);
@@ -517,7 +517,7 @@ export const getApproval = query({
   },
 });
 
-export const listApprovals = query({
+export const listApprovals = internalQuery({
   args: {
     workspaceId: v.string(),
     status: v.optional(approvalStatusValidator),
@@ -544,7 +544,7 @@ export const listApprovals = query({
   },
 });
 
-export const listPendingApprovals = query({
+export const listPendingApprovals = internalQuery({
   args: { workspaceId: v.string() },
   handler: async (ctx, args) => {
     const docs = await ctx.db
@@ -585,7 +585,7 @@ export const listPendingApprovals = query({
   },
 });
 
-export const resolveApproval = mutation({
+export const resolveApproval = internalMutation({
   args: {
     approvalId: v.string(),
     decision: v.union(v.literal("approved"), v.literal("denied")),
@@ -611,7 +611,7 @@ export const resolveApproval = mutation({
   },
 });
 
-export const getApprovalInWorkspace = query({
+export const getApprovalInWorkspace = internalQuery({
   args: { approvalId: v.string(), workspaceId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getApprovalDoc(ctx, args.approvalId);
@@ -647,7 +647,7 @@ async function getAgentTaskDoc(ctx: { db: QueryCtx["db"] }, agentTaskId: string)
     .unique();
 }
 
-export const createAgentTask = mutation({
+export const createAgentTask = internalMutation({
   args: {
     id: v.string(),
     prompt: v.string(),
@@ -680,7 +680,7 @@ export const createAgentTask = mutation({
   },
 });
 
-export const getAgentTask = query({
+export const getAgentTask = internalQuery({
   args: { agentTaskId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
@@ -688,7 +688,7 @@ export const getAgentTask = query({
   },
 });
 
-export const updateAgentTask = mutation({
+export const updateAgentTask = internalMutation({
   args: {
     agentTaskId: v.string(),
     status: v.optional(agentTaskStatusValidator),
@@ -712,11 +712,12 @@ export const updateAgentTask = mutation({
   },
 });
 
-export const bootstrapAnonymousSession = mutation({
+export const bootstrapAnonymousSession = internalMutation({
   args: { sessionId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const now = Date.now();
     const requestedSessionId = normalizeOptional(args.sessionId);
+    const allowRequestedSessionId = requestedSessionId?.startsWith("mcp_") ?? false;
 
     if (requestedSessionId) {
       const sessionId = requestedSessionId;
@@ -750,7 +751,12 @@ export const bootstrapAnonymousSession = mutation({
       }
     }
 
-    const sessionId = requestedSessionId || `anon_session_${crypto.randomUUID()}`;
+    const generatedSessionId = allowRequestedSessionId
+      ? `mcp_${crypto.randomUUID()}`
+      : `anon_session_${crypto.randomUUID()}`;
+    const sessionId = allowRequestedSessionId
+      ? requestedSessionId as string
+      : generatedSessionId;
     const actorId = `anon_${crypto.randomUUID()}`;
     const clientId = "web";
 
@@ -783,7 +789,7 @@ export const bootstrapAnonymousSession = mutation({
   },
 });
 
-export const upsertAccessPolicy = mutation({
+export const upsertAccessPolicy = internalMutation({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.string(),
@@ -836,7 +842,7 @@ export const upsertAccessPolicy = mutation({
   },
 });
 
-export const listAccessPolicies = query({
+export const listAccessPolicies = internalQuery({
   args: { workspaceId: v.string() },
   handler: async (ctx, args) => {
     const docs = await ctx.db
@@ -855,7 +861,7 @@ export const listAccessPolicies = query({
   },
 });
 
-export const upsertCredential = mutation({
+export const upsertCredential = internalMutation({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.string(),
@@ -921,7 +927,7 @@ export const upsertCredential = mutation({
   },
 });
 
-export const listCredentials = query({
+export const listCredentials = internalQuery({
   args: { workspaceId: v.string() },
   handler: async (ctx, args) => {
     const docs = await ctx.db
@@ -933,7 +939,7 @@ export const listCredentials = query({
   },
 });
 
-export const listCredentialProviders = query({
+export const listCredentialProviders = internalQuery({
   args: {},
   handler: async () => {
     return [
@@ -951,7 +957,7 @@ export const listCredentialProviders = query({
   },
 });
 
-export const resolveCredential = query({
+export const resolveCredential = internalQuery({
   args: {
     workspaceId: v.string(),
     sourceKey: v.string(),
@@ -994,7 +1000,7 @@ export const resolveCredential = query({
   },
 });
 
-export const upsertToolSource = mutation({
+export const upsertToolSource = internalMutation({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.string(),
@@ -1054,7 +1060,7 @@ export const upsertToolSource = mutation({
   },
 });
 
-export const listToolSources = query({
+export const listToolSources = internalQuery({
   args: { workspaceId: v.string() },
   handler: async (ctx, args) => {
     const docs = await ctx.db
@@ -1066,7 +1072,7 @@ export const listToolSources = query({
   },
 });
 
-export const deleteToolSource = mutation({
+export const deleteToolSource = internalMutation({
   args: { workspaceId: v.string(), sourceId: v.string() },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -1083,7 +1089,7 @@ export const deleteToolSource = mutation({
   },
 });
 
-export const createTaskEvent = mutation({
+export const createTaskEvent = internalMutation({
   args: {
     taskId: v.string(),
     eventName: v.string(),
@@ -1127,7 +1133,7 @@ export const createTaskEvent = mutation({
   },
 });
 
-export const listTaskEvents = query({
+export const listTaskEvents = internalQuery({
   args: { taskId: v.string() },
   handler: async (ctx, args) => {
     const docs = await ctx.db

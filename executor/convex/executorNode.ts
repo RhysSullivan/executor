@@ -1,7 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { action, internalAction } from "./_generated/server";
 import { InProcessExecutionAdapter } from "./lib/adapters/in_process_execution_adapter";
 import { resolveCredentialPayload } from "./lib/credential_providers";
@@ -123,15 +123,20 @@ async function sleep(ms: number): Promise<void> {
 }
 
 const baseTools = new Map<string, ToolDefinition>(DEFAULT_TOOLS.map((tool) => [tool.path, tool]));
+interface DtsStorageEntry {
+  sourceKey: string;
+  storageId: string;
+}
+
 const workspaceToolCache = new Map<
   string,
-  { signature: string; loadedAt: number; tools: Map<string, ToolDefinition>; warnings: string[] }
+  { signature: string; loadedAt: number; tools: Map<string, ToolDefinition>; warnings: string[]; dtsStorageIds: DtsStorageEntry[] }
 >();
 const workspaceToolLoadsInFlight = new Map<
   string,
   {
     signature: string;
-    promise: Promise<{ tools: Map<string, ToolDefinition>; warnings: string[] }>;
+    promise: Promise<{ tools: Map<string, ToolDefinition>; warnings: string[]; dtsStorageIds: DtsStorageEntry[] }>;
   }
 >();
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
@@ -165,7 +170,7 @@ async function publish(
   type: string,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  await ctx.runMutation(api.database.createTaskEvent, {
+  await ctx.runMutation(internal.database.createTaskEvent, {
     taskId,
     eventName,
     type,
@@ -175,7 +180,7 @@ async function publish(
 
 async function waitForApproval(ctx: any, approvalId: string): Promise<"approved" | "denied"> {
   while (true) {
-    const approval = await ctx.runQuery(api.database.getApproval, { approvalId });
+    const approval = await ctx.runQuery(internal.database.getApproval, { approvalId });
     if (!approval) {
       throw new Error(`Approval ${approvalId} not found`);
     }
@@ -270,8 +275,13 @@ async function loadSourceTools(
   return await loadExternalTools([source]);
 }
 
-async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<string, ToolDefinition>> {
-  const sources = (await ctx.runQuery(api.database.listToolSources, { workspaceId }))
+interface WorkspaceToolsResult {
+  tools: Map<string, ToolDefinition>;
+  dtsStorageIds: DtsStorageEntry[];
+}
+
+async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<WorkspaceToolsResult> {
+  const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
   const now = Date.now();
   const signature = sourceSignature(workspaceId, sources);
@@ -279,14 +289,14 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
   // ── Layer 1: In-memory cache (same warm worker) ───────────────────────
   const cached = workspaceToolCache.get(workspaceId);
   if (cached && isWorkspaceToolCacheFresh(cached, signature, now)) {
-    return cached.tools;
+    return { tools: cached.tools, dtsStorageIds: cached.dtsStorageIds };
   }
 
   // ── Layer 2: In-flight dedup (concurrent requests on same worker) ─────
   const inFlight = workspaceToolLoadsInFlight.get(workspaceId);
   if (inFlight && inFlight.signature === signature) {
     const loaded = await inFlight.promise;
-    return loaded.tools;
+    return { tools: loaded.tools, dtsStorageIds: loaded.dtsStorageIds };
   }
 
   const loadPromise = (async () => {
@@ -313,14 +323,17 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
           const discover = createDiscoverTool([...merged.values()]);
           merged.set(discover.path, discover);
 
+          const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
+
           workspaceToolCache.set(workspaceId, {
             signature,
             loadedAt: Date.now(),
             tools: merged,
             warnings: snapshot.warnings,
+            dtsStorageIds,
           });
 
-          return { tools: merged, warnings: snapshot.warnings };
+          return { tools: merged, warnings: snapshot.warnings, dtsStorageIds };
         }
       }
     } catch (error) {
@@ -356,20 +369,43 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
     const discover = createDiscoverTool([...merged.values()]);
     merged.set(discover.path, discover);
 
-    workspaceToolCache.set(workspaceId, {
-      signature,
-      loadedAt: Date.now(),
-      tools: merged,
-      warnings,
-    });
-
     // ── Write to persistent workspace cache (best-effort) ─────────────
+    let dtsStorageIds: DtsStorageEntry[] = [];
     try {
       const allTools = [...merged.values()];
+
+      // Extract and store .d.ts blobs per source (too large for action responses)
+      const seenDtsSources = new Set<string>();
+      const dtsEntries: { sourceKey: string; content: string }[] = [];
+      for (const tool of allTools) {
+        if (tool.metadata?.sourceDts && tool.source && !seenDtsSources.has(tool.source)) {
+          seenDtsSources.add(tool.source);
+          dtsEntries.push({ sourceKey: tool.source, content: tool.metadata.sourceDts });
+        }
+      }
+
+      // Store .d.ts blobs in parallel
+      const storedDts = await Promise.all(
+        dtsEntries.map(async (entry) => {
+          const dtsBlob = new Blob([entry.content], { type: "text/plain" });
+          const sid = await ctx.storage.store(dtsBlob);
+          return { sourceKey: entry.sourceKey, storageId: String(sid) };
+        }),
+      );
+      dtsStorageIds = storedDts;
+
+      // Strip sourceDts from serialized tools (it's stored separately)
       const snapshot: WorkspaceToolSnapshot = {
         tools: serializeTools(allTools),
         warnings,
       };
+      // Remove sourceDts from the serialized snapshot to keep it small
+      for (const st of snapshot.tools) {
+        if (st.metadata?.sourceDts) {
+          delete (st.metadata as Record<string, unknown>).sourceDts;
+        }
+      }
+
       const json = JSON.stringify(snapshot);
       const blob = new Blob([json], { type: "application/json" });
       const storageId = await ctx.storage.store(blob);
@@ -377,6 +413,7 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
         workspaceId,
         signature,
         storageId,
+        dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId as any })),
         toolCount: allTools.length,
         sizeBytes: json.length,
       });
@@ -385,14 +422,22 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
       console.warn(`[executor] workspace tool cache write failed for '${workspaceId}': ${msg}`);
     }
 
-    return { tools: merged, warnings };
+    workspaceToolCache.set(workspaceId, {
+      signature,
+      loadedAt: Date.now(),
+      tools: merged,
+      warnings,
+      dtsStorageIds,
+    });
+
+    return { tools: merged, warnings, dtsStorageIds };
   })();
 
   workspaceToolLoadsInFlight.set(workspaceId, { signature, promise: loadPromise });
 
   try {
     const loaded = await loadPromise;
-    return loaded.tools;
+    return { tools: loaded.tools, dtsStorageIds: loaded.dtsStorageIds };
   } finally {
     const current = workspaceToolLoadsInFlight.get(workspaceId);
     if (current?.promise === loadPromise) {
@@ -442,6 +487,10 @@ function toToolDescriptor(tool: ToolDefinition, approval: "auto" | "required"): 
     source: tool.source,
     argsType: tool.metadata?.argsType,
     returnsType: tool.metadata?.returnsType,
+    operationId: tool.metadata?.operationId,
+    // Note: sourceDts is NOT included — it's too large to send over the wire.
+    // Monaco fetches .d.ts blobs separately via Convex storage URLs.
+    // Legacy compat
     schemaTypes: tool.metadata?.schemaTypes,
   };
 }
@@ -464,6 +513,53 @@ function listVisibleToolDescriptors(
     });
 }
 
+async function listToolsForContext(
+  ctx: any,
+  context: { workspaceId: string; actorId?: string; clientId?: string },
+): Promise<ToolDescriptor[]> {
+  const [result, policies] = await Promise.all([
+    getWorkspaceTools(ctx, context.workspaceId),
+    ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
+  ]);
+  const typedPolicies = policies as AccessPolicyRecord[];
+
+  return listVisibleToolDescriptors(result.tools, context, typedPolicies);
+}
+
+async function listToolsWithWarningsForContext(
+  ctx: any,
+  context: { workspaceId: string; actorId?: string; clientId?: string },
+): Promise<{ tools: ToolDescriptor[]; warnings: string[]; dtsUrls: Record<string, string> }> {
+  const [result, policies] = await Promise.all([
+    getWorkspaceTools(ctx, context.workspaceId),
+    ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
+  ]);
+  const typedPolicies = policies as AccessPolicyRecord[];
+  const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies);
+  const cachedEntry = workspaceToolCache.get(context.workspaceId);
+
+  // Generate download URLs for .d.ts blobs
+  const dtsUrls: Record<string, string> = {};
+  for (const entry of result.dtsStorageIds) {
+    try {
+      const url = await ctx.storage.getUrl(entry.storageId);
+      if (url) dtsUrls[entry.sourceKey] = url;
+    } catch {
+      // Storage ID may be stale — skip
+    }
+  }
+
+  return {
+    tools,
+    warnings: cachedEntry?.warnings ?? [],
+    dtsUrls,
+  };
+}
+
+function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
+  return account.provider === "anonymous" ? account.providerAccountId : account._id;
+}
+
 function isToolAllowedForTask(
   task: TaskRecord,
   toolPath: string,
@@ -480,7 +576,7 @@ async function resolveCredentialHeaders(
   spec: ToolCredentialSpec,
   task: TaskRecord,
 ): Promise<ResolvedToolCredential | null> {
-  const record = await ctx.runQuery(api.database.resolveCredential, {
+  const record = await ctx.runQuery(internal.database.resolveCredential, {
     workspaceId: task.workspaceId,
     sourceKey: spec.sourceKey,
     scope: spec.mode as CredentialScope,
@@ -580,13 +676,14 @@ function getGraphqlDecision(
 
 async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
   const { toolPath, input, callId } = call;
-  const policies = await ctx.runQuery(api.database.listAccessPolicies, { workspaceId: task.workspaceId });
+  const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: task.workspaceId });
   const typedPolicies = policies as AccessPolicyRecord[];
 
   let workspaceTools: Map<string, ToolDefinition> | undefined;
   let tool = baseTools.get(toolPath);
   if (!tool) {
-    workspaceTools = await getWorkspaceTools(ctx, task.workspaceId);
+    const result = await getWorkspaceTools(ctx, task.workspaceId);
+    workspaceTools = result.tools;
     tool = workspaceTools.get(toolPath);
   }
 
@@ -598,7 +695,8 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
   let effectiveToolPath = toolPath;
   if (tool._graphqlSource) {
     if (!workspaceTools) {
-      workspaceTools = await getWorkspaceTools(ctx, task.workspaceId);
+      const result = await getWorkspaceTools(ctx, task.workspaceId);
+      workspaceTools = result.tools;
     }
     const result = getGraphqlDecision(task, tool, input, workspaceTools, typedPolicies);
     decision = result.decision;
@@ -637,7 +735,7 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
   });
 
   if (decision === "require_approval") {
-    const approval = await ctx.runMutation(api.database.createApproval, {
+    const approval = await ctx.runMutation(internal.database.createApproval, {
       id: createApprovalId(),
       taskId: task.id,
       toolPath: effectiveToolPath,
@@ -696,60 +794,84 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
 
 export const listTools = action({
   args: {
-    workspaceId: v.optional(v.string()),
+    workspaceId: v.string(),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ToolDescriptor[]> => {
-    if (!args.workspaceId) {
-      return [...baseTools.values()].map((tool) => toToolDescriptor(tool, tool.approval));
+    const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
+      workspaceId: args.workspaceId,
+      sessionId: args.sessionId,
+    });
+    const canonicalActorId = actorIdForAccount({
+      _id: access.accountId,
+      provider: access.provider,
+      providerAccountId: access.providerAccountId,
+    });
+    if (args.actorId && args.actorId !== canonicalActorId) {
+      throw new Error("actorId must match the authenticated workspace actor");
     }
 
-    const [workspaceTools, policies] = await Promise.all([
-      getWorkspaceTools(ctx, args.workspaceId),
-      ctx.runQuery(api.database.listAccessPolicies, { workspaceId: args.workspaceId }),
-    ]);
-    const typedPolicies = policies as AccessPolicyRecord[];
-
-    return listVisibleToolDescriptors(
-      workspaceTools,
-      args as { workspaceId: string; actorId?: string; clientId?: string },
-      typedPolicies,
-    );
+    return await listToolsForContext(ctx, {
+      workspaceId: args.workspaceId,
+      actorId: canonicalActorId,
+      clientId: args.clientId,
+    });
   },
 });
 
 export const listToolsWithWarnings = action({
   args: {
-    workspaceId: v.optional(v.string()),
+    workspaceId: v.string(),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
   },
   handler: async (
     ctx,
     args,
-  ): Promise<{ tools: ToolDescriptor[]; warnings: string[] }> => {
-    if (!args.workspaceId) {
-      return {
-        tools: [...baseTools.values()].map((tool) => toToolDescriptor(tool, tool.approval)),
-        warnings: [],
-      };
+  ): Promise<{ tools: ToolDescriptor[]; warnings: string[]; dtsUrls: Record<string, string> }> => {
+    const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
+      workspaceId: args.workspaceId,
+      sessionId: args.sessionId,
+    });
+    const canonicalActorId = actorIdForAccount({
+      _id: access.accountId,
+      provider: access.provider,
+      providerAccountId: access.providerAccountId,
+    });
+    if (args.actorId && args.actorId !== canonicalActorId) {
+      throw new Error("actorId must match the authenticated workspace actor");
     }
 
-    const [workspaceTools, policies] = await Promise.all([
-      getWorkspaceTools(ctx, args.workspaceId),
-      ctx.runQuery(api.database.listAccessPolicies, { workspaceId: args.workspaceId }),
-    ]);
-    const typedPolicies = policies as AccessPolicyRecord[];
+    return await listToolsWithWarningsForContext(ctx, {
+      workspaceId: args.workspaceId,
+      actorId: canonicalActorId,
+      clientId: args.clientId,
+    });
+  },
+});
 
-    return {
-      tools: listVisibleToolDescriptors(
-        workspaceTools,
-        args as { workspaceId: string; actorId?: string; clientId?: string },
-        typedPolicies,
-      ),
-      warnings: workspaceToolCache.get(args.workspaceId)?.warnings ?? [],
-    };
+export const listToolsInternal = internalAction({
+  args: {
+    workspaceId: v.string(),
+    actorId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<ToolDescriptor[]> => {
+    return await listToolsForContext(ctx, args);
+  },
+});
+
+export const listToolsWithWarningsInternal = internalAction({
+  args: {
+    workspaceId: v.string(),
+    actorId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ tools: ToolDescriptor[]; warnings: string[]; dtsUrls: Record<string, string> }> => {
+    return await listToolsWithWarningsForContext(ctx, args);
   },
 });
 
@@ -761,7 +883,7 @@ export const handleExternalToolCall = internalAction({
     input: v.optional(v.any()),
   },
   handler: async (ctx, args): Promise<ToolCallResult> => {
-    const task = (await ctx.runQuery(api.database.getTask, {
+    const task = (await ctx.runQuery(internal.database.getTask, {
       taskId: args.runId,
     })) as TaskRecord | null;
     if (!task) {
@@ -800,13 +922,13 @@ export const handleExternalToolCall = internalAction({
 export const runTask = internalAction({
   args: { taskId: v.string() },
   handler: async (ctx, args) => {
-    const task = (await ctx.runQuery(api.database.getTask, { taskId: args.taskId })) as TaskRecord | null;
+    const task = (await ctx.runQuery(internal.database.getTask, { taskId: args.taskId })) as TaskRecord | null;
     if (!task || task.status !== "queued") {
       return null;
     }
 
     if (task.runtimeId !== "local-bun") {
-      const failed = await ctx.runMutation(api.database.markTaskFinished, {
+      const failed = await ctx.runMutation(internal.database.markTaskFinished, {
         taskId: args.taskId,
         status: "failed",
         stdout: "",
@@ -825,7 +947,7 @@ export const runTask = internalAction({
     }
 
     try {
-      const running = (await ctx.runMutation(api.database.markTaskRunning, {
+      const running = (await ctx.runMutation(internal.database.markTaskRunning, {
         taskId: args.taskId,
       })) as TaskRecord | null;
       if (!running) {
@@ -860,7 +982,7 @@ export const runTask = internalAction({
         adapter,
       );
 
-      const finished = await ctx.runMutation(api.database.markTaskFinished, {
+      const finished = await ctx.runMutation(internal.database.markTaskFinished, {
         taskId: args.taskId,
         status: runtimeResult.status,
         stdout: runtimeResult.stdout,
@@ -893,7 +1015,7 @@ export const runTask = internalAction({
     } catch (error) {
       const message = describeError(error);
       const denied = message.startsWith(APPROVAL_DENIED_PREFIX);
-      const finished = await ctx.runMutation(api.database.markTaskFinished, {
+      const finished = await ctx.runMutation(internal.database.markTaskFinished, {
         taskId: args.taskId,
         status: denied ? "denied" : "failed",
         stdout: "",

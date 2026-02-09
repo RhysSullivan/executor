@@ -12,6 +12,7 @@
   "scripts": {
     "with-env": "bun run --env-file=.env --",
     "dev": "bun run dev.ts",
+    "kill:all": "bun run kill-all.ts",
     "dev:executor:convex": "bunx --cwd executor convex dev",
     "dev:executor:web": "bun run --cwd executor/apps/web dev",
     "dev:executor:all": "bun run dev:executor:convex & bun run dev:executor:web",
@@ -20,7 +21,9 @@
     "test": "bun run test:executor && bun run test:assistant",
     "test:executor": "bun test --cwd executor",
     "test:assistant": "bun run --cwd assistant test",
+    "typecheck": "bun run typecheck:executor && bun run typecheck:assistant",
     "typecheck:executor": "bunx tsc --noEmit -p executor/tsconfig.json",
+    "typecheck:assistant": "bunx tsc --noEmit -p assistant/packages/server/tsconfig.json && bunx tsc --noEmit -p assistant/packages/bot/tsconfig.json",
     "db:clear:executor": "bun with-env bun run executor/wipe-convex-db.ts",
     "convex:codegen": "bunx --cwd executor convex codegen"
   },

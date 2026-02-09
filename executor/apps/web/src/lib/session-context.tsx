@@ -101,7 +101,7 @@ function writeWorkspaceByAccount(value: Record<string, Id<"workspaces">>) {
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const workosAuthLoading = useWorkosAuthLoading();
-  const bootstrapAnonymousSession = useMutation(convexApi.database.bootstrapAnonymousSession);
+  const bootstrapAnonymousSession = useMutation(convexApi.workspace.bootstrapAnonymousSession);
   const [storedSessionId, setStoredSessionId] = useState<string | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -284,13 +284,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [account, resolvedActiveWorkspaceId, workspaces]);
 
-  // When WorkOS is enabled, don't fall back to guest context until the
-  // WorkOS auth token has been resolved AND the Convex account query has
-  // returned a definitive result. This prevents a flash where the UI briefly
-  // shows guest mode while auth is still loading.
-  const workosStillLoading = workosEnabled && (workosAuthLoading || account === undefined);
+  // When WorkOS is enabled, don't fall back to guest context while WorkOS
+  // auth/account bootstrapping is still in flight. Otherwise workspace-bound
+  // queries can run against guest workspace IDs before WorkOS memberships are
+  // ready.
+  const workosStillLoading = workosEnabled && (
+    workosAuthLoading
+    || account === undefined
+    || (account?.provider === "workos" && bootstrapWorkosAccountQuery.isFetching)
+  );
   const mode: "guest" | "workos" = workosContext ? "workos" : "guest";
-  const context = workosContext ?? (workosStillLoading ? null : guestContext);
+  const shouldBlockGuestFallback = workosEnabled && account?.provider === "workos";
+  const context = workosContext ?? ((workosStillLoading || shouldBlockGuestFallback) ? null : guestContext);
 
   const bootstrapSessionError =
     bootstrapSessionQuery.error instanceof Error

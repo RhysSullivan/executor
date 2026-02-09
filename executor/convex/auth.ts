@@ -11,6 +11,16 @@ type WorkosEventCtx = Pick<MutationCtx, "db" | "runQuery">;
 type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
 type OrganizationMemberStatus = "active" | "pending" | "removed";
 
+function mapOrganizationRoleToWorkspaceRole(role: OrganizationRole): Doc<"workspaceMembers">["role"] {
+  if (role === "owner") {
+    return "owner";
+  }
+  if (role === "admin") {
+    return "admin";
+  }
+  return "member";
+}
+
 const workosEnabled = Boolean(
   process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,
 );
@@ -163,6 +173,40 @@ async function upsertOrganizationMembership(
     billable: args.billable,
     invitedByAccountId: args.invitedByAccountId,
     joinedAt: args.status === "active" ? args.now : undefined,
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+}
+
+async function ensureWorkspaceMembership(
+  ctx: DbCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    accountId: Id<"accounts">;
+    role: Doc<"workspaceMembers">["role"];
+    now: number;
+  },
+) {
+  const existing = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", args.workspaceId).eq("accountId", args.accountId))
+    .unique();
+
+  if (existing) {
+    if (existing.status === "active") {
+      await ctx.db.patch(existing._id, {
+        role: args.role,
+        updatedAt: args.now,
+      });
+    }
+    return;
+  }
+
+  await ctx.db.insert("workspaceMembers", {
+    workspaceId: args.workspaceId,
+    accountId: args.accountId,
+    role: args.role,
+    status: "active",
     createdAt: args.now,
     updatedAt: args.now,
   });
@@ -766,6 +810,45 @@ export const bootstrapCurrentWorkosAccount = mutation({
           acceptedAt: now,
         });
       }
+    }
+
+    const activeOrganizationMemberships = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+
+    for (const membership of activeOrganizationMemberships) {
+      const orgWorkspaces = await ctx.db
+        .query("workspaces")
+        .withIndex("by_organization_created", (q) => q.eq("organizationId", membership.organizationId))
+        .collect();
+
+      const workspaceRole = mapOrganizationRoleToWorkspaceRole(membership.role);
+      for (const workspace of orgWorkspaces) {
+        await ensureWorkspaceMembership(ctx, {
+          workspaceId: workspace._id,
+          accountId: account._id,
+          role: workspaceRole,
+          now,
+        });
+      }
+    }
+
+    const activeWorkspaceMembership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .first();
+
+    if (!activeWorkspaceMembership) {
+      await ensurePersonalWorkspace(ctx, account._id, {
+        email,
+        firstName,
+        fullName,
+        workosUserId: subject,
+        now,
+      });
     }
 
     return account;

@@ -1,8 +1,13 @@
 /**
  * TypeScript typechecker for LLM-generated code.
  *
- * Generates `declare const tools: { ... }` from ToolDescriptor metadata,
- * then validates code against those declarations using the TypeScript compiler API.
+ * For OpenAPI tools with a raw .d.ts from openapi-typescript, the typechecker
+ * uses the .d.ts directly with helper types (ToolInput/ToolOutput) that extract
+ * per-operation arg/return types via indexed access. This avoids parsing the
+ * .d.ts to extract per-operation type strings.
+ *
+ * For tools without a .d.ts (MCP, GraphQL, builtins), the typechecker falls
+ * back to using the lightweight argsType/returnsType hint strings.
  *
  * This runs in the executor so all MCP clients benefit from typechecking
  * without needing their own TypeScript setup.
@@ -17,11 +22,16 @@ import type { ToolDescriptor } from "./types";
 /**
  * Build a `declare const tools: { ... }` block from flat tool descriptors.
  *
+ * Uses the lightweight `argsType`/`returnsType` strings from each tool.
+ * This is used by the server-side MCP typechecker, which doesn't need the
+ * full OpenAPI .d.ts (that's handled by Monaco on the client side).
+ *
  * Tool paths like "math.add" or "admin.send_announcement" are split on "."
  * and nested into a type tree.
  */
 export function generateToolDeclarations(tools: ToolDescriptor[]): string {
-  // Collect all schema type aliases from all tools (deduplicated by name)
+
+  // Legacy compat: collect schemaTypes from tools that use the old format
   const allSchemas = new Map<string, string>();
   for (const tool of tools) {
     if (tool.schemaTypes) {
@@ -62,8 +72,9 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
 
     for (const [key, child] of node.children) {
       if (child.tool) {
-        const args = child.tool.argsType || "Record<string, unknown>";
-        const returns = child.tool.returnsType || "unknown";
+        const tool = child.tool;
+        const args = tool.argsType || "Record<string, unknown>";
+        const returns = tool.returnsType || "unknown";
         lines.push(`${pad}${key}(input: ${args}): Promise<${returns}>;`);
       } else {
         lines.push(`${pad}${key}: {`);
@@ -75,14 +86,20 @@ export function generateToolDeclarations(tools: ToolDescriptor[]): string {
     return lines.join("\n");
   }
 
-  // Emit schema type aliases before the tools declaration so they're in scope
-  const schemaLines: string[] = [];
-  for (const [name, type] of allSchemas) {
-    schemaLines.push(`type ${name} = ${type};`);
+  // Assemble the full declarations block
+  const parts: string[] = [];
+
+  // Legacy schema type aliases (from old cache format)
+  if (allSchemas.size > 0) {
+    for (const [name, type] of allSchemas) {
+      parts.push(`type ${name} = ${type};`);
+    }
   }
 
-  const schemaBlock = schemaLines.length > 0 ? schemaLines.join("\n") + "\n" : "";
-  return `${schemaBlock}declare const tools: {\n${renderNode(root, 1)}\n};`;
+  // The tools declaration
+  parts.push(`declare const tools: {\n${renderNode(root, 1)}\n};`);
+
+  return parts.join("\n");
 }
 
 /**
@@ -169,7 +186,7 @@ export function typecheckCode(
   // `types: []` prevents @types/node from loading.
   const wrappedCode = [
     toolDeclarations,
-    "declare const console: { log(...args: any[]): void; info(...args: any[]): void; warn(...args: any[]): void; error(...args: any[]): void; };",
+    "declare var console: { log(...args: any[]): void; info(...args: any[]): void; warn(...args: any[]): void; error(...args: any[]): void; };",
     "declare function setTimeout(fn: () => void, ms: number): number;",
     "declare function clearTimeout(id: number): void;",
     "async function __generated() {",
@@ -238,9 +255,22 @@ export function typecheckCode(
       return { ok: true, errors: [] };
     }
 
+    // Filter out errors from the .d.ts header (circular refs, etc.) — only report user code errors
+    const userErrors = diagnostics.filter((d) => {
+      if (d.start !== undefined && d.file) {
+        const { line } = d.file.getLineAndCharacterOfPosition(d.start);
+        return line + 1 > headerLineCount;
+      }
+      return false;
+    });
+
+    if (userErrors.length === 0) {
+      return { ok: true, errors: [] };
+    }
+
     return {
       ok: false,
-      errors: diagnostics.map((d) => formatError(d, headerLineCount)),
+      errors: userErrors.map((d) => formatError(d, headerLineCount)),
     };
   } catch (error) {
     // Some runtimes (e.g. Convex action isolates) can lack the full Node-backed

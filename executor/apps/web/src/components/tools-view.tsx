@@ -308,7 +308,7 @@ function AddSourceDialog({
   existingSourceNames: Set<string>;
 }) {
   const { context } = useSession();
-  const upsertToolSource = useMutation(convexApi.database.upsertToolSource);
+  const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
   const [open, setOpen] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [type, setType] = useState<"mcp" | "openapi" | "graphql">("mcp");
@@ -358,6 +358,7 @@ function AddSourceDialog({
     if (!context) return;
     await upsertToolSource({
       workspaceId: context.workspaceId,
+      sessionId: context.sessionId,
       name: sourceName,
       type: sourceType,
       config,
@@ -618,7 +619,7 @@ function ConfigureSourceAuthDialog({
   source: ToolSourceRecord;
 }) {
   const { context } = useSession();
-  const upsertToolSource = useMutation(convexApi.database.upsertToolSource);
+  const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -657,6 +658,7 @@ function ConfigureSourceAuthDialog({
       await upsertToolSource({
         id: source.id,
         workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
         name: source.name,
         type: source.type,
         config: {
@@ -760,14 +762,18 @@ function SourceCard({
   source: ToolSourceRecord;
 }) {
   const { context } = useSession();
-  const deleteToolSource = useMutation(convexApi.database.deleteToolSource);
+  const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
   const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
     if (!context) return;
     setDeleting(true);
     try {
-      await deleteToolSource({ workspaceId: context.workspaceId, sourceId: source.id });
+      await deleteToolSource({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        sourceId: source.id,
+      });
       toast.success(`Removed "${source.name}"`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete");
@@ -1070,6 +1076,7 @@ function CredentialsPanel({
     try {
       await upsertCredential({
         workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
         sourceKey: sourceKey.trim(),
         scope,
         ...(scope === "actor" ? { actorId: actorId.trim() } : {}),
@@ -1393,14 +1400,14 @@ export function ToolsView() {
   const { context, loading: sessionLoading } = useSession();
 
   const sources = useQuery(
-    convexApi.database.listToolSources,
-    context ? { workspaceId: context.workspaceId } : "skip",
+    convexApi.workspace.listToolSources,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
   const sourcesLoading = !!context && sources === undefined;
 
   const credentials = useQuery(
-    convexApi.database.listCredentials,
-    context ? { workspaceId: context.workspaceId } : "skip",
+    convexApi.workspace.listCredentials,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
   const credentialsLoading = !!context && credentials === undefined;
 
@@ -1565,6 +1572,7 @@ export function ToolsView() {
               <McpSetupCard
                 workspaceId={context?.workspaceId}
                 actorId={context?.actorId}
+                sessionId={context?.sessionId}
               />
             </CardContent>
           </Card>

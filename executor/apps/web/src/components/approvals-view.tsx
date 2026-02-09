@@ -37,9 +37,9 @@ function ApprovalCard({
     try {
       await resolveApproval({
         workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
         approvalId: approval.id,
         decision,
-        reviewerId: context.actorId,
       });
       toast.success(
         decision === "approved"
@@ -128,8 +128,8 @@ export function ApprovalsView() {
   const { context, loading: sessionLoading } = useSession();
 
   const approvals = useQuery(
-    convexApi.database.listPendingApprovals,
-    context ? { workspaceId: context.workspaceId } : "skip",
+    convexApi.workspace.listPendingApprovals,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
   const approvalsLoading = !!context && approvals === undefined;
 

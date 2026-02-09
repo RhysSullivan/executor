@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Check, Copy, ShieldCheck } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,9 +44,11 @@ function resolveMcpOrigin(windowOrigin: string): string {
 export function McpSetupCard({
   workspaceId,
   actorId,
+  sessionId,
 }: {
   workspaceId?: string;
   actorId?: string;
+  sessionId?: string;
 }) {
   const [selectedProviderId, setSelectedProviderId] = useState(MCP_PROVIDERS[0]?.id ?? "claude-code");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -60,21 +62,12 @@ export function McpSetupCard({
     const base = origin ? new URL("/mcp", origin) : new URL("http://localhost/mcp");
     if (workspaceId) base.searchParams.set("workspaceId", workspaceId);
     if (actorId) base.searchParams.set("actorId", actorId);
+    if (sessionId) base.searchParams.set("sessionId", sessionId);
     if (!origin) {
       return `${base.pathname}${base.search}`;
     }
     return base.toString();
-  }, [origin, workspaceId, actorId]);
-
-  const protectedResourceUrl = useMemo(() => {
-    if (!origin) return "/.well-known/oauth-protected-resource";
-    return `${origin}/.well-known/oauth-protected-resource`;
-  }, [origin]);
-
-  const authorizationServerMetadataUrl = useMemo(() => {
-    if (!origin) return "/.well-known/oauth-authorization-server";
-    return `${origin}/.well-known/oauth-authorization-server`;
-  }, [origin]);
+  }, [origin, workspaceId, actorId, sessionId]);
 
   const provider = MCP_PROVIDERS.find((item) => item.id === selectedProviderId) ?? MCP_PROVIDERS[0];
   if (!provider) {
@@ -152,21 +145,6 @@ export function McpSetupCard({
         </div>
       </div>
 
-      <div className="rounded-md border border-border bg-card/50 p-3 space-y-2">
-        <div className="flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-          OAuth Setup (AuthKit)
-        </div>
-        <p className="text-[11px] text-muted-foreground">
-          Set <code>MCP_AUTHORIZATION_SERVER</code> to your AuthKit issuer (for example <code>https://your-app.authkit.app</code>) to require bearer tokens on <code>/mcp</code>.
-        </p>
-        <p className="text-[11px] text-muted-foreground">
-          The server publishes metadata at <code>{protectedResourceUrl}</code> and <code>{authorizationServerMetadataUrl}</code> so MCP clients can discover OAuth endpoints automatically.
-        </p>
-        <p className="text-[11px] text-muted-foreground">
-          If OAuth is enabled, <code>workspaceId</code> is required in the MCP URL and <code>actorId</code> is derived from token <code>sub</code>.
-        </p>
-      </div>
     </div>
   );
 }

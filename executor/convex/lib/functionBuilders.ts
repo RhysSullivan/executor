@@ -1,7 +1,17 @@
 import { v } from "convex/values";
 import { customMutation, customQuery } from "convex-helpers/server/customFunctions";
 import { internalQuery, mutation, query } from "../_generated/server";
-import { canManageBilling, getOrganizationMembership, isAdminRole, resolveAccountForRequest } from "./identity";
+import {
+  canManageBilling,
+  getOrganizationMembership,
+  isAdminRole,
+  requireWorkspaceAccessForRequest,
+  resolveAccountForRequest,
+} from "./identity";
+
+type WorkspaceAccessOptions = {
+  requireAdmin?: boolean;
+};
 
 type OrganizationAccessOptions = {
   requireAdmin?: boolean;
@@ -15,6 +25,12 @@ function ensureOrganizationRole(role: string, options: OrganizationAccessOptions
 
   if (options.requireBillingAdmin && !isAdminRole(role) && !canManageBilling(role)) {
     throw new Error("Only organization billing admins can perform this action");
+  }
+}
+
+function ensureWorkspaceRole(role: string, options: WorkspaceAccessOptions): void {
+  if (options.requireAdmin && !isAdminRole(role)) {
+    throw new Error("Only workspace admins can perform this action");
   }
 }
 
@@ -114,6 +130,46 @@ export const organizationMutation = customMutation(mutation, {
         account,
         actorMembership,
         organizationId: args.organizationId,
+      },
+      args: {},
+    };
+  },
+});
+
+export const workspaceQuery = customQuery(query, {
+  args: {
+    workspaceId: v.string(),
+    sessionId: v.optional(v.string()),
+  },
+  input: async (ctx, args, options: WorkspaceAccessOptions = {}) => {
+    const access = await requireWorkspaceAccessForRequest(ctx, args.workspaceId, args.sessionId);
+
+    ensureWorkspaceRole(access.workspaceMembership.role, options);
+
+    return {
+      ctx: {
+        ...access,
+        workspaceId: args.workspaceId,
+      },
+      args: {},
+    };
+  },
+});
+
+export const workspaceMutation = customMutation(mutation, {
+  args: {
+    workspaceId: v.string(),
+    sessionId: v.optional(v.string()),
+  },
+  input: async (ctx, args, options: WorkspaceAccessOptions = {}) => {
+    const access = await requireWorkspaceAccessForRequest(ctx, args.workspaceId, args.sessionId);
+
+    ensureWorkspaceRole(access.workspaceMembership.role, options);
+
+    return {
+      ctx: {
+        ...access,
+        workspaceId: args.workspaceId,
       },
       args: {},
     };

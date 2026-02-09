@@ -6,14 +6,19 @@
  * Reads all configuration from the root .env file (auto-loaded by Bun).
  *
  * Starts:
- *   1. Convex cloud dev function push (once)
- *   2. Convex cloud dev function watcher
- *   3. Executor web UI (port 3002)
- *   4. Assistant server (port 3000)
- *   5. Discord bot
+ *   1. Convex cloud dev function watcher  ─┐
+ *   2. Executor web UI (port 3002)        ├─ all started concurrently
+ *   3. Assistant server (port 3000)       │
+ *   4. Discord bot                        ─┘
  *
  * All processes are killed when this script exits (Ctrl+C).
+ * PIDs are written to .dev.pids for use with `bun run kill:all`.
  */
+
+import { join } from "node:path";
+import { unlinkSync } from "node:fs";
+
+const PID_FILE = join(import.meta.dir, ".dev.pids");
 
 const colors = {
   convex: "\x1b[36m",   // cyan
@@ -30,6 +35,15 @@ function prefix(name: ServiceName, line: string): string {
 }
 
 const procs: Bun.Subprocess[] = [];
+
+function writePidFile() {
+  const pids = [process.pid, ...procs.map((p) => p.pid)].join("\n");
+  Bun.write(PID_FILE, pids);
+}
+
+function removePidFile() {
+  try { unlinkSync(PID_FILE); } catch {}
+}
 
 function toSiteUrl(convexUrl: string): string {
   if (convexUrl.includes(".convex.cloud")) {
@@ -59,6 +73,7 @@ function spawnService(name: ServiceName, cmd: string[], opts: {
     env: { ...Bun.env, FORCE_COLOR: "1", ...opts.env },
   });
   procs.push(proc);
+  writePidFile();
 
   const stream = async (s: ReadableStream<Uint8Array>, isErr: boolean) => {
     const reader = s.getReader();
@@ -87,60 +102,68 @@ function spawnService(name: ServiceName, cmd: string[], opts: {
   return proc;
 }
 
-// ── Convex cloud deployment ──
-
-async function pushConvexFunctions(): Promise<void> {
-  console.log(prefix("convex", "Pushing functions..."));
-
-  const proc = Bun.spawn([
-    "bunx", "convex", "dev", "--once",
-    "--typecheck", "disable",
-  ], {
-    cwd: "./executor",
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...Bun.env, FORCE_COLOR: "1" },
-  });
-
-  const stdout = await Bun.readableStreamToText(proc.stdout);
-  const stderr = await Bun.readableStreamToText(proc.stderr);
-  const code = await proc.exited;
-
-  if (stdout.trim()) console.log(prefix("convex", stdout.trim()));
-  if (code !== 0) {
-    console.error(prefix("convex", `Push failed (exit ${code}): ${stderr.trim()}`));
-    throw new Error("Convex function push failed");
-  }
-  console.log(prefix("convex", "Functions ready!"));
-}
-
 // ── Cleanup ──
 
-process.on("SIGINT", () => {
+function shutdown() {
   console.log("\nShutting down all services...");
   for (const proc of procs) proc.kill();
+  removePidFile();
   process.exit(0);
-});
-process.on("SIGTERM", () => {
-  for (const proc of procs) proc.kill();
-  process.exit(0);
-});
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
+// ── Kill stale processes from a previous run ──
+
+const DEV_PORTS = [3000, 3002];
+
+async function killStaleProcesses() {
+  let killed = 0;
+
+  // Kill tracked PIDs
+  const file = Bun.file(PID_FILE);
+  if (await file.exists()) {
+    const pids = (await file.text())
+      .split("\n").map((l) => l.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n));
+
+    for (const pid of pids) {
+      try { Bun.spawnSync(["pkill", "-TERM", "--parent", String(pid)]); } catch {}
+      try { process.kill(pid, "SIGTERM"); killed++; } catch {}
+    }
+    removePidFile();
+  }
+
+  // Kill anything still on dev ports
+  for (const port of DEV_PORTS) {
+    const result = Bun.spawnSync(["fuser", "-k", `${port}/tcp`], { stderr: "pipe" });
+    const stderr = result.stderr.toString().trim();
+    if (stderr && stderr.includes(String(port))) killed++;
+  }
+
+  if (killed > 0) {
+    console.log(`Killed ${killed} stale process(es) from previous run.\n`);
+    await Bun.sleep(500);
+  }
+}
 
 // ── Start everything ──
+
+await killStaleProcesses();
+
+// Write PID file immediately so kill:all works even before services spawn
+writePidFile();
 
 console.log("Starting all services...\n");
 if (!Bun.env.DISCORD_BOT_TOKEN) {
   console.log(`${colors.bot}[bot]${colors.reset} Skipped — no DISCORD_BOT_TOKEN set\n`);
 }
 
-// 1. Push functions (must complete before executor starts)
-await pushConvexFunctions();
-
 const urls = resolveExecutorUrls();
 console.log(prefix("convex", `Using Convex URL: ${urls.convexUrl}`));
 console.log(prefix("convex", `Using executor HTTP URL: ${urls.executorUrl}`));
 
-// 2. Start Convex file watcher (repushes on changes)
+// 2. Start Convex file watcher (non-blocking — repushes on changes)
 spawnService("convex", [
   "bunx", "convex", "dev",
   "--typecheck", "disable",
@@ -153,9 +176,6 @@ spawnService("web", ["bun", "run", "dev", "--", "-p", "3002"], {
   cwd: "./executor/apps/web",
 });
 
-// Small delay for web to be ready
-await Bun.sleep(1200);
-
 spawnService("assistant", ["bun", "run", "dev"], {
   cwd: "./assistant/packages/server",
   env: {
@@ -167,7 +187,6 @@ spawnService("assistant", ["bun", "run", "dev"], {
 });
 
 if (Bun.env.DISCORD_BOT_TOKEN) {
-  await Bun.sleep(1000);
   spawnService("bot", ["bun", "run", "dev"], {
     cwd: "./assistant/packages/bot",
     env: {

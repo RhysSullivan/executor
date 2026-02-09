@@ -1,14 +1,14 @@
 import { registerRoutes as registerStripeRoutes } from "@convex-dev/stripe";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { httpRouter } from "convex/server";
-import { api, components, internal } from "./_generated/api";
+import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
 import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp_server";
 import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "./lib/types";
 
 const http = httpRouter();
-const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? "executor_internal_local_dev_token";
+const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? null;
 const mcpAuthorizationServer =
   process.env.MCP_AUTHORIZATION_SERVER
   ?? process.env.MCP_AUTHORIZATION_SERVER_URL
@@ -74,16 +74,17 @@ async function verifyMcpToken(request: Request): Promise<{ subject: string } | n
   }
 }
 
-function parseMcpContext(url: URL, tokenSubject?: string): McpWorkspaceContext | undefined {
+function parseMcpContext(url: URL, tokenSubject?: string): (McpWorkspaceContext & { sessionId?: string }) | undefined {
   const workspaceId = url.searchParams.get("workspaceId");
   const actorId = tokenSubject ?? url.searchParams.get("actorId");
   if (!workspaceId || !actorId) return undefined;
   const clientId = url.searchParams.get("clientId") ?? undefined;
-  return { workspaceId, actorId, clientId };
+  const sessionId = url.searchParams.get("sessionId") ?? undefined;
+  return { workspaceId, actorId, clientId, sessionId };
 }
 
 function isInternalAuthorized(request: Request): boolean {
-  if (!internalToken) return true;
+  if (!internalToken) return false;
   const header = request.headers.get("authorization");
   if (!header || !header.startsWith("Bearer ")) return false;
   return header.slice("Bearer ".length) === internalToken;
@@ -112,13 +113,48 @@ const mcpHandler = httpAction(async (ctx, request) => {
   }
 
   const tokenSubject = mcpAuthEnabled ? auth.subject : undefined;
-  const context = parseMcpContext(url, tokenSubject);
+  const requestedContext = parseMcpContext(url, tokenSubject);
 
-  if (mcpAuthEnabled && !context) {
+  if (mcpAuthEnabled && !requestedContext) {
     return Response.json(
       { error: "workspaceId query parameter is required when MCP OAuth is enabled" },
       { status: 400 },
     );
+  }
+
+  let context: McpWorkspaceContext | undefined;
+  if (requestedContext) {
+    try {
+      if (mcpAuthEnabled) {
+        const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForWorkosSubject, {
+          workspaceId: requestedContext.workspaceId,
+          subject: auth.subject,
+        });
+
+        context = {
+          workspaceId: requestedContext.workspaceId,
+          actorId: access.actorId,
+          clientId: requestedContext.clientId,
+        };
+      } else {
+        const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
+          workspaceId: requestedContext.workspaceId,
+          sessionId: requestedContext.sessionId,
+        });
+
+        context = {
+          workspaceId: requestedContext.workspaceId,
+          actorId: access.actorId,
+          clientId: requestedContext.clientId,
+          sessionId: requestedContext.sessionId,
+        };
+      }
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Workspace authorization failed" },
+        { status: 403 },
+      );
+    }
   }
 
   const service = {
@@ -131,25 +167,29 @@ const mcpHandler = httpAction(async (ctx, request) => {
       actorId: string;
       clientId?: string;
     }) => {
-      return (await ctx.runMutation(api.executor.createTask, input)) as { task: TaskRecord };
+      return (await ctx.runMutation(internal.executor.createTaskInternal, input)) as { task: TaskRecord };
     },
     getTask: async (taskId: string, workspaceId?: string) => {
       if (workspaceId) {
-        return (await ctx.runQuery(api.database.getTaskInWorkspace, { taskId, workspaceId })) as TaskRecord | null;
+        return (await ctx.runQuery(internal.database.getTaskInWorkspace, { taskId, workspaceId })) as TaskRecord | null;
       }
-      return (await ctx.runQuery(api.database.getTask, { taskId })) as TaskRecord | null;
+      return null;
     },
     subscribe: () => {
       return () => {};
     },
     bootstrapAnonymousContext: async (sessionId?: string) => {
-      return (await ctx.runMutation(api.database.bootstrapAnonymousSession, { sessionId })) as AnonymousContext;
+      return (await ctx.runMutation(internal.database.bootstrapAnonymousSession, { sessionId })) as AnonymousContext;
     },
     listTools: async (toolContext?: { workspaceId: string; actorId?: string; clientId?: string }) => {
-      return (await ctx.runAction(api.executorNode.listTools, toolContext ?? {})) as ToolDescriptor[];
+      if (!toolContext) {
+        return [];
+      }
+
+      return (await ctx.runAction(internal.executorNode.listToolsInternal, toolContext)) as ToolDescriptor[];
     },
     listPendingApprovals: async (workspaceId: string) => {
-      return (await ctx.runQuery(api.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
+      return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
     },
     resolveApproval: async (input: {
       workspaceId: string;
@@ -158,7 +198,7 @@ const mcpHandler = httpAction(async (ctx, request) => {
       reviewerId?: string;
       reason?: string;
     }) => {
-      return await ctx.runMutation(api.executor.resolveApproval, input);
+      return await ctx.runMutation(internal.executor.resolveApprovalInternal, input);
     },
   };
 
@@ -238,7 +278,7 @@ const internalRunsHandler = httpAction(async (ctx, request) => {
     return Response.json({ error: "stream and line are required" }, { status: 400 });
   }
 
-  const task = await ctx.runQuery(api.database.getTask, { taskId: parsed.runId });
+  const task = await ctx.runQuery(internal.database.getTask, { taskId: parsed.runId });
   if (!task) {
     return Response.json({ error: `Run not found: ${parsed.runId}` }, { status: 404 });
   }

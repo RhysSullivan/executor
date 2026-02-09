@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
 import schema from "./schema";
 
 function setup() {
@@ -12,14 +12,24 @@ function setup() {
     "./executorNode.ts": () => import("./executorNode"),
     "./http.ts": () => import("./http"),
     "./auth.ts": () => import("./auth"),
+    "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
+    "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
+    "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 }
 
-function createMcpTransport(t: ReturnType<typeof setup>, workspaceId: string, actorId: string, clientId = "e2e") {
+function createMcpTransport(
+  t: ReturnType<typeof setup>,
+  workspaceId: string,
+  actorId: string,
+  sessionId: string,
+  clientId = "e2e",
+) {
   const url = new URL("https://executor.test/mcp");
   url.searchParams.set("workspaceId", workspaceId);
   url.searchParams.set("actorId", actorId);
+  url.searchParams.set("sessionId", sessionId);
   url.searchParams.set("clientId", clientId);
 
   return new StreamableHTTPClientTransport(url, {
@@ -35,7 +45,7 @@ function createMcpTransport(t: ReturnType<typeof setup>, workspaceId: string, ac
 async function waitForTaskId(t: ReturnType<typeof setup>, workspaceId: string, timeoutMs = 10_000): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const tasks = await t.query(api.database.listTasks, { workspaceId });
+    const tasks = await t.query(internal.database.listTasks, { workspaceId });
     if (tasks.length > 0) {
       return tasks[0]!.id;
     }
@@ -53,8 +63,8 @@ async function waitForPendingApproval(
 ): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const approvals = await t.query(api.database.listPendingApprovals, { workspaceId });
-    const approval = approvals.find((item) => item.toolPath === toolPath);
+    const approvals = await t.query(internal.database.listPendingApprovals, { workspaceId });
+    const approval = approvals.find((item: { toolPath: string; id: string }) => item.toolPath === toolPath);
     if (approval) {
       return approval.id;
     }
@@ -66,10 +76,10 @@ async function waitForPendingApproval(
 
 test("MCP run_code survives delayed approval and completes", async () => {
   const t = setup();
-  const session = await t.mutation(api.database.bootstrapAnonymousSession, {});
+  const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
   const client = new Client({ name: "executor-e2e", version: "0.0.1" }, { capabilities: {} });
-  const transport = createMcpTransport(t, session.workspaceId, session.actorId, "e2e-approval-delay");
+  const transport = createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-approval-delay");
 
   try {
     await client.connect(transport);
@@ -88,7 +98,7 @@ test("MCP run_code survives delayed approval and completes", async () => {
 
     await Bun.sleep(16_000);
 
-    await t.mutation(api.executor.resolveApproval, {
+    await t.mutation(internal.executor.resolveApprovalInternal, {
       workspaceId: session.workspaceId,
       approvalId,
       decision: "approved",
@@ -107,7 +117,7 @@ test("MCP run_code survives delayed approval and completes", async () => {
     expect(text).toContain("status: completed");
     expect(text).toContain("hello from convex-test");
 
-    const task = await t.query(api.database.getTask, { taskId });
+    const task = await t.query(internal.database.getTask, { taskId });
     expect(task?.status).toBe("completed");
   } finally {
     await transport.close().catch(() => {});
@@ -117,10 +127,10 @@ test("MCP run_code survives delayed approval and completes", async () => {
 
 test("MCP run_code returns denied after approval denial", async () => {
   const t = setup();
-  const session = await t.mutation(api.database.bootstrapAnonymousSession, {});
+  const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
   const client = new Client({ name: "executor-e2e", version: "0.0.1" }, { capabilities: {} });
-  const transport = createMcpTransport(t, session.workspaceId, session.actorId, "e2e-deny");
+  const transport = createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-deny");
 
   try {
     await client.connect(transport);
@@ -136,7 +146,7 @@ test("MCP run_code returns denied after approval denial", async () => {
     const runTask = t.action(internal.executorNode.runTask, { taskId });
 
     const approvalId = await waitForPendingApproval(t, session.workspaceId, "admin.delete_data");
-    await t.mutation(api.executor.resolveApproval, {
+    await t.mutation(internal.executor.resolveApprovalInternal, {
       workspaceId: session.workspaceId,
       approvalId,
       decision: "denied",
@@ -155,7 +165,7 @@ test("MCP run_code returns denied after approval denial", async () => {
     expect(result.isError).toBe(true);
     expect(text).toContain("status: denied");
 
-    const task = await t.query(api.database.getTask, { taskId });
+    const task = await t.query(internal.database.getTask, { taskId });
     expect(task?.status).toBe("denied");
   } finally {
     await transport.close().catch(() => {});

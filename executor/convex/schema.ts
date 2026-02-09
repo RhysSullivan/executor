@@ -302,6 +302,11 @@ export default defineSchema({
     workspaceId: v.string(),
     signature: v.string(),
     storageId: v.id("_storage"),
+    /** Per-source .d.ts blobs stored separately (too large for action responses). */
+    dtsStorageIds: v.optional(v.array(v.object({
+      sourceKey: v.string(),
+      storageId: v.id("_storage"),
+    }))),
     toolCount: v.number(),
     sizeBytes: v.number(),
     createdAt: v.number(),

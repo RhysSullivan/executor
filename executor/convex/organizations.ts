@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { query } from "./_generated/server";
 import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
 import { getOrganizationMembership, slugify } from "./lib/identity";
 import { ensureUniqueSlug } from "./lib/slug";
@@ -234,11 +233,21 @@ export const getOrganizationAccess = optionalAccountQuery({
   },
 });
 
-export const resolveWorkosOrganizationId = query({
+export const resolveWorkosOrganizationId = optionalAccountQuery({
   args: {
     organizationId: v.id("organizations"),
   },
   handler: async (ctx, args) => {
+    const account = ctx.account;
+    if (!account) {
+      return null;
+    }
+
+    const membership = await getOrganizationMembership(ctx, args.organizationId, account._id);
+    if (!membership || membership.status !== "active") {
+      return null;
+    }
+
     const organization = await ctx.db.get(args.organizationId);
     if (!organization || organization.status !== "active") {
       return null;

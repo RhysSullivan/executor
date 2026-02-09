@@ -36,12 +36,6 @@ function buildTree(tools: ToolDescriptor[]): NamespaceNode {
 
 function emitToolMethod(tool: ToolDescriptor): string {
   const funcName = tool.path.split(".").pop()!;
-  const hasArgsType = Boolean(tool.argsType?.trim());
-  const argsType = hasArgsType ? tool.argsType!.trim() : "Record<string, unknown>";
-  const returnsType = tool.returnsType?.trim() || "unknown";
-  const inputParam = !hasArgsType || argsType === "{}"
-    ? `input?: ${argsType}`
-    : `input: ${argsType}`;
   const approvalNote =
     tool.approval === "required"
       ? " **Requires approval** - execution will pause until approved."
@@ -49,6 +43,24 @@ function emitToolMethod(tool: ToolDescriptor): string {
   const desc = tool.description
     ? `${tool.description}${approvalNote}`
     : approvalNote || "Call this tool.";
+
+  // For OpenAPI tools with operationId, use indexed access types for precise IntelliSense
+  if (tool.operationId) {
+    const opKey = JSON.stringify(tool.operationId);
+    return `  /**
+   * ${desc}
+   *${tool.source ? ` @source ${tool.source}` : ""}
+   */
+  ${funcName}(input: ToolInput<operations[${opKey}]>): Promise<ToolOutput<operations[${opKey}]>>;`;
+  }
+
+  // Fallback for MCP, GraphQL, builtins — use argsType/returnsType strings
+  const hasArgsType = Boolean(tool.argsType?.trim());
+  const argsType = hasArgsType ? tool.argsType!.trim() : "Record<string, unknown>";
+  const returnsType = tool.returnsType?.trim() || "unknown";
+  const inputParam = !hasArgsType || argsType === "{}"
+    ? `input?: ${argsType}`
+    : `input: ${argsType}`;
 
   return `  /**
    * ${desc}
@@ -94,10 +106,28 @@ function countAllTools(node: NamespaceNode): number {
   return count;
 }
 
+/** TS helper types for OpenAPI indexed access (same as typechecker.ts) */
+const OPENAPI_HELPER_TYPES = `
+type _OrEmpty<T> = [T] extends [never] ? {} : T;
+type _Simplify<T> = { [K in keyof T]: T[K] } & {};
+type ToolInput<Op> = _Simplify<
+  _OrEmpty<Op extends { parameters: { query: infer Q } } ? { [K in keyof Q]: Q[K] } : never> &
+  _OrEmpty<Op extends { parameters: { path: infer P } } ? { [K in keyof P]: P[K] } : never> &
+  _OrEmpty<Op extends { requestBody: { content: { "application/json": infer B } } } ? B : never>
+>;
+type ToolOutput<Op> =
+  Op extends { responses: { 200: { content: { "application/json": infer R } } } } ? R :
+  Op extends { responses: { 201: { content: { "application/json": infer R } } } } ? R :
+  Op extends { responses: { 202: { content: { "application/json": infer R } } } } ? R :
+  Op extends { responses: { 204: { content: never } } } ? void :
+  unknown;
+`;
+
 function generateToolsDts(tools: ToolDescriptor[]): string {
   const root = buildTree(tools);
-  const schemaTypeAliases = new Map<string, string>();
 
+  // Legacy compat: collect schemaTypes from tools that use the old format
+  const schemaTypeAliases = new Map<string, string>();
   for (const tool of tools) {
     if (!tool.schemaTypes) continue;
     for (const [name, type] of Object.entries(tool.schemaTypes)) {
@@ -134,9 +164,16 @@ function generateToolsDts(tools: ToolDescriptor[]): string {
  * Tools marked with "approval: required" will pause execution until approved.
  */
 `;
+
+  // Legacy schema type aliases
   if (schemaTypeAliases.size > 0) {
     dts += Array.from(schemaTypeAliases, ([name, type]) => `type ${name} = ${type};`).join("\n") + "\n\n";
   }
+
+  // Note: .d.ts blocks from OpenAPI sources are fetched separately and registered
+  // as a distinct Monaco extra lib (see dtsUrls effect). This keeps generateToolsDts
+  // fast and avoids bundling multi-MB .d.ts content into the tool declarations string.
+
   dts += interfaces.join("\n\n") + "\n\n";
   dts += `interface ToolsProxy {\n${rootMembers.join("\n\n")}\n}\n\n`;
   dts += `declare const tools: ToolsProxy;\n`;
@@ -188,6 +225,8 @@ interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   tools: ToolDescriptor[];
+  /** Per-source .d.ts download URLs for OpenAPI IntelliSense. Keyed by source key. */
+  dtsUrls?: Record<string, string>;
   typesLoading?: boolean;
   className?: string;
   height?: string;
@@ -197,6 +236,7 @@ export function CodeEditor({
   value,
   onChange,
   tools,
+  dtsUrls,
   typesLoading = false,
   className,
   height = "400px",
@@ -205,7 +245,67 @@ export function CodeEditor({
   const monacoRef = useRef<Monaco | null>(null);
   const envLibDisposable = useRef<{ dispose: () => void } | null>(null);
   const toolsLibDisposable = useRef<{ dispose: () => void } | null>(null);
+  const dtsLibDisposables = useRef<{ dispose: () => void }[]>([]);
   const toolsLibVersion = useRef(0);
+  const fetchedDtsUrls = useRef<string>("");
+
+  // Fetch and register .d.ts blobs from OpenAPI sources
+  useEffect(() => {
+    if (!dtsUrls || Object.keys(dtsUrls).length === 0) return;
+    const m = monacoRef.current;
+    if (!m) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jsDefaults = (m.languages as any).typescript.javascriptDefaults;
+
+    // Skip if URLs haven't changed
+    const urlsKey = JSON.stringify(dtsUrls);
+    if (urlsKey === fetchedDtsUrls.current) return;
+    fetchedDtsUrls.current = urlsKey;
+
+    // Dispose previous .d.ts libs
+    for (const d of dtsLibDisposables.current) d.dispose();
+    dtsLibDisposables.current = [];
+
+    let cancelled = false;
+
+    // Fetch each .d.ts blob and register with Monaco
+    const entries = Object.entries(dtsUrls);
+    Promise.all(
+      entries.map(async ([sourceKey, url]) => {
+        try {
+          const resp = await fetch(url);
+          if (!resp.ok || cancelled) return null;
+          const content = await resp.text();
+          return { sourceKey, content };
+        } catch {
+          return null;
+        }
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+
+      // Build the helper types + .d.ts declarations
+      let helperDts = OPENAPI_HELPER_TYPES + "\n";
+      for (const result of results) {
+        if (!result) continue;
+        // Strip 'export' keywords so types are ambient in Monaco
+        const ambient = result.content.replace(/^export /gm, "");
+        helperDts += ambient + "\n";
+      }
+
+      const version = ++toolsLibVersion.current;
+      const disposable = jsDefaults.addExtraLib(
+        helperDts,
+        `file:///node_modules/@types/executor-openapi/v${version}.d.ts`,
+      );
+      dtsLibDisposables.current.push(disposable);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dtsUrls]);
 
   // Update types when tools change (or on first mount)
   useEffect(() => {
@@ -241,6 +341,7 @@ export function CodeEditor({
     return () => {
       envLibDisposable.current?.dispose();
       toolsLibDisposable.current?.dispose();
+      for (const d of dtsLibDisposables.current) d.dispose();
     };
   }, []);
 

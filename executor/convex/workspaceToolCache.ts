@@ -21,6 +21,7 @@ export const getEntry = internalQuery({
 
     return {
       storageId: entry.storageId,
+      dtsStorageIds: entry.dtsStorageIds ?? [],
       toolCount: entry.toolCount,
       sizeBytes: entry.sizeBytes,
       createdAt: entry.createdAt,
@@ -30,13 +31,17 @@ export const getEntry = internalQuery({
 
 /**
  * Write (or replace) a workspace tool cache entry.
- * Deletes the old blob if replacing.
+ * Deletes old blobs (main snapshot + .d.ts blobs) if replacing.
  */
 export const putEntry = internalMutation({
   args: {
     workspaceId: v.string(),
     signature: v.string(),
     storageId: v.id("_storage"),
+    dtsStorageIds: v.optional(v.array(v.object({
+      sourceKey: v.string(),
+      storageId: v.id("_storage"),
+    }))),
     toolCount: v.number(),
     sizeBytes: v.number(),
   },
@@ -47,7 +52,14 @@ export const putEntry = internalMutation({
       .unique();
 
     if (existing) {
-      await ctx.storage.delete(existing.storageId);
+      // Delete old main snapshot blob
+      await ctx.storage.delete(existing.storageId).catch(() => {});
+      // Delete old .d.ts blobs
+      if (existing.dtsStorageIds) {
+        for (const entry of existing.dtsStorageIds) {
+          await ctx.storage.delete(entry.storageId).catch(() => {});
+        }
+      }
       await ctx.db.delete(existing._id);
     }
 
@@ -55,9 +67,28 @@ export const putEntry = internalMutation({
       workspaceId: args.workspaceId,
       signature: args.signature,
       storageId: args.storageId,
+      dtsStorageIds: args.dtsStorageIds,
       toolCount: args.toolCount,
       sizeBytes: args.sizeBytes,
       createdAt: Date.now(),
     });
+  },
+});
+
+/**
+ * Look up .d.ts storage IDs for a workspace (used to generate download URLs).
+ */
+export const getDtsStorageIds = internalQuery({
+  args: {
+    workspaceId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const entry = await ctx.db
+      .query("workspaceToolCache")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+
+    if (!entry) return [];
+    return entry.dtsStorageIds ?? [];
   },
 });

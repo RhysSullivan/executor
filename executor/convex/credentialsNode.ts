@@ -2,7 +2,7 @@
 
 import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
 
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
@@ -142,6 +142,7 @@ export const upsertCredential = action({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.string(),
+    sessionId: v.optional(v.string()),
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
@@ -149,13 +150,28 @@ export const upsertCredential = action({
     secretJson: v.any(),
   },
   handler: async (ctx, args): Promise<Record<string, unknown>> => {
+    const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
+      workspaceId: args.workspaceId,
+      sessionId: args.sessionId,
+    });
+    const canonicalActorId = access.provider === "anonymous"
+      ? access.providerAccountId
+      : access.accountId;
+
+    if (args.scope === "actor" && args.actorId && args.actorId !== canonicalActorId) {
+      throw new Error("actorId must match the authenticated workspace actor");
+    }
+
     const provider = args.provider ?? "managed";
-    const actorId = normalizedActorId(args.scope, args.actorId);
+    const actorId = normalizedActorId(args.scope, args.actorId ?? canonicalActorId);
     const submittedSecret = asRecord(args.secretJson);
 
     if (provider === "managed") {
-      return await ctx.runMutation(api.database.upsertCredential, {
-        ...args,
+      return await ctx.runMutation(internal.database.upsertCredential, {
+        id: args.id,
+        workspaceId: args.workspaceId,
+        sourceKey: args.sourceKey,
+        scope: args.scope,
         actorId,
         provider,
         secretJson: submittedSecret,
@@ -167,7 +183,7 @@ export const upsertCredential = action({
       throw new Error("Encrypted storage value looks like a GitHub token. Paste the token in the token field.");
     }
 
-    const existing: Record<string, unknown> | null = await ctx.runQuery(api.database.resolveCredential, {
+    const existing: Record<string, unknown> | null = await ctx.runQuery(internal.database.resolveCredential, {
       workspaceId: args.workspaceId,
       sourceKey: args.sourceKey,
       scope: args.scope,
@@ -200,7 +216,7 @@ export const upsertCredential = action({
       throw new Error("Encrypted storage requires credential values");
     }
 
-    return await ctx.runMutation(api.database.upsertCredential, {
+    return await ctx.runMutation(internal.database.upsertCredential, {
       id: args.id,
       workspaceId: args.workspaceId,
       sourceKey: args.sourceKey,

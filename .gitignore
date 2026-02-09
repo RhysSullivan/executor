@@ -41,3 +41,6 @@ convex_local_storage/
 
 # Generated push env file
 executor/.env.executor-push
+
+# Dev runner PID file
+.dev.pids

@@ -58,6 +58,7 @@ export interface McpWorkspaceContext {
   workspaceId: string;
   actorId: string;
   clientId?: string;
+  sessionId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +242,6 @@ function createRunCodeTool(
       timeoutMs?: number;
       runtimeId?: string;
       metadata?: Record<string, unknown>;
-      workspaceId?: string;
-      actorId?: string;
       clientId?: string;
       sessionId?: string;
       waitForResult?: boolean;
@@ -260,14 +259,7 @@ function createRunCodeTool(
     let context: { workspaceId: string; actorId: string; clientId?: string; sessionId?: string };
 
     if (boundContext) {
-      context = { ...boundContext, sessionId: input.sessionId };
-    } else if (input.workspaceId && input.actorId) {
-      context = {
-        workspaceId: input.workspaceId,
-        actorId: input.actorId,
-        clientId: input.clientId,
-        sessionId: input.sessionId,
-      };
+      context = { ...boundContext, sessionId: input.sessionId ?? boundContext.sessionId };
     } else {
       const seededSessionId = input.sessionId ?? (extra.sessionId ? `mcp_${extra.sessionId}` : undefined);
       const anonymous = await service.bootstrapAnonymousContext(seededSessionId);
@@ -386,8 +378,6 @@ const FULL_INPUT = {
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
   metadata: z.record(z.string(), z.any()).optional(),
-  workspaceId: z.string().optional(),
-  actorId: z.string().optional(),
   clientId: z.string().optional(),
   sessionId: z.string().optional(),
   waitForResult: z.boolean().optional(),

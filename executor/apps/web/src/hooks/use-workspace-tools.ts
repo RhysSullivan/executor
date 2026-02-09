@@ -8,6 +8,7 @@ interface WorkspaceContext {
   workspaceId: string;
   actorId?: string;
   clientId?: string;
+  sessionId?: string;
 }
 
 /**
@@ -21,8 +22,8 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
 
   // Watch tool sources reactively so we invalidate when sources change
   const toolSources = useConvexQuery(
-    convexApi.database.listToolSources,
-    context ? { workspaceId: context.workspaceId } : "skip",
+    convexApi.workspace.listToolSources,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
 
   const { data, isLoading } = useTanstackQuery({
@@ -34,11 +35,12 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       toolSources,
     ],
     queryFn: async () => {
-      if (!context) return { tools: [], warnings: [] };
+      if (!context) return { tools: [], warnings: [], dtsUrls: {} };
       return await listToolsWithWarnings({
         workspaceId: context.workspaceId,
         ...(context.actorId && { actorId: context.actorId }),
         ...(context.clientId && { clientId: context.clientId }),
+        ...(context.sessionId && { sessionId: context.sessionId }),
       });
     },
     enabled: !!context,
@@ -47,6 +49,8 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
   return {
     tools: data?.tools ?? [],
     warnings: data?.warnings ?? [],
+    /** Per-source .d.ts download URLs for Monaco IntelliSense. Keyed by source key (e.g. "openapi:cloudflare"). */
+    dtsUrls: (data as any)?.dtsUrls ?? {},
     loading: !!context && isLoading,
   };
 }

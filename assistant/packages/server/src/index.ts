@@ -32,18 +32,27 @@ if (PINNED_WORKSPACE_ID && PINNED_ACTOR_ID) {
     clientId: PINNED_CLIENT_ID,
   };
 } else {
-  try {
-    const bootstrap = await convex.mutation(api.database.bootstrapAnonymousSession, {
-      sessionId: ANON_SESSION_ID,
-    });
-    ctx = {
-      workspaceId: bootstrap.workspaceId,
-      actorId: bootstrap.actorId,
-      clientId: PINNED_CLIENT_ID ?? bootstrap.clientId,
-    };
-  } catch (error) {
-    console.error("Failed to bootstrap executor context from Convex at", CONVEX_URL, error);
-    process.exit(1);
+  const MAX_RETRIES = 30;
+  const RETRY_DELAY_MS = 2000;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const bootstrap = await convex.mutation(api.database.bootstrapAnonymousSession, {
+        sessionId: ANON_SESSION_ID,
+      });
+      ctx = {
+        workspaceId: bootstrap.workspaceId,
+        actorId: bootstrap.actorId,
+        clientId: PINNED_CLIENT_ID ?? bootstrap.clientId,
+      };
+      break;
+    } catch (error) {
+      if (attempt >= MAX_RETRIES) {
+        console.error("Failed to bootstrap executor context from Convex at", CONVEX_URL, error);
+        process.exit(1);
+      }
+      console.log(`[assistant] Waiting for Convex functions... (attempt ${attempt}/${MAX_RETRIES})`);
+      await Bun.sleep(RETRY_DELAY_MS);
+    }
   }
 }
 

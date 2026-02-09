@@ -20,6 +20,7 @@ import type * as executorNode from "../executorNode.js";
 import type * as http from "../http.js";
 import type * as invites from "../invites.js";
 import type * as lib_adapters_in_process_execution_adapter from "../lib/adapters/in_process_execution_adapter.js";
+import type * as lib_anonymousSession from "../lib/anonymousSession.js";
 import type * as lib_credential_providers from "../lib/credential_providers.js";
 import type * as lib_events from "../lib/events.js";
 import type * as lib_execution_constants from "../lib/execution_constants.js";
@@ -37,6 +38,8 @@ import type * as lib_utils from "../lib/utils.js";
 import type * as openApiSpecCache from "../openApiSpecCache.js";
 import type * as organizationMembers from "../organizationMembers.js";
 import type * as organizations from "../organizations.js";
+import type * as workspace from "../workspace.js";
+import type * as workspaceAuthInternal from "../workspaceAuthInternal.js";
 import type * as workspaceToolCache from "../workspaceToolCache.js";
 import type * as workspaces from "../workspaces.js";
 
@@ -59,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   invites: typeof invites;
   "lib/adapters/in_process_execution_adapter": typeof lib_adapters_in_process_execution_adapter;
+  "lib/anonymousSession": typeof lib_anonymousSession;
   "lib/credential_providers": typeof lib_credential_providers;
   "lib/events": typeof lib_events;
   "lib/execution_constants": typeof lib_execution_constants;
@@ -76,6 +80,8 @@ declare const fullApi: ApiFromModules<{
   openApiSpecCache: typeof openApiSpecCache;
   organizationMembers: typeof organizationMembers;
   organizations: typeof organizations;
+  workspace: typeof workspace;
+  workspaceAuthInternal: typeof workspaceAuthInternal;
   workspaceToolCache: typeof workspaceToolCache;
   workspaces: typeof workspaces;
 }>;

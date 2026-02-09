@@ -109,9 +109,13 @@ export interface ToolDescriptor {
   description: string;
   approval: ToolApprovalMode;
   source?: string;
+  /** Lightweight TS type hint for args (for LLM prompt / discover tool). */
   argsType?: string;
+  /** Lightweight TS type hint for return value (for LLM prompt / discover tool). */
   returnsType?: string;
-  /** Schema type aliases needed by argsType/returnsType (shared across tools from same source) */
+  /** Raw operationId from the OpenAPI spec (used by Monaco for indexed access types). */
+  operationId?: string;
+  /** @deprecated Kept for cache compat. */
   schemaTypes?: Record<string, string>;
 }
 

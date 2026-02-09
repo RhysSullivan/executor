@@ -12,7 +12,7 @@ export const getClientConfig = query({
       features: {
         organizations: true,
         billing: true,
-        workspaceRestrictions: false,
+        workspaceRestrictions: true,
       },
     };
   },

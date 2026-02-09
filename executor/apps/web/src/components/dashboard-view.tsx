@@ -106,13 +106,13 @@ export function DashboardView() {
   const { context, loading: sessionLoading } = useSession();
 
   const tasks = useQuery(
-    convexApi.database.listTasks,
-    context ? { workspaceId: context.workspaceId } : "skip",
+    convexApi.workspace.listTasks,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
 
   const approvals = useQuery(
-    convexApi.database.listPendingApprovals,
-    context ? { workspaceId: context.workspaceId } : "skip",
+    convexApi.workspace.listPendingApprovals,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
 
   const { tools } = useWorkspaceTools(context ?? null);

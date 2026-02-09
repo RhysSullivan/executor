@@ -67,9 +67,9 @@ function TaskComposer() {
   const [timeoutMs, setTimeoutMs] = useState(String(DEFAULT_TIMEOUT_MS));
   const [submitting, setSubmitting] = useState(false);
 
-  const runtimes = useQuery(convexApi.database.listRuntimeTargets, {});
+  const runtimes = useQuery(convexApi.workspace.listRuntimeTargets, {});
   const createTask = useMutation(convexApi.executor.createTask);
-  const { tools, loading: toolsLoading } = useWorkspaceTools(context ?? null);
+  const { tools, dtsUrls, loading: toolsLoading } = useWorkspaceTools(context ?? null);
 
   const handleSubmit = async () => {
     if (!context || !code.trim()) return;
@@ -80,7 +80,7 @@ function TaskComposer() {
         runtimeId,
         timeoutMs: Number.parseInt(timeoutMs, 10) || DEFAULT_TIMEOUT_MS,
         workspaceId: context.workspaceId,
-        actorId: context.actorId,
+        sessionId: context.sessionId,
         clientId: context.clientId,
       });
       toast.success(`Task created: ${data.task.id}`);
@@ -137,6 +137,7 @@ function TaskComposer() {
               value={code}
               onChange={setCode}
               tools={tools}
+              dtsUrls={dtsUrls}
               typesLoading={toolsLoading}
               height="400px"
             />
@@ -203,19 +204,21 @@ function TaskListItem({
 function TaskDetail({
   task,
   workspaceId,
+  sessionId,
   onClose,
 }: {
   task: TaskRecord;
   workspaceId: string;
+  sessionId?: string;
   onClose: () => void;
 }) {
   const liveTaskData = useQuery(
-    convexApi.database.getTaskInWorkspace,
-    workspaceId ? { taskId: task.id, workspaceId } : "skip",
+    convexApi.workspace.getTaskInWorkspace,
+    workspaceId ? { taskId: task.id, workspaceId, sessionId } : "skip",
   );
   const taskEvents = useQuery(
-    convexApi.database.listTaskEvents,
-    workspaceId ? { taskId: task.id } : "skip",
+    convexApi.workspace.listTaskEvents,
+    workspaceId ? { taskId: task.id, workspaceId, sessionId } : "skip",
   );
 
   const liveTask = liveTaskData ?? task;
@@ -349,8 +352,8 @@ export function TasksView() {
   const selectedId = searchParams.get("selected");
 
   const tasks = useQuery(
-    convexApi.database.listTasks,
-    context ? { workspaceId: context.workspaceId } : "skip",
+    convexApi.workspace.listTasks,
+    context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
   const tasksLoading = !!context && tasks === undefined;
 
@@ -432,6 +435,7 @@ export function TasksView() {
             <TaskDetail
               task={selectedTask}
               workspaceId={context!.workspaceId}
+              sessionId={context?.sessionId}
               onClose={() => selectTask(null)}
             />
           ) : (

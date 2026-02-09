@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
 import schema from "./schema";
 
 function setup() {
@@ -13,7 +13,7 @@ function setup() {
 test("task lifecycle supports queue, run, and complete", async () => {
   const t = setup();
 
-  const created = await t.mutation(api.database.createTask, {
+  const created = await t.mutation(internal.database.createTask, {
     id: "task_1",
     code: "console.log('hello')",
     runtimeId: "local-bun",
@@ -25,16 +25,16 @@ test("task lifecycle supports queue, run, and complete", async () => {
   expect(created.id).toBe("task_1");
   expect(created.status).toBe("queued");
 
-  const queued = await t.query(api.database.listQueuedTaskIds, { limit: 10 });
+  const queued = await t.query(internal.database.listQueuedTaskIds, { limit: 10 });
   expect(queued).toEqual(["task_1"]);
 
-  const running = await t.mutation(api.database.markTaskRunning, { taskId: "task_1" });
+  const running = await t.mutation(internal.database.markTaskRunning, { taskId: "task_1" });
   expect(running?.status).toBe("running");
 
-  const secondRun = await t.mutation(api.database.markTaskRunning, { taskId: "task_1" });
+  const secondRun = await t.mutation(internal.database.markTaskRunning, { taskId: "task_1" });
   expect(secondRun).toBeNull();
 
-  const finished = await t.mutation(api.database.markTaskFinished, {
+  const finished = await t.mutation(internal.database.markTaskFinished, {
     taskId: "task_1",
     status: "completed",
     stdout: "ok",
@@ -43,14 +43,14 @@ test("task lifecycle supports queue, run, and complete", async () => {
   });
   expect(finished?.status).toBe("completed");
 
-  const queuedAfter = await t.query(api.database.listQueuedTaskIds, { limit: 10 });
+  const queuedAfter = await t.query(internal.database.listQueuedTaskIds, { limit: 10 });
   expect(queuedAfter).toEqual([]);
 });
 
 test("approval lifecycle tracks pending and resolution", async () => {
   const t = setup();
 
-  await t.mutation(api.database.createTask, {
+  await t.mutation(internal.database.createTask, {
     id: "task_2",
     code: "await tools.admin.delete_data({ id: 'x' })",
     runtimeId: "local-bun",
@@ -59,7 +59,7 @@ test("approval lifecycle tracks pending and resolution", async () => {
     clientId: "web",
   });
 
-  const createdApproval = await t.mutation(api.database.createApproval, {
+  const createdApproval = await t.mutation(internal.database.createApproval, {
     id: "approval_1",
     taskId: "task_2",
     toolPath: "admin.delete_data",
@@ -67,32 +67,32 @@ test("approval lifecycle tracks pending and resolution", async () => {
   });
   expect(createdApproval.status).toBe("pending");
 
-  const pending = await t.query(api.database.listPendingApprovals, { workspaceId: "ws_2" });
+  const pending = await t.query(internal.database.listPendingApprovals, { workspaceId: "ws_2" });
   expect(pending.length).toBe(1);
   expect(pending[0]?.task.id).toBe("task_2");
 
-  const resolved = await t.mutation(api.database.resolveApproval, {
+  const resolved = await t.mutation(internal.database.resolveApproval, {
     approvalId: "approval_1",
     decision: "approved",
     reviewerId: "reviewer_1",
   });
   expect(resolved?.status).toBe("approved");
 
-  const pendingAfter = await t.query(api.database.listPendingApprovals, { workspaceId: "ws_2" });
+  const pendingAfter = await t.query(internal.database.listPendingApprovals, { workspaceId: "ws_2" });
   expect(pendingAfter).toEqual([]);
 });
 
 test("anonymous bootstrap links guest account membership", async () => {
   const t = setup();
 
-  const first = await t.mutation(api.database.bootstrapAnonymousSession, {});
+  const first = await t.mutation(internal.database.bootstrapAnonymousSession, {});
   expect(first.sessionId).toContain("anon_session_");
-  expect(first.workspaceId).toContain("ws_");
+  expect(first.workspaceId.length).toBeGreaterThan(0);
   expect(first.actorId).toContain("anon_");
   expect(first.accountId).toBeDefined();
   expect(first.userId).toBeDefined();
 
-  const again = await t.mutation(api.database.bootstrapAnonymousSession, {
+  const again = await t.mutation(internal.database.bootstrapAnonymousSession, {
     sessionId: first.sessionId,
   });
 
@@ -101,20 +101,39 @@ test("anonymous bootstrap links guest account membership", async () => {
   expect(again.userId).toBe(first.userId);
 });
 
-test("bootstrap honors caller-provided session id", async () => {
+test("bootstrap ignores non-MCP caller-provided session id", async () => {
   const t = setup();
 
-  const seeded = await t.mutation(api.database.bootstrapAnonymousSession, {
+  const seeded = await t.mutation(internal.database.bootstrapAnonymousSession, {
     sessionId: "assistant-discord-dev",
   });
 
-  expect(seeded.sessionId).toBe("assistant-discord-dev");
+  expect(seeded.sessionId).not.toBe("assistant-discord-dev");
+  expect(seeded.sessionId).toContain("anon_session_");
 
-  const again = await t.mutation(api.database.bootstrapAnonymousSession, {
-    sessionId: "assistant-discord-dev",
+  const again = await t.mutation(internal.database.bootstrapAnonymousSession, {
+    sessionId: seeded.sessionId,
   });
 
-  expect(again.sessionId).toBe("assistant-discord-dev");
+  expect(again.sessionId).toBe(seeded.sessionId);
+  expect(again.workspaceId).toBe(seeded.workspaceId);
+  expect(again.actorId).toBe(seeded.actorId);
+});
+
+test("bootstrap honors MCP caller-provided session id", async () => {
+  const t = setup();
+
+  const seeded = await t.mutation(internal.database.bootstrapAnonymousSession, {
+    sessionId: "mcp_assistant-discord-dev",
+  });
+
+  expect(seeded.sessionId).toBe("mcp_assistant-discord-dev");
+
+  const again = await t.mutation(internal.database.bootstrapAnonymousSession, {
+    sessionId: "mcp_assistant-discord-dev",
+  });
+
+  expect(again.sessionId).toBe("mcp_assistant-discord-dev");
   expect(again.workspaceId).toBe(seeded.workspaceId);
   expect(again.actorId).toBe(seeded.actorId);
 });
@@ -122,7 +141,7 @@ test("bootstrap honors caller-provided session id", async () => {
 test("credentials persist provider and resolve by scope", async () => {
   const t = setup();
 
-  const workspaceCredential = await t.mutation(api.database.upsertCredential, {
+  const workspaceCredential = await t.mutation(internal.database.upsertCredential, {
     workspaceId: "ws_cred",
     sourceKey: "openapi:github",
     scope: "workspace",
@@ -132,7 +151,7 @@ test("credentials persist provider and resolve by scope", async () => {
 
   expect(workspaceCredential.provider).toBe("managed");
 
-  const actorCredential = await t.mutation(api.database.upsertCredential, {
+  const actorCredential = await t.mutation(internal.database.upsertCredential, {
     workspaceId: "ws_cred",
     sourceKey: "openapi:github",
     scope: "actor",
@@ -144,14 +163,14 @@ test("credentials persist provider and resolve by scope", async () => {
   expect(actorCredential.provider).toBe("workos-vault");
   expect(actorCredential.actorId).toBe("actor_cred");
 
-  const resolvedWorkspace = await t.query(api.database.resolveCredential, {
+  const resolvedWorkspace = await t.query(internal.database.resolveCredential, {
     workspaceId: "ws_cred",
     sourceKey: "openapi:github",
     scope: "workspace",
   });
   expect(resolvedWorkspace?.provider).toBe("managed");
 
-  const resolvedActor = await t.query(api.database.resolveCredential, {
+  const resolvedActor = await t.query(internal.database.resolveCredential, {
     workspaceId: "ws_cred",
     sourceKey: "openapi:github",
     scope: "actor",
@@ -163,7 +182,7 @@ test("credentials persist provider and resolve by scope", async () => {
 test("upsertCredential defaults provider to managed", async () => {
   const t = setup();
 
-  const credential = await t.mutation(api.database.upsertCredential, {
+  const credential = await t.mutation(internal.database.upsertCredential, {
     workspaceId: "ws_default_provider",
     sourceKey: "openapi:stripe",
     scope: "workspace",

@@ -52,8 +52,8 @@ export const putEntry = internalMutation({
       .unique();
 
     if (existing) {
-      // Delete old blob
-      await ctx.storage.delete(existing.storageId);
+      // Delete old blob (ignore if already deleted by a concurrent mutation)
+      await ctx.storage.delete(existing.storageId).catch(() => {});
       await ctx.db.delete(existing._id);
     }
 
@@ -89,7 +89,7 @@ export const pruneExpired = internalMutation({
     for (const entry of entries) {
       if (removed >= limit) break;
       if (entry.createdAt < cutoff) {
-        await ctx.storage.delete(entry.storageId);
+        await ctx.storage.delete(entry.storageId).catch(() => {});
         await ctx.db.delete(entry._id);
         removed++;
       }
