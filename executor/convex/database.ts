@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 300_000;
 type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
 type OrganizationMemberStatus = "active" | "pending" | "removed";
 

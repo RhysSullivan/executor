@@ -4,7 +4,7 @@ import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation } from "./_generated/server";
 import type { ApprovalRecord, TaskRecord } from "./lib/types";
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 300_000;
 
 async function publishTaskEvent(
   ctx: MutationCtx,

@@ -1,15 +1,19 @@
 "use node";
 
 import { v } from "convex/values";
-import { api, internal } from "./_generated/api";
+import { ActionCache } from "@convex-dev/action-cache";
+import { api, components, internal } from "./_generated/api";
 import { action, internalAction } from "./_generated/server";
 import { InProcessExecutionAdapter } from "./lib/adapters/in_process_execution_adapter";
 import { APPROVAL_DENIED_PREFIX } from "./lib/execution_constants";
 import { runCodeWithAdapter } from "./lib/runtimes/runtime_core";
 import { createDiscoverTool } from "./lib/tool_discovery";
 import {
+  buildOpenApiToolsFromPrepared,
   loadExternalTools,
   parseGraphqlOperationPaths,
+  prepareOpenApiSpec,
+  type PreparedOpenApiSpec,
   type ExternalToolSourceConfig,
 } from "./lib/tool_sources";
 import { DEFAULT_TOOLS } from "./lib/tools";
@@ -119,8 +123,27 @@ const workspaceToolCache = new Map<
   string,
   { signature: string; loadedAt: number; tools: Map<string, ToolDefinition>; warnings: string[] }
 >();
+const workspaceToolLoadsInFlight = new Map<
+  string,
+  {
+    signature: string;
+    promise: Promise<{ tools: Map<string, ToolDefinition>; warnings: string[] }>;
+  }
+>();
+const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 const WORKSPACE_TOOL_CACHE_TTL_MS = 5 * 60 * 60_000;
 const WORKSPACE_TOOL_CACHE_RETRY_TTL_MS = 5 * 60 * 60_000;
+
+const actionCacheComponent = components as unknown as { actionCache: unknown };
+const openApiSpecCache = new ActionCache(actionCacheComponent.actionCache as never, {
+  action: internal.executorNode.prepareOpenApiSpecForCache,
+  name: "openapi-spec-transform-v1",
+  ttl: OPENAPI_SPEC_CACHE_TTL_MS,
+});
+
+interface PreparedOpenApiSpecCacheValue {
+  preparedJson: string;
+}
 
 function isWorkspaceToolCacheFresh(
   cached: { signature: string; loadedAt: number; warnings: string[] },
@@ -169,6 +192,42 @@ async function waitForApproval(ctx: any, approvalId: string): Promise<"approved"
   }
 }
 
+export const prepareOpenApiSpecForCache = internalAction({
+  args: {
+    specUrl: v.string(),
+  },
+  handler: async (_ctx, args): Promise<PreparedOpenApiSpecCacheValue> => {
+    const prepared = await prepareOpenApiSpec(args.specUrl, args.specUrl);
+    // Action cache values must be valid Convex values. Raw OpenAPI objects can
+    // contain keys like "$ref", which Convex object fields disallow, so we
+    // store the prepared payload as a JSON string.
+    return { preparedJson: JSON.stringify(prepared) };
+  },
+});
+
+async function loadSourceTools(
+  ctx: any,
+  source: ExternalToolSourceConfig,
+): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
+  if (source.type === "openapi" && typeof source.spec === "string") {
+    try {
+      const cached = await openApiSpecCache.fetch(ctx, { specUrl: source.spec }) as PreparedOpenApiSpecCacheValue;
+      const prepared = JSON.parse(cached.preparedJson) as PreparedOpenApiSpec;
+      const tools = buildOpenApiToolsFromPrepared(source, prepared);
+      const warnings = (prepared.warnings ?? []).map((warning) => `Source '${source.name}': ${warning}`);
+      return { tools, warnings };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        tools: [],
+        warnings: [`Failed to load openapi source '${source.name}': ${message}`],
+      };
+    }
+  }
+
+  return await loadExternalTools([source]);
+}
+
 async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<string, ToolDefinition>> {
   const sources = (await ctx.runQuery(api.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
@@ -179,40 +238,61 @@ async function getWorkspaceTools(ctx: any, workspaceId: string): Promise<Map<str
     return cached.tools;
   }
 
-  const configs: ExternalToolSourceConfig[] = [];
-  const warnings: string[] = [];
-  for (const source of sources) {
-    try {
-      configs.push(normalizeExternalToolSource(source));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`Source '${source.name}': ${message}`);
+  const inFlight = workspaceToolLoadsInFlight.get(workspaceId);
+  if (inFlight && inFlight.signature === signature) {
+    const loaded = await inFlight.promise;
+    return loaded.tools;
+  }
+
+  const loadPromise = (async () => {
+    const configs: ExternalToolSourceConfig[] = [];
+    const warnings: string[] = [];
+    for (const source of sources) {
+      try {
+        configs.push(normalizeExternalToolSource(source));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`Source '${source.name}': ${message}`);
+      }
+    }
+
+    const loadedSources = await Promise.all(configs.map((config) => loadSourceTools(ctx, config)));
+    const externalTools = loadedSources.flatMap((loaded) => loaded.tools);
+    warnings.push(...loadedSources.flatMap((loaded) => loaded.warnings));
+
+    const merged = new Map<string, ToolDefinition>();
+    for (const tool of baseTools.values()) {
+      if (tool.path === "discover") continue;
+      merged.set(tool.path, tool);
+    }
+    for (const tool of externalTools) {
+      merged.set(tool.path, tool);
+    }
+
+    const discover = createDiscoverTool([...merged.values()]);
+    merged.set(discover.path, discover);
+
+    workspaceToolCache.set(workspaceId, {
+      signature,
+      loadedAt: Date.now(),
+      tools: merged,
+      warnings,
+    });
+
+    return { tools: merged, warnings };
+  })();
+
+  workspaceToolLoadsInFlight.set(workspaceId, { signature, promise: loadPromise });
+
+  try {
+    const loaded = await loadPromise;
+    return loaded.tools;
+  } finally {
+    const current = workspaceToolLoadsInFlight.get(workspaceId);
+    if (current?.promise === loadPromise) {
+      workspaceToolLoadsInFlight.delete(workspaceId);
     }
   }
-
-  const { tools: externalTools, warnings: loadWarnings } = await loadExternalTools(configs);
-  warnings.push(...loadWarnings);
-
-  const merged = new Map<string, ToolDefinition>();
-  for (const tool of baseTools.values()) {
-    if (tool.path === "discover") continue;
-    merged.set(tool.path, tool);
-  }
-  for (const tool of externalTools) {
-    merged.set(tool.path, tool);
-  }
-
-  const discover = createDiscoverTool([...merged.values()]);
-  merged.set(discover.path, discover);
-
-  workspaceToolCache.set(workspaceId, {
-    signature,
-    loadedAt: now,
-    tools: merged,
-    warnings,
-  });
-
-  return merged;
 }
 
 function getDecisionForContext(
@@ -392,13 +472,16 @@ function getGraphqlDecision(
 
 async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
   const { toolPath, input, callId } = call;
-  const [workspaceTools, policies] = await Promise.all([
-    getWorkspaceTools(ctx, task.workspaceId),
-    ctx.runQuery(api.database.listAccessPolicies, { workspaceId: task.workspaceId }),
-  ]);
+  const policies = await ctx.runQuery(api.database.listAccessPolicies, { workspaceId: task.workspaceId });
   const typedPolicies = policies as AccessPolicyRecord[];
 
-  const tool = workspaceTools.get(toolPath);
+  let workspaceTools: Map<string, ToolDefinition> | undefined;
+  let tool = baseTools.get(toolPath);
+  if (!tool) {
+    workspaceTools = await getWorkspaceTools(ctx, task.workspaceId);
+    tool = workspaceTools.get(toolPath);
+  }
+
   if (!tool) {
     throw new Error(`Unknown tool: ${toolPath}`);
   }
@@ -406,6 +489,9 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
   let decision: PolicyDecision;
   let effectiveToolPath = toolPath;
   if (tool._graphqlSource) {
+    if (!workspaceTools) {
+      workspaceTools = await getWorkspaceTools(ctx, task.workspaceId);
+    }
     const result = getGraphqlDecision(task, tool, input, workspaceTools, typedPolicies);
     decision = result.decision;
     if (result.effectivePaths.length > 0) {
@@ -478,7 +564,7 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
       actorId: task.actorId,
       clientId: task.clientId,
       credential,
-      isToolAllowed: (path) => isToolAllowedForTask(task, path, workspaceTools, typedPolicies),
+      isToolAllowed: (path) => isToolAllowedForTask(task, path, workspaceTools ?? baseTools, typedPolicies),
     };
     const value = await tool.run(input, context);
     await publish(ctx, task.id, "task", "tool.call.completed", {

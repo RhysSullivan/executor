@@ -667,39 +667,68 @@ function buildOpenApiUrl(
   };
 }
 
-async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDefinition[]> {
+export interface PreparedOpenApiSpec {
+  servers: string[];
+  paths: Record<string, unknown>;
+  operationTypes?: Record<string, { argsType: string; returnsType: string }>;
+  schemaTypes?: Record<string, string>;
+  warnings: string[];
+}
+
+export async function prepareOpenApiSpec(
+  spec: string | Record<string, unknown>,
+  sourceName = "openapi",
+): Promise<PreparedOpenApiSpec> {
   // Run type generation in parallel with spec loading.
   // We prefer `bundle` so external refs are resolved, but some real-world specs
   // contain broken internal refs. In that case, fall back to `parse` so we can
   // still load operation paths and expose usable tools.
-  const typeMapPromise = generateOpenApiTypes(config.spec);
+  const typeMapPromise = generateOpenApiTypes(spec);
   const parser = SwaggerParser as unknown as {
     bundle(spec: unknown): Promise<unknown>;
     parse(spec: unknown): Promise<unknown>;
   };
 
+  const warnings: string[] = [];
   let bundled: Record<string, unknown>;
   try {
-    bundled = await parser.bundle(config.spec).then((api) => api as Record<string, unknown>);
+    bundled = await parser.bundle(spec).then((api) => api as Record<string, unknown>);
   } catch (bundleError) {
     const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
-    console.warn(
-      `[executor] OpenAPI bundle failed for '${config.name}', falling back to parse-only mode: ${bundleMessage}`,
-    );
+    warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
     try {
-      bundled = await parser.parse(config.spec).then((api) => api as Record<string, unknown>);
+      bundled = await parser.parse(spec).then((api) => api as Record<string, unknown>);
     } catch (parseError) {
       const parseMessage = parseError instanceof Error ? parseError.message : String(parseError);
       throw new Error(
-        `Failed to load OpenAPI source '${config.name}': bundle error (${bundleMessage}); parse error (${parseMessage})`,
+        `Failed to load OpenAPI source '${sourceName}': bundle error (${bundleMessage}); parse error (${parseMessage})`,
       );
     }
   }
 
   const typeMap = await typeMapPromise;
-
   const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
-  const baseUrl = config.baseUrl ?? String(servers[0]?.url ?? "");
+
+  return {
+    servers: servers
+      .map((server) => (typeof server.url === "string" ? server.url : ""))
+      .filter((url) => url.length > 0),
+    paths: asRecord(bundled.paths),
+    ...(typeMap
+      ? {
+          operationTypes: Object.fromEntries(typeMap.operations),
+          ...(typeMap.schemas.size > 0 ? { schemaTypes: Object.fromEntries(typeMap.schemas) } : {}),
+        }
+      : {}),
+    warnings,
+  };
+}
+
+export function buildOpenApiToolsFromPrepared(
+  config: OpenApiToolSourceConfig,
+  prepared: PreparedOpenApiSpec,
+): ToolDefinition[] {
+  const baseUrl = config.baseUrl ?? prepared.servers[0] ?? "";
   if (!baseUrl) {
     throw new Error(`OpenAPI source ${config.name} has no base URL (set baseUrl)`);
   }
@@ -707,13 +736,13 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
   const authHeaders = buildStaticAuthHeaders(config.auth);
   const sourceKey = `openapi:${config.name}`;
   const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
-  const paths = asRecord(bundled.paths);
+  const paths = asRecord(prepared.paths);
   const tools: ToolDefinition[] = [];
 
   // Schema type aliases referenced by operations — stored on the first tool only
   // to avoid duplicating hundreds of KB across every tool from this source.
-  const schemaTypes = typeMap?.schemas.size
-    ? Object.fromEntries(typeMap.schemas)
+  const schemaTypes = prepared.schemaTypes && Object.keys(prepared.schemaTypes).length > 0
+    ? prepared.schemaTypes
     : undefined;
   let schemaTypesEmitted = false;
 
@@ -747,7 +776,7 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
       }));
 
       // Use openapiTS-generated types if available, otherwise fall back to schema hints
-      const generatedTypes = typeMap?.operations.get(operationIdRaw);
+      const generatedTypes = prepared.operationTypes?.[operationIdRaw];
       let argsType: string;
       let returnsType: string;
 
@@ -840,6 +869,11 @@ async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDe
   }
 
   return tools;
+}
+
+async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDefinition[]> {
+  const prepared = await prepareOpenApiSpec(config.spec, config.name);
+  return buildOpenApiToolsFromPrepared(config, prepared);
 }
 
 // ── GraphQL introspection ──

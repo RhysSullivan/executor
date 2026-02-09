@@ -47,6 +47,7 @@ await tools.admin.send_announcement({
   channel: "general",
   message: "Hello from executor!"
 });`;
+const DEFAULT_TIMEOUT_MS = 300_000;
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString([], {
@@ -63,7 +64,7 @@ function TaskComposer() {
   const { context } = useSession();
   const [code, setCode] = useState(DEFAULT_CODE);
   const [runtimeId, setRuntimeId] = useState("local-bun");
-  const [timeoutMs, setTimeoutMs] = useState("15000");
+  const [timeoutMs, setTimeoutMs] = useState(String(DEFAULT_TIMEOUT_MS));
   const [submitting, setSubmitting] = useState(false);
 
   const runtimes = useQuery(convexApi.database.listRuntimeTargets, {});
@@ -77,7 +78,7 @@ function TaskComposer() {
       const data = await createTask({
         code,
         runtimeId,
-        timeoutMs: parseInt(timeoutMs) || 15000,
+        timeoutMs: Number.parseInt(timeoutMs, 10) || DEFAULT_TIMEOUT_MS,
         workspaceId: context.workspaceId,
         actorId: context.actorId,
         clientId: context.clientId,

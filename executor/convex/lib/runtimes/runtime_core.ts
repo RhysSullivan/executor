@@ -15,15 +15,18 @@ import type {
 async function transpileForRuntime(code: string): Promise<string> {
   let ts: typeof import("typescript");
   try {
-    ts = await import("typescript");
+    ts = require("typescript");
   } catch {
     return code;
   }
 
+  const target = ts.ScriptTarget?.ES2022 ?? ts.ScriptTarget?.ESNext;
+  const moduleKind = ts.ModuleKind?.ESNext;
+
   const result = ts.transpileModule(code, {
     compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
+      ...(target !== undefined ? { target } : {}),
+      ...(moduleKind !== undefined ? { module: moduleKind } : {}),
     },
     reportDiagnostics: true,
   });
