@@ -35,7 +35,7 @@ export function TaskMessage({ agentTaskId, prompt, workspaceId }: TaskMessagePro
 
   // Reactive queries — no polling!
   const agentTask = useQuery(api.database.getAgentTask, { agentTaskId });
-  const pendingApprovals = useQuery(api.database.listPendingApprovals, { workspaceId });
+  const pendingApprovals = useQuery(api.workspace.listPendingApprovals, { workspaceId });
 
   const status = agentTask?.status ?? "running";
   const isDone = status !== "running";

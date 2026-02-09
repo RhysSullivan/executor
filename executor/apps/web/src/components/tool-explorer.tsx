@@ -5,8 +5,10 @@ import {
   useMemo,
   useCallback,
   useEffect,
+  useRef,
   memo,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Search,
   ChevronRight,
@@ -1197,44 +1199,98 @@ export function ToolExplorer({
         </div>
 
         {/* Scrollable list */}
-        <ScrollArea className="flex-1 rounded-md border border-border/30 bg-background/30">
-          {viewMode === "flat" ? (
-            flatTools.length === 0 ? (
+        {viewMode === "flat" ? (
+          flatTools.length === 0 ? (
+            <div className="flex-1 rounded-md border border-border/30 bg-background/30">
+              <EmptyState hasSearch={!!search} />
+            </div>
+          ) : (
+            <VirtualFlatList
+              tools={flatTools}
+              selectedKeys={selectedKeys}
+              onSelectTool={toggleSelectTool}
+            />
+          )
+        ) : (
+          <ScrollArea className="flex-1 rounded-md border border-border/30 bg-background/30">
+            {treeGroups.length === 0 ? (
               <EmptyState hasSearch={!!search} />
             ) : (
               <div className="p-1">
-                {flatTools.map((tool) => (
-                  <SelectableToolRow
-                    key={tool.path}
-                    tool={tool}
-                    label={tool.path}
+                {treeGroups.map((group) => (
+                  <GroupNode
+                    key={group.key}
+                    group={group}
                     depth={0}
+                    expandedKeys={expandedKeys}
+                    onToggle={toggleExpand}
                     selectedKeys={selectedKeys}
+                    onSelectGroup={toggleSelectGroup}
                     onSelectTool={toggleSelectTool}
+                    search={search}
                   />
                 ))}
               </div>
-            )
-          ) : treeGroups.length === 0 ? (
-            <EmptyState hasSearch={!!search} />
-          ) : (
-            <div className="p-1">
-              {treeGroups.map((group) => (
-                <GroupNode
-                  key={group.key}
-                  group={group}
-                  depth={0}
-                  expandedKeys={expandedKeys}
-                  onToggle={toggleExpand}
-                  selectedKeys={selectedKeys}
-                  onSelectGroup={toggleSelectGroup}
-                  onSelectTool={toggleSelectTool}
-                  search={search}
-                />
-              ))}
+            )}
+          </ScrollArea>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Virtualized flat list — only renders visible rows ──
+
+const ROW_HEIGHT = 32;
+
+function VirtualFlatList({
+  tools,
+  selectedKeys,
+  onSelectTool,
+}: {
+  tools: ToolDescriptor[];
+  selectedKeys: Set<string>;
+  onSelectTool: (path: string, e: React.MouseEvent) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: tools.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 20,
+  });
+
+  return (
+    <div
+      ref={scrollRef}
+      className="flex-1 rounded-md border border-border/30 bg-background/30 overflow-y-auto"
+    >
+      <div
+        className="relative w-full p-1"
+        style={{ height: virtualizer.getTotalSize() }}
+      >
+        {virtualizer.getVirtualItems().map((vItem) => {
+          const tool = tools[vItem.index];
+          return (
+            <div
+              key={tool.path}
+              className="absolute left-0 right-0 px-1"
+              style={{
+                height: vItem.size,
+                transform: `translateY(${vItem.start}px)`,
+              }}
+            >
+              <SelectableToolRow
+                tool={tool}
+                label={tool.path}
+                depth={0}
+                selectedKeys={selectedKeys}
+                onSelectTool={onSelectTool}
+              />
             </div>
-          )}
-        </ScrollArea>
+          );
+        })}
       </div>
     </div>
   );

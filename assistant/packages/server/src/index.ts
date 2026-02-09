@@ -36,7 +36,7 @@ if (PINNED_WORKSPACE_ID && PINNED_ACTOR_ID) {
   const RETRY_DELAY_MS = 2000;
   for (let attempt = 1; ; attempt++) {
     try {
-      const bootstrap = await convex.mutation(api.database.bootstrapAnonymousSession, {
+      const bootstrap = await convex.mutation(api.workspace.bootstrapAnonymousSession, {
         sessionId: ANON_SESSION_ID,
       });
       ctx = {

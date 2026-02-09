@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { mutation,
+query,
+type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { ensureUniqueSlug } from "../lib/slug";
 import type { TaskStatus } from "@executor/contracts";
@@ -647,7 +649,7 @@ async function getAgentTaskDoc(ctx: { db: QueryCtx["db"] }, agentTaskId: string)
     .unique();
 }
 
-export const createAgentTask = internalMutation({
+export const createAgentTask = mutation({
   args: {
     id: v.string(),
     prompt: v.string(),
@@ -680,7 +682,7 @@ export const createAgentTask = internalMutation({
   },
 });
 
-export const getAgentTask = internalQuery({
+export const getAgentTask = query({
   args: { agentTaskId: v.string() },
   handler: async (ctx, args) => {
     const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
@@ -688,7 +690,7 @@ export const getAgentTask = internalQuery({
   },
 });
 
-export const updateAgentTask = internalMutation({
+export const updateAgentTask = mutation({
   args: {
     agentTaskId: v.string(),
     status: v.optional(agentTaskStatusValidator),
