@@ -378,12 +378,12 @@ describe("workspace tool cache table", () => {
   // convex-test based tests for the table operations
   test("getEntry + putEntry round-trip", async () => {
     const { convexTest } = await import("convex-test");
-    const { internal } = await import("../_generated/api");
-    const schema = (await import("../schema")).default;
+    const { internal } = await import("../convex/_generated/api");
+    const schema = (await import("../convex/schema")).default;
 
     const t = convexTest(schema, {
-      "./workspaceToolCache.ts": () => import("../workspaceToolCache"),
-      "./_generated/api.js": () => import("../_generated/api.js"),
+      "./workspaceToolCache.ts": () => import("../convex/workspaceToolCache"),
+      "./_generated/api.js": () => import("../convex/_generated/api.js"),
     });
 
     // Empty cache
@@ -425,12 +425,12 @@ describe("workspace tool cache table", () => {
 
   test("putEntry replaces old entry and deletes old blob", async () => {
     const { convexTest } = await import("convex-test");
-    const { internal } = await import("../_generated/api");
-    const schema = (await import("../schema")).default;
+    const { internal } = await import("../convex/_generated/api");
+    const schema = (await import("../convex/schema")).default;
 
     const t = convexTest(schema, {
-      "./workspaceToolCache.ts": () => import("../workspaceToolCache"),
-      "./_generated/api.js": () => import("../_generated/api.js"),
+      "./workspaceToolCache.ts": () => import("../convex/workspaceToolCache"),
+      "./_generated/api.js": () => import("../convex/_generated/api.js"),
     });
 
     const storageId1 = await t.run(async (ctx) => {

@@ -1,5 +1,5 @@
-import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx, QueryCtx } from "../_generated/server";
+import type { Doc, Id } from "../convex/_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../convex/_generated/server";
 
 type IdentityCtx = Pick<QueryCtx, "auth" | "db"> | Pick<MutationCtx, "auth" | "db">;
 type MembershipCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;

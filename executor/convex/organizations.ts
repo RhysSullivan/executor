@@ -1,9 +1,9 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { optionalAccountQuery, authedMutation } from "./lib/functionBuilders";
-import { getOrganizationMembership, slugify } from "./lib/identity";
-import { ensureUniqueSlug } from "./lib/slug";
+import { optionalAccountQuery, authedMutation } from "../lib/functionBuilders";
+import { getOrganizationMembership, slugify } from "../lib/identity";
+import { ensureUniqueSlug } from "../lib/slug";
 
 type WorkspaceSummary = {
   id: Id<"workspaces">;

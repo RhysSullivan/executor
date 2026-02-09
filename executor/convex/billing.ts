@@ -4,8 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import { components, internal } from "./_generated/api";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { action } from "./_generated/server";
-import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
-import { canManageBilling, isAdminRole } from "./lib/identity";
+import { organizationMutation, organizationQuery } from "../lib/functionBuilders";
+import { canManageBilling, isAdminRole } from "../lib/identity";
 
 const stripeClient = new StripeSubscriptions(components.stripe, {});
 

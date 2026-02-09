@@ -4,7 +4,7 @@ import {
   requireWorkspaceAccessForAccount,
   resolveAccountForRequest,
   resolveWorkosAccountBySubject,
-} from "./lib/identity";
+} from "../lib/identity";
 
 function actorIdForAccount(account: { _id: string; provider: string; providerAccountId: string }): string {
   return account.provider === "anonymous" ? account.providerAccountId : account._id;

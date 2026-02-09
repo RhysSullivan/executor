@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { getOrganizationMembership } from "./lib/identity";
-import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
+import { getOrganizationMembership } from "../lib/identity";
+import { organizationMutation, organizationQuery } from "../lib/functionBuilders";
 
 const organizationRoleValidator = v.union(
   v.literal("owner"),

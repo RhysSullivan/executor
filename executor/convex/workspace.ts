@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { workspaceMutation, workspaceQuery } from "./lib/functionBuilders";
+import { workspaceMutation, workspaceQuery } from "../lib/functionBuilders";
 
 const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));

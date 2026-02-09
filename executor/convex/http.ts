@@ -4,8 +4,8 @@ import { httpRouter } from "convex/server";
 import { components, internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
-import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp_server";
-import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "./lib/types";
+import { handleMcpRequest, type McpWorkspaceContext } from "../lib/mcp_server";
+import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "../lib/types";
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? null;

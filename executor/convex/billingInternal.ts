@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { internalOrganizationQuery } from "./lib/functionBuilders";
+import { internalOrganizationQuery } from "../lib/functionBuilders";
 
 type DbCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
 

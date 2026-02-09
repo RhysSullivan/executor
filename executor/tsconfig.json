@@ -17,6 +17,7 @@
   },
   "include": [
     "packages/**/*.ts",
-    "convex/**/*.ts"
+    "convex/**/*.ts",
+    "lib/**/*.ts"
   ]
 }

@@ -3,11 +3,11 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction } from "./_generated/server";
-import { InProcessExecutionAdapter } from "./lib/adapters/in_process_execution_adapter";
-import { resolveCredentialPayload } from "./lib/credential_providers";
-import { APPROVAL_DENIED_PREFIX } from "./lib/execution_constants";
-import { runCodeWithAdapter } from "./lib/runtimes/runtime_core";
-import { createDiscoverTool } from "./lib/tool_discovery";
+import { InProcessExecutionAdapter } from "../lib/adapters/in_process_execution_adapter";
+import { resolveCredentialPayload } from "../lib/credential_providers";
+import { APPROVAL_DENIED_PREFIX } from "../lib/execution_constants";
+import { runCodeWithAdapter } from "../lib/runtimes/runtime_core";
+import { createDiscoverTool } from "../lib/tool_discovery";
 import {
   buildOpenApiToolsFromPrepared,
   loadExternalTools,
@@ -18,8 +18,8 @@ import {
   type PreparedOpenApiSpec,
   type ExternalToolSourceConfig,
   type WorkspaceToolSnapshot,
-} from "./lib/tool_sources";
-import { DEFAULT_TOOLS } from "./lib/tools";
+} from "../lib/tool_sources";
+import { DEFAULT_TOOLS } from "../lib/tools";
 import type {
   AccessPolicyRecord,
   CredentialScope,
@@ -33,8 +33,8 @@ import type {
   ToolDescriptor,
   ToolSourceRecord,
   ToolRunContext,
-} from "./lib/types";
-import { asPayload, describeError } from "./lib/utils";
+} from "../lib/types";
+import { asPayload, describeError } from "../lib/utils";
 
 function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;

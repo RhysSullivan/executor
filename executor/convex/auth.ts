@@ -3,7 +3,7 @@ import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation } from "./_generated/server";
-import { ensureUniqueSlug } from "./lib/slug";
+import { ensureUniqueSlug } from "../lib/slug";
 
 type DbCtx = Pick<MutationCtx, "db">;
 type RunQueryCtx = Pick<MutationCtx, "runQuery">;

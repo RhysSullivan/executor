@@ -43,6 +43,6 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/bun": "latest",
     "convex-test": "^0.0.41",
-    "typescript": "latest"
+    "typescript": "^5.9.3"
   }
 }

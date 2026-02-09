@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
-import { ensureUniqueSlug } from "./lib/slug";
+import { ensureUniqueSlug } from "../lib/slug";
 import type { TaskStatus } from "@executor/contracts";
 
 const DEFAULT_TIMEOUT_MS = 300_000;

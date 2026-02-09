@@ -5,86 +5,15 @@
  * THIS CODE IS AUTOMATICALLY GENERATED.
  *
  * To regenerate, run `npx convex dev`.
+ *
+ * NOTE: This file has been post-processed by scripts/postcodegen.ts
+ * to replace recursive ApiFromModules/FilterApi types with explicit
+ * declarations, avoiding TS2589 depth errors.
+ *
  * @module
  */
 
-import type * as app from "../app.js";
-import type * as auth from "../auth.js";
-import type * as billing from "../billing.js";
-import type * as billingInternal from "../billingInternal.js";
-import type * as billingSync from "../billingSync.js";
-import type * as credentialsNode from "../credentialsNode.js";
-import type * as database from "../database.js";
-import type * as executor from "../executor.js";
-import type * as executorNode from "../executorNode.js";
-import type * as http from "../http.js";
-import type * as invites from "../invites.js";
-import type * as lib_adapters_in_process_execution_adapter from "../lib/adapters/in_process_execution_adapter.js";
-import type * as lib_anonymousSession from "../lib/anonymousSession.js";
-import type * as lib_credential_providers from "../lib/credential_providers.js";
-import type * as lib_events from "../lib/events.js";
-import type * as lib_execution_constants from "../lib/execution_constants.js";
-import type * as lib_functionBuilders from "../lib/functionBuilders.js";
-import type * as lib_identity from "../lib/identity.js";
-import type * as lib_mcp_server from "../lib/mcp_server.js";
-import type * as lib_runtimes_runtime_core from "../lib/runtimes/runtime_core.js";
-import type * as lib_slug from "../lib/slug.js";
-import type * as lib_tool_discovery from "../lib/tool_discovery.js";
-import type * as lib_tool_sources from "../lib/tool_sources.js";
-import type * as lib_tools from "../lib/tools.js";
-import type * as lib_typechecker from "../lib/typechecker.js";
-import type * as lib_types from "../lib/types.js";
-import type * as lib_utils from "../lib/utils.js";
-import type * as openApiSpecCache from "../openApiSpecCache.js";
-import type * as organizationMembers from "../organizationMembers.js";
-import type * as organizations from "../organizations.js";
-import type * as workspace from "../workspace.js";
-import type * as workspaceAuthInternal from "../workspaceAuthInternal.js";
-import type * as workspaceToolCache from "../workspaceToolCache.js";
-import type * as workspaces from "../workspaces.js";
-
-import type {
-  ApiFromModules,
-  FilterApi,
-  FunctionReference,
-} from "convex/server";
-
-declare const fullApi: ApiFromModules<{
-  app: typeof app;
-  auth: typeof auth;
-  billing: typeof billing;
-  billingInternal: typeof billingInternal;
-  billingSync: typeof billingSync;
-  credentialsNode: typeof credentialsNode;
-  database: typeof database;
-  executor: typeof executor;
-  executorNode: typeof executorNode;
-  http: typeof http;
-  invites: typeof invites;
-  "lib/adapters/in_process_execution_adapter": typeof lib_adapters_in_process_execution_adapter;
-  "lib/anonymousSession": typeof lib_anonymousSession;
-  "lib/credential_providers": typeof lib_credential_providers;
-  "lib/events": typeof lib_events;
-  "lib/execution_constants": typeof lib_execution_constants;
-  "lib/functionBuilders": typeof lib_functionBuilders;
-  "lib/identity": typeof lib_identity;
-  "lib/mcp_server": typeof lib_mcp_server;
-  "lib/runtimes/runtime_core": typeof lib_runtimes_runtime_core;
-  "lib/slug": typeof lib_slug;
-  "lib/tool_discovery": typeof lib_tool_discovery;
-  "lib/tool_sources": typeof lib_tool_sources;
-  "lib/tools": typeof lib_tools;
-  "lib/typechecker": typeof lib_typechecker;
-  "lib/types": typeof lib_types;
-  "lib/utils": typeof lib_utils;
-  openApiSpecCache: typeof openApiSpecCache;
-  organizationMembers: typeof organizationMembers;
-  organizations: typeof organizations;
-  workspace: typeof workspace;
-  workspaceAuthInternal: typeof workspaceAuthInternal;
-  workspaceToolCache: typeof workspaceToolCache;
-  workspaces: typeof workspaces;
-}>;
+import type { FunctionReference } from "convex/server";
 
 /**
  * A utility for referencing Convex functions in your app's public API.
@@ -94,10 +23,74 @@ declare const fullApi: ApiFromModules<{
  * const myFunctionReference = api.myModule.myFunction;
  * ```
  */
-export declare const api: FilterApi<
-  typeof fullApi,
-  FunctionReference<any, "public">
->;
+export declare const api: {
+  app: {
+    getClientConfig: FunctionReference<"query", "public", any, any>;
+    getCurrentAccount: FunctionReference<"query", "public", any, any>;
+  };
+  auth: {
+    bootstrapCurrentWorkosAccount: FunctionReference<"mutation", "public", any, any>;
+  };
+  billing: {
+    getSummary: FunctionReference<"query", "public", any, any>;
+    createSubscriptionCheckout: FunctionReference<"action", "public", any, any>;
+    createCustomerPortal: FunctionReference<"action", "public", any, any>;
+    retrySeatSync: FunctionReference<"mutation", "public", any, any>;
+  };
+  credentialsNode: {
+    upsertCredential: FunctionReference<"action", "public", any, any>;
+  };
+  executor: {
+    createTask: FunctionReference<"mutation", "public", any, any>;
+    resolveApproval: FunctionReference<"mutation", "public", any, any>;
+  };
+  executorNode: {
+    listTools: FunctionReference<"action", "public", any, any>;
+    listToolsWithWarnings: FunctionReference<"action", "public", any, any>;
+  };
+  invites: {
+    list: FunctionReference<"query", "public", any, any>;
+    create: FunctionReference<"mutation", "public", any, any>;
+    revoke: FunctionReference<"mutation", "public", any, any>;
+  };
+  organizationMembers: {
+    list: FunctionReference<"query", "public", any, any>;
+    updateRole: FunctionReference<"mutation", "public", any, any>;
+    updateBillable: FunctionReference<"mutation", "public", any, any>;
+    remove: FunctionReference<"mutation", "public", any, any>;
+  };
+  organizations: {
+    create: FunctionReference<"mutation", "public", any, any>;
+    listMine: FunctionReference<"query", "public", any, any>;
+    getNavigationState: FunctionReference<"query", "public", any, any>;
+    getOrganizationAccess: FunctionReference<"query", "public", any, any>;
+    resolveWorkosOrganizationId: FunctionReference<"query", "public", any, any>;
+  };
+  workspace: {
+    bootstrapAnonymousSession: FunctionReference<"mutation", "public", any, any>;
+    listRuntimeTargets: FunctionReference<"query", "public", any, any>;
+    getTask: FunctionReference<"query", "public", any, any>;
+    getTaskInWorkspace: FunctionReference<"query", "public", any, any>;
+    listTasks: FunctionReference<"query", "public", any, any>;
+    listApprovals: FunctionReference<"query", "public", any, any>;
+    listPendingApprovals: FunctionReference<"query", "public", any, any>;
+    listTaskEvents: FunctionReference<"query", "public", any, any>;
+    upsertAccessPolicy: FunctionReference<"mutation", "public", any, any>;
+    listAccessPolicies: FunctionReference<"query", "public", any, any>;
+    upsertCredential: FunctionReference<"mutation", "public", any, any>;
+    listCredentials: FunctionReference<"query", "public", any, any>;
+    listCredentialProviders: FunctionReference<"query", "public", any, any>;
+    resolveCredential: FunctionReference<"query", "public", any, any>;
+    upsertToolSource: FunctionReference<"mutation", "public", any, any>;
+    listToolSources: FunctionReference<"query", "public", any, any>;
+    deleteToolSource: FunctionReference<"mutation", "public", any, any>;
+  };
+  workspaces: {
+    create: FunctionReference<"mutation", "public", any, any>;
+    list: FunctionReference<"query", "public", any, any>;
+    generateWorkspaceIconUploadUrl: FunctionReference<"mutation", "public", any, any>;
+  };
+};
 
 /**
  * A utility for referencing Convex functions in your app's internal API.
@@ -107,10 +100,86 @@ export declare const api: FilterApi<
  * const myFunctionReference = internal.myModule.myFunction;
  * ```
  */
-export declare const internal: FilterApi<
-  typeof fullApi,
-  FunctionReference<any, "internal">
->;
+export declare const internal: {
+  auth: {
+    authKitEvent: FunctionReference<"mutation", "internal", any, any>;
+  };
+  billingInternal: {
+    getBillingAccessForRequest: FunctionReference<"query", "internal", any, any>;
+    getSeatSyncSnapshot: FunctionReference<"query", "internal", any, any>;
+    upsertCustomerLink: FunctionReference<"mutation", "internal", any, any>;
+    bumpSeatSyncVersion: FunctionReference<"mutation", "internal", any, any>;
+    upsertSeatState: FunctionReference<"mutation", "internal", any, any>;
+  };
+  billingSync: {
+    syncSeatQuantity: FunctionReference<"action", "internal", any, any>;
+  };
+  database: {
+    createTask: FunctionReference<"mutation", "internal", any, any>;
+    getTask: FunctionReference<"query", "internal", any, any>;
+    listTasks: FunctionReference<"query", "internal", any, any>;
+    listQueuedTaskIds: FunctionReference<"query", "internal", any, any>;
+    listRuntimeTargets: FunctionReference<"query", "internal", any, any>;
+    getTaskInWorkspace: FunctionReference<"query", "internal", any, any>;
+    markTaskRunning: FunctionReference<"mutation", "internal", any, any>;
+    markTaskFinished: FunctionReference<"mutation", "internal", any, any>;
+    createApproval: FunctionReference<"mutation", "internal", any, any>;
+    getApproval: FunctionReference<"query", "internal", any, any>;
+    listApprovals: FunctionReference<"query", "internal", any, any>;
+    listPendingApprovals: FunctionReference<"query", "internal", any, any>;
+    resolveApproval: FunctionReference<"mutation", "internal", any, any>;
+    getApprovalInWorkspace: FunctionReference<"query", "internal", any, any>;
+    createAgentTask: FunctionReference<"mutation", "internal", any, any>;
+    getAgentTask: FunctionReference<"query", "internal", any, any>;
+    updateAgentTask: FunctionReference<"mutation", "internal", any, any>;
+    bootstrapAnonymousSession: FunctionReference<"mutation", "internal", any, any>;
+    upsertAccessPolicy: FunctionReference<"mutation", "internal", any, any>;
+    listAccessPolicies: FunctionReference<"query", "internal", any, any>;
+    upsertCredential: FunctionReference<"mutation", "internal", any, any>;
+    listCredentials: FunctionReference<"query", "internal", any, any>;
+    listCredentialProviders: FunctionReference<"query", "internal", any, any>;
+    resolveCredential: FunctionReference<"query", "internal", any, any>;
+    upsertToolSource: FunctionReference<"mutation", "internal", any, any>;
+    listToolSources: FunctionReference<"query", "internal", any, any>;
+    deleteToolSource: FunctionReference<"mutation", "internal", any, any>;
+    createTaskEvent: FunctionReference<"mutation", "internal", any, any>;
+    listTaskEvents: FunctionReference<"query", "internal", any, any>;
+  };
+  executor: {
+    createTaskInternal: FunctionReference<"mutation", "internal", any, any>;
+    resolveApprovalInternal: FunctionReference<"mutation", "internal", any, any>;
+    appendRuntimeOutput: FunctionReference<"mutation", "internal", any, any>;
+  };
+  executorNode: {
+    listToolsInternal: FunctionReference<"action", "internal", any, any>;
+    listToolsWithWarningsInternal: FunctionReference<"action", "internal", any, any>;
+    handleExternalToolCall: FunctionReference<"action", "internal", any, any>;
+    runTask: FunctionReference<"action", "internal", any, any>;
+  };
+  invites: {
+    deliverWorkosInvite: FunctionReference<"action", "internal", any, any>;
+    revokeWorkosInvite: FunctionReference<"action", "internal", any, any>;
+    getInviteDeliveryContext: FunctionReference<"query", "internal", any, any>;
+    linkOrganizationToWorkos: FunctionReference<"mutation", "internal", any, any>;
+    getInviteById: FunctionReference<"query", "internal", any, any>;
+    markInviteDelivered: FunctionReference<"mutation", "internal", any, any>;
+    markInviteDeliveryFailed: FunctionReference<"mutation", "internal", any, any>;
+  };
+  openApiSpecCache: {
+    getEntry: FunctionReference<"query", "internal", any, any>;
+    putEntry: FunctionReference<"mutation", "internal", any, any>;
+    pruneExpired: FunctionReference<"mutation", "internal", any, any>;
+  };
+  workspaceAuthInternal: {
+    getWorkspaceAccessForRequest: FunctionReference<"query", "internal", any, any>;
+    getWorkspaceAccessForWorkosSubject: FunctionReference<"query", "internal", any, any>;
+  };
+  workspaceToolCache: {
+    getEntry: FunctionReference<"query", "internal", any, any>;
+    putEntry: FunctionReference<"mutation", "internal", any, any>;
+    getDtsStorageIds: FunctionReference<"query", "internal", any, any>;
+  };
+};
 
 export declare const components: {
   workOSAuthKit: {
@@ -502,3 +571,4 @@ export declare const components: {
     };
   };
 };
+

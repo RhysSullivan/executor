@@ -2,8 +2,8 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
-import { workspaceMutation } from "./lib/functionBuilders";
-import type { ApprovalRecord, TaskRecord } from "./lib/types";
+import { workspaceMutation } from "../lib/functionBuilders";
+import type { ApprovalRecord, TaskRecord } from "../lib/types";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 

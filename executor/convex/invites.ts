@@ -2,7 +2,7 @@ import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
-import { organizationMutation, organizationQuery } from "./lib/functionBuilders";
+import { organizationMutation, organizationQuery } from "../lib/functionBuilders";
 
 const workosEnabled = Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY);
 const workosClient = process.env.WORKOS_API_KEY ? new WorkOS(process.env.WORKOS_API_KEY) : null;

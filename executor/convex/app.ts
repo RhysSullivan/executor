@@ -1,5 +1,5 @@
 import { query } from "./_generated/server";
-import { optionalAccountQuery } from "./lib/functionBuilders";
+import { optionalAccountQuery } from "../lib/functionBuilders";
 
 const workosEnabled = Boolean(process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY);
 
