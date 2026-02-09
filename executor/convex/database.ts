@@ -3,6 +3,7 @@ import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { ensureUniqueSlug } from "./lib/slug";
+import type { TaskStatus } from "@executor/contracts";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
@@ -558,7 +559,7 @@ export const listPendingApprovals = query({
 
     const results: Array<
       ReturnType<typeof mapApproval> & {
-        task: { id: string; status: string; runtimeId: string; timeoutMs: number; createdAt: number };
+        task: { id: string; status: TaskStatus; runtimeId: string; timeoutMs: number; createdAt: number };
       }
     > = [];
     for (let i = 0; i < docs.length; i++) {

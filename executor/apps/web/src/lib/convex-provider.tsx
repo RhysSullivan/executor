@@ -21,7 +21,7 @@ function useConvexWorkosAuth() {
   return {
     isLoading: loading,
     user,
-    getAccessToken,
+    getAccessToken: async () => (await getAccessToken()) ?? null,
   };
 }
 
