@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "@/lib/session-context";
 
-export function BillingView() {
+interface BillingViewProps {
+  showHeader?: boolean;
+}
+
+export function BillingView({ showHeader = true }: BillingViewProps) {
   const { context, organizations, workspaces } = useSession();
   const [actionState, setActionState] = useState<"idle" | "running" | "error">("idle");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -33,7 +37,7 @@ export function BillingView() {
   if (!effectiveOrganizationId) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Billing" description="Plan, seats, and subscription management" />
+        {showHeader ? <PageHeader title="Billing" description="Plan, seats, and subscription management" /> : null}
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
             Select a workspace to manage billing.
@@ -45,7 +49,7 @@ export function BillingView() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Billing" description="Manage subscription, seats, and billing portal access" />
+      {showHeader ? <PageHeader title="Billing" description="Manage subscription, seats, and billing portal access" /> : null}
 
       <Card>
         <CardContent className="p-6 text-sm text-muted-foreground">

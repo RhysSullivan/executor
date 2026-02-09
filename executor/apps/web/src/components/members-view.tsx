@@ -15,7 +15,11 @@ type Role = "owner" | "admin" | "member" | "billing_admin";
 
 const ROLE_OPTIONS: Role[] = ["owner", "admin", "member", "billing_admin"];
 
-export function MembersView() {
+interface MembersViewProps {
+  showHeader?: boolean;
+}
+
+export function MembersView({ showHeader = true }: MembersViewProps) {
   const {
     context,
     workspaces,
@@ -95,7 +99,7 @@ export function MembersView() {
   if (!typedOrganizationId) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Members" description="Manage organization membership and invites" />
+        {showHeader ? <PageHeader title="Members" description="Manage organization membership and invites" /> : null}
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground">
             Select a workspace to manage members.
@@ -107,10 +111,12 @@ export function MembersView() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Members"
-        description="Invite teammates, update roles, and manage billable seats"
-      />
+      {showHeader ? (
+        <PageHeader
+          title="Members"
+          description="Invite teammates, update roles, and manage billable seats"
+        />
+      ) : null}
 
       <Card>
         <CardHeader>

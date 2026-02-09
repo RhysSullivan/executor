@@ -1,5 +1,5 @@
-import { MembersView } from "@/components/members-view";
+import { redirect } from "next/navigation";
 
 export default function MembersPage() {
-  return <MembersView />;
+  redirect("/organization?tab=members");
 }

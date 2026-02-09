@@ -9,8 +9,6 @@ import {
   Play,
   ShieldCheck,
   Wrench,
-  Users,
-  CreditCard,
   Menu,
   X,
   ChevronsUpDown,
@@ -46,8 +44,6 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/tasks", label: "Tasks", icon: Play },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
-  { href: "/members", label: "Members", icon: Users },
-  { href: "/billing", label: "Billing", icon: CreditCard },
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
 
@@ -262,7 +258,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                             className="inline-flex h-5 w-5 items-center justify-center rounded-sm border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
                             onClick={() => {
                               switchWorkspace(settingsWorkspace.id);
-                              router.push("/members");
+                              router.push("/organization?tab=members");
                             }}
                             aria-label={`Open ${group.organizationName} settings`}
                             title="Organization settings"
