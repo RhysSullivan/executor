@@ -5,15 +5,11 @@
  * THIS CODE IS AUTOMATICALLY GENERATED.
  *
  * To regenerate, run `npx convex dev`.
- *
- * NOTE: This file has been post-processed by scripts/postcodegen.ts
- * to replace recursive ApiFromModules/FilterApi types with explicit
- * declarations, avoiding TS2589 depth errors.
- *
  * @module
  */
 
 import type { FunctionReference } from "convex/server";
+import type { GenericId as Id } from "convex/values";
 
 /**
  * A utility for referencing Convex functions in your app's public API.
@@ -25,75 +21,413 @@ import type { FunctionReference } from "convex/server";
  */
 export declare const api: {
   app: {
-    getClientConfig: FunctionReference<"query", "public", any, any>;
-    getCurrentAccount: FunctionReference<"query", "public", any, any>;
+    getClientConfig: FunctionReference<"query", "public", {}, any>;
+    getCurrentAccount: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string },
+      any
+    >;
   };
   auth: {
-    bootstrapCurrentWorkosAccount: FunctionReference<"mutation", "public", any, any>;
+    bootstrapCurrentWorkosAccount: FunctionReference<
+      "mutation",
+      "public",
+      {},
+      any
+    >;
   };
   billing: {
-    getSummary: FunctionReference<"query", "public", any, any>;
-    createSubscriptionCheckout: FunctionReference<"action", "public", any, any>;
-    createCustomerPortal: FunctionReference<"action", "public", any, any>;
-    retrySeatSync: FunctionReference<"mutation", "public", any, any>;
+    createCustomerPortal: FunctionReference<
+      "action",
+      "public",
+      {
+        organizationId: Id<"organizations">;
+        returnUrl?: string;
+        sessionId?: string;
+      },
+      { url: string }
+    >;
+    createSubscriptionCheckout: FunctionReference<
+      "action",
+      "public",
+      {
+        cancelUrl?: string;
+        organizationId: Id<"organizations">;
+        priceId: string;
+        sessionId?: string;
+        successUrl?: string;
+      },
+      any
+    >;
+    getSummary: FunctionReference<
+      "query",
+      "public",
+      { organizationId: Id<"organizations">; sessionId?: string },
+      any
+    >;
+    retrySeatSync: FunctionReference<
+      "mutation",
+      "public",
+      { organizationId: Id<"organizations">; sessionId?: string },
+      any
+    >;
   };
   credentialsNode: {
-    upsertCredential: FunctionReference<"action", "public", any, any>;
+    upsertCredential: FunctionReference<
+      "action",
+      "public",
+      {
+        actorId?: string;
+        id?: string;
+        provider?: "managed" | "workos-vault";
+        scope: "workspace" | "actor";
+        secretJson: any;
+        sessionId?: string;
+        sourceKey: string;
+        workspaceId: string;
+      },
+      any
+    >;
   };
   database: {
-    createAgentTask: FunctionReference<"mutation", "public", any, any>;
-    getAgentTask: FunctionReference<"query", "public", any, any>;
-    updateAgentTask: FunctionReference<"mutation", "public", any, any>;
+    createAgentTask: FunctionReference<
+      "mutation",
+      "public",
+      {
+        actorId: string;
+        id: string;
+        prompt: string;
+        requesterId: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    getAgentTask: FunctionReference<
+      "query",
+      "public",
+      { agentTaskId: string },
+      any
+    >;
+    updateAgentTask: FunctionReference<
+      "mutation",
+      "public",
+      {
+        agentTaskId: string;
+        codeRuns?: number;
+        error?: string;
+        resultText?: string;
+        status?: "running" | "completed" | "failed";
+      },
+      any
+    >;
   };
   executor: {
-    createTask: FunctionReference<"mutation", "public", any, any>;
-    resolveApproval: FunctionReference<"mutation", "public", any, any>;
+    createTask: FunctionReference<
+      "mutation",
+      "public",
+      {
+        actorId?: string;
+        clientId?: string;
+        code: string;
+        metadata?: any;
+        runtimeId?: string;
+        sessionId?: string;
+        timeoutMs?: number;
+        workspaceId: string;
+      },
+      any
+    >;
+    resolveApproval: FunctionReference<
+      "mutation",
+      "public",
+      {
+        approvalId: string;
+        decision: "approved" | "denied";
+        reason?: string;
+        reviewerId?: string;
+        sessionId?: string;
+        workspaceId: string;
+      },
+      any
+    >;
   };
   executorNode: {
-    listTools: FunctionReference<"action", "public", any, any>;
-    listToolsWithWarnings: FunctionReference<"action", "public", any, any>;
+    listTools: FunctionReference<
+      "action",
+      "public",
+      {
+        actorId?: string;
+        clientId?: string;
+        sessionId?: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    listToolsWithWarnings: FunctionReference<
+      "action",
+      "public",
+      {
+        actorId?: string;
+        clientId?: string;
+        sessionId?: string;
+        workspaceId: string;
+      },
+      any
+    >;
   };
   invites: {
-    list: FunctionReference<"query", "public", any, any>;
-    create: FunctionReference<"mutation", "public", any, any>;
-    revoke: FunctionReference<"mutation", "public", any, any>;
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        email: string;
+        expiresInDays?: number;
+        organizationId: Id<"organizations">;
+        role: "owner" | "admin" | "member" | "billing_admin";
+        sessionId?: string;
+        workspaceId?: Id<"workspaces">;
+      },
+      any
+    >;
+    list: FunctionReference<
+      "query",
+      "public",
+      { organizationId: Id<"organizations">; sessionId?: string },
+      any
+    >;
+    revoke: FunctionReference<
+      "mutation",
+      "public",
+      {
+        inviteId: Id<"invites">;
+        organizationId: Id<"organizations">;
+        sessionId?: string;
+      },
+      any
+    >;
   };
   organizationMembers: {
-    list: FunctionReference<"query", "public", any, any>;
-    updateRole: FunctionReference<"mutation", "public", any, any>;
-    updateBillable: FunctionReference<"mutation", "public", any, any>;
-    remove: FunctionReference<"mutation", "public", any, any>;
+    list: FunctionReference<
+      "query",
+      "public",
+      { organizationId: Id<"organizations">; sessionId?: string },
+      any
+    >;
+    remove: FunctionReference<
+      "mutation",
+      "public",
+      {
+        accountId: Id<"accounts">;
+        organizationId: Id<"organizations">;
+        sessionId?: string;
+      },
+      any
+    >;
+    updateBillable: FunctionReference<
+      "mutation",
+      "public",
+      {
+        accountId: Id<"accounts">;
+        billable: boolean;
+        organizationId: Id<"organizations">;
+        sessionId?: string;
+      },
+      any
+    >;
+    updateRole: FunctionReference<
+      "mutation",
+      "public",
+      {
+        accountId: Id<"accounts">;
+        organizationId: Id<"organizations">;
+        role: "owner" | "admin" | "member" | "billing_admin";
+        sessionId?: string;
+      },
+      any
+    >;
   };
   organizations: {
-    create: FunctionReference<"mutation", "public", any, any>;
-    listMine: FunctionReference<"query", "public", any, any>;
-    getNavigationState: FunctionReference<"query", "public", any, any>;
-    getOrganizationAccess: FunctionReference<"query", "public", any, any>;
-    resolveWorkosOrganizationId: FunctionReference<"query", "public", any, any>;
+    create: FunctionReference<
+      "mutation",
+      "public",
+      { name: string; sessionId?: string },
+      any
+    >;
+    getNavigationState: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string },
+      any
+    >;
+    getOrganizationAccess: FunctionReference<
+      "query",
+      "public",
+      { organizationId: Id<"organizations">; sessionId?: string },
+      any
+    >;
+    listMine: FunctionReference<"query", "public", { sessionId?: string }, any>;
+    resolveWorkosOrganizationId: FunctionReference<
+      "query",
+      "public",
+      { organizationId: Id<"organizations">; sessionId?: string },
+      any
+    >;
   };
   workspace: {
-    bootstrapAnonymousSession: FunctionReference<"mutation", "public", any, any>;
-    listRuntimeTargets: FunctionReference<"query", "public", any, any>;
-    getTask: FunctionReference<"query", "public", any, any>;
-    getTaskInWorkspace: FunctionReference<"query", "public", any, any>;
-    listTasks: FunctionReference<"query", "public", any, any>;
-    listApprovals: FunctionReference<"query", "public", any, any>;
-    listPendingApprovals: FunctionReference<"query", "public", any, any>;
-    listTaskEvents: FunctionReference<"query", "public", any, any>;
-    upsertAccessPolicy: FunctionReference<"mutation", "public", any, any>;
-    listAccessPolicies: FunctionReference<"query", "public", any, any>;
-    upsertCredential: FunctionReference<"mutation", "public", any, any>;
-    listCredentials: FunctionReference<"query", "public", any, any>;
-    listCredentialProviders: FunctionReference<"query", "public", any, any>;
-    resolveCredential: FunctionReference<"query", "public", any, any>;
-    upsertToolSource: FunctionReference<"mutation", "public", any, any>;
-    listToolSources: FunctionReference<"query", "public", any, any>;
-    deleteToolSource: FunctionReference<"mutation", "public", any, any>;
+    bootstrapAnonymousSession: FunctionReference<
+      "mutation",
+      "public",
+      { sessionId?: string },
+      any
+    >;
+    deleteToolSource: FunctionReference<
+      "mutation",
+      "public",
+      { sessionId?: string; sourceId: string; workspaceId: string },
+      any
+    >;
+    getTask: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; taskId: string; workspaceId: string },
+      any
+    >;
+    getTaskInWorkspace: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; taskId: string; workspaceId: string },
+      any
+    >;
+    listAccessPolicies: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: string },
+      any
+    >;
+    listApprovals: FunctionReference<
+      "query",
+      "public",
+      {
+        sessionId?: string;
+        status?: "pending" | "approved" | "denied";
+        workspaceId: string;
+      },
+      any
+    >;
+    listCredentialProviders: FunctionReference<"query", "public", {}, any>;
+    listCredentials: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: string },
+      any
+    >;
+    listPendingApprovals: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: string },
+      any
+    >;
+    listRuntimeTargets: FunctionReference<"query", "public", {}, any>;
+    listTaskEvents: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; taskId: string; workspaceId: string },
+      any
+    >;
+    listTasks: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: string },
+      any
+    >;
+    listToolSources: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: string },
+      any
+    >;
+    resolveCredential: FunctionReference<
+      "query",
+      "public",
+      {
+        actorId?: string;
+        scope: "workspace" | "actor";
+        sessionId?: string;
+        sourceKey: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    upsertAccessPolicy: FunctionReference<
+      "mutation",
+      "public",
+      {
+        actorId?: string;
+        clientId?: string;
+        decision: "allow" | "require_approval" | "deny";
+        id?: string;
+        priority?: number;
+        sessionId?: string;
+        toolPathPattern: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    upsertCredential: FunctionReference<
+      "mutation",
+      "public",
+      {
+        actorId?: string;
+        id?: string;
+        provider?: "managed" | "workos-vault";
+        scope: "workspace" | "actor";
+        secretJson: any;
+        sessionId?: string;
+        sourceKey: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    upsertToolSource: FunctionReference<
+      "mutation",
+      "public",
+      {
+        config: any;
+        enabled?: boolean;
+        id?: string;
+        name: string;
+        sessionId?: string;
+        type: "mcp" | "openapi" | "graphql";
+        workspaceId: string;
+      },
+      any
+    >;
   };
   workspaces: {
-    create: FunctionReference<"mutation", "public", any, any>;
-    list: FunctionReference<"query", "public", any, any>;
-    generateWorkspaceIconUploadUrl: FunctionReference<"mutation", "public", any, any>;
+    create: FunctionReference<
+      "mutation",
+      "public",
+      {
+        iconStorageId?: Id<"_storage">;
+        name: string;
+        organizationId?: Id<"organizations">;
+        sessionId?: string;
+      },
+      any
+    >;
+    generateWorkspaceIconUploadUrl: FunctionReference<
+      "mutation",
+      "public",
+      { sessionId?: string },
+      any
+    >;
+    list: FunctionReference<
+      "query",
+      "public",
+      { organizationId?: Id<"organizations">; sessionId?: string },
+      any
+    >;
   };
 };
 
@@ -107,79 +441,429 @@ export declare const api: {
  */
 export declare const internal: {
   auth: {
-    authKitEvent: FunctionReference<"mutation", "internal", any, any>;
+    authKitEvent: FunctionReference<
+      "mutation",
+      "internal",
+      { data: Record<string, any>; event: string },
+      null
+    >;
   };
   billingInternal: {
-    getBillingAccessForRequest: FunctionReference<"query", "internal", any, any>;
-    getSeatSyncSnapshot: FunctionReference<"query", "internal", any, any>;
-    upsertCustomerLink: FunctionReference<"mutation", "internal", any, any>;
-    bumpSeatSyncVersion: FunctionReference<"mutation", "internal", any, any>;
-    upsertSeatState: FunctionReference<"mutation", "internal", any, any>;
+    bumpSeatSyncVersion: FunctionReference<
+      "mutation",
+      "internal",
+      { organizationId: Id<"organizations"> },
+      any
+    >;
+    getBillingAccessForRequest: FunctionReference<
+      "query",
+      "internal",
+      { organizationId: Id<"organizations">; sessionId?: string },
+      any
+    >;
+    getSeatSyncSnapshot: FunctionReference<
+      "query",
+      "internal",
+      { organizationId: Id<"organizations"> },
+      any
+    >;
+    upsertCustomerLink: FunctionReference<
+      "mutation",
+      "internal",
+      { organizationId: Id<"organizations">; stripeCustomerId: string },
+      any
+    >;
+    upsertSeatState: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        bumpVersion: boolean;
+        desiredSeats: number;
+        lastAppliedSeats: number | null;
+        organizationId: Id<"organizations">;
+        syncError: string | null;
+      },
+      any
+    >;
   };
   billingSync: {
-    syncSeatQuantity: FunctionReference<"action", "internal", any, any>;
+    syncSeatQuantity: FunctionReference<
+      "action",
+      "internal",
+      { expectedVersion: number; organizationId: Id<"organizations"> },
+      any
+    >;
   };
   database: {
-    createTask: FunctionReference<"mutation", "internal", any, any>;
-    getTask: FunctionReference<"query", "internal", any, any>;
-    listTasks: FunctionReference<"query", "internal", any, any>;
-    listQueuedTaskIds: FunctionReference<"query", "internal", any, any>;
-    listRuntimeTargets: FunctionReference<"query", "internal", any, any>;
-    getTaskInWorkspace: FunctionReference<"query", "internal", any, any>;
-    markTaskRunning: FunctionReference<"mutation", "internal", any, any>;
-    markTaskFinished: FunctionReference<"mutation", "internal", any, any>;
-    createApproval: FunctionReference<"mutation", "internal", any, any>;
-    getApproval: FunctionReference<"query", "internal", any, any>;
-    listApprovals: FunctionReference<"query", "internal", any, any>;
-    listPendingApprovals: FunctionReference<"query", "internal", any, any>;
-    resolveApproval: FunctionReference<"mutation", "internal", any, any>;
-    getApprovalInWorkspace: FunctionReference<"query", "internal", any, any>;
-    bootstrapAnonymousSession: FunctionReference<"mutation", "internal", any, any>;
-    upsertAccessPolicy: FunctionReference<"mutation", "internal", any, any>;
-    listAccessPolicies: FunctionReference<"query", "internal", any, any>;
-    upsertCredential: FunctionReference<"mutation", "internal", any, any>;
-    listCredentials: FunctionReference<"query", "internal", any, any>;
-    listCredentialProviders: FunctionReference<"query", "internal", any, any>;
-    resolveCredential: FunctionReference<"query", "internal", any, any>;
-    upsertToolSource: FunctionReference<"mutation", "internal", any, any>;
-    listToolSources: FunctionReference<"query", "internal", any, any>;
-    deleteToolSource: FunctionReference<"mutation", "internal", any, any>;
-    createTaskEvent: FunctionReference<"mutation", "internal", any, any>;
-    listTaskEvents: FunctionReference<"query", "internal", any, any>;
+    bootstrapAnonymousSession: FunctionReference<
+      "mutation",
+      "internal",
+      { sessionId?: string },
+      any
+    >;
+    createApproval: FunctionReference<
+      "mutation",
+      "internal",
+      { id: string; input?: any; taskId: string; toolPath: string },
+      any
+    >;
+    createTask: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        actorId: string;
+        clientId?: string;
+        code: string;
+        id: string;
+        metadata?: any;
+        runtimeId: string;
+        timeoutMs?: number;
+        workspaceId: string;
+      },
+      any
+    >;
+    createTaskEvent: FunctionReference<
+      "mutation",
+      "internal",
+      { eventName: string; payload: any; taskId: string; type: string },
+      any
+    >;
+    deleteToolSource: FunctionReference<
+      "mutation",
+      "internal",
+      { sourceId: string; workspaceId: string },
+      any
+    >;
+    getApproval: FunctionReference<
+      "query",
+      "internal",
+      { approvalId: string },
+      any
+    >;
+    getApprovalInWorkspace: FunctionReference<
+      "query",
+      "internal",
+      { approvalId: string; workspaceId: string },
+      any
+    >;
+    getTask: FunctionReference<"query", "internal", { taskId: string }, any>;
+    getTaskInWorkspace: FunctionReference<
+      "query",
+      "internal",
+      { taskId: string; workspaceId: string },
+      any
+    >;
+    listAccessPolicies: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: string },
+      any
+    >;
+    listApprovals: FunctionReference<
+      "query",
+      "internal",
+      { status?: "pending" | "approved" | "denied"; workspaceId: string },
+      any
+    >;
+    listCredentialProviders: FunctionReference<"query", "internal", {}, any>;
+    listCredentials: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: string },
+      any
+    >;
+    listPendingApprovals: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: string },
+      any
+    >;
+    listQueuedTaskIds: FunctionReference<
+      "query",
+      "internal",
+      { limit?: number },
+      any
+    >;
+    listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
+    listTaskEvents: FunctionReference<
+      "query",
+      "internal",
+      { taskId: string },
+      any
+    >;
+    listTasks: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: string },
+      any
+    >;
+    listToolSources: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: string },
+      any
+    >;
+    markTaskFinished: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        error?: string;
+        exitCode?: number;
+        status: "completed" | "failed" | "timed_out" | "denied";
+        stderr: string;
+        stdout: string;
+        taskId: string;
+      },
+      any
+    >;
+    markTaskRunning: FunctionReference<
+      "mutation",
+      "internal",
+      { taskId: string },
+      any
+    >;
+    resolveApproval: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        approvalId: string;
+        decision: "approved" | "denied";
+        reason?: string;
+        reviewerId?: string;
+      },
+      any
+    >;
+    resolveCredential: FunctionReference<
+      "query",
+      "internal",
+      {
+        actorId?: string;
+        scope: "workspace" | "actor";
+        sourceKey: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    upsertAccessPolicy: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        actorId?: string;
+        clientId?: string;
+        decision: "allow" | "require_approval" | "deny";
+        id?: string;
+        priority?: number;
+        toolPathPattern: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    upsertCredential: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        actorId?: string;
+        id?: string;
+        provider?: "managed" | "workos-vault";
+        scope: "workspace" | "actor";
+        secretJson: any;
+        sourceKey: string;
+        workspaceId: string;
+      },
+      any
+    >;
+    upsertToolSource: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        config: any;
+        enabled?: boolean;
+        id?: string;
+        name: string;
+        type: "mcp" | "openapi" | "graphql";
+        workspaceId: string;
+      },
+      any
+    >;
   };
   executor: {
-    createTaskInternal: FunctionReference<"mutation", "internal", any, any>;
-    resolveApprovalInternal: FunctionReference<"mutation", "internal", any, any>;
-    appendRuntimeOutput: FunctionReference<"mutation", "internal", any, any>;
+    appendRuntimeOutput: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        line: string;
+        runId: string;
+        stream: "stdout" | "stderr";
+        timestamp?: number;
+      },
+      any
+    >;
+    createTaskInternal: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        actorId: string;
+        clientId?: string;
+        code: string;
+        metadata?: any;
+        runtimeId?: string;
+        timeoutMs?: number;
+        workspaceId: string;
+      },
+      any
+    >;
+    resolveApprovalInternal: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        approvalId: string;
+        decision: "approved" | "denied";
+        reason?: string;
+        reviewerId?: string;
+        workspaceId: string;
+      },
+      any
+    >;
   };
   executorNode: {
-    listToolsInternal: FunctionReference<"action", "internal", any, any>;
-    listToolsWithWarningsInternal: FunctionReference<"action", "internal", any, any>;
-    handleExternalToolCall: FunctionReference<"action", "internal", any, any>;
-    runTask: FunctionReference<"action", "internal", any, any>;
+    handleExternalToolCall: FunctionReference<
+      "action",
+      "internal",
+      { callId: string; input?: any; runId: string; toolPath: string },
+      any
+    >;
+    listToolsInternal: FunctionReference<
+      "action",
+      "internal",
+      { actorId?: string; clientId?: string; workspaceId: string },
+      any
+    >;
+    listToolsWithWarningsInternal: FunctionReference<
+      "action",
+      "internal",
+      { actorId?: string; clientId?: string; workspaceId: string },
+      any
+    >;
+    runTask: FunctionReference<"action", "internal", { taskId: string }, any>;
   };
   invites: {
-    deliverWorkosInvite: FunctionReference<"action", "internal", any, any>;
-    revokeWorkosInvite: FunctionReference<"action", "internal", any, any>;
-    getInviteDeliveryContext: FunctionReference<"query", "internal", any, any>;
-    linkOrganizationToWorkos: FunctionReference<"mutation", "internal", any, any>;
-    getInviteById: FunctionReference<"query", "internal", any, any>;
-    markInviteDelivered: FunctionReference<"mutation", "internal", any, any>;
-    markInviteDeliveryFailed: FunctionReference<"mutation", "internal", any, any>;
+    deliverWorkosInvite: FunctionReference<
+      "action",
+      "internal",
+      {
+        expiresInDays?: number;
+        inviteId: Id<"invites">;
+        inviterWorkosUserId: string;
+        roleSlug?: string;
+      },
+      any
+    >;
+    getInviteById: FunctionReference<
+      "query",
+      "internal",
+      { inviteId: Id<"invites"> },
+      any
+    >;
+    getInviteDeliveryContext: FunctionReference<
+      "query",
+      "internal",
+      { inviteId: Id<"invites"> },
+      any
+    >;
+    linkOrganizationToWorkos: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        organizationId: Id<"organizations">;
+        workosOrgId: string;
+        workspaceId?: Id<"workspaces">;
+      },
+      any
+    >;
+    markInviteDelivered: FunctionReference<
+      "mutation",
+      "internal",
+      { inviteId: Id<"invites">; providerInviteId: string },
+      any
+    >;
+    markInviteDeliveryFailed: FunctionReference<
+      "mutation",
+      "internal",
+      { errorMessage: string; inviteId: Id<"invites"> },
+      any
+    >;
+    revokeWorkosInvite: FunctionReference<
+      "action",
+      "internal",
+      { inviteId: Id<"invites">; providerInviteId: string },
+      any
+    >;
   };
   openApiSpecCache: {
-    getEntry: FunctionReference<"query", "internal", any, any>;
-    putEntry: FunctionReference<"mutation", "internal", any, any>;
-    pruneExpired: FunctionReference<"mutation", "internal", any, any>;
+    getEntry: FunctionReference<
+      "query",
+      "internal",
+      { maxAgeMs: number; specUrl: string; version: string },
+      any
+    >;
+    pruneExpired: FunctionReference<
+      "mutation",
+      "internal",
+      { batchSize?: number; maxAgeMs: number },
+      any
+    >;
+    putEntry: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        sizeBytes: number;
+        specUrl: string;
+        storageId: Id<"_storage">;
+        version: string;
+      },
+      any
+    >;
   };
   workspaceAuthInternal: {
-    getWorkspaceAccessForRequest: FunctionReference<"query", "internal", any, any>;
-    getWorkspaceAccessForWorkosSubject: FunctionReference<"query", "internal", any, any>;
+    getWorkspaceAccessForRequest: FunctionReference<
+      "query",
+      "internal",
+      { sessionId?: string; workspaceId: string },
+      any
+    >;
+    getWorkspaceAccessForWorkosSubject: FunctionReference<
+      "query",
+      "internal",
+      { subject: string; workspaceId: string },
+      any
+    >;
   };
   workspaceToolCache: {
-    getEntry: FunctionReference<"query", "internal", any, any>;
-    putEntry: FunctionReference<"mutation", "internal", any, any>;
-    getDtsStorageIds: FunctionReference<"query", "internal", any, any>;
+    getDtsStorageIds: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: string },
+      any
+    >;
+    getEntry: FunctionReference<
+      "query",
+      "internal",
+      { signature: string; workspaceId: string },
+      any
+    >;
+    putEntry: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        dtsStorageIds?: Array<{ sourceKey: string; storageId: Id<"_storage"> }>;
+        signature: string;
+        sizeBytes: number;
+        storageId: Id<"_storage">;
+        toolCount: number;
+        workspaceId: string;
+      },
+      any
+    >;
   };
 };
 
@@ -573,4 +1257,3 @@ export declare const components: {
     };
   };
 };
-

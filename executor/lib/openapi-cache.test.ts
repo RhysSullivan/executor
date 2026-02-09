@@ -314,6 +314,114 @@ describe("buildOpenApiToolsFromPrepared", () => {
     }
   });
 
+  test("resolves shared parameter refs and maps 204 responses to void", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "GitHub-like", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        parameters: {
+          owner: {
+            name: "owner",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          repo: {
+            name: "repo",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        },
+      },
+      paths: {
+        "/repos/{owner}/{repo}/subscription": {
+          parameters: [
+            { $ref: "#/components/parameters/owner" },
+            { $ref: "#/components/parameters/repo" },
+          ],
+          delete: {
+            operationId: "activity/delete-repo-subscription",
+            tags: ["activity"],
+            responses: {
+              "204": { description: "No Content" },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "github-like");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "github",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "activity/delete-repo-subscription");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.argsType).toContain("owner");
+    expect(tool!.metadata?.argsType).toContain("repo");
+    expect(tool!.metadata?.returnsType).toBe("void");
+  });
+
+  test("supports Swagger 2.x parameter and response schemas for type hints", async () => {
+    const spec: Record<string, unknown> = {
+      swagger: "2.0",
+      info: { title: "Slack-like", version: "1.0.0" },
+      host: "api.example.com",
+      schemes: ["https"],
+      basePath: "/api",
+      paths: {
+        "/admin.apps.approved.list": {
+          get: {
+            operationId: "admin_apps_approved_list",
+            tags: ["admin.apps.approved"],
+            parameters: [
+              { name: "token", in: "query", required: true, type: "string" },
+              { name: "limit", in: "query", required: false, type: "integer" },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                schema: {
+                  type: "object",
+                  properties: {
+                    ok: { type: "boolean" },
+                  },
+                  required: ["ok"],
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "slack-like");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "slack",
+        spec,
+        baseUrl: "https://api.example.com/api",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((t) => t.metadata?.operationId === "admin_apps_approved_list");
+    expect(tool).toBeDefined();
+    expect(tool!.metadata?.argsType).toContain("token: string");
+    expect(tool!.metadata?.argsType).toContain("limit?: number");
+    expect(tool!.metadata?.returnsType).toContain("ok");
+    expect(tool!.metadata?.returnsType).not.toBe("unknown");
+  });
+
   test("schemaTypes only attached to first tool from a source", async () => {
     const specWithSchemas: Record<string, unknown> = {
       openapi: "3.0.3",

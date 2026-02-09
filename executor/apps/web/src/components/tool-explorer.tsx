@@ -256,6 +256,93 @@ function CopyButton({
   );
 }
 
+// ── Pretty-print a TS type literal for display ──
+// Turns `{ owner: string; repo: string; ref?: string }` into a multi-line
+// indented format. Handles nested objects/arrays. Pure string transform.
+
+function prettyType(raw: string): string {
+  const trimmed = raw.trim();
+  // If it's already multi-line or short enough, leave it
+  if (trimmed.includes("\n") || trimmed.length < 50) return trimmed;
+
+  let out = "";
+  let indent = 0;
+  const TAB = "  ";
+  let i = 0;
+
+  while (i < trimmed.length) {
+    const ch = trimmed[i];
+
+    // Array type bracket — e.g. `string[]` or `}[]` — keep inline
+    if (ch === "[" && trimmed[i + 1] === "]") {
+      out += "[]";
+      i += 2;
+    } else if (ch === "{") {
+      indent++;
+      out += ch + "\n" + TAB.repeat(indent);
+      i++;
+      // skip whitespace after brace
+      while (i < trimmed.length && trimmed[i] === " ") i++;
+    } else if (ch === "}") {
+      indent = Math.max(0, indent - 1);
+      // trim trailing whitespace on current line
+      out = out.replace(/\s+$/, "");
+      out += "\n" + TAB.repeat(indent) + ch;
+      i++;
+    } else if (ch === ";" && trimmed[i + 1] === " ") {
+      // property separator — newline after semicolon
+      out += ";\n" + TAB.repeat(indent);
+      i += 2; // skip the semicolon + space
+    } else if (ch === "," && indent > 0 && trimmed[i + 1] === " ") {
+      out += ",\n" + TAB.repeat(indent);
+      i += 2;
+    } else {
+      out += ch;
+      i++;
+    }
+  }
+
+  return out;
+}
+
+// ── Formatted + highlighted type signature display ──
+
+function TypeSignature({ raw, label }: { raw: string; label: string }) {
+  const formatted = useMemo(() => prettyType(raw), [raw]);
+  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    import("shiki").then(({ codeToHtml }) =>
+      codeToHtml(formatted, {
+        lang: "typescript",
+        themes: { light: "github-light", dark: "github-dark" },
+      }).then((html) => {
+        if (!cancelled) setHighlightedHtml(html);
+      }),
+    );
+    return () => { cancelled = true; };
+  }, [formatted]);
+
+  return (
+    <div>
+      <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/50 mb-1">
+        {label}
+      </p>
+      {highlightedHtml ? (
+        <div
+          className="type-signature text-[11px] leading-relaxed bg-muted/40 border border-border/40 rounded-md px-2.5 py-2 overflow-x-auto [&_pre]:!bg-transparent [&_pre]:!m-0 [&_pre]:!p-0 [&_code]:!text-[11px] [&_code]:!leading-relaxed"
+          dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+        />
+      ) : (
+        <pre className="text-[11px] font-mono leading-relaxed text-foreground/80 bg-muted/40 border border-border/40 rounded-md px-2.5 py-2 overflow-x-auto whitespace-pre">
+          {formatted}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 // ── Inline tool detail (shown when tool row is expanded) ──
 
 function ToolDetail({ tool, depth }: { tool: ToolDescriptor; depth: number }) {
@@ -289,26 +376,12 @@ function ToolDetail({ tool, depth }: { tool: ToolDescriptor; depth: number }) {
         )}
       </div>
 
-      {/* Args / Returns rendered as highlighted TypeScript via Streamdown */}
+      {/* Args / Returns — pretty-printed type signatures */}
       {tool.argsType && (
-        <div className="tool-description">
-          <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/50 mb-1">
-            Arguments
-          </p>
-          <Streamdown plugins={{ code: codePlugin }}>
-            {"```ts\n" + tool.argsType + "\n```"}
-          </Streamdown>
-        </div>
+        <TypeSignature raw={tool.argsType} label="Arguments" />
       )}
       {tool.returnsType && (
-        <div className="tool-description">
-          <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/50 mb-1">
-            Returns
-          </p>
-          <Streamdown plugins={{ code: codePlugin }}>
-            {"```ts\n" + tool.returnsType + "\n```"}
-          </Streamdown>
-        </div>
+        <TypeSignature raw={tool.returnsType} label="Returns" />
       )}
     </div>
   );

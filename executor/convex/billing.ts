@@ -115,8 +115,14 @@ export const createSubscriptionCheckout = action({
     }
 
     const quantity = Math.max(1, access.billableMembers);
-    const successUrl = args.successUrl ?? process.env.BILLING_SUCCESS_URL ?? "http://localhost:3000/billing?success=true";
-    const cancelUrl = args.cancelUrl ?? process.env.BILLING_CANCEL_URL ?? "http://localhost:3000/billing?canceled=true";
+    const successUrl =
+      args.successUrl
+      ?? process.env.BILLING_SUCCESS_URL
+      ?? "http://localhost:3000/organization?tab=billing&success=true";
+    const cancelUrl =
+      args.cancelUrl
+      ?? process.env.BILLING_CANCEL_URL
+      ?? "http://localhost:3000/organization?tab=billing&canceled=true";
 
     const session = await stripeClient.createCheckoutSession(ctx, {
       priceId: args.priceId,
@@ -187,7 +193,7 @@ export const createCustomerPortal = action({
 
     return await stripeClient.createCustomerPortalSession(ctx, {
       customerId,
-      returnUrl: args.returnUrl ?? process.env.BILLING_RETURN_URL ?? "http://localhost:3000/billing",
+      returnUrl: args.returnUrl ?? process.env.BILLING_RETURN_URL ?? "http://localhost:3000/organization?tab=billing",
     });
   },
 });

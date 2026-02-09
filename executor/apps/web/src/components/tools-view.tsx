@@ -207,18 +207,46 @@ function faviconForUrl(url: string | undefined | null): string | null {
   }
 }
 
+function isTemplateHostname(hostname: string): boolean {
+  const lower = hostname.toLowerCase();
+  return (
+    lower === "localhost" ||
+    lower === "example.com" ||
+    lower.endsWith(".example.com") ||
+    lower.startsWith("your-domain") ||
+    lower.includes(".your-domain")
+  );
+}
+
+function pickFaviconTarget(urls: Array<string | undefined | null>): string | null {
+  const parsed = urls
+    .filter((value): value is string => Boolean(value))
+    .map((value) => {
+      try {
+        return { value, hostname: new URL(value).hostname };
+      } catch {
+        return null;
+      }
+    })
+    .filter((entry): entry is { value: string; hostname: string } => entry !== null);
+
+  const preferred = parsed.find((entry) => !isTemplateHostname(entry.hostname));
+  if (preferred) return preferred.value;
+  return parsed[0]?.value ?? null;
+}
+
 function getFaviconUrl(preset: ApiPreset): string | null {
-  return faviconForUrl(preset.baseUrl ?? preset.endpoint ?? preset.url);
+  return faviconForUrl(pickFaviconTarget([preset.baseUrl, preset.endpoint, preset.url, preset.spec]));
 }
 
 function getSourceFavicon(source: ToolSourceRecord): string | null {
-  const url =
+  const urls =
     source.type === "mcp"
-      ? (source.config.url as string)
+      ? [source.config.url as string]
       : source.type === "graphql"
-        ? (source.config.endpoint as string)
-        : (source.config.baseUrl as string) ?? (source.config.spec as string);
-  return faviconForUrl(url);
+        ? [source.config.endpoint as string]
+        : [source.config.baseUrl as string, source.config.spec as string];
+  return faviconForUrl(pickFaviconTarget(urls));
 }
 
 function sourceKeyForSource(source: ToolSourceRecord): string | null {

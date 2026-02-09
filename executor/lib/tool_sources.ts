@@ -232,6 +232,78 @@ function getPreferredContentSchema(content: Record<string, unknown>): Record<str
   return {};
 }
 
+function getPreferredResponseSchema(responseValue: Record<string, unknown>): Record<string, unknown> {
+  // OpenAPI 3.x response shape
+  const contentSchema = getPreferredContentSchema(asRecord(responseValue.content));
+  if (Object.keys(contentSchema).length > 0) {
+    return contentSchema;
+  }
+
+  // Swagger 2.x response shape
+  const schema = asRecord(responseValue.schema);
+  if (Object.keys(schema).length > 0) {
+    return schema;
+  }
+
+  return {};
+}
+
+function resolveSchemaRef(
+  schema: Record<string, unknown>,
+  componentSchemas: Record<string, unknown>,
+): Record<string, unknown> {
+  const ref = typeof schema.$ref === "string" ? schema.$ref : "";
+  const prefix = "#/components/schemas/";
+  if (!ref.startsWith(prefix)) {
+    return schema;
+  }
+
+  const key = ref.slice(prefix.length);
+  const resolved = asRecord(componentSchemas[key]);
+  if (Object.keys(resolved).length === 0) {
+    return schema;
+  }
+  return resolved;
+}
+
+function parameterSchemaFromEntry(entry: Record<string, unknown>): Record<string, unknown> {
+  // OpenAPI 3.x (and Swagger body params) use `schema`
+  const schema = asRecord(entry.schema);
+  if (Object.keys(schema).length > 0) {
+    return schema;
+  }
+
+  // Swagger 2.x non-body params use top-level `type`, `enum`, `items`, etc.
+  const type = typeof entry.type === "string" ? entry.type : "";
+  if (!type) {
+    return {};
+  }
+
+  const fallback: Record<string, unknown> = { type };
+  if (Array.isArray(entry.enum) && entry.enum.length > 0) {
+    fallback.enum = entry.enum;
+  }
+  const items = asRecord(entry.items);
+  if (Object.keys(items).length > 0) {
+    fallback.items = items;
+  }
+
+  return fallback;
+}
+
+function responseTypeHintFromSchema(responseSchema: Record<string, unknown>, responseStatus: string): string {
+  if (Object.keys(responseSchema).length > 0) {
+    return jsonSchemaTypeHintFallback(responseSchema);
+  }
+
+  // No-content success responses should be represented as void.
+  if (responseStatus === "204" || responseStatus === "205") {
+    return "void";
+  }
+
+  return "unknown";
+}
+
 /** Simple depth-limited type hint generator for schemas (used as fallback) */
 function jsonSchemaTypeHintFallback(schema: unknown, depth = 0): string {
   if (!schema || typeof schema !== "object") return "unknown";
@@ -254,6 +326,7 @@ function jsonSchemaTypeHintFallback(schema: unknown, depth = 0): string {
   }
 
   const type = typeof shape.type === "string" ? shape.type : undefined;
+  if (type === "integer") return "number";
   if (type === "string" || type === "number" || type === "boolean" || type === "null") {
     return type;
   }
@@ -466,21 +539,39 @@ function buildOpenApiUrl(
 function compactOpenApiPaths(
   pathsValue: unknown,
   operationTypeIds: Set<string>,
+  componentParameters?: Record<string, unknown>,
+  componentSchemas?: Record<string, unknown>,
 ): Record<string, unknown> {
   const paths = asRecord(pathsValue);
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const compactPaths: Record<string, unknown> = {};
+  const compParams = componentParameters ? asRecord(componentParameters) : {};
+  const compSchemas = componentSchemas ? asRecord(componentSchemas) : {};
+
+  const resolveParam = (entry: Record<string, unknown>): Record<string, unknown> => {
+    if (typeof entry.$ref === "string") {
+      // Resolve "#/components/parameters/foo" → components.parameters.foo
+      const ref = entry.$ref;
+      const prefix = "#/components/parameters/";
+      if (ref.startsWith(prefix)) {
+        const key = ref.slice(prefix.length);
+        const resolved = asRecord(compParams[key]);
+        if (Object.keys(resolved).length > 0) return resolved;
+      }
+    }
+    return entry;
+  };
 
   const normalizeParameters = (entries: unknown): Array<Record<string, unknown>> => {
     if (!Array.isArray(entries)) return [];
     return entries
-      .map((entry) => asRecord(entry))
+      .map((entry) => resolveParam(asRecord(entry)))
       .filter((entry) => typeof entry.name === "string" && typeof entry.in === "string")
       .map((entry) => ({
         name: String(entry.name),
         in: String(entry.in),
         required: Boolean(entry.required),
-        schema: asRecord(entry.schema),
+        schema: parameterSchemaFromEntry(entry),
       }));
   };
 
@@ -523,15 +614,20 @@ function compactOpenApiPaths(
       {
         const requestBody = asRecord(operation.requestBody);
         const requestBodyContent = asRecord(requestBody.content);
-        const requestBodySchema = getPreferredContentSchema(requestBodyContent);
+        const requestBodySchema = resolveSchemaRef(
+          getPreferredContentSchema(requestBodyContent),
+          compSchemas,
+        );
 
         const responses = asRecord(operation.responses);
         let responseSchema: Record<string, unknown> = {};
         let responseStatus = "";
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
-          const responseContent = asRecord(asRecord(responseValue).content);
-          responseSchema = getPreferredContentSchema(responseContent);
+          responseSchema = resolveSchemaRef(
+            getPreferredResponseSchema(asRecord(responseValue)),
+            compSchemas,
+          );
           responseStatus = status;
           if (Object.keys(responseSchema).length > 0) break;
         }
@@ -559,7 +655,7 @@ function compactOpenApiPaths(
             ],
           };
           compactOperation._argsTypeHint = jsonSchemaTypeHintFallback(combinedSchema);
-          compactOperation._returnsTypeHint = jsonSchemaTypeHintFallback(responseSchema);
+          compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus);
         } else {
           // Keep full schemas for the fallback path
           if (Object.keys(requestBodySchema).length > 0) {
@@ -665,7 +761,12 @@ export async function prepareOpenApiSpec(
     servers: servers
       .map((server) => (typeof server.url === "string" ? server.url : ""))
       .filter((url) => url.length > 0),
-    paths: compactOpenApiPaths(bundled.paths, operationTypeIds),
+    paths: compactOpenApiPaths(
+      bundled.paths,
+      operationTypeIds,
+      asRecord(asRecord(bundled.components).parameters),
+      asRecord(asRecord(bundled.components).schemas),
+    ),
     dts: dts ?? undefined,
     warnings,
   };
@@ -736,10 +837,11 @@ export function buildOpenApiToolsFromPrepared(
 
         const responses = asRecord(operation.responses);
         let responseSchema: Record<string, unknown> = {};
+        let responseStatus = "";
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
-          const responseContent = asRecord(asRecord(responseValue).content);
-          responseSchema = getPreferredContentSchema(responseContent);
+          responseSchema = getPreferredResponseSchema(asRecord(responseValue));
+          responseStatus = status;
           if (Object.keys(responseSchema).length > 0) break;
         }
 
@@ -758,7 +860,7 @@ export function buildOpenApiToolsFromPrepared(
         };
 
         argsType = jsonSchemaTypeHintFallback(combinedSchema);
-        returnsType = jsonSchemaTypeHintFallback(responseSchema);
+        returnsType = responseTypeHintFromSchema(responseSchema, responseStatus);
       }
 
       const approval = config.overrides?.[operationIdRaw]?.approval

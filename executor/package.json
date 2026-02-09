@@ -4,8 +4,7 @@
   "type": "module",
   "scripts": {
     "deploy": "bunx convex deploy",
-    "codegen": "bunx convex codegen && bun scripts/postcodegen.ts",
-    "fix-types": "bun scripts/postcodegen.ts"
+    "codegen": "bunx convex codegen"
   },
   "dependencies": {
     "convex": "^1.31.7"

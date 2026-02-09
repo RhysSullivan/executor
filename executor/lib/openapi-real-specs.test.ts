@@ -154,6 +154,16 @@ describe("real-world OpenAPI specs", () => {
           // The sourceDts should contain operations interface
           const dts = withSourceDts[0].metadata!.sourceDts!;
           expect(dts).toContain("operations");
+
+          // Real specs should produce useful type hints for at least some operations.
+          const typedInputs = tools.filter(
+            (t) => t.metadata?.argsType && t.metadata.argsType !== "Record<string, unknown>",
+          );
+          const typedOutputs = tools.filter(
+            (t) => t.metadata?.returnsType && t.metadata.returnsType !== "unknown",
+          );
+          expect(typedInputs.length).toBeGreaterThan(0);
+          expect(typedOutputs.length).toBeGreaterThan(0);
         }
 
         if (prepared.warnings.length > 0) {
@@ -164,4 +174,64 @@ describe("real-world OpenAPI specs", () => {
       300_000,
     );
   }
+
+  test(
+    "github: delete repo subscription keeps typed args and void return",
+    async () => {
+      const githubUrl =
+        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
+
+      const prepared = await prepareOpenApiSpec(githubUrl, "github");
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "github",
+          spec: githubUrl,
+          baseUrl: prepared.servers[0] || "https://api.github.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "activity/delete-repo-subscription",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("github.activity.activity_delete_repo_subscription");
+      expect(tool!.metadata!.argsType).toContain("owner");
+      expect(tool!.metadata!.argsType).toContain("repo");
+      expect(tool!.metadata!.argsType).not.toBe("Record<string, unknown>");
+      expect(tool!.metadata!.returnsType).toBe("void");
+    },
+    300_000,
+  );
+
+  test(
+    "slack: approved apps list keeps typed query params and non-unknown output",
+    async () => {
+      const slackUrl = "https://api.slack.com/specs/openapi/v2/slack_web.json";
+
+      const prepared = await prepareOpenApiSpec(slackUrl, "slack");
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "slack",
+          spec: slackUrl,
+          baseUrl: "https://slack.com/api",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "admin_apps_approved_list",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("slack.admin_apps_approved.admin_apps_approved_list");
+      expect(tool!.metadata!.argsType).toContain("token: string");
+      expect(tool!.metadata!.argsType).toContain("limit?: number");
+      expect(tool!.metadata!.returnsType).not.toBe("unknown");
+    },
+    300_000,
+  );
 });

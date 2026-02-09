@@ -3,6 +3,7 @@
 import { useRef, useEffect } from "react";
 import Editor, { type OnMount, type BeforeMount, type Monaco } from "@monaco-editor/react";
 import { Loader2 } from "lucide-react";
+import { useTheme } from "next-themes";
 import type { ToolDescriptor } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -34,7 +35,7 @@ function buildTree(tools: ToolDescriptor[]): NamespaceNode {
   return root;
 }
 
-function emitToolMethod(tool: ToolDescriptor): string {
+function emitToolMethod(tool: ToolDescriptor, dtsSources: Set<string>): string {
   const funcName = tool.path.split(".").pop()!;
   const approvalNote =
     tool.approval === "required"
@@ -44,8 +45,10 @@ function emitToolMethod(tool: ToolDescriptor): string {
     ? `${tool.description}${approvalNote}`
     : approvalNote || "Call this tool.";
 
-  // For OpenAPI tools with operationId, use indexed access types for precise IntelliSense
-  if (tool.operationId) {
+  // For OpenAPI tools with operationId, use indexed access types only when
+  // this source has a loaded .d.ts block.
+  const hasSourceDts = Boolean(tool.source && dtsSources.has(tool.source));
+  if (tool.operationId && hasSourceDts) {
     const opKey = JSON.stringify(tool.operationId);
     return `  /**
    * ${desc}
@@ -72,11 +75,12 @@ function emitToolMethod(tool: ToolDescriptor): string {
 function emitNamespaceInterface(
   name: string,
   node: NamespaceNode,
+  dtsSources: Set<string>,
   out: string[],
 ): void {
   // First, recursively emit child namespace interfaces
   for (const [childName, childNode] of node.children) {
-    emitNamespaceInterface(`${name}_${childName}`, childNode, out);
+    emitNamespaceInterface(`${name}_${childName}`, childNode, dtsSources, out);
   }
 
   // Build this namespace's interface
@@ -92,7 +96,7 @@ function emitNamespaceInterface(
 
   // Add tool methods
   for (const tool of node.tools) {
-    members.push(emitToolMethod(tool));
+    members.push(emitToolMethod(tool, dtsSources));
   }
 
   out.push(`interface ToolNS_${name} {\n${members.join("\n\n")}\n}`);
@@ -119,11 +123,12 @@ type ToolOutput<Op> =
   Op extends { responses: { 200: { content: { "application/json": infer R } } } } ? R :
   Op extends { responses: { 201: { content: { "application/json": infer R } } } } ? R :
   Op extends { responses: { 202: { content: { "application/json": infer R } } } } ? R :
-  Op extends { responses: { 204: { content: never } } } ? void :
+  Op extends { responses: { 204: unknown } } ? void :
+  Op extends { responses: { 205: unknown } } ? void :
   unknown;
 `;
 
-function generateToolsDts(tools: ToolDescriptor[]): string {
+function generateToolsDts(tools: ToolDescriptor[], dtsSources: Set<string>): string {
   const root = buildTree(tools);
 
   // Legacy compat: collect schemaTypes from tools that use the old format
@@ -141,7 +146,7 @@ function generateToolsDts(tools: ToolDescriptor[]): string {
 
   // Emit all namespace interfaces recursively
   for (const [name, node] of root.children) {
-    emitNamespaceInterface(name, node, interfaces);
+    emitNamespaceInterface(name, node, dtsSources, interfaces);
   }
 
   // Build root ToolsProxy interface
@@ -154,7 +159,7 @@ function generateToolsDts(tools: ToolDescriptor[]): string {
 
   // Root-level tools (rare but possible)
   for (const tool of root.tools) {
-    rootMembers.push(emitToolMethod(tool));
+    rootMembers.push(emitToolMethod(tool, dtsSources));
   }
 
   let dts = `
@@ -241,6 +246,7 @@ export function CodeEditor({
   className,
   height = "400px",
 }: CodeEditorProps) {
+  const { resolvedTheme } = useTheme();
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const envLibDisposable = useRef<{ dispose: () => void } | null>(null);
@@ -248,6 +254,7 @@ export function CodeEditor({
   const dtsLibDisposables = useRef<{ dispose: () => void }[]>([]);
   const toolsLibVersion = useRef(0);
   const fetchedDtsUrls = useRef<string>("");
+  const dtsSources = new Set(Object.keys(dtsUrls ?? {}));
 
   // Fetch and register .d.ts blobs from OpenAPI sources
   useEffect(() => {
@@ -318,7 +325,7 @@ export function CodeEditor({
     // Dispose previous tool type declarations
     toolsLibDisposable.current?.dispose();
 
-    const dts = generateToolsDts(tools);
+    const dts = generateToolsDts(tools, dtsSources);
 
     // Use a versioned filename — disposing + re-adding the same filename
     // can cause the TS worker to serve stale completions from its cache.
@@ -327,7 +334,7 @@ export function CodeEditor({
       dts,
       `file:///node_modules/@types/executor-tools/v${version}.d.ts`,
     );
-  }, [tools]);
+  }, [tools, dtsUrls]);
 
   // Avoid transient semantic errors while tool metadata is still loading.
   useEffect(() => {
@@ -382,14 +389,62 @@ export function CodeEditor({
     // Add initial tool type declarations
     // (will be replaced by useEffect when tools load from the API)
     toolsLibDisposable.current?.dispose();
-    const dts = generateToolsDts(tools);
+    const dts = generateToolsDts(tools, dtsSources);
     const version = ++toolsLibVersion.current;
     toolsLibDisposable.current = ts.javascriptDefaults.addExtraLib(
       dts,
       `file:///node_modules/@types/executor-tools/v${version}.d.ts`,
     );
 
-    // Define the dark theme matching our UI
+    // Define themes that track the app's light/dark mode.
+    monaco.editor.defineTheme("executor-light", {
+      base: "vs",
+      inherit: true,
+      rules: [
+        { token: "comment", foreground: "7f8692", fontStyle: "italic" },
+        { token: "keyword", foreground: "0f8a6a" },
+        { token: "string", foreground: "a46822" },
+        { token: "number", foreground: "a46822" },
+        { token: "type", foreground: "0f8a6a" },
+        { token: "function", foreground: "5c470f" },
+        { token: "variable", foreground: "1f2430" },
+        { token: "operator", foreground: "6f7785" },
+      ],
+      colors: {
+        "editor.background": "#ffffff",
+        "editor.foreground": "#1f2430",
+        "editor.lineHighlightBackground": "#f4f7fb",
+        "editor.selectionBackground": "#c7def5",
+        "editor.inactiveSelectionBackground": "#dbe8f7",
+        "editorCursor.foreground": "#0f8a6a",
+        "editorLineNumber.foreground": "#9aa3b2",
+        "editorLineNumber.activeForeground": "#6f7785",
+        "editorIndentGuide.background": "#e3e8ef",
+        "editorIndentGuide.activeBackground": "#ccd5e2",
+        "editor.selectionHighlightBackground": "#c7def540",
+        "editorWidget.background": "#ffffff",
+        "editorWidget.border": "#d6dde8",
+        "editorSuggestWidget.background": "#ffffff",
+        "editorSuggestWidget.border": "#d6dde8",
+        "editorSuggestWidget.selectedBackground": "#cfe1f6",
+        "editorSuggestWidget.selectedForeground": "#111827",
+        "editorSuggestWidget.selectedIconForeground": "#0f8a6a",
+        "editorSuggestWidget.highlightForeground": "#0f8a6a",
+        "editorHoverWidget.background": "#ffffff",
+        "editorHoverWidget.border": "#d6dde8",
+        "list.focusBackground": "#cfe1f6",
+        "list.focusForeground": "#111827",
+        "list.highlightForeground": "#0f8a6a",
+        "input.background": "#ffffff",
+        "input.border": "#d6dde8",
+        "scrollbar.shadow": "#00000000",
+        "scrollbarSlider.background": "#c2cad880",
+        "scrollbarSlider.hoverBackground": "#a6afbe",
+        "scrollbarSlider.activeBackground": "#8f98a8",
+        "focusBorder": "#0f8a6a30",
+      },
+    });
+
     monaco.editor.defineTheme("executor-dark", {
       base: "vs-dark",
       inherit: true,
@@ -434,6 +489,8 @@ export function CodeEditor({
     });
   };
 
+  const monacoTheme = resolvedTheme === "light" ? "executor-light" : "executor-dark";
+
   const handleMount: OnMount = (editor) => {
     editorRef.current = editor;
 
@@ -460,7 +517,7 @@ export function CodeEditor({
         height={height}
         language="javascript"
         path="task.js"
-        theme="executor-dark"
+        theme={monacoTheme}
         value={value}
         onChange={(v) => onChange(v ?? "")}
         beforeMount={handleBeforeMount}
@@ -524,7 +581,7 @@ export function CodeEditor({
           smoothScrolling: true,
         }}
         loading={
-          <div className="flex items-center justify-center h-full bg-[#0f1117] text-muted-foreground text-xs font-mono">
+          <div className="flex h-full items-center justify-center bg-background text-xs font-mono text-muted-foreground">
             Loading editor...
           </div>
         }
