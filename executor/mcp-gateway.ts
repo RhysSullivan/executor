@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { api } from "./convex/_generated/api";
 import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp_server";
 import { AnonymousOAuthServer, OAuthBadRequest } from "./lib/anonymous-oauth";
+import { ConvexOAuthStorage } from "./lib/convex-oauth-storage";
 import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "./lib/types";
 import type { Id } from "./convex/_generated/dataModel";
 
@@ -44,7 +45,12 @@ function loadConfigFromEnv(): void {
 }
 
 async function initAnonymousOAuth(issuer: string): Promise<void> {
-  anonOAuth = new AnonymousOAuthServer({ issuer });
+  const internalSecret = Bun.env.EXECUTOR_INTERNAL_TOKEN;
+  const storage = convexUrl && internalSecret
+    ? new ConvexOAuthStorage(convexUrl, internalSecret)
+    : undefined;
+
+  anonOAuth = new AnonymousOAuthServer({ issuer, storage });
   await anonOAuth.init();
 }
 
@@ -381,7 +387,7 @@ async function handleRegister(request: Request): Promise<Response> {
   }
 
   try {
-    const registration = anonOAuth.registerClient(body as any);
+    const registration = await anonOAuth.registerClient(body as any);
     return Response.json(registration, { status: 201 });
   } catch (error) {
     if (error instanceof OAuthBadRequest) {
@@ -394,14 +400,14 @@ async function handleRegister(request: Request): Promise<Response> {
   }
 }
 
-function handleAuthorize(request: Request): Response {
+async function handleAuthorize(request: Request): Promise<Response> {
   if (!anonOAuth) {
     return Response.json({ error: "Anonymous OAuth server not initialized" }, { status: 500 });
   }
 
   const url = new URL(request.url);
   try {
-    const { redirectTo } = anonOAuth.authorize(url.searchParams);
+    const { redirectTo } = await anonOAuth.authorize(url.searchParams);
     return Response.redirect(redirectTo, 302);
   } catch (error) {
     if (error instanceof OAuthBadRequest) {
@@ -501,7 +507,7 @@ export async function startMcpGateway(
       }
 
       if (url.pathname === "/authorize" && request.method === "GET") {
-        return handleAuthorize(request);
+        return await handleAuthorize(request);
       }
 
       if (url.pathname === "/token" && request.method === "POST") {

@@ -5,7 +5,13 @@ import { defineApp } from "convex/server";
 
 const app = defineApp();
 
-app.use(workOSAuthKit);
+const workosEnabled = Boolean(
+  process.env.WORKOS_CLIENT_ID && process.env.WORKOS_API_KEY && process.env.WORKOS_WEBHOOK_SECRET,
+);
+
+if (workosEnabled) {
+  app.use(workOSAuthKit);
+}
 app.use(stripe);
 app.use(migrations);
 

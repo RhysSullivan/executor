@@ -11,6 +11,7 @@ curl -fsSL https://executor.sh/install | bash
 The installed `executor` binary bootstraps and manages its own runtime under `~/.executor/runtime`, including:
 
 - `convex-local-backend` (downloaded from Convex precompiled releases)
+- packaged Executor web UI bundle
 - persisted local backend config (`instanceName`, `instanceSecret`, and ports)
 - local SQLite + file storage data
 
@@ -19,11 +20,15 @@ Common commands:
 ```bash
 executor doctor
 executor up
+executor web
 executor backend --help
 executor gateway
+bash executor/uninstall --yes
 ```
 
 `executor up` runs the managed `convex-local-backend` binary directly without requiring users to install Bun, Node, or Convex.
+On first run, `executor up` also bootstraps Convex functions automatically when a local project checkout is available.
+`executor web` runs the packaged web UI on `http://localhost:5312`.
 
 ## Local development from source
 
@@ -84,6 +89,7 @@ Artifacts are written to `dist/release/`.
 - `run_code` attempts MCP form elicitation for pending tool approvals when the MCP client advertises `elicitation.form`; clients without elicitation support continue using out-of-band approval flow.
 - Local source-dev defaults: web `http://localhost:4312`, MCP gateway `http://localhost:4313/mcp`.
 - Installed binary default for `executor gateway`: `http://localhost:5313/mcp`.
+- WorkOS env vars are optional for local self-hosted usage; WorkOS component wiring is enabled only when all required WorkOS env vars are present.
 
 ## Credential providers
 

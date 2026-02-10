@@ -85,7 +85,7 @@ beforeAll(async () => {
       if (url.pathname === "/register" && request.method === "POST") {
         const body = await request.json();
         try {
-          const reg = oauthServer.registerClient(body as any);
+          const reg = await oauthServer.registerClient(body as any);
           return Response.json(reg, { status: 201 });
         } catch (error) {
           if (error instanceof OAuthBadRequest) {
@@ -100,7 +100,7 @@ beforeAll(async () => {
 
       if (url.pathname === "/authorize" && request.method === "GET") {
         try {
-          const { redirectTo } = oauthServer.authorize(url.searchParams);
+          const { redirectTo } = await oauthServer.authorize(url.searchParams);
           return Response.redirect(redirectTo, 302);
         } catch (error) {
           if (error instanceof OAuthBadRequest) {
@@ -293,6 +293,7 @@ describe("MCP Gateway OAuth Integration", () => {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         code,
+        client_id,
         redirect_uri: "http://localhost:9999/callback",
         code_verifier: codeVerifier,
       }).toString(),
@@ -413,6 +414,7 @@ describe("MCP Gateway OAuth Integration", () => {
         body: new URLSearchParams({
           grant_type: "authorization_code",
           code,
+          client_id,
           redirect_uri: "http://localhost:9999/callback",
           code_verifier: codeVerifier,
         }).toString(),

@@ -28,6 +28,43 @@ export declare const api: {
       any
     >;
   };
+  anonymousOauth: {
+    getActiveSigningKey: FunctionReference<
+      "query",
+      "public",
+      { internalSecret: string },
+      any
+    >;
+    getClient: FunctionReference<
+      "query",
+      "public",
+      { clientId: string; internalSecret: string },
+      any
+    >;
+    registerClient: FunctionReference<
+      "mutation",
+      "public",
+      {
+        clientId: string;
+        clientName?: string;
+        internalSecret: string;
+        redirectUris: Array<string>;
+      },
+      any
+    >;
+    storeSigningKey: FunctionReference<
+      "mutation",
+      "public",
+      {
+        algorithm: string;
+        internalSecret: string;
+        keyId: string;
+        privateKeyJwk: any;
+        publicKeyJwk: any;
+      },
+      any
+    >;
+  };
   app: {
     getClientConfig: FunctionReference<"query", "public", {}, any>;
     getCurrentAccount: FunctionReference<
