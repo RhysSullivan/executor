@@ -2,13 +2,14 @@
 set -euo pipefail
 
 APP="executor"
-REPO="${EXECUTOR_REPO:-RhysSullivan/assistant}"
+REPO="${EXECUTOR_REPO:-RhysSullivan/executor}"
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
 WEB_INSTALL_DIR="${EXECUTOR_WEB_INSTALL_DIR:-$HOME/.executor/runtime/web}"
 REQUESTED_VERSION="${VERSION:-}"
 RESOLVED_VERSION=""
 BINARY_PATH=""
 NO_MODIFY_PATH="0"
+STAR_PROMPT="1"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 LOCAL_BINARY_CANDIDATE="$SCRIPT_DIR/dist/executor"
 LOCAL_WEB_CANDIDATE="$SCRIPT_DIR/dist/release"
@@ -27,11 +28,12 @@ Usage:
 Options:
   -v, --version <version>  Install specific release tag (with or without leading v)
   -b, --binary <path>      Install from a local prebuilt binary
+  --no-star-prompt         Do not show GitHub star prompt
   --no-modify-path         Do not append executor bin directory to shell rc
   -h, --help               Show this help
 
 Environment:
-  EXECUTOR_REPO            GitHub repository to install from (default: RhysSullivan/assistant)
+  EXECUTOR_REPO            GitHub repository to install from (default: RhysSullivan/executor)
   EXECUTOR_INSTALL_DIR     Install directory (default: ~/.executor/bin)
   EXECUTOR_WEB_INSTALL_DIR Web bundle directory (default: ~/.executor/runtime/web)
 EOF
@@ -61,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-modify-path)
       NO_MODIFY_PATH="1"
+      shift
+      ;;
+    --no-star-prompt)
+      STAR_PROMPT="0"
       shift
       ;;
     *)
@@ -94,7 +100,6 @@ case "$raw_arch" in
     ;;
 esac
 
-archive_ext="zip"
 archive_ext="tar.gz"
 
 filename="${APP}-${os}-${arch}.${archive_ext}"
@@ -166,7 +171,7 @@ install_web_bundle() {
   echo ""
   echo "To build and install it locally:"
   echo "  bun run --cwd executor build:release"
-  echo "  bash executor/install"
+  echo "  bash executor/install --no-modify-path"
 }
 
 if [[ -n "$BINARY_PATH" ]]; then
@@ -216,6 +221,24 @@ else
   fi
 fi
 
+show_star_prompt() {
+  local repo_url
+  local star_cmd
+  repo_url="https://github.com/${REPO}"
+  star_cmd="gh api --method PUT /user/starred/${REPO}"
+
+  if [[ "$STAR_PROMPT" != "1" ]]; then
+    return
+  fi
+
+  if command -v gh >/dev/null 2>&1; then
+    echo "If Executor helps, star with GitHub CLI ⭐:"
+    echo "  ${star_cmd}"
+  else
+    echo "If Executor helps, please star: ${repo_url}"
+  fi
+}
+
 install_web_bundle
 
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
@@ -247,3 +270,5 @@ echo "  executor gateway   # defaults to http://localhost:5313/mcp"
 echo ""
 echo "To uninstall later:"
 echo "  bash executor/uninstall --yes"
+echo ""
+show_star_prompt

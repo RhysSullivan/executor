@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 const CONVEX_BACKEND_REPO = "get-convex/convex-backend";
-const EXECUTOR_RELEASE_REPO = Bun.env.EXECUTOR_REPO ?? "RhysSullivan/assistant";
+const EXECUTOR_RELEASE_REPO = Bun.env.EXECUTOR_REPO ?? "RhysSullivan/executor";
 const NODE_VERSION = "22.22.0";
 const CONVEX_CLI_VERSION = "1.31.7";
 const CONVEX_CLIENT_HEADER = `npm-cli-${CONVEX_CLI_VERSION}`;
