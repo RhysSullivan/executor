@@ -153,10 +153,6 @@ async function addWorkspaceMember(
   });
 }
 
-function asWorkspaceId(id: Id<"workspaces">): string {
-  return id as unknown as string;
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -168,7 +164,7 @@ describe("authentication", () => {
 
     await expect(
       t.query(api.workspace.listTasks, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
       }),
     ).rejects.toThrow("Must be signed in");
   });
@@ -179,7 +175,7 @@ describe("authentication", () => {
 
     await expect(
       t.mutation(api.workspace.upsertAccessPolicy, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
         toolPathPattern: "*",
         decision: "allow",
       }),
@@ -203,7 +199,7 @@ describe("authentication", () => {
 
     await expect(
       t.mutation(api.executor.createTask, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
         code: "console.log('hello')",
       }),
     ).rejects.toThrow("Must be signed in");
@@ -215,7 +211,7 @@ describe("authentication", () => {
     const authed = t.withIdentity({ subject: "user-ok" });
 
     const tasks = await authed.query(api.workspace.listTasks, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
     });
 
     expect(tasks).toEqual([]);
@@ -259,7 +255,7 @@ describe("workspace access controls", () => {
 
     const authedMember = t.withIdentity({ subject: "ws-member" });
     const tasks = await authedMember.query(api.workspace.listTasks, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
     });
 
     expect(tasks).toEqual([]);
@@ -278,7 +274,7 @@ describe("workspace access controls", () => {
 
     const authedMember = t.withIdentity({ subject: "ws-member-org-fallback" });
     const tasks = await authedMember.query(api.workspace.listTasks, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
     });
 
     expect(tasks).toEqual([]);
@@ -293,7 +289,7 @@ describe("workspace access controls", () => {
 
     await expect(
       authedOutsider.query(api.workspace.listTasks, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
       }),
     ).rejects.toThrow("You are not a member of this workspace");
   });
@@ -319,7 +315,7 @@ describe("workspace access controls", () => {
 
     await expect(
       authedRemoved.query(api.workspace.listTasks, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
       }),
     ).rejects.toThrow("You are not a member of this workspace");
   });
@@ -344,7 +340,7 @@ describe("workspace access controls", () => {
 
     await expect(
       authedMember.mutation(api.workspace.upsertAccessPolicy, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
         toolPathPattern: "*",
         decision: "allow",
       }),
@@ -370,7 +366,7 @@ describe("workspace access controls", () => {
     const authedAdmin = t.withIdentity({ subject: "ws-policy-admin" });
 
     const policy = await authedAdmin.mutation(api.workspace.upsertAccessPolicy, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
       toolPathPattern: "*.delete",
       decision: "require_approval",
     });
@@ -385,7 +381,7 @@ describe("workspace access controls", () => {
     const authedOwner = t.withIdentity({ subject: "ws-owner-policy" });
 
     const policy = await authedOwner.mutation(api.workspace.upsertAccessPolicy, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
       toolPathPattern: "*",
       decision: "allow",
     });
@@ -413,7 +409,7 @@ describe("workspace access controls", () => {
 
     await expect(
       authedMember.mutation(api.workspace.upsertCredential, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
         sourceKey: "openapi:github",
         scope: "workspace",
         secretJson: { token: "ghp_test" },
@@ -441,7 +437,7 @@ describe("workspace access controls", () => {
 
     await expect(
       authedMember.mutation(api.workspace.upsertToolSource, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
         name: "my-tool",
         type: "mcp",
         config: { url: "https://example.com" },
@@ -469,7 +465,7 @@ describe("workspace access controls", () => {
 
     await expect(
       authedMember.mutation(api.workspace.deleteToolSource, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
         sourceId: "src_nonexistent",
       }),
     ).rejects.toThrow("Only workspace admins can perform this action");
@@ -494,7 +490,7 @@ describe("workspace access controls", () => {
     const authedMember = t.withIdentity({ subject: "read-policy-member" });
 
     const policies = await authedMember.query(api.workspace.listAccessPolicies, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
     });
 
     expect(policies).toEqual([]);
@@ -519,7 +515,7 @@ describe("workspace access controls", () => {
     const authedMember = t.withIdentity({ subject: "read-ts-member" });
 
     const sources = await authedMember.query(api.workspace.listToolSources, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
     });
 
     expect(sources).toEqual([]);
@@ -695,7 +691,7 @@ describe("cross-workspace isolation", () => {
     // User A tries to read User B's workspace
     await expect(
       authedA.query(api.workspace.listTasks, {
-        workspaceId: asWorkspaceId(userB.workspaceId),
+        workspaceId: userB.workspaceId,
       }),
     ).rejects.toThrow("You are not a member of this workspace");
   });
@@ -709,7 +705,7 @@ describe("cross-workspace isolation", () => {
 
     await expect(
       authedA.mutation(api.executor.createTask, {
-        workspaceId: asWorkspaceId(userB.workspaceId),
+        workspaceId: userB.workspaceId,
         code: "console.log('pwned')",
       }),
     ).rejects.toThrow("You are not a member of this workspace");
@@ -724,7 +720,7 @@ describe("cross-workspace isolation", () => {
 
     await expect(
       authedA.mutation(api.workspace.upsertAccessPolicy, {
-        workspaceId: asWorkspaceId(userB.workspaceId),
+        workspaceId: userB.workspaceId,
         toolPathPattern: "*",
         decision: "allow",
       }),
@@ -738,7 +734,7 @@ describe("cross-workspace isolation", () => {
 
     await expect(
       authed.query(api.workspace.listTasks, {
-        workspaceId: "invalid_workspace_id",
+        workspaceId: "invalid_workspace_id" as Id<"workspaces">,
       }),
     ).rejects.toThrow();
   });
@@ -1018,12 +1014,12 @@ describe("task creation with access controls", () => {
     const authed = t.withIdentity({ subject: "task-creator" });
 
     const result = await authed.mutation(api.executor.createTask, {
-      workspaceId: asWorkspaceId(user.workspaceId),
+      workspaceId: user.workspaceId,
       code: "console.log('hello')",
     });
 
     expect(result.task.status).toBe("queued");
-    expect(result.task.workspaceId).toBe(asWorkspaceId(user.workspaceId));
+    expect(result.task.workspaceId).toBe(user.workspaceId);
   });
 
   test("task is scoped to workspace and visible to members", async () => {
@@ -1045,14 +1041,14 @@ describe("task creation with access controls", () => {
     // Owner creates a task
     const authedOwner = t.withIdentity({ subject: "task-scope-owner" });
     await authedOwner.mutation(api.executor.createTask, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
       code: "1 + 1",
     });
 
     // Member can see it
     const authedMember = t.withIdentity({ subject: "task-scope-member" });
     const tasks = await authedMember.query(api.workspace.listTasks, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
     });
 
     expect(tasks.length).toBe(1);
@@ -1067,7 +1063,7 @@ describe("task creation with access controls", () => {
     // Owner creates a task
     const authedOwner = t.withIdentity({ subject: "task-vis-owner" });
     await authedOwner.mutation(api.executor.createTask, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
       code: "secret code",
     });
 
@@ -1076,7 +1072,7 @@ describe("task creation with access controls", () => {
 
     await expect(
       authedOutsider.query(api.workspace.listTasks, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
       }),
     ).rejects.toThrow("You are not a member of this workspace");
   });
@@ -1090,7 +1086,7 @@ describe("credential security", () => {
 
     // Create a credential via admin
     await authed.mutation(api.workspace.upsertCredential, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
       sourceKey: "openapi:stripe",
       scope: "workspace",
       secretJson: { token: "sk_live_super_secret" },
@@ -1098,7 +1094,7 @@ describe("credential security", () => {
 
     // List should redact
     const credentials = await authed.query(api.workspace.listCredentials, {
-      workspaceId: asWorkspaceId(owner.workspaceId),
+      workspaceId: owner.workspaceId,
     });
 
     expect(credentials.length).toBe(1);
@@ -1126,7 +1122,7 @@ describe("credential security", () => {
 
     await expect(
       authedMember.query(api.workspace.resolveCredential, {
-        workspaceId: asWorkspaceId(owner.workspaceId),
+        workspaceId: owner.workspaceId,
         sourceKey: "openapi:github",
         scope: "workspace",
       }),
@@ -1155,7 +1151,7 @@ describe("role hierarchy validation", () => {
 
     // Admin can upsert access policies
     const policy = await authed.mutation(api.workspace.upsertAccessPolicy, {
-      workspaceId: asWorkspaceId(org.workspaceId),
+      workspaceId: org.workspaceId,
       toolPathPattern: "admin.*",
       decision: "deny",
     });
@@ -1163,7 +1159,7 @@ describe("role hierarchy validation", () => {
 
     // Admin can upsert tool sources
     const source = await authed.mutation(api.workspace.upsertToolSource, {
-      workspaceId: asWorkspaceId(org.workspaceId),
+      workspaceId: org.workspaceId,
       name: "admin-tool",
       type: "mcp",
       config: { url: "https://example.com" },

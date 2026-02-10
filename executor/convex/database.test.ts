@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 function setup() {
@@ -10,14 +11,36 @@ function setup() {
   });
 }
 
+/** Insert a minimal workspace row and return its Id. */
+async function seedWorkspace(t: ReturnType<typeof setup>, name = "test-ws"): Promise<Id<"workspaces">> {
+  return await t.run(async (ctx) => {
+    const orgId = await ctx.db.insert("organizations", {
+      name: `${name}-org`,
+      slug: `${name}-org`,
+      status: "active",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    return await ctx.db.insert("workspaces", {
+      name,
+      slug: name,
+      organizationId: orgId,
+      plan: "free",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  });
+}
+
 test("task lifecycle supports queue, run, and complete", async () => {
   const t = setup();
+  const wsId = await seedWorkspace(t, "ws_1");
 
   const created = await t.mutation(internal.database.createTask, {
     id: "task_1",
     code: "console.log('hello')",
     runtimeId: "local-bun",
-    workspaceId: "ws_1",
+    workspaceId: wsId,
     actorId: "actor_1",
     clientId: "web",
   });
@@ -49,12 +72,13 @@ test("task lifecycle supports queue, run, and complete", async () => {
 
 test("approval lifecycle tracks pending and resolution", async () => {
   const t = setup();
+  const wsId = await seedWorkspace(t, "ws_2");
 
   await t.mutation(internal.database.createTask, {
     id: "task_2",
     code: "await tools.admin.delete_data({ id: 'x' })",
     runtimeId: "local-bun",
-    workspaceId: "ws_2",
+    workspaceId: wsId,
     actorId: "actor_2",
     clientId: "web",
   });
@@ -67,7 +91,7 @@ test("approval lifecycle tracks pending and resolution", async () => {
   });
   expect(createdApproval.status).toBe("pending");
 
-  const pending = await t.query(internal.database.listPendingApprovals, { workspaceId: "ws_2" });
+  const pending = await t.query(internal.database.listPendingApprovals, { workspaceId: wsId });
   expect(pending.length).toBe(1);
   expect(pending[0]?.task.id).toBe("task_2");
 
@@ -78,7 +102,7 @@ test("approval lifecycle tracks pending and resolution", async () => {
   });
   expect(resolved?.status).toBe("approved");
 
-  const pendingAfter = await t.query(internal.database.listPendingApprovals, { workspaceId: "ws_2" });
+  const pendingAfter = await t.query(internal.database.listPendingApprovals, { workspaceId: wsId });
   expect(pendingAfter).toEqual([]);
 });
 
@@ -140,9 +164,10 @@ test("bootstrap honors MCP caller-provided session id", async () => {
 
 test("credentials persist provider and resolve by scope", async () => {
   const t = setup();
+  const wsId = await seedWorkspace(t, "ws_cred");
 
   const workspaceCredential = await t.mutation(internal.database.upsertCredential, {
-    workspaceId: "ws_cred",
+    workspaceId: wsId,
     sourceKey: "openapi:github",
     scope: "workspace",
     provider: "managed",
@@ -152,7 +177,7 @@ test("credentials persist provider and resolve by scope", async () => {
   expect(workspaceCredential.provider).toBe("managed");
 
   const actorCredential = await t.mutation(internal.database.upsertCredential, {
-    workspaceId: "ws_cred",
+    workspaceId: wsId,
     sourceKey: "openapi:github",
     scope: "actor",
     actorId: "actor_cred",
@@ -164,14 +189,14 @@ test("credentials persist provider and resolve by scope", async () => {
   expect(actorCredential.actorId).toBe("actor_cred");
 
   const resolvedWorkspace = await t.query(internal.database.resolveCredential, {
-    workspaceId: "ws_cred",
+    workspaceId: wsId,
     sourceKey: "openapi:github",
     scope: "workspace",
   });
   expect(resolvedWorkspace?.provider).toBe("managed");
 
   const resolvedActor = await t.query(internal.database.resolveCredential, {
-    workspaceId: "ws_cred",
+    workspaceId: wsId,
     sourceKey: "openapi:github",
     scope: "actor",
     actorId: "actor_cred",
@@ -181,9 +206,10 @@ test("credentials persist provider and resolve by scope", async () => {
 
 test("upsertCredential defaults provider to managed", async () => {
   const t = setup();
+  const wsId = await seedWorkspace(t, "ws_default_provider");
 
   const credential = await t.mutation(internal.database.upsertCredential, {
-    workspaceId: "ws_default_provider",
+    workspaceId: wsId,
     sourceKey: "openapi:stripe",
     scope: "workspace",
     secretJson: { token: "sk_test_123" },

@@ -124,14 +124,6 @@ async function resolveWorkosVault(
         : "";
 
   if (!objectId) {
-    // Backward compatibility: older rows may have stored credential payload directly
-    // under the encrypted provider before object references were persisted.
-    const { objectId: _objectId, id: _id, apiKey: _apiKey, ...legacyPayload } = config;
-    const normalized = asRecord(legacyPayload);
-    if (Object.keys(normalized).length > 0) {
-      return normalized;
-    }
-
     throw new Error(
       "Encrypted credential is missing its secure reference. Re-save this credential in the dashboard.",
     );
@@ -151,7 +143,7 @@ export async function resolveCredentialPayload(
   record: Pick<CredentialRecord, "provider" | "secretJson">,
   options?: { readVaultObject?: VaultObjectReader },
 ): Promise<CredentialPayload | null> {
-  const provider = (record.provider ?? "managed") as CredentialProvider;
+  const provider = record.provider;
   const resolver = providers[provider];
   if (!resolver) {
     throw new Error(`Unsupported credential provider: ${provider}`);

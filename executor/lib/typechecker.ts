@@ -104,18 +104,6 @@ export function generateToolDeclarations(
   options?: GenerateToolDeclarationOptions,
 ): string {
 
-  // Legacy compat: collect schemaTypes from tools that use the old format
-  const allSchemas = new Map<string, string>();
-  for (const tool of tools) {
-    if (tool.schemaTypes) {
-      for (const [name, type] of Object.entries(tool.schemaTypes)) {
-        if (!allSchemas.has(name)) {
-          allSchemas.set(name, type);
-        }
-      }
-    }
-  }
-
   // Build a nested tree from flat tool paths
   interface TreeNode {
     children: Map<string, TreeNode>;
@@ -171,13 +159,6 @@ export function generateToolDeclarations(
 
   // Assemble the full declarations block
   const parts: string[] = [];
-
-  // Legacy schema type aliases (from old cache format)
-  if (allSchemas.size > 0) {
-    for (const [name, type] of allSchemas) {
-      parts.push(`type ${name} = ${type};`);
-    }
-  }
 
   const sourceDtsBySource = options?.sourceDtsBySource ?? {};
   const dtsEntries = Object.entries(sourceDtsBySource)

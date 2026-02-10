@@ -168,110 +168,7 @@ describe("prepareOpenApiSpec with large specs", () => {
     expect(json.length).toBeGreaterThan(100_000);
   });
 
-  test("preserves operationTypes when spec is large", async () => {
-    const spec = makeLargeSpec(50);
-    const prepared = await prepareOpenApiSpec(spec, "type-test");
 
-    // openapiTS should generate types for all operations
-    if (prepared.operationTypes) {
-      const opCount = Object.keys(prepared.operationTypes).length;
-      // Should have types for most operations (openapiTS generates from valid specs)
-      expect(opCount).toBeGreaterThan(0);
-
-      // Spot-check a known operation
-      const getType = prepared.operationTypes["get_resource_0"];
-      if (getType) {
-        expect(getType.argsType).toBeDefined();
-        expect(getType.returnsType).toBeDefined();
-      }
-    }
-  });
-
-  test("preserves schemaTypes when spec has shared schemas", async () => {
-    const specWithSchemas: Record<string, unknown> = {
-      openapi: "3.0.3",
-      info: { title: "Schema Test", version: "1.0.0" },
-      servers: [{ url: "https://api.example.com" }],
-      components: {
-        schemas: {
-          User: {
-            type: "object",
-            properties: {
-              id: { type: "string" },
-              email: { type: "string" },
-              name: { type: "string" },
-              role: { type: "string", enum: ["admin", "user", "viewer"] },
-            },
-            required: ["id", "email"],
-          },
-          UserList: {
-            type: "object",
-            properties: {
-              data: {
-                type: "array",
-                items: { $ref: "#/components/schemas/User" },
-              },
-              total: { type: "number" },
-            },
-          },
-        },
-      },
-      paths: {
-        "/users": {
-          get: {
-            operationId: "listUsers",
-            tags: ["users"],
-            summary: "List users",
-            responses: {
-              "200": {
-                description: "ok",
-                content: {
-                  "application/json": {
-                    schema: { $ref: "#/components/schemas/UserList" },
-                  },
-                },
-              },
-            },
-          },
-        },
-        "/users/{id}": {
-          get: {
-            operationId: "getUser",
-            tags: ["users"],
-            parameters: [
-              {
-                name: "id",
-                in: "path",
-                required: true,
-                schema: { type: "string" },
-              },
-            ],
-            summary: "Get user",
-            responses: {
-              "200": {
-                description: "ok",
-                content: {
-                  "application/json": {
-                    schema: { $ref: "#/components/schemas/User" },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    };
-
-    const prepared = await prepareOpenApiSpec(specWithSchemas, "schema-test");
-
-    // Should have generated schema types
-    if (prepared.schemaTypes) {
-      expect(Object.keys(prepared.schemaTypes).length).toBeGreaterThan(0);
-    }
-
-    // No warnings
-    expect(prepared.warnings).toHaveLength(0);
-  });
 });
 
 describe("buildOpenApiToolsFromPrepared", () => {
@@ -946,78 +843,7 @@ describe("buildOpenApiToolsFromPrepared", () => {
     expect(tool!.metadata?.returnsType).not.toBe("unknown");
   });
 
-  test("schemaTypes only attached to first tool from a source", async () => {
-    const specWithSchemas: Record<string, unknown> = {
-      openapi: "3.0.3",
-      info: { title: "Schema placement test", version: "1.0.0" },
-      servers: [{ url: "https://api.example.com" }],
-      components: {
-        schemas: {
-          Widget: {
-            type: "object",
-            properties: {
-              id: { type: "string" },
-              name: { type: "string" },
-            },
-          },
-        },
-      },
-      paths: {
-        "/widgets": {
-          get: {
-            operationId: "listWidgets",
-            tags: ["widgets"],
-            responses: {
-              "200": {
-                description: "ok",
-                content: {
-                  "application/json": {
-                    schema: {
-                      type: "array",
-                      items: { $ref: "#/components/schemas/Widget" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-          post: {
-            operationId: "createWidget",
-            tags: ["widgets"],
-            requestBody: {
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/Widget" },
-                },
-              },
-            },
-            responses: {
-              "201": { description: "created" },
-            },
-          },
-        },
-      },
-    };
 
-    const prepared = await prepareOpenApiSpec(specWithSchemas, "schema-placement");
-    const tools = buildOpenApiToolsFromPrepared(
-      {
-        type: "openapi",
-        name: "widgets",
-        spec: specWithSchemas,
-        baseUrl: "https://api.example.com",
-      },
-      prepared,
-    );
-
-    expect(tools.length).toBe(2);
-
-    // Only the first tool should have schemaTypes
-    const withSchemas = tools.filter(
-      (t) => t.metadata?.schemaTypes && Object.keys(t.metadata.schemaTypes).length > 0,
-    );
-    expect(withSchemas.length).toBeLessThanOrEqual(1);
-  });
 });
 
 describe("prepared spec serialization round-trip", () => {
@@ -1034,20 +860,6 @@ describe("prepared spec serialization round-trip", () => {
       Object.keys(prepared.paths).length,
     );
     expect(restored.warnings).toEqual(prepared.warnings);
-
-    if (prepared.operationTypes) {
-      expect(restored.operationTypes).toBeDefined();
-      expect(Object.keys(restored.operationTypes!).length).toBe(
-        Object.keys(prepared.operationTypes).length,
-      );
-    }
-
-    if (prepared.schemaTypes) {
-      expect(restored.schemaTypes).toBeDefined();
-      expect(Object.keys(restored.schemaTypes!).length).toBe(
-        Object.keys(prepared.schemaTypes).length,
-      );
-    }
 
     // Verify tools built from the restored spec match the original
     const config = {

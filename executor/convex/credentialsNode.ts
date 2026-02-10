@@ -141,7 +141,7 @@ async function upsertVaultObject(args: {
 export const upsertCredential = action({
   args: {
     id: v.optional(v.string()),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
     sourceKey: v.string(),
     scope: credentialScopeValidator,

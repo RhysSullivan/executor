@@ -3,6 +3,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { api } from "./convex/_generated/api";
 import { handleMcpRequest, type McpWorkspaceContext } from "./lib/mcp_server";
 import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "./lib/types";
+import type { Id } from "./convex/_generated/dataModel";
 
 const convexUrlFromEnv = Bun.env.CONVEX_URL;
 if (!convexUrlFromEnv) {
@@ -126,7 +127,7 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
       clientId?: string;
     }) => {
       const created = await convex.mutation(api.executor.createTask, {
-        workspaceId: input.workspaceId,
+        workspaceId: input.workspaceId as Id<"workspaces">,
         sessionId,
         code: input.code,
         timeoutMs: input.timeoutMs,
@@ -144,7 +145,7 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
         return null;
       }
       const task = await convex.query(api.workspace.getTaskInWorkspace, {
-        workspaceId: effectiveWorkspaceId,
+        workspaceId: effectiveWorkspaceId as Id<"workspaces">,
         sessionId,
         taskId,
       });
@@ -165,7 +166,7 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
         return [];
       }
       const tools = await convex.action(api.executorNode.listTools, {
-        workspaceId: toolContext.workspaceId,
+        workspaceId: toolContext.workspaceId as Id<"workspaces">,
         sessionId,
         actorId: toolContext.actorId,
         clientId: toolContext.clientId,
@@ -175,7 +176,7 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
 
     listPendingApprovals: async (approvalWorkspaceId: string) => {
       const approvals = await convex.query(api.workspace.listPendingApprovals, {
-        workspaceId: approvalWorkspaceId,
+        workspaceId: approvalWorkspaceId as Id<"workspaces">,
         sessionId,
       });
       return approvals as PendingApprovalRecord[];
@@ -189,7 +190,7 @@ function createService(context?: McpWorkspaceContext, bearerToken?: string) {
       reason?: string;
     }) => {
       return await convex.mutation(api.executor.resolveApproval, {
-        workspaceId: input.workspaceId,
+        workspaceId: input.workspaceId as Id<"workspaces">,
         sessionId,
         approvalId: input.approvalId,
         decision: input.decision,
@@ -232,7 +233,7 @@ async function resolveContext(
   }
 
   const requestContext = await convex.query(api.workspace.getRequestContext, {
-    workspaceId: requested.workspaceId,
+    workspaceId: requested.workspaceId as Id<"workspaces">,
     sessionId: requested.sessionId,
   });
 

@@ -5,6 +5,7 @@
  * round-trip with functional `run` methods.
  */
 import { test, expect, describe } from "bun:test";
+import type { Id } from "../convex/_generated/dataModel";
 import {
   prepareOpenApiSpec,
   buildOpenApiToolsFromPrepared,
@@ -464,8 +465,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
 });
 
 describe("workspace tool cache table", () => {
-  // convex-test based tests for the table operations
-  test("getEntry + putEntry round-trip", async () => {
+  async function setupCacheTest() {
     const { convexTest } = await import("convex-test");
     const { internal } = await import("../convex/_generated/api");
     const schema = (await import("../convex/schema")).default;
@@ -475,9 +475,33 @@ describe("workspace tool cache table", () => {
       "./_generated/api.js": () => import("../convex/_generated/api.js"),
     });
 
+    const wsId = await t.run(async (ctx) => {
+      const orgId = await ctx.db.insert("organizations", {
+        name: "test-org",
+        slug: "test-org",
+        status: "active" as const,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      return await ctx.db.insert("workspaces", {
+        name: "test-ws",
+        slug: "test-ws",
+        organizationId: orgId,
+        plan: "free",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    return { t, internal, wsId };
+  }
+
+  test("getEntry + putEntry round-trip", async () => {
+    const { t, internal, wsId } = await setupCacheTest();
+
     // Empty cache
     const miss = await t.query(internal.workspaceToolCache.getEntry, {
-      workspaceId: "ws_1",
+      workspaceId: wsId,
       signature: "sig_1",
     });
     expect(miss).toBeNull();
@@ -489,16 +513,17 @@ describe("workspace tool cache table", () => {
     });
 
     await t.mutation(internal.workspaceToolCache.putEntry, {
-      workspaceId: "ws_1",
+      workspaceId: wsId,
       signature: "sig_1",
       storageId,
       toolCount: 0,
       sizeBytes: 27,
+      dtsStorageIds: [],
     });
 
     // Hit
     const hit = await t.query(internal.workspaceToolCache.getEntry, {
-      workspaceId: "ws_1",
+      workspaceId: wsId,
       signature: "sig_1",
     });
     expect(hit).not.toBeNull();
@@ -506,32 +531,26 @@ describe("workspace tool cache table", () => {
 
     // Wrong signature = miss
     const wrongSig = await t.query(internal.workspaceToolCache.getEntry, {
-      workspaceId: "ws_1",
+      workspaceId: wsId,
       signature: "sig_2",
     });
     expect(wrongSig).toBeNull();
   });
 
   test("putEntry replaces old entry and deletes old blob", async () => {
-    const { convexTest } = await import("convex-test");
-    const { internal } = await import("../convex/_generated/api");
-    const schema = (await import("../convex/schema")).default;
-
-    const t = convexTest(schema, {
-      "./workspaceToolCache.ts": () => import("../convex/workspaceToolCache"),
-      "./_generated/api.js": () => import("../convex/_generated/api.js"),
-    });
+    const { t, internal, wsId } = await setupCacheTest();
 
     const storageId1 = await t.run(async (ctx) => {
       return await ctx.storage.store(new Blob(["old"]));
     });
 
     await t.mutation(internal.workspaceToolCache.putEntry, {
-      workspaceId: "ws_1",
+      workspaceId: wsId,
       signature: "sig_1",
       storageId: storageId1,
       toolCount: 5,
       sizeBytes: 3,
+      dtsStorageIds: [],
     });
 
     const storageId2 = await t.run(async (ctx) => {
@@ -539,16 +558,17 @@ describe("workspace tool cache table", () => {
     });
 
     await t.mutation(internal.workspaceToolCache.putEntry, {
-      workspaceId: "ws_1",
+      workspaceId: wsId,
       signature: "sig_2",
       storageId: storageId2,
       toolCount: 10,
       sizeBytes: 3,
+      dtsStorageIds: [],
     });
 
     // New entry
     const entry = await t.query(internal.workspaceToolCache.getEntry, {
-      workspaceId: "ws_1",
+      workspaceId: wsId,
       signature: "sig_2",
     });
     expect(entry!.storageId).toBe(storageId2);
