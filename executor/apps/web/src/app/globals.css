@@ -173,6 +173,42 @@
   border-radius: 0.375rem;
 }
 
+/* Slim code block presentation for compact detail panels */
+.formatted-code-block [data-streamdown="code-block"] {
+  margin: 0;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+}
+
+.formatted-code-block [data-streamdown="code-block-header"] {
+  display: none;
+}
+
+.formatted-code-block [data-streamdown="code-block-body"] {
+  border: 0 !important;
+  border-top: 0 !important;
+  border-radius: 0.375rem;
+  padding: 0.75rem !important;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.formatted-code-block [data-streamdown="code-block-body"] code > span::before {
+  display: none;
+}
+
+.formatted-code-block--green [data-streamdown="code-block-body"] {
+  color: color-mix(in oklch, var(--terminal-green) 80%, var(--foreground)) !important;
+}
+
+.formatted-code-block--amber [data-streamdown="code-block-body"] {
+  color: color-mix(in oklch, var(--terminal-amber) 80%, var(--foreground)) !important;
+}
+
+.formatted-code-block--red [data-streamdown="code-block-body"] {
+  color: color-mix(in oklch, var(--terminal-red) 80%, var(--foreground)) !important;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

@@ -217,6 +217,21 @@ export default defineSchema({
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_status_created", ["workspaceId", "status", "createdAt"]),
 
+  pushSubscriptions: defineTable({
+    workspaceId: v.string(),
+    accountId: v.string(),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+    expirationTime: v.optional(v.number()),
+    userAgent: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_workspace_account", ["workspaceId", "accountId"])
+    .index("by_endpoint", ["endpoint"]),
+
   taskEvents: defineTable({
     sequence: v.number(),
     taskId: v.string(),

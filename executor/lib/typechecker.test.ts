@@ -137,7 +137,7 @@ describe("generateToolInventory", () => {
     expect(result).toContain("You have access to these tool namespaces:");
     expect(result).toContain("admin (1)");
     expect(result).toContain("math (1)");
-    expect(result).toContain("Use `tools.discover({ query, depth?, limit? })` first");
+    expect(result).toContain("Use `tools.discover({ query, depth?, limit?, compact? })` first");
     expect(result).toContain("Never shadow the global `tools` object");
   });
 
@@ -378,7 +378,7 @@ export interface operations {
       description: "Discover tools",
       approval: "auto",
       source: "system",
-      argsType: "{ query: string; depth?: number; limit?: number }",
+      argsType: "{ query: string; depth?: number; limit?: number; compact?: boolean }",
       returnsType: "unknown",
     });
 
@@ -406,7 +406,7 @@ export interface operations {
         path: "discover",
         description: "Discover tools",
         approval: "auto",
-        argsType: "{ query: string; depth?: number; limit?: number }",
+        argsType: "{ query: string; depth?: number; limit?: number; compact?: boolean }",
         returnsType: "unknown",
       },
     ];

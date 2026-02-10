@@ -484,11 +484,14 @@ function jsonSchemaTypeHintFallback(
       }
       return "Record<string, unknown>";
     }
+    const maxInlineProps = 12;
+    const isTruncated = propEntries.length > maxInlineProps;
     const inner = propEntries
-      .slice(0, 12)
+      .slice(0, maxInlineProps)
       .map(([key, value]) => `${formatTsPropertyKey(key)}${required.has(key) ? "" : "?"}: ${jsonSchemaTypeHintFallback(value, depth + 1, componentSchemas, seenRefs)}`)
       .join("; ");
-    return `{ ${inner} }`;
+    const indexSignature = isTruncated ? `${inner ? "; " : ""}[key: string]: any` : "";
+    return `{ ${inner}${indexSignature} }`;
   }
 
   return "unknown";
@@ -1627,6 +1630,7 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
           ? `${field.description}\n\nPreferred: ${directCallExample}\nReturns: { data, errors }\nRaw GraphQL: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`
           : `GraphQL ${operationType}: ${field.name}\n\nPreferred: ${directCallExample}\nReturns: { data, errors }\nRaw GraphQL: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`,
         approval,
+        credential: credentialSpec,
         metadata: {
           argsType: gqlFieldArgsTypeHint(field.args, typeMap),
           returnsType: `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`,

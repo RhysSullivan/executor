@@ -40,6 +40,7 @@ import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import { workosEnabled } from "@/lib/auth-capabilities";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { ApprovalNotifier } from "@/components/approval-notifier";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -710,6 +711,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
+      <ApprovalNotifier />
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <MobileHeader />

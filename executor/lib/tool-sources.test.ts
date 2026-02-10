@@ -511,3 +511,125 @@ test("graphql helper tools generate valid selection sets and envelope responses"
     server.stop(true);
   }
 });
+
+test("openapi fallback type hints include index signature when truncated", async () => {
+  const manyProps = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => [`field_${i}`, { type: "string" }]),
+  );
+
+  const { tools, warnings } = await loadExternalTools([
+    {
+      type: "openapi",
+      name: "wide",
+      baseUrl: "https://example.com",
+      spec: {
+        openapi: "3.0.3",
+        info: { title: "Wide", version: "1.0.0" },
+        paths: {
+          "/items": {
+            get: {
+              operationId: "getItems",
+              tags: ["items"],
+              responses: {
+                "200": {
+                  description: "ok",
+                  content: {
+                    "application/json": {
+                      schema: {
+                        type: "object",
+                        properties: manyProps,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  ]);
+
+  expect(warnings).toHaveLength(0);
+  const getItems = tools.find((tool) => tool.path === "wide.items.get_items");
+  expect(getItems).toBeDefined();
+  expect(getItems?.metadata?.returnsType).toContain("[key: string]: any");
+});
+
+test("graphql helper tools inherit credential spec from source auth", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      const body = (await req.json()) as { query?: string };
+      const query = String(body.query ?? "");
+
+      if (query.includes("__schema")) {
+        return Response.json({
+          data: {
+            __schema: {
+              queryType: { name: "Query" },
+              mutationType: null,
+              types: [
+                {
+                  kind: "OBJECT",
+                  name: "Query",
+                  fields: [
+                    {
+                      name: "teams",
+                      description: null,
+                      args: [],
+                      type: { kind: "SCALAR", name: "String", ofType: null },
+                    },
+                  ],
+                  inputFields: null,
+                  enumValues: null,
+                },
+                {
+                  kind: "SCALAR",
+                  name: "String",
+                  fields: null,
+                  inputFields: null,
+                  enumValues: null,
+                },
+              ],
+            },
+          },
+        });
+      }
+
+      return Response.json({ data: { teams: "ok" } });
+    },
+  });
+
+  try {
+    const { tools, warnings } = await loadExternalTools([
+      {
+        type: "graphql",
+        name: "linear",
+        endpoint: `http://127.0.0.1:${server.port}/graphql`,
+        auth: {
+          type: "bearer",
+          mode: "actor",
+        },
+      },
+    ]);
+
+    expect(warnings).toHaveLength(0);
+
+    const rawTool = tools.find((tool) => tool.path === "linear.graphql");
+    const helperTool = tools.find((tool) => tool.path === "linear.query.teams");
+
+    expect(rawTool?.credential).toEqual({
+      sourceKey: "graphql:linear",
+      mode: "actor",
+      authType: "bearer",
+    });
+    expect(helperTool?.credential).toEqual({
+      sourceKey: "graphql:linear",
+      mode: "actor",
+      authType: "bearer",
+    });
+  } finally {
+    server.stop(true);
+  }
+});

@@ -43,7 +43,9 @@ class FakeMcpService {
         completedAt: current.createdAt + 2,
         updatedAt: current.createdAt + 2,
         exitCode: 0,
-        stdout: `ran:${input.code.slice(0, 20)}`,
+        stdout: input.metadata?.largeStdout === true
+          ? `header\n${"x".repeat(35_000)}`
+          : `ran:${input.code.slice(0, 20)}`,
         stderr: "",
       });
       // Notify subscribers
@@ -161,6 +163,38 @@ test("run_code MCP tool returns terminal task result", async () => {
       expect(text.text).toContain("status: completed");
       expect(text.text).toContain("ran:console.log('hello f");
     }
+  });
+});
+
+test("run_code MCP tool warns and previews large output", async () => {
+  const service = new FakeMcpService();
+
+  await withMcpClient(service, async (client) => {
+    const result = (await client.callTool({
+      name: "run_code",
+      arguments: {
+        code: "console.log('large')",
+        metadata: { largeStdout: true },
+      },
+    })) as {
+      isError?: boolean;
+      content: Array<{ type: string; text?: string }>;
+      structuredContent?: Record<string, unknown>;
+    };
+
+    expect(result.isError).toBeUndefined();
+    const text = result.content.find((part) => part.type === "text");
+    expect(text?.type).toBe("text");
+    if (text?.type === "text") {
+      expect(text.text).toContain("outputWarning: Large runtime output detected");
+      expect(text.text).toContain("outputHint: Return compact summaries");
+      expect(text.text).toContain("[stdout preview truncated");
+    }
+
+    const fullStdout = typeof result.structuredContent?.stdout === "string"
+      ? result.structuredContent.stdout
+      : "";
+    expect(fullStdout.length).toBeGreaterThan(30_000);
   });
 });
 

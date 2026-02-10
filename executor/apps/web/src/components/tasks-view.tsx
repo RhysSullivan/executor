@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
+import { FormattedCodeBlock } from "@/components/formatted-code-block";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 import { useMutation, useQuery } from "convex/react";
@@ -298,9 +299,11 @@ function TaskDetail({
           <span className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-2">
             Code
           </span>
-          <pre className="terminal-block max-h-48 overflow-y-auto">
-            {liveTask.code}
-          </pre>
+          <FormattedCodeBlock
+            content={liveTask.code}
+            language="typescript"
+            className="max-h-48 overflow-y-auto"
+          />
         </div>
 
         {/* Stdout */}
@@ -309,9 +312,12 @@ function TaskDetail({
             <span className="text-[10px] uppercase tracking-widest text-terminal-green block mb-2">
               Stdout
             </span>
-            <pre className="terminal-block max-h-48 overflow-y-auto text-terminal-green/80">
-              {liveStdout}
-            </pre>
+            <FormattedCodeBlock
+              content={liveStdout}
+              language="text"
+              tone="green"
+              className="max-h-48 overflow-y-auto"
+            />
           </div>
         )}
 
@@ -321,9 +327,12 @@ function TaskDetail({
             <span className="text-[10px] uppercase tracking-widest text-terminal-amber block mb-2">
               Stderr
             </span>
-            <pre className="terminal-block max-h-48 overflow-y-auto text-terminal-amber/80">
-              {liveStderr}
-            </pre>
+            <FormattedCodeBlock
+              content={liveStderr}
+              language="text"
+              tone="amber"
+              className="max-h-48 overflow-y-auto"
+            />
           </div>
         )}
 
@@ -333,9 +342,12 @@ function TaskDetail({
             <span className="text-[10px] uppercase tracking-widest text-terminal-red block mb-2">
               Error
             </span>
-            <pre className="terminal-block max-h-48 overflow-y-auto text-terminal-red/80">
-              {liveTask.error}
-            </pre>
+            <FormattedCodeBlock
+              content={liveTask.error}
+              language="text"
+              tone="red"
+              className="max-h-48 overflow-y-auto"
+            />
           </div>
         )}
       </CardContent>

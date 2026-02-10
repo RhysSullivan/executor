@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ShieldCheck,
   ShieldX,
@@ -8,7 +8,7 @@ import {
   Clock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { PageHeader } from "@/components/page-header";
@@ -19,6 +19,63 @@ import { useMutation, useQuery } from "convex/react";
 import type { PendingApprovalRecord } from "@/lib/types";
 import { toast } from "sonner";
 import { formatTimeAgo } from "@/lib/format";
+import { FormattedCodeBlock } from "@/components/formatted-code-block";
+
+function formatApprovalInput(
+  input: unknown,
+): {
+  content: string;
+  language: "json" | "text";
+} | null {
+  if (input === null || input === undefined) {
+    return null;
+  }
+
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      const serialized = JSON.stringify(parsed, null, 2);
+      if (serialized === "null" || serialized === "{}") {
+        return null;
+      }
+      return {
+        content: serialized,
+        language: "json",
+      };
+    } catch {
+      return {
+        content: trimmed,
+        language: "text",
+      };
+    }
+  }
+
+  try {
+    const serialized = JSON.stringify(input, null, 2);
+    if (serialized === "null" || serialized === "{}") {
+      return null;
+    }
+
+    return {
+      content: serialized,
+      language: "json",
+    };
+  } catch {
+    const fallback = String(input).trim();
+    if (!fallback) {
+      return null;
+    }
+    return {
+      content: fallback,
+      language: "text",
+    };
+  }
+}
 
 function ApprovalCard({
   approval,
@@ -53,7 +110,10 @@ function ApprovalCard({
     }
   };
 
-  const inputStr = JSON.stringify(approval.input, null, 2);
+  const inputDisplay = useMemo(
+    () => formatApprovalInput(approval.input),
+    [approval.input],
+  );
 
   return (
     <Card className="bg-card border-border border-l-2 border-l-terminal-amber glow-amber">
@@ -83,14 +143,16 @@ function ApprovalCard({
         </div>
 
         {/* Input */}
-        {inputStr !== "null" && inputStr !== "{}" && (
+        {inputDisplay && (
           <div>
             <span className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-1.5">
               Input
             </span>
-            <pre className="terminal-block max-h-36 overflow-y-auto text-xs">
-              {inputStr}
-            </pre>
+            <FormattedCodeBlock
+              content={inputDisplay.content}
+              language={inputDisplay.language}
+              className="max-h-52 overflow-y-auto"
+            />
           </div>
         )}
 

@@ -57,7 +57,7 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
 }
 
 function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
-  const signatureVersion = "v13";
+  const signatureVersion = "v14";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();

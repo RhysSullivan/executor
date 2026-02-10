@@ -225,8 +225,9 @@ export function generateToolInventory(tools: ToolDescriptor[]): string {
     "You have access to these tool namespaces:",
     `  ${namespaces.join(", ")}`,
     "",
-    "Use `tools.discover({ query, depth?, limit? })` first. It returns `{ results, total }` (not an array).",
+    "Use `tools.discover({ query, depth?, limit?, compact? })` first. It returns `{ results, total }` (not an array).",
     "Use the exact `path` returned by discover, and prefer its `exampleCall` snippet for invocation shape.",
+    "For migration/ETL tasks: discover once, then execute in small batches and return compact summaries (counts, IDs, top-N samples).",
     "Never shadow the global `tools` object (do NOT write `const tools = ...`).",
     "Then call tools directly using the returned path.",
     ...(hasGraphqlTools

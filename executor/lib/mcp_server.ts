@@ -128,6 +128,7 @@ async function loadSourceDtsByUrl(dtsUrls: Record<string, string>): Promise<Reco
 }
 
 function summarizeTask(task: TaskRecord): string {
+  const maxStreamPreviewChars = 30_000;
   const lines = [
     `taskId: ${task.id}`,
     `status: ${task.status}`,
@@ -142,12 +143,29 @@ function summarizeTask(task: TaskRecord): string {
     lines.push(`error: ${task.error}`);
   }
 
+  const stdoutLength = task.stdout?.length ?? 0;
+  const stderrLength = task.stderr?.length ?? 0;
+  if (stdoutLength > maxStreamPreviewChars || stderrLength > maxStreamPreviewChars) {
+    lines.push(
+      `outputWarning: Large runtime output detected (stdout=${stdoutLength} chars, stderr=${stderrLength} chars).`,
+    );
+    lines.push(
+      "outputHint: Return compact summaries (counts, IDs, top-N samples) to avoid truncation in tool responses.",
+    );
+  }
+
   let text = lines.join("\n");
   if (task.stdout && task.stdout.trim()) {
-    text += asCodeBlock("text", task.stdout);
+    const stdoutPreview = task.stdout.length > maxStreamPreviewChars
+      ? `${task.stdout.slice(0, maxStreamPreviewChars)}\n... [stdout preview truncated ${task.stdout.length - maxStreamPreviewChars} chars]`
+      : task.stdout;
+    text += asCodeBlock("text", stdoutPreview);
   }
   if (task.stderr && task.stderr.trim()) {
-    text += asCodeBlock("text", task.stderr);
+    const stderrPreview = task.stderr.length > maxStreamPreviewChars
+      ? `${task.stderr.slice(0, maxStreamPreviewChars)}\n... [stderr preview truncated ${task.stderr.length - maxStreamPreviewChars} chars]`
+      : task.stderr;
+    text += asCodeBlock("text", stderrPreview);
   }
   return text;
 }
@@ -283,12 +301,13 @@ function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
     ? `\n\nTop-level tool keys: ${topLevelKeys.join(", ")}`
     : "";
   const hasGraphqlTools = toolList.some((tool) => tool.path.endsWith(".graphql"));
-  const discoverNote = "\n\nTip: use `tools.discover({ query, depth?, limit? })` first. It returns `{ results, total }`; call the exact `results[i].path` (or copy `results[i].exampleCall`). Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
+  const discoverNote = "\n\nTip: use `tools.discover({ query, depth?, limit?, compact? })` first. It returns `{ results, total }`; call the exact `results[i].path` (or copy `results[i].exampleCall`). Compact mode is on by default (set `compact: false` for full signatures). Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
+  const executionNote = "\n\nExecution tip: for migration/ETL-style tasks, discover once, then run in small batches and `return` compact summaries (counts, IDs, and top-N samples) instead of full objects.";
   const graphqlNote = hasGraphqlTools
     ? "\n\nGraphQL tip: prefer `source.query.*` / `source.mutation.*` helper paths when available; GraphQL tools return `{ data, errors }`."
     : "";
 
-  return base + rootKeysNote + discoverNote + graphqlNote + generateToolInventory(toolList);
+  return base + rootKeysNote + discoverNote + executionNote + graphqlNote + generateToolInventory(toolList);
 }
 
 function formatApprovalInput(input: unknown, maxLength = 2000): string {

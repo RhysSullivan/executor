@@ -107,6 +107,40 @@ function buildExampleCall(entry: DiscoverIndexEntry): string {
   return `await tools.${entry.path}({ /* ... */ });`;
 }
 
+function truncateInline(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(16, maxLength - 3)).trim()}...`;
+}
+
+function compactArgTypeHint(argsType: string): string {
+  if (argsType === "{}") return "{}";
+  const keys = extractTopLevelArgKeys(argsType);
+  if (keys.length > 0) {
+    const maxKeys = 4;
+    const shown = keys.slice(0, maxKeys).map((key) => `${key}: ...`);
+    const suffix = keys.length > maxKeys ? "; ..." : "";
+    return `{ ${shown.join("; ")}${suffix} }`;
+  }
+  return truncateInline(argsType, 120);
+}
+
+function compactReturnTypeHint(returnsType: string): string {
+  const normalized = returnsType.replace(/\s+/g, " ").trim();
+  if (normalized.startsWith("{ data:") && normalized.includes("errors:")) {
+    return "{ data: ...; errors: unknown[] }";
+  }
+  if (normalized.endsWith("[]") && normalized.length > 90) {
+    return "Array<...>";
+  }
+  return truncateInline(normalized, 130);
+}
+
+function compactDescription(description: string): string {
+  const firstLine = description.split("\n")[0] ?? description;
+  return truncateInline(firstLine, 180);
+}
+
 function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
   return tools
     .filter((tool) => tool.path !== "discover")
@@ -152,7 +186,21 @@ function scoreEntry(entry: DiscoverIndexEntry, terms: string[]): number {
   return score + matched * 2;
 }
 
-function formatSignature(entry: DiscoverIndexEntry, depth: number): string {
+function formatSignature(entry: DiscoverIndexEntry, depth: number, compact: boolean): string {
+  if (compact) {
+    if (depth <= 0) {
+      return "(input: ...): Promise<...>";
+    }
+
+    const args = compactArgTypeHint(entry.argsType);
+    const returns = compactReturnTypeHint(entry.returnsType);
+
+    if (depth === 1) {
+      return `(input: ${args}): Promise<${returns}>`;
+    }
+    return `(input: ${args}): Promise<${returns}> [source=${entry.source}]`;
+  }
+
   if (depth <= 0) {
     return `(input: ${entry.argsType}): Promise<...>`;
   }
@@ -170,17 +218,18 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
     source: "system",
     approval: "auto",
     description:
-      "Search available tools by keyword. Returns canonical path, aliases, signature hints, and ready-to-copy call examples.",
+      "Search available tools by keyword. Returns canonical path, aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
     metadata: {
-      argsType: "{ query: string; depth?: number; limit?: number }",
+      argsType: "{ query: string; depth?: number; limit?: number; compact?: boolean }",
       returnsType:
-        "{ results: Array<{ path: string; aliases: string[]; source: string; approval: 'auto' | 'required'; description: string; signature: string; exampleCall: string }>; total: number }",
+        "{ bestPath: string | null; results: Array<{ path: string; aliases: string[]; source: string; approval: 'auto' | 'required'; description: string; signature: string; exampleCall: string }>; total: number }",
     },
     run: async (input: unknown, context) => {
       const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
       const query = String(payload.query ?? "").trim().toLowerCase();
       const depth = Math.max(0, Math.min(2, Number(payload.depth ?? 1)));
       const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
+      const compact = payload.compact === false ? false : true;
       const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
 
       const ranked = index
@@ -194,12 +243,13 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
           aliases: entry.aliases,
           source: entry.source,
           approval: entry.approval,
-          description: entry.description,
-          signature: formatSignature(entry, depth),
+          description: compact ? compactDescription(entry.description) : entry.description,
+          signature: formatSignature(entry, depth, compact),
           exampleCall: buildExampleCall(entry),
         }));
 
       return {
+        bestPath: ranked[0]?.path ?? null,
         results: ranked,
         total: ranked.length,
       };
