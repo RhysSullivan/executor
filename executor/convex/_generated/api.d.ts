@@ -93,7 +93,7 @@ export declare const api: {
         secretJson: any;
         sessionId?: string;
         sourceKey: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -107,7 +107,7 @@ export declare const api: {
         id: string;
         prompt: string;
         requesterId: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -142,7 +142,7 @@ export declare const api: {
         runtimeId?: string;
         sessionId?: string;
         timeoutMs?: number;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -155,7 +155,7 @@ export declare const api: {
         reason?: string;
         reviewerId?: string;
         sessionId?: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -168,7 +168,7 @@ export declare const api: {
         actorId?: string;
         clientId?: string;
         sessionId?: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -179,7 +179,7 @@ export declare const api: {
         actorId?: string;
         clientId?: string;
         sessionId?: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -292,31 +292,31 @@ export declare const api: {
     deleteToolSource: FunctionReference<
       "mutation",
       "public",
-      { sessionId?: string; sourceId: string; workspaceId: string },
+      { sessionId?: string; sourceId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getRequestContext: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; workspaceId: string },
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getTask: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; taskId: string; workspaceId: string },
+      { sessionId?: string; taskId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getTaskInWorkspace: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; taskId: string; workspaceId: string },
+      { sessionId?: string; taskId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listAccessPolicies: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; workspaceId: string },
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listApprovals: FunctionReference<
@@ -325,7 +325,7 @@ export declare const api: {
       {
         sessionId?: string;
         status?: "pending" | "approved" | "denied";
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -333,32 +333,32 @@ export declare const api: {
     listCredentials: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; workspaceId: string },
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listPendingApprovals: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; workspaceId: string },
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listRuntimeTargets: FunctionReference<"query", "public", {}, any>;
     listTaskEvents: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; taskId: string; workspaceId: string },
+      { sessionId?: string; taskId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listTasks: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; workspaceId: string },
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listToolSources: FunctionReference<
       "query",
       "public",
-      { sessionId?: string; workspaceId: string },
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     resolveCredential: FunctionReference<
@@ -369,7 +369,7 @@ export declare const api: {
         scope: "workspace" | "actor";
         sessionId?: string;
         sourceKey: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -384,7 +384,7 @@ export declare const api: {
         priority?: number;
         sessionId?: string;
         toolPathPattern: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -399,7 +399,7 @@ export declare const api: {
         secretJson: any;
         sessionId?: string;
         sourceKey: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -413,7 +413,7 @@ export declare const api: {
         name: string;
         sessionId?: string;
         type: "mcp" | "openapi" | "graphql";
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -532,7 +532,7 @@ export declare const internal: {
         metadata?: any;
         runtimeId: string;
         timeoutMs?: number;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -545,7 +545,7 @@ export declare const internal: {
     deleteToolSource: FunctionReference<
       "mutation",
       "internal",
-      { sourceId: string; workspaceId: string },
+      { sourceId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getApproval: FunctionReference<
@@ -557,39 +557,42 @@ export declare const internal: {
     getApprovalInWorkspace: FunctionReference<
       "query",
       "internal",
-      { approvalId: string; workspaceId: string },
+      { approvalId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getTask: FunctionReference<"query", "internal", { taskId: string }, any>;
     getTaskInWorkspace: FunctionReference<
       "query",
       "internal",
-      { taskId: string; workspaceId: string },
+      { taskId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listAccessPolicies: FunctionReference<
       "query",
       "internal",
-      { workspaceId: string },
+      { workspaceId: Id<"workspaces"> },
       any
     >;
     listApprovals: FunctionReference<
       "query",
       "internal",
-      { status?: "pending" | "approved" | "denied"; workspaceId: string },
+      {
+        status?: "pending" | "approved" | "denied";
+        workspaceId: Id<"workspaces">;
+      },
       any
     >;
     listCredentialProviders: FunctionReference<"query", "internal", {}, any>;
     listCredentials: FunctionReference<
       "query",
       "internal",
-      { workspaceId: string },
+      { workspaceId: Id<"workspaces"> },
       any
     >;
     listPendingApprovals: FunctionReference<
       "query",
       "internal",
-      { workspaceId: string },
+      { workspaceId: Id<"workspaces"> },
       any
     >;
     listQueuedTaskIds: FunctionReference<
@@ -608,13 +611,13 @@ export declare const internal: {
     listTasks: FunctionReference<
       "query",
       "internal",
-      { workspaceId: string },
+      { workspaceId: Id<"workspaces"> },
       any
     >;
     listToolSources: FunctionReference<
       "query",
       "internal",
-      { workspaceId: string },
+      { workspaceId: Id<"workspaces"> },
       any
     >;
     markTaskFinished: FunctionReference<
@@ -654,7 +657,7 @@ export declare const internal: {
         actorId?: string;
         scope: "workspace" | "actor";
         sourceKey: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -668,7 +671,7 @@ export declare const internal: {
         id?: string;
         priority?: number;
         toolPathPattern: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -682,7 +685,7 @@ export declare const internal: {
         scope: "workspace" | "actor";
         secretJson: any;
         sourceKey: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -695,7 +698,7 @@ export declare const internal: {
         id?: string;
         name: string;
         type: "mcp" | "openapi" | "graphql";
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -722,7 +725,7 @@ export declare const internal: {
         metadata?: any;
         runtimeId?: string;
         timeoutMs?: number;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -734,7 +737,7 @@ export declare const internal: {
         decision: "approved" | "denied";
         reason?: string;
         reviewerId?: string;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;
@@ -749,13 +752,13 @@ export declare const internal: {
     listToolsInternal: FunctionReference<
       "action",
       "internal",
-      { actorId?: string; clientId?: string; workspaceId: string },
+      { actorId?: string; clientId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listToolsWithWarningsInternal: FunctionReference<
       "action",
       "internal",
-      { actorId?: string; clientId?: string; workspaceId: string },
+      { actorId?: string; clientId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     runTask: FunctionReference<"action", "internal", { taskId: string }, any>;
@@ -814,7 +817,31 @@ export declare const internal: {
     >;
   };
   migrations: {
+    backfillDtsStorageIds: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
     deleteAnonymousSessionsMissingAccountId: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    deleteAnonymousSessionsMissingUserId: FunctionReference<
       "mutation",
       "internal",
       {
@@ -916,13 +943,13 @@ export declare const internal: {
     getWorkspaceAccessForRequest: FunctionReference<
       "query",
       "internal",
-      { sessionId?: string; workspaceId: string },
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getWorkspaceAccessForWorkosSubject: FunctionReference<
       "query",
       "internal",
-      { subject: string; workspaceId: string },
+      { subject: string; workspaceId: Id<"workspaces"> },
       any
     >;
   };
@@ -930,25 +957,25 @@ export declare const internal: {
     getDtsStorageIds: FunctionReference<
       "query",
       "internal",
-      { workspaceId: string },
+      { workspaceId: Id<"workspaces"> },
       any
     >;
     getEntry: FunctionReference<
       "query",
       "internal",
-      { signature: string; workspaceId: string },
+      { signature: string; workspaceId: Id<"workspaces"> },
       any
     >;
     putEntry: FunctionReference<
       "mutation",
       "internal",
       {
-        dtsStorageIds?: Array<{ sourceKey: string; storageId: Id<"_storage"> }>;
+        dtsStorageIds: Array<{ sourceKey: string; storageId: Id<"_storage"> }>;
         signature: string;
         sizeBytes: number;
         storageId: Id<"_storage">;
         toolCount: number;
-        workspaceId: string;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;

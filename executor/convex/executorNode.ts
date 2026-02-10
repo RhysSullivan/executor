@@ -525,8 +525,6 @@ function toToolDescriptor(tool: ToolDefinition, approval: "auto" | "required"): 
     operationId: tool.metadata?.operationId,
     // Note: sourceDts is NOT included — it's too large to send over the wire.
     // Monaco fetches .d.ts blobs separately via Convex storage URLs.
-    // Legacy compat
-    schemaTypes: tool.metadata?.schemaTypes,
   };
 }
 
@@ -910,7 +908,7 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
 
 export const listTools = action({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
     sessionId: v.optional(v.string()),
@@ -939,7 +937,7 @@ export const listTools = action({
 
 export const listToolsWithWarnings = action({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
     sessionId: v.optional(v.string()),
@@ -976,7 +974,7 @@ export const listToolsWithWarnings = action({
 
 export const listToolsInternal = internalAction({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
   },
@@ -987,7 +985,7 @@ export const listToolsInternal = internalAction({
 
 export const listToolsWithWarningsInternal = internalAction({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
   },

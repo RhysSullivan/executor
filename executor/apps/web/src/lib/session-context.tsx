@@ -14,7 +14,7 @@ import { anonymousDemoEnabled, workosEnabled } from "@/lib/auth-capabilities";
 import { useWorkosAuthLoading } from "@/lib/convex-provider";
 import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "@executor/convex/_generated/dataModel";
 
 interface SessionState {
   context: AnonymousContext | null;

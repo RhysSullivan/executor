@@ -1,3 +1,3 @@
-import { api } from "../../../../convex/_generated/api";
+import { api } from "@executor/convex/_generated/api";
 
 export const convexApi = api;

@@ -4,6 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 
 function setup() {
@@ -46,7 +47,7 @@ function createMcpTransport(
 async function waitForTaskId(t: ReturnType<typeof setup>, workspaceId: string, timeoutMs = 10_000): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const tasks = await t.query(internal.database.listTasks, { workspaceId });
+    const tasks = await t.query(internal.database.listTasks, { workspaceId: workspaceId as Id<"workspaces"> });
     if (tasks.length > 0) {
       return tasks[0]!.id;
     }
@@ -64,7 +65,7 @@ async function waitForPendingApproval(
 ): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const approvals = await t.query(internal.database.listPendingApprovals, { workspaceId });
+    const approvals = await t.query(internal.database.listPendingApprovals, { workspaceId: workspaceId as Id<"workspaces"> });
     const approval = approvals.find((item: { toolPath: string; id: string }) => item.toolPath === toolPath);
     if (approval) {
       return approval.id;

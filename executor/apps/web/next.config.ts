@@ -13,7 +13,7 @@ const appShellRewriteExclusions = [
 ].join("|");
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@executor/contracts"],
+  transpilePackages: ["@executor/convex"],
   env: {
     // Map canonical env vars to NEXT_PUBLIC_ so they're available client-side.
     // This lets us keep a single root .env without NEXT_PUBLIC_ prefixes.

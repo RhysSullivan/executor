@@ -100,10 +100,10 @@ export async function getWorkspaceMembership(
 
 export async function requireWorkspaceAccessForAccount(
   ctx: MembershipCtx,
-  workspaceId: string,
+  workspaceId: Id<"workspaces">,
   account: Doc<"accounts">,
 ): Promise<WorkspaceAccess> {
-  const workspace = await ctx.db.get(workspaceId as Id<"workspaces">);
+  const workspace = await ctx.db.get(workspaceId);
   if (!workspace) {
     throw new Error("Workspace not found");
   }
@@ -140,7 +140,7 @@ export async function requireWorkspaceAccessForAccount(
 
 export async function requireWorkspaceAccessForRequest(
   ctx: IdentityCtx,
-  workspaceId: string,
+  workspaceId: Id<"workspaces">,
   sessionId?: string,
 ): Promise<WorkspaceAccess> {
   const account = await resolveAccountForRequest(ctx, sessionId);

@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
-import type { Id } from "../../../../convex/_generated/dataModel";
+import type { Id } from "@executor/convex/_generated/dataModel";
 
 type Role = "owner" | "admin" | "member" | "billing_admin";
 type MemberStatus = "active" | "pending" | "removed";
@@ -64,7 +64,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
 
   const memberItems: OrganizationMemberListItem[] = members?.items ?? [];
   const actorMembership = memberItems.find((member: { accountId?: string; role?: string }) =>
-    context?.accountId ? member.accountId === context.accountId : false,
+    context ? member.accountId === context.accountId : false,
   );
   const actorRole = actorMembership?.role ?? null;
   const canManageMembers = actorRole === "owner" || actorRole === "admin";

@@ -92,4 +92,24 @@ export const deleteInvitesMissingProvider = migrations.define({
   },
 });
 
+export const deleteAnonymousSessionsMissingUserId = migrations.define({
+  table: "anonymousSessions",
+  migrateOne: async (ctx, session) => {
+    if (session.userId) {
+      return;
+    }
+
+    await ctx.db.delete(session._id);
+  },
+});
+
+export const backfillDtsStorageIds = migrations.define({
+  table: "workspaceToolCache",
+  migrateOne: async (_ctx, entry) => {
+    if (entry.dtsStorageIds === undefined) {
+      return { dtsStorageIds: [] };
+    }
+  },
+});
+
 export const run = migrations.runner();

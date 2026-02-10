@@ -46,15 +46,6 @@ test("WorkOS Vault provider falls back to id key and raw token", async () => {
   expect(payload).toEqual({ token: "ghp_raw_token" });
 });
 
-test("WorkOS Vault provider supports legacy inline payload", async () => {
-  const payload = await resolveCredentialPayload({
-    provider: "workos-vault",
-    secretJson: { token: "legacy-token" },
-  });
-
-  expect(payload).toEqual({ token: "legacy-token" });
-});
-
 test("WorkOS Vault provider gives actionable error on missing reference", async () => {
   await expect(
     resolveCredentialPayload({

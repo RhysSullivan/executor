@@ -852,10 +852,6 @@ export interface PreparedOpenApiSpec {
   paths: Record<string, unknown>;
   /** Raw .d.ts from openapiTS — cached as-is, extracted lazily on read */
   dts?: string;
-  /** @deprecated Kept for cache compat — new entries use `dts` instead */
-  operationTypes?: Record<string, { argsType: string; returnsType: string }>;
-  /** @deprecated Kept for cache compat — new entries use `dts` instead */
-  schemaTypes?: Record<string, string>;
   warnings: string[];
 }
 
@@ -941,7 +937,7 @@ export function buildOpenApiToolsFromPrepared(
   const paths = asRecord(prepared.paths);
   const tools: ToolDefinition[] = [];
 
-  // The raw .d.ts is attached to the first tool only (same pattern as old schemaTypes).
+  // The raw .d.ts is attached to the first tool only (one per source to avoid duplication).
   // The typechecker/Monaco use this directly via indexed access types.
   const sourceDts = prepared.dts
     ? prepared.dts.replace(/^export /gm, "")  // strip 'export' so types are ambient
@@ -1739,7 +1735,6 @@ export interface SerializedTool {
    * MCP: { kind: "mcp", url, transport?, queryParams?, toolName }
    * GraphQL raw: { kind: "graphql_raw", endpoint, authHeaders }
    * GraphQL field: { kind: "graphql_field", endpoint, operationName, operationType, queryTemplate, argNames?, authHeaders }
-   * GraphQL (legacy compat): { kind: "graphql", endpoint, operationName, operationType, authHeaders }
    * Builtin: { kind: "builtin" } — run comes from DEFAULT_TOOLS
    */
   runSpec:
@@ -1770,13 +1765,6 @@ export interface SerializedTool {
         operationType: "query" | "mutation";
         queryTemplate: string;
         argNames?: string[];
-        authHeaders: Record<string, string>;
-      }
-    | {
-        kind: "graphql";
-        endpoint: string;
-        operationName: string;
-        operationType: "query" | "mutation";
         authHeaders: Record<string, string>;
       }
     | { kind: "builtin" };
@@ -1971,21 +1959,6 @@ export function rehydrateTools(
           }
 
           const envelope = await executeGraphql(endpoint, authHeaders, query, variables, context);
-          return selectGraphqlFieldEnvelope(envelope, operationName);
-        },
-      };
-    }
-
-    if (st.runSpec.kind === "graphql") {
-      // Legacy compat for older cached entries.
-      const { endpoint, operationName, operationType, authHeaders } = st.runSpec;
-      const queryTemplate = `${operationType} ${operationName}($input: JSON) { ${operationName}(input: $input) }`;
-      return {
-        ...base,
-        run: async (input: unknown, context) => {
-          const payload = asRecord(input);
-          const variables = payload.variables ?? { input: payload };
-          const envelope = await executeGraphql(endpoint, authHeaders, queryTemplate, variables, context);
           return selectGraphqlFieldEnvelope(envelope, operationName);
         },
       };

@@ -131,17 +131,6 @@ type ToolOutput<Op> =
 function generateToolsDts(tools: ToolDescriptor[], dtsSources: Set<string>): string {
   const root = buildTree(tools);
 
-  // Legacy compat: collect schemaTypes from tools that use the old format
-  const schemaTypeAliases = new Map<string, string>();
-  for (const tool of tools) {
-    if (!tool.schemaTypes) continue;
-    for (const [name, type] of Object.entries(tool.schemaTypes)) {
-      if (!schemaTypeAliases.has(name)) {
-        schemaTypeAliases.set(name, type);
-      }
-    }
-  }
-
   const interfaces: string[] = [];
 
   // Emit all namespace interfaces recursively
@@ -169,11 +158,6 @@ function generateToolsDts(tools: ToolDescriptor[], dtsSources: Set<string>): str
  * Tools marked with "approval: required" will pause execution until approved.
  */
 `;
-
-  // Legacy schema type aliases
-  if (schemaTypeAliases.size > 0) {
-    dts += Array.from(schemaTypeAliases, ([name, type]) => `type ${name} = ${type};`).join("\n") + "\n\n";
-  }
 
   // Note: .d.ts blocks from OpenAPI sources are fetched separately and registered
   // as a distinct Monaco extra lib (see dtsUrls effect). This keeps generateToolsDts

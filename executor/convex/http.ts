@@ -6,6 +6,7 @@ import { httpAction } from "./_generated/server";
 import { authKit } from "./auth";
 import { handleMcpRequest, type McpWorkspaceContext } from "../lib/mcp_server";
 import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescriptor } from "../lib/types";
+import type { Id } from "./_generated/dataModel";
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? null;
@@ -161,7 +162,7 @@ const mcpHandler = httpAction(async (ctx, request) => {
     try {
       if (mcpAuthConfig.enabled && auth?.subject) {
         const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForWorkosSubject, {
-          workspaceId: requestedContext.workspaceId,
+          workspaceId: requestedContext.workspaceId as Id<"workspaces">,
           subject: auth.subject,
         });
 
@@ -176,7 +177,7 @@ const mcpHandler = httpAction(async (ctx, request) => {
         }
 
         const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-          workspaceId: requestedContext.workspaceId,
+          workspaceId: requestedContext.workspaceId as Id<"workspaces">,
           sessionId: requestedContext.sessionId,
         });
 
@@ -212,11 +213,14 @@ const mcpHandler = httpAction(async (ctx, request) => {
       actorId: string;
       clientId?: string;
     }) => {
-      return (await ctx.runMutation(internal.executor.createTaskInternal, input)) as { task: TaskRecord };
+      return (await ctx.runMutation(internal.executor.createTaskInternal, {
+        ...input,
+        workspaceId: input.workspaceId as Id<"workspaces">,
+      })) as { task: TaskRecord };
     },
     getTask: async (taskId: string, workspaceId?: string) => {
       if (workspaceId) {
-        return (await ctx.runQuery(internal.database.getTaskInWorkspace, { taskId, workspaceId })) as TaskRecord | null;
+        return (await ctx.runQuery(internal.database.getTaskInWorkspace, { taskId, workspaceId: workspaceId as Id<"workspaces"> })) as TaskRecord | null;
       }
       return null;
     },
@@ -231,10 +235,10 @@ const mcpHandler = httpAction(async (ctx, request) => {
         return [];
       }
 
-      return (await ctx.runAction(internal.executorNode.listToolsInternal, toolContext)) as ToolDescriptor[];
+      return (await ctx.runAction(internal.executorNode.listToolsInternal, { ...toolContext, workspaceId: toolContext.workspaceId as Id<"workspaces"> })) as ToolDescriptor[];
     },
     listToolsForTypecheck: async (toolContext: { workspaceId: string; actorId?: string; clientId?: string }) => {
-      const result = await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, toolContext) as {
+      const result = await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, { ...toolContext, workspaceId: toolContext.workspaceId as Id<"workspaces"> }) as {
         tools: ToolDescriptor[];
         dtsUrls?: Record<string, string>;
       };
@@ -245,7 +249,7 @@ const mcpHandler = httpAction(async (ctx, request) => {
       };
     },
     listPendingApprovals: async (workspaceId: string) => {
-      return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
+      return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId: workspaceId as Id<"workspaces"> })) as PendingApprovalRecord[];
     },
     resolveApproval: async (input: {
       workspaceId: string;
@@ -254,7 +258,10 @@ const mcpHandler = httpAction(async (ctx, request) => {
       reviewerId?: string;
       reason?: string;
     }) => {
-      return await ctx.runMutation(internal.executor.resolveApprovalInternal, input);
+      return await ctx.runMutation(internal.executor.resolveApprovalInternal, {
+        ...input,
+        workspaceId: input.workspaceId as Id<"workspaces">,
+      });
     },
   };
 

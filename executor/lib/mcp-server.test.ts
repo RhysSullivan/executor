@@ -78,6 +78,8 @@ class FakeMcpService {
       workspaceId: `ws_${crypto.randomUUID()}`,
       actorId: `anon_${crypto.randomUUID()}`,
       clientId: "mcp",
+      accountId: `account_${crypto.randomUUID()}`,
+      userId: `user_${crypto.randomUUID()}`,
       createdAt: now,
       lastSeenAt: now,
     };
