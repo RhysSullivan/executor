@@ -58,14 +58,6 @@ async function deleteWorkspaceData(
     await ctx.db.delete(source._id);
   }
 
-  const agentTasks = await ctx.db
-    .query("agentTasks")
-    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
-    .collect();
-  for (const agentTask of agentTasks) {
-    await ctx.db.delete(agentTask._id);
-  }
-
   const cachedToolsets = await ctx.db
     .query("workspaceToolCache")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

@@ -1,8 +1,6 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { mutation,
-query,
-type MutationCtx, type QueryCtx } from "./_generated/server";
+import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { ensureUniqueSlug } from "../lib/slug";
 import type { TaskStatus } from "../lib/types";
@@ -25,7 +23,6 @@ const credentialProviderValidator = v.union(
   v.literal("workos-vault"),
 );
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
-const agentTaskStatusValidator = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
 
 function slugify(input: string): string {
   const slug = input
@@ -607,96 +604,6 @@ export const getApprovalInWorkspace = internalQuery({
       return null;
     }
     return mapApproval(doc);
-  },
-});
-
-// ── Agent Tasks ──
-
-function mapAgentTask(doc: Doc<"agentTasks">) {
-  return {
-    id: doc.agentTaskId,
-    prompt: doc.prompt,
-    requesterId: doc.requesterId,
-    workspaceId: doc.workspaceId,
-    actorId: doc.actorId,
-    status: doc.status,
-    resultText: doc.resultText,
-    error: doc.error,
-    codeRuns: doc.codeRuns ?? 0,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-  };
-}
-
-async function getAgentTaskDoc(ctx: { db: QueryCtx["db"] }, agentTaskId: string) {
-  return await ctx.db
-    .query("agentTasks")
-    .withIndex("by_agent_task_id", (q) => q.eq("agentTaskId", agentTaskId))
-    .unique();
-}
-
-export const createAgentTask = mutation({
-  args: {
-    id: v.string(),
-    prompt: v.string(),
-    requesterId: v.string(),
-    workspaceId: v.id("workspaces"),
-    actorId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const existing = await getAgentTaskDoc(ctx, args.id);
-    if (existing) {
-      throw new Error(`Agent task already exists: ${args.id}`);
-    }
-
-    const now = Date.now();
-    await ctx.db.insert("agentTasks", {
-      agentTaskId: args.id,
-      prompt: args.prompt,
-      requesterId: args.requesterId,
-      workspaceId: args.workspaceId,
-      actorId: args.actorId,
-      status: "running",
-      codeRuns: 0,
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const created = await getAgentTaskDoc(ctx, args.id);
-    if (!created) throw new Error(`Failed to fetch created agent task ${args.id}`);
-    return mapAgentTask(created);
-  },
-});
-
-export const getAgentTask = query({
-  args: { agentTaskId: v.string() },
-  handler: async (ctx, args) => {
-    const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
-    return doc ? mapAgentTask(doc) : null;
-  },
-});
-
-export const updateAgentTask = mutation({
-  args: {
-    agentTaskId: v.string(),
-    status: v.optional(agentTaskStatusValidator),
-    resultText: v.optional(v.string()),
-    error: v.optional(v.string()),
-    codeRuns: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const doc = await getAgentTaskDoc(ctx, args.agentTaskId);
-    if (!doc) return null;
-
-    const patch: Record<string, unknown> = { updatedAt: Date.now() };
-    if (args.status !== undefined) patch.status = args.status;
-    if (args.resultText !== undefined) patch.resultText = args.resultText;
-    if (args.error !== undefined) patch.error = args.error;
-    if (args.codeRuns !== undefined) patch.codeRuns = args.codeRuns;
-
-    await ctx.db.patch(doc._id, patch);
-    const updated = await getAgentTaskDoc(ctx, args.agentTaskId);
-    return updated ? mapAgentTask(updated) : null;
   },
 });
 

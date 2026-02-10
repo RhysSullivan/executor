@@ -2,9 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { workspaceMutation, workspaceQuery } from "../lib/functionBuilders";
-import { actorIdForAccount } from "../lib/identity";
 
-const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProviderValidator = v.union(v.literal("managed"), v.literal("workos-vault"));
@@ -31,26 +29,6 @@ export const listRuntimeTargets = query({
   },
 });
 
-export const getRequestContext = workspaceQuery({
-  args: {},
-  handler: async (ctx) => {
-    return {
-      workspaceId: ctx.workspaceId,
-      actorId: actorIdForAccount(ctx.account as { _id: string; provider: string; providerAccountId: string }),
-    };
-  },
-});
-
-export const getTask = workspaceQuery({
-  args: { taskId: v.string() },
-  handler: async (ctx, args) => {
-    return await ctx.runQuery(internal.database.getTaskInWorkspace, {
-      taskId: args.taskId,
-      workspaceId: ctx.workspaceId,
-    });
-  },
-});
-
 export const getTaskInWorkspace = workspaceQuery({
   args: { taskId: v.string() },
   handler: async (ctx, args) => {
@@ -66,18 +44,6 @@ export const listTasks = workspaceQuery({
   handler: async (ctx) => {
     return await ctx.runQuery(internal.database.listTasks, {
       workspaceId: ctx.workspaceId,
-    });
-  },
-});
-
-export const listApprovals = workspaceQuery({
-  args: {
-    status: v.optional(approvalStatusValidator),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.runQuery(internal.database.listApprovals, {
-      workspaceId: ctx.workspaceId,
-      status: args.status,
     });
   },
 });

@@ -135,38 +135,6 @@ export declare const api: {
       any
     >;
   };
-  database: {
-    createAgentTask: FunctionReference<
-      "mutation",
-      "public",
-      {
-        actorId: string;
-        id: string;
-        prompt: string;
-        requesterId: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-    getAgentTask: FunctionReference<
-      "query",
-      "public",
-      { agentTaskId: string },
-      any
-    >;
-    updateAgentTask: FunctionReference<
-      "mutation",
-      "public",
-      {
-        agentTaskId: string;
-        codeRuns?: number;
-        error?: string;
-        resultText?: string;
-        status?: "running" | "completed" | "failed";
-      },
-      any
-    >;
-  };
   executor: {
     createTask: FunctionReference<
       "mutation",
@@ -198,17 +166,6 @@ export declare const api: {
     >;
   };
   executorNode: {
-    listTools: FunctionReference<
-      "action",
-      "public",
-      {
-        actorId?: string;
-        clientId?: string;
-        sessionId?: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
     listToolsWithWarnings: FunctionReference<
       "action",
       "public",
@@ -332,18 +289,6 @@ export declare const api: {
       { sessionId?: string; sourceId: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    getRequestContext: FunctionReference<
-      "query",
-      "public",
-      { sessionId?: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    getTask: FunctionReference<
-      "query",
-      "public",
-      { sessionId?: string; taskId: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
     getTaskInWorkspace: FunctionReference<
       "query",
       "public",
@@ -354,16 +299,6 @@ export declare const api: {
       "query",
       "public",
       { sessionId?: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    listApprovals: FunctionReference<
-      "query",
-      "public",
-      {
-        sessionId?: string;
-        status?: "pending" | "approved" | "denied";
-        workspaceId: Id<"workspaces">;
-      },
       any
     >;
     listCredentialProviders: FunctionReference<"query", "public", {}, any>;

@@ -934,35 +934,6 @@ async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallReques
   }
 }
 
-export const listTools = action({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
-    clientId: v.optional(v.string()),
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (ctx, args): Promise<ToolDescriptor[]> => {
-    const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-      workspaceId: args.workspaceId,
-      sessionId: args.sessionId,
-    });
-    const canonicalActorId = actorIdForAccount({
-      _id: access.accountId,
-      provider: access.provider,
-      providerAccountId: access.providerAccountId,
-    });
-    if (args.actorId && args.actorId !== canonicalActorId) {
-      throw new Error("actorId must match the authenticated workspace actor");
-    }
-
-    return await listToolsForContext(ctx, {
-      workspaceId: args.workspaceId,
-      actorId: canonicalActorId,
-      clientId: args.clientId,
-    });
-  },
-});
-
 export const listToolsWithWarnings = action({
   args: {
     workspaceId: v.id("workspaces"),

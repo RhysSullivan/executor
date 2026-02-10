@@ -26,7 +26,6 @@ async function workspaceHasActivity(
     policy,
     credential,
     toolSource,
-    agentTask,
     member,
   ] = await Promise.all([
     ctx.db.query("tasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
@@ -37,11 +36,10 @@ async function workspaceHasActivity(
       .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
       .first(),
     ctx.db.query("toolSources").withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db.query("agentTasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
     ctx.db.query("workspaceMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
   ]);
 
-  return Boolean(task || approval || policy || credential || toolSource || agentTask || member);
+  return Boolean(task || approval || policy || credential || toolSource || member);
 }
 
 async function filterDisplayWorkspaces(

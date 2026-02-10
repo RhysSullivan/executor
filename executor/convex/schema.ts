@@ -41,7 +41,6 @@ const credentialProvider = v.union(
   v.literal("workos-vault"),
 );
 const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
-const agentTaskStatus = v.union(v.literal("running"), v.literal("completed"), v.literal("failed"));
 
 export default defineSchema({
   accounts: defineTable({
@@ -259,22 +258,6 @@ export default defineSchema({
     .index("by_source_id", ["sourceId"])
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
     .index("by_workspace_name", ["workspaceId", "name"]),
-
-  agentTasks: defineTable({
-    agentTaskId: v.string(), // domain ID: atask_<timestamp>_<counter>
-    prompt: v.string(),
-    requesterId: v.string(), // external ID (e.g. Discord user snowflake)
-    workspaceId: v.id("workspaces"),
-    actorId: v.string(), // account._id or anon_<uuid>
-    status: agentTaskStatus,
-    resultText: v.optional(v.string()),
-    error: v.optional(v.string()),
-    codeRuns: v.number(),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_agent_task_id", ["agentTaskId"])
-    .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
   openApiSpecCache: defineTable({
     specUrl: v.string(),

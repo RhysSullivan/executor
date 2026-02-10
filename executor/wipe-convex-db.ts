@@ -3,7 +3,6 @@ import { $ } from "bun";
 const tables = [
   "accessPolicies",
   "accounts",
-  "agentTasks",
   "anonymousSessions",
   "approvals",
   "billingCustomers",
