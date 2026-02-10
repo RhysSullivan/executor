@@ -360,16 +360,16 @@ test("runs openapi and graphql sourced tools through the runtime", async () => {
 
     const result = await runCodeWithAdapter(
       request(`
-        const sum = await tools.calc.math.addnumbers({ a: 2, b: 5 });
+        const sum = await tools.calc.math.add_numbers({ a: 2, b: 5 });
         const hello = await tools.gql.query.hello({});
         const inc = await tools.gql.graphql({
           query: "mutation($value: Int!) { increment(value: $value) }",
           variables: { value: 3 },
         });
         console.log("sum", sum.sum);
-        console.log("hello", hello.hello);
-        console.log("inc", inc.increment);
-        return sum.sum + inc.increment;
+        console.log("hello", hello.data);
+        console.log("inc", inc.data.increment);
+        return sum.sum + inc.data.increment;
       `),
       createRuntimeAdapter(toolMap, outputEvents),
     );

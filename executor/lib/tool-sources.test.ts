@@ -234,3 +234,280 @@ test("loadExternalTools tolerates OpenAPI specs with broken internal refs", asyn
   expect(toolPaths).toContain("intercom_like.contacts.list_contacts");
   expect(toolPaths).toContain("intercom_like.conversations.create_conversation");
 });
+
+test("graphql helper tools generate valid selection sets and envelope responses", async () => {
+  const capturedQueries: string[] = [];
+  const capturedVariables: Array<Record<string, unknown> | undefined> = [];
+
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      const body = (await req.json()) as { query?: string; variables?: Record<string, unknown> };
+      const query = String(body.query ?? "");
+      capturedQueries.push(query);
+      capturedVariables.push(body.variables);
+
+      if (query.includes("__schema")) {
+        return Response.json({
+          data: {
+            __schema: {
+              queryType: { name: "Query" },
+              mutationType: { name: "Mutation" },
+              types: [
+                {
+                  kind: "OBJECT",
+                  name: "Query",
+                  fields: [
+                    {
+                      name: "teams",
+                      description: null,
+                      args: [],
+                      type: { kind: "OBJECT", name: "TeamConnection", ofType: null },
+                    },
+                  ],
+                  inputFields: null,
+                  enumValues: null,
+                },
+                {
+                  kind: "OBJECT",
+                  name: "Mutation",
+                  fields: [
+                    {
+                      name: "issueBatchCreate",
+                      description: null,
+                      args: [
+                        {
+                          name: "input",
+                          description: null,
+                          defaultValue: null,
+                          type: {
+                            kind: "NON_NULL",
+                            name: null,
+                            ofType: { kind: "INPUT_OBJECT", name: "IssueBatchCreateInput", ofType: null },
+                          },
+                        },
+                      ],
+                      type: { kind: "OBJECT", name: "IssueBatchCreatePayload", ofType: null },
+                    },
+                  ],
+                  inputFields: null,
+                  enumValues: null,
+                },
+                {
+                  kind: "OBJECT",
+                  name: "TeamConnection",
+                  fields: [
+                    {
+                      name: "totalCount",
+                      description: null,
+                      args: [],
+                      type: { kind: "SCALAR", name: "Int", ofType: null },
+                    },
+                    {
+                      name: "nodes",
+                      description: null,
+                      args: [],
+                      type: {
+                        kind: "LIST",
+                        name: null,
+                        ofType: { kind: "OBJECT", name: "Team", ofType: null },
+                      },
+                    },
+                  ],
+                  inputFields: null,
+                  enumValues: null,
+                },
+                {
+                  kind: "OBJECT",
+                  name: "Team",
+                  fields: [
+                    {
+                      name: "id",
+                      description: null,
+                      args: [],
+                      type: { kind: "SCALAR", name: "ID", ofType: null },
+                    },
+                    {
+                      name: "name",
+                      description: null,
+                      args: [],
+                      type: { kind: "SCALAR", name: "String", ofType: null },
+                    },
+                  ],
+                  inputFields: null,
+                  enumValues: null,
+                },
+                {
+                  kind: "OBJECT",
+                  name: "IssueBatchCreatePayload",
+                  fields: [
+                    {
+                      name: "success",
+                      description: null,
+                      args: [],
+                      type: { kind: "SCALAR", name: "Boolean", ofType: null },
+                    },
+                    {
+                      name: "issues",
+                      description: null,
+                      args: [],
+                      type: {
+                        kind: "LIST",
+                        name: null,
+                        ofType: { kind: "OBJECT", name: "Issue", ofType: null },
+                      },
+                    },
+                  ],
+                  inputFields: null,
+                  enumValues: null,
+                },
+                {
+                  kind: "OBJECT",
+                  name: "Issue",
+                  fields: [
+                    {
+                      name: "id",
+                      description: null,
+                      args: [],
+                      type: { kind: "SCALAR", name: "ID", ofType: null },
+                    },
+                    {
+                      name: "identifier",
+                      description: null,
+                      args: [],
+                      type: { kind: "SCALAR", name: "String", ofType: null },
+                    },
+                  ],
+                  inputFields: null,
+                  enumValues: null,
+                },
+                {
+                  kind: "INPUT_OBJECT",
+                  name: "IssueBatchCreateInput",
+                  fields: null,
+                  inputFields: [
+                    {
+                      name: "issues",
+                      description: null,
+                      defaultValue: null,
+                      type: {
+                        kind: "LIST",
+                        name: null,
+                        ofType: { kind: "SCALAR", name: "String", ofType: null },
+                      },
+                    },
+                  ],
+                  enumValues: null,
+                },
+                { kind: "SCALAR", name: "String", fields: null, inputFields: null, enumValues: null },
+                { kind: "SCALAR", name: "ID", fields: null, inputFields: null, enumValues: null },
+                { kind: "SCALAR", name: "Int", fields: null, inputFields: null, enumValues: null },
+                { kind: "SCALAR", name: "Boolean", fields: null, inputFields: null, enumValues: null },
+              ],
+            },
+          },
+        });
+      }
+
+      if (query.includes("issueBatchCreate")) {
+        if (!/issueBatchCreate(?:\([^)]*\))?\s*\{/.test(query)) {
+          return Response.json({ errors: [{ message: "issueBatchCreate requires a selection set" }] });
+        }
+        return Response.json({
+          data: {
+            issueBatchCreate: {
+              success: true,
+              issues: [{ id: "issue_1", identifier: "RHY-1" }],
+            },
+          },
+        });
+      }
+
+      if (query.includes("teams")) {
+        if (!/teams(?:\([^)]*\))?\s*\{/.test(query)) {
+          return Response.json({ errors: [{ message: "teams requires a selection set" }] });
+        }
+        return Response.json({
+          data: {
+            teams: {
+              totalCount: 1,
+              nodes: [{ id: "team_1", name: "Core" }],
+            },
+          },
+        });
+      }
+
+      return Response.json({ errors: [{ message: "Unknown operation" }] });
+    },
+  });
+
+  try {
+    const { tools, warnings } = await loadExternalTools([
+      {
+        type: "graphql",
+        name: "linear",
+        endpoint: `http://127.0.0.1:${server.port}/graphql`,
+      },
+    ]);
+
+    expect(warnings).toHaveLength(0);
+    const toolMap = new Map(tools.map((tool) => [tool.path, tool]));
+
+    const teamsTool = toolMap.get("linear.query.teams");
+    const batchTool = toolMap.get("linear.mutation.issuebatchcreate");
+    const rawTool = toolMap.get("linear.graphql");
+
+    expect(teamsTool).toBeDefined();
+    expect(batchTool).toBeDefined();
+    expect(rawTool).toBeDefined();
+
+    const context = { taskId: "t", workspaceId: "w", isToolAllowed: () => true };
+
+    const teamsResult = await teamsTool!.run({}, context);
+    const batchResult = await batchTool!.run({ input: { issues: ["one"] } }, context);
+    const batchResultDoubleWrapped = await batchTool!.run({ input: { input: { issues: ["two"] } } }, context);
+    const rawResult = await rawTool!.run({ query: "query { teams { totalCount } }" }, context);
+
+    expect(teamsResult).toEqual({
+      data: {
+        totalCount: 1,
+        nodes: [{ id: "team_1", name: "Core" }],
+      },
+      errors: [],
+    });
+    expect(batchResult).toEqual({
+      data: {
+        success: true,
+        issues: [{ id: "issue_1", identifier: "RHY-1" }],
+      },
+      errors: [],
+    });
+    expect(batchResultDoubleWrapped).toEqual({
+      data: {
+        success: true,
+        issues: [{ id: "issue_1", identifier: "RHY-1" }],
+      },
+      errors: [],
+    });
+    expect(rawResult).toEqual({
+      data: {
+        teams: {
+          totalCount: 1,
+          nodes: [{ id: "team_1", name: "Core" }],
+        },
+      },
+      errors: [],
+    });
+
+    const helperQueries = capturedQueries.filter((query) => !query.includes("__schema"));
+    const helperVariables = capturedVariables.slice(1);
+    expect(helperQueries.some((query) => /teams(?:\([^)]*\))?\s*\{/.test(query))).toBe(true);
+    expect(helperQueries.some((query) => /issueBatchCreate(?:\([^)]*\))?\s*\{/.test(query))).toBe(true);
+    expect(helperQueries.some((query) => /teams(?:\([^)]*\))?\s*\{[^}]*nodes\s*\{/.test(query))).toBe(true);
+    expect(helperQueries.some((query) => /issueBatchCreate(?:\([^)]*\))?\s*\{[^}]*issues\s*\{/.test(query))).toBe(true);
+    expect(helperVariables.some((variables) => JSON.stringify(variables) === JSON.stringify({ input: { issues: ["one"] } }))).toBe(true);
+    expect(helperVariables.some((variables) => JSON.stringify(variables) === JSON.stringify({ input: { issues: ["two"] } }))).toBe(true);
+  } finally {
+    server.stop(true);
+  }
+});

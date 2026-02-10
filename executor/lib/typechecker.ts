@@ -218,14 +218,20 @@ export function generateToolInventory(tools: ToolDescriptor[]): string {
     .slice(0, 8)
     .map((tool) => `  - tools.${tool.path}(...)`);
 
+  const hasGraphqlTools = tools.some((tool) => tool.path.endsWith(".graphql"));
+
   return [
     "",
     "You have access to these tool namespaces:",
     `  ${namespaces.join(", ")}`,
     "",
-    "Use `tools.discover({ query, depth?, limit? })` first to find the exact callable tool paths relevant to the user request.",
+    "Use `tools.discover({ query, depth?, limit? })` first. It returns `{ results, total }` (not an array).",
+    "Use the exact `path` returned by discover, and prefer its `exampleCall` snippet for invocation shape.",
     "Never shadow the global `tools` object (do NOT write `const tools = ...`).",
     "Then call tools directly using the returned path.",
+    ...(hasGraphqlTools
+      ? ["GraphQL tools return `{ data, errors }`; prefer `source.query.*` / `source.mutation.*` helpers over raw `source.graphql` when available."]
+      : []),
     ...(examples.length > 0
       ? ["", "Example callable paths:", ...examples]
       : []),

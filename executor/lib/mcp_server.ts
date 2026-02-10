@@ -276,15 +276,19 @@ function waitForTerminalTask(
 
 function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
   const base =
-    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns stdout/stderr. Code is typechecked before execution — type errors are returned without running.";
+    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns stdout/stderr. Code is typechecked before execution — type errors are returned without running. Runtime has no filesystem/process/import access; use `tools.*` for external calls.";
   const toolList = tools ?? [];
   const topLevelKeys = listTopLevelToolKeys(toolList);
   const rootKeysNote = topLevelKeys.length > 0
     ? `\n\nTop-level tool keys: ${topLevelKeys.join(", ")}`
     : "";
-  const discoverNote = "\n\nTip: use `tools.discover({ query, depth?, limit? })` to find exact callable tool paths before invoking them. Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
+  const hasGraphqlTools = toolList.some((tool) => tool.path.endsWith(".graphql"));
+  const discoverNote = "\n\nTip: use `tools.discover({ query, depth?, limit? })` first. It returns `{ results, total }`; call the exact `results[i].path` (or copy `results[i].exampleCall`). Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
+  const graphqlNote = hasGraphqlTools
+    ? "\n\nGraphQL tip: prefer `source.query.*` / `source.mutation.*` helper paths when available; GraphQL tools return `{ data, errors }`."
+    : "";
 
-  return base + rootKeysNote + discoverNote + generateToolInventory(toolList);
+  return base + rootKeysNote + discoverNote + graphqlNote + generateToolInventory(toolList);
 }
 
 function formatApprovalInput(input: unknown, maxLength = 2000): string {
