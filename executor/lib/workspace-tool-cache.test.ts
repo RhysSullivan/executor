@@ -350,8 +350,8 @@ describe("serializeTools + rehydrateTools round-trip", () => {
         { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
       );
 
-      expect(rawResult).toEqual({ viewer: { id: "user_1" } });
-      expect(teamsResult).toEqual([{ id: "team_1", name: "Core" }]);
+      expect(rawResult).toEqual({ data: { viewer: { id: "user_1" } }, errors: [] });
+      expect(teamsResult).toEqual({ data: [{ id: "team_1", name: "Core" }], errors: [] });
       expect(calls.length).toBe(2);
     } finally {
       globalThis.fetch = originalFetch;

@@ -57,11 +57,115 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
 }
 
 function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
-  const signatureVersion = "v12";
+  const signatureVersion = "v13";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
   return `${signatureVersion}|${workspaceId}|${parts.join(",")}`;
+}
+
+function normalizeToolPathSegment(segment: string): string {
+  return segment.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeToolPath(path: string): string {
+  return path
+    .split(".")
+    .filter(Boolean)
+    .map((segment) => normalizeToolPathSegment(segment))
+    .join(".");
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const prev = new Array<number>(b.length + 1);
+  const curr = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        curr[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + cost,
+      );
+    }
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+  }
+
+  return prev[b.length] ?? Math.max(a.length, b.length);
+}
+
+function resolveAliasedToolPath(
+  requestedPath: string,
+  toolMap: Map<string, ToolDefinition>,
+): string | null {
+  if (toolMap.has(requestedPath)) return requestedPath;
+
+  const normalizedRequested = normalizeToolPath(requestedPath);
+  if (!normalizedRequested) return null;
+
+  const matches: string[] = [];
+  for (const path of toolMap.keys()) {
+    if (normalizeToolPath(path) === normalizedRequested) {
+      matches.push(path);
+    }
+  }
+
+  if (matches.length === 0) return null;
+  if (matches.length === 1) return matches[0]!;
+
+  const requestedSegments = requestedPath.split(".").length;
+  const sameSegmentCount = matches.filter((path) => path.split(".").length === requestedSegments);
+  const pool = sameSegmentCount.length > 0 ? sameSegmentCount : matches;
+  return [...pool].sort((a, b) => a.length - b.length || a.localeCompare(b))[0] ?? null;
+}
+
+function suggestToolPaths(
+  requestedPath: string,
+  toolMap: Map<string, ToolDefinition>,
+  limit = 3,
+): string[] {
+  const normalizedRequested = normalizeToolPath(requestedPath);
+  const requestedSegments = normalizedRequested.split(".").filter(Boolean);
+  const requestedNamespace = requestedSegments[0] ?? "";
+
+  const scored = [...toolMap.keys()]
+    .map((path) => {
+      const normalizedCandidate = normalizeToolPath(path);
+      const candidateSegments = normalizedCandidate.split(".").filter(Boolean);
+      const candidateNamespace = candidateSegments[0] ?? "";
+
+      let score = -levenshteinDistance(normalizedRequested, normalizedCandidate);
+
+      if (requestedNamespace && requestedNamespace === candidateNamespace) {
+        score += 6;
+      }
+
+      if (normalizedCandidate.includes(normalizedRequested) || normalizedRequested.includes(normalizedCandidate)) {
+        score += 3;
+      }
+
+      const sharedPrefix = Math.min(requestedSegments.length, candidateSegments.length);
+      let prefixMatches = 0;
+      for (let i = 0; i < sharedPrefix; i++) {
+        if (requestedSegments[i] !== candidateSegments[i]) break;
+        prefixMatches += 1;
+      }
+      score += prefixMatches * 2;
+
+      return { path, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((item) => item.path);
+
+  return scored;
 }
 
 function normalizeExternalToolSource(raw: {
@@ -678,19 +782,33 @@ async function invokeTool(ctx: any, task: TaskRecord, call: ToolCallRequest): Pr
   const typedPolicies = policies as AccessPolicyRecord[];
 
   let workspaceTools: Map<string, ToolDefinition> | undefined;
+  let resolvedToolPath = toolPath;
   let tool = baseTools.get(toolPath);
   if (!tool) {
     const result = await getWorkspaceTools(ctx, task.workspaceId);
     workspaceTools = result.tools;
     tool = workspaceTools.get(toolPath);
+
+    if (!tool) {
+      const aliasedPath = resolveAliasedToolPath(toolPath, workspaceTools);
+      if (aliasedPath) {
+        resolvedToolPath = aliasedPath;
+        tool = workspaceTools.get(aliasedPath);
+      }
+    }
   }
 
   if (!tool) {
-    throw new Error(`Unknown tool: ${toolPath}`);
+    const availableTools = workspaceTools ?? baseTools;
+    const suggestions = suggestToolPaths(toolPath, availableTools);
+    const suggestionText = suggestions.length > 0
+      ? `\nDid you mean: ${suggestions.map((path) => `tools.${path}`).join(", ")}`
+      : "";
+    throw new Error(`Unknown tool: ${toolPath}${suggestionText}`);
   }
 
   let decision: PolicyDecision;
-  let effectiveToolPath = toolPath;
+  let effectiveToolPath = resolvedToolPath;
   if (tool._graphqlSource) {
     if (!workspaceTools) {
       const result = await getWorkspaceTools(ctx, task.workspaceId);

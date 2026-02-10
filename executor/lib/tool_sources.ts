@@ -1169,6 +1169,80 @@ interface GqlSchema {
   types: GqlType[];
 }
 
+interface GraphqlExecutionEnvelope {
+  data: unknown;
+  errors: unknown[];
+}
+
+function hasGraphqlData(data: unknown): boolean {
+  if (data === null || data === undefined) return false;
+  if (Array.isArray(data)) return data.length > 0;
+  if (typeof data === "object") return Object.keys(data as Record<string, unknown>).length > 0;
+  return true;
+}
+
+function normalizeGraphqlEnvelope(result: { data?: unknown; errors?: unknown[] }): GraphqlExecutionEnvelope {
+  return {
+    data: result.data ?? null,
+    errors: Array.isArray(result.errors) ? result.errors : [],
+  };
+}
+
+function selectGraphqlFieldEnvelope(
+  envelope: GraphqlExecutionEnvelope,
+  operationName: string,
+): GraphqlExecutionEnvelope {
+  const data = envelope.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const record = data as Record<string, unknown>;
+    if (Object.prototype.hasOwnProperty.call(record, operationName)) {
+      return {
+        data: record[operationName],
+        errors: envelope.errors,
+      };
+    }
+  }
+
+  return envelope;
+}
+
+function normalizeGraphqlFieldVariables(
+  argNames: string[],
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const variablePayload: Record<string, unknown> = { ...payload };
+  delete variablePayload.query;
+  delete variablePayload.variables;
+
+  if (Object.keys(variablePayload).length === 0) {
+    return undefined;
+  }
+
+  if (argNames.length === 1) {
+    const argName = argNames[0]!;
+    if (Object.prototype.hasOwnProperty.call(variablePayload, argName)) {
+      const value = variablePayload[argName];
+      if (
+        Object.keys(variablePayload).length === 1
+        && value
+        && typeof value === "object"
+        && !Array.isArray(value)
+      ) {
+        const nested = value as Record<string, unknown>;
+        if (Object.keys(nested).length === 1 && Object.prototype.hasOwnProperty.call(nested, argName)) {
+          return { [argName]: nested[argName] };
+        }
+      }
+      return variablePayload;
+    }
+
+    // Common LLM shape: pass fields directly for single `input` argument.
+    return { [argName]: variablePayload };
+  }
+
+  return variablePayload;
+}
+
 /** Resolve a GqlTypeRef to the underlying named type (unwrapping NON_NULL/LIST wrappers) */
 function unwrapType(ref: GqlTypeRef): string | null {
   if (ref.kind === "NON_NULL" && ref.ofType) return unwrapType(ref.ofType);
@@ -1242,18 +1316,122 @@ function gqlFieldArgsTypeHint(args: GqlField["args"], typeMap?: Map<string, GqlT
   return `{ ${entries.join("; ")} }`;
 }
 
+function isGraphqlLeafType(ref: GqlTypeRef, typeMap: Map<string, GqlType>): boolean {
+  const name = unwrapType(ref);
+  if (!name) return true;
+  const resolved = typeMap.get(name);
+  if (!resolved) return true;
+  return resolved.kind === "SCALAR" || resolved.kind === "ENUM";
+}
+
+function buildFieldSelectionSet(
+  typeRef: GqlTypeRef,
+  typeMap: Map<string, GqlType>,
+  depth = 0,
+  seenTypes = new Set<string>(),
+): string {
+  const namedType = unwrapType(typeRef);
+  if (!namedType) return "";
+
+  const resolved = typeMap.get(namedType);
+  if (!resolved) return "";
+
+  if (resolved.kind === "SCALAR" || resolved.kind === "ENUM") {
+    return "";
+  }
+
+  if (resolved.kind === "UNION") {
+    return "{ __typename }";
+  }
+
+  if (depth >= 2 || seenTypes.has(namedType)) {
+    return "{ __typename }";
+  }
+
+  const nextSeen = new Set(seenTypes);
+  nextSeen.add(namedType);
+
+  if ((resolved.kind === "OBJECT" || resolved.kind === "INTERFACE") && resolved.fields) {
+    const preferredLeafNames = ["id", "identifier", "key", "name", "title", "number", "url", "success"];
+    const preferredNestedNames = ["nodes", "edges", "node", "items", "issue", "issues", "team", "teams", "viewer", "user"];
+
+    const fields = resolved.fields.filter((field) => !field.name.startsWith("__"));
+    const leafFields = resolved.fields
+      .filter((field) => !field.name.startsWith("__"))
+      .filter((field) => isGraphqlLeafType(field.type, typeMap));
+    const nestedFields = fields.filter((field) => !isGraphqlLeafType(field.type, typeMap));
+
+    const selectedParts: string[] = [];
+    const selectedNames = new Set<string>();
+
+    for (const preferred of preferredLeafNames) {
+      const match = leafFields.find((field) => field.name === preferred);
+      if (!match || selectedNames.has(match.name)) continue;
+      selectedNames.add(match.name);
+      selectedParts.push(match.name);
+      if (selectedParts.length >= 2) break;
+    }
+
+    if (selectedParts.length < 2) {
+      for (const field of leafFields) {
+        if (selectedNames.has(field.name)) continue;
+        selectedNames.add(field.name);
+        selectedParts.push(field.name);
+        if (selectedParts.length >= 2) break;
+      }
+    }
+
+    const nestedCandidates = [
+      ...preferredNestedNames
+        .map((name) => nestedFields.find((field) => field.name === name))
+        .filter((field): field is GqlField => Boolean(field)),
+      ...nestedFields,
+    ];
+
+    if (selectedParts.length < 3) {
+      for (const field of nestedCandidates) {
+        if (selectedNames.has(field.name)) continue;
+        const nestedSelection = buildFieldSelectionSet(field.type, typeMap, depth + 1, nextSeen);
+        if (!nestedSelection) continue;
+        selectedNames.add(field.name);
+        selectedParts.push(`${field.name} ${nestedSelection}`);
+        break;
+      }
+    }
+
+    if (selectedParts.length === 0) {
+      return "{ __typename }";
+    }
+
+    if (!selectedParts.includes("__typename")) {
+      selectedParts.push("__typename");
+    }
+
+    return `{ ${selectedParts.join(" ")} }`;
+  }
+
+  return "{ __typename }";
+}
+
 /** Build a minimal GraphQL document for a single root field with its arguments */
 function buildFieldQuery(
   operationType: "query" | "mutation",
   fieldName: string,
   args: GqlField["args"],
+  fieldType?: GqlTypeRef,
+  typeMap?: Map<string, GqlType>,
 ): string {
+  const selectionSet = fieldType && typeMap
+    ? buildFieldSelectionSet(fieldType, typeMap)
+    : "";
+  const selectionSuffix = selectionSet ? ` ${selectionSet}` : "";
+
   if (args.length === 0) {
-    return `${operationType} { ${fieldName} }`;
+    return `${operationType} { ${fieldName}${selectionSuffix} }`;
   }
   const varDefs = args.map((a) => `$${a.name}: ${printGqlType(a.type)}`).join(", ");
   const fieldArgs = args.map((a) => `${a.name}: $${a.name}`).join(", ");
-  return `${operationType}(${varDefs}) { ${fieldName}(${fieldArgs}) }`;
+  return `${operationType}(${varDefs}) { ${fieldName}(${fieldArgs})${selectionSuffix} }`;
 }
 
 function printGqlType(ref: GqlTypeRef): string {
@@ -1368,11 +1546,11 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
   tools.push({
     path: mainToolPath,
     source: sourceKey,
-    description: `Execute a GraphQL query or mutation against ${config.name}. Use the ${sourceName}.query.* and ${sourceName}.mutation.* tool descriptions to see available operations.`,
+    description: `Execute a GraphQL query or mutation against ${config.name}. Returns { data, errors }. Use ${sourceName}.query.* and ${sourceName}.mutation.* helpers when available.`,
     approval: "auto", // Actual approval is determined dynamically per-invocation
     metadata: {
       argsType: "{ query: string; variables?: Record<string, unknown> }",
-      returnsType: "unknown",
+      returnsType: "{ data: unknown; errors: unknown[] }",
     },
     credential: credentialSpec,
     // Tag as graphql source so invokeTool knows to do dynamic path extraction
@@ -1407,12 +1585,10 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
       }
 
       const result = await response.json() as { data?: unknown; errors?: unknown[] };
-      if (result.errors && (!result.data || Object.keys(result.data as object).length === 0)) {
+      if (result.errors && !hasGraphqlData(result.data)) {
         throw new Error(`GraphQL errors: ${JSON.stringify(result.errors).slice(0, 1000)}`);
       }
-      // Return both data and errors if partial
-      if (result.errors) return result;
-      return result.data;
+      return normalizeGraphqlEnvelope(result);
     },
   } as ToolDefinition & { _graphqlSource: string });
 
@@ -1439,18 +1615,21 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
       const approval = config.overrides?.[field.name]?.approval ?? defaultApproval;
 
       // Build the example query for the description
-      const exampleQuery = buildFieldQuery(operationType, field.name, field.args);
+      const exampleQuery = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
+      const directCallExample = field.args.length === 0
+        ? `tools.${fieldPath}({})`
+        : `tools.${fieldPath}({ ${field.args.map((arg) => `${arg.name}: ...`).join(", ")} })`;
 
       tools.push({
         path: fieldPath,
         source: sourceKey,
         description: field.description
-          ? `${field.description}\n\nExample: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`
-          : `GraphQL ${operationType}: ${field.name}\n\nExample: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`,
+          ? `${field.description}\n\nPreferred: ${directCallExample}\nReturns: { data, errors }\nRaw GraphQL: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`
+          : `GraphQL ${operationType}: ${field.name}\n\nPreferred: ${directCallExample}\nReturns: { data, errors }\nRaw GraphQL: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`,
         approval,
         metadata: {
           argsType: gqlFieldArgsTypeHint(field.args, typeMap),
-          returnsType: gqlTypeToHint(field.type, typeMap),
+          returnsType: `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`,
         },
         _runSpec: {
           kind: "graphql_field" as const,
@@ -1458,6 +1637,7 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
           operationName: field.name,
           operationType,
           queryTemplate: exampleQuery,
+          argNames: field.args.map((arg) => arg.name),
           authHeaders,
         },
         // Pseudo-tools don't have a run — they exist for discovery and policy matching only
@@ -1465,14 +1645,22 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
         run: async (input: unknown, context) => {
           // If someone calls this directly, delegate to the main graphql tool
           const payload = asRecord(input);
-          if (!payload.query) {
+          const hasExplicitQuery = typeof payload.query === "string" && payload.query.trim().length > 0;
+          if (!hasExplicitQuery) {
             // Auto-build the query from the variables
-            payload.query = buildFieldQuery(operationType, field.name, field.args);
+            payload.query = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
+            if (payload.variables === undefined) {
+              payload.variables = normalizeGraphqlFieldVariables(
+                field.args.map((arg) => arg.name),
+                payload,
+              );
+            }
           }
           // Find and invoke the main tool
           const mainTool = tools.find((t) => t.path === mainToolPath);
           if (!mainTool) throw new Error(`Main GraphQL tool not found`);
-          return mainTool.run(payload, context);
+          const envelope = await mainTool.run(payload, context) as GraphqlExecutionEnvelope;
+          return selectGraphqlFieldEnvelope(envelope, field.name);
         },
       } as ToolDefinition & { _pseudoTool: boolean });
     }
@@ -1546,7 +1734,7 @@ export interface SerializedTool {
    * OpenAPI: { kind: "openapi", baseUrl, method, pathTemplate, parameters, authHeaders }
    * MCP: { kind: "mcp", url, transport?, queryParams?, toolName }
    * GraphQL raw: { kind: "graphql_raw", endpoint, authHeaders }
-   * GraphQL field: { kind: "graphql_field", endpoint, operationName, operationType, queryTemplate, authHeaders }
+   * GraphQL field: { kind: "graphql_field", endpoint, operationName, operationType, queryTemplate, argNames?, authHeaders }
    * GraphQL (legacy compat): { kind: "graphql", endpoint, operationName, operationType, authHeaders }
    * Builtin: { kind: "builtin" } — run comes from DEFAULT_TOOLS
    */
@@ -1577,6 +1765,7 @@ export interface SerializedTool {
         operationName: string;
         operationType: "query" | "mutation";
         queryTemplate: string;
+        argNames?: string[];
         authHeaders: Record<string, string>;
       }
     | {
@@ -1637,7 +1826,7 @@ export function rehydrateTools(
     query: string,
     variables: unknown,
     context: { credential?: { headers: Record<string, string> } },
-  ): Promise<unknown> {
+  ): Promise<GraphqlExecutionEnvelope> {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -1654,11 +1843,10 @@ export function rehydrateTools(
     }
 
     const result = await response.json() as { data?: unknown; errors?: unknown[] };
-    if (result.errors && (!result.data || Object.keys(result.data as object).length === 0)) {
+    if (result.errors && !hasGraphqlData(result.data)) {
       throw new Error(`GraphQL errors: ${JSON.stringify(result.errors).slice(0, 1000)}`);
     }
-    if (result.errors) return result;
-    return result.data;
+    return normalizeGraphqlEnvelope(result);
   }
 
   return serialized.map((st) => {
@@ -1765,7 +1953,7 @@ export function rehydrateTools(
     }
 
     if (st.runSpec.kind === "graphql_field") {
-      const { endpoint, operationName, queryTemplate, authHeaders } = st.runSpec;
+      const { endpoint, operationName, queryTemplate, authHeaders, argNames } = st.runSpec;
       return {
         ...base,
         run: async (input: unknown, context) => {
@@ -1775,17 +1963,11 @@ export function rehydrateTools(
 
           let variables = payload.variables;
           if (variables === undefined && !hasExplicitQuery) {
-            const variablePayload: Record<string, unknown> = { ...payload };
-            delete variablePayload.query;
-            delete variablePayload.variables;
-            variables = Object.keys(variablePayload).length > 0 ? variablePayload : undefined;
+            variables = normalizeGraphqlFieldVariables(argNames ?? [], payload);
           }
 
-          const result = await executeGraphql(endpoint, authHeaders, query, variables, context);
-          if (result && typeof result === "object") {
-            return (result as Record<string, unknown>)[operationName];
-          }
-          return result;
+          const envelope = await executeGraphql(endpoint, authHeaders, query, variables, context);
+          return selectGraphqlFieldEnvelope(envelope, operationName);
         },
       };
     }
@@ -1799,11 +1981,8 @@ export function rehydrateTools(
         run: async (input: unknown, context) => {
           const payload = asRecord(input);
           const variables = payload.variables ?? { input: payload };
-          const result = await executeGraphql(endpoint, authHeaders, queryTemplate, variables, context);
-          if (result && typeof result === "object") {
-            return (result as Record<string, unknown>)[operationName];
-          }
-          return result;
+          const envelope = await executeGraphql(endpoint, authHeaders, queryTemplate, variables, context);
+          return selectGraphqlFieldEnvelope(envelope, operationName);
         },
       };
     }
