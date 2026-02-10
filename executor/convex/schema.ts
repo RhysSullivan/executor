@@ -313,4 +313,37 @@ export default defineSchema({
     .index("by_session_id", ["sessionId"])
     .index("by_workspace_actor", ["workspaceId", "actorId"])
     .index("by_account", ["accountId"]),
+
+  // ── Anonymous OAuth: Self-issued auth server for anonymous MCP clients ────
+
+  /**
+   * Signing key pair for the self-issued anonymous OAuth server.
+   * Persisted so tokens survive gateway restarts.
+   * Typically only one "active" row at a time.
+   */
+  anonymousOauthSigningKeys: defineTable({
+    keyId: v.string(), // kid claim: anon_key_<short-uuid>
+    algorithm: v.string(), // e.g. "RS256"
+    /** JWK-encoded private key (JSON object). */
+    privateKeyJwk: v.any(),
+    /** JWK-encoded public key (JSON object). */
+    publicKeyJwk: v.any(),
+    status: v.union(v.literal("active"), v.literal("rotated")),
+    createdAt: v.number(),
+    rotatedAt: v.optional(v.number()),
+  })
+    .index("by_key_id", ["keyId"])
+    .index("by_status", ["status"]),
+
+  /**
+   * Dynamic client registrations (RFC 7591) for the anonymous OAuth flow.
+   * Persisted so MCP clients don't need to re-register after a gateway restart.
+   */
+  anonymousOauthClients: defineTable({
+    clientId: v.string(), // domain ID: anon_client_<uuid>
+    clientName: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_client_id", ["clientId"]),
 });

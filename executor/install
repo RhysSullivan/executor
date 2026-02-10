@@ -5,7 +5,10 @@ APP="executor"
 REPO="${EXECUTOR_REPO:-RhysSullivan/assistant}"
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
 REQUESTED_VERSION="${VERSION:-}"
+BINARY_PATH=""
 NO_MODIFY_PATH="0"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+LOCAL_BINARY_CANDIDATE="$SCRIPT_DIR/dist/executor"
 
 RED='\033[0;31m'
 MUTED='\033[0;2m'
@@ -20,6 +23,7 @@ Usage:
 
 Options:
   -v, --version <version>  Install specific release tag (with or without leading v)
+  -b, --binary <path>      Install from a local prebuilt binary
   --no-modify-path         Do not append executor bin directory to shell rc
   -h, --help               Show this help
 
@@ -39,6 +43,14 @@ while [[ $# -gt 0 ]]; do
       REQUESTED_VERSION="${2:-}"
       if [[ -z "$REQUESTED_VERSION" ]]; then
         echo -e "${RED}Missing value for --version${NC}"
+        exit 1
+      fi
+      shift 2
+      ;;
+    -b|--binary)
+      BINARY_PATH="${2:-}"
+      if [[ -z "$BINARY_PATH" ]]; then
+        echo -e "${RED}Missing value for --binary${NC}"
         exit 1
       fi
       shift 2
@@ -80,29 +92,60 @@ archive_ext="tar.gz"
 filename="${APP}-${os}-${arch}.${archive_ext}"
 mkdir -p "$INSTALL_DIR"
 
-if [[ -z "$REQUESTED_VERSION" ]]; then
-  url="https://github.com/${REPO}/releases/latest/download/${filename}"
-  version="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
+install_local_binary() {
+  local src="$1"
+  if [[ ! -f "$src" ]]; then
+    echo -e "${RED}Local binary not found: ${src}${NC}"
+    exit 1
+  fi
+  cp "$src" "$INSTALL_DIR/$APP"
+  chmod 755 "$INSTALL_DIR/$APP"
+}
+
+if [[ -n "$BINARY_PATH" ]]; then
+  echo -e "${MUTED}Installing ${APP}${NC} from local binary: $BINARY_PATH"
+  install_local_binary "$BINARY_PATH"
 else
-  version="${REQUESTED_VERSION#v}"
-  url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
+  if [[ -z "$REQUESTED_VERSION" ]]; then
+    url="https://github.com/${REPO}/releases/latest/download/${filename}"
+    release_json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null || true)"
+    version="$(printf "%s" "$release_json" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
+    if [[ -z "$version" ]]; then
+      version="latest"
+    fi
+  else
+    version="${REQUESTED_VERSION#v}"
+    url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
+  fi
+
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+
+  echo -e "${MUTED}Installing ${APP}${NC} ${version:-latest}"
+  if ! curl -fsSL "$url" -o "$tmp_dir/$filename"; then
+    if [[ -f "$LOCAL_BINARY_CANDIDATE" ]]; then
+      echo -e "${MUTED}Release asset not found; using local binary at ${LOCAL_BINARY_CANDIDATE}${NC}"
+      install_local_binary "$LOCAL_BINARY_CANDIDATE"
+    else
+      echo -e "${RED}Could not download release asset: ${url}${NC}"
+      echo ""
+      echo "If you are developing locally, build and install from source:"
+      echo "  bun run --cwd executor build:binary"
+      echo "  bash executor/install --binary executor/dist/executor"
+      exit 1
+    fi
+  else
+    tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
+
+    if [[ ! -f "$tmp_dir/$APP" ]]; then
+      echo -e "${RED}Archive did not contain expected binary '${APP}'${NC}"
+      exit 1
+    fi
+
+    mv "$tmp_dir/$APP" "$INSTALL_DIR/$APP"
+    chmod 755 "$INSTALL_DIR/$APP"
+  fi
 fi
-
-tmp_dir="$(mktemp -d)"
-trap 'rm -rf "$tmp_dir"' EXIT
-
-echo -e "${MUTED}Installing ${APP}${NC} ${version:-latest}"
-curl -fsSL "$url" -o "$tmp_dir/$filename"
-
-tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
-
-if [[ ! -f "$tmp_dir/$APP" ]]; then
-  echo -e "${RED}Archive did not contain expected binary '${APP}'${NC}"
-  exit 1
-fi
-
-mv "$tmp_dir/$APP" "$INSTALL_DIR/$APP"
-chmod 755 "$INSTALL_DIR/$APP"
 
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
   shell_name="$(basename "${SHELL:-}")"

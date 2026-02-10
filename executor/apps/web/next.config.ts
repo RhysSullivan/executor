@@ -8,6 +8,8 @@ const appShellRewriteExclusions = [
   "sign-up(?:/|$)",
   "sign-out(?:/|$)",
   "callback(?:/|$)",
+  "install(?:/|$)",
+  "install\\.sh(?:/|$)",
   "static-app-shell(?:/|$)",
   ".*\\..*",
 ].join("|");
@@ -26,6 +28,15 @@ const nextConfig: NextConfig = {
       {
         source: `/((?!${appShellRewriteExclusions}).*)`,
         destination: "/static-app-shell",
+      },
+    ];
+  },
+  async redirects() {
+    return [
+      {
+        source: "/install.sh",
+        destination: "/install",
+        permanent: false,
       },
     ];
   },

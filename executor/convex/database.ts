@@ -1133,3 +1133,115 @@ export const listTaskEvents = internalQuery({
     return docs.map(mapTaskEvent);
   },
 });
+
+// ── Anonymous OAuth Signing Keys ─────────────────────────────────────────────
+
+/**
+ * Get the active anonymous OAuth signing key pair.
+ * Returns null if no key has been generated yet.
+ */
+export const getActiveAnonymousOauthSigningKey = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const doc = await ctx.db
+      .query("anonymousOauthSigningKeys")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .first();
+
+    if (!doc) return null;
+
+    return {
+      keyId: doc.keyId,
+      algorithm: doc.algorithm,
+      privateKeyJwk: doc.privateKeyJwk,
+      publicKeyJwk: doc.publicKeyJwk,
+      createdAt: doc.createdAt,
+    };
+  },
+});
+
+/**
+ * Store a new anonymous OAuth signing key pair, rotating any previously active key.
+ */
+export const storeAnonymousOauthSigningKey = internalMutation({
+  args: {
+    keyId: v.string(),
+    algorithm: v.string(),
+    privateKeyJwk: v.any(),
+    publicKeyJwk: v.any(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Rotate any currently active keys
+    const activeKeys = await ctx.db
+      .query("anonymousOauthSigningKeys")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .collect();
+
+    for (const key of activeKeys) {
+      await ctx.db.patch(key._id, { status: "rotated", rotatedAt: now });
+    }
+
+    // Insert the new active key
+    await ctx.db.insert("anonymousOauthSigningKeys", {
+      keyId: args.keyId,
+      algorithm: args.algorithm,
+      privateKeyJwk: args.privateKeyJwk,
+      publicKeyJwk: args.publicKeyJwk,
+      status: "active",
+      createdAt: now,
+    });
+  },
+});
+
+// ── Anonymous OAuth Client Registrations ────────────────────────────────────
+
+/**
+ * Register a new anonymous OAuth client (RFC 7591 dynamic client registration).
+ */
+export const registerAnonymousOauthClient = internalMutation({
+  args: {
+    clientId: v.string(),
+    clientName: v.optional(v.string()),
+    redirectUris: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.insert("anonymousOauthClients", {
+      clientId: args.clientId,
+      clientName: args.clientName,
+      redirectUris: args.redirectUris,
+      createdAt: now,
+    });
+
+    return {
+      client_id: args.clientId,
+      client_name: args.clientName,
+      redirect_uris: args.redirectUris,
+      created_at: now,
+    };
+  },
+});
+
+/**
+ * Look up an anonymous OAuth client by client_id.
+ */
+export const getAnonymousOauthClient = internalQuery({
+  args: { clientId: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db
+      .query("anonymousOauthClients")
+      .withIndex("by_client_id", (q) => q.eq("clientId", args.clientId))
+      .unique();
+
+    if (!doc) return null;
+
+    return {
+      client_id: doc.clientId,
+      client_name: doc.clientName,
+      redirect_uris: doc.redirectUris,
+      created_at: doc.createdAt,
+    };
+  },
+});

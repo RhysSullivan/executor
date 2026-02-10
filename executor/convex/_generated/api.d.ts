@@ -548,6 +548,18 @@ export declare const internal: {
       { sourceId: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    getActiveAnonymousOauthSigningKey: FunctionReference<
+      "query",
+      "internal",
+      {},
+      any
+    >;
+    getAnonymousOauthClient: FunctionReference<
+      "query",
+      "internal",
+      { clientId: string },
+      any
+    >;
     getApproval: FunctionReference<
       "query",
       "internal",
@@ -639,6 +651,12 @@ export declare const internal: {
       { taskId: string },
       any
     >;
+    registerAnonymousOauthClient: FunctionReference<
+      "mutation",
+      "internal",
+      { clientId: string; clientName?: string; redirectUris: Array<string> },
+      any
+    >;
     resolveApproval: FunctionReference<
       "mutation",
       "internal",
@@ -658,6 +676,17 @@ export declare const internal: {
         scope: "workspace" | "actor";
         sourceKey: string;
         workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    storeAnonymousOauthSigningKey: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        algorithm: string;
+        keyId: string;
+        privateKeyJwk: any;
+        publicKeyJwk: any;
       },
       any
     >;
