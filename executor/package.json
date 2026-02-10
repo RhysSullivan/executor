@@ -7,6 +7,7 @@
     "up": "bun run executor.ts up",
     "backend": "bun run executor.ts backend",
     "convex": "bun run executor.ts backend",
+    "web": "bun run executor.ts web",
     "gateway": "bun run executor.ts gateway",
     "deploy": "bunx convex deploy",
     "codegen": "bunx convex codegen",

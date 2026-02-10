@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll } from "bun:test";
 import {
   AnonymousOAuthServer,
+  InMemoryOAuthStorage,
   OAuthBadRequest,
   computeS256Challenge,
 } from "./anonymous-oauth";
@@ -28,7 +29,7 @@ async function registerAndAuthorize(
   server: AnonymousOAuthServer,
   redirectUri = "http://localhost:9999/callback",
 ) {
-  const client = server.registerClient({
+  const client = await server.registerClient({
     redirect_uris: [redirectUri],
     client_name: "test-client",
   });
@@ -45,7 +46,7 @@ async function registerAndAuthorize(
     state: "test-state-123",
   });
 
-  const { redirectTo } = server.authorize(params);
+  const { redirectTo } = await server.authorize(params);
   const redirectUrl = new URL(redirectTo);
   const code = redirectUrl.searchParams.get("code")!;
 
@@ -58,9 +59,14 @@ async function registerAndAuthorize(
 
 describe("AnonymousOAuthServer", () => {
   let server: AnonymousOAuthServer;
+  let storage: InMemoryOAuthStorage;
 
   beforeAll(async () => {
-    server = createServer();
+    storage = new InMemoryOAuthStorage();
+    server = new AnonymousOAuthServer({
+      issuer: "http://localhost:3003",
+      storage,
+    });
     await server.init();
   });
 
@@ -106,8 +112,8 @@ describe("AnonymousOAuthServer", () => {
   // ── Client Registration ─────────────────────────────────────────────────
 
   describe("registerClient", () => {
-    test("registers a client and returns a client_id", () => {
-      const reg = server.registerClient({
+    test("registers a client and returns a client_id", async () => {
+      const reg = await server.registerClient({
         redirect_uris: ["http://localhost:9999/callback"],
         client_name: "my-mcp-client",
       });
@@ -118,22 +124,28 @@ describe("AnonymousOAuthServer", () => {
       expect(reg.created_at).toBeGreaterThan(0);
     });
 
-    test("rejects registration without redirect_uris", () => {
-      expect(() => server.registerClient({} as any)).toThrow(OAuthBadRequest);
+    test("rejects registration without redirect_uris", async () => {
+      await expect(server.registerClient({} as any)).rejects.toThrow(OAuthBadRequest);
     });
 
-    test("rejects registration with empty redirect_uris", () => {
-      expect(() => server.registerClient({ redirect_uris: [] })).toThrow(OAuthBadRequest);
+    test("rejects registration with empty redirect_uris", async () => {
+      await expect(server.registerClient({ redirect_uris: [] })).rejects.toThrow(OAuthBadRequest);
     });
 
-    test("rejects registration with invalid redirect_uri entries", () => {
-      expect(() => server.registerClient({ redirect_uris: [""] })).toThrow(OAuthBadRequest);
+    test("rejects registration with invalid redirect_uri entries", async () => {
+      await expect(server.registerClient({ redirect_uris: [""] })).rejects.toThrow(OAuthBadRequest);
     });
 
-    test("increments client count", () => {
-      const before = server.getClientCount();
-      server.registerClient({ redirect_uris: ["http://example.com/cb"] });
-      expect(server.getClientCount()).toBe(before + 1);
+    test("rejects registration with non-URL redirect_uri", async () => {
+      await expect(
+        server.registerClient({ redirect_uris: ["not-a-url"] }),
+      ).rejects.toThrow("Invalid redirect_uri");
+    });
+
+    test("increments client count in storage", async () => {
+      const before = storage.clientCount;
+      await server.registerClient({ redirect_uris: ["http://example.com/cb"] });
+      expect(storage.clientCount).toBe(before + 1);
     });
   });
 
@@ -148,8 +160,8 @@ describe("AnonymousOAuthServer", () => {
       expect(redirectUrl.pathname).toBe("/callback");
     });
 
-    test("rejects unsupported response_type", () => {
-      const client = server.registerClient({
+    test("rejects unsupported response_type", async () => {
+      const client = await server.registerClient({
         redirect_uris: ["http://localhost/cb"],
       });
       const params = new URLSearchParams({
@@ -159,10 +171,10 @@ describe("AnonymousOAuthServer", () => {
         code_challenge: "abc",
         code_challenge_method: "S256",
       });
-      expect(() => server.authorize(params)).toThrow("response_type must be 'code'");
+      await expect(server.authorize(params)).rejects.toThrow("response_type must be 'code'");
     });
 
-    test("rejects unknown client_id", () => {
+    test("rejects unknown client_id", async () => {
       const params = new URLSearchParams({
         response_type: "code",
         client_id: "unknown",
@@ -170,11 +182,11 @@ describe("AnonymousOAuthServer", () => {
         code_challenge: "abc",
         code_challenge_method: "S256",
       });
-      expect(() => server.authorize(params)).toThrow("Unknown client_id");
+      await expect(server.authorize(params)).rejects.toThrow("Unknown client_id");
     });
 
-    test("rejects mismatched redirect_uri", () => {
-      const client = server.registerClient({
+    test("rejects mismatched redirect_uri", async () => {
+      const client = await server.registerClient({
         redirect_uris: ["http://localhost/cb"],
       });
       const params = new URLSearchParams({
@@ -184,11 +196,11 @@ describe("AnonymousOAuthServer", () => {
         code_challenge: "abc",
         code_challenge_method: "S256",
       });
-      expect(() => server.authorize(params)).toThrow("redirect_uri does not match");
+      await expect(server.authorize(params)).rejects.toThrow("redirect_uri does not match");
     });
 
-    test("rejects missing PKCE challenge", () => {
-      const client = server.registerClient({
+    test("rejects missing PKCE challenge", async () => {
+      const client = await server.registerClient({
         redirect_uris: ["http://localhost/cb"],
       });
       const params = new URLSearchParams({
@@ -196,11 +208,11 @@ describe("AnonymousOAuthServer", () => {
         client_id: client.client_id,
         redirect_uri: "http://localhost/cb",
       });
-      expect(() => server.authorize(params)).toThrow("PKCE S256 code_challenge is required");
+      await expect(server.authorize(params)).rejects.toThrow("PKCE S256 code_challenge is required");
     });
 
-    test("rejects non-S256 PKCE method", () => {
-      const client = server.registerClient({
+    test("rejects non-S256 PKCE method", async () => {
+      const client = await server.registerClient({
         redirect_uris: ["http://localhost/cb"],
       });
       const params = new URLSearchParams({
@@ -210,7 +222,7 @@ describe("AnonymousOAuthServer", () => {
         code_challenge: "abc",
         code_challenge_method: "plain",
       });
-      expect(() => server.authorize(params)).toThrow("PKCE S256 code_challenge is required");
+      await expect(server.authorize(params)).rejects.toThrow("PKCE S256 code_challenge is required");
     });
   });
 
@@ -218,12 +230,13 @@ describe("AnonymousOAuthServer", () => {
 
   describe("exchangeToken", () => {
     test("exchanges code for a valid JWT access token", async () => {
-      const { code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
+      const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
 
       const result = await server.exchangeToken(
         new URLSearchParams({
           grant_type: "authorization_code",
           code,
+          client_id: client.client_id,
           redirect_uri: redirectUri,
           code_verifier: codeVerifier,
         }),
@@ -241,11 +254,12 @@ describe("AnonymousOAuthServer", () => {
     });
 
     test("code is single-use", async () => {
-      const { code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
+      const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
 
       const body = new URLSearchParams({
         grant_type: "authorization_code",
         code,
+        client_id: client.client_id,
         redirect_uri: redirectUri,
         code_verifier: codeVerifier,
       });
@@ -263,6 +277,22 @@ describe("AnonymousOAuthServer", () => {
       ).rejects.toThrow("grant_type must be authorization_code");
     });
 
+    test("rejects wrong client_id", async () => {
+      const { code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
+
+      await expect(
+        server.exchangeToken(
+          new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            client_id: "anon_client_wrong",
+            redirect_uri: redirectUri,
+            code_verifier: codeVerifier,
+          }),
+        ),
+      ).rejects.toThrow("client_id mismatch");
+    });
+
     test("rejects expired code", async () => {
       // Create server with very short code expiry
       const shortServer = new AnonymousOAuthServer({
@@ -271,7 +301,7 @@ describe("AnonymousOAuthServer", () => {
       });
       await shortServer.init();
 
-      const { code, codeVerifier, redirectUri } = await registerAndAuthorize(shortServer);
+      const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(shortServer);
 
       // Wait a tick for the code to expire
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -281,6 +311,7 @@ describe("AnonymousOAuthServer", () => {
           new URLSearchParams({
             grant_type: "authorization_code",
             code,
+            client_id: client.client_id,
             redirect_uri: redirectUri,
             code_verifier: codeVerifier,
           }),
@@ -289,13 +320,14 @@ describe("AnonymousOAuthServer", () => {
     });
 
     test("rejects wrong redirect_uri", async () => {
-      const { code, codeVerifier } = await registerAndAuthorize(server);
+      const { client, code, codeVerifier } = await registerAndAuthorize(server);
 
       await expect(
         server.exchangeToken(
           new URLSearchParams({
             grant_type: "authorization_code",
             code,
+            client_id: client.client_id,
             redirect_uri: "http://evil.com/cb",
             code_verifier: codeVerifier,
           }),
@@ -304,13 +336,14 @@ describe("AnonymousOAuthServer", () => {
     });
 
     test("rejects wrong code_verifier", async () => {
-      const { code, redirectUri } = await registerAndAuthorize(server);
+      const { client, code, redirectUri } = await registerAndAuthorize(server);
 
       await expect(
         server.exchangeToken(
           new URLSearchParams({
             grant_type: "authorization_code",
             code,
+            client_id: client.client_id,
             redirect_uri: redirectUri,
             code_verifier: "wrong-verifier-value",
           }),
@@ -319,13 +352,14 @@ describe("AnonymousOAuthServer", () => {
     });
 
     test("rejects missing code_verifier", async () => {
-      const { code, redirectUri } = await registerAndAuthorize(server);
+      const { client, code, redirectUri } = await registerAndAuthorize(server);
 
       await expect(
         server.exchangeToken(
           new URLSearchParams({
             grant_type: "authorization_code",
             code,
+            client_id: client.client_id,
             redirect_uri: redirectUri,
           }),
         ),
@@ -337,11 +371,12 @@ describe("AnonymousOAuthServer", () => {
 
   describe("verifyToken", () => {
     test("verifies a self-issued token", async () => {
-      const { code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
+      const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
       const { access_token } = await server.exchangeToken(
         new URLSearchParams({
           grant_type: "authorization_code",
           code,
+          client_id: client.client_id,
           redirect_uri: redirectUri,
           code_verifier: codeVerifier,
         }),
@@ -362,11 +397,12 @@ describe("AnonymousOAuthServer", () => {
       const otherServer = createServer("http://other-server:4000");
       await otherServer.init();
 
-      const { code, codeVerifier, redirectUri } = await registerAndAuthorize(otherServer);
+      const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(otherServer);
       const { access_token } = await otherServer.exchangeToken(
         new URLSearchParams({
           grant_type: "authorization_code",
           code,
+          client_id: client.client_id,
           redirect_uri: redirectUri,
           code_verifier: codeVerifier,
         }),
@@ -414,6 +450,111 @@ describe("AnonymousOAuthServer", () => {
     });
   });
 
+  // ── Authorization code cap ────────────────────────────────────────────────
+
+  describe("authorization code cap", () => {
+    test("rejects new authorizations when at max pending codes", async () => {
+      const s = new AnonymousOAuthServer({
+        issuer: "http://localhost:3003",
+        maxPendingCodes: 2,
+        codeExpirySeconds: 300, // long-lived so they don't auto-purge
+      });
+      await s.init();
+
+      // Fill up the code slots
+      await registerAndAuthorize(s);
+      await registerAndAuthorize(s);
+      expect(s.getCodeCount()).toBe(2);
+
+      // Third should be rejected
+      await expect(registerAndAuthorize(s)).rejects.toThrow(
+        "Too many pending authorization requests",
+      );
+    });
+
+    test("auto-purges expired codes before rejecting", async () => {
+      const s = new AnonymousOAuthServer({
+        issuer: "http://localhost:3003",
+        maxPendingCodes: 2,
+        codeExpirySeconds: 0, // codes expire immediately
+      });
+      await s.init();
+
+      // Fill slots (they expire immediately)
+      await registerAndAuthorize(s);
+      await registerAndAuthorize(s);
+      expect(s.getCodeCount()).toBe(2);
+
+      // Wait for expiry
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Should succeed because expired codes are purged
+      const { code } = await registerAndAuthorize(s);
+      expect(code).toBeTruthy();
+    });
+  });
+
+  // ── Key persistence via storage ─────────────────────────────────────────
+
+  describe("key persistence", () => {
+    test("reuses key from storage on second init", async () => {
+      const sharedStorage = new InMemoryOAuthStorage();
+
+      // First server generates a key
+      const s1 = new AnonymousOAuthServer({
+        issuer: "http://localhost:3003",
+        storage: sharedStorage,
+      });
+      await s1.init();
+      const jwks1 = s1.getJwks();
+
+      // Second server should load the same key from storage
+      const s2 = new AnonymousOAuthServer({
+        issuer: "http://localhost:3003",
+        storage: sharedStorage,
+      });
+      await s2.init();
+      const jwks2 = s2.getJwks();
+
+      expect(jwks1.keys[0].kid).toBe(jwks2.keys[0].kid);
+      expect(jwks1.keys[0].n).toBe(jwks2.keys[0].n);
+    });
+
+    test("token from first server is verified by second server with same storage", async () => {
+      const sharedStorage = new InMemoryOAuthStorage();
+
+      const s1 = new AnonymousOAuthServer({
+        issuer: "http://localhost:3003",
+        storage: sharedStorage,
+      });
+      await s1.init();
+
+      const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(s1);
+      const { access_token } = await s1.exchangeToken(
+        new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: client.client_id,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+        }),
+      );
+
+      // "Restart" the gateway — new server instance, same storage
+      const s2 = new AnonymousOAuthServer({
+        issuer: "http://localhost:3003",
+        storage: sharedStorage,
+      });
+      await s2.init();
+
+      // Token from s1 should be valid on s2
+      const verified = await s2.verifyToken(access_token);
+      expect(verified).not.toBeNull();
+      expect(verified!.sub).toStartWith("anon_");
+      expect(verified!.provider).toBe("anonymous");
+    });
+  });
+
   // ── Each authorize creates a unique actor ───────────────────────────────
 
   describe("unique anonymous identities", () => {
@@ -421,11 +562,12 @@ describe("AnonymousOAuthServer", () => {
       const subs = new Set<string>();
 
       for (let i = 0; i < 5; i++) {
-        const { code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
+        const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
         const { access_token } = await server.exchangeToken(
           new URLSearchParams({
             grant_type: "authorization_code",
             code,
+            client_id: client.client_id,
             redirect_uri: redirectUri,
             code_verifier: codeVerifier,
           }),

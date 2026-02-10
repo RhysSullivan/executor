@@ -4,11 +4,14 @@ set -euo pipefail
 APP="executor"
 REPO="${EXECUTOR_REPO:-RhysSullivan/assistant}"
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
+WEB_INSTALL_DIR="${EXECUTOR_WEB_INSTALL_DIR:-$HOME/.executor/runtime/web}"
 REQUESTED_VERSION="${VERSION:-}"
+RESOLVED_VERSION=""
 BINARY_PATH=""
 NO_MODIFY_PATH="0"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 LOCAL_BINARY_CANDIDATE="$SCRIPT_DIR/dist/executor"
+LOCAL_WEB_CANDIDATE="$SCRIPT_DIR/dist/release"
 
 RED='\033[0;31m'
 MUTED='\033[0;2m'
@@ -30,6 +33,7 @@ Options:
 Environment:
   EXECUTOR_REPO            GitHub repository to install from (default: RhysSullivan/assistant)
   EXECUTOR_INSTALL_DIR     Install directory (default: ~/.executor/bin)
+  EXECUTOR_WEB_INSTALL_DIR Web bundle directory (default: ~/.executor/runtime/web)
 EOF
 }
 
@@ -66,6 +70,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -n "$REQUESTED_VERSION" ]]; then
+  RESOLVED_VERSION="${REQUESTED_VERSION#v}"
+fi
+
 raw_os="$(uname -s)"
 case "$raw_os" in
   Linux*) os="linux" ;;
@@ -90,16 +98,75 @@ archive_ext="zip"
 archive_ext="tar.gz"
 
 filename="${APP}-${os}-${arch}.${archive_ext}"
+web_filename="executor-web-${os}-${arch}.tar.gz"
 mkdir -p "$INSTALL_DIR"
+mkdir -p "$WEB_INSTALL_DIR"
 
 install_local_binary() {
   local src="$1"
+  local tmp_target
   if [[ ! -f "$src" ]]; then
     echo -e "${RED}Local binary not found: ${src}${NC}"
     exit 1
   fi
-  cp "$src" "$INSTALL_DIR/$APP"
-  chmod 755 "$INSTALL_DIR/$APP"
+  tmp_target="$INSTALL_DIR/.${APP}.tmp.$$"
+  cp "$src" "$tmp_target"
+  chmod 755 "$tmp_target"
+  mv -f "$tmp_target" "$INSTALL_DIR/$APP"
+}
+
+install_web_bundle_from_archive() {
+  local archive_path="$1"
+  local tmp_web_dir
+  tmp_web_dir="$(mktemp -d)"
+  if ! tar -xzf "$archive_path" -C "$tmp_web_dir"; then
+    rm -rf "$tmp_web_dir"
+    echo -e "${RED}Failed extracting web archive${NC}"
+    exit 1
+  fi
+  if [[ ! -f "$tmp_web_dir/server.js" ]]; then
+    rm -rf "$tmp_web_dir"
+    echo -e "${RED}Web archive missing expected server.js entry${NC}"
+    exit 1
+  fi
+
+  rm -rf "$WEB_INSTALL_DIR"
+  mkdir -p "$WEB_INSTALL_DIR"
+  cp -R "$tmp_web_dir"/. "$WEB_INSTALL_DIR"
+  rm -rf "$tmp_web_dir"
+}
+
+install_web_bundle() {
+  local web_url
+  local temp_archive
+  temp_archive="$(mktemp)"
+
+  if [[ -z "$REQUESTED_VERSION" ]]; then
+    web_url="https://github.com/${REPO}/releases/latest/download/${web_filename}"
+  else
+    web_url="https://github.com/${REPO}/releases/download/v${RESOLVED_VERSION}/${web_filename}"
+  fi
+
+  if curl -fsSL "$web_url" -o "$temp_archive"; then
+    echo -e "${MUTED}Installing web bundle${NC} ${web_filename}"
+    install_web_bundle_from_archive "$temp_archive"
+    rm -f "$temp_archive"
+    return
+  fi
+  rm -f "$temp_archive"
+
+  local local_web_archive="$LOCAL_WEB_CANDIDATE/${web_filename}"
+  if [[ -f "$local_web_archive" ]]; then
+    echo -e "${MUTED}Web bundle release asset not found; using local archive at ${local_web_archive}${NC}"
+    install_web_bundle_from_archive "$local_web_archive"
+    return
+  fi
+
+  echo -e "${RED}Web bundle was not installed (missing release asset ${web_filename})${NC}"
+  echo ""
+  echo "To build and install it locally:"
+  echo "  bun run --cwd executor build:release"
+  echo "  bash executor/install"
 }
 
 if [[ -n "$BINARY_PATH" ]]; then
@@ -113,8 +180,10 @@ else
     if [[ -z "$version" ]]; then
       version="latest"
     fi
+    RESOLVED_VERSION="${version#v}"
   else
     version="${REQUESTED_VERSION#v}"
+    RESOLVED_VERSION="$version"
     url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
   fi
 
@@ -147,6 +216,8 @@ else
   fi
 fi
 
+install_web_bundle
+
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
   shell_name="$(basename "${SHELL:-}")"
   case "$shell_name" in
@@ -165,7 +236,14 @@ fi
 
 echo ""
 echo "Installed to: $INSTALL_DIR/$APP"
+if [[ -f "$WEB_INSTALL_DIR/server.js" ]]; then
+  echo "Web bundle installed to: $WEB_INSTALL_DIR"
+fi
 echo "Run:"
 echo "  executor doctor"
 echo "  executor up"
+echo "  executor web       # defaults to http://localhost:5312"
 echo "  executor gateway   # defaults to http://localhost:5313/mcp"
+echo ""
+echo "To uninstall later:"
+echo "  bash executor/uninstall --yes"

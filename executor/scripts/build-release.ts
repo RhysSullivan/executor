@@ -17,6 +17,16 @@ const targets: ReleaseTarget[] = [
   { platform: "darwin", arch: "arm64", bunTarget: "bun-darwin-arm64" },
 ];
 
+function hostPlatformArch(): { platform: "linux" | "darwin"; arch: "x64" | "arm64" } {
+  if (process.platform !== "linux" && process.platform !== "darwin") {
+    throw new Error(`Unsupported host platform for web artifact build: ${process.platform}`);
+  }
+  if (process.arch !== "x64" && process.arch !== "arm64") {
+    throw new Error(`Unsupported host architecture for web artifact build: ${process.arch}`);
+  }
+  return { platform: process.platform, arch: process.arch };
+}
+
 function archiveName(platform: ReleaseTarget["platform"], arch: ReleaseTarget["arch"]): string {
   return `executor-${platform}-${arch}.tar.gz`;
 }
@@ -37,6 +47,71 @@ async function runArchiveCommand(command: string[], cwd?: string): Promise<void>
   if (code !== 0) {
     throw new Error(`Command failed (${code}): ${command.join(" ")}`);
   }
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function runCommand(command: string[], options: { cwd?: string; env?: Record<string, string | undefined> } = {}): Promise<void> {
+  const proc = Bun.spawn(command, {
+    cwd: options.cwd,
+    env: options.env,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const code = await proc.exited;
+  if (code !== 0) {
+    throw new Error(`Command failed (${code}): ${command.join(" ")}`);
+  }
+}
+
+async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: string[]): Promise<void> {
+  const host = hostPlatformArch();
+  const webAppDir = path.join(rootDir, "apps", "web");
+  const webArtifactName = `executor-web-${host.platform}-${host.arch}.tar.gz`;
+  const archivePath = path.join(releaseDir, webArtifactName);
+
+  const webBuildEnv = {
+    ...process.env,
+    EXECUTOR_WEB_CONVEX_URL: "http://127.0.0.1:5410",
+    NEXT_PUBLIC_LOCAL_MCP_ORIGIN: "http://localhost:5313",
+  };
+
+  await runCommand(["bunx", "next", "build"], {
+    cwd: webAppDir,
+    env: webBuildEnv,
+  });
+
+  const standaloneAppRoot = path.join(webAppDir, ".next", "standalone", "executor", "apps", "web");
+  const staticRoot = path.join(webAppDir, ".next", "static");
+  const publicRoot = path.join(webAppDir, "public");
+  const stageRoot = path.join(releaseDir, `executor-web-${host.platform}-${host.arch}`);
+
+  if (!(await pathExists(standaloneAppRoot))) {
+    throw new Error(`Missing standalone output at ${standaloneAppRoot}. Ensure next build output is standalone.`);
+  }
+
+  await fs.rm(stageRoot, { recursive: true, force: true });
+  await fs.mkdir(stageRoot, { recursive: true });
+
+  await fs.cp(standaloneAppRoot, stageRoot, { recursive: true });
+  await fs.mkdir(path.join(stageRoot, ".next"), { recursive: true });
+  await fs.cp(staticRoot, path.join(stageRoot, ".next", "static"), { recursive: true });
+  if (await pathExists(publicRoot)) {
+    await fs.cp(publicRoot, path.join(stageRoot, "public"), { recursive: true });
+  }
+
+  await runArchiveCommand(["tar", "-czf", archivePath, "-C", stageRoot, "."]);
+  const digest = await sha256(archivePath);
+  checksums.push(`${digest}  ${path.basename(archivePath)}`);
+  console.log(`built ${webArtifactName}`);
 }
 
 async function main(): Promise<void> {
@@ -77,6 +152,8 @@ async function main(): Promise<void> {
     checksums.push(`${digest}  ${path.basename(archivePath)}`);
     console.log(`built ${path.basename(archivePath)}`);
   }
+
+  await buildWebArtifact(rootDir, releaseDir, checksums);
 
   await Bun.write(path.join(releaseDir, "checksums.txt"), `${checksums.join("\n")}\n`);
   console.log(`wrote ${path.join("dist", "release", "checksums.txt")}`);

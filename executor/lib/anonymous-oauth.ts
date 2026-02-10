@@ -36,6 +36,7 @@ import {
   jwtVerify,
   type JWK,
   type CryptoKey as JoseCryptoKey,
+  type JWTVerifyGetKey,
 } from "jose";
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,8 @@ export interface AnonOAuthConfig {
   accessTokenTtlSeconds?: number;
   /** Authorization code TTL in seconds. Default 120 s. */
   codeExpirySeconds?: number;
+  /** Maximum number of in-flight authorization codes. Default 10 000. */
+  maxPendingCodes?: number;
   /** Pluggable storage backend for keys & client registrations. */
   storage?: OAuthStorage;
 }
@@ -141,21 +144,27 @@ export class InMemoryOAuthStorage implements OAuthStorage {
 
 export class AnonymousOAuthServer {
   private readonly issuer: string;
+  private readonly audience: string;
   private readonly accessTokenTtlSeconds: number;
   private readonly codeExpirySeconds: number;
+  private readonly maxPendingCodes: number;
   private readonly storage: OAuthStorage;
 
   private privateKey!: JoseCryptoKey;
   private publicJwk!: JWK;
   private keyId!: string;
+  /** Cached local JWKS for fast token verification (built once on init). */
+  private localJwks!: JWTVerifyGetKey;
 
   /** In-memory authorization codes (short-lived, cleaned up on use). */
   private readonly codes = new Map<string, AuthorizationCode>();
 
   constructor(config: AnonOAuthConfig) {
     this.issuer = config.issuer.replace(/\/+$/, "");
+    this.audience = `${this.issuer}/mcp`;
     this.accessTokenTtlSeconds = config.accessTokenTtlSeconds ?? 24 * 60 * 60;
     this.codeExpirySeconds = config.codeExpirySeconds ?? 120;
+    this.maxPendingCodes = config.maxPendingCodes ?? 10_000;
     this.storage = config.storage ?? new InMemoryOAuthStorage();
   }
 
@@ -178,32 +187,38 @@ export class AnonymousOAuthServer {
       this.keyId = existing.keyId;
       this.publicJwk = { ...existing.publicKeyJwk, kid: this.keyId, use: "sig", alg: existing.algorithm };
       this.privateKey = await importJWK(existing.privateKeyJwk, existing.algorithm) as JoseCryptoKey;
-      return;
+    } else {
+      // No existing key — generate a fresh pair and persist it
+      const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
+      this.privateKey = privateKey;
+      this.keyId = `anon_key_${crypto.randomUUID().slice(0, 8)}`;
+
+      const publicJwk = await exportJWK(publicKey);
+      this.publicJwk = { ...publicJwk, kid: this.keyId, use: "sig", alg: "RS256" };
+
+      const privateKeyJwk = await exportJWK(privateKey);
+
+      await this.storage.storeSigningKey({
+        keyId: this.keyId,
+        algorithm: "RS256",
+        privateKeyJwk,
+        publicKeyJwk: publicJwk,
+      });
     }
 
-    // No existing key — generate a fresh pair and persist it
-    const { privateKey, publicKey } = await generateKeyPair("RS256");
-    this.privateKey = privateKey;
-    this.keyId = `anon_key_${crypto.randomUUID().slice(0, 8)}`;
-
-    const publicJwk = await exportJWK(publicKey);
-    this.publicJwk = { ...publicJwk, kid: this.keyId, use: "sig", alg: "RS256" };
-
-    const privateKeyJwk = await exportJWK(privateKey);
-
-    await this.storage.storeSigningKey({
-      keyId: this.keyId,
-      algorithm: "RS256",
-      privateKeyJwk,
-      publicKeyJwk: publicJwk,
-    });
+    // Build cached local JWKS for fast token verification
+    this.localJwks = createLocalJWKSet({ keys: [this.publicJwk] });
   }
 
-  /** Import an existing key pair (for tests or manual persistence). */
+  /**
+   * Import an existing key pair (for tests only — bypasses storage).
+   * @internal
+   */
   async initWithKeys(privateKey: JoseCryptoKey, publicJwk: JWK): Promise<void> {
     this.privateKey = privateKey;
     this.keyId = publicJwk.kid ?? `anon_key_${crypto.randomUUID().slice(0, 8)}`;
     this.publicJwk = { ...publicJwk, kid: this.keyId, use: "sig", alg: "RS256" };
+    this.localJwks = createLocalJWKSet({ keys: [this.publicJwk] });
   }
 
   // -------------------------------------------------------------------------
@@ -249,6 +264,11 @@ export class AnonymousOAuthServer {
     for (const uri of redirectUris) {
       if (typeof uri !== "string" || uri.length === 0) {
         throw new OAuthBadRequest("Each redirect_uri must be a non-empty string");
+      }
+      try {
+        new URL(uri);
+      } catch {
+        throw new OAuthBadRequest(`Invalid redirect_uri: ${uri}`);
       }
     }
 
@@ -304,6 +324,15 @@ export class AnonymousOAuthServer {
 
     // Generate anonymous identity
     const actorId = `anon_${crypto.randomUUID()}`;
+
+    // Enforce cap on pending codes to prevent memory exhaustion
+    if (this.codes.size >= this.maxPendingCodes) {
+      // Purge expired codes first; if still over limit, reject
+      this.purgeExpiredCodes();
+      if (this.codes.size >= this.maxPendingCodes) {
+        throw new OAuthBadRequest("Too many pending authorization requests — try again later");
+      }
+    }
 
     // Issue authorization code (always in-memory — short-lived, single-use)
     const code = crypto.randomUUID();
@@ -363,6 +392,12 @@ export class AnonymousOAuthServer {
       throw new OAuthBadRequest("authorization code has expired");
     }
 
+    // Verify client_id matches the code's originating client (RFC 6749 §4.1.3)
+    const clientId = body.get("client_id");
+    if (clientId !== storedCode.clientId) {
+      throw new OAuthBadRequest("client_id mismatch");
+    }
+
     // Verify redirect_uri matches
     const redirectUri = body.get("redirect_uri");
     if (redirectUri !== storedCode.redirectUri) {
@@ -387,6 +422,7 @@ export class AnonymousOAuthServer {
     })
       .setProtectedHeader({ alg: "RS256", kid: this.keyId })
       .setIssuer(this.issuer)
+      .setAudience(this.audience)
       .setIssuedAt()
       .setExpirationTime(`${this.accessTokenTtlSeconds}s`)
       .setJti(crypto.randomUUID())
@@ -407,9 +443,9 @@ export class AnonymousOAuthServer {
     token: string,
   ): Promise<{ sub: string; provider: string } | null> {
     try {
-      const jwks = createLocalJWKSet({ keys: [this.publicJwk] });
-      const { payload } = await jwtVerify(token, jwks, {
+      const { payload } = await jwtVerify(token, this.localJwks, {
         issuer: this.issuer,
+        audience: this.audience,
       });
 
       if (typeof payload.sub !== "string" || payload.sub.length === 0) {

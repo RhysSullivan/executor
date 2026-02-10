@@ -2,7 +2,8 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
-import type { OAuthClientProvider, OAuthClientMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
+import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { AnonymousOAuthServer, OAuthBadRequest } from "./anonymous-oauth";
 import { handleMcpRequest, type McpWorkspaceContext } from "./mcp_server";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
@@ -130,7 +131,7 @@ class TestOAuthClientProvider implements OAuthClientProvider {
 
   get clientMetadata(): OAuthClientMetadata {
     return {
-      redirect_uris: [new URL("http://localhost:0/callback")],
+      redirect_uris: ["http://localhost:0/callback"],
       client_name: "mcp-oauth-sdk-test",
     };
   }
@@ -216,7 +217,8 @@ beforeAll(async () => {
       if (url.pathname === "/register" && request.method === "POST") {
         const body = await request.json();
         try {
-          return Response.json(oauthServer.registerClient(body as any), { status: 201 });
+          const reg = await oauthServer.registerClient(body as any);
+          return Response.json(reg, { status: 201 });
         } catch (e) {
           if (e instanceof OAuthBadRequest) {
             return Response.json({ error: "invalid_client_metadata", error_description: e.message }, { status: 400 });
@@ -227,7 +229,7 @@ beforeAll(async () => {
 
       if (url.pathname === "/authorize" && request.method === "GET") {
         try {
-          const { redirectTo } = oauthServer.authorize(url.searchParams);
+          const { redirectTo } = await oauthServer.authorize(url.searchParams);
           return Response.redirect(redirectTo, 302);
         } catch (e) {
           if (e instanceof OAuthBadRequest) {
@@ -350,15 +352,24 @@ describe("MCP SDK Client OAuth E2E", () => {
     // Step 4: Complete the auth flow — SDK exchanges code for token
     await transport.finishAuth(code);
 
-    // Step 5: Now connect succeeds
-    await client.connect(transport);
+    // Step 5: Create a new transport + client (the old transport was already started
+    // by the first connect call — the SDK doesn't allow re-starting it).
+    // The provider now has tokens stored, so this connection will succeed.
+    const transport2 = new StreamableHTTPClientTransport(mcpUrl, {
+      authProvider: provider,
+    });
+    const client2 = new Client(
+      { name: "oauth-e2e-test", version: "1.0.0" },
+      { capabilities: {} },
+    );
+    await client2.connect(transport2);
 
     // Step 6: Make a tool call — this uses the Bearer token automatically
-    const tools = await client.listTools();
+    const tools = await client2.listTools();
     expect(tools.tools.length).toBeGreaterThan(0);
     expect(tools.tools[0].name).toBe("run_code");
 
-    const result = (await client.callTool({
+    const result = (await client2.callTool({
       name: "run_code",
       arguments: {
         code: "return 42",
@@ -379,7 +390,7 @@ describe("MCP SDK Client OAuth E2E", () => {
     expect(typeof structured?.actorId).toBe("string");
 
     // Cleanup
-    await transport.close().catch(() => {});
-    await client.close().catch(() => {});
+    await transport2.close().catch(() => {});
+    await client2.close().catch(() => {});
   });
 });
