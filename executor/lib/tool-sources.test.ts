@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import type { Id } from "../convex/_generated/dataModel";
-import { loadExternalTools } from "./tool_sources";
+import {
+  compileExternalToolSource,
+  loadExternalTools,
+  materializeCompiledToolSource,
+  parseGraphqlOperationPaths,
+} from "./tool_sources";
 import type { ExternalToolSourceConfig } from "./tool_sources";
 
 const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
@@ -236,6 +241,112 @@ test("loadExternalTools tolerates OpenAPI specs with broken internal refs", asyn
   const toolPaths = tools.map((t) => t.path);
   expect(toolPaths).toContain("intercom_like.contacts.list_contacts");
   expect(toolPaths).toContain("intercom_like.conversations.create_conversation");
+});
+
+test("compiled source artifacts can be materialized and executed", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/health" && req.method === "GET") {
+        return Response.json({ ok: true, probe: url.searchParams.get("probe") });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+
+  const spec: Record<string, unknown> = {
+    openapi: "3.0.3",
+    info: { title: "Compiled", version: "1.0.0" },
+    servers: [{ url: `http://127.0.0.1:${server.port}` }],
+    paths: {
+      "/health": {
+        get: {
+          operationId: "healthCheck",
+          tags: ["health"],
+          parameters: [
+            {
+              name: "probe",
+              in: "query",
+              required: false,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": {
+              description: "ok",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      ok: { type: "boolean" },
+                      probe: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    const artifact = await compileExternalToolSource({
+      type: "openapi",
+      name: "compiled-api",
+      spec,
+      baseUrl: `http://127.0.0.1:${server.port}`,
+    });
+
+    expect(artifact.version).toBe("v1");
+    expect(artifact.sourceType).toBe("openapi");
+    expect(artifact.tools).toHaveLength(1);
+    expect(artifact.tools[0]?.runSpec.kind).toBe("openapi");
+
+    const tools = materializeCompiledToolSource(artifact);
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.path).toBe("compiled_api.health.check");
+
+    const result = await tools[0]!.run(
+      { probe: "status" },
+      { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+    );
+
+    expect(result).toEqual({ ok: true, probe: "status" });
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("parseGraphqlOperationPaths handles aliases and fragments", async () => {
+  const parsed = parseGraphqlOperationPaths(
+    "linear",
+    `
+      query TeamsAndViewer {
+        currentTeams: teams { nodes { id } }
+        ...ViewerFields
+      }
+
+      fragment ViewerFields on Query {
+        viewer { id }
+      }
+    `,
+  );
+
+  expect(parsed.operationType).toBe("query");
+  expect(parsed.fieldPaths).toEqual([
+    "linear.query.teams",
+    "linear.query.viewer",
+  ]);
+});
+
+test("parseGraphqlOperationPaths returns empty paths for invalid queries", async () => {
+  const parsed = parseGraphqlOperationPaths("linear", "query { teams(");
+  expect(parsed.operationType).toBe("query");
+  expect(parsed.fieldPaths).toEqual([]);
 });
 
 test("graphql helper tools generate valid selection sets and envelope responses", async () => {

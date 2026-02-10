@@ -168,6 +168,36 @@ describe("prepareOpenApiSpec with large specs", () => {
     expect(json.length).toBeGreaterThan(100_000);
   });
 
+  test("fast mode skips bundle and d.ts generation for very large specs", async () => {
+    const spec = makeLargeSpec(250); // 750 operations
+    const start = performance.now();
+    const prepared = await prepareOpenApiSpec(spec, "large-fast", {
+      mode: "fast",
+      fastPathOperationThreshold: 600,
+    });
+    const elapsed = performance.now() - start;
+
+    expect(Object.keys(prepared.paths)).toHaveLength(250);
+    expect(prepared.dts).toBeUndefined();
+    expect(prepared.warnings.some((warning: string) => warning.includes("fast mode"))).toBe(true);
+
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "large-fast",
+        spec,
+        baseUrl: "https://api.example.com/v1",
+      },
+      prepared,
+    );
+
+    expect(tools.length).toBeGreaterThan(700);
+    const deleteTool = tools.find((tool) => tool.metadata?.operationId?.startsWith("delete_"));
+    expect(deleteTool).toBeDefined();
+    expect(deleteTool?.metadata?.returnsType).toBe("void");
+    expect(elapsed).toBeLessThan(5_000);
+  });
+
 
 });
 
@@ -194,6 +224,8 @@ describe("buildOpenApiToolsFromPrepared", () => {
       expect(tool.metadata).toBeDefined();
       expect(tool.metadata!.argsType).toBeDefined();
       expect(tool.metadata!.returnsType).toBeDefined();
+      expect(tool.metadata!.displayArgsType).toBeDefined();
+      expect(tool.metadata!.displayReturnsType).toBeDefined();
     }
 
     // GET operations should default to "auto" approval

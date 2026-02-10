@@ -139,9 +139,13 @@ export function generateToolDeclarations(
           const opKey = JSON.stringify(tool.operationId);
           lines.push(`${pad}${key}(input: ToolInput<operations[${opKey}]>): Promise<ToolOutput<operations[${opKey}]>>;`);
         } else {
-          const hasArgsType = Boolean(tool.argsType?.trim());
-          const args = safeTypeExpression(tool.argsType, "Record<string, unknown>");
-          const returns = safeTypeExpression(tool.returnsType, "unknown");
+          const strictArgsType = tool.strictArgsType?.trim();
+          const strictReturnsType = tool.strictReturnsType?.trim();
+          const effectiveArgs = strictArgsType || tool.argsType;
+          const effectiveReturns = strictReturnsType || tool.returnsType;
+          const hasArgsType = Boolean(effectiveArgs?.trim());
+          const args = safeTypeExpression(effectiveArgs, "Record<string, unknown>");
+          const returns = safeTypeExpression(effectiveReturns, "unknown");
           const inputParam = !hasArgsType || args === "{}"
             ? `input?: ${args}`
             : `input: ${args}`;

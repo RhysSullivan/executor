@@ -1,4 +1,10 @@
 import type { ToolDefinition } from "./types";
+import {
+  compactArgTypeHint,
+  compactDescriptionLine,
+  compactReturnTypeHint,
+  extractTopLevelTypeKeys,
+} from "./type_hints";
 
 interface DiscoverIndexEntry {
   path: string;
@@ -56,52 +62,6 @@ function getPathAliases(path: string): string[] {
   return [...aliases].slice(0, 4);
 }
 
-function extractTopLevelArgKeys(argsType: string): string[] {
-  const text = argsType.trim();
-  if (!text.startsWith("{") || !text.endsWith("}")) return [];
-
-  const inner = text.slice(1, -1);
-  const keys: string[] = [];
-  let segment = "";
-  let depthCurly = 0;
-  let depthSquare = 0;
-  let depthParen = 0;
-  let depthAngle = 0;
-
-  const flushSegment = () => {
-    const part = segment.trim();
-    segment = "";
-    if (!part) return;
-    const colon = part.indexOf(":");
-    if (colon <= 0) return;
-    const rawKey = part.slice(0, colon).trim();
-    const cleanedKey = rawKey.replace(/[?"']/g, "").trim();
-    if (!cleanedKey || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(cleanedKey)) return;
-    if (!keys.includes(cleanedKey)) keys.push(cleanedKey);
-  };
-
-  for (const char of inner) {
-    if (char === "{" ) depthCurly += 1;
-    else if (char === "}" ) depthCurly = Math.max(0, depthCurly - 1);
-    else if (char === "[") depthSquare += 1;
-    else if (char === "]") depthSquare = Math.max(0, depthSquare - 1);
-    else if (char === "(") depthParen += 1;
-    else if (char === ")") depthParen = Math.max(0, depthParen - 1);
-    else if (char === "<") depthAngle += 1;
-    else if (char === ">") depthAngle = Math.max(0, depthAngle - 1);
-
-    if (char === ";" && depthCurly === 0 && depthSquare === 0 && depthParen === 0 && depthAngle === 0) {
-      flushSegment();
-      continue;
-    }
-
-    segment += char;
-  }
-
-  flushSegment();
-  return keys;
-}
-
 function buildExampleCall(entry: DiscoverIndexEntry): string {
   if (entry.path.endsWith(".graphql")) {
     return `await tools.${entry.path}({ query: "query { __typename }", variables: {} });`;
@@ -111,7 +71,7 @@ function buildExampleCall(entry: DiscoverIndexEntry): string {
     return `await tools.${entry.path}({});`;
   }
 
-  const keys = extractTopLevelArgKeys(entry.argsType);
+  const keys = extractTopLevelTypeKeys(entry.argsType);
   if (keys.length > 0) {
     const argsSnippet = keys.slice(0, 3)
       .map((key) => `${key}: ${key.toLowerCase().includes("input") ? "{ /* ... */ }" : "..."}`)
@@ -120,40 +80,6 @@ function buildExampleCall(entry: DiscoverIndexEntry): string {
   }
 
   return `await tools.${entry.path}({ /* ... */ });`;
-}
-
-function truncateInline(value: string, maxLength: number): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) return normalized;
-  return `${normalized.slice(0, Math.max(16, maxLength - 3)).trim()}...`;
-}
-
-function compactArgTypeHint(argsType: string): string {
-  if (argsType === "{}") return "{}";
-  const keys = extractTopLevelArgKeys(argsType);
-  if (keys.length > 0) {
-    const maxKeys = 4;
-    const shown = keys.slice(0, maxKeys).map((key) => `${key}: ...`);
-    const suffix = keys.length > maxKeys ? "; ..." : "";
-    return `{ ${shown.join("; ")}${suffix} }`;
-  }
-  return truncateInline(argsType, 120);
-}
-
-function compactReturnTypeHint(returnsType: string): string {
-  const normalized = returnsType.replace(/\s+/g, " ").trim();
-  if (normalized.startsWith("{ data:") && normalized.includes("errors:")) {
-    return "{ data: ...; errors: unknown[] }";
-  }
-  if (normalized.endsWith("[]") && normalized.length > 90) {
-    return "Array<...>";
-  }
-  return truncateInline(normalized, 130);
-}
-
-function compactDescription(description: string): string {
-  const firstLine = description.split("\n")[0] ?? description;
-  return truncateInline(firstLine, 180);
 }
 
 function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
@@ -345,7 +271,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
           aliases: entry.aliases,
           source: entry.source,
           approval: entry.approval,
-          description: compact ? compactDescription(entry.description) : entry.description,
+          description: compact ? compactDescriptionLine(entry.description) : entry.description,
           signature: formatSignature(entry, depth, compact),
           exampleCall: buildExampleCall(entry),
         }));

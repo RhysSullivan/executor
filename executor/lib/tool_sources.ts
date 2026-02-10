@@ -5,6 +5,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import openapiTS, { astToString } from "openapi-typescript";
+import { Kind, parse, type FragmentDefinitionNode, type SelectionSetNode } from "graphql";
+import { compactArgTypeHint, compactReturnTypeHint } from "./type_hints";
 import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTypeMetadata } from "./types";
 import { asRecord } from "./utils";
 
@@ -570,14 +572,18 @@ async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition
   return tools.map((tool) => {
     const toolName = String(tool.name ?? "tool");
     const inputSchema = asRecord(tool.inputSchema);
+    const argsType = jsonSchemaTypeHintFallback(inputSchema);
+    const returnsType = "unknown";
     return {
       path: `${sanitizeSegment(config.name)}.${sanitizeSegment(toolName)}`,
       source: `mcp:${config.name}`,
       approval: config.overrides?.[toolName]?.approval ?? config.defaultApproval ?? "auto",
       description: String(tool.description ?? `MCP tool ${toolName}`),
       metadata: {
-        argsType: jsonSchemaTypeHintFallback(inputSchema),
-        returnsType: "unknown",
+        argsType,
+        returnsType,
+        displayArgsType: compactArgTypeHint(argsType),
+        displayReturnsType: compactReturnTypeHint(returnsType),
       },
       _runSpec: {
         kind: "mcp" as const,
@@ -687,6 +693,7 @@ function compactOpenApiPaths(
   componentSchemas?: Record<string, unknown>,
   componentResponses?: Record<string, unknown>,
   componentRequestBodies?: Record<string, unknown>,
+  typeHintMode: "full" | "fast" = "full",
 ): Record<string, unknown> {
   const paths = asRecord(pathsValue);
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
@@ -762,22 +769,23 @@ function compactOpenApiPaths(
       {
         const requestBody = resolveRequestBodyRef(asRecord(operation.requestBody), compRequestBodies);
         const requestBodyContent = asRecord(requestBody.content);
-        const requestBodySchema = resolveSchemaRef(
-          getPreferredContentSchema(requestBodyContent),
-          compSchemas,
-        );
+        const rawRequestBodySchema = getPreferredContentSchema(requestBodyContent);
+        const requestBodySchema = resolveSchemaRef(rawRequestBodySchema, compSchemas);
 
         const responses = asRecord(operation.responses);
         let responseSchema: Record<string, unknown> = {};
         let responseStatus = "";
         for (const [status, responseValue] of Object.entries(responses)) {
           if (!status.startsWith("2")) continue;
+          responseStatus = status;
+          if (typeHintMode === "fast" && !hasGeneratedTypes) {
+            break;
+          }
           const resolvedResponse = resolveResponseRef(asRecord(responseValue), compResponses);
           responseSchema = resolveSchemaRef(
             getPreferredResponseSchema(resolvedResponse),
             compSchemas,
           );
-          responseStatus = status;
           if (Object.keys(responseSchema).length > 0) break;
         }
 
@@ -808,6 +816,11 @@ function compactOpenApiPaths(
             ? jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas)
             : "{}";
           compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
+        } else if (typeHintMode === "fast") {
+          const mergedParameters = operationParameters.concat(sharedParameters);
+          const hasInputSchema = mergedParameters.length > 0 || Object.keys(rawRequestBodySchema).length > 0;
+          compactOperation._argsTypeHint = hasInputSchema ? "Record<string, unknown>" : "{}";
+          compactOperation._returnsTypeHint = responseStatus === "204" ? "void" : "unknown";
         } else {
           // Keep full schemas for the fallback path
           if (Object.keys(requestBodySchema).length > 0) {
@@ -855,9 +868,34 @@ export interface PreparedOpenApiSpec {
   warnings: string[];
 }
 
+export interface PrepareOpenApiSpecOptions {
+  mode?: "full" | "fast";
+  fastPathOperationThreshold?: number;
+}
+
+const DEFAULT_FAST_PATH_OPERATION_THRESHOLD = 600;
+
+function countOpenApiOperations(pathsValue: unknown): number {
+  const paths = asRecord(pathsValue);
+  const methods = new Set(["get", "post", "put", "delete", "patch", "head", "options"]);
+  let count = 0;
+
+  for (const pathValue of Object.values(paths)) {
+    const pathObject = asRecord(pathValue);
+    for (const key of Object.keys(pathObject)) {
+      if (methods.has(key)) {
+        count += 1;
+      }
+    }
+  }
+
+  return count;
+}
+
 export async function prepareOpenApiSpec(
   spec: string | Record<string, unknown>,
   sourceName = "openapi",
+  options?: PrepareOpenApiSpecOptions,
 ): Promise<PreparedOpenApiSpec> {
   const parser = SwaggerParser as unknown as {
     bundle(spec: unknown): Promise<unknown>;
@@ -882,20 +920,32 @@ export async function prepareOpenApiSpec(
     parsed = spec;
   }
 
+  const operationCount = countOpenApiOperations(parsed.paths);
+  const mode = options?.mode ?? "full";
+  const fastPathOperationThreshold =
+    options?.fastPathOperationThreshold ?? DEFAULT_FAST_PATH_OPERATION_THRESHOLD;
+  const useFastPath = mode === "fast" && operationCount >= fastPathOperationThreshold;
+
   // ── Step 2: Generate .d.ts and bundle in parallel ─────────────────────
   // Both now operate on the in-memory object — no additional HTTP fetches.
-  const dtsPromise = generateOpenApiDts(parsed);
-
+  let dts: string | null = null;
   let bundled: Record<string, unknown>;
-  try {
-    bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
-  } catch (bundleError) {
-    const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
-    warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
+  if (useFastPath) {
     bundled = parsed;
+    warnings.push(
+      `OpenAPI source '${sourceName}' loaded in fast mode (${operationCount} operations): skipped bundle + d.ts generation for latency`,
+    );
+  } else {
+    const dtsPromise = generateOpenApiDts(parsed);
+    try {
+      bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
+    } catch (bundleError) {
+      const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
+      warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
+      bundled = parsed;
+    }
+    dts = await dtsPromise;
   }
-
-  const dts = await dtsPromise;
 
   // ── Step 3: Extract operation IDs for compaction ───────────────────────
   // If we have a .d.ts, we know which operations have full generated types.
@@ -916,6 +966,7 @@ export async function prepareOpenApiSpec(
       asRecord(asRecord(bundled.components).schemas),
       asRecord(asRecord(bundled.components).responses),
       asRecord(asRecord(bundled.components).requestBodies),
+      useFastPath ? "fast" : "full",
     ),
     dts: dts ?? undefined,
     warnings,
@@ -1037,6 +1088,8 @@ export function buildOpenApiToolsFromPrepared(
         metadata: {
           argsType,
           returnsType,
+          displayArgsType: compactArgTypeHint(argsType),
+          displayReturnsType: compactReturnTypeHint(returnsType),
           operationId: operationIdRaw,
           // Only attach sourceDts to the first tool to avoid duplicating the full .d.ts
           ...(sourceDts && !sourceDtsEmitted ? { sourceDts } : {}),
@@ -1441,65 +1494,77 @@ function printGqlType(ref: GqlTypeRef): string {
 
 /**
  * Parse a GraphQL query string to extract the operation type and root field names.
- * This is intentionally simple — no full parser needed, just enough for policy routing.
+ * Uses GraphQL AST parsing so aliases/fragments are handled correctly for policy routing.
  */
 export function parseGraphqlOperationPaths(
   sourceName: string,
   queryString: string,
 ): { operationType: "query" | "mutation" | "subscription"; fieldPaths: string[] } {
   const trimmed = queryString.trim();
-
-  // Determine operation type
-  let operationType: "query" | "mutation" | "subscription" = "query";
-  if (/^mutation\b/i.test(trimmed)) operationType = "mutation";
-  else if (/^subscription\b/i.test(trimmed)) operationType = "subscription";
-
-  // Find the first { ... } block and extract top-level field names
-  const braceStart = trimmed.indexOf("{");
-  if (braceStart === -1) return { operationType, fieldPaths: [] };
-
-  // Walk the content inside the first braces, extract field names at depth 0
-  const content = trimmed.slice(braceStart + 1);
-  const fieldPaths: string[] = [];
-  let depth = 0;
-  let current = "";
-
-  for (const char of content) {
-    if (char === "{") {
-      if (depth === 0 && current.trim()) {
-        // Grab the field name (before any args in parens)
-        const fieldName = current.trim().split(/[\s(]/)[0];
-        if (fieldName && !fieldName.startsWith("__")) {
-          fieldPaths.push(`${sanitizeSegment(sourceName)}.${operationType}.${sanitizeSegment(fieldName)}`);
-        }
-      }
-      depth++;
-      current = "";
-    } else if (char === "}") {
-      if (depth === 0) {
-        // End of top-level block — grab last field if any
-        const fieldName = current.trim().split(/[\s(]/)[0];
-        if (fieldName && !fieldName.startsWith("__")) {
-          fieldPaths.push(`${sanitizeSegment(sourceName)}.${operationType}.${sanitizeSegment(fieldName)}`);
-        }
-        break;
-      }
-      depth--;
-      current = "";
-    } else if (depth === 0) {
-      if (char === "\n" || char === ",") {
-        const fieldName = current.trim().split(/[\s(]/)[0];
-        if (fieldName && !fieldName.startsWith("__")) {
-          fieldPaths.push(`${sanitizeSegment(sourceName)}.${operationType}.${sanitizeSegment(fieldName)}`);
-        }
-        current = "";
-      } else {
-        current += char;
-      }
-    }
+  if (!trimmed) {
+    return { operationType: "query", fieldPaths: [] };
   }
 
-  return { operationType, fieldPaths };
+  let operationType: "query" | "mutation" | "subscription" = "query";
+
+  try {
+    const document = parse(trimmed, { noLocation: true });
+    const firstOperation = document.definitions.find((definition) => definition.kind === Kind.OPERATION_DEFINITION);
+    if (!firstOperation || firstOperation.kind !== Kind.OPERATION_DEFINITION) {
+      return { operationType, fieldPaths: [] };
+    }
+
+    operationType = firstOperation.operation;
+
+    const fragmentByName = new Map<string, FragmentDefinitionNode>(
+      document.definitions
+        .filter((definition) => definition.kind === Kind.FRAGMENT_DEFINITION)
+        .map((definition) => [definition.name.value, definition]),
+    );
+
+    const fieldNames = new Set<string>();
+
+    const collectSelectionSet = (
+      selectionSet: SelectionSetNode,
+      visitedFragments: Set<string>,
+    ) => {
+      for (const selection of selectionSet.selections) {
+        if (selection.kind === Kind.FIELD) {
+          const fieldName = selection.name.value;
+          if (!fieldName.startsWith("__")) {
+            fieldNames.add(fieldName);
+          }
+          continue;
+        }
+
+        if (selection.kind === Kind.INLINE_FRAGMENT) {
+          collectSelectionSet(selection.selectionSet, visitedFragments);
+          continue;
+        }
+
+        if (selection.kind === Kind.FRAGMENT_SPREAD) {
+          const fragmentName = selection.name.value;
+          if (visitedFragments.has(fragmentName)) continue;
+          const fragment = fragmentByName.get(fragmentName);
+          if (!fragment) continue;
+
+          const nextVisited = new Set(visitedFragments);
+          nextVisited.add(fragmentName);
+          collectSelectionSet(fragment.selectionSet, nextVisited);
+        }
+      }
+    };
+
+    collectSelectionSet(firstOperation.selectionSet, new Set());
+
+    return {
+      operationType,
+      fieldPaths: [...fieldNames]
+        .map((fieldName) => `${sanitizeSegment(sourceName)}.${operationType}.${sanitizeSegment(fieldName)}`),
+    };
+  } catch {
+    return { operationType, fieldPaths: [] };
+  }
 }
 
 async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDefinition[]> {
@@ -1550,6 +1615,8 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
     metadata: {
       argsType: "{ query: string; variables?: Record<string, unknown> }",
       returnsType: "{ data: unknown; errors: unknown[] }",
+      displayArgsType: "{ query: string; variables?: ... }",
+      displayReturnsType: "{ data: ...; errors: unknown[] }",
     },
     credential: credentialSpec,
     // Tag as graphql source so invokeTool knows to do dynamic path extraction
@@ -1612,6 +1679,8 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
 
       const fieldPath = `${sourceName}.${operationType}.${sanitizeSegment(field.name)}`;
       const approval = config.overrides?.[field.name]?.approval ?? defaultApproval;
+      const argsType = gqlFieldArgsTypeHint(field.args, typeMap);
+      const returnsType = `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`;
 
       // Build the example query for the description
       const exampleQuery = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
@@ -1628,8 +1697,10 @@ async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDe
         approval,
         credential: credentialSpec,
         metadata: {
-          argsType: gqlFieldArgsTypeHint(field.args, typeMap),
-          returnsType: `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`,
+          argsType,
+          returnsType,
+          displayArgsType: compactArgTypeHint(argsType),
+          displayReturnsType: "{ data: ...; errors: unknown[] }",
         },
         _runSpec: {
           kind: "graphql_field" as const,
@@ -1682,27 +1753,63 @@ export function parseToolSourcesFromEnv(raw: string | undefined): ExternalToolSo
   return parsed as ExternalToolSourceConfig[];
 }
 
-export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
-  const results = await Promise.allSettled(
-    sources.map(async (source) => {
-      if (source.type === "mcp") {
-        return await loadMcpTools(source);
-      } else if (source.type === "openapi") {
-        return await loadOpenApiTools(source);
-      } else if (source.type === "graphql") {
-        return await loadGraphqlTools(source);
-      }
-      return [];
-    }),
-  );
+export interface CompiledToolSourceArtifact {
+  version: "v1";
+  sourceType: ExternalToolSourceConfig["type"];
+  sourceName: string;
+  tools: SerializedTool[];
+}
 
-  const loaded: ToolDefinition[] = [];
+async function loadSourceToolDefinitions(source: ExternalToolSourceConfig): Promise<ToolDefinition[]> {
+  if (source.type === "mcp") {
+    return await loadMcpTools(source);
+  }
+  if (source.type === "openapi") {
+    return await loadOpenApiTools(source);
+  }
+  if (source.type === "graphql") {
+    return await loadGraphqlTools(source);
+  }
+  return [];
+}
+
+export async function compileExternalToolSource(source: ExternalToolSourceConfig): Promise<CompiledToolSourceArtifact> {
+  const tools = await loadSourceToolDefinitions(source);
+  return {
+    version: "v1",
+    sourceType: source.type,
+    sourceName: source.name,
+    tools: serializeTools(tools),
+  };
+}
+
+export function compileOpenApiToolSourceFromPrepared(
+  source: OpenApiToolSourceConfig,
+  prepared: PreparedOpenApiSpec,
+): CompiledToolSourceArtifact {
+  const tools = buildOpenApiToolsFromPrepared(source, prepared);
+  return {
+    version: "v1",
+    sourceType: source.type,
+    sourceName: source.name,
+    tools: serializeTools(tools),
+  };
+}
+
+export function materializeCompiledToolSource(artifact: CompiledToolSourceArtifact): ToolDefinition[] {
+  return rehydrateTools(artifact.tools, new Map());
+}
+
+export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
+  const results = await Promise.allSettled(sources.map((source) => compileExternalToolSource(source)));
+
+  const artifacts: CompiledToolSourceArtifact[] = [];
   const warnings: string[] = [];
 
   for (let i = 0; i < results.length; i++) {
     const result = results[i]!;
     if (result.status === "fulfilled") {
-      loaded.push(...result.value);
+      artifacts.push(result.value);
     } else {
       const source = sources[i]!;
       const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
@@ -1711,7 +1818,8 @@ export async function loadExternalTools(sources: ExternalToolSourceConfig[]): Pr
     }
   }
 
-  return { tools: loaded, warnings };
+  const tools = artifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
+  return { tools, warnings };
 }
 
 // ── Workspace tool cache serialization ──────────────────────────────────────
@@ -1771,8 +1879,15 @@ export interface SerializedTool {
 }
 
 export interface WorkspaceToolSnapshot {
-  tools: SerializedTool[];
+  version: "v2";
+  externalArtifacts: CompiledToolSourceArtifact[];
   warnings: string[];
+}
+
+export function materializeWorkspaceSnapshot(
+  snapshot: WorkspaceToolSnapshot,
+): ToolDefinition[] {
+  return snapshot.externalArtifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
 }
 
 /** Serialize tools for cache storage. Strips `run` closures, stores reconstruction data. */

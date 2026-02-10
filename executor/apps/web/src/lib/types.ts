@@ -97,6 +97,8 @@ export interface ToolDescriptor {
   source?: string;
   argsType?: string;
   returnsType?: string;
+  strictArgsType?: string;
+  strictReturnsType?: string;
   operationId?: string;
 }
 

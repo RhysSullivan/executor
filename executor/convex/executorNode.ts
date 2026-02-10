@@ -12,13 +12,14 @@ import { actorIdForAccount } from "../lib/identity";
 import { runCodeWithAdapter } from "../lib/runtimes/runtime_core";
 import { createDiscoverTool } from "../lib/tool_discovery";
 import {
-  buildOpenApiToolsFromPrepared,
-  loadExternalTools,
+  compileExternalToolSource,
+  compileOpenApiToolSourceFromPrepared,
+  materializeCompiledToolSource,
+  materializeWorkspaceSnapshot,
   parseGraphqlOperationPaths,
   prepareOpenApiSpec,
-  rehydrateTools,
-  serializeTools,
   type PreparedOpenApiSpec,
+  type CompiledToolSourceArtifact,
   type ExternalToolSourceConfig,
   type McpToolSourceConfig,
   type OpenApiToolSourceConfig,
@@ -337,7 +338,9 @@ async function loadCachedOpenApiSpec(
   }
 
   // 2. Cache miss — prepare from scratch
-  const prepared = await prepareOpenApiSpec(specUrl, sourceName);
+  const prepared = await prepareOpenApiSpec(specUrl, sourceName, {
+    mode: "fast",
+  });
 
   // Store in file storage + metadata table (best-effort, don't block on failure)
   try {
@@ -358,28 +361,37 @@ async function loadCachedOpenApiSpec(
   return prepared;
 }
 
-async function loadSourceTools(
+async function loadSourceArtifact(
   ctx: ActionCtx,
   source: ExternalToolSourceConfig,
-): Promise<{ tools: ToolDefinition[]; warnings: string[] }> {
+): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[] }> {
   if (source.type === "openapi" && typeof source.spec === "string") {
     try {
       const prepared = await loadCachedOpenApiSpec(ctx, source.spec, source.name);
-      const tools = buildOpenApiToolsFromPrepared(source, prepared);
+      const artifact = compileOpenApiToolSourceFromPrepared(source, prepared);
       const warnings = (prepared.warnings ?? []).map(
         (warning) => `Source '${source.name}': ${warning}`,
       );
-      return { tools, warnings };
+      return { artifact, warnings };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
-        tools: [],
+        artifact: undefined,
         warnings: [`Failed to load openapi source '${source.name}': ${message}`],
       };
     }
   }
 
-  return await loadExternalTools([source]);
+  try {
+    const artifact = await compileExternalToolSource(source);
+    return { artifact, warnings: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      artifact: undefined,
+      warnings: [`Failed to load ${source.type} source '${source.name}': ${message}`],
+    };
+  }
 }
 
 interface WorkspaceToolsResult {
@@ -404,10 +416,15 @@ async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspaces">):
       const blob = await ctx.storage.get(cacheEntry.storageId);
       if (blob) {
         const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
-        const rehydrated = rehydrateTools(snapshot.tools, baseTools);
+        const restored = materializeWorkspaceSnapshot(snapshot);
 
         const merged = new Map<string, ToolDefinition>();
-        for (const tool of rehydrated) {
+        for (const tool of baseTools.values()) {
+          if (tool.path === "discover") continue;
+          merged.set(tool.path, tool);
+        }
+        for (const tool of restored) {
+          if (tool.path === "discover") continue;
           merged.set(tool.path, tool);
         }
         // Recreate discover tool (it captures the full tool list in a closure)
@@ -436,8 +453,11 @@ async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspaces">):
     }
   }
 
-  const loadedSources = await Promise.all(configs.map((config) => loadSourceTools(ctx, config)));
-  const externalTools = loadedSources.flatMap((loaded) => loaded.tools);
+  const loadedSources = await Promise.all(configs.map((config) => loadSourceArtifact(ctx, config)));
+  const externalArtifacts = loadedSources
+    .map((loaded) => loaded.artifact)
+    .filter((artifact): artifact is CompiledToolSourceArtifact => Boolean(artifact));
+  const externalTools = externalArtifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
   warnings.push(...loadedSources.flatMap((loaded) => loaded.warnings));
 
   const merged = new Map<string, ToolDefinition>();
@@ -460,10 +480,12 @@ async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspaces">):
     // Extract and store .d.ts blobs per source (too large for action responses)
     const seenDtsSources = new Set<string>();
     const dtsEntries: { sourceKey: string; content: string }[] = [];
-    for (const tool of allTools) {
-      if (tool.metadata?.sourceDts && tool.source && !seenDtsSources.has(tool.source)) {
-        seenDtsSources.add(tool.source);
-        dtsEntries.push({ sourceKey: tool.source, content: tool.metadata.sourceDts });
+    for (const artifact of externalArtifacts) {
+      for (const tool of artifact.tools) {
+        if (tool.metadata?.sourceDts && tool.source && !seenDtsSources.has(tool.source)) {
+          seenDtsSources.add(tool.source);
+          dtsEntries.push({ sourceKey: tool.source, content: tool.metadata.sourceDts });
+        }
       }
     }
 
@@ -477,16 +499,22 @@ async function getWorkspaceTools(ctx: ActionCtx, workspaceId: Id<"workspaces">):
     );
     dtsStorageIds = storedDts;
 
-    // Strip sourceDts from serialized tools (it's stored separately)
+    // Strip sourceDts from artifacts (it's stored separately)
+    const sanitizedArtifacts: CompiledToolSourceArtifact[] = externalArtifacts.map((artifact) => ({
+      ...artifact,
+      tools: artifact.tools.map((tool) => {
+        if (!tool.metadata?.sourceDts) return tool;
+        const metadata = { ...tool.metadata };
+        delete (metadata as Record<string, unknown>).sourceDts;
+        return { ...tool, metadata };
+      }),
+    }));
+
     const snapshot: WorkspaceToolSnapshot = {
-      tools: serializeTools(allTools),
+      version: "v2",
+      externalArtifacts: sanitizedArtifacts,
       warnings,
     };
-    for (const st of snapshot.tools) {
-      if (st.metadata?.sourceDts) {
-        delete (st.metadata as Record<string, unknown>).sourceDts;
-      }
-    }
 
     const json = JSON.stringify(snapshot);
     const blob = new Blob([json], { type: "application/json" });
@@ -552,8 +580,10 @@ function toToolDescriptor(tool: ToolDefinition, approval: "auto" | "required"): 
     description: tool.description,
     approval,
     source: tool.source,
-    argsType: tool.metadata?.argsType,
-    returnsType: tool.metadata?.returnsType,
+    argsType: tool.metadata?.displayArgsType ?? tool.metadata?.argsType,
+    returnsType: tool.metadata?.displayReturnsType ?? tool.metadata?.returnsType,
+    strictArgsType: tool.metadata?.argsType,
+    strictReturnsType: tool.metadata?.returnsType,
     operationId: tool.metadata?.operationId,
     // Note: sourceDts is NOT included — it's too large to send over the wire.
     // Monaco fetches .d.ts blobs separately via Convex storage URLs.

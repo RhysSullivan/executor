@@ -9,8 +9,10 @@ import type { Id } from "../convex/_generated/dataModel";
 import {
   prepareOpenApiSpec,
   buildOpenApiToolsFromPrepared,
+  materializeWorkspaceSnapshot,
   serializeTools,
   rehydrateTools,
+  type CompiledToolSourceArtifact,
   type SerializedTool,
   type WorkspaceToolSnapshot,
 } from "./tool_sources";
@@ -361,7 +363,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     }
   });
 
-  test("full WorkspaceToolSnapshot round-trip", async () => {
+  test("WorkspaceToolSnapshot v2 round-trip", async () => {
     const prepared = await prepareOpenApiSpec(SMALL_SPEC, "widgets");
     const tools = buildOpenApiToolsFromPrepared(
       {
@@ -373,11 +375,16 @@ describe("serializeTools + rehydrateTools round-trip", () => {
       prepared,
     );
 
-    const baseTools = makeBaseTools();
-    const allTools = [...baseTools.values(), ...tools];
+    const artifact: CompiledToolSourceArtifact = {
+      version: "v1",
+      sourceType: "openapi",
+      sourceName: "widgets",
+      tools: serializeTools(tools),
+    };
 
     const snapshot: WorkspaceToolSnapshot = {
-      tools: serializeTools(allTools),
+      version: "v2",
+      externalArtifacts: [artifact],
       warnings: ["test warning"],
     };
 
@@ -388,25 +395,19 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     const restored = JSON.parse(text) as WorkspaceToolSnapshot;
 
     expect(restored.warnings).toEqual(["test warning"]);
-    expect(restored.tools.length).toBe(allTools.length);
+    expect(restored.version).toBe("v2");
+    expect(restored.externalArtifacts).toHaveLength(1);
 
-    const rehydrated = rehydrateTools(restored.tools, baseTools);
-    expect(rehydrated.length).toBe(allTools.length);
-
-    // Builtin echo should work
-    const echoTool = rehydrated.find((t) => t.path === "echo")!;
-    const result = await echoTool.run(
-      { message: "round-trip" },
-      { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
-    );
-    expect(result).toBe("round-trip");
+    const restoredTools = materializeWorkspaceSnapshot(restored);
+    expect(restoredTools.length).toBe(tools.length);
+    expect(restoredTools.some((tool) => tool.path === "echo")).toBe(false);
 
     // OpenAPI tools should have correct metadata
-    const listTool = rehydrated.find((t) => t.metadata?.operationId === "listWidgets")!;
+    const listTool = restoredTools.find((t) => t.metadata?.operationId === "listWidgets")!;
     expect(listTool.approval).toBe("auto"); // GET = auto
     expect(listTool.metadata!.argsType).toBeDefined();
 
-    const createTool = rehydrated.find((t) => t.metadata?.operationId === "createWidget")!;
+    const createTool = restoredTools.find((t) => t.metadata?.operationId === "createWidget")!;
     expect(createTool.approval).toBe("required"); // POST = required
   });
 
@@ -452,8 +453,16 @@ describe("serializeTools + rehydrateTools round-trip", () => {
       prepared,
     );
 
-    const snapshot: WorkspaceToolSnapshot = {
+    const artifact: CompiledToolSourceArtifact = {
+      version: "v1",
+      sourceType: "openapi",
+      sourceName: "big-api",
       tools: serializeTools(tools),
+    };
+
+    const snapshot: WorkspaceToolSnapshot = {
+      version: "v2",
+      externalArtifacts: [artifact],
       warnings: [],
     };
 

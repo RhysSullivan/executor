@@ -58,9 +58,13 @@ function emitToolMethod(tool: ToolDescriptor, dtsSources: Set<string>): string {
   }
 
   // Fallback for MCP, GraphQL, builtins — use argsType/returnsType strings
-  const hasArgsType = Boolean(tool.argsType?.trim());
-  const argsType = hasArgsType ? tool.argsType!.trim() : "Record<string, unknown>";
-  const returnsType = tool.returnsType?.trim() || "unknown";
+  const strictArgsType = tool.strictArgsType?.trim();
+  const strictReturnsType = tool.strictReturnsType?.trim();
+  const fallbackArgsType = tool.argsType?.trim();
+  const fallbackReturnsType = tool.returnsType?.trim();
+  const hasArgsType = Boolean(strictArgsType || fallbackArgsType);
+  const argsType = strictArgsType || fallbackArgsType || "Record<string, unknown>";
+  const returnsType = strictReturnsType || fallbackReturnsType || "unknown";
   const inputParam = !hasArgsType || argsType === "{}"
     ? `input?: ${argsType}`
     : `input: ${argsType}`;

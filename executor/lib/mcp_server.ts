@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
+import { loadSourceDtsByUrlCached } from "./dts_loader";
 import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
 import type {
@@ -90,48 +91,6 @@ function listTopLevelToolKeys(tools: ToolDescriptor[]): string[] {
     if (first) keys.add(first);
   }
   return [...keys].sort();
-}
-
-const dtsUrlCache = new Map<string, Promise<string | null>>();
-
-async function loadSourceDtsByUrl(dtsUrls: Record<string, string>): Promise<Record<string, string>> {
-  const entries = Object.entries(dtsUrls);
-  if (entries.length === 0) {
-    return {};
-  }
-
-  const results = await Promise.all(entries.map(async ([sourceKey, url]) => {
-    if (!url) return [sourceKey, null] as const;
-
-    if (!dtsUrlCache.has(url)) {
-      dtsUrlCache.set(url, (async () => {
-        try {
-          const response = await fetch(url);
-          if (!response.ok) {
-            console.warn(`[executor] failed to fetch source .d.ts from ${url}: HTTP ${response.status}`);
-            return null;
-          }
-          return await response.text();
-        } catch (error) {
-          console.warn(
-            `[executor] failed to fetch source .d.ts from ${url}: ${error instanceof Error ? error.message : String(error)}`,
-          );
-          return null;
-        }
-      })());
-    }
-
-    const content = await dtsUrlCache.get(url)!;
-    return [sourceKey, content] as const;
-  }));
-
-  const sourceDtsBySource: Record<string, string> = {};
-  for (const [sourceKey, dts] of results) {
-    if (dts) {
-      sourceDtsBySource[sourceKey] = dts;
-    }
-  }
-  return sourceDtsBySource;
 }
 
 function summarizeTask(task: TaskRecord): string {
@@ -469,7 +428,7 @@ function createRunCodeTool(
           clientId: context.clientId,
         });
         toolsForContext = tools;
-        sourceDtsBySource = await loadSourceDtsByUrl(dtsUrls ?? {});
+        sourceDtsBySource = await loadSourceDtsByUrlCached(dtsUrls ?? {});
       } else {
         toolsForContext = await service.listTools({
           workspaceId: context.workspaceId,
@@ -669,14 +628,13 @@ function createDelegatingService(ref: { current: McpExecutorService }): McpExecu
   };
 }
 
-const mcpSessionRuntimes = new Map<
-  string,
-  {
-    transport: WebStandardStreamableHTTPServerTransport;
-    mcp: McpServer;
-    serviceRef: { current: McpExecutorService };
-  }
->();
+type McpSessionRuntime = {
+  transport: WebStandardStreamableHTTPServerTransport;
+  mcp: McpServer;
+  serviceRef: { current: McpExecutorService };
+};
+
+const mcpSessionRuntimes: Record<string, McpSessionRuntime> = Object.create(null);
 
 async function handleStatelessMcpRequest(
   service: McpExecutorService,
@@ -710,7 +668,7 @@ export async function handleMcpRequest(
   const runtimeSessionId = request.headers.get("mcp-session-id") ?? undefined;
 
   if (runtimeSessionId) {
-    const runtime = mcpSessionRuntimes.get(runtimeSessionId);
+    const runtime = mcpSessionRuntimes[runtimeSessionId];
     if (runtime) {
       runtime.serviceRef.current = service;
       return await runtime.transport.handleRequest(request);
@@ -730,23 +688,23 @@ export async function handleMcpRequest(
     sessionIdGenerator: () => crypto.randomUUID(),
     enableJsonResponse: true,
     onsessioninitialized: (sessionId) => {
-      mcpSessionRuntimes.set(sessionId, {
+      mcpSessionRuntimes[sessionId] = {
         transport,
         mcp,
         serviceRef,
-      });
+      };
     },
     onsessionclosed: async (sessionId) => {
       if (!sessionId) {
         return;
       }
 
-      const runtime = mcpSessionRuntimes.get(sessionId);
+      const runtime = mcpSessionRuntimes[sessionId];
       if (!runtime) {
         return;
       }
 
-      mcpSessionRuntimes.delete(sessionId);
+      delete mcpSessionRuntimes[sessionId];
       await runtime.mcp.close().catch(() => {});
     },
   });

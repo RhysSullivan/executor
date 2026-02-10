@@ -95,8 +95,14 @@ export interface ToolDescriptor {
   description: string;
   approval: ToolApprovalMode;
   source?: string;
+  /** Compact display type hint for tool arguments. */
   argsType?: string;
+  /** Compact display type hint for tool return value. */
   returnsType?: string;
+  /** Full-fidelity args type hint for strict editor/typecheck usage. */
+  strictArgsType?: string;
+  /** Full-fidelity return type hint for strict editor/typecheck usage. */
+  strictReturnsType?: string;
   operationId?: string;
 }
 
@@ -215,6 +221,10 @@ export interface ToolTypeMetadata {
   argsType?: string;
   /** Lightweight TS type hint for return value (for LLM prompt / discover tool). */
   returnsType?: string;
+  /** Compact args hint intended for UI/discovery display. */
+  displayArgsType?: string;
+  /** Compact return hint intended for UI/discovery display. */
+  displayReturnsType?: string;
   /** Raw operationId from the OpenAPI spec (used to generate typechecker wrapper). */
   operationId?: string;
   /**
