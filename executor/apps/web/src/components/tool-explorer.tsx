@@ -369,8 +369,8 @@ function TypeSignature({ raw, label }: { raw: string; label: string }) {
 // ── Inline tool detail (shown when tool row is expanded) ──
 
 function ToolDetail({ tool, depth }: { tool: ToolDescriptor; depth: number }) {
-  // Align with the tool name text: depth indent + row paddingLeft(8) + checkbox(16) + gap(8) + chevron(16) + gap(8) + zap(12) + gap(8) = 76
-  const insetLeft = depth * 20 + 8 + 76;
+  // Align details under the expand chevron.
+  const insetLeft = depth * 20 + 8 + 16 + 8;
   return (
     <div className="pr-2 pb-3 pt-1 space-y-2.5" style={{ paddingLeft: insetLeft }}>
       {/* Description rendered as markdown/HTML via Streamdown */}

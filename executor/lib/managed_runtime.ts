@@ -412,11 +412,17 @@ async function generateSelfHostedAdminKey(info: ManagedRuntimeInfo): Promise<str
 }
 
 async function findProjectDir(): Promise<string | null> {
-  const candidates = [
+  const roots = [
     Bun.env.EXECUTOR_PROJECT_DIR,
     process.cwd(),
     path.resolve(import.meta.dir, ".."),
   ].filter((value): value is string => Boolean(value && value.trim().length > 0));
+
+  const candidates: string[] = [];
+  for (const root of roots) {
+    candidates.push(root);
+    candidates.push(path.join(root, "executor"));
+  }
 
   for (const candidate of candidates) {
     const convexDir = path.join(candidate, "convex");
@@ -534,16 +540,6 @@ async function ensureProjectBootstrapped(info: ManagedRuntimeInfo): Promise<void
 
 async function ensureWebBundle(info: ManagedRuntimeInfo): Promise<void> {
   if (await pathExists(info.webServerEntry)) {
-    return;
-  }
-
-  const legacyWebDir = path.join(os.homedir(), ".executor", "web");
-  const legacyWebEntry = path.join(legacyWebDir, "server.js");
-  if (await pathExists(legacyWebEntry)) {
-    console.log(`[executor] using existing legacy web bundle at ${legacyWebDir}`);
-    await fs.rm(info.webDir, { recursive: true, force: true });
-    await fs.mkdir(path.dirname(info.webDir), { recursive: true });
-    await fs.cp(legacyWebDir, info.webDir, { recursive: true });
     return;
   }
 

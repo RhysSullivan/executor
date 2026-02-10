@@ -1,4 +1,13 @@
-const clientId = process.env.WORKOS_CLIENT_ID;
+function readEnvVar(name: string): string | undefined {
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key === name) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+const clientId = readEnvVar("WORKOS_CLIENT_ID");
 
 const authConfig = clientId
   ? {

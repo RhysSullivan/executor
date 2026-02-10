@@ -75,6 +75,7 @@ Artifacts are written to `dist/release/`.
 - `convex/`: executor control plane, MCP HTTP endpoint, task execution/actions, policies, credentials, approvals, and persistence.
 - `lib/`: runtime, MCP server helpers, typechecker, tool loading/discovery utilities.
 - `apps/web`: executor web UI for approvals, task history, and settings.
+- `apps/menubar`: Electron-based macOS menubar spike for pending task approvals.
 - `packages/contracts`: shared task/tool/policy contract types.
 
 ## Notes

@@ -1,0 +1,21 @@
+{
+  "name": "@executor/menubar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --format=esm --external electron --outfile dist/main.js",
+    "dev": "bun run build && bunx electron dist/main.js",
+    "start": "bun run dev",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/convex": "workspace:*",
+    "convex": "^1.31.7",
+    "electron": "^37.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5"
+  }
+}

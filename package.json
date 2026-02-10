@@ -16,6 +16,7 @@
     "kill:all": "bun run kill-all.ts",
     "dev:executor:convex": "bunx --cwd executor convex dev",
     "dev:executor:web": "bun run --cwd executor/apps/web dev",
+    "dev:executor:menubar": "bun run --cwd executor/apps/menubar dev",
     "dev:executor:all": "bun run dev:executor:convex & bun run dev:executor:web",
     "dev:assistant": "bun run --cwd assistant/packages/server dev",
     "dev:bot": "bun run --cwd assistant/packages/bot dev",

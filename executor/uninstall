@@ -3,7 +3,6 @@ set -euo pipefail
 
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
 RUNTIME_DIR="${EXECUTOR_RUNTIME_DIR:-$HOME/.executor/runtime}"
-LEGACY_WEB_DIR="${EXECUTOR_LEGACY_WEB_DIR:-$HOME/.executor/web}"
 EXECUTOR_HOME="${EXECUTOR_HOME_DIR:-$HOME/.executor}"
 ASSUME_YES="0"
 
@@ -41,7 +40,6 @@ if [[ "$ASSUME_YES" != "1" ]]; then
   echo "This will remove:"
   echo "  - $INSTALL_DIR/executor"
   echo "  - $RUNTIME_DIR"
-  echo "  - $LEGACY_WEB_DIR"
   echo ""
   read -r -p "Continue? [y/N] " response
   if [[ ! "$response" =~ ^[Yy]$ ]]; then
@@ -52,7 +50,6 @@ fi
 
 rm -f "$INSTALL_DIR/executor"
 rm -rf "$RUNTIME_DIR"
-rm -rf "$LEGACY_WEB_DIR"
 
 if [[ -d "$INSTALL_DIR" ]]; then
   rmdir "$INSTALL_DIR" 2>/dev/null || true

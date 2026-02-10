@@ -5,7 +5,8 @@
   "scripts": {
     "test": "bun test packages/core/src/",
     "dev:server": "bun run --filter @assistant/server dev",
-    "dev:bot": "bun run --filter @assistant/bot dev"
+    "dev:bot": "bun run --filter @assistant/bot dev",
+    "dev:executor:menubar": "bun run --cwd ../executor/apps/menubar dev"
   },
   "devDependencies": {
     "@types/bun": "latest",
