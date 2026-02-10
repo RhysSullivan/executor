@@ -257,6 +257,20 @@ const mcpHandler = httpAction(async (ctx, request) => {
         dtsUrls: result.dtsUrls ?? {},
       };
     },
+    typecheckRunCode: async (input: {
+      code: string;
+      workspaceId: Id<"workspaces">;
+      actorId?: string;
+      clientId?: string;
+    }) => {
+      const result = await ctx.runAction(internal.mcpNode.typecheckRunCodeInternal, {
+        code: input.code,
+        workspaceId: input.workspaceId,
+        actorId: input.actorId,
+        clientId: input.clientId,
+      });
+      return result;
+    },
     listPendingApprovals: async (workspaceId: Id<"workspaces">) => {
       return (await ctx.runQuery(internal.database.listPendingApprovals, { workspaceId })) as PendingApprovalRecord[];
     },

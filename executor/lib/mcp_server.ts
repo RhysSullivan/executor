@@ -29,6 +29,12 @@ interface McpExecutorService {
   listToolsForTypecheck?(
     context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   ): Promise<{ tools: ToolDescriptor[]; dtsUrls: Record<string, string> }>;
+  typecheckRunCode?(input: {
+    code: string;
+    workspaceId: Id<"workspaces">;
+    actorId?: string;
+    clientId?: string;
+  }): Promise<{ ok: boolean; errors: string[]; tools: ToolDescriptor[] }>;
   listPendingApprovals?(workspaceId: Id<"workspaces">): Promise<PendingApprovalRecord[]>;
   resolveApproval?(input: {
     workspaceId: Id<"workspaces">;
@@ -441,27 +447,42 @@ function createRunCodeTool(
     // Typecheck code before execution — align with Monaco by loading source .d.ts
     // for OpenAPI tools when available.
     let toolsForContext: ToolDescriptor[];
-    let sourceDtsBySource: Record<string, string> = {};
-    if (service.listToolsForTypecheck) {
-      const { tools, dtsUrls } = await service.listToolsForTypecheck({
+    let typecheck: { ok: boolean; errors: readonly string[] };
+    if (service.typecheckRunCode) {
+      const result = await service.typecheckRunCode({
+        code: input.code,
         workspaceId: context.workspaceId,
         actorId: context.actorId,
         clientId: context.clientId,
       });
-      toolsForContext = tools;
-      sourceDtsBySource = await loadSourceDtsByUrl(dtsUrls ?? {});
+      toolsForContext = result.tools;
+      typecheck = {
+        ok: result.ok,
+        errors: result.errors,
+      };
     } else {
-      toolsForContext = await service.listTools({
-        workspaceId: context.workspaceId,
-        actorId: context.actorId,
-        clientId: context.clientId,
-      });
-    }
+      let sourceDtsBySource: Record<string, string> = {};
+      if (service.listToolsForTypecheck) {
+        const { tools, dtsUrls } = await service.listToolsForTypecheck({
+          workspaceId: context.workspaceId,
+          actorId: context.actorId,
+          clientId: context.clientId,
+        });
+        toolsForContext = tools;
+        sourceDtsBySource = await loadSourceDtsByUrl(dtsUrls ?? {});
+      } else {
+        toolsForContext = await service.listTools({
+          workspaceId: context.workspaceId,
+          actorId: context.actorId,
+          clientId: context.clientId,
+        });
+      }
 
-    const declarations = generateToolDeclarations(toolsForContext, {
-      sourceDtsBySource,
-    });
-    const typecheck = typecheckCode(input.code, declarations);
+      const declarations = generateToolDeclarations(toolsForContext, {
+        sourceDtsBySource,
+      });
+      typecheck = typecheckCode(input.code, declarations);
+    }
 
     if (!typecheck.ok) {
       const topLevelKeys = listTopLevelToolKeys(toolsForContext);
@@ -635,6 +656,9 @@ function createDelegatingService(ref: { current: McpExecutorService }): McpExecu
     listTools: async (context) => await ref.current.listTools(context),
     listToolsForTypecheck: ref.current.listToolsForTypecheck
       ? async (context) => await ref.current.listToolsForTypecheck!(context)
+      : undefined,
+    typecheckRunCode: ref.current.typecheckRunCode
+      ? async (input) => await ref.current.typecheckRunCode!(input)
       : undefined,
     listPendingApprovals: ref.current.listPendingApprovals
       ? async (workspaceId) => await ref.current.listPendingApprovals!(workspaceId)

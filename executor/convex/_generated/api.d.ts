@@ -882,6 +882,19 @@ export declare const internal: {
       any
     >;
   };
+  mcpNode: {
+    typecheckRunCodeInternal: FunctionReference<
+      "action",
+      "internal",
+      {
+        actorId?: string;
+        clientId?: string;
+        code: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+  };
   migrations: {
     backfillDtsStorageIds: FunctionReference<
       "mutation",
