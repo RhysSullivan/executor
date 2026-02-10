@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
 import { mutation,
 query,
 type MutationCtx, type QueryCtx } from "./_generated/server";
@@ -502,13 +501,6 @@ export const createApproval = internalMutation({
       input: args.input ?? {},
       status: "pending",
       createdAt: now,
-    });
-
-    await ctx.scheduler.runAfter(0, internal.pushNotifications.sendApprovalRequested, {
-      workspaceId: task.workspaceId,
-      approvalId: args.id,
-      taskId: args.taskId,
-      toolPath: args.toolPath,
     });
 
     const created = await getApprovalDoc(ctx, args.id);

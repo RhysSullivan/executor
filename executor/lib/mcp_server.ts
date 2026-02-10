@@ -301,7 +301,7 @@ function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
     ? `\n\nTop-level tool keys: ${topLevelKeys.join(", ")}`
     : "";
   const hasGraphqlTools = toolList.some((tool) => tool.path.endsWith(".graphql"));
-  const discoverNote = "\n\nTip: use `tools.discover({ query, depth?, limit?, compact? })` first. It returns `{ results, total }`; call the exact `results[i].path` (or copy `results[i].exampleCall`). Compact mode is on by default (set `compact: false` for full signatures). Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
+  const discoverNote = "\n\nTip: use `tools.discover({ query, depth?, limit?, compact? })` first. It returns `{ bestPath, results, total }`; prefer `bestPath` when present, otherwise call `results[i].path` (or copy `results[i].exampleCall`). Compact mode is on by default (set `compact: false` for full signatures). Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
   const executionNote = "\n\nExecution tip: for migration/ETL-style tasks, discover once, then run in small batches and `return` compact summaries (counts, IDs, and top-N samples) instead of full objects.";
   const graphqlNote = hasGraphqlTools
     ? "\n\nGraphQL tip: prefer `source.query.*` / `source.mutation.*` helper paths when available; GraphQL tools return `{ data, errors }`."

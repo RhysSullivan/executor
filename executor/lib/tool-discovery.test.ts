@@ -135,3 +135,73 @@ test("discover returns null bestPath when there are no matches", async () => {
   expect(result.total).toBe(0);
   expect(result.results).toHaveLength(0);
 });
+
+test("discover bestPath prefers simpler exact intent operation", async () => {
+  const tool = createDiscoverTool([
+    {
+      path: "linear.mutation.issuetoreleasecreate",
+      description: "Create issue-to-release join",
+      approval: "required",
+      source: "graphql:linear",
+      metadata: {
+        argsType: "{ input: { issueId: string; releaseId: string } }",
+        returnsType: "{ data: IssueToReleasePayload; errors: unknown[] }",
+      },
+      run: async () => ({ data: {}, errors: [] }),
+    } satisfies ToolDefinition,
+    {
+      path: "linear.mutation.issuecreate",
+      description: "Create issue",
+      approval: "required",
+      source: "graphql:linear",
+      metadata: {
+        argsType: "{ input: { teamId: string; title: string } }",
+        returnsType: "{ data: IssuePayload; errors: unknown[] }",
+      },
+      run: async () => ({ data: {}, errors: [] }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "linear issue create", depth: 2 },
+    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+  ) as { bestPath: string | null; results: Array<{ path: string }> };
+
+  expect(result.bestPath).toBe("linear.mutation.issuecreate");
+  expect(result.results[0]?.path).toBe("linear.mutation.issuecreate");
+});
+
+test("discover namespace hint suppresses cross-namespace bestPath", async () => {
+  const tool = createDiscoverTool([
+    {
+      path: "github.teams.list",
+      description: "List teams",
+      approval: "auto",
+      source: "openapi:github",
+      metadata: {
+        argsType: "{ org: string }",
+        returnsType: "Array<Team>",
+      },
+      run: async () => ([]),
+    } satisfies ToolDefinition,
+    {
+      path: "linear.query.teams",
+      description: "List teams in Linear",
+      approval: "auto",
+      source: "graphql:linear",
+      metadata: {
+        argsType: "{}",
+        returnsType: "{ data: TeamConnection; errors: unknown[] }",
+      },
+      run: async () => ({ data: {}, errors: [] }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "linear teams list", depth: 2 },
+    { taskId: "t", workspaceId: "w", isToolAllowed: () => true },
+  ) as { bestPath: string | null; results: Array<{ path: string }> };
+
+  expect(result.bestPath).toBe("linear.query.teams");
+  expect(result.results.some((entry) => entry.path.startsWith("github."))).toBe(false);
+});

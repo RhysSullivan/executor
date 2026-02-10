@@ -13,6 +13,21 @@ interface DiscoverIndexEntry {
   normalizedSearchText: string;
 }
 
+const DISCOVER_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "for",
+  "from",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
 function normalizeType(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
 }
@@ -163,9 +178,78 @@ function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
     });
 }
 
-function scoreEntry(entry: DiscoverIndexEntry, terms: string[]): number {
+function getTopLevelNamespace(path: string): string {
+  return path.split(".")[0]?.toLowerCase() ?? "";
+}
+
+function extractNamespaceHints(terms: string[], namespaces: Set<string>): Set<string> {
+  const hints = new Set<string>();
+
+  for (const term of terms) {
+    const direct = term.toLowerCase();
+    if (namespaces.has(direct)) {
+      hints.add(direct);
+      continue;
+    }
+
+    const leadingSegment = direct.split(".")[0] ?? direct;
+    if (namespaces.has(leadingSegment)) {
+      hints.add(leadingSegment);
+    }
+  }
+
+  return hints;
+}
+
+function deriveIntentPhrase(terms: string[], namespaceHints: Set<string>): string {
+  const important = terms
+    .map((term) => term.toLowerCase())
+    .filter((term) => !namespaceHints.has(term))
+    .filter((term) => !DISCOVER_STOP_WORDS.has(term))
+    .filter((term) => term.length > 2);
+
+  return normalizeSearchToken(important.join(" "));
+}
+
+function chooseBestPath(
+  ranked: Array<{ entry: DiscoverIndexEntry; score: number }>,
+  termCount: number,
+): string | null {
+  if (ranked.length === 0) return null;
+
+  const best = ranked[0];
+  if (!best) return null;
+
+  const minScore = termCount === 0 ? 1 : Math.max(3, termCount * 2 - 1);
+  if (best.score < minScore) {
+    return null;
+  }
+
+  const second = ranked[1];
+  if (second && best.score - second.score < 2) {
+    return null;
+  }
+
+  return best.entry.path;
+}
+
+function scoreEntry(
+  entry: DiscoverIndexEntry,
+  terms: string[],
+  namespaceHints: Set<string>,
+  intentPhrase: string,
+): number {
   let score = 0;
   let matched = 0;
+
+  if (namespaceHints.size > 0) {
+    const namespace = getTopLevelNamespace(entry.path);
+    if (namespaceHints.has(namespace)) {
+      score += 6;
+    } else {
+      score -= 8;
+    }
+  }
 
   for (const term of terms) {
     const normalizedTerm = normalizeSearchToken(term);
@@ -177,6 +261,14 @@ function scoreEntry(entry: DiscoverIndexEntry, terms: string[]): number {
     matched += 1;
     score += 1;
     if (inPath || inNormalizedPath) score += 2;
+  }
+
+  if (intentPhrase.length >= 6) {
+    if (entry.normalizedPath.includes(intentPhrase)) {
+      score += 6;
+    } else if (entry.normalizedSearchText.includes(intentPhrase)) {
+      score += 3;
+    }
   }
 
   if (terms.length > 0 && matched < Math.max(1, Math.ceil(terms.length / 2))) {
@@ -231,13 +323,23 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
       const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
       const compact = payload.compact === false ? false : true;
       const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
+      const namespaces = new Set(index.map((entry) => getTopLevelNamespace(entry.path)).filter(Boolean));
+      const namespaceHints = extractNamespaceHints(terms, namespaces);
+      const intentPhrase = deriveIntentPhrase(terms, namespaceHints);
 
-      const ranked = index
-        .filter((entry) => context.isToolAllowed(entry.path))
-        .map((entry) => ({ entry, score: scoreEntry(entry, terms) }))
+      const visibleEntries = index.filter((entry) => context.isToolAllowed(entry.path));
+      const namespaceScopedEntries = namespaceHints.size > 0
+        ? visibleEntries.filter((entry) => namespaceHints.has(getTopLevelNamespace(entry.path)))
+        : visibleEntries;
+      const candidateEntries = namespaceScopedEntries.length > 0 ? namespaceScopedEntries : visibleEntries;
+
+      const ranked = candidateEntries
+        .map((entry) => ({ entry, score: scoreEntry(entry, terms, namespaceHints, intentPhrase) }))
         .filter((item) => item.score > 0 || terms.length === 0)
         .sort((a, b) => b.score - a.score)
-        .slice(0, limit)
+        .slice(0, limit);
+
+      const results = ranked
         .map(({ entry }) => ({
           path: entry.path,
           aliases: entry.aliases,
@@ -249,9 +351,9 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
         }));
 
       return {
-        bestPath: ranked[0]?.path ?? null,
-        results: ranked,
-        total: ranked.length,
+        bestPath: chooseBestPath(ranked, terms.length),
+        results,
+        total: results.length,
       };
     },
   };

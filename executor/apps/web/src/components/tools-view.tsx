@@ -102,6 +102,15 @@ const API_PRESETS: ApiPreset[] = [
     authNote: "Requires a bot token as bearer credential",
   },
   {
+    name: "discord",
+    label: "Discord",
+    description: "Guilds, channels, messages, interactions, webhooks",
+    type: "openapi",
+    spec: "https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json",
+    baseUrl: "https://discord.com/api/v10",
+    authNote: "Requires a bot token as bearer credential",
+  },
+  {
     name: "stripe",
     label: "Stripe",
     description: "Payments, customers, subscriptions, invoices",
