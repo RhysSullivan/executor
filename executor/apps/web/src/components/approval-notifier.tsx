@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import { useQuery } from "convex/react";
 import { toast } from "sonner";
 import { useSession } from "@/lib/session-context";
@@ -9,7 +9,7 @@ import { convexApi } from "@/lib/convex-api";
 import type { PendingApprovalRecord } from "@/lib/types";
 
 export function ApprovalNotifier() {
-  const router = useRouter();
+  const navigate = useNavigate();
   const { context } = useSession();
   const seenApprovalIdsRef = useRef<Set<string>>(new Set());
   const activeWorkspaceRef = useRef<string | null>(null);
@@ -58,12 +58,12 @@ export function ApprovalNotifier() {
             : "Open approvals to review pending tool calls.",
         action: {
           label: "Review",
-          onClick: () => router.push("/approvals"),
+          onClick: () => navigate("/approvals"),
         },
       },
     );
 
-  }, [approvals, context, router]);
+  }, [approvals, context, navigate]);
 
   return null;
 }

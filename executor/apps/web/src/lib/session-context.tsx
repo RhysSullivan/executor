@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useMutation, useQuery as useConvexQuery } from "convex/react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
-import { workosEnabled } from "@/lib/auth-capabilities";
+import { anonymousDemoEnabled, workosEnabled } from "@/lib/auth-capabilities";
 import { useWorkosAuthLoading } from "@/lib/convex-provider";
 import { convexApi } from "@/lib/convex-api";
 import type { AnonymousContext } from "./types";
@@ -54,6 +54,8 @@ interface SessionState {
     iconFile?: File | null,
     organizationId?: Id<"organizations">,
   ) => Promise<void>;
+  creatingAnonymousWorkspace: boolean;
+  createAnonymousWorkspace: () => Promise<void>;
   isSignedInToWorkos: boolean;
   workosProfile: {
     name: string;
@@ -95,6 +97,8 @@ const SessionContext = createContext<SessionState>({
   switchWorkspace: () => {},
   creatingWorkspace: false,
   createWorkspace: async () => {},
+  creatingAnonymousWorkspace: false,
+  createAnonymousWorkspace: async () => {},
   isSignedInToWorkos: false,
   workosProfile: null,
   resetWorkspace: async () => {},
@@ -143,13 +147,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const createWorkspaceMutation = useMutation(convexApi.workspaces.create);
   const generateWorkspaceIconUploadUrl = useMutation(convexApi.workspaces.generateWorkspaceIconUploadUrl);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [creatingAnonymousWorkspace, setCreatingAnonymousWorkspace] = useState(false);
+  const [manualGuestContext, setManualGuestContext] = useState<AnonymousContext | null>(null);
 
   const bootstrapSessionQuery = useTanstackQuery({
     queryKey: ["session-bootstrap", storedSessionId ?? "new"],
+    enabled: storedSessionId !== null,
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async () => {
-      const context = await bootstrapAnonymousSession({ sessionId: storedSessionId ?? undefined });
+      if (!storedSessionId) {
+        throw new Error("No guest session id available");
+      }
+
+      const context = await bootstrapAnonymousSession({ sessionId: storedSessionId });
       localStorage.setItem(SESSION_KEY, context.sessionId);
       if (context.sessionId !== storedSessionId) {
         setStoredSessionId(context.sessionId);
@@ -158,7 +169,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const guestContext: AnonymousContext | null = bootstrapSessionQuery.data ?? null;
+  const guestContext: AnonymousContext | null = manualGuestContext ?? bootstrapSessionQuery.data ?? null;
 
   const account = useConvexQuery(
     convexApi.app.getCurrentAccount,
@@ -204,8 +215,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(ACTIVE_WORKSPACE_KEY);
     setStoredSessionId(null);
     setActiveWorkspaceId(null);
+    setManualGuestContext(null);
     setRuntimeError(null);
   }, []);
+
+  const createAnonymousWorkspace = useCallback(async () => {
+    if (!anonymousDemoEnabled) {
+      throw new Error("Anonymous workspace creation is disabled");
+    }
+
+    setRuntimeError(null);
+    setCreatingAnonymousWorkspace(true);
+    try {
+      const context = await bootstrapAnonymousSession({});
+      localStorage.setItem(SESSION_KEY, context.sessionId);
+      localStorage.setItem(ACTIVE_WORKSPACE_KEY, context.workspaceId);
+      setStoredSessionId(context.sessionId);
+      setActiveWorkspaceId(context.workspaceId as Id<"workspaces">);
+      setManualGuestContext(context);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Failed to create anonymous workspace";
+      setRuntimeError(message);
+      throw cause;
+    } finally {
+      setCreatingAnonymousWorkspace(false);
+    }
+  }, [bootstrapAnonymousSession]);
 
   const switchWorkspace = useCallback((workspaceId: Id<"workspaces">) => {
     setActiveWorkspaceId(workspaceId);
@@ -318,9 +353,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const context = workosContext ?? ((workosStillLoading || shouldBlockGuestFallback) ? null : guestContext);
 
   const bootstrapSessionError =
-    bootstrapSessionQuery.error instanceof Error
+    storedSessionId && bootstrapSessionQuery.error instanceof Error
       ? bootstrapSessionQuery.error.message
-      : bootstrapSessionQuery.error
+      : storedSessionId && bootstrapSessionQuery.error
         ? "Failed to bootstrap session"
         : null;
   const bootstrapWorkosError =
@@ -332,7 +367,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const error = runtimeError ?? bootstrapSessionError ?? bootstrapWorkosError;
 
   const effectiveLoading = !context && !error && (
-    bootstrapSessionQuery.isLoading
+    creatingAnonymousWorkspace
+    || (storedSessionId !== null && bootstrapSessionQuery.isLoading)
     || workosStillLoading
     || bootstrapWorkosAccountQuery.isFetching
   );
@@ -379,6 +415,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         switchWorkspace,
         creatingWorkspace,
         createWorkspace,
+        creatingAnonymousWorkspace,
+        createAnonymousWorkspace,
         isSignedInToWorkos: Boolean(account && account.provider === "workos"),
         workosProfile:
           account && account.provider === "workos"

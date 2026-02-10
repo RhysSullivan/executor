@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams } from "react-router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { AlertTriangle, BadgeCheck, CreditCard, RefreshCcw } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -50,7 +50,7 @@ function formatTimestamp(value: number | null | undefined): string {
 
 export function BillingView({ showHeader = true }: BillingViewProps) {
   const { context, organizations, organizationsLoading, workspaces } = useSession();
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [actionState, setActionState] = useState<"idle" | "running" | "success" | "error">("idle");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [priceId, setPriceId] = useState(() => process.env.NEXT_PUBLIC_STRIPE_PRICE_ID ?? "");

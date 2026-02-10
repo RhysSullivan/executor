@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { CreditCard, Users } from "lucide-react";
 import { BillingView } from "@/components/billing-view";
 import { MembersView } from "@/components/members-view";
@@ -15,9 +15,10 @@ function normalizeTab(value: string | null): OrganizationTab {
 }
 
 export function OrganizationSettingsView() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname;
+  const [searchParams] = useSearchParams();
 
   const tab = useMemo(() => normalizeTab(searchParams.get("tab")), [searchParams]);
 
@@ -25,7 +26,7 @@ export function OrganizationSettingsView() {
     const normalizedTab = normalizeTab(nextTab);
     const nextSearch = new URLSearchParams(searchParams.toString());
     nextSearch.set("tab", normalizedTab);
-    router.replace(`${pathname}?${nextSearch.toString()}`);
+    navigate(`${pathname}?${nextSearch.toString()}`, { replace: true });
   };
 
   return (

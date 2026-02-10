@@ -1,5 +1,5 @@
-import { DashboardView } from "@/components/dashboard-view";
+import { StaticAppShell } from "@/components/static-app-shell";
 
 export default function DashboardPage() {
-  return <DashboardView />;
+  return <StaticAppShell />;
 }

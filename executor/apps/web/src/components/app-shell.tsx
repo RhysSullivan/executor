@@ -1,8 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { useMutation } from "convex/react";
 import {
   LayoutDashboard,
@@ -38,7 +37,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
-import { workosEnabled } from "@/lib/auth-capabilities";
+import { anonymousDemoEnabled, workosEnabled } from "@/lib/auth-capabilities";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { ApprovalNotifier } from "@/components/approval-notifier";
 import { cn } from "@/lib/utils";
@@ -51,7 +50,8 @@ const NAV_ITEMS = [
 ];
 
 function NavLinks({ onClick }: { onClick?: () => void }) {
-  const pathname = usePathname();
+  const location = useLocation();
+  const pathname = location.pathname;
 
   return (
     <nav className="flex flex-col gap-1">
@@ -63,7 +63,7 @@ function NavLinks({ onClick }: { onClick?: () => void }) {
         return (
           <Link
             key={item.href}
-            href={item.href}
+            to={item.href}
             onClick={onClick}
             className={cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
@@ -82,12 +82,11 @@ function NavLinks({ onClick }: { onClick?: () => void }) {
 }
 
 function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const createOrganizationMutation = useMutation(convexApi.organizations.create);
   const {
     context,
     mode,
-    clientConfig,
     workspaces,
     switchWorkspace,
     creatingWorkspace,
@@ -261,7 +260,7 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
                             className="inline-flex h-5 w-5 items-center justify-center rounded-sm border border-border text-muted-foreground hover:bg-accent hover:text-foreground"
                             onClick={() => {
                               switchWorkspace(settingsWorkspace.id);
-                              router.push("/organization?tab=members");
+                              navigate("/organization?tab=members");
                             }}
                             aria-label={`Open ${group.organizationName} settings`}
                             title="Organization settings"
@@ -402,14 +401,13 @@ function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) {
 function SessionInfo() {
   const {
     loading,
-    clientConfig,
     isSignedInToWorkos,
     workosProfile,
     context,
     workspaces,
     resetWorkspace,
   } = useSession();
-  const searchParams = useSearchParams();
+  const [searchParams] = useSearchParams();
   const deleteCurrentAccountMutation = useMutation(convexApi.accounts.deleteCurrentAccount);
   const [accountSettingsOpen, setAccountSettingsOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -523,7 +521,7 @@ function SessionInfo() {
                   Account Settings
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild className="text-xs">
-                  <Link href="/sign-out">Sign out</Link>
+                  <Link to="/sign-out" reloadDocument>Sign out</Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -587,7 +585,7 @@ function SessionInfo() {
         ) : (
           <div className="px-3 py-3 space-y-2">
             {workosEnabled ? (
-              <Link href={signInHref} className="block">
+              <Link to={signInHref} reloadDocument className="block">
                 <Button
                   variant="outline"
                   className="w-full h-9 justify-center gap-2 text-xs font-medium"
@@ -663,9 +661,79 @@ function MobileHeader() {
   );
 }
 
+function NoOrganizationModal({ enabled }: { enabled: boolean }) {
+  const {
+    loading,
+    organizations,
+    organizationsLoading,
+    context,
+    isSignedInToWorkos,
+    createAnonymousWorkspace,
+    creatingAnonymousWorkspace,
+  } = useSession();
+  const [error, setError] = useState<string | null>(null);
+
+  const shouldShow = enabled
+    && !loading
+    && !organizationsLoading
+    && !context
+    && !isSignedInToWorkos
+    && organizations.length === 0;
+
+  const handleCreateAnonymousWorkspace = async () => {
+    setError(null);
+    try {
+      await createAnonymousWorkspace();
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Failed to create anonymous workspace";
+      setError(message);
+    }
+  };
+
+  return (
+    <Dialog open={shouldShow}>
+      <DialogContent
+        showCloseButton={false}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>Choose how to continue</DialogTitle>
+          <DialogDescription>
+            Sign in to access your organizations, or create an anonymous workspace to continue as a guest.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          {workosEnabled ? (
+            <Button asChild className="w-full" disabled={creatingAnonymousWorkspace}>
+              <Link to="/sign-in" reloadDocument className="gap-2">
+                <LogIn className="h-4 w-4" />
+                Sign in
+              </Link>
+            </Button>
+          ) : null}
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={handleCreateAnonymousWorkspace}
+            disabled={creatingAnonymousWorkspace || !anonymousDemoEnabled}
+          >
+            {creatingAnonymousWorkspace ? "Creating anonymous workspace..." : "Create anonymous workspace"}
+          </Button>
+          {!anonymousDemoEnabled ? (
+            <p className="text-xs text-muted-foreground">Anonymous workspace creation is disabled.</p>
+          ) : null}
+          {error ? <p className="text-xs text-destructive">{error}</p> : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const router = useRouter();
+  const location = useLocation();
+  const pathname = location.pathname;
+  const navigate = useNavigate();
   const { loading, organizations, organizationsLoading, isSignedInToWorkos } = useSession();
 
   const onOnboardingRoute = pathname.startsWith("/onboarding");
@@ -677,12 +745,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
 
     if (needsOnboarding && !onOnboardingRoute) {
-      router.replace("/onboarding");
+      navigate("/onboarding", { replace: true });
       return;
     }
 
     if (!needsOnboarding && onOnboardingRoute && organizations.length > 0) {
-      router.replace("/");
+      navigate("/", { replace: true });
     }
   }, [
     loading,
@@ -690,7 +758,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     needsOnboarding,
     onOnboardingRoute,
     organizations.length,
-    router,
+    navigate,
   ]);
 
   if (isSignedInToWorkos && organizationsLoading && !onOnboardingRoute) {
@@ -712,6 +780,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <ApprovalNotifier />
+      <NoOrganizationModal enabled />
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <MobileHeader />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router";
 import {
   Play,
   ShieldCheck,
@@ -67,10 +67,10 @@ function StatCard({
 }
 
 function PendingApprovalRow({ approval }: { approval: PendingApprovalRecord }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   return (
     <button
-      onClick={() => router.push("/approvals")}
+      onClick={() => navigate("/approvals")}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
     >
       <div className="h-2 w-2 rounded-full bg-terminal-amber pulse-dot shrink-0" />
@@ -88,10 +88,10 @@ function PendingApprovalRow({ approval }: { approval: PendingApprovalRecord }) {
 }
 
 function RecentTaskRow({ task }: { task: TaskRecord }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   return (
     <button
-      onClick={() => router.push(`/tasks?selected=${task.id}`)}
+      onClick={() => navigate(`/tasks?selected=${task.id}`)}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
     >
       <div className="flex-1 min-w-0">
@@ -122,7 +122,7 @@ function sourceType(source?: string): string {
 }
 
 function ToolsSummaryCard({ tools }: { tools: ToolDescriptor[] }) {
-  const router = useRouter();
+  const navigate = useNavigate();
 
   const groups = useMemo(() => {
     const map = new Map<
@@ -180,7 +180,7 @@ function ToolsSummaryCard({ tools }: { tools: ToolDescriptor[] }) {
             variant="ghost"
             size="sm"
             className="text-xs h-7"
-            onClick={() => router.push("/tools")}
+            onClick={() => navigate("/tools")}
           >
             Manage
             <ArrowRight className="h-3 w-3 ml-1" />
@@ -194,7 +194,7 @@ function ToolsSummaryCard({ tools }: { tools: ToolDescriptor[] }) {
             return (
               <button
                 key={group.name}
-                onClick={() => router.push(`/tools?source=${encodeURIComponent(group.name)}`)}
+                onClick={() => navigate(`/tools?source=${encodeURIComponent(group.name)}`)}
                 className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent/40 transition-colors text-left group/row w-full"
               >
                 <div className="h-7 w-7 rounded bg-muted flex items-center justify-center shrink-0">

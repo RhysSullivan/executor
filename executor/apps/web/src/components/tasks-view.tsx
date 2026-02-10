@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useNavigate, useSearchParams } from "react-router";
 import {
   Play,
   ChevronRight,
@@ -361,8 +361,8 @@ function TaskDetail({
 
 export function TasksView() {
   const { context, loading: sessionLoading } = useSession();
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const selectedId = searchParams.get("selected");
 
   const tasks = useQuery(
@@ -377,12 +377,12 @@ export function TasksView() {
   const selectTask = useCallback(
     (taskId: string | null) => {
       if (taskId) {
-        router.push(`/tasks?selected=${taskId}`, { scroll: false });
+        navigate(`/tasks?selected=${taskId}`);
       } else {
-        router.push("/tasks", { scroll: false });
+        navigate("/tasks");
       }
     },
-    [router],
+    [navigate],
   );
 
   if (sessionLoading) {

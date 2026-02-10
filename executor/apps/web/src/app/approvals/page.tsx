@@ -1,5 +1,5 @@
-import { ApprovalsView } from "@/components/approvals-view";
+import { StaticAppShell } from "@/components/static-app-shell";
 
 export default function ApprovalsPage() {
-  return <ApprovalsView />;
+  return <StaticAppShell />;
 }

@@ -1,4 +1,17 @@
 import type { NextConfig } from "next";
+
+const appShellRewriteExclusions = [
+  "api(?:/|$)",
+  "_next(?:/|$)",
+  "favicon\\.ico$",
+  "sign-in(?:/|$)",
+  "sign-up(?:/|$)",
+  "sign-out(?:/|$)",
+  "callback(?:/|$)",
+  "static-app-shell(?:/|$)",
+  ".*\\..*",
+].join("|");
+
 const nextConfig: NextConfig = {
   transpilePackages: ["@executor/contracts"],
   env: {
@@ -7,6 +20,14 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_CONVEX_URL: process.env.CONVEX_URL,
     NEXT_PUBLIC_WORKOS_CLIENT_ID: process.env.WORKOS_CLIENT_ID,
     NEXT_PUBLIC_STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
+  },
+  async rewrites() {
+    return [
+      {
+        source: `/((?!${appShellRewriteExclusions}).*)`,
+        destination: "/static-app-shell",
+      },
+    ];
   },
 };
 
