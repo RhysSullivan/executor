@@ -138,7 +138,7 @@ export const organizationMutation = customMutation(mutation, {
 
 export const workspaceQuery = customQuery(query, {
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
   },
   input: async (ctx, args, options: WorkspaceAccessOptions = {}) => {
@@ -158,7 +158,7 @@ export const workspaceQuery = customQuery(query, {
 
 export const workspaceMutation = customMutation(mutation, {
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
   },
   input: async (ctx, args, options: WorkspaceAccessOptions = {}) => {

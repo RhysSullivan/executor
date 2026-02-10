@@ -5,7 +5,7 @@ query,
 type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
 import { ensureUniqueSlug } from "../lib/slug";
-import type { TaskStatus } from "@executor/contracts";
+import type { TaskStatus } from "../lib/types";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
 type OrganizationRole = "owner" | "admin" | "member" | "billing_admin";
@@ -335,7 +335,7 @@ export const createTask = internalMutation({
     runtimeId: v.string(),
     timeoutMs: v.optional(v.number()),
     metadata: v.optional(v.any()),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.optional(v.string()),
   },
@@ -377,7 +377,7 @@ export const getTask = internalQuery({
 });
 
 export const listTasks = internalQuery({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("tasks")
@@ -415,7 +415,7 @@ export const listRuntimeTargets = internalQuery({
 });
 
 export const getTaskInWorkspace = internalQuery({
-  args: { taskId: v.string(), workspaceId: v.string() },
+  args: { taskId: v.string(), workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const doc = await getTaskDoc(ctx, args.taskId);
     if (!doc || doc.workspaceId !== args.workspaceId) {
@@ -523,7 +523,7 @@ export const getApproval = internalQuery({
 
 export const listApprovals = internalQuery({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     status: v.optional(approvalStatusValidator),
   },
   handler: async (ctx, args) => {
@@ -549,7 +549,7 @@ export const listApprovals = internalQuery({
 });
 
 export const listPendingApprovals = internalQuery({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("approvals")
@@ -616,7 +616,7 @@ export const resolveApproval = internalMutation({
 });
 
 export const getApprovalInWorkspace = internalQuery({
-  args: { approvalId: v.string(), workspaceId: v.string() },
+  args: { approvalId: v.string(), workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const doc = await getApprovalDoc(ctx, args.approvalId);
     if (!doc || doc.workspaceId !== args.workspaceId) {
@@ -656,7 +656,7 @@ export const createAgentTask = mutation({
     id: v.string(),
     prompt: v.string(),
     requesterId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
   },
   handler: async (ctx, args) => {
@@ -796,7 +796,7 @@ export const bootstrapAnonymousSession = internalMutation({
 export const upsertAccessPolicy = internalMutation({
   args: {
     id: v.optional(v.string()),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
     toolPathPattern: v.string(),
@@ -847,7 +847,7 @@ export const upsertAccessPolicy = internalMutation({
 });
 
 export const listAccessPolicies = internalQuery({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("accessPolicies")
@@ -868,7 +868,7 @@ export const listAccessPolicies = internalQuery({
 export const upsertCredential = internalMutation({
   args: {
     id: v.optional(v.string()),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
@@ -932,7 +932,7 @@ export const upsertCredential = internalMutation({
 });
 
 export const listCredentials = internalQuery({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("sourceCredentials")
@@ -963,7 +963,7 @@ export const listCredentialProviders = internalQuery({
 
 export const resolveCredential = internalQuery({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
@@ -1007,7 +1007,7 @@ export const resolveCredential = internalQuery({
 export const upsertToolSource = internalMutation({
   args: {
     id: v.optional(v.string()),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     name: v.string(),
     type: toolSourceTypeValidator,
     config: v.any(),
@@ -1065,7 +1065,7 @@ export const upsertToolSource = internalMutation({
 });
 
 export const listToolSources = internalQuery({
-  args: { workspaceId: v.string() },
+  args: { workspaceId: v.id("workspaces") },
   handler: async (ctx, args) => {
     const docs = await ctx.db
       .query("toolSources")
@@ -1077,7 +1077,7 @@ export const listToolSources = internalQuery({
 });
 
 export const deleteToolSource = internalMutation({
-  args: { workspaceId: v.string(), sourceId: v.string() },
+  args: { workspaceId: v.id("workspaces"), sourceId: v.string() },
   handler: async (ctx, args) => {
     const doc = await ctx.db
       .query("toolSources")

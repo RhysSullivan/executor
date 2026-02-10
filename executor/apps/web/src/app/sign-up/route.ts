@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../../../../convex/_generated/api";
-import type { Id } from "../../../../../convex/_generated/dataModel";
+import { api } from "@executor/convex/_generated/api";
+import type { Id } from "@executor/convex/_generated/dataModel";
 
 function getExternalOrigin(request: NextRequest) {
   const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");

@@ -7,7 +7,7 @@ import { internalMutation, internalQuery } from "./_generated/server";
  */
 export const getEntry = internalQuery({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     signature: v.string(),
   },
   handler: async (ctx, args) => {
@@ -21,7 +21,7 @@ export const getEntry = internalQuery({
 
     return {
       storageId: entry.storageId,
-      dtsStorageIds: entry.dtsStorageIds ?? [],
+      dtsStorageIds: entry.dtsStorageIds,
       toolCount: entry.toolCount,
       sizeBytes: entry.sizeBytes,
       createdAt: entry.createdAt,
@@ -35,13 +35,13 @@ export const getEntry = internalQuery({
  */
 export const putEntry = internalMutation({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     signature: v.string(),
     storageId: v.id("_storage"),
-    dtsStorageIds: v.optional(v.array(v.object({
+    dtsStorageIds: v.array(v.object({
       sourceKey: v.string(),
       storageId: v.id("_storage"),
-    }))),
+    })),
     toolCount: v.number(),
     sizeBytes: v.number(),
   },
@@ -55,10 +55,8 @@ export const putEntry = internalMutation({
       // Delete old main snapshot blob
       await ctx.storage.delete(existing.storageId).catch(() => {});
       // Delete old .d.ts blobs
-      if (existing.dtsStorageIds) {
-        for (const entry of existing.dtsStorageIds) {
-          await ctx.storage.delete(entry.storageId).catch(() => {});
-        }
+      for (const entry of existing.dtsStorageIds) {
+        await ctx.storage.delete(entry.storageId).catch(() => {});
       }
       await ctx.db.delete(existing._id);
     }
@@ -80,7 +78,7 @@ export const putEntry = internalMutation({
  */
 export const getDtsStorageIds = internalQuery({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
   },
   handler: async (ctx, args) => {
     const entry = await ctx.db
@@ -89,6 +87,6 @@ export const getDtsStorageIds = internalQuery({
       .unique();
 
     if (!entry) return [];
-    return entry.dtsStorageIds ?? [];
+    return entry.dtsStorageIds;
   },
 });

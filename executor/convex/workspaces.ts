@@ -20,8 +20,6 @@ async function workspaceHasActivity(
   ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
   workspaceId: Id<"workspaces">,
 ): Promise<boolean> {
-  const workspaceIdString = String(workspaceId);
-
   const [
     task,
     approval,
@@ -31,15 +29,15 @@ async function workspaceHasActivity(
     agentTask,
     member,
   ] = await Promise.all([
-    ctx.db.query("tasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
-    ctx.db.query("approvals").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
-    ctx.db.query("accessPolicies").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
+    ctx.db.query("tasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
+    ctx.db.query("approvals").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
+    ctx.db.query("accessPolicies").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
     ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString))
+      .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
       .first(),
-    ctx.db.query("toolSources").withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceIdString)).first(),
-    ctx.db.query("agentTasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceIdString)).first(),
+    ctx.db.query("toolSources").withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId)).first(),
+    ctx.db.query("agentTasks").withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId)).first(),
     ctx.db.query("workspaceMembers").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
   ]);
 

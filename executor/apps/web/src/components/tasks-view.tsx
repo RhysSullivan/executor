@@ -34,6 +34,7 @@ import type {
   TaskEventRecord,
   TaskRecord,
 } from "@/lib/types";
+import type { Id } from "@executor/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -210,7 +211,7 @@ function TaskDetail({
   onClose,
 }: {
   task: TaskRecord;
-  workspaceId: string;
+  workspaceId: Id<"workspaces">;
   sessionId?: string;
   onClose: () => void;
 }) {

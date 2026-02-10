@@ -12,7 +12,7 @@ function actorIdForAccount(account: { _id: string; provider: string; providerAcc
 
 export const getWorkspaceAccessForRequest = internalQuery({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -36,7 +36,7 @@ export const getWorkspaceAccessForRequest = internalQuery({
 
 export const getWorkspaceAccessForWorkosSubject = internalQuery({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     subject: v.string(),
   },
   handler: async (ctx, args) => {

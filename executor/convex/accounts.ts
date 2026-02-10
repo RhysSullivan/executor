@@ -11,11 +11,9 @@ async function deleteWorkspaceData(
     return false;
   }
 
-  const workspaceKey = String(workspaceId);
-
   const taskDocs = await ctx.db
     .query("tasks")
-    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceKey))
+    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const task of taskDocs) {
     const taskEvents = await ctx.db
@@ -30,7 +28,7 @@ async function deleteWorkspaceData(
 
   const approvalDocs = await ctx.db
     .query("approvals")
-    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceKey))
+    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const approval of approvalDocs) {
     await ctx.db.delete(approval._id);
@@ -38,7 +36,7 @@ async function deleteWorkspaceData(
 
   const policyDocs = await ctx.db
     .query("accessPolicies")
-    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceKey))
+    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const policy of policyDocs) {
     await ctx.db.delete(policy._id);
@@ -46,7 +44,7 @@ async function deleteWorkspaceData(
 
   const credentialDocs = await ctx.db
     .query("sourceCredentials")
-    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceKey))
+    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const credential of credentialDocs) {
     await ctx.db.delete(credential._id);
@@ -54,7 +52,7 @@ async function deleteWorkspaceData(
 
   const toolSources = await ctx.db
     .query("toolSources")
-    .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceKey))
+    .withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const source of toolSources) {
     await ctx.db.delete(source._id);
@@ -62,7 +60,7 @@ async function deleteWorkspaceData(
 
   const agentTasks = await ctx.db
     .query("agentTasks")
-    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceKey))
+    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const agentTask of agentTasks) {
     await ctx.db.delete(agentTask._id);
@@ -70,7 +68,7 @@ async function deleteWorkspaceData(
 
   const cachedToolsets = await ctx.db
     .query("workspaceToolCache")
-    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceKey))
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .collect();
   for (const cacheEntry of cachedToolsets) {
     await ctx.storage.delete(cacheEntry.storageId).catch(() => {});

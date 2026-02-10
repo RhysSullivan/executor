@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { workspaceMutation } from "../lib/functionBuilders";
@@ -30,7 +31,7 @@ async function createTaskRecord(
     timeoutMs?: number;
     runtimeId?: string;
     metadata?: unknown;
-    workspaceId: string;
+    workspaceId: Id<"workspaces">;
     actorId: string;
     clientId?: string;
   },
@@ -92,7 +93,7 @@ async function createTaskRecord(
 async function resolveApprovalRecord(
   ctx: MutationCtx,
   args: {
-    workspaceId: string;
+    workspaceId: Id<"workspaces">;
     approvalId: string;
     decision: "approved" | "denied";
     reviewerId?: string;
@@ -172,7 +173,7 @@ export const createTaskInternal = internalMutation({
     timeoutMs: v.optional(v.number()),
     runtimeId: v.optional(v.string()),
     metadata: v.optional(v.any()),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.optional(v.string()),
   },
@@ -204,7 +205,7 @@ export const resolveApproval = workspaceMutation({
 
 export const resolveApprovalInternal = internalMutation({
   args: {
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     approvalId: v.string(),
     decision: v.union(v.literal("approved"), v.literal("denied")),
     reviewerId: v.optional(v.string()),

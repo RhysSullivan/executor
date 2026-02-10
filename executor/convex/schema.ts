@@ -181,7 +181,7 @@ export default defineSchema({
     taskId: v.string(),
     code: v.string(),
     runtimeId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.string(),
     status: taskStatus,
@@ -203,7 +203,7 @@ export default defineSchema({
   approvals: defineTable({
     approvalId: v.string(),
     taskId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     toolPath: v.string(),
     input: v.any(),
     status: approvalStatus,
@@ -216,21 +216,6 @@ export default defineSchema({
     .index("by_task", ["taskId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_status_created", ["workspaceId", "status", "createdAt"]),
-
-  pushSubscriptions: defineTable({
-    workspaceId: v.string(),
-    accountId: v.string(),
-    endpoint: v.string(),
-    p256dh: v.string(),
-    auth: v.string(),
-    expirationTime: v.optional(v.number()),
-    userAgent: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_workspace_created", ["workspaceId", "createdAt"])
-    .index("by_workspace_account", ["workspaceId", "accountId"])
-    .index("by_endpoint", ["endpoint"]),
 
   taskEvents: defineTable({
     sequence: v.number(),
@@ -245,7 +230,7 @@ export default defineSchema({
 
   accessPolicies: defineTable({
     policyId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.string(),
     toolPathPattern: v.string(),
@@ -259,7 +244,7 @@ export default defineSchema({
 
   sourceCredentials: defineTable({
     credentialId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScope,
     actorId: v.string(),
@@ -274,7 +259,7 @@ export default defineSchema({
 
   toolSources: defineTable({
     sourceId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     name: v.string(),
     type: toolSourceType,
     config: v.any(),
@@ -291,7 +276,7 @@ export default defineSchema({
     agentTaskId: v.string(),
     prompt: v.string(),
     requesterId: v.string(),
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     actorId: v.string(),
     status: agentTaskStatus,
     resultText: v.optional(v.string()),
@@ -314,14 +299,14 @@ export default defineSchema({
     .index("by_spec_url_version", ["specUrl", "version"]),
 
   workspaceToolCache: defineTable({
-    workspaceId: v.string(),
+    workspaceId: v.id("workspaces"),
     signature: v.string(),
     storageId: v.id("_storage"),
     /** Per-source .d.ts blobs stored separately (too large for action responses). */
-    dtsStorageIds: v.optional(v.array(v.object({
+    dtsStorageIds: v.array(v.object({
       sourceKey: v.string(),
       storageId: v.id("_storage"),
-    }))),
+    })),
     toolCount: v.number(),
     sizeBytes: v.number(),
     createdAt: v.number(),
@@ -334,7 +319,7 @@ export default defineSchema({
     actorId: v.string(),
     clientId: v.string(),
     accountId: v.id("accounts"),
-    userId: v.optional(v.id("workspaceMembers")),
+    userId: v.id("workspaceMembers"),
     createdAt: v.number(),
     lastSeenAt: v.number(),
   })
