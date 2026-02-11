@@ -1,0 +1,2 @@
+# Shared-secret bearer token — must match CLOUDFLARE_SANDBOX_AUTH_TOKEN on the executor side.
+AUTH_TOKEN=dev-sandbox-token

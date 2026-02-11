@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { workspaceMutation } from "../lib/functionBuilders";
 import { actorIdForAccount } from "../lib/identity";
+import { isKnownRuntimeId } from "../lib/runtimes/runtime_catalog";
 import type { ApprovalRecord, TaskRecord } from "../lib/types";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -38,7 +39,7 @@ async function createTaskRecord(
   }
 
   const runtimeId = args.runtimeId ?? "local-bun";
-  if (runtimeId !== "local-bun") {
+  if (!isKnownRuntimeId(runtimeId)) {
     throw new Error(`Unsupported runtime: ${runtimeId}`);
   }
 

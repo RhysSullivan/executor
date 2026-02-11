@@ -9,6 +9,13 @@ import { InProcessExecutionAdapter } from "../lib/adapters/in_process_execution_
 import { resolveCredentialPayload } from "../lib/credential_providers";
 import { APPROVAL_DENIED_PREFIX } from "../lib/execution_constants";
 import { actorIdForAccount } from "../lib/identity";
+import { runCodeWithCloudflareWorkerLoader } from "../lib/runtimes/cloudflare_worker_loader_runtime";
+import {
+  CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
+  isCloudflareWorkerLoaderConfigured,
+  isKnownRuntimeId,
+  LOCAL_BUN_RUNTIME_ID,
+} from "../lib/runtimes/runtime_catalog";
 import { runCodeWithAdapter } from "../lib/runtimes/runtime_core";
 import { createDiscoverTool } from "../lib/tool_discovery";
 import {
@@ -1089,13 +1096,32 @@ export const runTask = internalAction({
       return null;
     }
 
-    if (task.runtimeId !== "local-bun") {
+    if (!isKnownRuntimeId(task.runtimeId)) {
       const failed = await ctx.runMutation(internal.database.markTaskFinished, {
         taskId: args.taskId,
         status: "failed",
         stdout: "",
         stderr: "",
         error: `Runtime not found: ${task.runtimeId}`,
+      });
+
+      if (failed) {
+        await publish(ctx, args.taskId, "task", "task.failed", {
+          taskId: args.taskId,
+          status: failed.status,
+          error: failed.error,
+        });
+      }
+      return null;
+    }
+
+    if (task.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID && !isCloudflareWorkerLoaderConfigured()) {
+      const failed = await ctx.runMutation(internal.database.markTaskFinished, {
+        taskId: args.taskId,
+        status: "failed",
+        stdout: "",
+        stderr: "",
+        error: `Runtime is not configured: ${task.runtimeId}`,
       });
 
       if (failed) {
@@ -1122,27 +1148,44 @@ export const runTask = internalAction({
         startedAt: running.startedAt,
       });
 
-      const adapter = new InProcessExecutionAdapter({
-        runId: args.taskId,
-        invokeTool: async (call) => await invokeTool(ctx, running, call),
-        emitOutput: async (event) => {
-          await ctx.runMutation(internal.executor.appendRuntimeOutput, {
-            runId: event.runId,
-            stream: event.stream,
-            line: event.line,
-            timestamp: event.timestamp,
-          });
-        },
-      });
+      const runtimeResult =
+        running.runtimeId === LOCAL_BUN_RUNTIME_ID
+          ? await (async () => {
+              const adapter = new InProcessExecutionAdapter({
+                runId: args.taskId,
+                invokeTool: async (call) => await invokeTool(ctx, running, call),
+                emitOutput: async (event) => {
+                  await ctx.runMutation(internal.executor.appendRuntimeOutput, {
+                    runId: event.runId,
+                    stream: event.stream,
+                    line: event.line,
+                    timestamp: event.timestamp,
+                  });
+                },
+              });
 
-      const runtimeResult = await runCodeWithAdapter(
-        {
-          taskId: args.taskId,
-          code: running.code,
-          timeoutMs: running.timeoutMs,
-        },
-        adapter,
-      );
+              return await runCodeWithAdapter(
+                {
+                  taskId: args.taskId,
+                  code: running.code,
+                  timeoutMs: running.timeoutMs,
+                },
+                adapter,
+              );
+            })()
+          : running.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID
+            ? await runCodeWithCloudflareWorkerLoader({
+                taskId: args.taskId,
+                code: running.code,
+                timeoutMs: running.timeoutMs,
+              })
+            : {
+                status: "failed" as const,
+                stdout: "",
+                stderr: "",
+                error: `Runtime not found: ${running.runtimeId}`,
+                durationMs: 0,
+              };
 
       const finished = await ctx.runMutation(internal.database.markTaskFinished, {
         taskId: args.taskId,
