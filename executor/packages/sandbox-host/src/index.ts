@@ -33,6 +33,7 @@
  * or `Response` — preventing IIFE escape attacks and response forgery.
  */
 
+import { Result } from "better-result";
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 // Import isolate modules as raw text — these are loaded as JS modules inside
@@ -128,6 +129,15 @@ function timingSafeEqual(a: string, b: string): boolean {
   return result === 0;
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const failedResult = (error: string): RunResult => ({
+  status: "failed",
+  stdout: "",
+  stderr: "",
+  error,
+});
+
 // ── Tool Bridge Entrypoint ───────────────────────────────────────────────────
 //
 // This class is exposed as a named entrypoint on the host Worker. A loopback
@@ -148,21 +158,30 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
     const url = `${callbackBaseUrl}/internal/runs/${taskId}/tool-call`;
     const callId = `call_${crypto.randomUUID()}`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${callbackAuthToken}`,
-      },
-      body: JSON.stringify({ callId, toolPath, input }),
-    });
+    const response = await Result.tryPromise(() =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${callbackAuthToken}`,
+        },
+        body: JSON.stringify({ callId, toolPath, input }),
+      }),
+    );
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText);
-      return { ok: false, error: `Tool callback failed (${response.status}): ${text}` };
+    if (response.isErr()) {
+      const cause = response.error.cause;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return { ok: false, error: `Tool callback failed: ${message}` };
     }
 
-    return (await response.json()) as ToolCallResult;
+    if (!response.value.ok) {
+      const text = await Result.tryPromise(() => response.value.text());
+      const body = text.unwrapOr(response.value.statusText);
+      return { ok: false, error: `Tool callback failed (${response.value.status}): ${body}` };
+    }
+
+    return (await response.value.json()) as ToolCallResult;
   }
 
   /** Stream a console output line back to Convex (best-effort). */
@@ -170,18 +189,17 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
     const { callbackBaseUrl, callbackAuthToken, taskId } = this.props;
     const url = `${callbackBaseUrl}/internal/runs/${taskId}/output`;
 
-    try {
-      await fetch(url, {
+    // Best-effort — swallow errors.
+    await Result.tryPromise(() =>
+      fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${callbackAuthToken}`,
         },
         body: JSON.stringify({ stream, line, timestamp: Date.now() }),
-      });
-    } catch {
-      // Swallow — output streaming is best-effort.
-    }
+      }),
+    );
   }
 }
 
@@ -231,12 +249,11 @@ export default {
     }
 
     // ── Parse body ────────────────────────────────────────────────────────
-    let body: RunRequest;
-    try {
-      body = (await request.json()) as RunRequest;
-    } catch {
+    const parsed = await Result.tryPromise(() => request.json() as Promise<RunRequest>);
+    if (parsed.isErr()) {
       return Response.json({ error: "Invalid JSON body" }, { status: 400 });
     }
+    const body = parsed.value;
 
     if (!body.taskId || !body.code || !body.callback?.baseUrl || !body.callback?.authToken) {
       return Response.json(
@@ -248,7 +265,8 @@ export default {
     const timeoutMs = body.timeoutMs ?? 300_000;
     const isolateId = body.taskId;
 
-    try {
+    // ── Spawn isolate and execute ─────────────────────────────────────────
+    const execution = await Result.tryPromise(async () => {
       const ctxExports = (ctx as unknown as {
         exports: Record<string, (opts: { props: BridgeProps }) => unknown>;
       }).exports;
@@ -266,10 +284,7 @@ export default {
         mainModule: "harness.js",
         modules: {
           "harness.js": HARNESS_CODE,
-          // Globals captured before user code is evaluated.
           "globals.js": GLOBALS_MODULE,
-          // User code is in a separate module — it exports run(tools, console)
-          // and cannot access the harness's fetch handler scope.
           "user-code.js": buildUserModule(body.code),
         },
         env: {
@@ -283,15 +298,18 @@ export default {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-      try {
-        const response = await entrypoint.fetch("http://sandbox.internal/run", {
+      const response = await Result.tryPromise(() =>
+        entrypoint.fetch("http://sandbox.internal/run", {
           method: "POST",
           signal: controller.signal,
-        });
-        const result = (await response.json()) as RunResult;
-        return Response.json(result);
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
+        }),
+      );
+
+      clearTimeout(timer);
+
+      if (response.isErr()) {
+        const cause = response.error.cause;
+        if (cause instanceof DOMException && cause.name === "AbortError") {
           return Response.json({
             status: "timed_out",
             stdout: "",
@@ -299,18 +317,19 @@ export default {
             error: `Execution timed out after ${timeoutMs}ms`,
           } satisfies RunResult);
         }
-        throw error;
-      } finally {
-        clearTimeout(timer);
+        throw cause;
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return Response.json({
-        status: "failed",
-        stdout: "",
-        stderr: "",
-        error: `Sandbox host error: ${message}`,
-      } satisfies RunResult);
+
+      const result = (await response.value.json()) as RunResult;
+      return Response.json(result);
+    });
+
+    if (execution.isErr()) {
+      const cause = execution.error.cause;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return Response.json(failedResult(`Sandbox host error: ${message}`));
     }
+
+    return execution.value;
   },
 };
