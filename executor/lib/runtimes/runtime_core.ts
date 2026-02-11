@@ -5,6 +5,7 @@
 // the core helpers here (formatArgs, createToolsProxy, console proxy, execution
 // loop, result mapping) should be mirrored there.
 import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution_constants";
+import { Result } from "better-result";
 import { Script, createContext } from "node:vm";
 import type {
   ExecutionAdapter,
@@ -17,11 +18,7 @@ function formatArgs(args: unknown[]): string {
   return args
     .map((value) => {
       if (typeof value === "string") return value;
-      try {
-        return JSON.stringify(value);
-      } catch {
-        return String(value);
-      }
+      return Result.try(() => JSON.stringify(value)).unwrapOr(String(value));
     })
     .join(" ");
 }
@@ -71,6 +68,30 @@ function createToolsProxy(
   });
 }
 
+/** Classify a caught error from VM execution into a result status. */
+function classifyExecutionError(
+  error: unknown,
+  request: SandboxExecutionRequest,
+): { status: SandboxExecutionResult["status"]; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message === TASK_TIMEOUT_MARKER || message.includes("Script execution timed out")) {
+    return {
+      status: "timed_out",
+      message: `Execution timed out after ${request.timeoutMs}ms`,
+    };
+  }
+
+  if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
+    return {
+      status: "denied",
+      message: message.replace(APPROVAL_DENIED_PREFIX, "").trim(),
+    };
+  }
+
+  return { status: "failed", message };
+}
+
 export async function runCodeWithAdapter(
   request: SandboxExecutionRequest,
   adapter: ExecutionAdapter,
@@ -103,6 +124,26 @@ export async function runCodeWithAdapter(
     );
   };
 
+  const mkResult = (
+    status: SandboxExecutionResult["status"],
+    opts?: { error?: string; exitCode?: number },
+  ): SandboxExecutionResult => ({
+    status,
+    stdout: stdoutLines.join("\n"),
+    stderr: stderrLines.join("\n"),
+    exitCode: opts?.exitCode,
+    error: opts?.error,
+    durationMs: Date.now() - startedAt,
+  });
+
+  // ── Transpile ──────────────────────────────────────────────────────────
+  const transpiled = transpileForRuntime(request.code);
+  if (transpiled.isErr()) {
+    appendStderr(transpiled.error.message);
+    return mkResult("failed", { error: transpiled.error.message });
+  }
+
+  // ── Sandbox setup ──────────────────────────────────────────────────────
   const tools = createToolsProxy(adapter, request.taskId);
   const consoleProxy = {
     log: (...args: unknown[]) => appendStdout(formatArgs(args)),
@@ -118,15 +159,14 @@ export async function runCodeWithAdapter(
     clearTimeout,
   });
   const context = createContext(sandbox, {
-    codeGeneration: {
-      strings: false,
-      wasm: false,
-    },
+    codeGeneration: { strings: false, wasm: false },
   });
 
-  const executableCode = await transpileForRuntime(request.code);
-  const runnerScript = new Script(`(async () => {\n"use strict";\n${executableCode}\n})()`);
+  const runnerScript = new Script(
+    `(async () => {\n"use strict";\n${transpiled.value}\n})()`,
+  );
 
+  // ── Execute with timeout ───────────────────────────────────────────────
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timeoutHandle = setTimeout(() => {
@@ -134,60 +174,32 @@ export async function runCodeWithAdapter(
     }, request.timeoutMs);
   });
 
-  try {
+  const execution = await Result.tryPromise(async () => {
     const value = await Promise.race([
-      Promise.resolve(runnerScript.runInContext(context, { timeout: Math.max(1, request.timeoutMs) })),
+      Promise.resolve(
+        runnerScript.runInContext(context, {
+          timeout: Math.max(1, request.timeoutMs),
+        }),
+      ),
       timeoutPromise,
     ]);
+    return value;
+  });
 
-    if (value !== undefined) {
-      appendStdout(`result: ${formatArgs([value])}`);
-    }
+  if (timeoutHandle) clearTimeout(timeoutHandle);
 
-    return {
-      status: "completed",
-      stdout: stdoutLines.join("\n"),
-      stderr: stderrLines.join("\n"),
-      exitCode: 0,
-      durationMs: Date.now() - startedAt,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === TASK_TIMEOUT_MARKER || message.includes("Script execution timed out")) {
-      const timeoutMessage = `Execution timed out after ${request.timeoutMs}ms`;
-      appendStderr(timeoutMessage);
-      return {
-        status: "timed_out",
-        stdout: stdoutLines.join("\n"),
-        stderr: stderrLines.join("\n"),
-        error: timeoutMessage,
-        durationMs: Date.now() - startedAt,
-      };
-    }
-
-    if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
-      const deniedMessage = message.replace(APPROVAL_DENIED_PREFIX, "").trim();
-      appendStderr(deniedMessage);
-      return {
-        status: "denied",
-        stdout: stdoutLines.join("\n"),
-        stderr: stderrLines.join("\n"),
-        error: deniedMessage,
-        durationMs: Date.now() - startedAt,
-      };
-    }
-
+  if (execution.isErr()) {
+    const { status, message } = classifyExecutionError(
+      execution.error.cause,
+      request,
+    );
     appendStderr(message);
-    return {
-      status: "failed",
-      stdout: stdoutLines.join("\n"),
-      stderr: stderrLines.join("\n"),
-      error: message,
-      durationMs: Date.now() - startedAt,
-    };
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
+    return mkResult(status, { error: message });
   }
+
+  if (execution.value !== undefined) {
+    appendStdout(`result: ${formatArgs([execution.value])}`);
+  }
+
+  return mkResult("completed", { exitCode: 0 });
 }

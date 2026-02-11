@@ -1,38 +1,78 @@
 "use node";
 
+import { Result, TaggedError } from "better-result";
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+export class TranspileError extends TaggedError("TranspileError")<{
+  message: string;
+}>() {}
+
+// ---------------------------------------------------------------------------
+// TypeScript module loader
+// ---------------------------------------------------------------------------
+
+let cachedTypeScript: typeof import("typescript") | null | undefined;
+
+function getTypeScriptModule(): typeof import("typescript") | null {
+  if (cachedTypeScript === undefined) {
+    const loaded = Result.try(() => require("typescript") as typeof import("typescript"));
+    cachedTypeScript = loaded.isOk() ? loaded.value : null;
+  }
+  return cachedTypeScript ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
  * Transpile TypeScript code to JavaScript using the `typescript` module.
  *
- * If the `typescript` module is not available, the code is returned as-is
+ * Returns a Result — either the transpiled JS string or a TranspileError.
+ * If the TypeScript module is not available, the code is returned as-is
  * (graceful fallback for environments where TS isn't installed).
  *
  * Targets ES2022/ESNext so the output can run in modern runtimes (node:vm,
  * Cloudflare Workers isolates, etc.) without further downlevelling.
  */
-export async function transpileForRuntime(code: string): Promise<string> {
-  let ts: typeof import("typescript");
-  try {
-    ts = require("typescript");
-  } catch {
-    return code;
-  }
+export function transpileForRuntime(
+  code: string,
+): Result<string, TranspileError> {
+  const ts = getTypeScriptModule();
+  if (!ts) return Result.ok(code);
 
   const target = ts.ScriptTarget?.ES2022 ?? ts.ScriptTarget?.ESNext;
   const moduleKind = ts.ModuleKind?.ESNext;
 
-  const result = ts.transpileModule(code, {
-    compilerOptions: {
-      ...(target !== undefined ? { target } : {}),
-      ...(moduleKind !== undefined ? { module: moduleKind } : {}),
+  return Result.try({
+    try: () => {
+      const result = ts.transpileModule(code, {
+        compilerOptions: {
+          ...(target !== undefined ? { target } : {}),
+          ...(moduleKind !== undefined ? { module: moduleKind } : {}),
+        },
+        reportDiagnostics: true,
+      });
+
+      if (result.diagnostics && result.diagnostics.length > 0) {
+        const first = result.diagnostics[0];
+        const message = ts.flattenDiagnosticMessageText(
+          first.messageText,
+          "\n",
+        );
+        throw new TranspileError({ message: `TypeScript transpile error: ${message}` });
+      }
+
+      return result.outputText || code;
     },
-    reportDiagnostics: true,
+    catch: (e) =>
+      e instanceof TranspileError
+        ? e
+        : new TranspileError({
+            message: e instanceof Error ? e.message : String(e),
+          }),
   });
-
-  if (result.diagnostics && result.diagnostics.length > 0) {
-    const first = result.diagnostics[0];
-    const message = ts.flattenDiagnosticMessageText(first.messageText, "\n");
-    throw new Error(`TypeScript transpile error: ${message}`);
-  }
-
-  return result.outputText || code;
 }

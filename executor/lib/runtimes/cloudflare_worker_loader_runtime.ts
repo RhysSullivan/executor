@@ -1,5 +1,6 @@
 "use node";
 
+import { Result } from "better-result";
 import type { SandboxExecutionRequest, SandboxExecutionResult } from "../types";
 import { getCloudflareWorkerLoaderConfig } from "./runtime_catalog";
 import { transpileForRuntime } from "./transpile";
@@ -38,19 +39,30 @@ export async function runCodeWithCloudflareWorkerLoader(
   const config = getCloudflareWorkerLoaderConfig();
   const startedAt = Date.now();
 
+  const mkResult = (
+    status: SandboxExecutionResult["status"],
+    opts?: { stdout?: string; stderr?: string; error?: string; exitCode?: number },
+  ): SandboxExecutionResult => ({
+    status,
+    stdout: opts?.stdout ?? "",
+    stderr: opts?.stderr ?? "",
+    exitCode: opts?.exitCode,
+    error: opts?.error,
+    durationMs: Date.now() - startedAt,
+  });
+
+  // ── Transpile TS → JS on the Convex side ─────────────────────────────
+  const transpiled = transpileForRuntime(request.code);
+  if (transpiled.isErr()) {
+    return mkResult("failed", { error: transpiled.error.message });
+  }
+
+  // ── POST to CF host worker ────────────────────────────────────────────
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    config.requestTimeoutMs,
-  );
+  const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
 
-  try {
-    // Transpile TS → JS on the Convex side before sending to the CF isolate.
-    // The dynamic isolate runs the code as plain JS (harness.js), so any
-    // TypeScript syntax must be stripped first.
-    const code = await transpileForRuntime(request.code);
-
-    const response = await fetch(config.runUrl, {
+  const response = await Result.tryPromise(() =>
+    fetch(config.runUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -58,71 +70,66 @@ export async function runCodeWithCloudflareWorkerLoader(
       },
       body: JSON.stringify({
         taskId: request.taskId,
-        code,
+        code: transpiled.value,
         timeoutMs: request.timeoutMs,
-        // The host Worker needs these to call back to Convex for tool
-        // invocations and output streaming.
         callback: {
           baseUrl: config.callbackBaseUrl,
           authToken: config.callbackAuthToken,
         },
       }),
       signal: controller.signal,
-    });
+    }),
+  );
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => response.statusText);
-      return {
-        status: "failed",
-        stdout: "",
-        stderr: text,
-        error: `Cloudflare sandbox returned ${response.status}: ${text}`,
-        durationMs: Date.now() - startedAt,
-      };
+  clearTimeout(timeout);
+
+  if (response.isErr()) {
+    const cause = response.error.cause;
+    const isAbort = cause instanceof DOMException && cause.name === "AbortError";
+    if (isAbort) {
+      return mkResult("timed_out", {
+        error: `Cloudflare sandbox request timed out after ${config.requestTimeoutMs}ms`,
+      });
     }
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return mkResult("failed", {
+      error: `Cloudflare sandbox request failed: ${message}`,
+    });
+  }
 
-    const result = (await response.json()) as {
+  // ── Handle non-OK HTTP status ─────────────────────────────────────────
+  if (!response.value.ok) {
+    const text = await Result.tryPromise(() => response.value.text());
+    const body = text.unwrapOr(response.value.statusText);
+    return mkResult("failed", {
+      stderr: body,
+      error: `Cloudflare sandbox returned ${response.value.status}: ${body}`,
+    });
+  }
+
+  // ── Parse JSON response ───────────────────────────────────────────────
+  const body = await Result.tryPromise(() =>
+    response.value.json() as Promise<{
       status?: string;
       stdout?: string;
       stderr?: string;
       error?: string;
       exitCode?: number;
-    };
+    }>,
+  );
 
-    const status = mapStatus(result.status);
-
-    return {
-      status,
-      stdout: result.stdout ?? "",
-      stderr: result.stderr ?? "",
-      exitCode: result.exitCode,
-      error: result.error,
-      durationMs: Date.now() - startedAt,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const isAbort = error instanceof DOMException && error.name === "AbortError";
-
-    if (isAbort) {
-      return {
-        status: "timed_out",
-        stdout: "",
-        stderr: "",
-        error: `Cloudflare sandbox request timed out after ${config.requestTimeoutMs}ms`,
-        durationMs: Date.now() - startedAt,
-      };
-    }
-
-    return {
-      status: "failed",
-      stdout: "",
-      stderr: "",
-      error: `Cloudflare sandbox request failed: ${message}`,
-      durationMs: Date.now() - startedAt,
-    };
-  } finally {
-    clearTimeout(timeout);
+  if (body.isErr()) {
+    return mkResult("failed", {
+      error: `Cloudflare sandbox returned invalid JSON`,
+    });
   }
+
+  return mkResult(mapStatus(body.value.status), {
+    stdout: body.value.stdout,
+    stderr: body.value.stderr,
+    exitCode: body.value.exitCode,
+    error: body.value.error,
+  });
 }
 
 function mapStatus(
