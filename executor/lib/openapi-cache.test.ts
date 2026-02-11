@@ -176,7 +176,7 @@ describe("prepareOpenApiSpec with large specs", () => {
 
     expect(Object.keys(prepared.paths)).toHaveLength(250);
     expect(prepared.dts).toBeDefined();
-    expect(prepared.warnings.some((warning: string) => warning.includes("fast mode"))).toBe(false);
+    expect(prepared.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
 
     const tools = buildOpenApiToolsFromPrepared(
       {
@@ -342,6 +342,65 @@ describe("buildOpenApiToolsFromPrepared", () => {
     expect(createDbTool?.metadata?.displayArgsType).toBe(
       "{ parent: ...; title: ...; properties: ...; icon: ...; cover: ... }",
     );
+  });
+
+  test("infers workspace auth from OpenAPI securitySchemes when source auth is unset", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Auth inferred", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      security: [{ bearerAuth: [] }],
+      components: {
+        securitySchemes: {
+          bearerAuth: {
+            type: "http",
+            scheme: "bearer",
+          },
+        },
+      },
+      paths: {
+        "/me": {
+          get: {
+            operationId: "getMe",
+            tags: ["users"],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { id: { type: "string" } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "auth-inferred");
+    expect(prepared.inferredAuth).toEqual({ type: "bearer", mode: "workspace" });
+
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "auth-source",
+        sourceKey: "source:test-source-id",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const meTool = tools.find((tool) => tool.metadata?.operationId === "getMe");
+    expect(meTool?.credential).toEqual({
+      sourceKey: "source:test-source-id",
+      mode: "workspace",
+      authType: "bearer",
+    });
   });
 
   test("resolves shared parameter refs and maps 204 responses to void", async () => {

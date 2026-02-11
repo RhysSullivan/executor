@@ -10,7 +10,6 @@ import type { Id } from "./_generated/dataModel";
 
 const http = httpRouter();
 const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? null;
-const mcpJwksByServer = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
 function getMcpAuthorizationServer(): string | null {
   return process.env.MCP_AUTHORIZATION_SERVER
@@ -34,17 +33,7 @@ function getMcpAuthConfig(): {
     };
   }
 
-  const existingJwks = mcpJwksByServer.get(authorizationServer);
-  if (existingJwks) {
-    return {
-      enabled: true,
-      authorizationServer,
-      jwks: existingJwks,
-    };
-  }
-
   const jwks = createRemoteJWKSet(new URL("/oauth2/jwks", authorizationServer));
-  mcpJwksByServer.set(authorizationServer, jwks);
   return {
     enabled: true,
     authorizationServer,

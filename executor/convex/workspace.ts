@@ -166,10 +166,20 @@ export const upsertToolSource = workspaceMutation({
     enabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.upsertToolSource, {
+    const source = await ctx.runMutation(internal.database.upsertToolSource, {
       workspaceId: ctx.workspaceId,
       ...args,
     });
+
+    try {
+      await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+        workspaceId: ctx.workspaceId,
+      });
+    } catch {
+      // Best effort prewarm only.
+    }
+
+    return source;
   },
 });
 
@@ -186,9 +196,19 @@ export const deleteToolSource = workspaceMutation({
   requireAdmin: true,
   args: { sourceId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.deleteToolSource, {
+    const deleted = await ctx.runMutation(internal.database.deleteToolSource, {
       workspaceId: ctx.workspaceId,
       sourceId: args.sourceId,
     });
+
+    try {
+      await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+        workspaceId: ctx.workspaceId,
+      });
+    } catch {
+      // Best effort prewarm only.
+    }
+
+    return deleted;
   },
 });

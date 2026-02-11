@@ -64,7 +64,7 @@ function policySpecificity(policy: AccessPolicyRecord, actorId?: string, clientI
 }
 
 function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
-  const signatureVersion = "v14";
+  const signatureVersion = "v15";
   const parts = sources
     .map((source) => `${source.id}:${source.updatedAt}:${source.enabled ? 1 : 0}`)
     .sort();
@@ -176,6 +176,7 @@ function suggestToolPaths(
 }
 
 function normalizeExternalToolSource(raw: {
+  id: string;
   type: ToolSourceRecord["type"];
   name: string;
   config: Record<string, unknown>;
@@ -211,6 +212,8 @@ function normalizeExternalToolSource(raw: {
     const result: McpToolSourceConfig = {
       type: "mcp",
       name: raw.name,
+      sourceId: raw.id,
+      sourceKey: `source:${raw.id}`,
       url: config.url,
       transport: config.transport as McpToolSourceConfig["transport"],
       queryParams: config.queryParams as McpToolSourceConfig["queryParams"],
@@ -228,6 +231,8 @@ function normalizeExternalToolSource(raw: {
     const result: GraphqlToolSourceConfig = {
       type: "graphql",
       name: raw.name,
+      sourceId: raw.id,
+      sourceKey: `source:${raw.id}`,
       endpoint: config.endpoint,
       schema: config.schema as GraphqlToolSourceConfig["schema"],
       auth: config.auth as GraphqlToolSourceConfig["auth"],
@@ -246,6 +251,8 @@ function normalizeExternalToolSource(raw: {
   const result: OpenApiToolSourceConfig = {
     type: "openapi",
     name: raw.name,
+    sourceId: raw.id,
+    sourceKey: `source:${raw.id}`,
     spec: spec as OpenApiToolSourceConfig["spec"],
     baseUrl: config.baseUrl as OpenApiToolSourceConfig["baseUrl"],
     auth: config.auth as OpenApiToolSourceConfig["auth"],
@@ -269,7 +276,7 @@ interface DtsStorageEntry {
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version — bump when PreparedOpenApiSpec shape changes. */
-const OPENAPI_CACHE_VERSION = "v14";
+const OPENAPI_CACHE_VERSION = "v15";
 
 async function publish(
   ctx: ActionCtx,

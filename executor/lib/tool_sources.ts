@@ -15,6 +15,8 @@ type JsonSchema = Record<string, unknown>;
 export interface McpToolSourceConfig {
   type: "mcp";
   name: string;
+  sourceId?: string;
+  sourceKey?: string;
   url: string;
   transport?: "sse" | "streamable-http";
   queryParams?: Record<string, string>;
@@ -31,6 +33,8 @@ export type OpenApiAuth =
 export interface OpenApiToolSourceConfig {
   type: "openapi";
   name: string;
+  sourceId?: string;
+  sourceKey?: string;
   spec: string | Record<string, unknown>;
   baseUrl?: string;
   auth?: OpenApiAuth;
@@ -42,6 +46,8 @@ export interface OpenApiToolSourceConfig {
 export interface GraphqlToolSourceConfig {
   type: "graphql";
   name: string;
+  sourceId?: string;
+  sourceKey?: string;
   endpoint: string;
   /** Optional static introspection result — if omitted, we introspect at load time */
   schema?: Record<string, unknown>;
@@ -651,6 +657,14 @@ function buildCredentialSpec(sourceKey: string, auth?: OpenApiAuth): ToolCredent
   };
 }
 
+function getCredentialSourceKey(config: {
+  type: ExternalToolSourceConfig["type"];
+  name: string;
+  sourceKey?: string;
+}): string {
+  return config.sourceKey ?? `${config.type}:${config.name}`;
+}
+
 function buildOpenApiUrl(
   baseUrl: string,
   pathTemplate: string,
@@ -866,7 +880,57 @@ export interface PreparedOpenApiSpec {
   paths: Record<string, unknown>;
   /** Raw .d.ts from openapiTS — cached as-is, extracted lazily on read */
   dts?: string;
+  /** Auth inferred from OpenAPI security schemes when explicit source auth is not configured. */
+  inferredAuth?: OpenApiAuth;
   warnings: string[];
+}
+
+function inferOpenApiAuth(spec: Record<string, unknown>): OpenApiAuth | undefined {
+  const components = asRecord(spec.components);
+  const securitySchemes = asRecord(components.securitySchemes);
+  if (Object.keys(securitySchemes).length === 0) {
+    return undefined;
+  }
+
+  const security = Array.isArray(spec.security)
+    ? spec.security.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    : [];
+
+  const referencedSchemeName = security
+    .flatMap((entry) => Object.keys(entry))
+    .find((name) => typeof securitySchemes[name] === "object");
+
+  const schemeName = referencedSchemeName ?? Object.keys(securitySchemes)[0];
+  if (!schemeName) return undefined;
+
+  const scheme = asRecord(securitySchemes[schemeName]);
+  const type = String(scheme.type ?? "").toLowerCase();
+
+  if (type === "http") {
+    const httpScheme = String(scheme.scheme ?? "").toLowerCase();
+    if (httpScheme === "bearer") {
+      return { type: "bearer", mode: "workspace" };
+    }
+    if (httpScheme === "basic") {
+      return { type: "basic", mode: "workspace" };
+    }
+    return undefined;
+  }
+
+  if (type === "apikey") {
+    const location = String(scheme.in ?? "").toLowerCase();
+    const header = typeof scheme.name === "string" ? scheme.name.trim() : "";
+    if (location === "header" && header.length > 0) {
+      return { type: "apiKey", mode: "workspace", header };
+    }
+    return undefined;
+  }
+
+  if (type === "oauth2" || type === "openidconnect") {
+    return { type: "bearer", mode: "workspace" };
+  }
+
+  return undefined;
 }
 
 export async function prepareOpenApiSpec(
@@ -917,6 +981,7 @@ export async function prepareOpenApiSpec(
   const operationTypeIds = dts ? extractOperationIdsFromDts(dts) : new Set<string>();
 
   const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
+  const inferredAuth = inferOpenApiAuth(bundled);
 
   return {
     servers: servers
@@ -931,6 +996,7 @@ export async function prepareOpenApiSpec(
       asRecord(asRecord(bundled.components).requestBodies),
     ),
     dts: dts ?? undefined,
+    ...(inferredAuth ? { inferredAuth } : {}),
     warnings,
   };
 }
@@ -944,9 +1010,11 @@ export function buildOpenApiToolsFromPrepared(
     throw new Error(`OpenAPI source ${config.name} has no base URL (set baseUrl)`);
   }
 
-  const authHeaders = buildStaticAuthHeaders(config.auth);
-  const sourceKey = `openapi:${config.name}`;
-  const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
+  const effectiveAuth = config.auth ?? prepared.inferredAuth;
+  const authHeaders = buildStaticAuthHeaders(effectiveAuth);
+  const sourceLabel = `openapi:${config.name}`;
+  const credentialSourceKey = getCredentialSourceKey(config);
+  const credentialSpec = buildCredentialSpec(credentialSourceKey, effectiveAuth);
   const paths = asRecord(prepared.paths);
   const tools: ToolDefinition[] = [];
 
@@ -1064,7 +1132,7 @@ export function buildOpenApiToolsFromPrepared(
 
       const tool: ToolDefinition & { _runSpec: SerializedTool["runSpec"] } = {
         path: buildOpenApiToolPath(config.name, tagRaw, operationIdRaw, usedToolPaths),
-        source: sourceKey,
+        source: sourceLabel,
         approval,
         description: String(operation.summary ?? operation.description ?? `${method.toUpperCase()} ${pathTemplate}`),
         metadata: {
@@ -1553,7 +1621,7 @@ export function parseGraphqlOperationPaths(
 async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDefinition[]> {
   const authHeaders = buildStaticAuthHeaders(config.auth);
   const sourceKey = `graphql:${config.name}`;
-  const credentialSpec = buildCredentialSpec(sourceKey, config.auth);
+  const credentialSpec = buildCredentialSpec(getCredentialSourceKey(config), config.auth);
   const sourceName = sanitizeSegment(config.name);
 
   // Introspect the schema

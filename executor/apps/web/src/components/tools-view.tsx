@@ -5,7 +5,6 @@ import {
   Wrench,
   Plus,
   Trash2,
-  ShieldCheck,
   Globe,
   Server,
   ChevronRight,
@@ -50,7 +49,6 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type {
   ToolSourceRecord,
-  ToolDescriptor,
   CredentialRecord,
   CredentialScope,
   OpenApiSourceQuality,
@@ -222,52 +220,42 @@ function faviconForUrl(url: string | undefined | null): string | null {
   }
 }
 
-function isTemplateHostname(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
-  return (
-    lower === "localhost" ||
-    lower === "example.com" ||
-    lower.endsWith(".example.com") ||
-    lower.startsWith("your-domain") ||
-    lower.includes(".your-domain")
-  );
-}
-
-function pickFaviconTarget(urls: Array<string | undefined | null>): string | null {
-  const parsed = urls
-    .filter((value): value is string => Boolean(value))
-    .map((value) => {
-      try {
-        return { value, hostname: new URL(value).hostname };
-      } catch {
-        return null;
-      }
-    })
-    .filter((entry): entry is { value: string; hostname: string } => entry !== null);
-
-  const preferred = parsed.find((entry) => !isTemplateHostname(entry.hostname));
-  if (preferred) return preferred.value;
-  return parsed[0]?.value ?? null;
-}
-
 function getFaviconUrl(preset: ApiPreset): string | null {
-  return faviconForUrl(pickFaviconTarget([preset.baseUrl, preset.endpoint, preset.url, preset.spec]));
+  if (preset.type === "openapi") {
+    return faviconForUrl(preset.baseUrl ?? null);
+  }
+  if (preset.type === "graphql") {
+    return faviconForUrl(preset.endpoint ?? null);
+  }
+  return faviconForUrl(preset.url ?? null);
 }
 
 function getSourceFavicon(source: ToolSourceRecord): string | null {
-  const urls =
-    source.type === "mcp"
-      ? [source.config.url as string]
-      : source.type === "graphql"
-        ? [source.config.endpoint as string]
-        : [source.config.baseUrl as string, source.config.spec as string];
-  return faviconForUrl(pickFaviconTarget(urls));
+  if (source.type === "mcp") {
+    return faviconForUrl((source.config.url as string) ?? null);
+  }
+  if (source.type === "graphql") {
+    return faviconForUrl((source.config.endpoint as string) ?? null);
+  }
+  return faviconForUrl((source.config.baseUrl as string) ?? null);
 }
 
 function sourceKeyForSource(source: ToolSourceRecord): string | null {
-  if (source.type === "openapi") return `openapi:${source.name}`;
-  if (source.type === "graphql") return `graphql:${source.name}`;
+  if (source.type === "openapi") return `source:${source.id}`;
+  if (source.type === "graphql") return `source:${source.id}`;
   return null;
+}
+
+function toolSourceLabelForSource(source: ToolSourceRecord): string {
+  return `${source.type}:${source.name}`;
+}
+
+function sourceForCredentialKey(sources: ToolSourceRecord[], sourceKey: string): ToolSourceRecord | null {
+  const prefix = "source:";
+  if (!sourceKey.startsWith(prefix)) return null;
+  const sourceId = sourceKey.slice(prefix.length);
+  if (!sourceId) return null;
+  return sources.find((source) => source.id === sourceId) ?? null;
 }
 
 type SourceAuthType = "none" | "bearer" | "apiKey" | "basic";
@@ -309,6 +297,26 @@ function formatSourceAuthBadge(source: ToolSourceRecord): string | null {
   if (auth.type === "none") return null;
   const mode = auth.mode ?? "workspace";
   return `${auth.type}:${mode}`;
+}
+
+function credentialStatsForSource(source: ToolSourceRecord, credentials: CredentialRecord[]): {
+  workspaceCount: number;
+  actorCount: number;
+} {
+  const sourceKey = sourceKeyForSource(source);
+  if (!sourceKey) {
+    return { workspaceCount: 0, actorCount: 0 };
+  }
+
+  let workspaceCount = 0;
+  let actorCount = 0;
+  for (const credential of credentials) {
+    if (credential.sourceKey !== sourceKey) continue;
+    if (credential.scope === "workspace") workspaceCount += 1;
+    if (credential.scope === "actor") actorCount += 1;
+  }
+
+  return { workspaceCount, actorCount };
 }
 
 function formatQualityPercent(value: number): string {
@@ -816,10 +824,12 @@ function SourceCard({
   source,
   quality,
   qualityLoading,
+  credentialStats,
 }: {
   source: ToolSourceRecord;
   quality?: OpenApiSourceQuality;
   qualityLoading?: boolean;
+  credentialStats: { workspaceCount: number; actorCount: number };
 }) {
   const { context } = useSession();
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
@@ -845,6 +855,9 @@ function SourceCard({
   const TypeIcon = source.type === "mcp" ? Server : Globe;
   const favicon = getSourceFavicon(source);
   const authBadge = formatSourceAuthBadge(source);
+  const auth = readSourceAuth(source);
+  const hasAuthConfigured = auth.type !== "none";
+  const totalCredentials = credentialStats.workspaceCount + credentialStats.actorCount;
 
   return (
     <div className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40 group">
@@ -880,6 +893,19 @@ function SourceCard({
               className="text-[9px] font-mono uppercase tracking-wider text-primary border-primary/30"
             >
               {authBadge}
+            </Badge>
+          )}
+          {hasAuthConfigured && (
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-[9px] font-mono uppercase tracking-wider",
+                totalCredentials > 0
+                  ? "text-terminal-green border-terminal-green/30"
+                  : "text-terminal-amber border-terminal-amber/30",
+              )}
+            >
+              creds ws:{credentialStats.workspaceCount} actor:{credentialStats.actorCount}
             </Badge>
           )}
           {source.type === "openapi" && quality && (
@@ -936,7 +962,7 @@ function formatCredentialSecret(secretJson: Record<string, unknown>): string {
   }
 }
 
-type SourceOption = { source: ToolSourceRecord; key: string };
+type SourceOption = { source: ToolSourceRecord; key: string; label: string };
 
 function sourceAuthForKey(sourceOptions: SourceOption[], key: string): {
   type: SourceAuthType;
@@ -948,6 +974,10 @@ function sourceAuthForKey(sourceOptions: SourceOption[], key: string): {
     return { type: "bearer" };
   }
   return readSourceAuth(match.source);
+}
+
+function sourceOptionLabel(source: ToolSourceRecord): string {
+  return `${source.name} (${source.type})`;
 }
 
 function parseJsonObject(text: string): { value?: Record<string, unknown>; error?: string } {
@@ -996,8 +1026,15 @@ function CredentialsPanel({
   const [secretJsonText, setSecretJsonText] = useState("{}");
 
   const sourceOptions = sources
-    .map((source) => ({ source, key: sourceKeyForSource(source) }))
-    .filter((entry): entry is { source: ToolSourceRecord; key: string } => entry.key !== null);
+    .map((source) => {
+      const key = sourceKeyForSource(source);
+      return {
+        source,
+        key,
+        label: sourceOptionLabel(source),
+      };
+    })
+    .filter((entry): entry is SourceOption => entry.key !== null);
 
   const selectedAuth = sourceAuthForKey(sourceOptions, sourceKey);
   const selectedAuthBadge = selectedAuth.type === "none"
@@ -1213,9 +1250,39 @@ function CredentialsPanel({
                 key={`${credential.sourceKey}:${credential.scope}:${credential.actorId ?? "workspace"}`}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40"
               >
+                {(() => {
+                  const source = sourceForCredentialKey(sources, credential.sourceKey);
+                  const favicon = source ? getSourceFavicon(source) : null;
+                  return (
+                    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+                      {favicon ? (
+                        <img src={favicon} alt="" width={20} height={20} className="w-5 h-5" loading="lazy" />
+                      ) : (
+                        <KeyRound className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </div>
+                  );
+                })()}
                 <div className="flex-1 min-w-0">
+                  {(() => {
+                    const source = sourceForCredentialKey(sources, credential.sourceKey);
+                    if (!source) {
+                      return (
+                        <p className="text-[11px] text-muted-foreground/80 font-mono mb-1">
+                          {credential.sourceKey}
+                        </p>
+                      );
+                    }
+                    return (
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-sm font-mono font-medium">{source.name}</span>
+                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                          {source.type}
+                        </Badge>
+                      </div>
+                    );
+                  })()}
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-mono font-medium">{credential.sourceKey}</span>
                     <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                       {credential.scope}
                     </Badge>
@@ -1255,7 +1322,7 @@ function CredentialsPanel({
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Source Key</Label>
+              <Label className="text-xs text-muted-foreground">Source</Label>
               {sourceOptions.length > 0 ? (
                 <Select value={sourceKey} onValueChange={handleSourceKeyChange}>
                   <SelectTrigger className="h-8 text-xs bg-background">
@@ -1263,8 +1330,8 @@ function CredentialsPanel({
                   </SelectTrigger>
                   <SelectContent>
                     {sourceOptions.map((entry) => (
-                      <SelectItem key={entry.key} value={entry.key} className="text-xs font-mono">
-                        {entry.key}
+                      <SelectItem key={entry.key} value={entry.key} className="text-xs">
+                        {entry.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1273,9 +1340,12 @@ function CredentialsPanel({
                 <Input
                   value={sourceKey}
                   onChange={(e) => handleSourceKeyChange(e.target.value)}
-                  placeholder="openapi:github"
+                  placeholder="source:<source-id>"
                   className="h-8 text-xs font-mono bg-background"
                 />
+              )}
+              {sourceKey && (
+                <p className="text-[10px] text-muted-foreground font-mono">key: {sourceKey}</p>
               )}
             </div>
 
@@ -1535,14 +1605,15 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
                     </div>
                   )}
                   {sourceItems.map((s) => {
-                    const sourceKey = sourceKeyForSource(s);
-                    const quality = sourceKey ? sourceQuality[sourceKey] : undefined;
+                    const quality = sourceQuality[toolSourceLabelForSource(s)];
+                    const credentialStats = credentialStatsForSource(s, credentials ?? []);
                     return (
                       <SourceCard
                         key={s.id}
                         source={s}
                         quality={quality}
                         qualityLoading={toolsLoading}
+                        credentialStats={credentialStats}
                       />
                     );
                   })}
