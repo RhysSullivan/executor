@@ -43,7 +43,7 @@ export async function handleExternalToolCallRequest(
         ok: false,
         kind: "pending",
         approvalId,
-        retryAfterMs: 500,
+        retryAfterMs: 0,
         error: "Approval pending",
       };
     }
