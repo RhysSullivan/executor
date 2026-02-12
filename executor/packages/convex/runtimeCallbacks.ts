@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, mutation } from "./_generated/server";
+import { action, mutation, query } from "./_generated/server";
 import type { ToolCallResult } from "../core/src/types";
 
 function requireInternalSecret(secret: string): void {
@@ -53,5 +53,26 @@ export const completeRun = mutation({
       error: args.error,
       durationMs: args.durationMs,
     });
+  },
+});
+
+export const getApprovalStatus = query({
+  args: {
+    internalSecret: v.string(),
+    runId: v.string(),
+    approvalId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireInternalSecret(args.internalSecret);
+
+    const approval = await ctx.runQuery(internal.database.getApproval, {
+      approvalId: args.approvalId,
+    });
+
+    if (!approval || approval.taskId !== args.runId) {
+      return { status: "missing" as const };
+    }
+
+    return { status: approval.status };
   },
 });

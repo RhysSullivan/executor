@@ -36,7 +36,7 @@
 import { Result } from "better-result";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { api } from "@executor/convex/_generated/api";
-import { ConvexHttpClient } from "convex/browser";
+import { ConvexClient, ConvexHttpClient } from "convex/browser";
 
 // Import isolate modules as raw text — these are loaded as JS modules inside
 // the dynamic isolate, NOT executed in the host worker. The *.isolate.js
@@ -113,6 +113,8 @@ interface BridgeProps {
   taskId: string;
 }
 
+const APPROVAL_SUBSCRIPTION_TIMEOUT_MS = 10 * 60 * 1000;
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 /** Constant-time string comparison to prevent timing side-channels. */
@@ -168,6 +170,58 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
     });
   }
 
+  private createRealtimeClient(): ConvexClient {
+    return new ConvexClient(this.props.callbackConvexUrl, {
+      skipConvexDeploymentUrlCheck: true,
+    });
+  }
+
+  private async waitForApprovalUpdate(approvalId: string): Promise<void> {
+    const client = this.createRealtimeClient();
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        unsubscribe();
+        client.close();
+        reject(new Error(`Timed out waiting for approval update: ${approvalId}`));
+      }, APPROVAL_SUBSCRIPTION_TIMEOUT_MS);
+
+      const unsubscribe = client.onUpdate(
+        (api as any).runtimeCallbacks.getApprovalStatus,
+        {
+          internalSecret: this.props.callbackInternalSecret,
+          runId: this.props.taskId,
+          approvalId,
+        },
+        (value: { status?: "pending" | "approved" | "denied" | "missing" } | null | undefined) => {
+          const status = value?.status;
+          if (!status || status === "pending") {
+            return;
+          }
+          if (status === "missing") {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            unsubscribe();
+            client.close();
+            reject(new Error(`Approval not found: ${approvalId}`));
+            return;
+          }
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          unsubscribe();
+          client.close();
+          resolve();
+        },
+      );
+    });
+  }
+
   /** Forward a tool call to the Convex callback RPC action. */
   async callTool(toolPath: string, input: unknown, callId?: string): Promise<ToolCallResult> {
     const { callbackInternalSecret, taskId } = this.props;
@@ -175,24 +229,42 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
       ? callId
       : `call_${crypto.randomUUID()}`;
 
-    const response = await Result.tryPromise(async () => {
-      const convex = this.createConvexClient();
-      return await convex.action(api.runtimeCallbacks.handleToolCall, {
-        internalSecret: callbackInternalSecret,
-        runId: taskId,
-        callId: effectiveCallId,
-        toolPath,
-        input,
+    while (true) {
+      const response = await Result.tryPromise(async () => {
+        const convex = this.createConvexClient();
+        return await convex.action(api.runtimeCallbacks.handleToolCall, {
+          internalSecret: callbackInternalSecret,
+          runId: taskId,
+          callId: effectiveCallId,
+          toolPath,
+          input,
+        });
       });
-    });
 
-    if (response.isErr()) {
-      const cause = response.error.cause;
-      const message = cause instanceof Error ? cause.message : String(cause);
-      return { ok: false, kind: "failed", error: `Tool callback failed: ${message}` };
+      if (response.isErr()) {
+        const cause = response.error.cause;
+        const message = cause instanceof Error ? cause.message : String(cause);
+        return { ok: false, kind: "failed", error: `Tool callback failed: ${message}` };
+      }
+
+      const result = response.value as ToolCallResult;
+      if (!result.ok && result.kind === "pending") {
+        if (!result.approvalId) {
+          return { ok: false, kind: "failed", error: "Approval pending without approvalId" };
+        }
+
+        const approvalId = result.approvalId;
+        const wait = await Result.tryPromise(() => this.waitForApprovalUpdate(approvalId));
+        if (wait.isErr()) {
+          const cause = wait.error.cause;
+          const message = cause instanceof Error ? cause.message : String(cause);
+          return { ok: false, kind: "failed", error: `Approval subscription failed: ${message}` };
+        }
+        continue;
+      }
+
+      return result;
     }
-
-    return response.value as ToolCallResult;
   }
 }
 
