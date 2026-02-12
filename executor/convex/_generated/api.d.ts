@@ -276,6 +276,47 @@ export declare const api: {
       any
     >;
   };
+  runtimeCallbacks: {
+    appendOutput: FunctionReference<
+      "mutation",
+      "public",
+      {
+        internalSecret: string;
+        line: string;
+        runId: string;
+        stream: "stdout" | "stderr";
+        timestamp?: number;
+      },
+      any
+    >;
+    completeRun: FunctionReference<
+      "mutation",
+      "public",
+      {
+        durationMs?: number;
+        error?: string;
+        exitCode?: number;
+        internalSecret: string;
+        runId: string;
+        status: "completed" | "failed" | "timed_out" | "denied";
+        stderr?: string;
+        stdout?: string;
+      },
+      any
+    >;
+    handleToolCall: FunctionReference<
+      "action",
+      "public",
+      {
+        callId: string;
+        input?: any;
+        internalSecret: string;
+        runId: string;
+        toolPath: string;
+      },
+      any
+    >;
+  };
   workspace: {
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
@@ -520,6 +561,18 @@ export declare const internal: {
       { sourceId: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    finishToolCall: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        callId: string;
+        error?: string;
+        output?: any;
+        status: "completed" | "failed" | "denied";
+        taskId: string;
+      },
+      any
+    >;
     getActiveAnonymousOauthSigningKey: FunctionReference<
       "query",
       "internal",
@@ -549,6 +602,12 @@ export declare const internal: {
       "query",
       "internal",
       { taskId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getToolCall: FunctionReference<
+      "query",
+      "internal",
+      { callId: string; taskId: string },
       any
     >;
     listAccessPolicies: FunctionReference<
@@ -596,6 +655,12 @@ export declare const internal: {
       "query",
       "internal",
       { workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolCalls: FunctionReference<
+      "query",
+      "internal",
+      { taskId: string },
       any
     >;
     listToolSources: FunctionReference<
@@ -651,6 +716,12 @@ export declare const internal: {
       },
       any
     >;
+    setToolCallPendingApproval: FunctionReference<
+      "mutation",
+      "internal",
+      { approvalId: string; callId: string; taskId: string },
+      any
+    >;
     storeAnonymousOauthSigningKey: FunctionReference<
       "mutation",
       "internal",
@@ -690,6 +761,18 @@ export declare const internal: {
       },
       any
     >;
+    upsertToolCallRequested: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        callId: string;
+        input?: any;
+        taskId: string;
+        toolPath: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     upsertToolSource: FunctionReference<
       "mutation",
       "internal",
@@ -713,6 +796,20 @@ export declare const internal: {
         runId: string;
         stream: "stdout" | "stderr";
         timestamp?: number;
+      },
+      any
+    >;
+    completeRuntimeRun: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        durationMs?: number;
+        error?: string;
+        exitCode?: number;
+        runId: string;
+        status: "completed" | "failed" | "timed_out" | "denied";
+        stderr?: string;
+        stdout?: string;
       },
       any
     >;

@@ -36,6 +36,10 @@ export interface OpenApiToolSourceConfig {
   sourceId?: string;
   sourceKey?: string;
   spec: string | Record<string, unknown>;
+  /** Optional canonical Postman collection URL for display/debugging. */
+  collectionUrl?: string;
+  /** Optional override for Postman ws/proxy endpoint (primarily for tests). */
+  postmanProxyUrl?: string;
   baseUrl?: string;
   auth?: OpenApiAuth;
   defaultReadApproval?: ToolApprovalMode;
@@ -61,6 +65,23 @@ export type ExternalToolSourceConfig =
   | McpToolSourceConfig
   | OpenApiToolSourceConfig
   | GraphqlToolSourceConfig;
+
+interface PostmanSerializedRunSpec {
+  kind: "postman";
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  queryParams: Array<{ key: string; value: string }>;
+  body?:
+    | { kind: "urlencoded"; entries: Array<{ key: string; value: string }> }
+    | { kind: "raw"; text: string };
+  variables: Record<string, string>;
+  authHeaders: Record<string, string>;
+}
+
+const POSTMAN_SPEC_PREFIX = "postman:";
+const DEFAULT_POSTMAN_PROXY_URL = "https://www.postman.com/_api/ws/proxy";
+const POSTMAN_TEMPLATE_PATTERN = /\{\{([^{}]+)\}\}/g;
 
 function sanitizeSegment(value: string): string {
   const cleanedBase = value
@@ -665,6 +686,161 @@ function getCredentialSourceKey(config: {
   return config.sourceKey ?? `${config.type}:${config.name}`;
 }
 
+export function parsePostmanCollectionUid(spec: string): string | null {
+  if (!spec.startsWith(POSTMAN_SPEC_PREFIX)) {
+    return null;
+  }
+
+  const uid = spec.slice(POSTMAN_SPEC_PREFIX.length).trim();
+  if (!uid) {
+    return null;
+  }
+
+  return uid;
+}
+
+function stringifyTemplateValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function interpolatePostmanTemplate(value: string, variables: Record<string, string>): string {
+  return value.replace(POSTMAN_TEMPLATE_PATTERN, (_, rawKey: string) => {
+    const key = rawKey.trim();
+    return Object.prototype.hasOwnProperty.call(variables, key)
+      ? variables[key]!
+      : `{{${key}}}`;
+  });
+}
+
+function findUnresolvedPostmanTemplateKeys(value: string): string[] {
+  const keys = new Set<string>();
+  let match: RegExpExecArray | null;
+  const pattern = new RegExp(POSTMAN_TEMPLATE_PATTERN.source, "g");
+  while ((match = pattern.exec(value)) !== null) {
+    const key = String(match[1] ?? "").trim();
+    if (key) keys.add(key);
+  }
+  return [...keys];
+}
+
+function asStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!key) continue;
+    result[key] = stringifyTemplateValue(entry);
+  }
+  return result;
+}
+
+function detectJsonContentType(headers: Record<string, string>): boolean {
+  const contentType = Object.entries(headers).find(([name]) => name.toLowerCase() === "content-type")?.[1] ?? "";
+  return contentType.toLowerCase().includes("json");
+}
+
+async function executePostmanRequest(
+  runSpec: PostmanSerializedRunSpec,
+  payload: Record<string, unknown>,
+  credentialHeaders?: Record<string, string>,
+): Promise<unknown> {
+  const variables = {
+    ...runSpec.variables,
+    ...asStringRecord(payload.variables),
+  };
+
+  const interpolatedUrl = interpolatePostmanTemplate(runSpec.url, variables);
+  const unresolvedUrlKeys = findUnresolvedPostmanTemplateKeys(interpolatedUrl);
+  if (unresolvedUrlKeys.length > 0) {
+    throw new Error(`Missing required URL variables: ${unresolvedUrlKeys.join(", ")}`);
+  }
+
+  let url: URL;
+  try {
+    url = new URL(interpolatedUrl);
+  } catch {
+    throw new Error(`Invalid request URL: ${interpolatedUrl}`);
+  }
+
+  for (const entry of runSpec.queryParams) {
+    if (!entry.key) continue;
+    const value = interpolatePostmanTemplate(entry.value, variables);
+    if (value.length > 0) {
+      url.searchParams.set(entry.key, value);
+    }
+  }
+
+  const queryOverrides = asRecord(payload.query);
+  for (const [key, value] of Object.entries(queryOverrides)) {
+    if (!key || value === undefined || value === null) continue;
+    url.searchParams.set(key, stringifyTemplateValue(value));
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(runSpec.headers)) {
+    if (!name) continue;
+    headers[name] = interpolatePostmanTemplate(value, variables);
+  }
+  Object.assign(headers, runSpec.authHeaders);
+  Object.assign(headers, credentialHeaders ?? {});
+
+  const headerOverrides = asRecord(payload.headers);
+  for (const [name, value] of Object.entries(headerOverrides)) {
+    if (!name || value === undefined || value === null) continue;
+    headers[name] = stringifyTemplateValue(value);
+  }
+
+  const method = runSpec.method.toUpperCase();
+  const readMethods = new Set(["GET", "HEAD", "OPTIONS"]);
+  let body: string | undefined;
+
+  if (!readMethods.has(method)) {
+    const hasExplicitBody = Object.prototype.hasOwnProperty.call(payload, "body");
+    if (hasExplicitBody) {
+      const bodyValue = payload.body;
+      if (typeof bodyValue === "string") {
+        body = bodyValue;
+      } else if (bodyValue !== undefined) {
+        body = JSON.stringify(bodyValue);
+        if (!Object.keys(headers).some((name) => name.toLowerCase() === "content-type")) {
+          headers["content-type"] = "application/json";
+        }
+      }
+    } else if (runSpec.body?.kind === "urlencoded") {
+      const params = new URLSearchParams();
+      for (const entry of runSpec.body.entries) {
+        if (!entry.key) continue;
+        params.set(entry.key, interpolatePostmanTemplate(entry.value, variables));
+      }
+      body = params.toString();
+      if (!Object.keys(headers).some((name) => name.toLowerCase() === "content-type")) {
+        headers["content-type"] = "application/x-www-form-urlencoded";
+      }
+    } else if (runSpec.body?.kind === "raw") {
+      body = interpolatePostmanTemplate(runSpec.body.text, variables);
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    method,
+    headers,
+    body,
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`);
+  }
+
+  if (detectJsonContentType(headers) || (response.headers.get("content-type") ?? "").includes("json")) {
+    return await response.json();
+  }
+
+  return await response.text();
+}
+
 function buildOpenApiUrl(
   baseUrl: string,
   pathTemplate: string,
@@ -828,7 +1004,6 @@ function compactOpenApiPaths(
             ? jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas)
             : "{}";
           compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
-          compactOperation._usesGeneratedTypes = true;
           const previewKeys = [
             ...mergedParameters.map((param) => String(param.name ?? "")).filter((name) => name.length > 0),
             ...Object.keys(asRecord(requestBodySchema.properties)),
@@ -1105,16 +1280,10 @@ export function buildOpenApiToolsFromPrepared(
         }
       }
 
-      const usesGeneratedTypes = Boolean(operation._usesGeneratedTypes);
-      const operationIdKey = JSON.stringify(operationIdRaw);
       const displayArgsType = argPreviewKeys.length > 0
         ? compactArgKeysHint(argPreviewKeys)
-        : usesGeneratedTypes
-          ? `ToolInput<operations[${operationIdKey}]>`
-          : compactArgTypeHint(argsType);
-      const displayReturnsType = usesGeneratedTypes
-        ? `ToolOutput<operations[${operationIdKey}]>`
-        : compactReturnTypeHint(returnsType);
+        : compactArgTypeHint(argsType);
+      const displayReturnsType = compactReturnTypeHint(returnsType);
 
       const approval = config.overrides?.[operationIdRaw]?.approval
         ?? (readMethods.has(method)
@@ -1185,7 +1354,234 @@ export function buildOpenApiToolsFromPrepared(
   return tools;
 }
 
+function buildPostmanToolPath(
+  sourceName: string,
+  requestName: string,
+  folderPath: string[],
+  usedPaths: Set<string>,
+): string {
+  const source = sanitizeSegment(sourceName);
+  const segments = [
+    source,
+    ...folderPath.map((segment) => sanitizeSegment(segment)).filter((segment) => segment.length > 0),
+    sanitizeSnakeSegment(requestName),
+  ];
+  const basePath = segments.join(".");
+
+  let path = basePath;
+  let suffix = 2;
+  while (usedPaths.has(path)) {
+    path = `${basePath}_${suffix}`;
+    suffix += 1;
+  }
+  usedPaths.add(path);
+  return path;
+}
+
+function resolvePostmanFolderPath(
+  folderId: string | undefined,
+  folderById: Map<string, { name: string; parentId?: string }>,
+): string[] {
+  const path: string[] = [];
+  let cursor = folderId;
+  let safety = 0;
+  while (cursor && safety < 100) {
+    safety += 1;
+    const folder = folderById.get(cursor);
+    if (!folder) break;
+    path.unshift(folder.name);
+    cursor = folder.parentId;
+  }
+  return path;
+}
+
+function extractPostmanVariableMap(value: unknown): Record<string, string> {
+  if (!Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const key = typeof record.key === "string" ? record.key.trim() : "";
+    if (!key) continue;
+    if (record.disabled === true) continue;
+    result[key] = stringifyTemplateValue(record.value);
+  }
+  return result;
+}
+
+function extractPostmanHeaderMap(value: unknown): Record<string, string> {
+  if (!Array.isArray(value)) return {};
+  const result: Record<string, string> = {};
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const key = typeof record.key === "string" ? record.key.trim() : "";
+    if (!key || record.disabled === true) continue;
+    result[key] = stringifyTemplateValue(record.value);
+  }
+  return result;
+}
+
+function extractPostmanQueryEntries(value: unknown): Array<{ key: string; value: string }> {
+  if (!Array.isArray(value)) return [];
+  const entries: Array<{ key: string; value: string }> = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const key = typeof record.key === "string" ? record.key.trim() : "";
+    if (!key || record.disabled === true) continue;
+    entries.push({ key, value: stringifyTemplateValue(record.value) });
+  }
+  return entries;
+}
+
+function extractPostmanBody(record: Record<string, unknown>): PostmanSerializedRunSpec["body"] {
+  const dataMode = typeof record.dataMode === "string" ? record.dataMode.toLowerCase() : "";
+  if (dataMode === "urlencoded" && Array.isArray(record.data)) {
+    const entries: Array<{ key: string; value: string }> = [];
+    for (const item of record.data) {
+      if (!item || typeof item !== "object") continue;
+      const entry = item as Record<string, unknown>;
+      const key = typeof entry.key === "string" ? entry.key.trim() : "";
+      if (!key || entry.disabled === true) continue;
+      entries.push({ key, value: stringifyTemplateValue(entry.value) });
+    }
+    return entries.length > 0 ? { kind: "urlencoded", entries } : undefined;
+  }
+
+  if (typeof record.rawModeData === "string" && record.rawModeData.length > 0) {
+    return { kind: "raw", text: record.rawModeData };
+  }
+
+  return undefined;
+}
+
+async function loadPostmanCollectionTools(
+  config: OpenApiToolSourceConfig,
+  collectionUid: string,
+): Promise<ToolDefinition[]> {
+  const proxyUrl = config.postmanProxyUrl ?? DEFAULT_POSTMAN_PROXY_URL;
+  const payload = {
+    service: "sync",
+    method: "GET",
+    path: `/collection/${collectionUid}?populate=true`,
+  };
+
+  const response = await fetch(proxyUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Failed to fetch API collection ${collectionUid}: HTTP ${response.status} ${text.slice(0, 300)}`);
+  }
+
+  const raw = await response.json() as Record<string, unknown>;
+  const collection = asRecord(raw.data);
+  const requests = Array.isArray(collection.requests)
+    ? collection.requests.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    : [];
+
+  const folders = Array.isArray(collection.folders)
+    ? collection.folders.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+    : [];
+
+  const folderById = new Map<string, { name: string; parentId?: string }>();
+  for (const folder of folders) {
+    const id = typeof folder.id === "string" ? folder.id : "";
+    if (!id) continue;
+    const name = typeof folder.name === "string" && folder.name.trim().length > 0 ? folder.name : "folder";
+    const parentId = typeof folder.folder === "string" ? folder.folder : undefined;
+    folderById.set(id, { name, parentId });
+  }
+
+  const sourceLabel = `catalog:${config.name}`;
+  const authHeaders = buildStaticAuthHeaders(config.auth);
+  const credentialSourceKey = getCredentialSourceKey(config);
+  const credentialSpec = buildCredentialSpec(credentialSourceKey, config.auth);
+  const readMethods = new Set(["get", "head", "options"]);
+  const usedPaths = new Set<string>();
+  const collectionVariables = extractPostmanVariableMap(collection.variables);
+  const argsType = "{ variables?: Record<string, string | number | boolean>; query?: Record<string, string | number | boolean>; headers?: Record<string, string>; body?: unknown }";
+  const returnsType = "unknown";
+
+  const tools: ToolDefinition[] = [];
+
+  for (const request of requests) {
+    const methodRaw = typeof request.method === "string" ? request.method.toLowerCase() : "get";
+    const method = methodRaw.length > 0 ? methodRaw : "get";
+    const url = typeof request.url === "string" ? request.url : "";
+    if (!url) continue;
+
+    const requestId = typeof request.id === "string" ? request.id : "";
+    const requestName = typeof request.name === "string" && request.name.trim().length > 0
+      ? request.name.trim()
+      : requestId || `${method.toUpperCase()} request`;
+    const folderId = typeof request.folder === "string" ? request.folder : undefined;
+    const folderPath = resolvePostmanFolderPath(folderId, folderById);
+    const requestVariables = {
+      ...collectionVariables,
+      ...extractPostmanVariableMap(request.pathVariableData),
+    };
+
+    const runSpec: PostmanSerializedRunSpec = {
+      kind: "postman",
+      method,
+      url,
+      headers: extractPostmanHeaderMap(request.headerData),
+      queryParams: extractPostmanQueryEntries(request.queryParams),
+      body: extractPostmanBody(request),
+      variables: requestVariables,
+      authHeaders,
+    };
+
+    const approval = config.overrides?.[requestId]?.approval
+      ?? config.overrides?.[requestName]?.approval
+      ?? (readMethods.has(method)
+        ? config.defaultReadApproval ?? "auto"
+        : config.defaultWriteApproval ?? "required");
+
+    const tool: ToolDefinition & { _runSpec: SerializedTool["runSpec"] } = {
+      path: buildPostmanToolPath(config.name, requestName, folderPath, usedPaths),
+      source: sourceLabel,
+      approval,
+      description: typeof request.description === "string" && request.description.trim().length > 0
+        ? request.description
+        : `${method.toUpperCase()} ${url}`,
+      metadata: {
+        argsType,
+        returnsType,
+        displayArgsType: compactArgTypeHint(argsType),
+        displayReturnsType: compactReturnTypeHint(returnsType),
+        argPreviewKeys: ["variables", "query", "headers", "body"],
+        operationId: requestId || requestName,
+      },
+      credential: credentialSpec,
+      _runSpec: runSpec,
+      run: async (input: unknown, context) => {
+        const payloadRecord = asRecord(input);
+        return await executePostmanRequest(runSpec, payloadRecord, context.credential?.headers);
+      },
+    };
+
+    tools.push(tool);
+  }
+
+  return tools;
+}
+
 async function loadOpenApiTools(config: OpenApiToolSourceConfig): Promise<ToolDefinition[]> {
+  if (typeof config.spec === "string") {
+    const collectionUid = parsePostmanCollectionUid(config.spec);
+    if (collectionUid) {
+      return await loadPostmanCollectionTools(config, collectionUid);
+    }
+  }
+
   const prepared = await prepareOpenApiSpec(config.spec, config.name);
   return buildOpenApiToolsFromPrepared(config, prepared);
 }
@@ -1895,6 +2291,7 @@ export interface SerializedTool {
    * Data needed to reconstruct `run()`. Shape depends on source type.
    * OpenAPI: { kind: "openapi", baseUrl, method, pathTemplate, parameters, authHeaders }
    * MCP: { kind: "mcp", url, transport?, queryParams?, toolName }
+   * Postman: { kind: "postman", method, url, headers, queryParams, body?, variables, authHeaders }
    * GraphQL raw: { kind: "graphql_raw", endpoint, authHeaders }
    * GraphQL field: { kind: "graphql_field", endpoint, operationName, operationType, queryTemplate, argNames?, authHeaders }
    * Builtin: { kind: "builtin" } — run comes from DEFAULT_TOOLS
@@ -1915,6 +2312,7 @@ export interface SerializedTool {
         queryParams?: Record<string, string>;
         toolName: string;
       }
+    | PostmanSerializedRunSpec
     | {
         kind: "graphql_raw";
         endpoint: string;
@@ -2058,6 +2456,17 @@ export function rehydrateTools(
             return await response.json();
           }
           return await response.text();
+        },
+      };
+    }
+
+    if (st.runSpec.kind === "postman") {
+      const runSpec = st.runSpec;
+      return {
+        ...base,
+        run: async (input: unknown, context) => {
+          const payload = asRecord(input);
+          return await executePostmanRequest(runSpec, payload, context.credential?.headers);
         },
       };
     }

@@ -16,6 +16,10 @@ function formatArgs(args) {
     .join(" ");
 }
 
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function createToolsProxy(bridge, path = []) {
   const callable = () => {};
   return new Proxy(callable, {
@@ -28,10 +32,18 @@ function createToolsProxy(bridge, path = []) {
       const toolPath = path.join(".");
       if (!toolPath) throw new Error("Tool path missing");
       const input = args.length > 0 ? args[0] : {};
-      const result = await bridge.callTool(toolPath, input);
-      if (result.ok) return result.value;
-      if (result.denied) throw new Error(APPROVAL_DENIED_PREFIX + result.error);
-      throw new Error(result.error);
+      const callId = "call_" + crypto.randomUUID();
+
+      while (true) {
+        const result = await bridge.callTool(toolPath, input, callId);
+        if (result.ok) return result.value;
+        if (result.kind === "pending") {
+          await sleep(Math.max(50, result.retryAfterMs ?? 500));
+          continue;
+        }
+        if (result.kind === "denied") throw new Error(APPROVAL_DENIED_PREFIX + result.error);
+        throw new Error(result.error);
+      }
     },
   });
 }

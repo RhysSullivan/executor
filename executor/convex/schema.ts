@@ -34,6 +34,13 @@ const taskStatus = v.union(
   v.literal("denied"),
 );
 const approvalStatus = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
+const toolCallStatus = v.union(
+  v.literal("requested"),
+  v.literal("pending_approval"),
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("denied"),
+);
 const policyDecision = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProvider = v.union(
@@ -206,6 +213,25 @@ export default defineSchema({
     .index("by_approval_id", ["approvalId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_status_created", ["workspaceId", "status", "createdAt"]),
+
+  toolCalls: defineTable({
+    taskId: v.string(),
+    callId: v.string(),
+    workspaceId: v.id("workspaces"),
+    toolPath: v.string(),
+    input: v.any(),
+    status: toolCallStatus,
+    approvalId: v.optional(v.string()),
+    output: v.optional(v.any()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_task_call", ["taskId", "callId"])
+    .index("by_task_created", ["taskId", "createdAt"])
+    .index("by_workspace_created", ["workspaceId", "createdAt"])
+    .index("by_approval_id", ["approvalId"]),
 
   taskEvents: defineTable({
     sequence: v.number(),

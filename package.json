@@ -6,6 +6,7 @@
     "executor/convex",
     "executor/apps/*",
     "executor/packages/*",
+    "sources",
     "assistant",
     "assistant/packages/*",
     "assistant/packages/reacord"
@@ -14,6 +15,8 @@
     "with-env": "bun run --env-file=.env --",
     "dev": "bun run dev.ts",
     "kill:all": "bun run kill-all.ts",
+    "dev:sources": "bun run --cwd sources dev",
+    "sources:sync": "bun run --cwd sources sync",
     "dev:executor:convex": "bunx --cwd executor convex dev",
     "dev:executor:web": "bun run --cwd executor/apps/web dev",
     "dev:executor:all": "bun run dev:executor:convex & bun run dev:executor:web",

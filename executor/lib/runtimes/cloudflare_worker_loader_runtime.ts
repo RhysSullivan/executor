@@ -1,7 +1,7 @@
 "use node";
 
 import { Result } from "better-result";
-import type { SandboxExecutionRequest, SandboxExecutionResult } from "../types";
+import type { SandboxExecutionRequest } from "../types";
 import { getCloudflareWorkerLoaderConfig } from "./runtime_catalog";
 import { transpileForRuntime } from "./transpile";
 
@@ -19,42 +19,47 @@ import { transpileForRuntime } from "./transpile";
  *
  * 3. The dynamic isolate's `tools` proxy calls are intercepted by a
  *    `ToolBridge` entrypoint in the host Worker (passed via `env` bindings),
- *    which in turn calls back to the Convex `/internal/runs/{runId}/tool-call`
- *    HTTP endpoint to resolve the tool.
+ *    which in turn calls Convex callback RPCs to resolve tools.
  *
- * 4. Console output from the isolate is similarly relayed back to
- *    `/internal/runs/{runId}/output`.
+ * 4. Console output from the isolate is similarly relayed back via callback
+ *    RPC mutation.
  *
- * 5. When execution completes, the host Worker returns the result as JSON and
- *    this function maps it to a `SandboxExecutionResult`.
+ * 5. The host Worker accepts the run immediately and finishes execution
+ *    asynchronously, reporting terminal results back through callback RPC.
  *
  * ## Callback authentication
  *
- * The host Worker authenticates its callbacks using the same
- * `EXECUTOR_INTERNAL_TOKEN` bearer token that the Convex HTTP API expects.
+ * The host Worker authenticates callback RPCs using `EXECUTOR_INTERNAL_TOKEN`.
  */
-export async function runCodeWithCloudflareWorkerLoader(
+export interface CloudflareDispatchResult {
+  ok: true;
+  accepted: true;
+  dispatchId: string;
+  durationMs: number;
+}
+
+export interface CloudflareDispatchError {
+  ok: false;
+  error: string;
+  durationMs: number;
+}
+
+export async function dispatchCodeWithCloudflareWorkerLoader(
   request: SandboxExecutionRequest,
-): Promise<SandboxExecutionResult> {
+): Promise<CloudflareDispatchResult | CloudflareDispatchError> {
   const config = getCloudflareWorkerLoaderConfig();
   const startedAt = Date.now();
 
-  const mkResult = (
-    status: SandboxExecutionResult["status"],
-    opts?: { stdout?: string; stderr?: string; error?: string; exitCode?: number },
-  ): SandboxExecutionResult => ({
-    status,
-    stdout: opts?.stdout ?? "",
-    stderr: opts?.stderr ?? "",
-    exitCode: opts?.exitCode,
-    error: opts?.error,
+  const mkError = (error: string): CloudflareDispatchError => ({
+    ok: false,
+    error,
     durationMs: Date.now() - startedAt,
   });
 
   // ── Transpile TS → JS on the Convex side ─────────────────────────────
   const transpiled = transpileForRuntime(request.code);
   if (transpiled.isErr()) {
-    return mkResult("failed", { error: transpiled.error.message });
+    return mkError(transpiled.error.message);
   }
 
   // ── POST to CF host worker ────────────────────────────────────────────
@@ -73,8 +78,8 @@ export async function runCodeWithCloudflareWorkerLoader(
         code: transpiled.value,
         timeoutMs: request.timeoutMs,
         callback: {
-          baseUrl: config.callbackBaseUrl,
-          authToken: config.callbackAuthToken,
+          convexUrl: config.callbackConvexUrl,
+          internalSecret: config.callbackInternalSecret,
         },
       }),
       signal: controller.signal,
@@ -87,62 +92,39 @@ export async function runCodeWithCloudflareWorkerLoader(
     const cause = response.error.cause;
     const isAbort = cause instanceof DOMException && cause.name === "AbortError";
     if (isAbort) {
-      return mkResult("timed_out", {
-        error: `Cloudflare sandbox request timed out after ${config.requestTimeoutMs}ms`,
-      });
+      return mkError(`Cloudflare sandbox dispatch timed out after ${config.requestTimeoutMs}ms`);
     }
     const message = cause instanceof Error ? cause.message : String(cause);
-    return mkResult("failed", {
-      error: `Cloudflare sandbox request failed: ${message}`,
-    });
+    return mkError(`Cloudflare sandbox dispatch failed: ${message}`);
   }
 
-  // ── Handle non-OK HTTP status ─────────────────────────────────────────
-  if (!response.value.ok) {
+  // ── Handle non-accepted HTTP status ───────────────────────────────────
+  if (response.value.status !== 202) {
     const text = await Result.tryPromise(() => response.value.text());
     const body = text.unwrapOr(response.value.statusText);
-    return mkResult("failed", {
-      stderr: body,
-      error: `Cloudflare sandbox returned ${response.value.status}: ${body}`,
-    });
+    return mkError(`Cloudflare sandbox dispatch returned ${response.value.status}: ${body}`);
   }
 
-  // ── Parse JSON response ───────────────────────────────────────────────
+  // ── Parse accepted response JSON ──────────────────────────────────────
   const body = await Result.tryPromise(() =>
     response.value.json() as Promise<{
-      status?: string;
-      stdout?: string;
-      stderr?: string;
-      error?: string;
-      exitCode?: number;
+      accepted?: boolean;
+      dispatchId?: string;
     }>,
   );
 
   if (body.isErr()) {
-    return mkResult("failed", {
-      error: `Cloudflare sandbox returned invalid JSON`,
-    });
+    return mkError("Cloudflare sandbox dispatch returned invalid JSON");
   }
 
-  return mkResult(mapStatus(body.value.status), {
-    stdout: body.value.stdout,
-    stderr: body.value.stderr,
-    exitCode: body.value.exitCode,
-    error: body.value.error,
-  });
-}
-
-function mapStatus(
-  raw: string | undefined,
-): SandboxExecutionResult["status"] {
-  switch (raw) {
-    case "completed":
-      return "completed";
-    case "timed_out":
-      return "timed_out";
-    case "denied":
-      return "denied";
-    default:
-      return "failed";
+  if (!body.value.accepted || !body.value.dispatchId) {
+    return mkError("Cloudflare sandbox dispatch response missing accepted/dispatchId");
   }
+
+  return {
+    ok: true,
+    accepted: true,
+    dispatchId: body.value.dispatchId,
+    durationMs: Date.now() - startedAt,
+  };
 }

@@ -191,7 +191,8 @@ describe("prepareOpenApiSpec with large specs", () => {
     expect(tools.length).toBeGreaterThan(700);
     const deleteTool = tools.find((tool) => tool.metadata?.operationId?.startsWith("delete_"));
     expect(deleteTool).toBeDefined();
-    expect(deleteTool?.metadata?.displayReturnsType).toContain("ToolOutput<operations[");
+    expect(deleteTool?.metadata?.displayReturnsType).toBeDefined();
+    expect(deleteTool?.metadata?.displayReturnsType).not.toContain("ToolOutput<operations[");
     expect(elapsed).toBeLessThan(20_000);
   });
 

@@ -45,7 +45,7 @@ test("maps approval denied errors to denied result", async () => {
 
   expect(result).toEqual({
     ok: false,
-    denied: true,
+    kind: "denied",
     error: "approval required",
   });
 });

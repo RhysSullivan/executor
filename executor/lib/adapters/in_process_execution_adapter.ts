@@ -1,4 +1,4 @@
-import { APPROVAL_DENIED_PREFIX } from "../execution_constants";
+import { APPROVAL_DENIED_PREFIX, APPROVAL_PENDING_PREFIX } from "../execution_constants";
 import type {
   ExecutionAdapter,
   RuntimeOutputEvent,
@@ -20,6 +20,7 @@ export class InProcessExecutionAdapter implements ExecutionAdapter {
     if (call.runId !== this.options.runId) {
       return {
         ok: false,
+        kind: "failed",
         error: `Run mismatch for call ${call.callId}`,
       };
     }
@@ -32,13 +33,24 @@ export class InProcessExecutionAdapter implements ExecutionAdapter {
       if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
         return {
           ok: false,
-          denied: true,
+          kind: "denied",
           error: message.replace(APPROVAL_DENIED_PREFIX, "").trim(),
+        };
+      }
+
+      if (message.startsWith(APPROVAL_PENDING_PREFIX)) {
+        return {
+          ok: false,
+          kind: "pending",
+          approvalId: message.replace(APPROVAL_PENDING_PREFIX, "").trim(),
+          retryAfterMs: 500,
+          error: "Approval pending",
         };
       }
 
       return {
         ok: false,
+        kind: "failed",
         error: message,
       };
     }

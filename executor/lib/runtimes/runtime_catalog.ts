@@ -19,12 +19,12 @@ export interface CloudflareWorkerLoaderConfig {
   runUrl: string;
   /** Shared-secret bearer token for authenticating with the host worker. */
   authToken: string;
-  /** HTTP request timeout in ms (how long we wait for the host worker to respond). */
+  /** Dispatch request timeout in ms (how long we wait for /v1/runs accepted response). */
   requestTimeoutMs: number;
-  /** The Convex site URL that the CF host worker calls back to for tool invocations. */
-  callbackBaseUrl: string;
-  /** Internal auth token that the CF host worker uses when calling back. */
-  callbackAuthToken: string;
+  /** Convex deployment URL used for runtime callback RPC invocations. */
+  callbackConvexUrl: string;
+  /** Internal auth secret used for runtime callback RPC auth. */
+  callbackInternalSecret: string;
 }
 
 /**
@@ -52,19 +52,17 @@ export function getCloudflareWorkerLoaderConfig(): CloudflareWorkerLoaderConfig 
     );
   }
 
-  // The callback URL is the Convex site URL where the internal runs API lives.
-  // The CF host worker will POST to {callbackBaseUrl}/internal/runs/{runId}/tool-call
-  const callbackBaseUrl = process.env.CONVEX_SITE_URL ?? process.env.CONVEX_URL;
-  if (!callbackBaseUrl) {
+  const callbackConvexUrl = process.env.CONVEX_URL ?? process.env.CONVEX_SITE_URL;
+  if (!callbackConvexUrl) {
     throw new Error(
-      "Cloudflare Worker Loader runtime requires CONVEX_SITE_URL or CONVEX_URL for tool-call callbacks",
+      "Cloudflare Worker Loader runtime requires CONVEX_SITE_URL or CONVEX_URL for callback RPC",
     );
   }
 
-  const callbackAuthToken = process.env.EXECUTOR_INTERNAL_TOKEN;
-  if (!callbackAuthToken) {
+  const callbackInternalSecret = process.env.EXECUTOR_INTERNAL_TOKEN;
+  if (!callbackInternalSecret) {
     throw new Error(
-      "Cloudflare Worker Loader runtime requires EXECUTOR_INTERNAL_TOKEN for authenticated tool-call callbacks",
+      "Cloudflare Worker Loader runtime requires EXECUTOR_INTERNAL_TOKEN for authenticated callback RPC",
     );
   }
 
@@ -76,7 +74,7 @@ export function getCloudflareWorkerLoaderConfig(): CloudflareWorkerLoaderConfig 
     runUrl,
     authToken,
     requestTimeoutMs,
-    callbackBaseUrl,
-    callbackAuthToken,
+    callbackConvexUrl,
+    callbackInternalSecret,
   };
 }

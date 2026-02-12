@@ -1,0 +1,171 @@
+{
+  "$comment": "Additional OpenAPI specs not in APIs.guru. Same shape as list.json entries.",
+  "cloudflare.com": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "4",
+    "versions": {
+      "4": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "Cloudflare API",
+          "description": "Interact with Cloudflare's products and services via the Cloudflare API.",
+          "version": "4",
+          "x-apisguru-categories": ["cloud", "hosting"],
+          "x-logo": { "url": "https://www.cloudflare.com/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json", "version": "3.0" }],
+          "x-providerName": "cloudflare.com"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json",
+        "openapiVer": "3.0.3"
+      }
+    }
+  },
+  "discord.com": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "10",
+    "versions": {
+      "10": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "Discord HTTP API",
+          "description": "HTTP API for Discord. Build bots, integrations, and applications that interact with Discord.",
+          "version": "10",
+          "x-apisguru-categories": ["messaging", "social"],
+          "x-logo": { "url": "https://discord.com/assets/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json", "version": "3.1" }],
+          "x-providerName": "discord.com"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json",
+        "openapiVer": "3.1.0"
+      }
+    }
+  },
+  "paypal.com": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "2",
+    "versions": {
+      "2": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "PayPal Checkout Orders API",
+          "description": "Use the Orders API to create, update, retrieve, authorize, and capture orders (payments).",
+          "version": "2",
+          "x-apisguru-categories": ["financial", "payment"],
+          "x-logo": { "url": "https://www.paypal.com/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/checkout_orders_v2.json", "version": "3.0" }],
+          "x-providerName": "paypal.com"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/checkout_orders_v2.json",
+        "openapiVer": "3.0.0"
+      }
+    }
+  },
+  "resend.com": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "1.0.0",
+    "versions": {
+      "1.0.0": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "Resend API",
+          "description": "Email for developers. Send transactional and marketing emails with a simple API.",
+          "version": "1.0.0",
+          "x-apisguru-categories": ["email", "messaging"],
+          "x-logo": { "url": "https://resend.com/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml", "version": "3.0" }],
+          "x-providerName": "resend.com"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml",
+        "openapiVer": "3.0.3"
+      }
+    }
+  },
+  "figma.com": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "0.36.0",
+    "versions": {
+      "0.36.0": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "Figma REST API",
+          "description": "The Figma REST API. Access files, components, styles, comments, users, projects, and more.",
+          "version": "0.36.0",
+          "x-apisguru-categories": ["design", "collaboration"],
+          "x-logo": { "url": "https://static.figma.com/app/icon/1/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml", "version": "3.1" }],
+          "x-providerName": "figma.com"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/figma/rest-api-spec/main/openapi/openapi.yaml",
+        "openapiVer": "3.1.0"
+      }
+    }
+  },
+  "sentry.io": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "v0",
+    "versions": {
+      "v0": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "Sentry API",
+          "description": "Sentry's API for error tracking, performance monitoring, and debugging.",
+          "version": "v0",
+          "x-apisguru-categories": ["monitoring", "developer_tools"],
+          "x-logo": { "url": "https://sentry.io/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/getsentry/sentry-api-schema/main/openapi-derefed.json", "version": "3.0" }],
+          "x-providerName": "sentry.io"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/getsentry/sentry-api-schema/main/openapi-derefed.json",
+        "openapiVer": "3.0.3"
+      }
+    }
+  },
+  "pagerduty.com": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "v2",
+    "versions": {
+      "v2": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "PagerDuty API",
+          "description": "PagerDuty's REST API for incident management, on-call scheduling, and alerting.",
+          "version": "v2",
+          "x-apisguru-categories": ["monitoring", "developer_tools"],
+          "x-logo": { "url": "https://www.pagerduty.com/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json", "version": "3.0" }],
+          "x-providerName": "pagerduty.com"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json",
+        "openapiVer": "3.0.1"
+      }
+    }
+  },
+  "intercom.io": {
+    "added": "2026-02-11T00:00:00.000Z",
+    "preferred": "2.13",
+    "versions": {
+      "2.13": {
+        "added": "2026-02-11T00:00:00.000Z",
+        "updated": "2026-02-11T00:00:00.000Z",
+        "info": {
+          "title": "Intercom API",
+          "description": "The Intercom API. Build customer messaging integrations with contacts, conversations, and more.",
+          "version": "2.13",
+          "x-apisguru-categories": ["messaging", "customer_support"],
+          "x-logo": { "url": "https://www.intercom.com/favicon.ico" },
+          "x-origin": [{ "format": "openapi", "url": "https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.13/api.intercom.io.yaml", "version": "3.0" }],
+          "x-providerName": "intercom.io"
+        },
+        "swaggerUrl": "https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.13/api.intercom.io.yaml",
+        "openapiVer": "3.0.1"
+      }
+    }
+  }
+}

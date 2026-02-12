@@ -29,6 +29,10 @@ function fireAndForget(promise: void | Promise<void>): void {
   }
 }
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function createToolsProxy(
   adapter: ExecutionAdapter,
   runId: string,
@@ -48,22 +52,31 @@ function createToolsProxy(
       }
 
       const input = args.length > 0 ? args[0] : {};
-      const result = await adapter.invokeTool({
-        runId,
-        callId: `call_${crypto.randomUUID()}`,
-        toolPath,
-        input,
-      });
+      const callId = `call_${crypto.randomUUID()}`;
 
-      if (result.ok) {
-        return result.value;
+      while (true) {
+        const result = await adapter.invokeTool({
+          runId,
+          callId,
+          toolPath,
+          input,
+        });
+
+        if (result.ok) {
+          return result.value;
+        }
+
+        switch (result.kind) {
+          case "pending":
+            await sleep(Math.max(50, result.retryAfterMs ?? 500));
+            continue;
+          case "denied":
+            throw new Error(`${APPROVAL_DENIED_PREFIX}${result.error}`);
+          case "failed":
+          default:
+            throw new Error(result.error);
+        }
       }
-
-      if (result.denied) {
-        throw new Error(`${APPROVAL_DENIED_PREFIX}${result.error}`);
-      }
-
-      throw new Error(result.error);
     },
   });
 }

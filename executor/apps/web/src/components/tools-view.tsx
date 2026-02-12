@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Wrench,
   Plus,
@@ -11,6 +11,7 @@ import {
   AlertTriangle,
   KeyRound,
   Pencil,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,158 +57,27 @@ import type {
 import { parse as parseDomain } from "tldts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Streamdown } from "streamdown";
 
-// ── API Presets ──
-
-interface ApiPreset {
+interface CatalogCollectionItem {
+  id: string;
   name: string;
-  label: string;
-  description: string;
-  type: "openapi" | "mcp" | "graphql";
-  spec?: string;
-  url?: string;
-  endpoint?: string;
-  baseUrl?: string;
-  authNote?: string;
+  summary: string;
+  specUrl: string;
+  originUrl?: string;
+  providerName: string;
+  logoUrl?: string;
+  categories?: string;
+  version?: string;
 }
 
-const API_PRESETS: ApiPreset[] = [
-  {
-    name: "github",
-    label: "GitHub",
-    description: "Repos, issues, PRs, actions, users, orgs",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml",
-    baseUrl: "https://api.github.com",
-    authNote: "Add a bearer credential with a PAT for authenticated access",
-  },
-  {
-    name: "vercel",
-    label: "Vercel",
-    description: "Deployments, projects, domains, env vars, teams",
-    type: "openapi",
-    spec: "https://openapi.vercel.sh",
-    baseUrl: "https://api.vercel.com",
-    authNote: "Requires API token as bearer credential",
-  },
-  {
-    name: "slack",
-    label: "Slack",
-    description: "Messages, channels, users, reactions, files",
-    type: "openapi",
-    spec: "https://api.slack.com/specs/openapi/v2/slack_web.json",
-    baseUrl: "https://slack.com/api",
-    authNote: "Requires a bot token as bearer credential",
-  },
-  {
-    name: "discord",
-    label: "Discord",
-    description: "Guilds, channels, messages, interactions, webhooks",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json",
-    baseUrl: "https://discord.com/api/v10",
-    authNote: "Requires a bot token as bearer credential",
-  },
-  {
-    name: "stripe",
-    label: "Stripe",
-    description: "Payments, customers, subscriptions, invoices",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
-    baseUrl: "https://api.stripe.com",
-    authNote: "Requires API key as bearer credential",
-  },
-
-  {
-    name: "openai",
-    label: "OpenAI",
-    description: "Chat completions, embeddings, images, files",
-    type: "openapi",
-    spec: "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
-    baseUrl: "https://api.openai.com",
-    authNote: "Requires API key as bearer credential",
-  },
-  {
-    name: "cloudflare",
-    label: "Cloudflare",
-    description: "DNS, zones, workers, KV, R2, firewall",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml",
-    baseUrl: "https://api.cloudflare.com/client/v4",
-    authNote: "Requires API token as bearer credential",
-  },
-  {
-    name: "sentry",
-    label: "Sentry",
-    description: "Issues, events, projects, releases, alerts",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/refs/heads/main/openapi-derefed.json",
-    baseUrl: "https://sentry.io/api/0",
-    authNote: "Requires auth token as bearer credential",
-  },
-  {
-    name: "jira",
-    label: "Jira",
-    description: "Issues, projects, boards, sprints, users",
-    type: "openapi",
-    spec: "https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
-    baseUrl: "https://your-domain.atlassian.net/rest/api/3",
-    authNote: "Requires API token with basic auth (email:token)",
-  },
-  {
-    name: "pagerduty",
-    label: "PagerDuty",
-    description: "Incidents, services, schedules, escalations",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json",
-    baseUrl: "https://api.pagerduty.com",
-    authNote: "Requires API key as bearer credential",
-  },
-  {
-    name: "digitalocean",
-    label: "DigitalOcean",
-    description: "Droplets, databases, domains, apps, spaces",
-    type: "openapi",
-    spec: "https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci/DigitalOcean-public.v2.yaml",
-    baseUrl: "https://api.digitalocean.com",
-    authNote: "Requires API token as bearer credential",
-  },
-  {
-    name: "twilio",
-    label: "Twilio",
-    description: "SMS, calls, conversations, verify, phone numbers",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/json/twilio_api_v2010.json",
-    baseUrl: "https://api.twilio.com",
-    authNote: "Requires Account SID + Auth Token as basic auth",
-  },
-  {
-    name: "notion",
-    label: "Notion",
-    description: "Pages, databases, blocks, search, users",
-    type: "openapi",
-    spec: "https://developers.notion.com/openapi.json",
-    baseUrl: "https://api.notion.com",
-    authNote: "Requires integration token as bearer credential",
-  },
-
-  {
-    name: "resend",
-    label: "Resend",
-    description: "Send emails, manage domains, API keys",
-    type: "openapi",
-    spec: "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml",
-    baseUrl: "https://api.resend.com",
-  },
-  {
-    name: "linear",
-    label: "Linear",
-    description: "Issues, projects, teams, cycles, labels",
-    type: "graphql",
-    endpoint: "https://api.linear.app/graphql",
-    authNote: "Requires API key as bearer credential",
-  },
-];
+interface CatalogCollectionsResponse {
+  items?: CatalogCollectionItem[];
+  totalCount?: number;
+  hasMore?: boolean;
+  error?: string;
+  detail?: string;
+}
 
 /** Derive a favicon URL from any URL string via Google's favicon service. */
 function faviconForUrl(url: string | undefined | null): string | null {
@@ -220,16 +90,6 @@ function faviconForUrl(url: string | undefined | null): string | null {
   }
 }
 
-function getFaviconUrl(preset: ApiPreset): string | null {
-  if (preset.type === "openapi") {
-    return faviconForUrl(preset.baseUrl ?? null);
-  }
-  if (preset.type === "graphql") {
-    return faviconForUrl(preset.endpoint ?? null);
-  }
-  return faviconForUrl(preset.url ?? null);
-}
-
 function getSourceFavicon(source: ToolSourceRecord): string | null {
   if (source.type === "mcp") {
     return faviconForUrl((source.config.url as string) ?? null);
@@ -237,7 +97,30 @@ function getSourceFavicon(source: ToolSourceRecord): string | null {
   if (source.type === "graphql") {
     return faviconForUrl((source.config.endpoint as string) ?? null);
   }
-  return faviconForUrl((source.config.baseUrl as string) ?? null);
+  const spec = source.config.spec as string | undefined;
+  if (typeof spec === "string" && spec.startsWith("postman:")) {
+    return null;
+  }
+  const baseUrl = source.config.baseUrl as string | undefined;
+  const collectionUrl = source.config.collectionUrl as string | undefined;
+  const specUrl = typeof spec === "string" && spec.startsWith("http") ? spec : null;
+  return faviconForUrl(baseUrl ?? collectionUrl ?? specUrl);
+}
+
+function sourceEndpointLabel(source: ToolSourceRecord): string {
+  if (source.type === "mcp") return (source.config.url as string) ?? "";
+  if (source.type === "graphql") return (source.config.endpoint as string) ?? "";
+
+  const spec = source.config.spec;
+  if (typeof spec === "string" && spec.startsWith("postman:")) {
+    const uid = spec.slice("postman:".length).trim();
+    if (uid.length > 0) {
+      return `catalog:${uid}`;
+    }
+    return "catalog:collection";
+  }
+
+  return (source.config.spec as string) ?? "";
 }
 
 function sourceKeyForSource(source: ToolSourceRecord): string | null {
@@ -366,6 +249,39 @@ function inferNameFromUrl(url: string): string {
   }
 }
 
+function sanitizeSourceName(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 48);
+  return slug || "source";
+}
+
+function withUniqueSourceName(baseName: string, takenNames: Set<string>): string {
+  const loweredTaken = new Set([...takenNames].map((name) => name.toLowerCase()));
+  const candidate = sanitizeSourceName(baseName);
+  if (!loweredTaken.has(candidate.toLowerCase())) {
+    return candidate;
+  }
+
+  let suffix = 2;
+  while (true) {
+    const next = `${candidate}-${suffix}`;
+    if (!loweredTaken.has(next.toLowerCase())) {
+      return next;
+    }
+    suffix += 1;
+  }
+}
+
+function catalogSourceName(item: CatalogCollectionItem): string {
+  const owner = sanitizeSourceName(item.providerName || "catalog");
+  const title = sanitizeSourceName(item.name);
+  return sanitizeSourceName(`${owner}-${title}`);
+}
+
 function AddSourceDialog({
   existingSourceNames,
 }: {
@@ -374,7 +290,7 @@ function AddSourceDialog({
   const { context } = useSession();
   const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
   const [open, setOpen] = useState(false);
-  const [presetsOpen, setPresetsOpen] = useState(false);
+  const [view, setView] = useState<"catalog" | "custom">("catalog");
   const [type, setType] = useState<"mcp" | "openapi" | "graphql">("mcp");
   const [name, setName] = useState("");
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
@@ -383,7 +299,35 @@ function AddSourceDialog({
   const [mcpTransport, setMcpTransport] = useState<"auto" | "streamable-http" | "sse">("auto");
   const [mcpActorQueryParamKey, setMcpActorQueryParamKey] = useState("userId");
   const [submitting, setSubmitting] = useState(false);
-  const [addingPreset, setAddingPreset] = useState<string | null>(null);
+  const [locallyReservedNames, setLocallyReservedNames] = useState<string[]>([]);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogSort, setCatalogSort] = useState<"popular" | "recent">("popular");
+  const [catalogItems, setCatalogItems] = useState<CatalogCollectionItem[]>([]);
+  const [catalogOffset, setCatalogOffset] = useState(0);
+  const [catalogHasMore, setCatalogHasMore] = useState(true);
+  const [catalogTotalCount, setCatalogTotalCount] = useState<number | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogLoadingMore, setCatalogLoadingMore] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [addingCatalogId, setAddingCatalogId] = useState<string | null>(null);
+  const catalogRequestIdRef = useRef(0);
+  const catalogInFlightRef = useRef(false);
+
+  const CATALOG_PAGE_SIZE = 20;
+
+  const getTakenSourceNames = () => new Set([...existingSourceNames, ...locallyReservedNames]);
+
+  const reserveSourceName = (sourceName: string) => {
+    setLocallyReservedNames((current) =>
+      current.includes(sourceName)
+        ? current
+        : [...current, sourceName]
+    );
+  };
+
+  const getUniqueAutoSourceName = (candidate: string) => {
+    return withUniqueSourceName(candidate, getTakenSourceNames());
+  };
 
   const handleEndpointChange = (value: string) => {
     setEndpoint(value);
@@ -398,20 +342,131 @@ function AddSourceDialog({
     setNameManuallyEdited(true);
   };
 
-  const resetForm = () => {
+  const resetDialogState = () => {
+    catalogRequestIdRef.current += 1;
+    catalogInFlightRef.current = false;
+    setView("catalog");
+    setType("mcp");
     setName("");
     setEndpoint("");
     setBaseUrl("");
     setMcpTransport("auto");
     setMcpActorQueryParamKey("userId");
     setNameManuallyEdited(false);
-    setPresetsOpen(false);
-    setAddingPreset(null);
+    setLocallyReservedNames([]);
+    setCatalogQuery("");
+    setCatalogSort("popular");
+    setCatalogItems([]);
+    setCatalogOffset(0);
+    setCatalogHasMore(true);
+    setCatalogTotalCount(null);
+    setCatalogLoading(false);
+    setCatalogLoadingMore(false);
+    setCatalogError(null);
+    setAddingCatalogId(null);
+  };
+
+  const loadCatalogPage = async ({
+    mode,
+    query,
+    sort,
+  }: {
+    mode: "reset" | "next";
+    query?: string;
+    sort?: "popular" | "recent";
+  }) => {
+    const resolvedQuery = (query ?? catalogQuery).trim();
+    const resolvedSort = sort ?? catalogSort;
+    const nextOffset = mode === "reset" ? 0 : catalogOffset;
+
+    if (mode === "next") {
+      if (catalogLoading || catalogLoadingMore || catalogInFlightRef.current || !catalogHasMore) {
+        return;
+      }
+      setCatalogLoadingMore(true);
+    } else {
+      setCatalogLoading(true);
+      setCatalogLoadingMore(false);
+      setCatalogError(null);
+    }
+
+    const requestId = catalogRequestIdRef.current + 1;
+    catalogRequestIdRef.current = requestId;
+    catalogInFlightRef.current = true;
+
+    try {
+      const params = new URLSearchParams({
+        sort: resolvedSort,
+        limit: String(CATALOG_PAGE_SIZE),
+        offset: String(nextOffset),
+      });
+      if (resolvedQuery.length > 0) {
+        params.set("q", resolvedQuery);
+      }
+
+      const catalogBase = process.env.NEXT_PUBLIC_SOURCES_URL ?? "http://127.0.0.1:4343";
+      const response = await fetch(`${catalogBase}/collections?${params.toString()}`, {
+        cache: "no-store",
+      });
+      const body = await response.json() as CatalogCollectionsResponse;
+
+      if (requestId !== catalogRequestIdRef.current) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(body.error || "Failed to load API catalog");
+      }
+
+      const nextItems = Array.isArray(body.items) ? body.items : [];
+      setCatalogItems((current) => {
+        if (mode === "reset") {
+          return nextItems;
+        }
+
+        const merged = [...current];
+        const seen = new Set(current.map((entry) => entry.id));
+        for (const item of nextItems) {
+          if (seen.has(item.id)) continue;
+          seen.add(item.id);
+          merged.push(item);
+        }
+        return merged;
+      });
+      setCatalogOffset(nextOffset + nextItems.length);
+      setCatalogHasMore(typeof body.hasMore === "boolean" ? body.hasMore : nextItems.length >= CATALOG_PAGE_SIZE);
+      setCatalogTotalCount(typeof body.totalCount === "number" ? body.totalCount : null);
+      setCatalogError(null);
+    } catch (error) {
+      if (requestId !== catalogRequestIdRef.current) {
+        return;
+      }
+
+      if (mode === "reset") {
+        setCatalogItems([]);
+        setCatalogOffset(0);
+      }
+      setCatalogHasMore(false);
+      setCatalogTotalCount(null);
+      setCatalogError(error instanceof Error ? error.message : "Failed to load API catalog");
+    } finally {
+      if (requestId === catalogRequestIdRef.current) {
+        setCatalogLoading(false);
+        setCatalogLoadingMore(false);
+        catalogInFlightRef.current = false;
+      }
+    }
   };
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
-    if (!isOpen) resetForm();
+    if (!isOpen) {
+      resetDialogState();
+      return;
+    }
+
+    resetDialogState();
+    void loadCatalogPage({ mode: "reset", query: "", sort: "popular" });
   };
 
   const addSource = async (
@@ -430,31 +485,35 @@ function AddSourceDialog({
     toast.success(`Source "${sourceName}" added — loading tools…`);
   };
 
-  const handlePresetAdd = async (preset: ApiPreset) => {
-    setAddingPreset(preset.name);
+  const handleCatalogAdd = async (item: CatalogCollectionItem) => {
+    if (!item.specUrl.trim()) {
+      toast.error("Missing OpenAPI spec URL for this API source");
+      return;
+    }
+
+    setAddingCatalogId(item.id);
     try {
-      const config: Record<string, unknown> =
-        preset.type === "mcp"
-          ? { url: preset.url }
-          : preset.type === "graphql"
-            ? { endpoint: preset.endpoint }
-            : {
-                spec: preset.spec,
-                ...(preset.baseUrl ? { baseUrl: preset.baseUrl } : {}),
-              };
-      await addSource(preset.name, preset.type, config);
-      if (preset.authNote) {
-        toast.info(preset.authNote, { duration: 6000 });
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add source");
+      const sourceName = getUniqueAutoSourceName(catalogSourceName(item));
+      await addSource(sourceName, "openapi", {
+        spec: item.specUrl,
+      });
+      reserveSourceName(sourceName);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to add API source");
     } finally {
-      setAddingPreset(null);
+      setAddingCatalogId(null);
     }
   };
 
   const handleCustomSubmit = async () => {
     if (!context || !name.trim() || !endpoint.trim()) return;
+
+    const takenNames = [...getTakenSourceNames()].map((entry) => entry.toLowerCase());
+    if (takenNames.includes(name.trim().toLowerCase())) {
+      toast.error(`Source name "${name.trim()}" already exists`);
+      return;
+    }
+
     setSubmitting(true);
     try {
       const config: Record<string, unknown> =
@@ -470,7 +529,8 @@ function AddSourceDialog({
             ? { endpoint: endpoint }
             : { spec: endpoint, ...(baseUrl ? { baseUrl } : {}) };
       await addSource(name.trim(), type, config);
-      resetForm();
+      reserveSourceName(name.trim());
+      resetDialogState();
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add source");
@@ -495,180 +555,261 @@ function AddSourceDialog({
         </DialogHeader>
 
         <div className="p-5 space-y-4">
-          {/* Custom source form — always visible */}
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Type</Label>
-              <Select
-                value={type}
-                onValueChange={(v) => setType(v as "mcp" | "openapi" | "graphql")}
+          {view === "catalog" ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Input
+                  value={catalogQuery}
+                  onChange={(event) => setCatalogQuery(event.target.value)}
+                  placeholder="Search APIs"
+                  className="h-8 text-xs font-mono bg-background flex-1 min-w-[150px]"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void loadCatalogPage({ mode: "reset" });
+                    }
+                  }}
+                />
+                <Select
+                  value={catalogSort}
+                  onValueChange={(value) => {
+                    const nextSort = value as "popular" | "recent";
+                    setCatalogSort(nextSort);
+                    void loadCatalogPage({ mode: "reset", sort: nextSort });
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[105px] text-xs bg-background shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="popular" className="text-xs">Popular</SelectItem>
+                    <SelectItem value="recent" className="text-xs">Recent</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3 text-xs shrink-0"
+                  onClick={() => void loadCatalogPage({ mode: "reset" })}
+                  disabled={catalogLoading}
+                >
+                  {catalogLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Search"}
+                </Button>
+              </div>
+
+              <p className="text-[11px] text-muted-foreground">
+                Browse API collections and add them as tool sources.
+                {catalogTotalCount !== null ? ` Found ${catalogTotalCount.toLocaleString()} total.` : ""}
+              </p>
+
+              <Separator />
+
+              <div
+                className="max-h-80 overflow-y-auto overflow-x-hidden space-y-1 pr-1"
+                onScroll={(event) => {
+                  const target = event.currentTarget;
+                  const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
+                  if (nearBottom) {
+                    void loadCatalogPage({ mode: "next" });
+                  }
+                }}
               >
-                <SelectTrigger className="h-8 text-xs bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="mcp" className="text-xs">
-                    MCP Server
-                  </SelectItem>
-                  <SelectItem value="openapi" className="text-xs">
-                    OpenAPI Spec
-                  </SelectItem>
-                  <SelectItem value="graphql" className="text-xs">
-                    GraphQL
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+                <button
+                  type="button"
+                  onClick={() => setView("custom")}
+                  className="w-full max-w-full overflow-hidden text-left px-3 py-2 rounded-md border border-border/70 bg-muted/40 hover:bg-accent/30 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex h-6 w-6 items-center justify-center rounded bg-muted">
+                      <Plus className="h-3.5 w-3.5 text-muted-foreground" />
+                    </span>
+                    <div className="min-w-0 w-0 flex-1 overflow-hidden">
+                      <p className="text-xs font-medium">Add custom source</p>
+                      <p className="text-[10px] text-muted-foreground">MCP, OpenAPI, or GraphQL endpoint</p>
+                    </div>
+                  </div>
+                </button>
+
+                {catalogItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="w-full max-w-full overflow-hidden flex items-start gap-2 px-2 py-2 rounded-md border border-border/50"
+                  >
+                    {item.logoUrl && (
+                      <img
+                        src={item.logoUrl}
+                        alt=""
+                        className="w-5 h-5 rounded shrink-0 mt-0.5 object-contain"
+                        loading="lazy"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0 w-0 overflow-hidden">
+                      <p className="text-xs font-medium truncate">{item.name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {item.providerName}
+                        {item.version ? ` · v${item.version}` : ""}
+                      </p>
+                      {item.summary && (
+                        <div
+                          className="mt-0.5 w-full min-w-0 max-w-full overflow-hidden text-[10px] text-muted-foreground/90 leading-relaxed break-words [overflow-wrap:anywhere] [&_*]:max-w-full [&_*]:min-w-0 [&_*]:break-words [&_a]:break-all [&_a]:whitespace-normal [&_code]:break-all [&_code]:whitespace-pre-wrap [&_p]:m-0 [&_pre]:max-w-full [&_pre]:overflow-x-hidden [&_pre]:whitespace-pre-wrap [&_pre]:break-words line-clamp-2"
+                          style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+                        >
+                          <Streamdown controls={false}>{item.summary}</Streamdown>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => void handleCatalogAdd(item)}
+                        disabled={Boolean(addingCatalogId)}
+                      >
+                        {addingCatalogId === item.id ? "Adding..." : "Add"}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                {catalogLoadingMore && (
+                  <div className="flex items-center justify-center py-2 text-[11px] text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Loading more...
+                  </div>
+                )}
+
+                {!catalogLoading && !catalogLoadingMore && catalogItems.length === 0 && !catalogError && (
+                  <p className="text-[11px] text-muted-foreground px-1 py-1">
+                    No collections found for this query.
+                  </p>
+                )}
+
+                {catalogError && (
+                  <p className="text-[11px] text-terminal-red px-1 py-1">
+                    {catalogError}
+                  </p>
+                )}
+
+                {!catalogHasMore && catalogItems.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground/70 px-1 py-1">
+                    End of results.
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                {type === "mcp" ? "Endpoint URL" : type === "graphql" ? "GraphQL Endpoint" : "Spec URL"}
-              </Label>
-              <Input
-                value={endpoint}
-                onChange={(e) => handleEndpointChange(e.target.value)}
-                placeholder={
-                  type === "mcp"
-                    ? "https://mcp-server.example.com/sse"
-                    : type === "graphql"
-                      ? "https://api.example.com/graphql"
-                      : "https://api.example.com/openapi.json"
-                }
-                className="h-8 text-xs font-mono bg-background"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Name</Label>
-              <Input
-                value={name}
-                onChange={(e) => handleNameChange(e.target.value)}
-                placeholder="e.g. my-service"
-                className="h-8 text-xs font-mono bg-background"
-              />
-            </div>
-            {type === "openapi" && (
+          ) : (
+            <div className="space-y-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setView("catalog")}
+              >
+                <ChevronRight className="h-3.5 w-3.5 mr-1 rotate-180" />
+                Back to API list
+              </Button>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Type</Label>
+                <Select
+                  value={type}
+                  onValueChange={(value) => setType(value as "mcp" | "openapi" | "graphql")}
+                >
+                  <SelectTrigger className="h-8 text-xs bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mcp" className="text-xs">MCP Server</SelectItem>
+                    <SelectItem value="openapi" className="text-xs">OpenAPI Spec</SelectItem>
+                    <SelectItem value="graphql" className="text-xs">GraphQL</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
-                  Base URL (optional)
+                  {type === "mcp" ? "Endpoint URL" : type === "graphql" ? "GraphQL Endpoint" : "Spec URL"}
                 </Label>
                 <Input
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://api.example.com"
+                  value={endpoint}
+                  onChange={(event) => handleEndpointChange(event.target.value)}
+                  placeholder={
+                    type === "mcp"
+                      ? "https://mcp-server.example.com/sse"
+                      : type === "graphql"
+                        ? "https://api.example.com/graphql"
+                        : "https://api.example.com/openapi.json"
+                  }
                   className="h-8 text-xs font-mono bg-background"
                 />
               </div>
-            )}
-            {type === "mcp" && (
-              <>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Name</Label>
+                <Input
+                  value={name}
+                  onChange={(event) => handleNameChange(event.target.value)}
+                  placeholder="e.g. my-service"
+                  className="h-8 text-xs font-mono bg-background"
+                />
+              </div>
+
+              {type === "openapi" && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Transport</Label>
-                  <Select
-                    value={mcpTransport}
-                    onValueChange={(v) => setMcpTransport(v as "auto" | "streamable-http" | "sse")}
-                  >
-                    <SelectTrigger className="h-8 text-xs bg-background">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto" className="text-xs">
-                        Auto (streamable, then SSE)
-                      </SelectItem>
-                      <SelectItem value="streamable-http" className="text-xs">
-                        Streamable HTTP
-                      </SelectItem>
-                      <SelectItem value="sse" className="text-xs">
-                        SSE
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    Anon actor query key (optional)
-                  </Label>
+                  <Label className="text-xs text-muted-foreground">Base URL (optional)</Label>
                   <Input
-                    value={mcpActorQueryParamKey}
-                    onChange={(e) => setMcpActorQueryParamKey(e.target.value)}
-                    placeholder="userId"
+                    value={baseUrl}
+                    onChange={(event) => setBaseUrl(event.target.value)}
+                    placeholder="https://api.example.com"
                     className="h-8 text-xs font-mono bg-background"
                   />
                 </div>
-              </>
-            )}
-            <Button
-              onClick={handleCustomSubmit}
-              disabled={submitting || !name.trim() || !endpoint.trim()}
-              className="w-full h-9"
-              size="sm"
-            >
-              {submitting ? "Adding..." : "Add Source"}
-            </Button>
-          </div>
+              )}
 
-          {/* Collapsible presets */}
-          <Separator />
-          <Collapsible open={presetsOpen} onOpenChange={setPresetsOpen}>
-            <CollapsibleTrigger className="flex items-center gap-2 w-full py-1 text-xs text-muted-foreground hover:text-foreground transition-colors group">
-              <ChevronRight
-                className={cn(
-                  "h-3.5 w-3.5 transition-transform duration-200",
-                  presetsOpen && "rotate-90",
-                )}
-              />
-              <span>Quick add from catalog</span>
-              <span className="text-[10px] font-mono text-muted-foreground/60">
-                {API_PRESETS.length}
-              </span>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="pt-3 space-y-1">
-                {API_PRESETS.map((preset) => {
-                  const alreadyAdded = existingSourceNames.has(preset.name);
-                  return (
-                    <button
-                      key={preset.name}
-                      onClick={() => !alreadyAdded && handlePresetAdd(preset)}
-                      disabled={alreadyAdded || addingPreset !== null}
-                      className={cn(
-                        "flex items-center gap-3 w-full px-3 py-2 rounded-md text-left transition-colors",
-                        alreadyAdded
-                          ? "opacity-50 cursor-default"
-                          : "hover:bg-accent/30 cursor-pointer",
-                      )}
+              {type === "mcp" && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Transport</Label>
+                    <Select
+                      value={mcpTransport}
+                      onValueChange={(value) => setMcpTransport(value as "auto" | "streamable-http" | "sse")}
                     >
-                      <span className="flex items-center justify-center h-6 w-6 rounded bg-muted shrink-0 overflow-hidden">
-                        {(() => {
-                          const favicon = getFaviconUrl(preset);
-                          return favicon ? (
-                            <img
-                              src={favicon}
-                              alt=""
-                              width={16}
-                              height={16}
-                              className="w-4 h-4"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <span className="text-[9px] font-bold font-mono text-muted-foreground">
-                              {preset.name.slice(0, 2).toUpperCase()}
-                            </span>
-                          );
-                        })()}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-foreground">
-                          {preset.label}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground ml-2">
-                          {preset.description}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+                      <SelectTrigger className="h-8 text-xs bg-background">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto" className="text-xs">Auto (streamable, then SSE)</SelectItem>
+                        <SelectItem value="streamable-http" className="text-xs">Streamable HTTP</SelectItem>
+                        <SelectItem value="sse" className="text-xs">SSE</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Anon actor query key (optional)</Label>
+                    <Input
+                      value={mcpActorQueryParamKey}
+                      onChange={(event) => setMcpActorQueryParamKey(event.target.value)}
+                      placeholder="userId"
+                      className="h-8 text-xs font-mono bg-background"
+                    />
+                  </div>
+                </>
+              )}
+
+              <Button
+                onClick={handleCustomSubmit}
+                disabled={submitting || !name.trim() || !endpoint.trim()}
+                className="w-full h-9"
+                size="sm"
+              >
+                {submitting ? "Adding..." : "Add Source"}
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -918,11 +1059,7 @@ function SourceCard({
           )}
         </div>
         <span className="text-[11px] text-muted-foreground font-mono truncate block">
-          {source.type === "mcp"
-            ? (source.config.url as string)
-            : source.type === "graphql"
-              ? (source.config.endpoint as string)
-              : (source.config.spec as string)}
+          {sourceEndpointLabel(source)}
         </span>
         {source.type === "openapi" && quality && (
           <span className="text-[10px] text-muted-foreground/90 font-mono truncate block mt-0.5">

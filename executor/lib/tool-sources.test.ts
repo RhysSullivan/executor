@@ -321,6 +321,90 @@ test("compiled source artifacts can be materialized and executed", async () => {
   }
 });
 
+test("postman collection specs load and execute request tools", async () => {
+  const upstream = Bun.serve({
+    port: 0,
+    fetch: (req) => {
+      const url = new URL(req.url);
+      if (req.method === "GET" && url.pathname.startsWith("/items/")) {
+        const id = url.pathname.split("/").filter(Boolean)[1] ?? "";
+        return Response.json({
+          ok: true,
+          id,
+          expand: url.searchParams.get("expand"),
+          limit: url.searchParams.get("limit"),
+          token: req.headers.get("x-token"),
+        });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+
+  const proxy = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      const body = (await req.json()) as { service?: string; method?: string; path?: string };
+      if (body.service === "sync" && body.method === "GET" && body.path === "/collection/123-demo?populate=true") {
+        return Response.json({
+          data: {
+            name: "Demo collection",
+            variables: [{ key: "token", value: "Bearer demo-token" }],
+            folders: [{ id: "folder_items", name: "Items" }],
+            requests: [
+              {
+                id: "request_get_item",
+                name: "Get item",
+                method: "GET",
+                url: `http://127.0.0.1:${upstream.port}/items/{{itemId}}`,
+                folder: "folder_items",
+                headerData: [{ key: "x-token", value: "{{token}}" }],
+                queryParams: [{ key: "expand", value: "details" }],
+                pathVariableData: [{ key: "itemId", value: "default-id" }],
+              },
+            ],
+          },
+        });
+      }
+      return Response.json({ error: "unknown request" }, { status: 400 });
+    },
+  });
+
+  try {
+    const { tools, warnings } = await loadExternalTools([
+      {
+        type: "openapi",
+        name: "postman-demo",
+        spec: "postman:123-demo",
+        postmanProxyUrl: `http://127.0.0.1:${proxy.port}`,
+      },
+    ]);
+
+    expect(warnings).toHaveLength(0);
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.source).toBe("catalog:postman-demo");
+    expect(tools[0]?.path).toContain("items");
+
+    const result = await tools[0]!.run(
+      {
+        variables: { itemId: "abc-123" },
+        query: { limit: 10 },
+      },
+      { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      id: "abc-123",
+      expand: "details",
+      limit: "10",
+      token: "Bearer demo-token",
+    });
+  } finally {
+    proxy.stop(true);
+    upstream.stop(true);
+  }
+});
+
 test("parseGraphqlOperationPaths handles aliases and fragments", async () => {
   const parsed = parseGraphqlOperationPaths(
     "linear",

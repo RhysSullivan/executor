@@ -14,14 +14,15 @@
  *
  * 3. The isolate's network access is fully blocked (`globalOutbound: null`).
  *    Instead, tool calls are routed through a `ToolBridge` entrypoint class
- *    (passed as a loopback service binding via `ctx.exports`) which calls back
- *    to the Convex HTTP API to resolve them.
+ *    (passed as a loopback service binding via `ctx.exports`) which invokes
+ *    Convex callback RPC functions to resolve them.
  *
  * 4. Console output is buffered in the harness and returned in the response.
  *    Output lines are also streamed back to Convex in real-time via the
  *    ToolBridge binding.
  *
- * 5. The result (status, stdout, stderr, error) is returned as JSON.
+ * 5. `/v1/runs` returns an accepted dispatch response immediately. Terminal
+ *    result status is reported back to Convex through callback RPC.
  *
  * ## Code isolation
  *
@@ -35,6 +36,13 @@
 
 import { Result } from "better-result";
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { ConvexHttpClient } from "convex/browser";
+
+const RUNTIME_CALLBACKS = {
+  handleToolCall: "runtimeCallbacks:handleToolCall",
+  appendOutput: "runtimeCallbacks:appendOutput",
+  completeRun: "runtimeCallbacks:completeRun",
+} as const;
 
 // Import isolate modules as raw text — these are loaded as JS modules inside
 // the dynamic isolate, NOT executed in the host worker. The *.isolate.js
@@ -79,8 +87,8 @@ interface RunRequest {
   code: string;
   timeoutMs: number;
   callback: {
-    baseUrl: string;
-    authToken: string;
+    convexUrl: string;
+    internalSecret: string;
   };
 }
 
@@ -92,16 +100,23 @@ interface RunResult {
   exitCode?: number;
 }
 
+interface RunDispatchResponse {
+  accepted: true;
+  dispatchId: string;
+}
+
 interface ToolCallResult {
-  ok: boolean;
+  ok: true | false;
   value?: unknown;
   error?: string;
-  denied?: boolean;
+  kind?: "pending" | "denied" | "failed";
+  approvalId?: string;
+  retryAfterMs?: number;
 }
 
 interface BridgeProps {
-  callbackBaseUrl: string;
-  callbackAuthToken: string;
+  callbackConvexUrl: string;
+  callbackInternalSecret: string;
   taskId: string;
 }
 
@@ -138,6 +153,10 @@ const failedResult = (error: string): RunResult => ({
   error,
 });
 
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ── Tool Bridge Entrypoint ───────────────────────────────────────────────────
 //
 // This class is exposed as a named entrypoint on the host Worker. A loopback
@@ -152,54 +171,52 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
     return (this.ctx as unknown as { props: BridgeProps }).props;
   }
 
-  /** Forward a tool call to the Convex internal HTTP API. */
-  async callTool(toolPath: string, input: unknown): Promise<ToolCallResult> {
-    const { callbackBaseUrl, callbackAuthToken, taskId } = this.props;
-    const url = `${callbackBaseUrl}/internal/runs/${taskId}/tool-call`;
-    const callId = `call_${crypto.randomUUID()}`;
+  private createConvexClient(): ConvexHttpClient {
+    return new ConvexHttpClient(this.props.callbackConvexUrl, {
+      skipConvexDeploymentUrlCheck: true,
+    });
+  }
 
-    const response = await Result.tryPromise(() =>
-      fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${callbackAuthToken}`,
-        },
-        body: JSON.stringify({ callId, toolPath, input }),
-      }),
-    );
+  /** Forward a tool call to the Convex callback RPC action. */
+  async callTool(toolPath: string, input: unknown, callId?: string): Promise<ToolCallResult> {
+    const { callbackInternalSecret, taskId } = this.props;
+    const effectiveCallId = callId && callId.trim().length > 0
+      ? callId
+      : `call_${crypto.randomUUID()}`;
+
+    const response = await Result.tryPromise(async () => {
+      const convex = this.createConvexClient();
+      return await convex.action(RUNTIME_CALLBACKS.handleToolCall as any, {
+        internalSecret: callbackInternalSecret,
+        runId: taskId,
+        callId: effectiveCallId,
+        toolPath,
+        input,
+      });
+    });
 
     if (response.isErr()) {
       const cause = response.error.cause;
       const message = cause instanceof Error ? cause.message : String(cause);
-      return { ok: false, error: `Tool callback failed: ${message}` };
+      return { ok: false, kind: "failed", error: `Tool callback failed: ${message}` };
     }
 
-    if (!response.value.ok) {
-      const text = await Result.tryPromise(() => response.value.text());
-      const body = text.unwrapOr(response.value.statusText);
-      return { ok: false, error: `Tool callback failed (${response.value.status}): ${body}` };
-    }
-
-    return (await response.value.json()) as ToolCallResult;
+    return response.value as ToolCallResult;
   }
 
   /** Stream a console output line back to Convex (best-effort). */
   async emitOutput(stream: "stdout" | "stderr", line: string): Promise<void> {
-    const { callbackBaseUrl, callbackAuthToken, taskId } = this.props;
-    const url = `${callbackBaseUrl}/internal/runs/${taskId}/output`;
-
-    // Best-effort — swallow errors.
-    await Result.tryPromise(() =>
-      fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${callbackAuthToken}`,
-        },
-        body: JSON.stringify({ stream, line, timestamp: Date.now() }),
-      }),
-    );
+    const { callbackInternalSecret, taskId } = this.props;
+    await Result.tryPromise(async () => {
+      const convex = this.createConvexClient();
+      await convex.mutation(RUNTIME_CALLBACKS.appendOutput as any, {
+        internalSecret: callbackInternalSecret,
+        runId: taskId,
+        stream,
+        line,
+        timestamp: Date.now(),
+      });
+    });
   }
 }
 
@@ -222,6 +239,106 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
  */
 function buildUserModule(userCode: string): string {
   return `export async function run(tools, console) {\n"use strict";\n${userCode}\n}\n`;
+}
+
+async function executeSandboxRun(request: RunRequest, ctx: ExecutionContext, env: Env): Promise<RunResult> {
+  const timeoutMs = request.timeoutMs ?? 300_000;
+  const isolateId = request.taskId;
+
+  const ctxExports = (ctx as unknown as {
+    exports: Record<string, (opts: { props: BridgeProps }) => unknown>;
+  }).exports;
+
+  const toolBridgeBinding = ctxExports.ToolBridge({
+    props: {
+      callbackConvexUrl: request.callback.convexUrl,
+      callbackInternalSecret: request.callback.internalSecret,
+      taskId: request.taskId,
+    },
+  });
+
+  const worker = env.LOADER.get(isolateId, async () => ({
+    compatibilityDate: "2025-06-01",
+    mainModule: "harness.js",
+    modules: {
+      "harness.js": HARNESS_CODE,
+      "globals.js": GLOBALS_MODULE,
+      "user-code.js": buildUserModule(request.code),
+    },
+    env: {
+      TOOL_BRIDGE: toolBridgeBinding,
+    },
+    globalOutbound: null,
+  }));
+
+  const entrypoint = worker.getEntrypoint();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const response = await Result.tryPromise(() =>
+    entrypoint.fetch("http://sandbox.internal/run", {
+      method: "POST",
+      signal: controller.signal,
+    }),
+  );
+
+  clearTimeout(timer);
+
+  if (response.isErr()) {
+    const cause = response.error.cause;
+    if (cause instanceof DOMException && cause.name === "AbortError") {
+      return {
+        status: "timed_out",
+        stdout: "",
+        stderr: "",
+        error: `Execution timed out after ${timeoutMs}ms`,
+      };
+    }
+    throw cause;
+  }
+
+  const body = await Result.tryPromise(() => response.value.json() as Promise<RunResult>);
+  if (body.isErr()) {
+    return failedResult("Sandbox isolate returned invalid JSON");
+  }
+  return body.value;
+}
+
+async function reportRunCompletion(request: RunRequest, result: RunResult, durationMs: number): Promise<void> {
+  const convex = new ConvexHttpClient(request.callback.convexUrl, {
+    skipConvexDeploymentUrlCheck: true,
+  });
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const response = await Result.tryPromise(async () => {
+      return await convex.mutation(RUNTIME_CALLBACKS.completeRun as any, {
+        internalSecret: request.callback.internalSecret,
+        runId: request.taskId,
+        status: result.status,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exitCode: result.exitCode,
+        error: result.error,
+        durationMs,
+      });
+    });
+
+    if (response.isOk()) {
+      return;
+    }
+
+    lastError = response.error.cause;
+    if (attempt < 3) {
+      await sleep(200 * attempt);
+    }
+  }
+
+  console.error("Failed to report run completion", {
+    taskId: request.taskId,
+    error: lastError instanceof Error ? lastError.message : String(lastError),
+  });
 }
 
 // ── Main Handler ─────────────────────────────────────────────────────────────
@@ -255,81 +372,34 @@ export default {
     }
     const body = parsed.value;
 
-    if (!body.taskId || !body.code || !body.callback?.baseUrl || !body.callback?.authToken) {
+    if (!body.taskId || !body.code || !body.callback?.convexUrl || !body.callback?.internalSecret) {
       return Response.json(
-        { error: "Missing required fields: taskId, code, callback.baseUrl, callback.authToken" },
+        { error: "Missing required fields: taskId, code, callback.convexUrl, callback.internalSecret" },
         { status: 400 },
       );
     }
 
-    const timeoutMs = body.timeoutMs ?? 300_000;
-    const isolateId = body.taskId;
+    const startedAt = Date.now();
+    const dispatchId = `dispatch_${body.taskId}_${startedAt}`;
 
-    // ── Spawn isolate and execute ─────────────────────────────────────────
-    const execution = await Result.tryPromise(async () => {
-      const ctxExports = (ctx as unknown as {
-        exports: Record<string, (opts: { props: BridgeProps }) => unknown>;
-      }).exports;
+    ctx.waitUntil((async () => {
+      const runResult = await Result.tryPromise(() => executeSandboxRun(body, ctx, env));
+      const finalResult = runResult.isOk()
+        ? runResult.value
+        : failedResult(
+            `Sandbox host error: ${runResult.error.cause instanceof Error
+              ? runResult.error.cause.message
+              : String(runResult.error.cause)}`,
+          );
 
-      const toolBridgeBinding = ctxExports.ToolBridge({
-        props: {
-          callbackBaseUrl: body.callback.baseUrl,
-          callbackAuthToken: body.callback.authToken,
-          taskId: body.taskId,
-        },
-      });
+      await reportRunCompletion(body, finalResult, Date.now() - startedAt);
+    })());
 
-      const worker = env.LOADER.get(isolateId, async () => ({
-        compatibilityDate: "2025-06-01",
-        mainModule: "harness.js",
-        modules: {
-          "harness.js": HARNESS_CODE,
-          "globals.js": GLOBALS_MODULE,
-          "user-code.js": buildUserModule(body.code),
-        },
-        env: {
-          TOOL_BRIDGE: toolBridgeBinding,
-        },
-        globalOutbound: null,
-      }));
+    const response: RunDispatchResponse = {
+      accepted: true,
+      dispatchId,
+    };
 
-      const entrypoint = worker.getEntrypoint();
-
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-      const response = await Result.tryPromise(() =>
-        entrypoint.fetch("http://sandbox.internal/run", {
-          method: "POST",
-          signal: controller.signal,
-        }),
-      );
-
-      clearTimeout(timer);
-
-      if (response.isErr()) {
-        const cause = response.error.cause;
-        if (cause instanceof DOMException && cause.name === "AbortError") {
-          return Response.json({
-            status: "timed_out",
-            stdout: "",
-            stderr: "",
-            error: `Execution timed out after ${timeoutMs}ms`,
-          } satisfies RunResult);
-        }
-        throw cause;
-      }
-
-      const result = (await response.value.json()) as RunResult;
-      return Response.json(result);
-    });
-
-    if (execution.isErr()) {
-      const cause = execution.error.cause;
-      const message = cause instanceof Error ? cause.message : String(cause);
-      return Response.json(failedResult(`Sandbox host error: ${message}`));
-    }
-
-    return execution.value;
+    return Response.json(response, { status: 202 });
   },
 };
