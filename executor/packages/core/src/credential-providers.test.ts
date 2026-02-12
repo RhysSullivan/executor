@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test";
 import { resolveCredentialPayload } from "./credential-providers";
 
-test("managed provider returns stored payload", async () => {
+test("local provider returns stored payload", async () => {
   const payload = await resolveCredentialPayload({
-    provider: "managed",
-    secretJson: { token: "managed-token" },
+    provider: "local-convex",
+    secretJson: { token: "local-token" },
   });
 
-  expect(payload).toEqual({ token: "managed-token" });
+  expect(payload).toEqual({ token: "local-token" });
 });
 
 test("WorkOS Vault provider reads object and parses JSON", async () => {

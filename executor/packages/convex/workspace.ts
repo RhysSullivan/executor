@@ -5,7 +5,7 @@ import { workspaceMutation, workspaceQuery } from "../core/src/function-builders
 
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
-const credentialProviderValidator = v.union(v.literal("managed"), v.literal("workos-vault"));
+const credentialProviderValidator = v.union(v.literal("local-convex"), v.literal("workos-vault"));
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
 
 function redactCredential<T extends { secretJson: Record<string, unknown> }>(credential: T): T {
@@ -110,6 +110,7 @@ export const upsertCredential = workspaceMutation({
     actorId: v.optional(v.string()),
     provider: v.optional(credentialProviderValidator),
     secretJson: v.any(),
+    overridesJson: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     return await ctx.runMutation(internal.database.upsertCredential, {

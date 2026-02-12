@@ -2,7 +2,7 @@
 
 // NOTE: The Vercel sandbox runtime (vercel-sandbox-runtime.ts) contains a JS
 // string version of similar logic, built from sandbox-fragments.ts. Changes to
-// the core helpers here (formatArgs, createToolsProxy, console proxy, execution
+// the core helpers here (createToolsProxy, console proxy, execution
 // loop, result mapping) should be mirrored there.
 import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution-constants";
 import { Result } from "better-result";
@@ -14,23 +14,25 @@ import type {
 } from "../types";
 import { transpileForRuntime } from "./transpile";
 
-function formatArgs(args: unknown[]): string {
-  return args
-    .map((value) => {
-      if (typeof value === "string") return value;
-      return Result.try(() => JSON.stringify(value)).unwrapOr(String(value));
-    })
-    .join(" ");
-}
-
-function fireAndForget(promise: void | Promise<void>): void {
-  if (promise && typeof promise === "object" && "then" in promise) {
-    void (promise as Promise<void>).catch(() => {});
-  }
-}
-
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sanitizeExecutionResult(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const serialized = Result.try(() => JSON.stringify(value));
+  if (serialized.isErr()) {
+    return String(value);
+  }
+
+  if (serialized.value === undefined) {
+    return null;
+  }
+
+  return Result.try(() => JSON.parse(serialized.value) as unknown).unwrapOr(String(value));
 }
 
 function createToolsProxy(
@@ -110,40 +112,13 @@ export async function runCodeWithAdapter(
   adapter: ExecutionAdapter,
 ): Promise<SandboxExecutionResult> {
   const startedAt = Date.now();
-  const stdoutLines: string[] = [];
-  const stderrLines: string[] = [];
-
-  const appendStdout = (line: string): void => {
-    stdoutLines.push(line);
-    fireAndForget(
-      adapter.emitOutput({
-        runId: request.taskId,
-        stream: "stdout",
-        line,
-        timestamp: Date.now(),
-      }),
-    );
-  };
-
-  const appendStderr = (line: string): void => {
-    stderrLines.push(line);
-    fireAndForget(
-      adapter.emitOutput({
-        runId: request.taskId,
-        stream: "stderr",
-        line,
-        timestamp: Date.now(),
-      }),
-    );
-  };
 
   const mkResult = (
     status: SandboxExecutionResult["status"],
-    opts?: { error?: string; exitCode?: number },
+    opts?: { error?: string; exitCode?: number; result?: unknown },
   ): SandboxExecutionResult => ({
     status,
-    stdout: stdoutLines.join("\n"),
-    stderr: stderrLines.join("\n"),
+    result: opts?.result,
     exitCode: opts?.exitCode,
     error: opts?.error,
     durationMs: Date.now() - startedAt,
@@ -152,17 +127,16 @@ export async function runCodeWithAdapter(
   // ── Transpile ──────────────────────────────────────────────────────────
   const transpiled = transpileForRuntime(request.code);
   if (transpiled.isErr()) {
-    appendStderr(transpiled.error.message);
     return mkResult("failed", { error: transpiled.error.message });
   }
 
   // ── Sandbox setup ──────────────────────────────────────────────────────
   const tools = createToolsProxy(adapter, request.taskId);
   const consoleProxy = {
-    log: (...args: unknown[]) => appendStdout(formatArgs(args)),
-    info: (...args: unknown[]) => appendStdout(formatArgs(args)),
-    warn: (...args: unknown[]) => appendStderr(formatArgs(args)),
-    error: (...args: unknown[]) => appendStderr(formatArgs(args)),
+    log: (..._args: unknown[]) => {},
+    info: (..._args: unknown[]) => {},
+    warn: (..._args: unknown[]) => {},
+    error: (..._args: unknown[]) => {},
   };
 
   const sandbox = Object.assign(Object.create(null), {
@@ -206,13 +180,11 @@ export async function runCodeWithAdapter(
       execution.error.cause,
       request,
     );
-    appendStderr(message);
     return mkResult(status, { error: message });
   }
 
-  if (execution.value !== undefined) {
-    appendStdout(`result: ${formatArgs([execution.value])}`);
-  }
-
-  return mkResult("completed", { exitCode: 0 });
+  return mkResult("completed", {
+    exitCode: 0,
+    result: sanitizeExecutionResult(execution.value),
+  });
 }

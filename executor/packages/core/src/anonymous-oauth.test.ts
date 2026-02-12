@@ -11,7 +11,7 @@ import {
 // ---------------------------------------------------------------------------
 
 function createServer(issuer = "http://localhost:3003"): AnonymousOAuthServer {
-  return new AnonymousOAuthServer({ issuer });
+  return new AnonymousOAuthServer({ issuer, storage: new InMemoryOAuthStorage() });
 }
 
 /** Generate a random PKCE code_verifier (43–128 chars, unreserved). */
@@ -253,6 +253,85 @@ describe("AnonymousOAuthServer", () => {
       expect(verified!.provider).toBe("anonymous");
     });
 
+    test("supports binding a specific anonymous actor subject", async () => {
+      const redirectUri = "http://localhost:9999/callback";
+      const client = await server.registerClient({
+        redirect_uris: [redirectUri],
+      });
+
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await computeS256Challenge(codeVerifier);
+      const actorId = `anon_${crypto.randomUUID()}`;
+
+      const params = new URLSearchParams({
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: redirectUri,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      });
+
+      const { redirectTo } = await server.authorize(params, { actorId });
+      const code = new URL(redirectTo).searchParams.get("code")!;
+
+      const { access_token } = await server.exchangeToken(
+        new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: client.client_id,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+        }),
+      );
+
+      const verified = await server.verifyToken(access_token);
+      expect(verified).not.toBeNull();
+      expect(verified!.sub).toBe(actorId);
+    });
+
+    test("includes custom claims and filters reserved JWT claims", async () => {
+      const redirectUri = "http://localhost:9999/callback";
+      const client = await server.registerClient({
+        redirect_uris: [redirectUri],
+      });
+
+      const codeVerifier = generateCodeVerifier();
+      const codeChallenge = await computeS256Challenge(codeVerifier);
+      const params = new URLSearchParams({
+        response_type: "code",
+        client_id: client.client_id,
+        redirect_uri: redirectUri,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      });
+
+      const { redirectTo } = await server.authorize(params, {
+        tokenClaims: {
+          workspace_id: "ws_123",
+          session_id: "mcp_session_123",
+          sub: "ignored",
+          iss: "ignored",
+        },
+      });
+      const code = new URL(redirectTo).searchParams.get("code")!;
+
+      const { access_token } = await server.exchangeToken(
+        new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          client_id: client.client_id,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+        }),
+      );
+
+      const verified = await server.verifyToken(access_token);
+      expect(verified).not.toBeNull();
+      expect(verified!.claims.workspace_id).toBe("ws_123");
+      expect(verified!.claims.session_id).toBe("mcp_session_123");
+      expect(verified!.sub).toStartWith("anon_");
+    });
+
     test("code is single-use", async () => {
       const { client, code, codeVerifier, redirectUri } = await registerAndAuthorize(server);
 
@@ -298,6 +377,7 @@ describe("AnonymousOAuthServer", () => {
       const shortServer = new AnonymousOAuthServer({
         issuer: "http://localhost:3003",
         codeExpirySeconds: 0, // expires immediately
+        storage: new InMemoryOAuthStorage(),
       });
       await shortServer.init();
 
@@ -433,20 +513,21 @@ describe("AnonymousOAuthServer", () => {
       const s = new AnonymousOAuthServer({
         issuer: "http://localhost:3003",
         codeExpirySeconds: 0,
+        storage: new InMemoryOAuthStorage(),
       });
       await s.init();
 
       // Generate some codes
       await registerAndAuthorize(s);
       await registerAndAuthorize(s);
-      expect(s.getCodeCount()).toBe(2);
+      expect(await s.getCodeCount()).toBe(2);
 
       // Wait for them to expire
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      const purged = s.purgeExpiredCodes();
+      const purged = await s.purgeExpiredCodes();
       expect(purged).toBe(2);
-      expect(s.getCodeCount()).toBe(0);
+      expect(await s.getCodeCount()).toBe(0);
     });
   });
 
@@ -458,13 +539,14 @@ describe("AnonymousOAuthServer", () => {
         issuer: "http://localhost:3003",
         maxPendingCodes: 2,
         codeExpirySeconds: 300, // long-lived so they don't auto-purge
+        storage: new InMemoryOAuthStorage(),
       });
       await s.init();
 
       // Fill up the code slots
       await registerAndAuthorize(s);
       await registerAndAuthorize(s);
-      expect(s.getCodeCount()).toBe(2);
+      expect(await s.getCodeCount()).toBe(2);
 
       // Third should be rejected
       await expect(registerAndAuthorize(s)).rejects.toThrow(
@@ -477,13 +559,14 @@ describe("AnonymousOAuthServer", () => {
         issuer: "http://localhost:3003",
         maxPendingCodes: 2,
         codeExpirySeconds: 0, // codes expire immediately
+        storage: new InMemoryOAuthStorage(),
       });
       await s.init();
 
       // Fill slots (they expire immediately)
       await registerAndAuthorize(s);
       await registerAndAuthorize(s);
-      expect(s.getCodeCount()).toBe(2);
+      expect(await s.getCodeCount()).toBe(2);
 
       // Wait for expiry
       await new Promise((resolve) => setTimeout(resolve, 10));

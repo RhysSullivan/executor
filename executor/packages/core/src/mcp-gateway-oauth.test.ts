@@ -19,7 +19,7 @@ import { computeS256Challenge } from "./anonymous-oauth";
  */
 
 // We import the gateway init helpers directly to avoid needing CONVEX_URL
-import { AnonymousOAuthServer, OAuthBadRequest } from "./anonymous-oauth";
+import { AnonymousOAuthServer, InMemoryOAuthStorage, OAuthBadRequest } from "./anonymous-oauth";
 
 let server: ReturnType<typeof Bun.serve>;
 let baseUrl: string;
@@ -44,7 +44,10 @@ function generateCodeVerifier(): string {
 beforeAll(async () => {
   // We start our own server so we don't need CONVEX_URL.
   const port = 0; // random available port
-  oauthServer = new AnonymousOAuthServer({ issuer: "http://placeholder" });
+  oauthServer = new AnonymousOAuthServer({
+    issuer: "http://placeholder",
+    storage: new InMemoryOAuthStorage(),
+  });
   await oauthServer.init();
 
   server = Bun.serve({
@@ -172,7 +175,10 @@ beforeAll(async () => {
 
   // Update the oauth server's issuer to match the real URL
   // We do this by re-initializing with the correct issuer
-  oauthServer = new AnonymousOAuthServer({ issuer: baseUrl });
+  oauthServer = new AnonymousOAuthServer({
+    issuer: baseUrl,
+    storage: new InMemoryOAuthStorage(),
+  });
   await oauthServer.init();
 });
 

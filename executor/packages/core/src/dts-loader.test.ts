@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { clearDtsUrlCache, loadSourceDtsByUrlCached } from "./dts-loader";
+import { loadSourceDtsByUrl } from "./dts-loader";
 
-test("loadSourceDtsByUrlCached reuses cached URL fetches", async () => {
+test("loadSourceDtsByUrl fetches declarations for each source key", async () => {
   let requestCount = 0;
   const server = Bun.serve({
     port: 0,
@@ -14,50 +14,51 @@ test("loadSourceDtsByUrlCached reuses cached URL fetches", async () => {
   });
 
   try {
-    clearDtsUrlCache();
     const url = `http://127.0.0.1:${server.port}/types.d.ts`;
 
-    const first = await loadSourceDtsByUrlCached({
+    const first = await loadSourceDtsByUrl({
       "openapi:one": url,
       "openapi:two": url,
     });
-    const second = await loadSourceDtsByUrlCached({
+    const second = await loadSourceDtsByUrl({
       "openapi:one": url,
     });
 
     expect(first["openapi:one"]).toContain("interface operations");
     expect(first["openapi:two"]).toContain("interface operations");
     expect(second["openapi:one"]).toContain("interface operations");
-    expect(requestCount).toBe(1);
+    expect(requestCount).toBe(3);
   } finally {
     server.stop(true);
-    clearDtsUrlCache();
   }
 });
 
-test("loadSourceDtsByUrlCached respects ttl expiration", async () => {
-  let requestCount = 0;
+test("loadSourceDtsByUrl skips sources that fail to download", async () => {
   const server = Bun.serve({
     port: 0,
-    fetch: () => {
-      requestCount += 1;
-      return new Response("export interface operations { ping: {} }", {
+    fetch: (request) => {
+      const url = new URL(request.url);
+      if (url.pathname === "/fail.d.ts") {
+        return new Response("nope", { status: 500 });
+      }
+      return new Response("export interface operations { pong: {} }", {
         headers: { "content-type": "text/plain" },
       });
     },
   });
 
   try {
-    clearDtsUrlCache();
-    const url = `http://127.0.0.1:${server.port}/types.d.ts`;
+    const okUrl = `http://127.0.0.1:${server.port}/ok.d.ts`;
+    const failUrl = `http://127.0.0.1:${server.port}/fail.d.ts`;
 
-    await loadSourceDtsByUrlCached({ "openapi:one": url }, { ttlMs: 5 });
-    await Bun.sleep(20);
-    await loadSourceDtsByUrlCached({ "openapi:one": url }, { ttlMs: 5 });
+    const loaded = await loadSourceDtsByUrl({
+      "openapi:ok": okUrl,
+      "openapi:fail": failUrl,
+    });
 
-    expect(requestCount).toBe(2);
+    expect(loaded["openapi:ok"]).toContain("interface operations");
+    expect(loaded["openapi:fail"]).toBeUndefined();
   } finally {
     server.stop(true);
-    clearDtsUrlCache();
   }
 });

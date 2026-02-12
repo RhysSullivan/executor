@@ -1,5 +1,6 @@
 import type { ToolDefinition } from "./types";
 import {
+  compactArgKeysHint,
   compactArgTypeHint,
   compactDescriptionLine,
   compactReturnTypeHint,
@@ -74,7 +75,7 @@ function buildExampleCall(entry: DiscoverIndexEntry): string {
 
   const keys = entry.argPreviewKeys.length > 0 ? entry.argPreviewKeys : extractTopLevelTypeKeys(entry.argsType);
   if (keys.length > 0) {
-    const argsSnippet = keys.slice(0, 3)
+    const argsSnippet = keys.slice(0, 5)
       .map((key) => `${key}: ${key.toLowerCase().includes("input") ? "{ /* ... */ }" : "..."}`)
       .join(", ");
     return `await tools.${entry.path}({ ${argsSnippet} });`;
@@ -214,7 +215,9 @@ function formatSignature(entry: DiscoverIndexEntry, depth: number, compact: bool
       return "(input: ...): Promise<...>";
     }
 
-    const args = compactArgTypeHint(entry.argsType);
+    const args = entry.argPreviewKeys.length > 0
+      ? compactArgKeysHint(entry.argPreviewKeys)
+      : compactArgTypeHint(entry.argsType);
     const returns = compactReturnTypeHint(entry.returnsType);
 
     if (depth === 1) {

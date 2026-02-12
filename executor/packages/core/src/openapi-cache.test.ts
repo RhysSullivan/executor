@@ -345,6 +345,99 @@ describe("buildOpenApiToolsFromPrepared", () => {
     );
   });
 
+  test("includes anyOf body keys in preview args and input hint", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "DNS", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      paths: {
+        "/domains/{domain}/records": {
+          post: {
+            operationId: "createRecord",
+            tags: ["dns"],
+            summary: "Create record",
+            parameters: [
+              {
+                name: "domain",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    required: ["type"],
+                    properties: {
+                      type: {
+                        type: "string",
+                        enum: ["A", "CNAME"],
+                      },
+                    },
+                    anyOf: [
+                      {
+                        type: "object",
+                        required: ["type", "name", "value"],
+                        properties: {
+                          name: { type: "string" },
+                          type: { type: "string", enum: ["A"] },
+                          value: { type: "string" },
+                        },
+                      },
+                      {
+                        type: "object",
+                        required: ["type", "name", "value"],
+                        properties: {
+                          name: { type: "string" },
+                          type: { type: "string", enum: ["CNAME"] },
+                          value: { type: "string" },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { id: { type: "string" } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "dns");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "vercel",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((candidate) => candidate.metadata?.operationId === "createRecord");
+    expect(tool).toBeDefined();
+    expect(tool?.metadata?.argPreviewKeys).toEqual(["domain", "type", "name", "value"]);
+    expect(tool?.metadata?.displayArgsType).toContain("name: ...");
+    expect(tool?.metadata?.displayArgsType).toContain("value: ...");
+    expect(tool?.metadata?.argsType).toContain("name");
+    expect(tool?.metadata?.argsType).toContain("value");
+  });
+
   test("infers workspace auth from OpenAPI securitySchemes when source auth is unset", async () => {
     const spec: Record<string, unknown> = {
       openapi: "3.0.3",

@@ -1,7 +1,6 @@
 import { APPROVAL_DENIED_PREFIX, APPROVAL_PENDING_PREFIX } from "../execution-constants";
 import type {
   ExecutionAdapter,
-  RuntimeOutputEvent,
   ToolCallRequest,
   ToolCallResult,
 } from "../types";
@@ -10,7 +9,6 @@ import { describeError } from "../utils";
 interface InProcessExecutionAdapterOptions {
   runId: string;
   invokeTool: (call: ToolCallRequest) => Promise<unknown>;
-  emitOutput: (event: RuntimeOutputEvent) => void;
 }
 
 export class InProcessExecutionAdapter implements ExecutionAdapter {
@@ -54,12 +52,5 @@ export class InProcessExecutionAdapter implements ExecutionAdapter {
         error: message,
       };
     }
-  }
-
-  emitOutput(event: RuntimeOutputEvent): void {
-    if (event.runId !== this.options.runId) {
-      return;
-    }
-    this.options.emitOutput(event);
   }
 }

@@ -20,14 +20,9 @@ import type { ToolDescriptor } from "./types";
 // Tool declarations generation
 // ---------------------------------------------------------------------------
 
-let cachedTypeScript: typeof import("typescript") | null | undefined;
-
 function getTypeScriptModule(): typeof import("typescript") | null {
-  if (cachedTypeScript === undefined) {
-    const loaded = Result.try(() => require("typescript") as typeof import("typescript"));
-    cachedTypeScript = loaded.isOk() ? loaded.value : null;
-  }
-  return cachedTypeScript ?? null;
+  const loaded = Result.try(() => require("typescript") as typeof import("typescript"));
+  return loaded.isOk() ? loaded.value : null;
 }
 
 function isValidTypeExpression(typeExpression: string): boolean {
@@ -175,7 +170,12 @@ export function generateToolDeclarations(
         const tool = child.tool;
         if (tool.operationId && tool.source && dtsSources.has(tool.source)) {
           const opKey = JSON.stringify(tool.operationId);
-          lines.push(`${pad}${key}(input: ToolInput<operations[${opKey}]>): Promise<ToolOutput<operations[${opKey}]>>;`);
+          const openApiInputType = `ToolInput<operations[${opKey}]>`;
+          const strictArgsType = safeTypeExpression(tool.strictArgsType, "{}");
+          const inputType = strictArgsType !== "{}"
+            ? `(${openApiInputType}) & (${strictArgsType})`
+            : openApiInputType;
+          lines.push(`${pad}${key}(input: ${inputType}): Promise<ToolOutput<operations[${opKey}]>>;`);
         } else {
           const strictArgsType = tool.strictArgsType?.trim();
           const strictReturnsType = tool.strictReturnsType?.trim();

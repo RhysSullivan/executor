@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { AnonymousOAuthServer, OAuthBadRequest } from "./anonymous-oauth";
+import { AnonymousOAuthServer, InMemoryOAuthStorage, OAuthBadRequest } from "./anonymous-oauth";
 import { handleMcpRequest, type McpWorkspaceContext } from "./mcp-server";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 import type { LiveTaskEvent } from "./events";
@@ -55,8 +55,7 @@ class FakeMcpService {
         completedAt: current.createdAt + 2,
         updatedAt: current.createdAt + 2,
         exitCode: 0,
-        stdout: `ran:${input.code.slice(0, 20)}`,
-        stderr: "",
+        result: { ran: input.code.slice(0, 20) },
       });
       for (const listener of this.listeners.get(id) ?? []) {
         listener({ id: 1, eventName: "task", payload: { status: "completed" }, createdAt: Date.now() });
@@ -297,7 +296,10 @@ beforeAll(async () => {
   });
 
   baseUrl = `http://127.0.0.1:${server.port}`;
-  oauthServer = new AnonymousOAuthServer({ issuer: baseUrl });
+  oauthServer = new AnonymousOAuthServer({
+    issuer: baseUrl,
+    storage: new InMemoryOAuthStorage(),
+  });
   await oauthServer.init();
 });
 

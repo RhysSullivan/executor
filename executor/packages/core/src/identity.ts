@@ -24,12 +24,12 @@ export type WorkspaceAccess = {
   workspaceMembership: WorkspaceAccessMembership;
 };
 
-export function slugify(input: string): string {
+export function slugify(input: string, fallback = "team"): string {
   const slug = input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : "team";
+  return slug.length > 0 ? slug : fallback;
 }
 
 export async function resolveAccountForRequest(

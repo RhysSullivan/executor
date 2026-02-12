@@ -29,6 +29,18 @@ export declare const api: {
     >;
   };
   anonymousOauth: {
+    consumeAuthorizationCode: FunctionReference<
+      "mutation",
+      "public",
+      { code: string; internalSecret: string },
+      any
+    >;
+    countAuthorizationCodes: FunctionReference<
+      "query",
+      "public",
+      { internalSecret: string },
+      any
+    >;
     getActiveSigningKey: FunctionReference<
       "query",
       "public",
@@ -41,6 +53,12 @@ export declare const api: {
       { clientId: string; internalSecret: string },
       any
     >;
+    purgeExpiredAuthorizationCodes: FunctionReference<
+      "mutation",
+      "public",
+      { internalSecret: string; now: number },
+      any
+    >;
     registerClient: FunctionReference<
       "mutation",
       "public",
@@ -49,6 +67,23 @@ export declare const api: {
         clientName?: string;
         internalSecret: string;
         redirectUris: Array<string>;
+      },
+      any
+    >;
+    storeAuthorizationCode: FunctionReference<
+      "mutation",
+      "public",
+      {
+        actorId: string;
+        clientId: string;
+        code: string;
+        codeChallenge: string;
+        codeChallengeMethod: string;
+        createdAt: number;
+        expiresAt: number;
+        internalSecret: string;
+        redirectUri: string;
+        tokenClaims?: any;
       },
       any
     >;
@@ -125,7 +160,7 @@ export declare const api: {
       {
         actorId?: string;
         id?: string;
-        provider?: "managed" | "workos-vault";
+        provider?: "local-convex" | "workos-vault";
         scope: "workspace" | "actor";
         secretJson: any;
         sessionId?: string;
@@ -166,6 +201,12 @@ export declare const api: {
     >;
   };
   executorNode: {
+    listToolDtsUrls: FunctionReference<
+      "action",
+      "public",
+      { actorId?: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     listToolsWithWarnings: FunctionReference<
       "action",
       "public",
@@ -277,18 +318,6 @@ export declare const api: {
     >;
   };
   runtimeCallbacks: {
-    appendOutput: FunctionReference<
-      "mutation",
-      "public",
-      {
-        internalSecret: string;
-        line: string;
-        runId: string;
-        stream: "stdout" | "stderr";
-        timestamp?: number;
-      },
-      any
-    >;
     completeRun: FunctionReference<
       "mutation",
       "public",
@@ -297,10 +326,9 @@ export declare const api: {
         error?: string;
         exitCode?: number;
         internalSecret: string;
+        result?: any;
         runId: string;
         status: "completed" | "failed" | "timed_out" | "denied";
-        stderr?: string;
-        stdout?: string;
       },
       any
     >;
@@ -407,7 +435,8 @@ export declare const api: {
       {
         actorId?: string;
         id?: string;
-        provider?: "managed" | "workos-vault";
+        overridesJson?: any;
+        provider?: "local-convex" | "workos-vault";
         scope: "workspace" | "actor";
         secretJson: any;
         sessionId?: string;
@@ -528,6 +557,18 @@ export declare const internal: {
       { sessionId?: string },
       any
     >;
+    consumeAnonymousOauthAuthorizationCode: FunctionReference<
+      "mutation",
+      "internal",
+      { code: string },
+      any
+    >;
+    countAnonymousOauthAuthorizationCodes: FunctionReference<
+      "query",
+      "internal",
+      {},
+      any
+    >;
     createApproval: FunctionReference<
       "mutation",
       "internal",
@@ -567,7 +608,6 @@ export declare const internal: {
       {
         callId: string;
         error?: string;
-        output?: any;
         status: "completed" | "failed" | "denied";
         taskId: string;
       },
@@ -675,9 +715,8 @@ export declare const internal: {
       {
         error?: string;
         exitCode?: number;
+        result?: any;
         status: "completed" | "failed" | "timed_out" | "denied";
-        stderr: string;
-        stdout: string;
         taskId: string;
       },
       any
@@ -686,6 +725,12 @@ export declare const internal: {
       "mutation",
       "internal",
       { taskId: string },
+      any
+    >;
+    purgeExpiredAnonymousOauthAuthorizationCodes: FunctionReference<
+      "mutation",
+      "internal",
+      { now: number },
       any
     >;
     registerAnonymousOauthClient: FunctionReference<
@@ -722,6 +767,22 @@ export declare const internal: {
       { approvalId: string; callId: string; taskId: string },
       any
     >;
+    storeAnonymousOauthAuthorizationCode: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        actorId: string;
+        clientId: string;
+        code: string;
+        codeChallenge: string;
+        codeChallengeMethod: string;
+        createdAt: number;
+        expiresAt: number;
+        redirectUri: string;
+        tokenClaims?: any;
+      },
+      any
+    >;
     storeAnonymousOauthSigningKey: FunctionReference<
       "mutation",
       "internal",
@@ -753,7 +814,8 @@ export declare const internal: {
       {
         actorId?: string;
         id?: string;
-        provider?: "managed" | "workos-vault";
+        overridesJson?: any;
+        provider?: "local-convex" | "workos-vault";
         scope: "workspace" | "actor";
         secretJson: any;
         sourceKey: string;
@@ -766,7 +828,6 @@ export declare const internal: {
       "internal",
       {
         callId: string;
-        input?: any;
         taskId: string;
         toolPath: string;
         workspaceId: Id<"workspaces">;
@@ -788,17 +849,6 @@ export declare const internal: {
     >;
   };
   executor: {
-    appendRuntimeOutput: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        line: string;
-        runId: string;
-        stream: "stdout" | "stderr";
-        timestamp?: number;
-      },
-      any
-    >;
     completeRuntimeRun: FunctionReference<
       "mutation",
       "internal",
@@ -806,10 +856,9 @@ export declare const internal: {
         durationMs?: number;
         error?: string;
         exitCode?: number;
+        result?: any;
         runId: string;
         status: "completed" | "failed" | "timed_out" | "denied";
-        stderr?: string;
-        stdout?: string;
       },
       any
     >;

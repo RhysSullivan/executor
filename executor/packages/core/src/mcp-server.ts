@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { Result } from "better-result";
 import { z } from "zod";
-import { loadSourceDtsByUrlCached } from "./dts-loader";
+import { loadSourceDtsByUrl } from "./dts-loader";
 import { generateToolDeclarations, generateToolInventory, typecheckCode } from "./typechecker";
 import type { LiveTaskEvent } from "./events";
 import type {
@@ -94,7 +95,7 @@ function listTopLevelToolKeys(tools: ToolDescriptor[]): string[] {
 }
 
 function summarizeTask(task: TaskRecord): string {
-  const maxStreamPreviewChars = 30_000;
+  const maxResultPreviewChars = 30_000;
   const lines = [
     `taskId: ${task.id}`,
     `status: ${task.status}`,
@@ -109,29 +110,17 @@ function summarizeTask(task: TaskRecord): string {
     lines.push(`error: ${task.error}`);
   }
 
-  const stdoutLength = task.stdout?.length ?? 0;
-  const stderrLength = task.stderr?.length ?? 0;
-  if (stdoutLength > maxStreamPreviewChars || stderrLength > maxStreamPreviewChars) {
-    lines.push(
-      `outputWarning: Large runtime output detected (stdout=${stdoutLength} chars, stderr=${stderrLength} chars).`,
-    );
-    lines.push(
-      "outputHint: Return compact summaries (counts, IDs, top-N samples) to avoid truncation in tool responses.",
-    );
-  }
-
   let text = lines.join("\n");
-  if (task.stdout && task.stdout.trim()) {
-    const stdoutPreview = task.stdout.length > maxStreamPreviewChars
-      ? `${task.stdout.slice(0, maxStreamPreviewChars)}\n... [stdout preview truncated ${task.stdout.length - maxStreamPreviewChars} chars]`
-      : task.stdout;
-    text += asCodeBlock("text", stdoutPreview);
-  }
-  if (task.stderr && task.stderr.trim()) {
-    const stderrPreview = task.stderr.length > maxStreamPreviewChars
-      ? `${task.stderr.slice(0, maxStreamPreviewChars)}\n... [stderr preview truncated ${task.stderr.length - maxStreamPreviewChars} chars]`
-      : task.stderr;
-    text += asCodeBlock("text", stderrPreview);
+  if (task.result !== undefined) {
+    const serialized = Result.try(() => JSON.stringify(task.result, null, 2)).unwrapOr(String(task.result));
+    if (serialized.length > maxResultPreviewChars) {
+      text += asCodeBlock(
+        "json",
+        `${serialized.slice(0, maxResultPreviewChars)}\n... [result preview truncated ${serialized.length - maxResultPreviewChars} chars]`,
+      );
+    } else {
+      text += asCodeBlock("json", serialized);
+    }
   }
   return text;
 }
@@ -260,7 +249,7 @@ function waitForTerminalTask(
 
 function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
   const base =
-    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns stdout/stderr. Code is typechecked before execution — type errors are returned without running. Runtime has no filesystem/process/import access; use `tools.*` for external calls.";
+    "Execute TypeScript code in a sandboxed runtime. The code has access to a `tools` object with typed methods for calling external services. Use `return` to return a value. Waits for completion and returns only explicit return values (console output is not returned). Code is typechecked before execution — type errors are returned without running. Runtime has no filesystem/process/import access; use `tools.*` for external calls.";
   const toolList = tools ?? [];
   const topLevelKeys = listTopLevelToolKeys(toolList);
   const rootKeysNote = topLevelKeys.length > 0
@@ -428,7 +417,7 @@ function createRunCodeTool(
           clientId: context.clientId,
         });
         toolsForContext = tools;
-        sourceDtsBySource = await loadSourceDtsByUrlCached(dtsUrls ?? {});
+        sourceDtsBySource = await loadSourceDtsByUrl(dtsUrls ?? {});
       } else {
         toolsForContext = await service.listTools({
           workspaceId: context.workspaceId,
@@ -537,8 +526,7 @@ function createRunCodeTool(
         runtimeId: task.runtimeId,
         exitCode: task.exitCode,
         error: task.error,
-        stdout: task.stdout,
-        stderr: task.stderr,
+        result: task.result,
         workspaceId: context.workspaceId,
         actorId: context.actorId,
         sessionId: context.sessionId,
@@ -606,36 +594,6 @@ async function createMcpServer(
   return mcp;
 }
 
-function createDelegatingService(ref: { current: McpExecutorService }): McpExecutorService {
-  return {
-    createTask: async (input) => await ref.current.createTask(input),
-    getTask: async (taskId, workspaceId) => await ref.current.getTask(taskId, workspaceId),
-    subscribe: (taskId, listener) => ref.current.subscribe(taskId, listener),
-    bootstrapAnonymousContext: async (sessionId) => await ref.current.bootstrapAnonymousContext(sessionId),
-    listTools: async (context) => await ref.current.listTools(context),
-    listToolsForTypecheck: ref.current.listToolsForTypecheck
-      ? async (context) => await ref.current.listToolsForTypecheck!(context)
-      : undefined,
-    typecheckRunCode: ref.current.typecheckRunCode
-      ? async (input) => await ref.current.typecheckRunCode!(input)
-      : undefined,
-    listPendingApprovals: ref.current.listPendingApprovals
-      ? async (workspaceId) => await ref.current.listPendingApprovals!(workspaceId)
-      : undefined,
-    resolveApproval: ref.current.resolveApproval
-      ? async (input) => await ref.current.resolveApproval!(input)
-      : undefined,
-  };
-}
-
-type McpSessionRuntime = {
-  transport: WebStandardStreamableHTTPServerTransport;
-  mcp: McpServer;
-  serviceRef: { current: McpExecutorService };
-};
-
-const mcpSessionRuntimes: Record<string, McpSessionRuntime> = Object.create(null);
-
 async function handleStatelessMcpRequest(
   service: McpExecutorService,
   request: Request,
@@ -665,64 +623,8 @@ export async function handleMcpRequest(
   request: Request,
   context?: McpWorkspaceContext,
 ): Promise<Response> {
-  const runtimeSessionId = request.headers.get("mcp-session-id") ?? undefined;
-
-  if (runtimeSessionId) {
-    const runtime = mcpSessionRuntimes[runtimeSessionId];
-    if (runtime) {
-      runtime.serviceRef.current = service;
-      return await runtime.transport.handleRequest(request);
-    }
-
-    const headers = new Headers(request.headers);
-    headers.delete("mcp-session-id");
-    const requestWithoutSession = new Request(request, { headers });
-    return await handleStatelessMcpRequest(service, requestWithoutSession, context);
-  }
-
-  const serviceRef = { current: service };
-  const delegatingService = createDelegatingService(serviceRef);
-  const mcp = await createMcpServer(delegatingService, context);
-
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: () => crypto.randomUUID(),
-    enableJsonResponse: true,
-    onsessioninitialized: (sessionId) => {
-      mcpSessionRuntimes[sessionId] = {
-        transport,
-        mcp,
-        serviceRef,
-      };
-    },
-    onsessionclosed: async (sessionId) => {
-      if (!sessionId) {
-        return;
-      }
-
-      const runtime = mcpSessionRuntimes[sessionId];
-      if (!runtime) {
-        return;
-      }
-
-      delete mcpSessionRuntimes[sessionId];
-      await runtime.mcp.close().catch(() => {});
-    },
-  });
-
-  try {
-    await mcp.connect(transport);
-    const response = await transport.handleRequest(request);
-
-    const initializedSessionId = response.headers.get("mcp-session-id") ?? undefined;
-    if (!initializedSessionId) {
-      await transport.close().catch(() => {});
-      await mcp.close().catch(() => {});
-    }
-
-    return response;
-  } catch (error) {
-    await transport.close().catch(() => {});
-    await mcp.close().catch(() => {});
-    throw error;
-  }
+  const headers = new Headers(request.headers);
+  headers.delete("mcp-session-id");
+  const requestWithoutSession = new Request(request, { headers });
+  return await handleStatelessMcpRequest(service, requestWithoutSession, context);
 }

@@ -21,8 +21,8 @@ import { transpileForRuntime } from "./transpile";
  *    `ToolBridge` entrypoint in the host Worker (passed via `env` bindings),
  *    which in turn calls Convex callback RPCs to resolve tools.
  *
- * 4. Console output from the isolate is similarly relayed back via callback
- *    RPC mutation.
+ * 4. Only explicit `return` values from the isolate are included in callback
+ *    completion payloads.
  *
  * 5. The host Worker accepts the run immediately and finishes execution
  *    asynchronously, reporting terminal results back through callback RPC.

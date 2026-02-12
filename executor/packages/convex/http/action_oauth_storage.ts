@@ -1,40 +1,18 @@
-/**
- * Convex-backed storage for the anonymous OAuth server.
- *
- * Persists signing keys, client registrations, and authorization codes
- * to Convex so OAuth flows survive gateway restarts.
- *
- * All Convex calls include an `internalSecret` argument that is validated
- * server-side against `EXECUTOR_INTERNAL_TOKEN`, preventing unauthorized
- * access to private key material.
- */
-
-import { ConvexHttpClient } from "convex/browser";
-import { api } from "../../convex/_generated/api";
+import { internal } from "../_generated/api";
+import type { ActionCtx } from "../_generated/server";
 import type {
+  AnonOAuthClientRegistration,
   OAuthStorage,
   StoredSigningKey,
-  AnonOAuthClientRegistration,
-} from "./anonymous-oauth";
+} from "../../core/src/anonymous-oauth";
 
-export class ConvexOAuthStorage implements OAuthStorage {
-  private readonly convex: ConvexHttpClient;
-  private readonly internalSecret: string;
-
-  constructor(convexUrl: string, internalSecret: string) {
-    if (!internalSecret) {
-      throw new Error(
-        "ConvexOAuthStorage requires an internalSecret (EXECUTOR_INTERNAL_TOKEN)",
-      );
-    }
-    this.convex = new ConvexHttpClient(convexUrl);
-    this.internalSecret = internalSecret;
-  }
+export class ActionOAuthStorage implements OAuthStorage {
+  constructor(private readonly ctx: ActionCtx) {}
 
   async getActiveSigningKey(): Promise<StoredSigningKey | null> {
-    const result = await this.convex.query(
-      api.anonymousOauth.getActiveSigningKey,
-      { internalSecret: this.internalSecret },
+    const result = await this.ctx.runQuery(
+      internal.database.getActiveAnonymousOauthSigningKey,
+      {},
     );
 
     if (!result) return null;
@@ -48,10 +26,9 @@ export class ConvexOAuthStorage implements OAuthStorage {
   }
 
   async storeSigningKey(key: StoredSigningKey): Promise<void> {
-    await this.convex.mutation(
-      api.anonymousOauth.storeSigningKey,
+    await this.ctx.runMutation(
+      internal.database.storeAnonymousOauthSigningKey,
       {
-        internalSecret: this.internalSecret,
         keyId: key.keyId,
         algorithm: key.algorithm,
         privateKeyJwk: key.privateKeyJwk,
@@ -63,10 +40,9 @@ export class ConvexOAuthStorage implements OAuthStorage {
   async registerClient(
     registration: AnonOAuthClientRegistration,
   ): Promise<AnonOAuthClientRegistration> {
-    const result = await this.convex.mutation(
-      api.anonymousOauth.registerClient,
+    const result = await this.ctx.runMutation(
+      internal.database.registerAnonymousOauthClient,
       {
-        internalSecret: this.internalSecret,
         clientId: registration.client_id,
         clientName: registration.client_name,
         redirectUris: registration.redirect_uris,
@@ -82,9 +58,9 @@ export class ConvexOAuthStorage implements OAuthStorage {
   }
 
   async getClient(clientId: string): Promise<AnonOAuthClientRegistration | null> {
-    const result = await this.convex.query(
-      api.anonymousOauth.getClient,
-      { internalSecret: this.internalSecret, clientId },
+    const result = await this.ctx.runQuery(
+      internal.database.getAnonymousOauthClient,
+      { clientId },
     );
 
     if (!result) return null;
@@ -108,8 +84,7 @@ export class ConvexOAuthStorage implements OAuthStorage {
     expiresAt: number;
     createdAt: number;
   }): Promise<void> {
-    await this.convex.mutation(api.anonymousOauth.storeAuthorizationCode, {
-      internalSecret: this.internalSecret,
+    await this.ctx.runMutation(internal.database.storeAnonymousOauthAuthorizationCode, {
       ...code,
     });
   }
@@ -125,8 +100,7 @@ export class ConvexOAuthStorage implements OAuthStorage {
     expiresAt: number;
     createdAt: number;
   } | null> {
-    const result = await this.convex.mutation(api.anonymousOauth.consumeAuthorizationCode, {
-      internalSecret: this.internalSecret,
+    const result = await this.ctx.runMutation(internal.database.consumeAnonymousOauthAuthorizationCode, {
       code,
     });
 
@@ -148,16 +122,14 @@ export class ConvexOAuthStorage implements OAuthStorage {
   }
 
   async purgeExpiredAuthorizationCodes(now: number): Promise<number> {
-    const result = await this.convex.mutation(api.anonymousOauth.purgeExpiredAuthorizationCodes, {
-      internalSecret: this.internalSecret,
+    const result = await this.ctx.runMutation(internal.database.purgeExpiredAnonymousOauthAuthorizationCodes, {
       now,
     });
     return result.purged;
   }
 
   async countAuthorizationCodes(): Promise<number> {
-    const result = await this.convex.query(api.anonymousOauth.countAuthorizationCodes, {
-      internalSecret: this.internalSecret,
+    const result = await this.ctx.runQuery(internal.database.countAnonymousOauthAuthorizationCodes, {
     });
     return result.count;
   }

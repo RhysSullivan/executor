@@ -222,35 +222,11 @@ export const resolveApprovalInternal = internalMutation({
   },
 });
 
-export const appendRuntimeOutput = internalMutation({
-  args: {
-    runId: v.string(),
-    stream: v.union(v.literal("stdout"), v.literal("stderr")),
-    line: v.string(),
-    timestamp: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    await ctx.runMutation(internal.database.createTaskEvent, {
-      taskId: args.runId,
-      eventName: "task",
-      type: args.stream === "stdout" ? "task.stdout" : "task.stderr",
-      payload: {
-        taskId: args.runId,
-        line: args.line,
-        timestamp: args.timestamp ?? Date.now(),
-      },
-    });
-
-    return { ok: true as const };
-  },
-});
-
 export const completeRuntimeRun = internalMutation({
   args: {
     runId: v.string(),
     status: v.union(v.literal("completed"), v.literal("failed"), v.literal("timed_out"), v.literal("denied")),
-    stdout: v.optional(v.string()),
-    stderr: v.optional(v.string()),
+    result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     error: v.optional(v.string()),
     durationMs: v.optional(v.number()),
@@ -265,11 +241,10 @@ export const completeRuntimeRun = internalMutation({
       return { ok: true as const, alreadyFinal: true as const, task };
     }
 
-    const finished = await ctx.runMutation(internal.database.markTaskFinished, {
+    const finished = await ctx.runMutation(internal.database.markTaskFinished as any, {
       taskId: args.runId,
       status: args.status,
-      stdout: args.stdout ?? "",
-      stderr: args.stderr ?? "",
+      result: args.result,
       exitCode: args.exitCode,
       error: args.error,
     });

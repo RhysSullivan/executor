@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction } from "./_generated/server";
-import { loadSourceDtsByUrlCached } from "../core/src/dts-loader";
+import { loadSourceDtsByUrl } from "../core/src/dts-loader";
 import { generateToolDeclarations, typecheckCode } from "../core/src/typechecker";
 import type { ToolDescriptor } from "../core/src/types";
 
@@ -26,7 +26,7 @@ export const typecheckRunCodeInternal = internalAction({
       dtsUrls?: Record<string, string>;
     };
 
-    const sourceDtsBySource = await loadSourceDtsByUrlCached(result.dtsUrls ?? {});
+    const sourceDtsBySource = await loadSourceDtsByUrl(result.dtsUrls ?? {});
     const declarations = generateToolDeclarations(result.tools, {
       sourceDtsBySource,
     });

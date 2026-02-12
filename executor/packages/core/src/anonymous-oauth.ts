@@ -21,10 +21,8 @@
  *
  * Storage is pluggable via the `OAuthStorage` interface:
  * - `InMemoryOAuthStorage` — ephemeral, for tests and single-process dev
- * - `ConvexOAuthStorage` — persists keys & client registrations to Convex,
+ * - `ConvexOAuthStorage` — persists keys, client registrations, and auth codes to Convex,
  *   so tokens survive gateway restarts
- *
- * Authorization codes are always in-memory (short-lived, single-use).
  */
 
 import {
@@ -36,7 +34,6 @@ import {
   jwtVerify,
   type JWK,
   type CryptoKey as JoseCryptoKey,
-  type JWTVerifyGetKey,
 } from "jose";
 
 // ---------------------------------------------------------------------------
@@ -57,7 +54,39 @@ interface AuthorizationCode {
   codeChallenge: string;
   codeChallengeMethod: string;
   actorId: string;
+  tokenClaims?: Record<string, unknown>;
   expiresAt: number;
+  createdAt: number;
+}
+
+const RESERVED_JWT_CLAIMS = new Set([
+  "iss",
+  "sub",
+  "aud",
+  "exp",
+  "nbf",
+  "iat",
+  "jti",
+]);
+
+function sanitizeTokenClaims(input?: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!input) return undefined;
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (RESERVED_JWT_CLAIMS.has(key)) continue;
+    if (value === undefined) continue;
+    sanitized[key] = value;
+  }
+
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+export interface AnonymousAuthorizeOptions {
+  /** Optional actor subject override. Defaults to a fresh `anon_<uuid>`. */
+  actorId?: string;
+  /** Optional custom access-token claims (reserved JWT claims are ignored). */
+  tokenClaims?: Record<string, unknown>;
 }
 
 export interface AnonOAuthConfig {
@@ -69,8 +98,8 @@ export interface AnonOAuthConfig {
   codeExpirySeconds?: number;
   /** Maximum number of in-flight authorization codes. Default 10 000. */
   maxPendingCodes?: number;
-  /** Pluggable storage backend for keys & client registrations. */
-  storage?: OAuthStorage;
+  /** Pluggable storage backend for keys, clients, and authorization codes. */
+  storage: OAuthStorage;
 }
 
 // ---------------------------------------------------------------------------
@@ -105,6 +134,26 @@ export interface OAuthStorage {
    * Look up an OAuth client by client_id. Returns null if not found.
    */
   getClient(clientId: string): Promise<AnonOAuthClientRegistration | null>;
+
+  /**
+   * Persist an authorization code.
+   */
+  storeAuthorizationCode(code: AuthorizationCode): Promise<void>;
+
+  /**
+   * Atomically consume and return an authorization code.
+   */
+  consumeAuthorizationCode(code: string): Promise<AuthorizationCode | null>;
+
+  /**
+   * Purge expired authorization codes.
+   */
+  purgeExpiredAuthorizationCodes(now: number): Promise<number>;
+
+  /**
+   * Return the number of pending authorization codes.
+   */
+  countAuthorizationCodes(): Promise<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +163,7 @@ export interface OAuthStorage {
 export class InMemoryOAuthStorage implements OAuthStorage {
   private signingKey: StoredSigningKey | null = null;
   private readonly clients = new Map<string, AnonOAuthClientRegistration>();
+  private readonly authorizationCodes = new Map<string, AuthorizationCode>();
 
   async getActiveSigningKey(): Promise<StoredSigningKey | null> {
     return this.signingKey;
@@ -130,6 +180,34 @@ export class InMemoryOAuthStorage implements OAuthStorage {
 
   async getClient(clientId: string): Promise<AnonOAuthClientRegistration | null> {
     return this.clients.get(clientId) ?? null;
+  }
+
+  async storeAuthorizationCode(code: AuthorizationCode): Promise<void> {
+    this.authorizationCodes.set(code.code, code);
+  }
+
+  async consumeAuthorizationCode(code: string): Promise<AuthorizationCode | null> {
+    const existing = this.authorizationCodes.get(code) ?? null;
+    if (!existing) {
+      return null;
+    }
+    this.authorizationCodes.delete(code);
+    return existing;
+  }
+
+  async purgeExpiredAuthorizationCodes(now: number): Promise<number> {
+    let purged = 0;
+    for (const [key, code] of this.authorizationCodes) {
+      if (now > code.expiresAt) {
+        this.authorizationCodes.delete(key);
+        purged += 1;
+      }
+    }
+    return purged;
+  }
+
+  async countAuthorizationCodes(): Promise<number> {
+    return this.authorizationCodes.size;
   }
 
   /** Test helper: number of registered clients. */
@@ -153,11 +231,6 @@ export class AnonymousOAuthServer {
   private privateKey!: JoseCryptoKey;
   private publicJwk!: JWK;
   private keyId!: string;
-  /** Cached local JWKS for fast token verification (built once on init). */
-  private localJwks!: JWTVerifyGetKey;
-
-  /** In-memory authorization codes (short-lived, cleaned up on use). */
-  private readonly codes = new Map<string, AuthorizationCode>();
 
   constructor(config: AnonOAuthConfig) {
     this.issuer = config.issuer.replace(/\/+$/, "");
@@ -165,7 +238,7 @@ export class AnonymousOAuthServer {
     this.accessTokenTtlSeconds = config.accessTokenTtlSeconds ?? 24 * 60 * 60;
     this.codeExpirySeconds = config.codeExpirySeconds ?? 120;
     this.maxPendingCodes = config.maxPendingCodes ?? 10_000;
-    this.storage = config.storage ?? new InMemoryOAuthStorage();
+    this.storage = config.storage;
   }
 
   // -------------------------------------------------------------------------
@@ -176,8 +249,7 @@ export class AnonymousOAuthServer {
    * Initialize the OAuth server.
    *
    * Attempts to load an existing signing key from storage. If none exists,
-   * generates a new RSA key pair and persists it. Either way, the private
-   * key and public JWK are cached locally for fast in-process operations.
+   * generates a new RSA key pair and persists it.
    */
   async init(): Promise<void> {
     const existing = await this.storage.getActiveSigningKey();
@@ -205,9 +277,6 @@ export class AnonymousOAuthServer {
         publicKeyJwk: publicJwk,
       });
     }
-
-    // Build cached local JWKS for fast token verification
-    this.localJwks = createLocalJWKSet({ keys: [this.publicJwk] });
   }
 
   /**
@@ -218,7 +287,6 @@ export class AnonymousOAuthServer {
     this.privateKey = privateKey;
     this.keyId = publicJwk.kid ?? `anon_key_${crypto.randomUUID().slice(0, 8)}`;
     this.publicJwk = { ...publicJwk, kid: this.keyId, use: "sig", alg: "RS256" };
-    this.localJwks = createLocalJWKSet({ keys: [this.publicJwk] });
   }
 
   // -------------------------------------------------------------------------
@@ -292,7 +360,7 @@ export class AnonymousOAuthServer {
    * user to authenticate — we auto-approve and redirect back immediately
    * with an authorization code.
    */
-  async authorize(params: URLSearchParams): Promise<{ redirectTo: string }> {
+  async authorize(params: URLSearchParams, options?: AnonymousAuthorizeOptions): Promise<{ redirectTo: string }> {
     const responseType = params.get("response_type");
     if (responseType !== "code") {
       throw new OAuthBadRequest("response_type must be 'code'");
@@ -322,28 +390,32 @@ export class AnonymousOAuthServer {
       throw new OAuthBadRequest("PKCE S256 code_challenge is required");
     }
 
-    // Generate anonymous identity
-    const actorId = `anon_${crypto.randomUUID()}`;
+    // Generate or bind anonymous identity
+    const requestedActorId = options?.actorId?.trim();
+    const actorId = requestedActorId && requestedActorId.length > 0
+      ? requestedActorId
+      : `anon_${crypto.randomUUID()}`;
 
-    // Enforce cap on pending codes to prevent memory exhaustion
-    if (this.codes.size >= this.maxPendingCodes) {
-      // Purge expired codes first; if still over limit, reject
-      this.purgeExpiredCodes();
-      if (this.codes.size >= this.maxPendingCodes) {
+    // Enforce cap on pending codes to prevent unbounded growth
+    if (await this.storage.countAuthorizationCodes() >= this.maxPendingCodes) {
+      await this.storage.purgeExpiredAuthorizationCodes(Date.now());
+      if (await this.storage.countAuthorizationCodes() >= this.maxPendingCodes) {
         throw new OAuthBadRequest("Too many pending authorization requests — try again later");
       }
     }
 
-    // Issue authorization code (always in-memory — short-lived, single-use)
+    // Issue authorization code (persistent, short-lived, single-use)
     const code = crypto.randomUUID();
-    this.codes.set(code, {
+    await this.storage.storeAuthorizationCode({
       code,
       clientId,
       redirectUri,
       codeChallenge,
       codeChallengeMethod,
       actorId,
+      tokenClaims: sanitizeTokenClaims(options?.tokenClaims),
       expiresAt: Date.now() + this.codeExpirySeconds * 1000,
+      createdAt: Date.now(),
     });
 
     // Build redirect URL
@@ -380,13 +452,10 @@ export class AnonymousOAuthServer {
       throw new OAuthBadRequest("code is required");
     }
 
-    const storedCode = this.codes.get(codeValue);
+    const storedCode = await this.storage.consumeAuthorizationCode(codeValue);
     if (!storedCode) {
       throw new OAuthBadRequest("invalid or expired code");
     }
-
-    // Consume the code immediately (one-time use)
-    this.codes.delete(codeValue);
 
     if (Date.now() > storedCode.expiresAt) {
       throw new OAuthBadRequest("authorization code has expired");
@@ -416,11 +485,14 @@ export class AnonymousOAuthServer {
     }
 
     // Mint JWT
-    const accessToken = await new SignJWT({
-      sub: storedCode.actorId,
+    const accessTokenClaims = {
       provider: "anonymous",
-    })
+      ...(storedCode.tokenClaims ?? {}),
+    };
+
+    const accessToken = await new SignJWT(accessTokenClaims)
       .setProtectedHeader({ alg: "RS256", kid: this.keyId })
+      .setSubject(storedCode.actorId)
       .setIssuer(this.issuer)
       .setAudience(this.audience)
       .setIssuedAt()
@@ -441,9 +513,9 @@ export class AnonymousOAuthServer {
 
   async verifyToken(
     token: string,
-  ): Promise<{ sub: string; provider: string } | null> {
+  ): Promise<{ sub: string; provider: string; claims: Record<string, unknown> } | null> {
     try {
-      const { payload } = await jwtVerify(token, this.localJwks, {
+      const { payload } = await jwtVerify(token, createLocalJWKSet({ keys: [this.publicJwk] }), {
         issuer: this.issuer,
         audience: this.audience,
       });
@@ -455,6 +527,9 @@ export class AnonymousOAuthServer {
       return {
         sub: payload.sub,
         provider: typeof payload.provider === "string" ? payload.provider : "anonymous",
+        claims: Object.fromEntries(
+          Object.entries(payload).filter(([key]) => !RESERVED_JWT_CLAIMS.has(key) && key !== "sub"),
+        ),
       };
     } catch {
       return null;
@@ -469,21 +544,13 @@ export class AnonymousOAuthServer {
     return this.issuer;
   }
 
-  getCodeCount(): number {
-    return this.codes.size;
+  async getCodeCount(): Promise<number> {
+    return await this.storage.countAuthorizationCodes();
   }
 
   /** Purge expired authorization codes (call periodically). */
-  purgeExpiredCodes(): number {
-    const now = Date.now();
-    let purged = 0;
-    for (const [key, code] of this.codes) {
-      if (now > code.expiresAt) {
-        this.codes.delete(key);
-        purged++;
-      }
-    }
-    return purged;
+  async purgeExpiredCodes(): Promise<number> {
+    return await this.storage.purgeExpiredAuthorizationCodes(Date.now());
   }
 }
 

@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
+import { slugify } from "../core/src/identity";
 import { ensureUniqueSlug } from "../core/src/slug";
 import type { TaskStatus } from "../core/src/types";
 
@@ -24,21 +25,13 @@ const terminalToolCallStatusValidator = v.union(
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProviderValidator = v.union(
-  v.literal("managed"),
+  v.literal("local-convex"),
   v.literal("workos-vault"),
 );
 const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
 
-function slugify(input: string): string {
-  const slug = input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : "workspace";
-}
-
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
-  const baseSlug = slugify(baseName);
+  const baseSlug = slugify(baseName, "workspace");
   return await ensureUniqueSlug(baseSlug, async (candidate) => {
     const collision = await ctx.db
       .query("organizations")
@@ -96,6 +89,46 @@ function asRecord(value: unknown): Record<string, unknown> {
   return {};
 }
 
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function normalizeSourceAuthFingerprint(value: unknown): string {
+  const auth = asRecord(value);
+  const type = typeof auth.type === "string" ? auth.type.trim() : "none";
+  const mode = auth.mode === "actor" ? "actor" : "workspace";
+  const header = typeof auth.header === "string" ? auth.header.trim().toLowerCase() : "";
+  return stableStringify({
+    type: type || "none",
+    mode,
+    ...(header ? { header } : {}),
+  });
+}
+
+function computeSourceSpecHash(type: "mcp" | "openapi" | "graphql", config: Record<string, unknown>): string {
+  if (type === "openapi") {
+    const spec = config.spec;
+    if (typeof spec === "string") {
+      return `openapi:${spec.trim()}`;
+    }
+    return `openapi:${stableStringify(spec)}`;
+  }
+  if (type === "graphql") {
+    const endpoint = typeof config.endpoint === "string" ? config.endpoint.trim() : "";
+    return `graphql:${endpoint}`;
+  }
+  const url = typeof config.url === "string" ? config.url.trim() : "";
+  return `mcp:${url}`;
+}
+
 function mapTask(doc: Doc<"tasks">) {
   return {
     id: doc.taskId,
@@ -112,8 +145,7 @@ function mapTask(doc: Doc<"tasks">) {
     startedAt: doc.startedAt,
     completedAt: doc.completedAt,
     error: doc.error,
-    stdout: doc.stdout,
-    stderr: doc.stderr,
+    result: doc.result,
     exitCode: doc.exitCode,
   };
 }
@@ -138,10 +170,8 @@ function mapToolCall(doc: Doc<"toolCalls">) {
     callId: doc.callId,
     workspaceId: doc.workspaceId,
     toolPath: doc.toolPath,
-    input: doc.input,
     status: doc.status,
     approvalId: doc.approvalId,
-    output: doc.output,
     error: doc.error,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -166,12 +196,15 @@ function mapPolicy(doc: Doc<"accessPolicies">) {
 function mapCredential(doc: Doc<"sourceCredentials">) {
   return {
     id: doc.credentialId,
+    bindingId: doc.bindingId,
     workspaceId: doc.workspaceId,
     sourceKey: doc.sourceKey,
     scope: doc.scope,
     actorId: doc.actorId || undefined,
-    provider: doc.provider ?? "managed",
+    provider: doc.provider,
     secretJson: asRecord(doc.secretJson),
+    overridesJson: asRecord(doc.overridesJson),
+    boundAuthFingerprint: doc.boundAuthFingerprint,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
@@ -184,6 +217,8 @@ function mapSource(doc: Doc<"toolSources">) {
     name: doc.name,
     type: doc.type,
     config: asRecord(doc.config),
+    specHash: doc.specHash,
+    authFingerprint: doc.authFingerprint,
     enabled: Boolean(doc.enabled),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -468,8 +503,7 @@ export const markTaskFinished = internalMutation({
   args: {
     taskId: v.string(),
     status: completedTaskStatusValidator,
-    stdout: v.string(),
-    stderr: v.string(),
+    result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     error: v.optional(v.string()),
   },
@@ -486,8 +520,7 @@ export const markTaskFinished = internalMutation({
     const now = Date.now();
     await ctx.db.patch(doc._id, {
       status: args.status,
-      stdout: args.stdout,
-      stderr: args.stderr,
+      result: args.result,
       exitCode: args.exitCode,
       error: args.error,
       completedAt: now,
@@ -655,7 +688,6 @@ export const upsertToolCallRequested = internalMutation({
     callId: v.string(),
     workspaceId: v.id("workspaces"),
     toolPath: v.string(),
-    input: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const existing = await getToolCallDoc(ctx, args.taskId, args.callId);
@@ -669,7 +701,6 @@ export const upsertToolCallRequested = internalMutation({
       callId: args.callId,
       workspaceId: args.workspaceId,
       toolPath: args.toolPath,
-      input: args.input ?? {},
       status: "requested",
       createdAt: now,
       updatedAt: now,
@@ -730,7 +761,6 @@ export const finishToolCall = internalMutation({
     taskId: v.string(),
     callId: v.string(),
     status: terminalToolCallStatusValidator,
-    output: v.optional(v.any()),
     error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -746,7 +776,6 @@ export const finishToolCall = internalMutation({
     const now = Date.now();
     await ctx.db.patch(doc._id, {
       status: args.status,
-      output: args.output,
       error: args.error,
       updatedAt: now,
       completedAt: now,
@@ -924,6 +953,33 @@ export const listAccessPolicies = internalQuery({
   },
 });
 
+async function computeBoundAuthFingerprint(
+  ctx: Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">,
+  workspaceId: Doc<"workspaces">["_id"],
+  sourceKey: string,
+): Promise<string> {
+  const prefix = "source:";
+  if (!sourceKey.startsWith(prefix)) {
+    return normalizeSourceAuthFingerprint({ type: "none" });
+  }
+
+  const sourceId = sourceKey.slice(prefix.length).trim();
+  if (!sourceId) {
+    return normalizeSourceAuthFingerprint({ type: "none" });
+  }
+
+  const source = await ctx.db
+    .query("toolSources")
+    .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
+    .unique();
+
+  if (!source || source.workspaceId !== workspaceId) {
+    return normalizeSourceAuthFingerprint({ type: "none" });
+  }
+
+  return normalizeSourceAuthFingerprint(asRecord(source.config).auth);
+}
+
 export const upsertCredential = internalMutation({
   args: {
     id: v.optional(v.string()),
@@ -933,10 +989,13 @@ export const upsertCredential = internalMutation({
     actorId: v.optional(v.string()),
     provider: v.optional(credentialProviderValidator),
     secretJson: v.any(),
+    overridesJson: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
     const actorId = args.scope === "actor" ? (args.actorId?.trim() || "") : "";
+    const submittedSecret = asRecord(args.secretJson);
+    const hasSubmittedSecret = Object.keys(submittedSecret).length > 0;
 
     const existing = await ctx.db
       .query("sourceCredentials")
@@ -949,23 +1008,71 @@ export const upsertCredential = internalMutation({
       )
       .unique();
 
-    const provider = args.provider ?? existing?.provider ?? "managed";
+    let requestedId = args.id?.trim() || "";
+    if (requestedId.startsWith("bind_")) {
+      const binding = await ctx.db
+        .query("sourceCredentials")
+        .withIndex("by_binding_id", (q) => q.eq("bindingId", requestedId))
+        .unique();
+      if (binding && binding.workspaceId === args.workspaceId) {
+        requestedId = binding.credentialId;
+      }
+    }
+
+    const connectionId = requestedId || existing?.credentialId || `conn_${crypto.randomUUID()}`;
+
+    const linkedRows = await ctx.db
+      .query("sourceCredentials")
+      .withIndex("by_workspace_credential", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("credentialId", connectionId),
+      )
+      .collect();
+    const exemplar = linkedRows[0] ?? existing ?? null;
+
+    const provider = args.provider ?? exemplar?.provider ?? "local-convex";
+    const fallbackSecret = asRecord(exemplar?.secretJson);
+    const finalSecret = hasSubmittedSecret ? submittedSecret : fallbackSecret;
+    if (Object.keys(finalSecret).length === 0) {
+      throw new Error("Credential values are required");
+    }
+
+    const overridesJson = args.overridesJson === undefined
+      ? asRecord(existing?.overridesJson)
+      : asRecord(args.overridesJson);
+
+    const boundAuthFingerprint = await computeBoundAuthFingerprint(ctx, args.workspaceId, args.sourceKey);
+
+    if (linkedRows.length > 0 && (hasSubmittedSecret || args.provider)) {
+      await Promise.all(linkedRows.map(async (row) => {
+        await ctx.db.patch(row._id, {
+          provider,
+          secretJson: finalSecret,
+          updatedAt: now,
+        });
+      }));
+    }
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        credentialId: connectionId,
         provider,
-        secretJson: asRecord(args.secretJson),
+        secretJson: finalSecret,
+        overridesJson,
+        boundAuthFingerprint,
         updatedAt: now,
       });
     } else {
       await ctx.db.insert("sourceCredentials", {
-        credentialId: args.id ?? `cred_${crypto.randomUUID()}`,
+        bindingId: `bind_${crypto.randomUUID()}`,
+        credentialId: connectionId,
         workspaceId: args.workspaceId,
         sourceKey: args.sourceKey,
         scope: args.scope,
         actorId,
         provider,
-        secretJson: asRecord(args.secretJson),
+        secretJson: finalSecret,
+        overridesJson,
+        boundAuthFingerprint,
         createdAt: now,
         updatedAt: now,
       });
@@ -1005,16 +1112,14 @@ export const listCredentials = internalQuery({
 export const listCredentialProviders = internalQuery({
   args: {},
   handler: async () => {
+    const workosEnabled = Boolean(process.env.WORKOS_API_KEY?.trim());
     return [
       {
-        id: "managed",
-        label: "Managed",
-        description: "Store credential payload in Executor's sourceCredentials table.",
-      },
-      {
-        id: "workos-vault",
-        label: "Encrypted",
-        description: "Store credential payload in encrypted external storage.",
+        id: workosEnabled ? "workos-vault" : "local-convex",
+        label: workosEnabled ? "Encrypted" : "Local",
+        description: workosEnabled
+          ? "Secrets are stored in WorkOS Vault."
+          : "Secrets are stored locally in Convex on this machine.",
       },
     ] as const;
   },
@@ -1075,6 +1180,9 @@ export const upsertToolSource = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
+    const config = asRecord(args.config);
+    const specHash = computeSourceSpecHash(args.type, config);
+    const authFingerprint = normalizeSourceAuthFingerprint(config.auth);
     const [existing, conflict] = await Promise.all([
       ctx.db
         .query("toolSources")
@@ -1095,7 +1203,9 @@ export const upsertToolSource = internalMutation({
         workspaceId: args.workspaceId,
         name: args.name,
         type: args.type,
-        config: asRecord(args.config),
+        config,
+        specHash,
+        authFingerprint,
         enabled: args.enabled !== false,
         updatedAt: now,
       });
@@ -1105,7 +1215,9 @@ export const upsertToolSource = internalMutation({
         workspaceId: args.workspaceId,
         name: args.name,
         type: args.type,
-        config: asRecord(args.config),
+        config,
+        specHash,
+        authFingerprint,
         enabled: args.enabled !== false,
         createdAt: now,
         updatedAt: now,
@@ -1145,6 +1257,18 @@ export const deleteToolSource = internalMutation({
 
     if (!doc || doc.workspaceId !== args.workspaceId) {
       return false;
+    }
+
+    const sourceKey = `source:${args.sourceId}`;
+    const bindings = await ctx.db
+      .query("sourceCredentials")
+      .withIndex("by_workspace_source_scope_actor", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("sourceKey", sourceKey),
+      )
+      .collect();
+
+    for (const binding of bindings) {
+      await ctx.db.delete(binding._id);
     }
 
     await ctx.db.delete(doc._id);
@@ -1318,5 +1442,90 @@ export const getAnonymousOauthClient = internalQuery({
       redirect_uris: doc.redirectUris,
       created_at: doc.createdAt,
     };
+  },
+});
+
+// ── Anonymous OAuth Authorization Codes ──────────────────────────────────────
+
+export const storeAnonymousOauthAuthorizationCode = internalMutation({
+  args: {
+    code: v.string(),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    codeChallenge: v.string(),
+    codeChallengeMethod: v.string(),
+    actorId: v.string(),
+    tokenClaims: v.optional(v.any()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("anonymousOauthCodes", {
+      code: args.code,
+      clientId: args.clientId,
+      redirectUri: args.redirectUri,
+      codeChallenge: args.codeChallenge,
+      codeChallengeMethod: args.codeChallengeMethod,
+      actorId: args.actorId,
+      tokenClaims: args.tokenClaims,
+      expiresAt: args.expiresAt,
+      createdAt: args.createdAt,
+    });
+  },
+});
+
+export const consumeAnonymousOauthAuthorizationCode = internalMutation({
+  args: {
+    code: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db
+      .query("anonymousOauthCodes")
+      .withIndex("by_code", (q) => q.eq("code", args.code))
+      .unique();
+
+    if (!doc) {
+      return null;
+    }
+
+    await ctx.db.delete(doc._id);
+
+    return {
+      code: doc.code,
+      clientId: doc.clientId,
+      redirectUri: doc.redirectUri,
+      codeChallenge: doc.codeChallenge,
+      codeChallengeMethod: doc.codeChallengeMethod,
+      actorId: doc.actorId,
+      tokenClaims: doc.tokenClaims,
+      expiresAt: doc.expiresAt,
+      createdAt: doc.createdAt,
+    };
+  },
+});
+
+export const purgeExpiredAnonymousOauthAuthorizationCodes = internalMutation({
+  args: {
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const expired = await ctx.db
+      .query("anonymousOauthCodes")
+      .withIndex("by_expires_at", (q) => q.lt("expiresAt", args.now))
+      .collect();
+
+    for (const doc of expired) {
+      await ctx.db.delete(doc._id);
+    }
+
+    return { purged: expired.length };
+  },
+});
+
+export const countAnonymousOauthAuthorizationCodes = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const docs = await ctx.db.query("anonymousOauthCodes").collect();
+    return { count: docs.length };
   },
 });

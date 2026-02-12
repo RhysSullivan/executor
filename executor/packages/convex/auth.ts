@@ -3,6 +3,7 @@ import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation, mutation } from "./_generated/server";
+import { slugify } from "../core/src/identity";
 import { ensureUniqueSlug } from "../core/src/slug";
 
 type DbCtx = Pick<MutationCtx, "db">;
@@ -47,14 +48,6 @@ export const authKit =
   ({
     registerRoutes: () => {},
   } as Pick<AuthKit<DataModel>, "registerRoutes">);
-
-function slugify(input: string): string {
-  const slug = input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug.length > 0 ? slug : "workspace";
-}
 
 function titleCaseWords(input: string): string {
   return input
@@ -155,7 +148,7 @@ async function getFirstWorkspaceByOrganizationId(ctx: DbCtx, organizationId: Id<
 }
 
 async function ensureUniqueOrganizationSlug(ctx: DbCtx, baseName: string): Promise<string> {
-  const baseSlug = slugify(baseName);
+  const baseSlug = slugify(baseName, "workspace");
   return await ensureUniqueSlug(baseSlug, async (candidate) => {
     const collision = await ctx.db
       .query("organizations")
@@ -333,7 +326,7 @@ async function ensurePersonalWorkspace(
     updatedAt: opts.now,
   });
 
-  const baseSlug = slugify(opts.email.split("@")[0] ?? opts.workosUserId);
+  const baseSlug = slugify(opts.email.split("@")[0] ?? opts.workosUserId, "workspace");
   const workspaceId = await ctx.db.insert("workspaces", {
     organizationId,
     slug: `${baseSlug}-${opts.workosUserId.slice(-6)}`,

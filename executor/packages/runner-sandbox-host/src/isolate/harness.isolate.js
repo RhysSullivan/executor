@@ -3,19 +3,6 @@ import { run } from "./user-code.js";
 
 const APPROVAL_DENIED_PREFIX = "APPROVAL_DENIED:";
 
-function formatArgs(args) {
-  return args
-    .map((v) => {
-      if (typeof v === "string") return v;
-      try {
-        return JSON.stringify(v);
-      } catch {
-        return String(v);
-      }
-    })
-    .join(" ");
-}
-
 async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -48,39 +35,33 @@ function createToolsProxy(bridge, path = []) {
   });
 }
 
+function sanitizeExecutionResult(value) {
+  if (value === undefined) return undefined;
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return null;
+    return JSON.parse(serialized);
+  } catch {
+    return String(value);
+  }
+}
+
 export default {
-  async fetch(req, env, ctx) {
-    const stdoutLines = [];
-    const stderrLines = [];
-
-    const appendStdout = (line) => {
-      stdoutLines.push(line);
-      ctx.waitUntil(env.TOOL_BRIDGE.emitOutput("stdout", line));
-    };
-    const appendStderr = (line) => {
-      stderrLines.push(line);
-      ctx.waitUntil(env.TOOL_BRIDGE.emitOutput("stderr", line));
-    };
-
+  async fetch(req, env, _ctx) {
     const tools = createToolsProxy(env.TOOL_BRIDGE);
     const console = {
-      log: (...args) => appendStdout(formatArgs(args)),
-      info: (...args) => appendStdout(formatArgs(args)),
-      warn: (...args) => appendStderr(formatArgs(args)),
-      error: (...args) => appendStderr(formatArgs(args)),
+      log: (..._args) => {},
+      info: (..._args) => {},
+      warn: (..._args) => {},
+      error: (..._args) => {},
     };
 
     try {
       const value = await run(tools, console);
 
-      if (value !== undefined) {
-        appendStdout("result: " + formatArgs([value]));
-      }
-
       return _ResponseJson({
         status: "completed",
-        stdout: stdoutLines.join("\n"),
-        stderr: stderrLines.join("\n"),
+        result: sanitizeExecutionResult(value),
         exitCode: 0,
       });
     } catch (error) {
@@ -88,19 +69,13 @@ export default {
         error instanceof Error ? error.message : String(error);
       if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
         const denied = message.replace(APPROVAL_DENIED_PREFIX, "").trim();
-        appendStderr(denied);
         return _ResponseJson({
           status: "denied",
-          stdout: stdoutLines.join("\n"),
-          stderr: stderrLines.join("\n"),
           error: denied,
         });
       }
-      appendStderr(message);
       return _ResponseJson({
         status: "failed",
-        stdout: stdoutLines.join("\n"),
-        stderr: stderrLines.join("\n"),
         error: message,
       });
     }

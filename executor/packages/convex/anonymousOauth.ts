@@ -83,3 +83,61 @@ export const getClient = query({
     );
   },
 });
+
+// ── Authorization Codes ─────────────────────────────────────────────────────
+
+export const storeAuthorizationCode = mutation({
+  args: {
+    internalSecret: v.string(),
+    code: v.string(),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    codeChallenge: v.string(),
+    codeChallengeMethod: v.string(),
+    actorId: v.string(),
+    tokenClaims: v.optional(v.any()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    requireInternalSecret(args.internalSecret);
+    const { internalSecret: _, ...payload } = args;
+    await ctx.runMutation(internal.database.storeAnonymousOauthAuthorizationCode, payload);
+  },
+});
+
+export const consumeAuthorizationCode = mutation({
+  args: {
+    internalSecret: v.string(),
+    code: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireInternalSecret(args.internalSecret);
+    return await ctx.runMutation(internal.database.consumeAnonymousOauthAuthorizationCode, {
+      code: args.code,
+    });
+  },
+});
+
+export const purgeExpiredAuthorizationCodes = mutation({
+  args: {
+    internalSecret: v.string(),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    requireInternalSecret(args.internalSecret);
+    return await ctx.runMutation(internal.database.purgeExpiredAnonymousOauthAuthorizationCodes, {
+      now: args.now,
+    });
+  },
+});
+
+export const countAuthorizationCodes = query({
+  args: {
+    internalSecret: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireInternalSecret(args.internalSecret);
+    return await ctx.runQuery(internal.database.countAnonymousOauthAuthorizationCodes, {});
+  },
+});

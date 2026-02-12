@@ -4,7 +4,6 @@ import { loadExternalTools } from "../tool-sources";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type {
   ExecutionAdapter,
-  RuntimeOutputEvent,
   SandboxExecutionRequest,
   ToolDefinition,
   ToolRunContext,
@@ -20,7 +19,6 @@ function request(code: string, timeoutMs = 1_000): SandboxExecutionRequest {
 
 function createRuntimeAdapter(
   tools: Map<string, ToolDefinition>,
-  outputEvents: RuntimeOutputEvent[],
 ): ExecutionAdapter {
   return {
     async invokeTool(call) {
@@ -51,14 +49,10 @@ function createRuntimeAdapter(
         };
       }
     },
-    emitOutput(event) {
-      outputEvents.push(event);
-    },
   };
 }
 
-test("executes tool calls and captures output", async () => {
-  const outputEvents: RuntimeOutputEvent[] = [];
+test("executes tool calls and captures returned result", async () => {
   const tools = new Map<string, ToolDefinition>([
     [
       "utils.echo",
@@ -74,16 +68,13 @@ test("executes tool calls and captures output", async () => {
   const result = await runCodeWithAdapter(
     request(`
       const out = await tools.utils.echo({ message: "hi" });
-      console.log("out", out.echoed.message);
-      return 42;
+      return { message: out.echoed.message, total: 42 };
     `),
-    createRuntimeAdapter(tools, outputEvents),
+    createRuntimeAdapter(tools),
   );
 
   expect(result.status).toBe("completed");
-  expect(result.stdout).toContain("out hi");
-  expect(result.stdout).toContain("result: 42");
-  expect(outputEvents.some((event) => event.stream === "stdout")).toBe(true);
+  expect(result.result).toEqual({ message: "hi", total: 42 });
 });
 
 test("returns denied when adapter marks tool call denied", async () => {
@@ -95,7 +86,6 @@ test("returns denied when adapter marks tool call denied", async () => {
         error: "policy denied",
       };
     },
-    emitOutput() {},
   };
 
   const result = await runCodeWithAdapter(
@@ -107,7 +97,6 @@ test("returns denied when adapter marks tool call denied", async () => {
 
   expect(result.status).toBe("denied");
   expect(result.error).toBe("policy denied");
-  expect(result.stderr).toContain("policy denied");
 });
 
 test("times out long-running code", async () => {
@@ -115,7 +104,6 @@ test("times out long-running code", async () => {
     async invokeTool() {
       return { ok: true, value: null };
     },
-    emitOutput() {},
   };
 
   const result = await runCodeWithAdapter(
@@ -133,8 +121,7 @@ test("times out long-running code", async () => {
 });
 
 test("sandboxed runner does not expose host globals", async () => {
-  const outputEvents: RuntimeOutputEvent[] = [];
-  const adapter = createRuntimeAdapter(new Map(), outputEvents);
+  const adapter = createRuntimeAdapter(new Map());
 
   const result = await runCodeWithAdapter(
     request(`
@@ -151,27 +138,28 @@ test("sandboxed runner does not expose host globals", async () => {
         fetch: typeof fetch,
         fsEscape,
       };
-      console.log(JSON.stringify(checks));
       if (checks.process !== "undefined") throw new Error("process leaked");
       if (checks.bun !== "undefined") throw new Error("Bun leaked");
       if (checks.fetch !== "undefined") throw new Error("fetch leaked");
       if (checks.fsEscape !== "undefined" && checks.fsEscape !== "blocked") {
         throw new Error("constructor escape leaked");
       }
-      return "ok";
+      return checks;
     `),
     adapter,
   );
 
   expect(result.status).toBe("completed");
-  expect(result.stdout).toContain("\"process\":\"undefined\"");
-  expect(result.stdout).toContain("\"bun\":\"undefined\"");
-  expect(result.stdout).toContain("\"fetch\":\"undefined\"");
-  expect(result.stdout).toMatch(/"fsEscape":"(undefined|blocked)"/);
+  expect(result.result).toEqual({
+    process: "undefined",
+    bun: "undefined",
+    fetch: "undefined",
+    fsEscape: expect.stringMatching(/^(undefined|blocked)$/),
+  });
 });
 
 test("sandbox blocks global constructor and eval escapes", async () => {
-  const adapter = createRuntimeAdapter(new Map(), []);
+  const adapter = createRuntimeAdapter(new Map());
 
   const result = await runCodeWithAdapter(
     request(`
@@ -197,25 +185,27 @@ test("sandbox blocks global constructor and eval escapes", async () => {
         functionEscape = "blocked";
       }
 
-      console.log(JSON.stringify({ ctorEscape, evalEscape, functionEscape }));
       if (ctorEscape !== "undefined" && ctorEscape !== "blocked") throw new Error("ctor escape");
       if (evalEscape !== "undefined" && evalEscape !== "blocked") throw new Error("eval escape");
       if (functionEscape !== "undefined" && functionEscape !== "blocked") throw new Error("Function escape");
+      return { ctorEscape, evalEscape, functionEscape };
     `),
     adapter,
   );
 
   expect(result.status).toBe("completed");
-  expect(result.stdout).toMatch(/"ctorEscape":"(undefined|blocked)"/);
-  expect(result.stdout).toMatch(/"evalEscape":"(undefined|blocked)"/);
-  expect(result.stdout).toMatch(/"functionEscape":"(undefined|blocked)"/);
+  expect(result.result).toEqual({
+    ctorEscape: expect.stringMatching(/^(undefined|blocked)$/),
+    evalEscape: expect.stringMatching(/^(undefined|blocked)$/),
+    functionEscape: expect.stringMatching(/^(undefined|blocked)$/),
+  });
 });
 
 test("sandbox prototype pollution does not leak to host", async () => {
   const marker = `__pwned_${crypto.randomUUID().replace(/-/g, "")}`;
   expect(({} as Record<string, unknown>)[marker]).toBeUndefined();
 
-  const adapter = createRuntimeAdapter(new Map(), []);
+  const adapter = createRuntimeAdapter(new Map());
   const result = await runCodeWithAdapter(
     request(`
       Object.prototype[${JSON.stringify(marker)}] = "yes";
@@ -359,8 +349,6 @@ test("runs openapi and graphql sourced tools through the runtime", async () => {
     ]);
 
     const toolMap = new Map(tools.map((tool) => [tool.path, tool]));
-    const outputEvents: RuntimeOutputEvent[] = [];
-
     const result = await runCodeWithAdapter(
       request(`
         const sum = await tools.calc.math.add_numbers({ a: 2, b: 5 });
@@ -369,20 +357,18 @@ test("runs openapi and graphql sourced tools through the runtime", async () => {
           query: "mutation($value: Int!) { increment(value: $value) }",
           variables: { value: 3 },
         });
-        console.log("sum", sum.sum);
-        console.log("hello", hello.data);
-        console.log("inc", inc.data.increment);
-        return sum.sum + inc.data.increment;
+        return {
+          sum: sum.sum,
+          hello: hello.data.hello,
+          inc: inc.data.increment,
+          total: sum.sum + inc.data.increment,
+        };
       `),
-      createRuntimeAdapter(toolMap, outputEvents),
+      createRuntimeAdapter(toolMap),
     );
 
     expect(result.status).toBe("completed");
-    expect(result.stdout).toContain("sum 7");
-    expect(result.stdout).toContain("hello world");
-    expect(result.stdout).toContain("inc 4");
-    expect(result.stdout).toContain("result: 11");
-    expect(outputEvents.length).toBeGreaterThan(0);
+    expect(result.result).toMatchObject({ sum: 7, inc: 4, total: 11 });
   } finally {
     server.stop(true);
   }
