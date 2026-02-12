@@ -4,6 +4,7 @@ import type { Id } from "../convex/_generated/dataModel";
 
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
 export type ApprovalStatus = "pending" | "approved" | "denied";
+export type ToolCallStatus = "requested" | "pending_approval" | "completed" | "failed" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
 export type CredentialScope = "workspace" | "actor";
 export type CredentialProvider = "managed" | "workos-vault";
@@ -53,6 +54,21 @@ export interface TaskEventRecord {
   type: string;
   payload: unknown;
   createdAt: number;
+}
+
+export interface ToolCallRecord {
+  taskId: string;
+  callId: string;
+  workspaceId: Id<"workspaces">;
+  toolPath: string;
+  input: unknown;
+  status: ToolCallStatus;
+  approvalId?: string;
+  output?: unknown;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
 }
 
 export interface AccessPolicyRecord {
@@ -167,7 +183,15 @@ export interface ToolCallRequest {
 
 export type ToolCallResult =
   | { ok: true; value: unknown }
-  | { ok: false; error: string; denied?: boolean };
+  | {
+      ok: false;
+      kind: "pending";
+      approvalId: string;
+      retryAfterMs?: number;
+      error?: string;
+    }
+  | { ok: false; kind: "denied"; error: string }
+  | { ok: false; kind: "failed"; error: string };
 
 export type RuntimeOutputStream = "stdout" | "stderr";
 

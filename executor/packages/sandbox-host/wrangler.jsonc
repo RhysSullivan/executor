@@ -1,0 +1,28 @@
+{
+  "name": "executor-sandbox-host",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["enable_ctx_exports"],
+
+  // Treat *.isolate.js files as raw text strings so they can be passed to the
+  // Dynamic Worker Loader API as module source code. This lets us author the
+  // isolate harness and globals as real JS files (with syntax highlighting)
+  // while importing them as text in the host worker.
+  "rules": [
+    { "type": "Text", "globs": ["**/*.isolate.js"], "fallthrough": true }
+  ],
+
+  // The Worker Loader binding — this is the core of the Dynamic Worker Loader API.
+  // It provides `env.LOADER.get(id, callback)` to spawn sandboxed isolates.
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ]
+
+  // Environment secrets (set via `wrangler secret put AUTH_TOKEN`):
+  //   AUTH_TOKEN: shared-secret bearer token that the Convex executor uses
+  //              to authenticate run requests.
+  //
+  // See .dev.vars.example for local development values.
+}

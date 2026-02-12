@@ -39,6 +39,15 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 convex_local_backend.sqlite3
 convex_local_storage/
 
+# Local OpenAPI sources service state
+sources/data/*.sqlite
+sources/data/*.sqlite-shm
+sources/data/*.sqlite-wal
+
+# Cloudflare Workers local state
+.wrangler/
+.dev.vars
+
 # Generated push env file
 executor/.env.executor-push
 

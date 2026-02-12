@@ -307,6 +307,47 @@ export interface operations {
     expect(bad.errors.length).toBeGreaterThan(0);
   });
 
+  test("OpenAPI helper types infer vendor JSON response payloads", () => {
+    const tools: ToolDescriptor[] = [
+      {
+        path: "github.activity.get_feeds",
+        description: "Get feeds",
+        approval: "auto",
+        source: "openapi:github",
+        operationId: "activity/get-feeds",
+      },
+    ];
+
+    const sourceDts = `
+export interface operations {
+  "activity/get-feeds": {
+    parameters: { query?: never; path?: never; header?: never; cookie?: never };
+    responses: {
+      200: { content: { "application/vnd.github+json": { current_user_url: string; timeline_url: string } } };
+    };
+  };
+}
+`;
+
+    const declarations = generateToolDeclarations(tools, {
+      sourceDtsBySource: {
+        "openapi:github": sourceDts,
+      },
+    });
+
+    const ok = typecheckCode(
+      "const feed = await tools.github.activity.get_feeds({}); return feed.current_user_url;",
+      declarations,
+    );
+    expect(ok.ok).toBe(true);
+
+    const bad = typecheckCode(
+      "const feed = await tools.github.activity.get_feeds({}); return feed.missing_field;",
+      declarations,
+    );
+    expect(bad.ok).toBe(false);
+  });
+
   test("optional parameter can be provided", () => {
     const result = typecheckCode(
       'const r = await tools.admin.send_announcement({ message: "hi", channel: "general" }); return r.sent;',
@@ -423,5 +464,4 @@ export interface operations {
     expect(result.errors).toHaveLength(0);
   });
 });
-
 

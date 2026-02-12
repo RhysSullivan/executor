@@ -9,7 +9,6 @@ import type { AnonymousContext, PendingApprovalRecord, TaskRecord, ToolDescripto
 import type { Id } from "./_generated/dataModel";
 
 const http = httpRouter();
-const internalToken = process.env.EXECUTOR_INTERNAL_TOKEN ?? null;
 
 function getMcpAuthorizationServer(): string | null {
   return process.env.MCP_AUTHORIZATION_SERVER
@@ -119,28 +118,6 @@ function parseMcpContext(url: URL): {
   const clientId = url.searchParams.get("clientId") ?? undefined;
   const sessionId = url.searchParams.get("sessionId") ?? undefined;
   return { workspaceId, clientId, sessionId };
-}
-
-function isInternalAuthorized(request: Request): boolean {
-  if (!internalToken) return false;
-  const header = request.headers.get("authorization");
-  if (!header || !header.startsWith("Bearer ")) return false;
-  return header.slice("Bearer ".length) === internalToken;
-}
-
-function parseInternalRunPath(pathname: string): { runId: string; endpoint: "tool-call" | "output" } | null {
-  const parts = pathname.split("/").filter(Boolean);
-  if (parts.length !== 4 || parts[0] !== "internal" || parts[1] !== "runs") {
-    return null;
-  }
-
-  const runId = parts[2];
-  const endpoint = parts[3];
-  if (!runId || (endpoint !== "tool-call" && endpoint !== "output")) {
-    return null;
-  }
-
-  return { runId, endpoint };
 }
 
 const mcpHandler = httpAction(async (ctx, request) => {
@@ -313,62 +290,6 @@ const oauthAuthorizationServerProxyHandler = httpAction(async (_ctx, request) =>
   });
 });
 
-const internalRunsHandler = httpAction(async (ctx, request) => {
-  if (!isInternalAuthorized(request)) {
-    return Response.json({ error: "Unauthorized internal call" }, { status: 401 });
-  }
-
-  const url = new URL(request.url);
-  const parsed = parseInternalRunPath(url.pathname);
-  if (!parsed) {
-    return Response.json({ error: "Invalid internal route" }, { status: 404 });
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    body = {};
-  }
-  const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-
-  if (parsed.endpoint === "tool-call") {
-    const callId = payload.callId;
-    const toolPath = payload.toolPath;
-    if (typeof callId !== "string" || typeof toolPath !== "string") {
-      return Response.json({ error: "callId and toolPath are required" }, { status: 400 });
-    }
-
-    const result = await ctx.runAction(internal.executorNode.handleExternalToolCall, {
-      runId: parsed.runId,
-      callId,
-      toolPath,
-      input: payload.input,
-    });
-    return Response.json(result, { status: 200 });
-  }
-
-  const stream = payload.stream;
-  const line = payload.line;
-  if ((stream !== "stdout" && stream !== "stderr") || typeof line !== "string") {
-    return Response.json({ error: "stream and line are required" }, { status: 400 });
-  }
-
-  const task = await ctx.runQuery(internal.database.getTask, { taskId: parsed.runId });
-  if (!task) {
-    return Response.json({ error: `Run not found: ${parsed.runId}` }, { status: 404 });
-  }
-
-  await ctx.runMutation(internal.executor.appendRuntimeOutput, {
-    runId: parsed.runId,
-    stream,
-    line,
-    timestamp: typeof payload.timestamp === "number" ? payload.timestamp : Date.now(),
-  });
-
-  return Response.json({ ok: true }, { status: 200 });
-});
-
 authKit.registerRoutes(http);
 registerStripeRoutes(http, components.stripe, {
   webhookPath: "/stripe/webhook",
@@ -379,11 +300,5 @@ http.route({ path: "/mcp", method: "GET", handler: mcpHandler });
 http.route({ path: "/mcp", method: "DELETE", handler: mcpHandler });
 http.route({ path: "/.well-known/oauth-protected-resource", method: "GET", handler: oauthProtectedResourceHandler });
 http.route({ path: "/.well-known/oauth-authorization-server", method: "GET", handler: oauthAuthorizationServerProxyHandler });
-
-http.route({
-  pathPrefix: "/internal/runs/",
-  method: "POST",
-  handler: internalRunsHandler,
-});
 
 export default http;

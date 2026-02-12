@@ -16,6 +16,11 @@ const completedTaskStatusValidator = v.union(
   v.literal("denied"),
 );
 const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
+const terminalToolCallStatusValidator = v.union(
+  v.literal("completed"),
+  v.literal("failed"),
+  v.literal("denied"),
+);
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProviderValidator = v.union(
@@ -124,6 +129,23 @@ function mapApproval(doc: Doc<"approvals">) {
     reviewerId: doc.reviewerId,
     createdAt: doc.createdAt,
     resolvedAt: doc.resolvedAt,
+  };
+}
+
+function mapToolCall(doc: Doc<"toolCalls">) {
+  return {
+    taskId: doc.taskId,
+    callId: doc.callId,
+    workspaceId: doc.workspaceId,
+    toolPath: doc.toolPath,
+    input: doc.input,
+    status: doc.status,
+    approvalId: doc.approvalId,
+    output: doc.output,
+    error: doc.error,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    completedAt: doc.completedAt,
   };
 }
 
@@ -309,6 +331,17 @@ async function getApprovalDoc(ctx: { db: QueryCtx["db"] }, approvalId: string) {
     .unique();
 }
 
+async function getToolCallDoc(
+  ctx: { db: QueryCtx["db"] },
+  taskId: string,
+  callId: string,
+) {
+  return await ctx.db
+    .query("toolCalls")
+    .withIndex("by_task_call", (q) => q.eq("taskId", taskId).eq("callId", callId))
+    .unique();
+}
+
 export const createTask = internalMutation({
   args: {
     id: v.string(),
@@ -391,6 +424,11 @@ export const listRuntimeTargets = internalQuery({
         label: "Local JS Runtime",
         description: "Runs generated code in-process using Bun",
       },
+      {
+        id: "cloudflare-worker-loader",
+        label: "Cloudflare Worker Loader",
+        description: "Runs generated code in a Cloudflare Worker",
+      }
     ];
   },
 });
@@ -439,6 +477,10 @@ export const markTaskFinished = internalMutation({
     const doc = await getTaskDoc(ctx, args.taskId);
     if (!doc) {
       return null;
+    }
+
+    if (doc.status === "completed" || doc.status === "failed" || doc.status === "timed_out" || doc.status === "denied") {
+      return mapTask(doc);
     }
 
     const now = Date.now();
@@ -604,6 +646,132 @@ export const getApprovalInWorkspace = internalQuery({
       return null;
     }
     return mapApproval(doc);
+  },
+});
+
+export const upsertToolCallRequested = internalMutation({
+  args: {
+    taskId: v.string(),
+    callId: v.string(),
+    workspaceId: v.id("workspaces"),
+    toolPath: v.string(),
+    input: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await getToolCallDoc(ctx, args.taskId, args.callId);
+    if (existing) {
+      return mapToolCall(existing);
+    }
+
+    const now = Date.now();
+    await ctx.db.insert("toolCalls", {
+      taskId: args.taskId,
+      callId: args.callId,
+      workspaceId: args.workspaceId,
+      toolPath: args.toolPath,
+      input: args.input ?? {},
+      status: "requested",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const created = await getToolCallDoc(ctx, args.taskId, args.callId);
+    if (!created) {
+      throw new Error(`Failed to create tool call ${args.taskId}/${args.callId}`);
+    }
+    return mapToolCall(created);
+  },
+});
+
+export const getToolCall = internalQuery({
+  args: {
+    taskId: v.string(),
+    callId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const doc = await getToolCallDoc(ctx, args.taskId, args.callId);
+    return doc ? mapToolCall(doc) : null;
+  },
+});
+
+export const setToolCallPendingApproval = internalMutation({
+  args: {
+    taskId: v.string(),
+    callId: v.string(),
+    approvalId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const doc = await getToolCallDoc(ctx, args.taskId, args.callId);
+    if (!doc) {
+      throw new Error(`Tool call not found: ${args.taskId}/${args.callId}`);
+    }
+
+    if (doc.status === "completed" || doc.status === "failed" || doc.status === "denied") {
+      return mapToolCall(doc);
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(doc._id, {
+      status: "pending_approval",
+      approvalId: args.approvalId,
+      updatedAt: now,
+    });
+
+    const updated = await getToolCallDoc(ctx, args.taskId, args.callId);
+    if (!updated) {
+      throw new Error(`Failed to read tool call ${args.taskId}/${args.callId}`);
+    }
+    return mapToolCall(updated);
+  },
+});
+
+export const finishToolCall = internalMutation({
+  args: {
+    taskId: v.string(),
+    callId: v.string(),
+    status: terminalToolCallStatusValidator,
+    output: v.optional(v.any()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const doc = await getToolCallDoc(ctx, args.taskId, args.callId);
+    if (!doc) {
+      throw new Error(`Tool call not found: ${args.taskId}/${args.callId}`);
+    }
+
+    if (doc.status === "completed" || doc.status === "failed" || doc.status === "denied") {
+      return mapToolCall(doc);
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(doc._id, {
+      status: args.status,
+      output: args.output,
+      error: args.error,
+      updatedAt: now,
+      completedAt: now,
+    });
+
+    const updated = await getToolCallDoc(ctx, args.taskId, args.callId);
+    if (!updated) {
+      throw new Error(`Failed to read tool call ${args.taskId}/${args.callId}`);
+    }
+    return mapToolCall(updated);
+  },
+});
+
+export const listToolCalls = internalQuery({
+  args: {
+    taskId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const docs = await ctx.db
+      .query("toolCalls")
+      .withIndex("by_task_created", (q) => q.eq("taskId", args.taskId))
+      .order("asc")
+      .collect();
+
+    return docs.map(mapToolCall);
   },
 });
 

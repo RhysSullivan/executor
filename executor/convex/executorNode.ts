@@ -7,8 +7,15 @@ import { action, internalAction } from "./_generated/server";
 import type { ActionCtx } from "./_generated/server";
 import { InProcessExecutionAdapter } from "../lib/adapters/in_process_execution_adapter";
 import { resolveCredentialPayload } from "../lib/credential_providers";
-import { APPROVAL_DENIED_PREFIX } from "../lib/execution_constants";
+import { APPROVAL_DENIED_PREFIX, APPROVAL_PENDING_PREFIX } from "../lib/execution_constants";
 import { actorIdForAccount } from "../lib/identity";
+import { dispatchCodeWithCloudflareWorkerLoader } from "../lib/runtimes/cloudflare_worker_loader_runtime";
+import {
+  CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
+  isCloudflareWorkerLoaderConfigured,
+  isKnownRuntimeId,
+  LOCAL_BUN_RUNTIME_ID,
+} from "../lib/runtimes/runtime_catalog";
 import { runCodeWithAdapter } from "../lib/runtimes/runtime_core";
 import { createDiscoverTool } from "../lib/tool_discovery";
 import {
@@ -34,6 +41,7 @@ import type {
   ResolvedToolCredential,
   TaskRecord,
   ToolCallRequest,
+  ToolCallRecord,
   ToolCallResult,
   ToolCredentialSpec,
   ToolDefinition,
@@ -263,10 +271,6 @@ function normalizeExternalToolSource(raw: {
   return result;
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 const baseTools = new Map<string, ToolDefinition>(DEFAULT_TOOLS.map((tool) => [tool.path, tool]));
 interface DtsStorageEntry {
   sourceKey: string;
@@ -291,21 +295,6 @@ async function publish(
     type,
     payload,
   });
-}
-
-async function waitForApproval(ctx: ActionCtx, approvalId: string): Promise<"approved" | "denied"> {
-  while (true) {
-    const approval = await ctx.runQuery(internal.database.getApproval, { approvalId });
-    if (!approval) {
-      throw new Error(`Approval ${approvalId} not found`);
-    }
-
-    if (approval.status !== "pending") {
-      return approval.status as "approved" | "denied";
-    }
-
-    await sleep(500);
-  }
 }
 
 /**
@@ -840,6 +829,26 @@ function getGraphqlDecision(
 
 async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
   const { toolPath, input, callId } = call;
+  const persistedCall = (await ctx.runMutation(internal.database.upsertToolCallRequested, {
+    taskId: task.id,
+    callId,
+    workspaceId: task.workspaceId,
+    toolPath,
+    input,
+  })) as ToolCallRecord;
+
+  if (persistedCall.status === "completed") {
+    return persistedCall.output;
+  }
+
+  if (persistedCall.status === "failed") {
+    throw new Error(persistedCall.error ?? `Tool call failed: ${callId}`);
+  }
+
+  if (persistedCall.status === "denied") {
+    throw new Error(`${APPROVAL_DENIED_PREFIX}${persistedCall.error ?? persistedCall.toolPath}`);
+  }
+
   const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: task.workspaceId });
   const typedPolicies = policies as AccessPolicyRecord[];
 
@@ -885,14 +894,23 @@ async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallReques
     decision = getToolDecision(task, tool, typedPolicies);
   }
 
+  const publishToolStarted = persistedCall.status === "requested";
+
   if (decision === "deny") {
+    const deniedMessage = `${effectiveToolPath} (policy denied)`;
+    await ctx.runMutation(internal.database.finishToolCall, {
+      taskId: task.id,
+      callId,
+      status: "denied",
+      error: deniedMessage,
+    });
     await publish(ctx, task.id, "task", "tool.call.denied", {
       taskId: task.id,
       callId,
       toolPath: effectiveToolPath,
       reason: "policy_deny",
     });
-    throw new Error(`${APPROVAL_DENIED_PREFIX}${effectiveToolPath} (policy denied)`);
+    throw new Error(`${APPROVAL_DENIED_PREFIX}${deniedMessage}`);
   }
 
   let credential: ResolvedToolCredential | undefined;
@@ -904,40 +922,98 @@ async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallReques
     credential = resolved;
   }
 
-  await publish(ctx, task.id, "task", "tool.call.started", {
-    taskId: task.id,
-    callId,
-    toolPath: effectiveToolPath,
-    approval: decision === "require_approval" ? "required" : "auto",
-    input: asPayload(input),
-  });
-
-  if (decision === "require_approval") {
-    const approval = await ctx.runMutation(internal.database.createApproval, {
-      id: createApprovalId(),
-      taskId: task.id,
-      toolPath: effectiveToolPath,
-      input,
-    });
-
-    await publish(ctx, task.id, "approval", "approval.requested", {
-      approvalId: approval.id,
+  if (publishToolStarted) {
+    await publish(ctx, task.id, "task", "tool.call.started", {
       taskId: task.id,
       callId,
-      toolPath: approval.toolPath,
-      input: asPayload(approval.input),
-      createdAt: approval.createdAt,
+      toolPath: effectiveToolPath,
+      approval: decision === "require_approval" ? "required" : "auto",
+      input: asPayload(input),
+    });
+  }
+
+  let approvalSatisfied = false;
+  if (persistedCall.approvalId) {
+    const existingApproval = await ctx.runQuery(internal.database.getApproval, {
+      approvalId: persistedCall.approvalId,
+    });
+    if (!existingApproval) {
+      throw new Error(`Approval ${persistedCall.approvalId} not found for call ${callId}`);
+    }
+
+    if (existingApproval.status === "pending") {
+      throw new Error(`${APPROVAL_PENDING_PREFIX}${existingApproval.id}`);
+    }
+
+    if (existingApproval.status === "denied") {
+      const deniedMessage = `${effectiveToolPath} (${existingApproval.id})`;
+      await ctx.runMutation(internal.database.finishToolCall, {
+        taskId: task.id,
+        callId,
+        status: "denied",
+        error: deniedMessage,
+      });
+      await publish(ctx, task.id, "task", "tool.call.denied", {
+        taskId: task.id,
+        callId,
+        toolPath: effectiveToolPath,
+        approvalId: existingApproval.id,
+      });
+      throw new Error(`${APPROVAL_DENIED_PREFIX}${deniedMessage}`);
+    }
+
+    approvalSatisfied = existingApproval.status === "approved";
+  }
+
+  if (decision === "require_approval" && !approvalSatisfied) {
+    const approvalId = persistedCall.approvalId ?? createApprovalId();
+    let approval = await ctx.runQuery(internal.database.getApproval, {
+      approvalId,
     });
 
-    const approvalDecision = await waitForApproval(ctx, approval.id);
-    if (approvalDecision === "denied") {
+    if (!approval) {
+      approval = await ctx.runMutation(internal.database.createApproval, {
+        id: approvalId,
+        taskId: task.id,
+        toolPath: effectiveToolPath,
+        input,
+      });
+
+      await publish(ctx, task.id, "approval", "approval.requested", {
+        approvalId: approval.id,
+        taskId: task.id,
+        callId,
+        toolPath: approval.toolPath,
+        input: asPayload(approval.input),
+        createdAt: approval.createdAt,
+      });
+    }
+
+    await ctx.runMutation(internal.database.setToolCallPendingApproval, {
+      taskId: task.id,
+      callId,
+      approvalId: approval.id,
+    });
+
+    if (approval.status === "pending") {
+      throw new Error(`${APPROVAL_PENDING_PREFIX}${approval.id}`);
+    }
+
+    if (approval.status === "denied") {
+      const deniedMessage = `${effectiveToolPath} (${approval.id})`;
+      await ctx.runMutation(internal.database.finishToolCall, {
+        taskId: task.id,
+        callId,
+        status: "denied",
+        error: deniedMessage,
+      });
       await publish(ctx, task.id, "task", "tool.call.denied", {
         taskId: task.id,
         callId,
         toolPath: effectiveToolPath,
         approvalId: approval.id,
       });
-      throw new Error(`${APPROVAL_DENIED_PREFIX}${effectiveToolPath} (${approval.id})`);
+      throw new Error(`${APPROVAL_DENIED_PREFIX}${deniedMessage}`);
     }
   }
 
@@ -951,6 +1027,12 @@ async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallReques
       isToolAllowed: (path) => isToolAllowedForTask(task, path, workspaceTools ?? baseTools, typedPolicies),
     };
     const value = await tool.run(input, context);
+    await ctx.runMutation(internal.database.finishToolCall, {
+      taskId: task.id,
+      callId,
+      status: "completed",
+      output: value,
+    });
     await publish(ctx, task.id, "task", "tool.call.completed", {
       taskId: task.id,
       callId,
@@ -960,6 +1042,12 @@ async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallReques
     return value;
   } catch (error) {
     const message = describeError(error);
+    await ctx.runMutation(internal.database.finishToolCall, {
+      taskId: task.id,
+      callId,
+      status: "failed",
+      error: message,
+    });
     await publish(ctx, task.id, "task", "tool.call.failed", {
       taskId: task.id,
       callId,
@@ -1051,6 +1139,7 @@ export const handleExternalToolCall = internalAction({
     if (!task) {
       return {
         ok: false,
+        kind: "failed",
         error: `Run not found: ${args.runId}`,
       };
     }
@@ -1065,16 +1154,27 @@ export const handleExternalToolCall = internalAction({
       return { ok: true, value };
     } catch (error) {
       const message = describeError(error);
+      if (message.startsWith(APPROVAL_PENDING_PREFIX)) {
+        const approvalId = message.replace(APPROVAL_PENDING_PREFIX, "").trim();
+        return {
+          ok: false,
+          kind: "pending",
+          approvalId,
+          retryAfterMs: 500,
+          error: "Approval pending",
+        };
+      }
       if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
         return {
           ok: false,
-          denied: true,
+          kind: "denied",
           error: message.replace(APPROVAL_DENIED_PREFIX, "").trim(),
         };
       }
 
       return {
         ok: false,
+        kind: "failed",
         error: message,
       };
     }
@@ -1089,13 +1189,32 @@ export const runTask = internalAction({
       return null;
     }
 
-    if (task.runtimeId !== "local-bun") {
+    if (!isKnownRuntimeId(task.runtimeId)) {
       const failed = await ctx.runMutation(internal.database.markTaskFinished, {
         taskId: args.taskId,
         status: "failed",
         stdout: "",
         stderr: "",
         error: `Runtime not found: ${task.runtimeId}`,
+      });
+
+      if (failed) {
+        await publish(ctx, args.taskId, "task", "task.failed", {
+          taskId: args.taskId,
+          status: failed.status,
+          error: failed.error,
+        });
+      }
+      return null;
+    }
+
+    if (task.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID && !isCloudflareWorkerLoaderConfigured()) {
+      const failed = await ctx.runMutation(internal.database.markTaskFinished, {
+        taskId: args.taskId,
+        status: "failed",
+        stdout: "",
+        stderr: "",
+        error: `Runtime is not configured: ${task.runtimeId}`,
       });
 
       if (failed) {
@@ -1122,27 +1241,65 @@ export const runTask = internalAction({
         startedAt: running.startedAt,
       });
 
-      const adapter = new InProcessExecutionAdapter({
-        runId: args.taskId,
-        invokeTool: async (call) => await invokeTool(ctx, running, call),
-        emitOutput: async (event) => {
-          await ctx.runMutation(internal.executor.appendRuntimeOutput, {
-            runId: event.runId,
-            stream: event.stream,
-            line: event.line,
-            timestamp: event.timestamp,
-          });
-        },
-      });
-
-      const runtimeResult = await runCodeWithAdapter(
-        {
+      if (running.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID) {
+        const dispatchResult = await dispatchCodeWithCloudflareWorkerLoader({
           taskId: args.taskId,
           code: running.code,
           timeoutMs: running.timeoutMs,
-        },
-        adapter,
-      );
+        });
+
+        if (!dispatchResult.ok) {
+          const failed = await ctx.runMutation(internal.database.markTaskFinished, {
+            taskId: args.taskId,
+            status: "failed",
+            stdout: "",
+            stderr: "",
+            error: dispatchResult.error,
+          });
+
+          if (failed) {
+            await publish(ctx, args.taskId, "task", "task.failed", {
+              taskId: args.taskId,
+              status: failed.status,
+              error: failed.error,
+              completedAt: failed.completedAt,
+            });
+          }
+          return null;
+        }
+
+        await publish(ctx, args.taskId, "task", "task.dispatched", {
+          taskId: args.taskId,
+          runtimeId: running.runtimeId,
+          dispatchId: dispatchResult.dispatchId,
+          durationMs: dispatchResult.durationMs,
+        });
+        return null;
+      }
+
+      const runtimeResult = await (async () => {
+        const adapter = new InProcessExecutionAdapter({
+          runId: args.taskId,
+          invokeTool: async (call) => await invokeTool(ctx, running, call),
+          emitOutput: async (event) => {
+            await ctx.runMutation(internal.executor.appendRuntimeOutput, {
+              runId: event.runId,
+              stream: event.stream,
+              line: event.line,
+              timestamp: event.timestamp,
+            });
+          },
+        });
+
+        return await runCodeWithAdapter(
+          {
+            taskId: args.taskId,
+            code: running.code,
+            timeoutMs: running.timeoutMs,
+          },
+          adapter,
+        );
+      })();
 
       const finished = await ctx.runMutation(internal.database.markTaskFinished, {
         taskId: args.taskId,

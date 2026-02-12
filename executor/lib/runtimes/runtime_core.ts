@@ -5,50 +5,20 @@
 // the core helpers here (formatArgs, createToolsProxy, console proxy, execution
 // loop, result mapping) should be mirrored there.
 import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution_constants";
+import { Result } from "better-result";
 import { Script, createContext } from "node:vm";
 import type {
   ExecutionAdapter,
   SandboxExecutionRequest,
   SandboxExecutionResult,
 } from "../types";
-
-async function transpileForRuntime(code: string): Promise<string> {
-  let ts: typeof import("typescript");
-  try {
-    ts = require("typescript");
-  } catch {
-    return code;
-  }
-
-  const target = ts.ScriptTarget?.ES2022 ?? ts.ScriptTarget?.ESNext;
-  const moduleKind = ts.ModuleKind?.ESNext;
-
-  const result = ts.transpileModule(code, {
-    compilerOptions: {
-      ...(target !== undefined ? { target } : {}),
-      ...(moduleKind !== undefined ? { module: moduleKind } : {}),
-    },
-    reportDiagnostics: true,
-  });
-
-  if (result.diagnostics && result.diagnostics.length > 0) {
-    const first = result.diagnostics[0];
-    const message = ts.flattenDiagnosticMessageText(first.messageText, "\n");
-    throw new Error(`TypeScript transpile error: ${message}`);
-  }
-
-  return result.outputText || code;
-}
+import { transpileForRuntime } from "./transpile";
 
 function formatArgs(args: unknown[]): string {
   return args
     .map((value) => {
       if (typeof value === "string") return value;
-      try {
-        return JSON.stringify(value);
-      } catch {
-        return String(value);
-      }
+      return Result.try(() => JSON.stringify(value)).unwrapOr(String(value));
     })
     .join(" ");
 }
@@ -57,6 +27,10 @@ function fireAndForget(promise: void | Promise<void>): void {
   if (promise && typeof promise === "object" && "then" in promise) {
     void (promise as Promise<void>).catch(() => {});
   }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createToolsProxy(
@@ -78,24 +52,57 @@ function createToolsProxy(
       }
 
       const input = args.length > 0 ? args[0] : {};
-      const result = await adapter.invokeTool({
-        runId,
-        callId: `call_${crypto.randomUUID()}`,
-        toolPath,
-        input,
-      });
+      const callId = `call_${crypto.randomUUID()}`;
 
-      if (result.ok) {
-        return result.value;
+      while (true) {
+        const result = await adapter.invokeTool({
+          runId,
+          callId,
+          toolPath,
+          input,
+        });
+
+        if (result.ok) {
+          return result.value;
+        }
+
+        switch (result.kind) {
+          case "pending":
+            await sleep(Math.max(50, result.retryAfterMs ?? 500));
+            continue;
+          case "denied":
+            throw new Error(`${APPROVAL_DENIED_PREFIX}${result.error}`);
+          case "failed":
+          default:
+            throw new Error(result.error);
+        }
       }
-
-      if (result.denied) {
-        throw new Error(`${APPROVAL_DENIED_PREFIX}${result.error}`);
-      }
-
-      throw new Error(result.error);
     },
   });
+}
+
+/** Classify a caught error from VM execution into a result status. */
+function classifyExecutionError(
+  error: unknown,
+  request: SandboxExecutionRequest,
+): { status: SandboxExecutionResult["status"]; message: string } {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (message === TASK_TIMEOUT_MARKER || message.includes("Script execution timed out")) {
+    return {
+      status: "timed_out",
+      message: `Execution timed out after ${request.timeoutMs}ms`,
+    };
+  }
+
+  if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
+    return {
+      status: "denied",
+      message: message.replace(APPROVAL_DENIED_PREFIX, "").trim(),
+    };
+  }
+
+  return { status: "failed", message };
 }
 
 export async function runCodeWithAdapter(
@@ -130,6 +137,26 @@ export async function runCodeWithAdapter(
     );
   };
 
+  const mkResult = (
+    status: SandboxExecutionResult["status"],
+    opts?: { error?: string; exitCode?: number },
+  ): SandboxExecutionResult => ({
+    status,
+    stdout: stdoutLines.join("\n"),
+    stderr: stderrLines.join("\n"),
+    exitCode: opts?.exitCode,
+    error: opts?.error,
+    durationMs: Date.now() - startedAt,
+  });
+
+  // ── Transpile ──────────────────────────────────────────────────────────
+  const transpiled = transpileForRuntime(request.code);
+  if (transpiled.isErr()) {
+    appendStderr(transpiled.error.message);
+    return mkResult("failed", { error: transpiled.error.message });
+  }
+
+  // ── Sandbox setup ──────────────────────────────────────────────────────
   const tools = createToolsProxy(adapter, request.taskId);
   const consoleProxy = {
     log: (...args: unknown[]) => appendStdout(formatArgs(args)),
@@ -145,15 +172,14 @@ export async function runCodeWithAdapter(
     clearTimeout,
   });
   const context = createContext(sandbox, {
-    codeGeneration: {
-      strings: false,
-      wasm: false,
-    },
+    codeGeneration: { strings: false, wasm: false },
   });
 
-  const executableCode = await transpileForRuntime(request.code);
-  const runnerScript = new Script(`(async () => {\n"use strict";\n${executableCode}\n})()`);
+  const runnerScript = new Script(
+    `(async () => {\n"use strict";\n${transpiled.value}\n})()`,
+  );
 
+  // ── Execute with timeout ───────────────────────────────────────────────
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_resolve, reject) => {
     timeoutHandle = setTimeout(() => {
@@ -161,60 +187,32 @@ export async function runCodeWithAdapter(
     }, request.timeoutMs);
   });
 
-  try {
+  const execution = await Result.tryPromise(async () => {
     const value = await Promise.race([
-      Promise.resolve(runnerScript.runInContext(context, { timeout: Math.max(1, request.timeoutMs) })),
+      Promise.resolve(
+        runnerScript.runInContext(context, {
+          timeout: Math.max(1, request.timeoutMs),
+        }),
+      ),
       timeoutPromise,
     ]);
+    return value;
+  });
 
-    if (value !== undefined) {
-      appendStdout(`result: ${formatArgs([value])}`);
-    }
+  if (timeoutHandle) clearTimeout(timeoutHandle);
 
-    return {
-      status: "completed",
-      stdout: stdoutLines.join("\n"),
-      stderr: stderrLines.join("\n"),
-      exitCode: 0,
-      durationMs: Date.now() - startedAt,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message === TASK_TIMEOUT_MARKER || message.includes("Script execution timed out")) {
-      const timeoutMessage = `Execution timed out after ${request.timeoutMs}ms`;
-      appendStderr(timeoutMessage);
-      return {
-        status: "timed_out",
-        stdout: stdoutLines.join("\n"),
-        stderr: stderrLines.join("\n"),
-        error: timeoutMessage,
-        durationMs: Date.now() - startedAt,
-      };
-    }
-
-    if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
-      const deniedMessage = message.replace(APPROVAL_DENIED_PREFIX, "").trim();
-      appendStderr(deniedMessage);
-      return {
-        status: "denied",
-        stdout: stdoutLines.join("\n"),
-        stderr: stderrLines.join("\n"),
-        error: deniedMessage,
-        durationMs: Date.now() - startedAt,
-      };
-    }
-
+  if (execution.isErr()) {
+    const { status, message } = classifyExecutionError(
+      execution.error.cause,
+      request,
+    );
     appendStderr(message);
-    return {
-      status: "failed",
-      stdout: stdoutLines.join("\n"),
-      stderr: stderrLines.join("\n"),
-      error: message,
-      durationMs: Date.now() - startedAt,
-    };
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
+    return mkResult(status, { error: message });
   }
+
+  if (execution.value !== undefined) {
+    appendStdout(`result: ${formatArgs([execution.value])}`);
+  }
+
+  return mkResult("completed", { exitCode: 0 });
 }

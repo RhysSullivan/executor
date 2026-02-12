@@ -28,6 +28,7 @@ function createRuntimeAdapter(
       if (!tool) {
         return {
           ok: false,
+          kind: "failed",
           error: `Tool not found: ${call.toolPath}`,
         };
       }
@@ -45,6 +46,7 @@ function createRuntimeAdapter(
       } catch (error) {
         return {
           ok: false,
+          kind: "failed",
           error: error instanceof Error ? error.message : String(error),
         };
       }
@@ -89,7 +91,7 @@ test("returns denied when adapter marks tool call denied", async () => {
     async invokeTool() {
       return {
         ok: false,
-        denied: true,
+        kind: "denied",
         error: "policy denied",
       };
     },

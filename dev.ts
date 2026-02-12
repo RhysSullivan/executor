@@ -6,10 +6,12 @@
  * Reads all configuration from the root .env file (auto-loaded by Bun).
  *
  * Starts:
- *   1. Convex cloud dev function watcher  ─┐
- *   2. Executor web UI (port 4312)        ├─ all started concurrently
- *   3. Assistant server (port 3000)       │
- *   4. Discord bot                        ─┘
+ *   1. Sources catalog API (port 4343)    ─┐
+ *   2. Convex cloud dev function watcher   │
+ *   3. CF sandbox host worker (port 8787) ├─ all started concurrently
+ *   4. Executor web UI (port 4312)        │
+ *   5. Assistant server (port 3000)       │
+ *   6. Discord bot                        ─┘
  *
  * All processes are killed when this script exits (Ctrl+C).
  * PIDs are written to .dev.pids for use with `bun run kill:all`.
@@ -21,8 +23,10 @@ import { unlinkSync } from "node:fs";
 const PID_FILE = join(import.meta.dir, ".dev.pids");
 
 const colors = {
+  sources: "\x1b[33m",  // yellow
   convex: "\x1b[36m",   // cyan
   web: "\x1b[34m",      // blue
+  sandbox: "\x1b[91m",  // bright red
   assistant: "\x1b[32m", // green
   bot: "\x1b[35m",      // magenta
   reset: "\x1b[0m",
@@ -117,7 +121,8 @@ process.on("SIGTERM", shutdown);
 // ── Kill stale processes from a previous run ──
 
 const EXECUTOR_WEB_PORT = Number(Bun.env.EXECUTOR_WEB_PORT ?? 4312);
-const DEV_PORTS = [3000, EXECUTOR_WEB_PORT];
+const SANDBOX_PORT = Number(Bun.env.SANDBOX_PORT ?? 8787);
+const DEV_PORTS = [3000, EXECUTOR_WEB_PORT, SANDBOX_PORT];
 
 async function killStaleProcesses() {
   let killed = 0;
@@ -164,6 +169,11 @@ const urls = resolveExecutorUrls();
 console.log(prefix("convex", `Using Convex URL: ${urls.convexUrl}`));
 console.log(prefix("convex", `Using executor HTTP URL: ${urls.executorUrl}`));
 
+// 1. Sources catalog API
+spawnService("sources", ["bun", "--hot", "server.ts"], {
+  cwd: "./sources",
+});
+
 // 2. Start Convex file watcher (non-blocking — repushes on changes)
 spawnService("convex", [
   "bunx", "convex", "dev",
@@ -172,7 +182,15 @@ spawnService("convex", [
   cwd: "./executor",
 });
 
-// 3. Everything else in parallel
+// 3. CF sandbox host worker (local wrangler dev for iterating on the worker)
+spawnService("sandbox", [
+  "bunx", "wrangler", "dev",
+  "--port", String(SANDBOX_PORT),
+], {
+  cwd: "./executor/packages/sandbox-host",
+});
+
+// 4. Everything else in parallel
 spawnService("web", ["bun", "run", "dev"], {
   cwd: "./executor/apps/web",
 });

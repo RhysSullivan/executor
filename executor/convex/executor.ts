@@ -5,6 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { workspaceMutation } from "../lib/functionBuilders";
 import { actorIdForAccount } from "../lib/identity";
+import { isKnownRuntimeId } from "../lib/runtimes/runtime_catalog";
 import type { ApprovalRecord, TaskRecord } from "../lib/types";
 
 const DEFAULT_TIMEOUT_MS = 300_000;
@@ -19,6 +20,14 @@ async function publishTaskEvent(
   },
 ): Promise<void> {
   await ctx.runMutation(internal.database.createTaskEvent, input);
+}
+
+function terminalEventForStatus(status: "completed" | "failed" | "timed_out" | "denied"):
+  "task.completed" | "task.failed" | "task.timed_out" | "task.denied" {
+  if (status === "completed") return "task.completed";
+  if (status === "timed_out") return "task.timed_out";
+  if (status === "denied") return "task.denied";
+  return "task.failed";
 }
 
 async function createTaskRecord(
@@ -38,7 +47,7 @@ async function createTaskRecord(
   }
 
   const runtimeId = args.runtimeId ?? "local-bun";
-  if (runtimeId !== "local-bun") {
+  if (!isKnownRuntimeId(runtimeId)) {
     throw new Error(`Unsupported runtime: ${runtimeId}`);
   }
 
@@ -233,5 +242,56 @@ export const appendRuntimeOutput = internalMutation({
     });
 
     return { ok: true as const };
+  },
+});
+
+export const completeRuntimeRun = internalMutation({
+  args: {
+    runId: v.string(),
+    status: v.union(v.literal("completed"), v.literal("failed"), v.literal("timed_out"), v.literal("denied")),
+    stdout: v.optional(v.string()),
+    stderr: v.optional(v.string()),
+    exitCode: v.optional(v.number()),
+    error: v.optional(v.string()),
+    durationMs: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const task = (await ctx.runQuery(internal.database.getTask, { taskId: args.runId })) as TaskRecord | null;
+    if (!task) {
+      return { ok: false as const, error: `Run not found: ${args.runId}` };
+    }
+
+    if (task.status === "completed" || task.status === "failed" || task.status === "timed_out" || task.status === "denied") {
+      return { ok: true as const, alreadyFinal: true as const, task };
+    }
+
+    const finished = await ctx.runMutation(internal.database.markTaskFinished, {
+      taskId: args.runId,
+      status: args.status,
+      stdout: args.stdout ?? "",
+      stderr: args.stderr ?? "",
+      exitCode: args.exitCode,
+      error: args.error,
+    });
+
+    if (!finished) {
+      return { ok: false as const, error: `Failed to mark run finished: ${args.runId}` };
+    }
+
+    await publishTaskEvent(ctx, {
+      taskId: args.runId,
+      eventName: "task",
+      type: terminalEventForStatus(args.status),
+      payload: {
+        taskId: args.runId,
+        status: finished.status,
+        exitCode: finished.exitCode,
+        durationMs: args.durationMs,
+        error: finished.error,
+        completedAt: finished.completedAt,
+      },
+    });
+
+    return { ok: true as const, alreadyFinal: false as const, task: finished };
   },
 });

@@ -13,6 +13,7 @@
  * without needing their own TypeScript setup.
  */
 
+import { Result } from "better-result";
 import type { ToolDescriptor } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -23,11 +24,8 @@ let cachedTypeScript: typeof import("typescript") | null | undefined;
 
 function getTypeScriptModule(): typeof import("typescript") | null {
   if (cachedTypeScript === undefined) {
-    try {
-      cachedTypeScript = require("typescript");
-    } catch {
-      cachedTypeScript = null;
-    }
+    const loaded = Result.try(() => require("typescript") as typeof import("typescript"));
+    cachedTypeScript = loaded.isOk() ? loaded.value : null;
   }
   return cachedTypeScript ?? null;
 }
@@ -39,7 +37,7 @@ function isValidTypeExpression(typeExpression: string): boolean {
     return !/[\r\n`]/.test(typeExpression);
   }
 
-  try {
+  return Result.try(() => {
     const sourceFile = ts.createSourceFile(
       "_type_expr_check.ts",
       `type __T = ${typeExpression};`,
@@ -51,9 +49,7 @@ function isValidTypeExpression(typeExpression: string): boolean {
       sourceFile as unknown as { parseDiagnostics?: import("typescript").Diagnostic[] }
     ).parseDiagnostics ?? [];
     return diagnostics.length === 0;
-  } catch {
-    return false;
-  }
+  }).unwrapOr(false);
 }
 
 function safeTypeExpression(raw: string | undefined, fallback: string): string {
@@ -63,20 +59,62 @@ function safeTypeExpression(raw: string | undefined, fallback: string): string {
 }
 
 const OPENAPI_HELPER_TYPES = `
-type _OrEmpty<T> = [T] extends [never] ? {} : T;
+type _Normalize<T> = Exclude<T, undefined | null>;
+type _OrEmpty<T> = [_Normalize<T>] extends [never] ? {} : _Normalize<T>;
 type _Simplify<T> = { [K in keyof T]: T[K] } & {};
+type _ParamsOf<Op> =
+  Op extends { parameters: infer P } ? P :
+  Op extends { parameters?: infer P } ? P :
+  never;
+type _ParamAt<Op, K extends "query" | "path" | "header" | "cookie"> =
+  _ParamsOf<Op> extends { [P in K]?: infer V } ? V : never;
+type _BodyOf<Op> =
+  Op extends { requestBody?: infer B } ? B :
+  Op extends { requestBody: infer B } ? B :
+  never;
+type _BodyContent<B> =
+  B extends { content: infer C }
+    ? C extends Record<string, infer V> ? V : never
+    : never;
 type ToolInput<Op> = _Simplify<
-  _OrEmpty<Op extends { parameters: { query: infer Q } } ? { [K in keyof Q]: Q[K] } : never> &
-  _OrEmpty<Op extends { parameters: { path: infer P } } ? { [K in keyof P]: P[K] } : never> &
-  _OrEmpty<Op extends { requestBody: { content: { "application/json": infer B } } } ? B : never>
+  _OrEmpty<_ParamAt<Op, "query">> &
+  _OrEmpty<_ParamAt<Op, "path">> &
+  _OrEmpty<_ParamAt<Op, "header">> &
+  _OrEmpty<_ParamAt<Op, "cookie">> &
+  _OrEmpty<_BodyContent<_BodyOf<Op>>>
 >;
-type ToolOutput<Op> =
-  Op extends { responses: { 200: { content: { "application/json": infer R } } } } ? R :
-  Op extends { responses: { 201: { content: { "application/json": infer R } } } } ? R :
-  Op extends { responses: { 202: { content: { "application/json": infer R } } } } ? R :
-  Op extends { responses: { 204: unknown } } ? void :
-  Op extends { responses: { 205: unknown } } ? void :
-  unknown;
+type _ResponsesOf<Op> = Op extends { responses: infer R } ? R : never;
+type _RespAt<Op, Code extends PropertyKey> =
+  _ResponsesOf<Op> extends { [K in Code]?: infer R } ? R : never;
+type _ResponsePayload<R> =
+  [R] extends [never] ? never :
+  R extends { content: infer C }
+    ? C extends Record<string, infer V> ? V : unknown
+    : R extends { schema: infer S } ? S : unknown;
+type _HasStatus<Op, Code extends PropertyKey> =
+  [_RespAt<Op, Code>] extends [never] ? false : true;
+type _PayloadAt<Op, Code extends PropertyKey> =
+  Code extends 204 | 205
+    ? (_HasStatus<Op, Code> extends true ? void : never)
+    : _ResponsePayload<_RespAt<Op, Code>>;
+type _FirstKnown<T extends readonly unknown[]> =
+  T extends readonly [infer H, ...infer Rest]
+    ? [H] extends [never] ? _FirstKnown<Rest> : H
+    : unknown;
+type ToolOutput<Op> = _FirstKnown<[
+  _PayloadAt<Op, 200>,
+  _PayloadAt<Op, 201>,
+  _PayloadAt<Op, 202>,
+  _PayloadAt<Op, 203>,
+  _PayloadAt<Op, 204>,
+  _PayloadAt<Op, 205>,
+  _PayloadAt<Op, 206>,
+  _PayloadAt<Op, 207>,
+  _PayloadAt<Op, 208>,
+  _PayloadAt<Op, 226>,
+  _PayloadAt<Op, "default">,
+  unknown
+]>;
 `;
 
 function stripExportKeywordsForTypechecker(dts: string): string {
@@ -233,6 +271,8 @@ export interface TypecheckResult {
   readonly errors: readonly string[];
 }
 
+const TYPECHECK_OK: TypecheckResult = { ok: true, errors: [] };
+
 let warnedMissingCompilerHostSupport = false;
 let warnedSemanticFallback = false;
 
@@ -245,7 +285,7 @@ function runSyntaxOnlyTypecheck(
     headerLineCount: number,
   ) => string,
 ): TypecheckResult {
-  try {
+  return Result.try(() => {
     const sourceFile = ts.createSourceFile(
       "generated.ts",
       wrappedCode,
@@ -256,16 +296,72 @@ function runSyntaxOnlyTypecheck(
     const diagnostics = (
       sourceFile as unknown as { parseDiagnostics?: import("typescript").Diagnostic[] }
     ).parseDiagnostics ?? [];
-    if (diagnostics.length === 0) {
-      return { ok: true, errors: [] };
-    }
+    if (diagnostics.length === 0) return TYPECHECK_OK;
     return {
-      ok: false,
-      errors: diagnostics.map((d: import("typescript").Diagnostic) => formatError(d, headerLineCount)),
+      ok: false as const,
+      errors: diagnostics.map((d) => formatError(d, headerLineCount)),
     };
-  } catch {
-    return { ok: true, errors: [] };
-  }
+  }).unwrapOr(TYPECHECK_OK);
+}
+
+function runSemanticTypecheck(
+  ts: typeof import("typescript"),
+  wrappedCode: string,
+  headerLineCount: number,
+  formatError: (
+    diagnostic: import("typescript").Diagnostic,
+    headerLineCount: number,
+  ) => string,
+): Result<TypecheckResult, Error> {
+  return Result.try({
+    try: () => {
+      const sourceFile = ts.createSourceFile(
+        "generated.ts",
+        wrappedCode,
+        ts.ScriptTarget.ESNext,
+        true,
+        ts.ScriptKind.TS,
+      );
+
+      const compilerOptions: import("typescript").CompilerOptions = {
+        target: ts.ScriptTarget.ESNext,
+        module: ts.ModuleKind.ESNext,
+        strict: true,
+        noEmit: true,
+        lib: ["lib.es2022.d.ts"],
+        types: [], // prevent automatic @types/* from conflicting with sandbox declarations
+      };
+
+      const host = ts.createCompilerHost(compilerOptions);
+      const originalGetSourceFile = host.getSourceFile.bind(host);
+      host.getSourceFile = (fileName, languageVersion) => {
+        if (fileName === "generated.ts") return sourceFile;
+        return originalGetSourceFile(fileName, languageVersion);
+      };
+
+      const program = ts.createProgram(["generated.ts"], compilerOptions, host);
+      const diagnostics = program.getSemanticDiagnostics(sourceFile);
+
+      if (diagnostics.length === 0) return TYPECHECK_OK;
+
+      // Filter out errors from the .d.ts header — only report user code errors
+      const userErrors = diagnostics.filter((d) => {
+        if (d.start !== undefined && d.file) {
+          const { line } = d.file.getLineAndCharacterOfPosition(d.start);
+          return line + 1 > headerLineCount;
+        }
+        return false;
+      });
+
+      if (userErrors.length === 0) return TYPECHECK_OK;
+
+      return {
+        ok: false as const,
+        errors: userErrors.map((d) => formatError(d, headerLineCount)),
+      };
+    },
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  });
 }
 
 /**
@@ -278,13 +374,8 @@ export function typecheckCode(
   code: string,
   toolDeclarations: string,
 ): TypecheckResult {
-  let ts: typeof import("typescript");
-  try {
-    ts = require("typescript");
-  } catch {
-    // TypeScript not available — skip typechecking
-    return { ok: true, errors: [] };
-  }
+  const ts = getTypeScriptModule();
+  if (!ts) return TYPECHECK_OK;
 
   // Wrap the code in an async function with the tools declaration.
   // We declare sandbox globals (console, setTimeout, etc.) ourselves since
@@ -301,12 +392,12 @@ export function typecheckCode(
 
   const formatError = (
     diagnostic: import("typescript").Diagnostic,
-    headerLineCount: number,
+    hdrLineCount: number,
   ): string => {
     const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
     if (diagnostic.start !== undefined && diagnostic.file) {
       const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-      const adjustedLine = line + 1 - headerLineCount;
+      const adjustedLine = line + 1 - hdrLineCount;
       if (adjustedLine > 0) {
         return `Line ${adjustedLine}: ${message}`;
       }
@@ -328,66 +419,16 @@ export function typecheckCode(
     return runSyntaxOnlyTypecheck(ts, wrappedCode, headerLineCount, formatError);
   }
 
-  try {
-    const sourceFile = ts.createSourceFile(
-      "generated.ts",
-      wrappedCode,
-      ts.ScriptTarget.ESNext,
-      true,
-      ts.ScriptKind.TS,
+  const semantic = runSemanticTypecheck(ts, wrappedCode, headerLineCount, formatError);
+  if (semantic.isOk()) return semantic.value;
+
+  // Semantic typechecking failed to initialize — fall back to syntax-only.
+  if (!warnedSemanticFallback) {
+    warnedSemanticFallback = true;
+    console.warn(
+      `[executor] TypeScript semantic typecheck unavailable, falling back to syntax-only checks: ${semantic.error.message}`,
     );
-
-    const compilerOptions: import("typescript").CompilerOptions = {
-      target: ts.ScriptTarget.ESNext,
-      module: ts.ModuleKind.ESNext,
-      strict: true,
-      noEmit: true,
-      lib: ["lib.es2022.d.ts"],
-      types: [], // prevent automatic @types/* (e.g. @types/node) from conflicting with our sandbox declarations
-    };
-
-    const host = ts.createCompilerHost(compilerOptions);
-    const originalGetSourceFile = host.getSourceFile.bind(host);
-    host.getSourceFile = (fileName, languageVersion) => {
-      if (fileName === "generated.ts") return sourceFile;
-      return originalGetSourceFile(fileName, languageVersion);
-    };
-
-    const program = ts.createProgram(["generated.ts"], compilerOptions, host);
-    const diagnostics = program.getSemanticDiagnostics(sourceFile);
-
-    if (diagnostics.length === 0) {
-      return { ok: true, errors: [] };
-    }
-
-    // Filter out errors from the .d.ts header (circular refs, etc.) — only report user code errors
-    const userErrors = diagnostics.filter((d) => {
-      if (d.start !== undefined && d.file) {
-        const { line } = d.file.getLineAndCharacterOfPosition(d.start);
-        return line + 1 > headerLineCount;
-      }
-      return false;
-    });
-
-    if (userErrors.length === 0) {
-      return { ok: true, errors: [] };
-    }
-
-    return {
-      ok: false,
-      errors: userErrors.map((d) => formatError(d, headerLineCount)),
-    };
-  } catch (error) {
-    // Some runtimes (e.g. Convex action isolates) can lack the full Node-backed
-    // TypeScript host environment. If semantic typechecking cannot initialize,
-    // fall back to syntax-only parsing instead of failing the MCP call.
-    if (!warnedSemanticFallback) {
-      warnedSemanticFallback = true;
-      console.warn(
-        `[executor] TypeScript semantic typecheck unavailable, falling back to syntax-only checks: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    return runSyntaxOnlyTypecheck(ts, wrappedCode, headerLineCount, formatError);
   }
+
+  return runSyntaxOnlyTypecheck(ts, wrappedCode, headerLineCount, formatError);
 }
