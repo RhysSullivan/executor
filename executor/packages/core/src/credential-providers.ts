@@ -105,7 +105,7 @@ function requireString(config: Record<string, unknown>, key: string, providerNam
   return value.trim();
 }
 
-async function resolveManaged(
+async function resolveLocalConvex(
   record: Pick<CredentialRecord, "secretJson">,
 ): Promise<CredentialPayload | null> {
   return asRecord(record.secretJson);
@@ -135,7 +135,7 @@ async function resolveWorkosVault(
 }
 
 const providers: Record<CredentialProvider, ProviderResolver> = {
-  managed: resolveManaged,
+  "local-convex": resolveLocalConvex,
   "workos-vault": resolveWorkosVault,
 };
 

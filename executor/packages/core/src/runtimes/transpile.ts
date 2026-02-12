@@ -14,14 +14,9 @@ export class TranspileError extends TaggedError("TranspileError")<{
 // TypeScript module loader
 // ---------------------------------------------------------------------------
 
-let cachedTypeScript: typeof import("typescript") | null | undefined;
-
 function getTypeScriptModule(): typeof import("typescript") | null {
-  if (cachedTypeScript === undefined) {
-    const loaded = Result.try(() => require("typescript") as typeof import("typescript"));
-    cachedTypeScript = loaded.isOk() ? loaded.value : null;
-  }
-  return cachedTypeScript ?? null;
+  const loaded = Result.try(() => require("typescript") as typeof import("typescript"));
+  return loaded.isOk() ? loaded.value : null;
 }
 
 // ---------------------------------------------------------------------------

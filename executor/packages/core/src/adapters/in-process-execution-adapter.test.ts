@@ -10,7 +10,6 @@ test("returns run mismatch without invoking tool", async () => {
       called += 1;
       return { ok: true };
     },
-    emitOutput: () => {},
   });
 
   const result = await adapter.invokeTool({
@@ -33,7 +32,6 @@ test("maps approval denied errors to denied result", async () => {
     invokeTool: async () => {
       throw new Error(`${APPROVAL_DENIED_PREFIX}approval required`);
     },
-    emitOutput: () => {},
   });
 
   const result = await adapter.invokeTool({
@@ -48,31 +46,4 @@ test("maps approval denied errors to denied result", async () => {
     kind: "denied",
     error: "approval required",
   });
-});
-
-test("emits output only for matching run id", () => {
-  const lines: string[] = [];
-  const adapter = new InProcessExecutionAdapter({
-    runId: "run_1",
-    invokeTool: async () => null,
-    emitOutput: (event) => {
-      lines.push(`${event.stream}:${event.line}`);
-    },
-  });
-
-  adapter.emitOutput({
-    runId: "run_other",
-    stream: "stdout",
-    line: "ignored",
-    timestamp: Date.now(),
-  });
-
-  adapter.emitOutput({
-    runId: "run_1",
-    stream: "stdout",
-    line: "accepted",
-    timestamp: Date.now(),
-  });
-
-  expect(lines).toEqual(["stdout:accepted"]);
 });

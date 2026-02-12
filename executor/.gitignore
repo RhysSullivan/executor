@@ -10,3 +10,5 @@ dist
 .vercel
 .env*.local
 .convex
+**/.wrangler
+**/.dev.vars

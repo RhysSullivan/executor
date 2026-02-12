@@ -7,9 +7,18 @@ export type ApprovalStatus = "pending" | "approved" | "denied";
 export type ToolCallStatus = "requested" | "pending_approval" | "completed" | "failed" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
 export type CredentialScope = "workspace" | "actor";
-export type CredentialProvider = "managed" | "workos-vault";
+export type CredentialProvider = "local-convex" | "workos-vault";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
+
+export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
+
+export interface SourceAuthProfile {
+  type: SourceAuthType;
+  mode?: CredentialScope;
+  header?: string;
+  inferred: boolean;
+}
 
 export interface TaskRecord {
   id: string;
@@ -26,8 +35,7 @@ export interface TaskRecord {
   startedAt?: number;
   completedAt?: number;
   error?: string;
-  stdout?: string;
-  stderr?: string;
+  result?: unknown;
   exitCode?: number;
 }
 
@@ -61,10 +69,8 @@ export interface ToolCallRecord {
   callId: string;
   workspaceId: Id<"workspaces">;
   toolPath: string;
-  input: unknown;
   status: ToolCallStatus;
   approvalId?: string;
-  output?: unknown;
   error?: string;
   createdAt: number;
   updatedAt: number;
@@ -85,10 +91,13 @@ export interface AccessPolicyRecord {
 
 export interface CredentialRecord {
   id: string;
+  bindingId?: string;
   workspaceId: Id<"workspaces">;
   sourceKey: string;
   scope: CredentialScope;
   actorId?: string;
+  overridesJson?: Record<string, unknown>;
+  boundAuthFingerprint?: string;
   provider: CredentialProvider;
   secretJson: Record<string, unknown>;
   createdAt: number;
@@ -167,8 +176,7 @@ export interface SandboxExecutionRequest {
 
 export interface SandboxExecutionResult {
   status: Extract<TaskStatus, "completed" | "failed" | "timed_out" | "denied">;
-  stdout: string;
-  stderr: string;
+  result?: unknown;
   exitCode?: number;
   error?: string;
   durationMs: number;
@@ -193,18 +201,8 @@ export type ToolCallResult =
   | { ok: false; kind: "denied"; error: string }
   | { ok: false; kind: "failed"; error: string };
 
-export type RuntimeOutputStream = "stdout" | "stderr";
-
-export interface RuntimeOutputEvent {
-  runId: string;
-  stream: RuntimeOutputStream;
-  line: string;
-  timestamp: number;
-}
-
 export interface ExecutionAdapter {
   invokeTool(call: ToolCallRequest): Promise<ToolCallResult>;
-  emitOutput(event: RuntimeOutputEvent): void | Promise<void>;
 }
 
 export interface SandboxRuntime {

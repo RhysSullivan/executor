@@ -44,7 +44,7 @@ const toolCallStatus = v.union(
 const policyDecision = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProvider = v.union(
-  v.literal("managed"),
+  v.literal("local-convex"),
   v.literal("workos-vault"),
 );
 const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
@@ -186,8 +186,7 @@ export default defineSchema({
     timeoutMs: v.number(),
     metadata: v.any(),
     error: v.optional(v.string()),
-    stdout: v.optional(v.string()),
-    stderr: v.optional(v.string()),
+    result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -219,10 +218,8 @@ export default defineSchema({
     callId: v.string(),
     workspaceId: v.id("workspaces"),
     toolPath: v.string(),
-    input: v.any(),
     status: toolCallStatus,
     approvalId: v.optional(v.string()),
-    output: v.optional(v.any()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -258,18 +255,23 @@ export default defineSchema({
     .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
   sourceCredentials: defineTable({
-    credentialId: v.string(), // domain ID: cred_<uuid>
+    bindingId: v.string(), // domain ID: bind_<uuid>
+    credentialId: v.string(), // domain ID: conn_<uuid>
     workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScope,
     actorId: v.string(), // account._id or anon_<uuid> (required for composite index)
     provider: credentialProvider,
     secretJson: v.any(),
+    overridesJson: v.optional(v.any()),
+    boundAuthFingerprint: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_workspace_created", ["workspaceId", "createdAt"])
-    .index("by_workspace_source_scope_actor", ["workspaceId", "sourceKey", "scope", "actorId"]),
+    .index("by_workspace_source_scope_actor", ["workspaceId", "sourceKey", "scope", "actorId"])
+    .index("by_workspace_credential", ["workspaceId", "credentialId"])
+    .index("by_binding_id", ["bindingId"]),
 
   toolSources: defineTable({
     sourceId: v.string(), // domain ID: src_<uuid>
@@ -277,6 +279,8 @@ export default defineSchema({
     name: v.string(),
     type: toolSourceType,
     config: v.any(),
+    specHash: v.optional(v.string()),
+    authFingerprint: v.optional(v.string()),
     enabled: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -355,4 +359,22 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_client_id", ["clientId"]),
+
+  /**
+   * Authorization codes for anonymous OAuth (short-lived, single-use).
+   * Stored in Convex so code exchange survives function restarts.
+   */
+  anonymousOauthCodes: defineTable({
+    code: v.string(),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    codeChallenge: v.string(),
+    codeChallengeMethod: v.string(),
+    actorId: v.string(),
+    tokenClaims: v.optional(v.any()),
+    expiresAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_code", ["code"])
+    .index("by_expires_at", ["expiresAt"]),
 });

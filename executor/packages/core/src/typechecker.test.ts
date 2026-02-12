@@ -307,6 +307,54 @@ export interface operations {
     expect(bad.errors.length).toBeGreaterThan(0);
   });
 
+  test("OpenAPI declarations intersect strict fallback args with indexed-access inputs", () => {
+    const tools: ToolDescriptor[] = [
+      {
+        path: "vercel.dns.create_record",
+        description: "Create DNS record",
+        approval: "auto",
+        source: "openapi:vercel",
+        operationId: "createRecord",
+        strictArgsType: "{ domain: string; type: \"CNAME\" | \"TXT\"; name: string; value: string }",
+      },
+    ];
+
+    const sourceDts = `
+export interface operations {
+  createRecord: {
+    parameters: { path: { domain: string } };
+    requestBody: {
+      content: {
+        "application/json":
+          | { type: "A" | "CNAME" | "TXT" }
+          | { type: "CNAME"; name: string; value: string };
+      };
+    };
+    responses: { 200: { content: { "application/json": { id: string } } } };
+  };
+}
+`;
+
+    const declarations = generateToolDeclarations(tools, {
+      sourceDtsBySource: {
+        "openapi:vercel": sourceDts,
+      },
+    });
+
+    const ok = typecheckCode(
+      'await tools.vercel.dns.create_record({ domain: "executor.sh", type: "CNAME", name: "api", value: "convex.domains" });',
+      declarations,
+    );
+    expect(ok.ok).toBe(true);
+
+    const missing = typecheckCode(
+      'await tools.vercel.dns.create_record({ domain: "executor.sh", type: "CNAME" });',
+      declarations,
+    );
+    expect(missing.ok).toBe(false);
+    expect(missing.errors.some((error) => error.includes("name") || error.includes("value"))).toBe(true);
+  });
+
   test("OpenAPI helper types infer vendor JSON response payloads", () => {
     const tools: ToolDescriptor[] = [
       {
@@ -464,4 +512,3 @@ export interface operations {
     expect(result.errors).toHaveLength(0);
   });
 });
-

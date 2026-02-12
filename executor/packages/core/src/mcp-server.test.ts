@@ -44,10 +44,9 @@ class FakeMcpService {
         completedAt: current.createdAt + 2,
         updatedAt: current.createdAt + 2,
         exitCode: 0,
-        stdout: input.metadata?.largeStdout === true
-          ? `header\n${"x".repeat(35_000)}`
-          : `ran:${input.code.slice(0, 20)}`,
-        stderr: "",
+        result: input.metadata?.largeResult === true
+          ? { data: `header\n${"x".repeat(35_000)}` }
+          : { ran: input.code.slice(0, 20) },
       });
       // Notify subscribers
       for (const listener of this.listeners.get(id) ?? []) {
@@ -164,12 +163,12 @@ test("run_code MCP tool returns terminal task result", async () => {
     expect(text?.type).toBe("text");
     if (text?.type === "text") {
       expect(text.text).toContain("status: completed");
-      expect(text.text).toContain("ran:console.log('hello f");
+      expect(text.text).toContain('"ran": "console.log');
     }
   });
 });
 
-test("run_code MCP tool warns and previews large output", async () => {
+test("run_code MCP tool previews large returned result", async () => {
   const service = new FakeMcpService();
 
   await withMcpClient(service, async (client) => {
@@ -177,7 +176,7 @@ test("run_code MCP tool warns and previews large output", async () => {
       name: "run_code",
       arguments: {
         code: "console.log('large')",
-        metadata: { largeStdout: true },
+        metadata: { largeResult: true },
       },
     })) as {
       isError?: boolean;
@@ -189,15 +188,11 @@ test("run_code MCP tool warns and previews large output", async () => {
     const text = result.content.find((part) => part.type === "text");
     expect(text?.type).toBe("text");
     if (text?.type === "text") {
-      expect(text.text).toContain("outputWarning: Large runtime output detected");
-      expect(text.text).toContain("outputHint: Return compact summaries");
-      expect(text.text).toContain("[stdout preview truncated");
+      expect(text.text).toContain("[result preview truncated");
     }
 
-    const fullStdout = typeof result.structuredContent?.stdout === "string"
-      ? result.structuredContent.stdout
-      : "";
-    expect(fullStdout.length).toBeGreaterThan(30_000);
+    const fullResult = result.structuredContent?.result as { data?: string } | undefined;
+    expect((fullResult?.data ?? "").length).toBeGreaterThan(30_000);
   });
 });
 

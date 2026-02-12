@@ -6,7 +6,9 @@ import { internal } from "./_generated/api";
 import { action } from "./_generated/server";
 
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
-const credentialProviderValidator = v.union(v.literal("managed"), v.literal("workos-vault"));
+const credentialProviderValidator = v.union(v.literal("local-convex"), v.literal("workos-vault"));
+
+type SecretBackend = "local-convex" | "workos-vault";
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -21,6 +23,17 @@ function normalizedActorId(scope: "workspace" | "actor", actorId?: string): stri
   return actorId.trim();
 }
 
+function configuredSecretBackend(): SecretBackend {
+  const explicit = process.env.EXECUTOR_SECRET_BACKEND?.trim().toLowerCase();
+  if (explicit === "workos" || explicit === "workos-vault") {
+    return "workos-vault";
+  }
+  if (explicit === "local" || explicit === "local-convex") {
+    return "local-convex";
+  }
+  return process.env.WORKOS_API_KEY?.trim() ? "workos-vault" : "local-convex";
+}
+
 function extractObjectId(secretJson: Record<string, unknown>): string | null {
   const candidate =
     (typeof secretJson.objectId === "string" ? secretJson.objectId : "") ||
@@ -29,13 +42,24 @@ function extractObjectId(secretJson: Record<string, unknown>): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function stripObjectRef(secretJson: Record<string, unknown>): Record<string, unknown> {
-  const { objectId: _objectId, id: _id, ...rest } = secretJson;
-  return asRecord(rest);
-}
+function extractHeaderOverrides(secretJson: Record<string, unknown>): {
+  cleanSecret: Record<string, unknown>;
+  overridesJson: Record<string, unknown>;
+} {
+  const rawHeaders = asRecord(secretJson.__headers);
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(rawHeaders)) {
+    if (!name) continue;
+    const text = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+    if (!text) continue;
+    headers[name.trim()] = text;
+  }
 
-function hasPayload(secretJson: Record<string, unknown>): boolean {
-  return Object.keys(stripObjectRef(secretJson)).length > 0;
+  const { __headers: _headers, ...rest } = secretJson;
+  return {
+    cleanSecret: asRecord(rest),
+    overridesJson: Object.keys(headers).length > 0 ? { headers } : {},
+  };
 }
 
 function buildVaultObjectName(args: {
@@ -50,7 +74,7 @@ function buildVaultObjectName(args: {
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
 
-  return `executor-cred-${args.workspaceId.slice(0, 24)}-${sourceSegment}-${actorSegment.slice(0, 24)}-${crypto.randomUUID().slice(0, 8)}`;
+  return `executor-conn-${args.workspaceId.slice(0, 24)}-${sourceSegment}-${actorSegment.slice(0, 24)}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function workosClient(): WorkOS {
@@ -162,19 +186,58 @@ export const upsertCredential = action({
       throw new Error("actorId must match the authenticated workspace actor");
     }
 
-    const provider = args.provider ?? "managed";
     const actorId = normalizedActorId(args.scope, args.actorId ?? canonicalActorId);
-    const submittedSecret = asRecord(args.secretJson);
+    const rawSubmittedSecret = asRecord(args.secretJson);
+    const { cleanSecret: submittedSecret, overridesJson } = extractHeaderOverrides(rawSubmittedSecret);
 
-    if (provider === "managed") {
+    const existingBinding = await ctx.runQuery(internal.database.resolveCredential, {
+      workspaceId: args.workspaceId,
+      sourceKey: args.sourceKey,
+      scope: args.scope,
+      ...(args.scope === "actor" ? { actorId } : {}),
+    });
+
+    const allCredentials = await ctx.runQuery(internal.database.listCredentials, {
+      workspaceId: args.workspaceId,
+    }) as Array<Record<string, unknown>>;
+    const requestedId = args.id?.trim();
+    const existingConnection = requestedId
+      ? allCredentials.find((credential) => {
+        const id = String(credential.id ?? "");
+        const bindingId = String(credential.bindingId ?? "");
+        if (id !== requestedId && bindingId !== requestedId) return false;
+        if (String(credential.scope ?? "") !== args.scope) return false;
+        if (args.scope === "actor") {
+          return String(credential.actorId ?? "") === actorId;
+        }
+        return true;
+      }) ?? allCredentials.find((credential) => {
+        const id = String(credential.id ?? "");
+        const bindingId = String(credential.bindingId ?? "");
+        return id === requestedId || bindingId === requestedId;
+      })
+      : null;
+    const connectionId = String(existingConnection?.id ?? requestedId ?? "").trim() || undefined;
+
+    const backend = configuredSecretBackend();
+
+    if (backend === "local-convex") {
+      const finalSecret = Object.keys(submittedSecret).length > 0
+        ? submittedSecret
+        : asRecord(existingConnection?.secretJson ?? existingBinding?.secretJson);
+      if (Object.keys(finalSecret).length === 0) {
+        throw new Error("Credential values are required");
+      }
+
       return await ctx.runMutation(internal.database.upsertCredential, {
-        id: args.id,
+        id: connectionId,
         workspaceId: args.workspaceId,
         sourceKey: args.sourceKey,
         scope: args.scope,
-        actorId,
-        provider,
-        secretJson: submittedSecret,
+        ...(args.scope === "actor" ? { actorId } : {}),
+        provider: "local-convex",
+        secretJson: finalSecret,
+        overridesJson,
       });
     }
 
@@ -183,28 +246,19 @@ export const upsertCredential = action({
       throw new Error("Encrypted storage value looks like a GitHub token. Paste the token in the token field.");
     }
 
-    const existing: Record<string, unknown> | null = await ctx.runQuery(internal.database.resolveCredential, {
-      workspaceId: args.workspaceId,
-      sourceKey: args.sourceKey,
-      scope: args.scope,
-      ...(args.scope === "actor" ? { actorId } : {}),
-    });
-    const existingObjectId: string | null = existing ? extractObjectId(asRecord(existing.secretJson)) : null;
+    const existingObjectId = extractObjectId(
+      asRecord(existingConnection?.secretJson ?? existingBinding?.secretJson),
+    );
 
-    const objectId = (() => {
-      if (submittedObjectId) return submittedObjectId;
-      return null;
-    })();
-
-    let finalObjectId = objectId;
-    if (!finalObjectId && hasPayload(submittedSecret)) {
+    let finalObjectId = submittedObjectId;
+    if (!finalObjectId && Object.keys(submittedSecret).length > 0) {
       finalObjectId = await upsertVaultObject({
         workspaceId: args.workspaceId,
         sourceKey: args.sourceKey,
         scope: args.scope,
         actorId,
         existingObjectId,
-        payload: stripObjectRef(submittedSecret),
+        payload: submittedSecret,
       });
     }
 
@@ -213,17 +267,18 @@ export const upsertCredential = action({
     }
 
     if (!finalObjectId) {
-      throw new Error("Encrypted storage requires credential values");
+      throw new Error("Credential values are required");
     }
 
     return await ctx.runMutation(internal.database.upsertCredential, {
-      id: args.id,
+      id: connectionId,
       workspaceId: args.workspaceId,
       sourceKey: args.sourceKey,
       scope: args.scope,
       ...(args.scope === "actor" ? { actorId } : {}),
-      provider,
+      provider: "workos-vault",
       secretJson: { objectId: finalObjectId },
+      overridesJson,
     });
   },
 });

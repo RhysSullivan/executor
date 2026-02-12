@@ -17,9 +17,8 @@
  *    (passed as a loopback service binding via `ctx.exports`) which invokes
  *    Convex callback RPC functions to resolve them.
  *
- * 4. Console output is buffered in the harness and returned in the response.
- *    Output lines are also streamed back to Convex in real-time via the
- *    ToolBridge binding.
+ * 4. Console output is intentionally discarded. Only explicit `return` values
+ *    are included in terminal run results.
  *
  * 5. `/v1/runs` returns an accepted dispatch response immediately. Terminal
  *    result status is reported back to Convex through callback RPC.
@@ -89,8 +88,7 @@ interface RunRequest {
 
 interface RunResult {
   status: "completed" | "failed" | "timed_out" | "denied";
-  stdout: string;
-  stderr: string;
+  result?: unknown;
   error?: string;
   exitCode?: number;
 }
@@ -143,8 +141,6 @@ function timingSafeEqual(a: string, b: string): boolean {
 
 const failedResult = (error: string): RunResult => ({
   status: "failed",
-  stdout: "",
-  stderr: "",
   error,
 });
 
@@ -197,21 +193,6 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
     }
 
     return response.value as ToolCallResult;
-  }
-
-  /** Stream a console output line back to Convex (best-effort). */
-  async emitOutput(stream: "stdout" | "stderr", line: string): Promise<void> {
-    const { callbackInternalSecret, taskId } = this.props;
-    await Result.tryPromise(async () => {
-      const convex = this.createConvexClient();
-      await convex.mutation(api.runtimeCallbacks.appendOutput, {
-        internalSecret: callbackInternalSecret,
-        runId: taskId,
-        stream,
-        line,
-        timestamp: Date.now(),
-      });
-    });
   }
 }
 
@@ -285,8 +266,6 @@ async function executeSandboxRun(request: RunRequest, ctx: ExecutionContext, env
     if (cause instanceof DOMException && cause.name === "AbortError") {
       return {
         status: "timed_out",
-        stdout: "",
-        stderr: "",
         error: `Execution timed out after ${timeoutMs}ms`,
       };
     }
@@ -312,8 +291,7 @@ async function reportRunCompletion(request: RunRequest, result: RunResult, durat
         internalSecret: request.callback.internalSecret,
         runId: request.taskId,
         status: result.status,
-        stdout: result.stdout,
-        stderr: result.stderr,
+        result: result.result,
         exitCode: result.exitCode,
         error: result.error,
         durationMs,

@@ -526,6 +526,115 @@ function jsonSchemaTypeHintFallback(
   return "unknown";
 }
 
+type OpenApiParameterHint = {
+  name: string;
+  required: boolean;
+  schema: Record<string, unknown>;
+};
+
+function pushUnique(values: string[], seen: Set<string>, raw: string): void {
+  const value = raw.trim();
+  if (!value || seen.has(value)) return;
+  seen.add(value);
+  values.push(value);
+}
+
+function collectTopLevelSchemaKeys(
+  schema: unknown,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): string[] {
+  if (!schema || typeof schema !== "object") return [];
+
+  const record = schema as Record<string, unknown>;
+  const ref = typeof record.$ref === "string" ? record.$ref : "";
+  if (ref.startsWith("#/components/schemas/")) {
+    if (seenRefs.has(ref)) return [];
+    const key = ref.slice("#/components/schemas/".length);
+    const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
+    if (Object.keys(resolved).length === 0) return [];
+    const nextSeen = new Set(seenRefs);
+    nextSeen.add(ref);
+    return collectTopLevelSchemaKeys(resolved, componentSchemas, nextSeen);
+  }
+
+  const keys: string[] = [];
+  const seen = new Set<string>();
+
+  for (const key of Object.keys(asRecord(record.properties))) {
+    pushUnique(keys, seen, key);
+  }
+
+  const combinators: unknown[] = [
+    ...(Array.isArray(record.allOf) ? record.allOf : []),
+    ...(Array.isArray(record.oneOf) ? record.oneOf : []),
+    ...(Array.isArray(record.anyOf) ? record.anyOf : []),
+  ];
+
+  for (const entry of combinators) {
+    for (const key of collectTopLevelSchemaKeys(entry, componentSchemas, seenRefs)) {
+      pushUnique(keys, seen, key);
+    }
+  }
+
+  return keys;
+}
+
+function buildOpenApiInputSchema(
+  parameters: OpenApiParameterHint[],
+  requestBodySchema: Record<string, unknown>,
+): JsonSchema {
+  const hasBodySchema = Object.keys(requestBodySchema).length > 0;
+  const hasParams = parameters.length > 0;
+
+  if (!hasBodySchema && !hasParams) {
+    return {};
+  }
+
+  const parameterSchema: JsonSchema = {
+    type: "object",
+    properties: Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
+    required: parameters.filter((param) => param.required).map((param) => param.name),
+  };
+
+  if (!hasBodySchema) {
+    return parameterSchema;
+  }
+
+  if (!hasParams) {
+    return requestBodySchema;
+  }
+
+  return {
+    allOf: [parameterSchema, requestBodySchema],
+  };
+}
+
+function buildOpenApiArgPreviewKeys(
+  parameters: OpenApiParameterHint[],
+  requestBodySchema: Record<string, unknown>,
+  componentSchemas?: Record<string, unknown>,
+): string[] {
+  const keys: string[] = [];
+  const seen = new Set<string>();
+
+  for (const parameter of parameters) {
+    if (!parameter.required) continue;
+    pushUnique(keys, seen, parameter.name);
+  }
+
+  for (const key of collectTopLevelSchemaKeys(requestBodySchema, componentSchemas)) {
+    pushUnique(keys, seen, key);
+  }
+
+  for (const parameter of parameters) {
+    if (parameter.required) continue;
+    pushUnique(keys, seen, parameter.name);
+  }
+
+  return keys;
+}
+
 async function connectMcp(
   url: string,
   queryParams: Record<string, string> | undefined,
@@ -908,7 +1017,7 @@ function compactOpenApiPaths(
     return entry;
   };
 
-  const normalizeParameters = (entries: unknown): Array<Record<string, unknown>> => {
+  const normalizeParameters = (entries: unknown): Array<OpenApiParameterHint & { in: string }> => {
     if (!Array.isArray(entries)) return [];
     return entries
       .map((entry) => resolveParam(asRecord(entry)))
@@ -982,32 +1091,12 @@ function compactOpenApiPaths(
           const mergedParameters = normalizeParameters(operation.parameters).concat(sharedParameters);
           const hasInputSchema =
             mergedParameters.length > 0 || Object.keys(requestBodySchema).length > 0;
-          const combinedSchema: JsonSchema = {
-            type: "object",
-            properties: {
-              ...Object.fromEntries(
-                mergedParameters
-                  .map((param) => [param.name, param.schema]),
-              ),
-              ...asRecord(requestBodySchema.properties),
-            },
-            required: [
-              ...mergedParameters
-                .filter((param) => param.required)
-                .map((param) => param.name as string),
-              ...((Array.isArray(requestBodySchema.required)
-                ? requestBodySchema.required.filter((item): item is string => typeof item === "string")
-                : []) as string[]),
-            ],
-          };
+          const combinedSchema = buildOpenApiInputSchema(mergedParameters, requestBodySchema);
           compactOperation._argsTypeHint = hasInputSchema
             ? jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas)
             : "{}";
           compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
-          const previewKeys = [
-            ...mergedParameters.map((param) => String(param.name ?? "")).filter((name) => name.length > 0),
-            ...Object.keys(asRecord(requestBodySchema.properties)),
-          ];
+          const previewKeys = buildOpenApiArgPreviewKeys(mergedParameters, requestBodySchema, compSchemas);
           if (previewKeys.length > 0) {
             compactOperation._argPreviewKeys = [...new Set(previewKeys)];
           }
@@ -1254,29 +1343,13 @@ export function buildOpenApiToolsFromPrepared(
           if (Object.keys(responseSchema).length > 0) break;
         }
 
-        const combinedSchema: JsonSchema = {
-          type: "object",
-          properties: {
-            ...Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
-            ...asRecord(requestBodySchema.properties),
-          },
-          required: [
-            ...parameters.filter((param) => param.required).map((param) => param.name),
-            ...((Array.isArray(requestBodySchema.required)
-              ? requestBodySchema.required.filter((item): item is string => typeof item === "string")
-              : []) as string[]),
-          ],
-        };
-
         const hasInputSchema = parameters.length > 0 || Object.keys(requestBodySchema).length > 0;
+        const combinedSchema = buildOpenApiInputSchema(parameters, requestBodySchema);
 
         argsType = hasInputSchema ? jsonSchemaTypeHintFallback(combinedSchema) : "{}";
         returnsType = responseTypeHintFromSchema(responseSchema, responseStatus);
         if (argPreviewKeys.length === 0) {
-          argPreviewKeys = [
-            ...parameters.map((param) => param.name),
-            ...Object.keys(asRecord(requestBodySchema.properties)),
-          ].filter((name, index, all) => name.length > 0 && all.indexOf(name) === index);
+          argPreviewKeys = buildOpenApiArgPreviewKeys(parameters, requestBodySchema);
         }
       }
 

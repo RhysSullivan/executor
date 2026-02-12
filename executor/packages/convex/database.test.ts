@@ -56,11 +56,10 @@ test("task lifecycle supports queue, run, and complete", async () => {
   const secondRun = await t.mutation(internal.database.markTaskRunning, { taskId: "task_1" });
   expect(secondRun).toBeNull();
 
-  const finished = await t.mutation(internal.database.markTaskFinished, {
+  const finished = await t.mutation(internal.database.markTaskFinished as any, {
     taskId: "task_1",
     status: "completed",
-    stdout: "ok",
-    stderr: "",
+    result: { ok: true },
     exitCode: 0,
   });
   expect(finished?.status).toBe("completed");
@@ -169,11 +168,11 @@ test("credentials persist provider and resolve by scope", async () => {
     workspaceId: wsId,
     sourceKey: "openapi:github",
     scope: "workspace",
-    provider: "managed",
+    provider: "local-convex",
     secretJson: { token: "workspace-token" },
   });
 
-  expect(workspaceCredential.provider).toBe("managed");
+  expect(workspaceCredential.provider).toBe("local-convex");
 
   const actorCredential = await t.mutation(internal.database.upsertCredential, {
     workspaceId: wsId,
@@ -192,7 +191,7 @@ test("credentials persist provider and resolve by scope", async () => {
     sourceKey: "openapi:github",
     scope: "workspace",
   });
-  expect(resolvedWorkspace?.provider).toBe("managed");
+  expect(resolvedWorkspace?.provider).toBe("local-convex");
 
   const resolvedActor = await t.query(internal.database.resolveCredential, {
     workspaceId: wsId,
@@ -203,7 +202,7 @@ test("credentials persist provider and resolve by scope", async () => {
   expect(resolvedActor?.provider).toBe("workos-vault");
 });
 
-test("upsertCredential defaults provider to managed", async () => {
+test("upsertCredential defaults provider to local provider", async () => {
   const t = setup();
   const wsId = await seedWorkspace(t, "ws_default_provider");
 
@@ -214,5 +213,50 @@ test("upsertCredential defaults provider to managed", async () => {
     secretJson: { token: "sk_test_123" },
   });
 
-  expect(credential.provider).toBe("managed");
+  expect(credential.provider).toBe("local-convex");
+});
+
+test("credentials can link one connection to multiple sources", async () => {
+  const t = setup();
+  const wsId = await seedWorkspace(t, "ws_linked_connection");
+
+  const primary = await t.mutation(internal.database.upsertCredential, {
+    workspaceId: wsId,
+    sourceKey: "source:github",
+    scope: "workspace",
+    secretJson: { token: "token_v1" },
+  });
+
+  await t.mutation(internal.database.upsertCredential, {
+    id: primary.id,
+    workspaceId: wsId,
+    sourceKey: "source:stripe",
+    scope: "workspace",
+    secretJson: {},
+    overridesJson: { headers: { "x-tenant-id": "acme" } },
+  });
+
+  const linked = await t.query(internal.database.resolveCredential, {
+    workspaceId: wsId,
+    sourceKey: "source:stripe",
+    scope: "workspace",
+  });
+  expect(linked?.id).toBe(primary.id);
+  expect(linked?.secretJson).toEqual({ token: "token_v1" });
+  expect(linked?.overridesJson).toEqual({ headers: { "x-tenant-id": "acme" } });
+
+  await t.mutation(internal.database.upsertCredential, {
+    id: primary.id,
+    workspaceId: wsId,
+    sourceKey: "source:github",
+    scope: "workspace",
+    secretJson: { token: "token_v2" },
+  });
+
+  const relinked = await t.query(internal.database.resolveCredential, {
+    workspaceId: wsId,
+    sourceKey: "source:stripe",
+    scope: "workspace",
+  });
+  expect(relinked?.secretJson).toEqual({ token: "token_v2" });
 });

@@ -121,10 +121,13 @@ Convex HTTP routes (`packages/convex/http.ts`) expose:
 - `/mcp` (direct Convex MCP transport)
 - `/.well-known/oauth-protected-resource`
 - `/.well-known/oauth-authorization-server`
+- `/oauth2/jwks` (self-issued anonymous OAuth)
+- `/register` (anonymous OAuth dynamic client registration)
+- `/authorize` (anonymous OAuth authorization endpoint)
+- `/token` (anonymous OAuth token exchange)
 - `/internal/runs/:runId/tool-call`
-- `/internal/runs/:runId/output`
 
-MCP bearer-token verification is enabled when `MCP_AUTHORIZATION_SERVER` (or `MCP_AUTHORIZATION_SERVER_URL`) is configured.
+MCP bearer-token verification is enabled when `MCP_AUTHORIZATION_SERVER` / `MCP_AUTHORIZATION_SERVER_URL` is configured, or when `MCP_ENABLE_ANONYMOUS_OAUTH=1`.
 
 ## Configuration Reference
 
@@ -144,6 +147,7 @@ Important env vars (see root `.env.example` for the base template):
   - `STRIPE_PRICE_ID`
 - MCP auth integration:
   - `MCP_AUTHORIZATION_SERVER` or `MCP_AUTHORIZATION_SERVER_URL`
+  - `MCP_ENABLE_ANONYMOUS_OAUTH` (`1` to enable anonymous OAuth without external auth server)
 - Managed runtime:
   - `EXECUTOR_RUNTIME_DIR`
   - `EXECUTOR_BACKEND_PORT`
