@@ -20,8 +20,8 @@
  * 4. Console output is intentionally discarded. Only explicit `return` values
  *    are included in terminal run results.
  *
- * 5. `/v1/runs` returns an accepted dispatch response immediately. Terminal
- *    result status is reported back to Convex through callback RPC.
+ * 5. `/v1/runs` waits for execution to finish and returns the terminal result
+ *    directly to the caller.
  *
  * ## Code isolation
  *
@@ -93,11 +93,6 @@ interface RunResult {
   exitCode?: number;
 }
 
-interface RunDispatchResponse {
-  accepted: true;
-  dispatchId: string;
-}
-
 interface ToolCallResult {
   ok: true | false;
   value?: unknown;
@@ -145,10 +140,6 @@ const failedResult = (error: string): RunResult => ({
   status: "failed",
   error,
 });
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // ── Tool Bridge Entrypoint ───────────────────────────────────────────────────
 //
@@ -351,41 +342,6 @@ async function executeSandboxRun(request: RunRequest, ctx: ExecutionContext, env
   return body.value;
 }
 
-async function reportRunCompletion(request: RunRequest, result: RunResult, durationMs: number): Promise<void> {
-  const convex = new ConvexHttpClient(request.callback.convexUrl, {
-    skipConvexDeploymentUrlCheck: true,
-  });
-  let lastError: unknown = null;
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    const response = await Result.tryPromise(async () => {
-      return await convex.mutation(api.runtimeCallbacks.completeRun, {
-        internalSecret: request.callback.internalSecret,
-        runId: request.taskId,
-        status: result.status,
-        result: result.result,
-        exitCode: result.exitCode,
-        error: result.error,
-        durationMs,
-      });
-    });
-
-    if (response.isOk()) {
-      return;
-    }
-
-    lastError = response.error.cause;
-    if (attempt < 3) {
-      await sleep(200 * attempt);
-    }
-  }
-
-  console.error("Failed to report run completion", {
-    taskId: request.taskId,
-    error: lastError instanceof Error ? lastError.message : String(lastError),
-  });
-}
-
 // ── Main Handler ─────────────────────────────────────────────────────────────
 
 export default {
@@ -424,27 +380,15 @@ export default {
       );
     }
 
-    const startedAt = Date.now();
-    const dispatchId = `dispatch_${body.taskId}_${startedAt}`;
+    const runResult = await Result.tryPromise(() => executeSandboxRun(body, ctx, env));
+    const finalResult = runResult.isOk()
+      ? runResult.value
+      : failedResult(
+          `Sandbox host error: ${runResult.error.cause instanceof Error
+            ? runResult.error.cause.message
+            : String(runResult.error.cause)}`,
+        );
 
-    ctx.waitUntil((async () => {
-      const runResult = await Result.tryPromise(() => executeSandboxRun(body, ctx, env));
-      const finalResult = runResult.isOk()
-        ? runResult.value
-        : failedResult(
-            `Sandbox host error: ${runResult.error.cause instanceof Error
-              ? runResult.error.cause.message
-              : String(runResult.error.cause)}`,
-          );
-
-      await reportRunCompletion(body, finalResult, Date.now() - startedAt);
-    })());
-
-    const response: RunDispatchResponse = {
-      accepted: true,
-      dispatchId,
-    };
-
-    return Response.json(response, { status: 202 });
+    return Response.json(finalResult, { status: 200 });
   },
 };

@@ -98,11 +98,34 @@ export async function runQueuedTask(
         return null;
       }
 
-      await publishTaskEvent(ctx, args.taskId, "task", "task.dispatched", {
+      const finished = await ctx.runMutation(internal.database.markTaskFinished as any, {
         taskId: args.taskId,
-        runtimeId: running.runtimeId,
-        dispatchId: dispatchResult.dispatchId,
+        status: dispatchResult.status,
+        result: dispatchResult.result,
+        exitCode: dispatchResult.exitCode,
+        error: dispatchResult.error,
+      });
+
+      if (!finished) {
+        return null;
+      }
+
+      const terminalEvent =
+        dispatchResult.status === "completed"
+          ? "task.completed"
+          : dispatchResult.status === "timed_out"
+            ? "task.timed_out"
+            : dispatchResult.status === "denied"
+              ? "task.denied"
+              : "task.failed";
+
+      await publishTaskEvent(ctx, args.taskId, "task", terminalEvent, {
+        taskId: args.taskId,
+        status: finished.status,
+        exitCode: finished.exitCode,
         durationMs: dispatchResult.durationMs,
+        error: finished.error,
+        completedAt: finished.completedAt,
       });
       return null;
     }

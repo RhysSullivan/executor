@@ -87,7 +87,7 @@ class FakeMcpService {
     return context;
   }
 
-  subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void {
+  subscribe(taskId: string, _workspaceId: Id<"workspaces">, listener: (event: LiveTaskEvent) => void): () => void {
     const set = this.listeners.get(taskId) ?? new Set();
     set.add(listener);
     this.listeners.set(taskId, set);

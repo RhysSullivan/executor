@@ -24,17 +24,20 @@ import { transpileForRuntime } from "./transpile";
  * 4. Only explicit `return` values from the isolate are included in callback
  *    completion payloads.
  *
- * 5. The host Worker accepts the run immediately and finishes execution
- *    asynchronously, reporting terminal results back through callback RPC.
+ * 5. The host Worker executes the run inline and returns the terminal result
+ *    directly in the HTTP response.
  *
  * ## Callback authentication
  *
- * The host Worker authenticates callback RPCs using `EXECUTOR_INTERNAL_TOKEN`.
+ * The host Worker authenticates tool-callback RPCs using
+ * `EXECUTOR_INTERNAL_TOKEN`.
  */
 export interface CloudflareDispatchResult {
   ok: true;
-  accepted: true;
-  dispatchId: string;
+  status: "completed" | "failed" | "timed_out" | "denied";
+  result?: unknown;
+  error?: string;
+  exitCode?: number;
   durationMs: number;
 }
 
@@ -64,7 +67,8 @@ export async function dispatchCodeWithCloudflareWorkerLoader(
 
   // ── POST to CF host worker ────────────────────────────────────────────
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+  const waitTimeoutMs = Math.max(config.requestTimeoutMs, request.timeoutMs + 30_000);
+  const timeout = setTimeout(() => controller.abort(), waitTimeoutMs);
 
   const response = await Result.tryPromise(() =>
     fetch(config.runUrl, {
@@ -92,39 +96,43 @@ export async function dispatchCodeWithCloudflareWorkerLoader(
     const cause = response.error.cause;
     const isAbort = cause instanceof DOMException && cause.name === "AbortError";
     if (isAbort) {
-      return mkError(`Cloudflare sandbox dispatch timed out after ${config.requestTimeoutMs}ms`);
+      return mkError(`Cloudflare sandbox execution timed out after ${waitTimeoutMs}ms`);
     }
     const message = cause instanceof Error ? cause.message : String(cause);
     return mkError(`Cloudflare sandbox dispatch failed: ${message}`);
   }
 
-  // ── Handle non-accepted HTTP status ───────────────────────────────────
-  if (response.value.status !== 202) {
+  // ── Handle non-success HTTP status ────────────────────────────────────
+  if (response.value.status !== 200) {
     const text = await Result.tryPromise(() => response.value.text());
     const body = text.unwrapOr(response.value.statusText);
-    return mkError(`Cloudflare sandbox dispatch returned ${response.value.status}: ${body}`);
+    return mkError(`Cloudflare sandbox execution returned ${response.value.status}: ${body}`);
   }
 
-  // ── Parse accepted response JSON ──────────────────────────────────────
+  // ── Parse terminal response JSON ──────────────────────────────────────
   const body = await Result.tryPromise(() =>
     response.value.json() as Promise<{
-      accepted?: boolean;
-      dispatchId?: string;
+      status?: "completed" | "failed" | "timed_out" | "denied";
+      result?: unknown;
+      error?: string;
+      exitCode?: number;
     }>,
   );
 
   if (body.isErr()) {
-    return mkError("Cloudflare sandbox dispatch returned invalid JSON");
+    return mkError("Cloudflare sandbox execution returned invalid JSON");
   }
 
-  if (!body.value.accepted || !body.value.dispatchId) {
-    return mkError("Cloudflare sandbox dispatch response missing accepted/dispatchId");
+  if (!body.value.status) {
+    return mkError("Cloudflare sandbox execution response missing status");
   }
 
   return {
     ok: true,
-    accepted: true,
-    dispatchId: body.value.dispatchId,
+    status: body.value.status,
+    result: body.value.result,
+    error: body.value.error,
+    exitCode: body.value.exitCode,
     durationMs: Date.now() - startedAt,
   };
 }

@@ -7,8 +7,8 @@ let fakeCallbackServer: ReturnType<typeof Bun.serve>;
 const AUTH_TOKEN = "test-sandbox-token";
 const CALLBACK_TOKEN = "test-callback-token";
 
-let hostResponseStatus = 202;
-let hostResponseBody: Record<string, unknown> = { accepted: true, dispatchId: "dispatch_test" };
+let hostResponseStatus = 200;
+let hostResponseBody: Record<string, unknown> = { status: "completed", result: { ok: true }, exitCode: 0 };
 type HostRequestBody = {
   taskId: string;
   code: string;
@@ -60,9 +60,9 @@ afterAll(() => {
 });
 
 describe("cloudflare worker loader dispatch", () => {
-  test("dispatches run request and returns accepted response", async () => {
-    hostResponseStatus = 202;
-    hostResponseBody = { accepted: true, dispatchId: "dispatch_abc" };
+  test("dispatches run request and returns terminal response", async () => {
+    hostResponseStatus = 200;
+    hostResponseBody = { status: "completed", result: { ok: true }, exitCode: 0 };
     lastHostRequestBody = null;
 
     const result = await dispatchCodeWithCloudflareWorkerLoader({
@@ -73,8 +73,8 @@ describe("cloudflare worker loader dispatch", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.accepted).toBe(true);
-      expect(result.dispatchId).toBe("dispatch_abc");
+      expect(result.status).toBe("completed");
+      expect(result.exitCode).toBe(0);
     }
 
     expect(lastHostRequestBody).not.toBeNull();
@@ -84,8 +84,8 @@ describe("cloudflare worker loader dispatch", () => {
   });
 
   test("transpiles TypeScript before dispatching", async () => {
-    hostResponseStatus = 202;
-    hostResponseBody = { accepted: true, dispatchId: "dispatch_ts" };
+    hostResponseStatus = 200;
+    hostResponseBody = { status: "completed", result: { ok: true }, exitCode: 0 };
     lastHostRequestBody = null;
 
     const result = await dispatchCodeWithCloudflareWorkerLoader({

@@ -72,6 +72,15 @@ async function deleteWorkspaceData(
     await ctx.db.delete(cacheEntry._id);
   }
 
+  const cachedDeclarations = await ctx.db
+    .query("typecheckDeclarationCache")
+    .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const cacheEntry of cachedDeclarations) {
+    await ctx.storage.delete(cacheEntry.storageId).catch(() => {});
+    await ctx.db.delete(cacheEntry._id);
+  }
+
   const workspaceMembers = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))

@@ -21,7 +21,11 @@ export function createMcpExecutorService(ctx: ActionCtx) {
     }) => {
       return (await ctx.runMutation(internal.executor.createTaskInternal, {
         ...input,
+        scheduleAfterCreate: false,
       })) as { task: TaskRecord };
+    },
+    runTaskNow: async (taskId: string) => {
+      return (await ctx.runAction(internal.executorNode.runTask, { taskId })) as null;
     },
     getTask: async (taskId: string, workspaceId?: Id<"workspaces">) => {
       if (workspaceId) {

@@ -18,6 +18,21 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const MIN_RETRY_DELAY_MS = 200;
+const MAX_RETRY_DELAY_MS = 5_000;
+const RETRY_BACKOFF_MULTIPLIER = 1.6;
+
+function clampRetryDelayMs(ms: number): number {
+  return Math.min(MAX_RETRY_DELAY_MS, Math.max(MIN_RETRY_DELAY_MS, Math.round(ms)));
+}
+
+function withJitter(ms: number): number {
+  const spread = Math.round(ms * 0.2);
+  const min = Math.max(50, ms - spread);
+  const max = ms + spread;
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
 function sanitizeExecutionResult(value: unknown): unknown {
   if (value === undefined) {
     return undefined;
@@ -55,6 +70,7 @@ function createToolsProxy(
 
       const input = args.length > 0 ? args[0] : {};
       const callId = `call_${crypto.randomUUID()}`;
+      let retryDelayMs = MIN_RETRY_DELAY_MS;
 
       while (true) {
         const result = await adapter.invokeTool({
@@ -70,7 +86,9 @@ function createToolsProxy(
 
         switch (result.kind) {
           case "pending":
-            await sleep(Math.max(50, result.retryAfterMs ?? 500));
+            retryDelayMs = clampRetryDelayMs(Math.max(result.retryAfterMs ?? 0, retryDelayMs));
+            await sleep(withJitter(retryDelayMs));
+            retryDelayMs = clampRetryDelayMs(retryDelayMs * RETRY_BACKOFF_MULTIPLIER);
             continue;
           case "denied":
             throw new Error(`${APPROVAL_DENIED_PREFIX}${result.error}`);

@@ -40,6 +40,7 @@ async function createTaskRecord(
     workspaceId: Id<"workspaces">;
     actorId: string;
     clientId?: string;
+    scheduleAfterCreate?: boolean;
   },
 ): Promise<{ task: TaskRecord }> {
   if (!args.code.trim()) {
@@ -89,9 +90,11 @@ async function createTaskRecord(
     },
   });
 
-  await ctx.scheduler.runAfter(1, internal.executorNode.runTask, {
-    taskId,
-  });
+  if (args.scheduleAfterCreate ?? true) {
+    await ctx.scheduler.runAfter(1, internal.executorNode.runTask, {
+      taskId,
+    });
+  }
 
   return { task };
 }
@@ -182,6 +185,7 @@ export const createTaskInternal = internalMutation({
     workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.optional(v.string()),
+    scheduleAfterCreate: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<{ task: TaskRecord }> => {
     return await createTaskRecord(ctx, args);

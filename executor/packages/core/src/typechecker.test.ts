@@ -1,5 +1,12 @@
 import { test, expect, describe } from "bun:test";
-import { generateToolDeclarations, generateToolInventory, typecheckCode, type TypecheckResult } from "./typechecker";
+import {
+  analyzeToolReferences,
+  generateToolDeclarations,
+  generateToolInventory,
+  parseTsgoDiagnostics,
+  sliceOpenApiOperationsDts,
+  typecheckCode,
+} from "./typechecker";
 import { prepareOpenApiSpec, buildOpenApiToolsFromPrepared } from "./tool-sources";
 import type { ToolDescriptor } from "./types";
 
@@ -32,6 +39,93 @@ const FLAT_TOOL: ToolDescriptor = {
 };
 
 const ALL_TOOLS = [MATH_TOOL, ADMIN_TOOL, FLAT_TOOL];
+
+describe("analyzeToolReferences", () => {
+  test("extracts static tool call paths", () => {
+    const analysis = analyzeToolReferences(`
+      await tools.github.issues.list_for_repo({ owner: "a", repo: "b" });
+      await tools["vercel"]["dns"].get_records({ domain: "executor.sh" });
+    `);
+
+    expect(analysis.callPaths).toEqual([
+      "github.issues.list_for_repo",
+      "vercel.dns.get_records",
+    ]);
+    expect(analysis.hasDynamicToolAccess).toBe(false);
+    expect(analysis.hasNonCallToolAccess).toBe(false);
+  });
+
+  test("marks dynamic and non-call tool access", () => {
+    const analysis = analyzeToolReferences(`
+      const dns = tools.vercel.dns;
+      await tools[sourceName].records.get({});
+      return dns;
+    `);
+
+    expect(analysis.callPaths).toEqual([]);
+    expect(analysis.hasDynamicToolAccess).toBe(true);
+    expect(analysis.hasNonCallToolAccess).toBe(true);
+  });
+});
+
+describe("sliceOpenApiOperationsDts", () => {
+  test("keeps only requested operations", () => {
+    const dts = `
+export interface operations {
+  "issues/list-for-repo": {
+    parameters: { path: { owner: string; repo: string } };
+  };
+  createRecord: {
+    parameters: { path: { domain: string } };
+  };
+}
+
+export interface components {
+  schemas: {
+    Example: { ok: boolean };
+  };
+}
+`;
+
+    const sliced = sliceOpenApiOperationsDts(dts, ["createRecord"]);
+    expect(sliced).toBeDefined();
+    expect(sliced).toContain("createRecord");
+    expect(sliced).not.toContain("issues/list-for-repo");
+    expect(sliced).not.toContain("interface components");
+  });
+
+  test("returns null when operation cannot be found", () => {
+    const dts = `export interface operations { ping: { parameters: {} }; }`;
+    const sliced = sliceOpenApiOperationsDts(dts, ["missing"]);
+    expect(sliced).toBeNull();
+  });
+});
+
+describe("parseTsgoDiagnostics", () => {
+  test("extracts and line-adjusts generated.ts diagnostics", () => {
+    const output = [
+      "generated.ts(21,14): error TS2339: Property 'name' does not exist on type '{}'.",
+      "generated.ts(22,3): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.",
+      "Some unrelated line",
+    ].join("\n");
+
+    const parsed = parseTsgoDiagnostics(output, 20);
+    expect(parsed).toEqual([
+      "Line 1: Property 'name' does not exist on type '{}'.",
+      "Line 2: Argument of type 'number' is not assignable to parameter of type 'string'.",
+    ]);
+  });
+
+  test("ignores header diagnostics and non-matching lines", () => {
+    const output = [
+      "generated.ts(5,1): error TS1005: ';' expected.",
+      "generated.ts(6,1): error TS1005: ';' expected.",
+      "",
+    ].join("\n");
+
+    expect(parseTsgoDiagnostics(output, 6)).toEqual([]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // generateToolDeclarations

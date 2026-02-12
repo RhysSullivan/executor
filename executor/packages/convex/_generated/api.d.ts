@@ -332,6 +332,12 @@ export declare const api: {
       },
       any
     >;
+    getApprovalStatus: FunctionReference<
+      "query",
+      "public",
+      { approvalId: string; internalSecret: string; runId: string },
+      any
+    >;
     handleToolCall: FunctionReference<
       "action",
       "public",
@@ -871,6 +877,7 @@ export declare const internal: {
         code: string;
         metadata?: any;
         runtimeId?: string;
+        scheduleAfterCreate?: boolean;
         timeoutMs?: number;
         workspaceId: Id<"workspaces">;
       },
@@ -1101,6 +1108,26 @@ export declare const internal: {
         specUrl: string;
         storageId: Id<"_storage">;
         version: string;
+      },
+      any
+    >;
+  };
+  typecheckDeclarationCache: {
+    getEntry: FunctionReference<
+      "query",
+      "internal",
+      { cacheKey: string; maxAgeMs: number; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    putEntry: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        cacheKey: string;
+        maxEntriesPerWorkspace?: number;
+        sizeBytes: number;
+        storageId: Id<"_storage">;
+        workspaceId: Id<"workspaces">;
       },
       any
     >;

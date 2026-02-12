@@ -19,7 +19,7 @@ export interface CloudflareWorkerLoaderConfig {
   runUrl: string;
   /** Shared-secret bearer token for authenticating with the host worker. */
   authToken: string;
-  /** Dispatch request timeout in ms (how long we wait for /v1/runs accepted response). */
+  /** Execution request timeout in ms (how long we wait for /v1/runs terminal response). */
   requestTimeoutMs: number;
   /** Convex deployment URL used for runtime callback RPC invocations. */
   callbackConvexUrl: string;

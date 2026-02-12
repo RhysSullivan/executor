@@ -313,6 +313,16 @@ export default defineSchema({
   })
     .index("by_workspace", ["workspaceId"]),
 
+  typecheckDeclarationCache: defineTable({
+    workspaceId: v.id("workspaces"),
+    cacheKey: v.string(),
+    storageId: v.id("_storage"),
+    sizeBytes: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_workspace_cache_key", ["workspaceId", "cacheKey"])
+    .index("by_workspace_created", ["workspaceId", "createdAt"]),
+
   anonymousSessions: defineTable({
     sessionId: v.string(), // domain ID: anon_session_<uuid> or mcp_<uuid>
     workspaceId: v.id("workspaces"),

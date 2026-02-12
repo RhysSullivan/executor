@@ -24,8 +24,9 @@ function getTaskTerminalState(status: string): boolean {
 
 interface McpExecutorService {
   createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }>;
+  runTaskNow?(taskId: string): Promise<null>;
   getTask(taskId: string, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null>;
-  subscribe(taskId: string, listener: (event: LiveTaskEvent) => void): () => void;
+  subscribe(taskId: string, workspaceId: Id<"workspaces">, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;
   listTools(context?: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string }): Promise<ToolDescriptor[]>;
   listToolsForTypecheck?(
@@ -135,7 +136,6 @@ function waitForTerminalTask(
 ): Promise<TaskRecord | null> {
   return new Promise((resolve) => {
     let settled = false;
-    let checking = false;
     let elicitationEnabled = Boolean(
       onApprovalPrompt
       && approvalContext
@@ -145,7 +145,6 @@ function waitForTerminalTask(
     let loggedElicitationFallback = false;
     const seenApprovalIds = new Set<string>();
     let unsubscribe: (() => void) | undefined;
-    let poll: ReturnType<typeof setInterval> | undefined;
 
     const logElicitationFallback = (reason: string) => {
       if (loggedElicitationFallback) return;
@@ -156,7 +155,7 @@ function waitForTerminalTask(
     const done = async () => {
       if (settled) return;
       settled = true;
-      if (poll) clearInterval(poll);
+      clearTimeout(timeout);
       unsubscribe?.();
       resolve(await service.getTask(taskId, workspaceId));
     };
@@ -202,44 +201,34 @@ function waitForTerminalTask(
       }
     };
 
-    const checkTask = async () => {
-      if (settled || checking) return;
-      checking = true;
-      try {
-        const task = await service.getTask(taskId, workspaceId);
-        if (task && getTaskTerminalState(task.status)) {
-          clearTimeout(timeout);
-          await done();
-          return;
-        }
+    unsubscribe = service.subscribe(taskId, workspaceId, (event) => {
+      const payload = typeof event.payload === "object" && event.payload
+        ? event.payload as Record<string, unknown>
+        : {};
+      const type = typeof payload.status === "string" ? payload.status : undefined;
+      const pendingApprovalCount = typeof payload.pendingApprovalCount === "number"
+        ? payload.pendingApprovalCount
+        : 0;
 
-        await maybeHandleApprovals();
-      } finally {
-        checking = false;
+      if (typeof type === "string" && getTaskTerminalState(type)) {
+        void done();
+        return;
       }
-    };
 
-    poll = setInterval(() => {
-      void checkTask().catch(() => {});
-    }, 400);
+      if (pendingApprovalCount > 0) {
+        void maybeHandleApprovals().catch(() => {});
+      }
+    });
 
-    // Check if already terminal before subscribing (race condition guard)
-    void checkTask().catch(() => {});
+    // Prompt immediately if there are already pending approvals.
+    void maybeHandleApprovals().catch(() => {});
 
-    // Subscribe for live events when available; polling remains as fallback.
-    try {
-      unsubscribe = service.subscribe(taskId, (event) => {
-        const type = typeof event.payload === "object" && event.payload
-          ? (event.payload as Record<string, unknown>).status
-          : undefined;
-        if (typeof type === "string" && getTaskTerminalState(type)) {
-          clearTimeout(timeout);
-          void done();
-        }
-      });
-    } catch {
-      // Ignore subscription errors and rely on polling.
-    }
+    // Handle tasks that were already terminal before subscribe connected.
+    void service.getTask(taskId, workspaceId).then((task) => {
+      if (task && getTaskTerminalState(task.status)) {
+        void done();
+      }
+    }).catch(() => {});
   });
 }
 
@@ -490,6 +479,34 @@ function createRunCodeTool(
           actorId: context.actorId,
           sessionId: context.sessionId,
         },
+      };
+    }
+
+    if (service.runTaskNow) {
+      await service.runTaskNow(created.task.id);
+      const task = await service.getTask(created.task.id, context.workspaceId);
+      if (!task) {
+        return {
+          content: [textContent(`Task ${created.task.id} not found after execution`)],
+          isError: true,
+        };
+      }
+
+      const isError = task.status !== "completed";
+      return {
+        content: [textContent(summarizeTask(task))],
+        structuredContent: {
+          taskId: task.id,
+          status: task.status,
+          runtimeId: task.runtimeId,
+          exitCode: task.exitCode,
+          error: task.error,
+          result: task.result,
+          workspaceId: context.workspaceId,
+          actorId: context.actorId,
+          sessionId: context.sessionId,
+        },
+        ...(isError ? { isError: true } : {}),
       };
     }
 
