@@ -11,8 +11,8 @@ Most active platform work is in `executor/`, but root scripts are set up to run 
 
 The root `package.json` wires workspaces for:
 
-- `executor/convex`
 - `executor/apps/*`
+- `executor/packages/*`
 - `assistant`
 - `assistant/packages/*`
 

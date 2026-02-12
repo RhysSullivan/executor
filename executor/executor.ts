@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import fs from "node:fs/promises";
-import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./lib/managed_runtime";
+import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./packages/core/src/managed-runtime";
 
 function printHelp(): void {
   console.log(`Executor CLI

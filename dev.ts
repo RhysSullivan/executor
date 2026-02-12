@@ -187,7 +187,7 @@ spawnService("sandbox", [
   "bunx", "wrangler", "dev",
   "--port", String(SANDBOX_PORT),
 ], {
-  cwd: "./executor/packages/sandbox-host",
+  cwd: "./executor/packages/runner-sandbox-host",
 });
 
 // 4. Everything else in parallel

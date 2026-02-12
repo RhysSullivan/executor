@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "executor/convex",
     "executor/apps/*",
     "executor/packages/*",
+    "executor/infra",
     "sources",
     "assistant",
     "assistant/packages/*",

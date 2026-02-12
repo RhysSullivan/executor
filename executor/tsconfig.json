@@ -16,9 +16,9 @@
     "baseUrl": "."
   },
   "include": [
-    "packages/**/*.ts",
-    "convex/**/*.ts",
-    "lib/**/*.ts",
+    "packages/convex/**/*.ts",
+    "packages/runner-node/**/*.ts",
+    "packages/core/src/**/*.ts",
     "scripts/**/*.ts",
     "executor.ts",
     "vscode-elicitation-server.ts"

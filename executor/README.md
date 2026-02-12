@@ -12,10 +12,11 @@ Executor is a Convex-native execution platform for MCP-driven agents. It provide
 
 Core components:
 
-- `convex/`: control plane data model and domain APIs (tasks, approvals, policies, credentials, org/workspace auth, billing).
-- `convex/http.ts`: HTTP routes for `/mcp`, OAuth discovery metadata, and internal runtime callbacks.
-- `convex/executorNode.ts`: task runner action (`runTask`) and tool invocation plumbing.
-- `lib/`: runtime engine, typechecker, tool discovery, external source adapters (MCP/OpenAPI/GraphQL), credential provider resolvers.
+- `packages/convex/`: control plane data model and domain APIs (tasks, approvals, policies, credentials, org/workspace auth, billing).
+- `packages/convex/http.ts`: HTTP routes for `/mcp`, OAuth discovery metadata, and internal runtime callbacks.
+- `packages/convex/executorNode.ts`: task runner action (`runTask`) and tool invocation plumbing.
+- `packages/runner-sandbox-host/`: Cloudflare Worker sandbox runtime host.
+- `packages/core/src/`: runtime engine, typechecker, tool discovery, external source adapters (MCP/OpenAPI/GraphQL), credential provider resolvers.
 - `apps/web/`: operator UI (dashboard, tasks, approvals, tools, onboarding, org settings).
 - `executor.ts`: CLI entrypoint used by local source scripts and compiled binary releases.
 
@@ -97,6 +98,8 @@ Run these from `executor/`:
 
 ```bash
 bun run doctor
+bun run doctor:prod
+bun run deploy:prod
 bun run up
 bun run backend -- --help
 bun run web
@@ -113,7 +116,7 @@ Notes:
 
 ## MCP and OAuth Surface
 
-Convex HTTP routes (`convex/http.ts`) expose:
+Convex HTTP routes (`packages/convex/http.ts`) expose:
 
 - `/mcp` (direct Convex MCP transport)
 - `/.well-known/oauth-protected-resource`
@@ -176,8 +179,9 @@ bun run typecheck:executor
 ```text
 executor/
 |- apps/web/                 # Next.js operator UI
-|- convex/                   # Convex functions, schema, auth, HTTP routes
-|- lib/                      # runtime, tool loading/discovery, helper modules
+|- packages/convex/          # Convex functions, schema, auth, HTTP routes
+|- packages/runner-sandbox-host/ # Cloudflare worker sandbox runtime
+|- packages/core/src/        # shared executor runtime/tooling core package code
 |- scripts/build-release.ts  # release artifact builder
 |- executor.ts               # CLI entrypoint (compiled into binary)
 |- install                   # curl install script
