@@ -3,6 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { checkBootstrapHealth } from "./packages/core/src/managed-runtime-bootstrap";
 import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./packages/core/src/managed-runtime";
 
 interface InstallPaths {
@@ -297,6 +298,18 @@ async function stopManagedServices(): Promise<{ backendStopped: boolean; webStop
     webStopped = (await terminatePidTree(pid)) && webStopped;
   }
 
+  const [remainingBackendPidsRaw, remainingWebPidsRaw] = await Promise.all([
+    listListeningPids(Number(Bun.env.EXECUTOR_BACKEND_PORT ?? 5410)),
+    listListeningPids(Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312)),
+  ]);
+  const [remainingBackendPids, remainingWebPids] = await Promise.all([
+    filterManagedPids(remainingBackendPidsRaw, "backend"),
+    filterManagedPids(remainingWebPidsRaw, "web"),
+  ]);
+
+  backendStopped = remainingBackendPids.length === 0;
+  webStopped = remainingWebPids.length === 0;
+
   await fs.rm(paths.backendPidFile, { force: true });
   await fs.rm(paths.webPidFile, { force: true });
 
@@ -341,11 +354,29 @@ async function runDoctor(args: string[]): Promise<number> {
   const nodeInstalled = await pathExists(info.nodeBin);
   const backendRunning = await checkHttp(`${info.convexUrl}/version`);
   const webRunning = await checkHttp(`http://127.0.0.1:${webPort}/`);
-  const healthy = nodeInstalled && webInstalled && backendRunning && webRunning;
+
+  let bootstrapState: Awaited<ReturnType<typeof checkBootstrapHealth>> | null = null;
+  if (backendRunning) {
+    bootstrapState = await checkBootstrapHealth(info);
+  }
+
+  const functionsReady = bootstrapState?.state === "ready";
+  const healthy = nodeInstalled && webInstalled && backendRunning && webRunning && functionsReady;
 
   console.log(`Executor status: ${healthy ? "ready" : "needs attention"}`);
   console.log(`Dashboard: http://127.0.0.1:${webPort} (${webRunning ? "running" : "not running"})`);
   console.log(`Backend: ${backendRunning ? "running" : "not running"} (${info.convexUrl})`);
+  if (!backendRunning) {
+    console.log("Functions: unavailable (backend is not running)");
+  } else if (bootstrapState?.state === "ready") {
+    console.log("Functions: bootstrapped");
+  } else if (bootstrapState?.state === "no_project") {
+    console.log("Functions: not bootstrapped (no local Convex project found)");
+  } else if (bootstrapState?.state === "missing_functions") {
+    console.log("Functions: not bootstrapped (missing deployed functions)");
+  } else {
+    console.log("Functions: check failed");
+  }
   console.log(`MCP endpoint: ${info.convexSiteUrl}/mcp`);
 
   if (!backendRunning) {
@@ -353,6 +384,15 @@ async function runDoctor(args: string[]): Promise<number> {
   }
   if (!webRunning) {
     console.log("Next step: run `executor web`");
+  }
+  if (backendRunning && bootstrapState?.state === "no_project") {
+    console.log("Next step: run from your repo root or set `EXECUTOR_PROJECT_DIR` to a Convex project.");
+  }
+  if (backendRunning && bootstrapState?.state === "missing_functions") {
+    console.log("Next step: run `executor up` from your project root to bootstrap functions.");
+  }
+  if (backendRunning && bootstrapState?.state === "check_failed") {
+    console.log("Next step: run `executor up` and inspect ~/.executor/runtime/logs/backend.log");
   }
   if (!webInstalled || !nodeInstalled) {
     console.log("Missing runtime artifacts detected. Re-run install if needed.");
@@ -367,6 +407,10 @@ async function runDoctor(args: string[]): Promise<number> {
     console.log(`  convex site: ${info.convexSiteUrl}`);
     console.log(`  node runtime: ${nodeInstalled ? info.nodeBin : "missing"}`);
     console.log(`  web bundle: ${webInstalled ? info.webServerEntry : "missing"}`);
+    console.log(`  functions: ${bootstrapState?.state ?? "unavailable"}`);
+    if (bootstrapState?.detail) {
+      console.log(`  functions detail: ${bootstrapState.detail}`);
+    }
     console.log(`  running: backend=${backendRunning ? "yes" : "no"} web=${webRunning ? "yes" : "no"}`);
     console.log(`  config: ${info.configPath}`);
   }

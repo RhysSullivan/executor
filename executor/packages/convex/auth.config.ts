@@ -1,7 +1,5 @@
-const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-const workosClientIdKey = ["WORKOS", "CLIENT", "ID"].join("_");
-const rawClientId = env?.[workosClientIdKey]?.trim();
-const clientId = rawClientId && rawClientId.length > 0 ? rawClientId : undefined;
+const rawClientId = process.env.WORKOS_CLIENT_ID?.trim();
+const clientId = rawClientId && rawClientId !== "disabled" ? rawClientId : undefined;
 
 const authConfig = clientId
   ? {

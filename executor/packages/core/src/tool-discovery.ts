@@ -1,7 +1,6 @@
 import type { ToolDefinition } from "./types";
 import {
-  compactArgKeysHint,
-  compactArgTypeHint,
+  compactArgDisplayHint,
   compactDescriptionLine,
   compactReturnTypeHint,
 } from "./type-hints";
@@ -95,7 +94,7 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
         approval: entry.approval,
         description: compact ? compactDescriptionLine(entry.description) : entry.description,
         argsType: compact
-          ? (entry.argPreviewKeys.length > 0 ? compactArgKeysHint(entry.argPreviewKeys) : compactArgTypeHint(entry.argsType))
+          ? compactArgDisplayHint(entry.argsType, entry.argPreviewKeys)
           : entry.argsType,
         returnsType: compact ? compactReturnTypeHint(entry.returnsType) : entry.returnsType,
         signature: formatSignature(entry, depth, compact),

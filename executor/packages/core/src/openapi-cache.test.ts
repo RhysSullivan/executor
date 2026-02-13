@@ -456,10 +456,56 @@ describe("buildOpenApiToolsFromPrepared", () => {
     const tool = tools.find((candidate) => candidate.metadata?.operationId === "createRecord");
     expect(tool).toBeDefined();
     expect(tool?.metadata?.argPreviewKeys).toEqual(["domain", "type", "name", "value"]);
-    expect(tool?.metadata?.displayArgsType).toContain("name: ...");
-    expect(tool?.metadata?.displayArgsType).toContain("value: ...");
+    expect(tool?.metadata?.displayArgsType).toContain("name: string");
+    expect(tool?.metadata?.displayArgsType).toContain("value: string");
     expect(tool?.metadata?.argsType).toContain("name");
     expect(tool?.metadata?.argsType).toContain("value");
+  });
+
+  test("keeps concrete primitive type for compact single-arg hints", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Threads", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      paths: {
+        "/threads/{thread_id}/subscription": {
+          delete: {
+            operationId: "deleteThreadSubscription",
+            tags: ["activity"],
+            summary: "Delete a thread subscription",
+            parameters: [
+              {
+                name: "thread_id",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+            ],
+            responses: {
+              "204": {
+                description: "deleted",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "threads");
+    const tools = buildOpenApiToolsFromPrepared(
+      {
+        type: "openapi",
+        name: "github",
+        spec,
+        baseUrl: "https://api.example.com",
+      },
+      prepared,
+    );
+
+    const tool = tools.find((candidate) => candidate.metadata?.operationId === "deleteThreadSubscription");
+    expect(tool).toBeDefined();
+    expect(tool?.metadata?.displayArgsType).toBe("{ thread_id: string }");
+    expect(tool?.metadata?.returnsType).toBe("void");
   });
 
   test("infers workspace auth from OpenAPI securitySchemes when source auth is unset", async () => {

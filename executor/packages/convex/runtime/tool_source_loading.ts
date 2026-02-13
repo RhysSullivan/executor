@@ -20,7 +20,7 @@ import type { ToolSourceRecord } from "../../core/src/types";
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version - bump when PreparedOpenApiSpec shape changes. */
-const TOOL_SOURCE_CACHE_VERSION = "v16";
+const TOOL_SOURCE_CACHE_VERSION = "v17";
 
 export function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
   const parts = sources

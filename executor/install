@@ -293,8 +293,10 @@ start_background_services() {
 
   if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version" 2; then
     echo -e "${MUTED}Managed backend already running${NC} http://127.0.0.1:${BACKEND_PORT}"
+    "$INSTALL_DIR/$APP" up >>"$LOG_DIR/backend.log" 2>&1 || true
   elif [[ -f "$BACKEND_PID_FILE" ]]; then
     echo -e "${MUTED}Managed backend already tracked${NC} (pid $(cat "$BACKEND_PID_FILE"))"
+    "$INSTALL_DIR/$APP" up >>"$LOG_DIR/backend.log" 2>&1 || true
   else
     nohup "$INSTALL_DIR/$APP" up >"$LOG_DIR/backend.log" 2>&1 &
     echo "$!" > "$BACKEND_PID_FILE"
@@ -322,6 +324,37 @@ start_background_services() {
   fi
 }
 
+wait_for_executor_ready() {
+  local max_seconds="${1:-120}"
+  local started
+  started="$(date +%s)"
+
+  while true; do
+    if "$INSTALL_DIR/$APP" doctor >/dev/null 2>&1; then
+      echo -e "${MUTED}Executor services healthy${NC}"
+      return 0
+    fi
+
+    local now
+    now="$(date +%s)"
+    if (( now - started >= max_seconds )); then
+      break
+    fi
+
+    sleep 0.5
+  done
+
+  echo -e "${RED}Executor services are running but not fully ready yet.${NC}"
+  echo "  Check: $INSTALL_DIR/$APP doctor --verbose"
+  if [[ -f "$LOG_DIR/backend.log" ]]; then
+    echo "  Backend log: $LOG_DIR/backend.log"
+  fi
+  if [[ -f "$LOG_DIR/web.log" ]]; then
+    echo "  Web log: $LOG_DIR/web.log"
+  fi
+  return 1
+}
+
 install_web_bundle
 
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
@@ -341,6 +374,7 @@ if [[ "$NO_MODIFY_PATH" != "1" ]]; then
 fi
 
 start_background_services
+wait_for_executor_ready || true
 
 echo ""
 echo "Installed to: $INSTALL_DIR/$APP"

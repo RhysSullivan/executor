@@ -122,6 +122,7 @@ async function writeBootstrapEnvFile(info: ManagedRuntimeInfo, adminKey: string)
   const contents = [
     `CONVEX_SELF_HOSTED_URL=http://${info.config.hostInterface}:${info.config.backendPort}`,
     `CONVEX_SELF_HOSTED_ADMIN_KEY=${adminKey}`,
+    "WORKOS_CLIENT_ID=disabled",
   ].join("\n");
   await fs.writeFile(filePath, `${contents}\n`, "utf8");
   return filePath;
@@ -173,15 +174,16 @@ export async function waitForBackendReady(info: ManagedRuntimeInfo, timeoutMs = 
   throw new Error("Timed out waiting for local Convex backend to become ready.");
 }
 
-export async function ensureProjectBootstrapped(info: ManagedRuntimeInfo): Promise<void> {
-  if (Bun.env.EXECUTOR_SKIP_BOOTSTRAP === "1") {
-    return;
-  }
+export type BootstrapHealth = {
+  state: "ready" | "no_project" | "missing_functions" | "check_failed";
+  projectDir?: string;
+  detail?: string;
+};
 
+export async function checkBootstrapHealth(info: ManagedRuntimeInfo): Promise<BootstrapHealth> {
   const projectDir = await findProjectDir();
   if (!projectDir) {
-    console.log("[executor] no local Convex project found; skipping function bootstrap");
-    return;
+    return { state: "no_project" };
   }
 
   await ensureConvexCliRuntime(info);
@@ -189,26 +191,83 @@ export async function ensureProjectBootstrapped(info: ManagedRuntimeInfo): Promi
   const envFilePath = await writeBootstrapEnvFile(info, adminKey);
 
   try {
+    const ensureWorkosClientId = await runManagedConvexCli(
+      info,
+      projectDir,
+      ["env", "set", "WORKOS_CLIENT_ID", "disabled"],
+      envFilePath,
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    if (ensureWorkosClientId.exitCode !== 0) {
+      const detail = ensureWorkosClientId.stderr.trim() || ensureWorkosClientId.stdout.trim() || "unknown error";
+      console.warn(`[executor] could not seed WORKOS_CLIENT_ID in local backend env: ${detail}`);
+    }
+
     const check = await runManagedConvexCli(info, projectDir, ["run", "app:getClientConfig"], envFilePath, {
       stdout: "pipe",
       stderr: "pipe",
     });
 
     if (check.exitCode === 0) {
-      console.log("[executor] Convex functions already bootstrapped");
-      return;
+      return { state: "ready", projectDir };
     }
 
+    const detail = check.stderr.trim() || check.stdout.trim() || `exit ${check.exitCode}`;
+    return { state: "missing_functions", projectDir, detail };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return { state: "check_failed", projectDir, detail };
+  } finally {
+    await fs.rm(path.dirname(envFilePath), { recursive: true, force: true });
+  }
+}
+
+export async function ensureProjectBootstrapped(info: ManagedRuntimeInfo): Promise<void> {
+  if (Bun.env.EXECUTOR_SKIP_BOOTSTRAP === "1") {
+    return;
+  }
+
+  const check = await checkBootstrapHealth(info);
+
+  if (check.state === "no_project") {
+    console.log("[executor] no local Convex project found; skipping function bootstrap");
+    return;
+  }
+
+  if (check.state === "ready") {
+    console.log("[executor] Convex functions already bootstrapped");
+    return;
+  }
+
+  if (check.state === "check_failed") {
+    const detail = check.detail ? `: ${check.detail}` : "";
+    throw new Error(`Convex bootstrap preflight failed${detail}`);
+  }
+
+  const projectDir = check.projectDir;
+  if (!projectDir) {
+    throw new Error("Convex bootstrap failed to resolve project directory.");
+  }
+
+  const adminKey = await generateSelfHostedAdminKey(info);
+  const envFilePath = await writeBootstrapEnvFile(info, adminKey);
+
+  try {
     console.log("[executor] bootstrapping Convex functions to local backend");
     const deploy = await runManagedConvexCli(
       info,
       projectDir,
       ["deploy", "--yes", "--typecheck", "disable", "--codegen", "disable"],
       envFilePath,
+      { stdout: "pipe", stderr: "pipe" },
     );
 
     if (deploy.exitCode !== 0) {
-      throw new Error("Convex bootstrap failed while deploying local functions.");
+      const detail = deploy.stderr.trim() || deploy.stdout.trim() || "unknown deploy error";
+      throw new Error(`Convex bootstrap failed while deploying local functions: ${detail}`);
     }
   } finally {
     await fs.rm(path.dirname(envFilePath), { recursive: true, force: true });

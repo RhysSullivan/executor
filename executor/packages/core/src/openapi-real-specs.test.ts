@@ -8,6 +8,53 @@
  */
 import { test, expect, describe } from "bun:test";
 import { prepareOpenApiSpec, buildOpenApiToolsFromPrepared } from "./tool-sources";
+import { generateToolDeclarations, typecheckCode } from "./typechecker";
+import type { ToolDefinition, ToolDescriptor } from "./types";
+
+function compareStrictHintsToOpenApiTypes(
+  tool: ToolDefinition,
+  sourceName: string,
+  sourceDts: string,
+) {
+  const operationId = tool.metadata?.operationId;
+  if (!operationId) {
+    throw new Error(`Tool ${tool.path} is missing operationId`);
+  }
+
+  const descriptor: ToolDescriptor = {
+    path: tool.path,
+    description: tool.description,
+    approval: tool.approval,
+    source: tool.source,
+    operationId,
+    argsType: tool.metadata?.displayArgsType,
+    returnsType: tool.metadata?.displayReturnsType,
+    strictArgsType: tool.metadata?.argsType,
+    strictReturnsType: tool.metadata?.returnsType,
+  };
+
+  const declarations = generateToolDeclarations([descriptor], {
+    sourceDtsBySource: {
+      [`openapi:${sourceName}`]: sourceDts,
+    },
+  });
+
+  const strictArgs = tool.metadata?.argsType ?? "{}";
+  const strictReturns = tool.metadata?.returnsType ?? "unknown";
+  const code = [
+    `type GeneratedInput = ToolInput<operations[${JSON.stringify(operationId)}]>`,
+    `type StrictInput = ${strictArgs}`,
+    "const _inputA: GeneratedInput = {} as StrictInput",
+    "const _inputB: StrictInput = {} as GeneratedInput",
+    `type GeneratedOutput = ToolOutput<operations[${JSON.stringify(operationId)}]>`,
+    `type StrictOutput = ${strictReturns}`,
+    "const _outputA: GeneratedOutput = {} as StrictOutput",
+    "const _outputB: StrictOutput = {} as GeneratedOutput",
+    "return true;",
+  ].join("\n");
+
+  return typecheckCode(code, declarations);
+}
 
 interface SpecFixture {
   name: string;
@@ -207,6 +254,38 @@ describe("real-world OpenAPI specs", () => {
   );
 
   test(
+    "github: add custom labels to repo runner keeps concrete compact arg hints",
+    async () => {
+      const githubUrl =
+        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
+
+      const prepared = await prepareOpenApiSpec(githubUrl, "github", { includeDts: false });
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "github",
+          spec: githubUrl,
+          baseUrl: prepared.servers[0] || "https://api.github.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "actions/add-custom-labels-to-self-hosted-runner-for-repo",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("github.actions.add_custom_labels_to_self_hosted_runner_for_repo");
+      expect(tool!.metadata!.displayArgsType).toContain("owner: string");
+      expect(tool!.metadata!.displayArgsType).toContain("repo: string");
+      expect(tool!.metadata!.displayArgsType).toContain("runner_id: number");
+      expect(tool!.metadata!.displayArgsType).toContain("labels: string[]");
+      expect(tool!.metadata!.displayArgsType).not.toContain("owner: ...");
+    },
+    300_000,
+  );
+
+  test(
     "github: create hosted runner for org has non-unknown return hint",
     async () => {
       const githubUrl =
@@ -375,6 +454,106 @@ describe("real-world OpenAPI specs", () => {
       expect(tool!.metadata!.argsType).toContain("account_id: string");
       expect(tool!.metadata!.argsType).not.toContain("account_id: unknown");
       expect(tool!.metadata!.returnsType).not.toBe("unknown");
+    },
+    300_000,
+  );
+
+  test(
+    "cloudflare: access authentication logs keeps non-ellipsis compact hints",
+    async () => {
+      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
+
+      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", { includeDts: false });
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "cloudflare",
+          spec: cloudflareUrl,
+          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "access-authentication-logs-get-access-authentication-logs",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.path).toBe("cloudflare.access_authentication_logs.get_access_authentication_logs");
+      expect(tool!.metadata!.displayArgsType).toContain("account_id: string");
+      expect(tool!.metadata!.displayArgsType).toContain("direction?: \"desc\" | \"asc\"");
+      expect(tool!.metadata!.displayArgsType).not.toContain("...");
+      expect(tool!.metadata!.displayReturnsType).toContain("messages: { code: number");
+      expect(tool!.metadata!.displayReturnsType).toContain("result?: {");
+      expect(tool!.metadata!.displayReturnsType).not.toContain("...");
+    },
+    300_000,
+  );
+
+  test(
+    "cloudflare: delete access application keeps concrete compact args/returns",
+    async () => {
+      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
+
+      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", { includeDts: false });
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "cloudflare",
+          spec: cloudflareUrl,
+          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "access-applications-delete-an-access-application",
+      );
+
+      expect(tool).toBeDefined();
+      expect(tool!.metadata!.displayArgsType).toBe("{ app_id: string; account_id: string }");
+      expect(tool!.metadata!.displayArgsType).not.toContain("...");
+      expect(tool!.metadata!.displayReturnsType).toContain("result?: { id?: string }");
+      expect(tool!.metadata!.displayReturnsType).not.toContain("num...");
+    },
+    300_000,
+  );
+
+  test(
+    "cloudflare: add access application type hints diverge from openapi-typescript canonical types",
+    async () => {
+      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
+
+      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare");
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "cloudflare",
+          spec: cloudflareUrl,
+          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
+        },
+        prepared,
+      );
+
+      const tool = tools.find(
+        (t) => t.metadata?.operationId === "access-applications-add-an-application",
+      );
+
+      expect(tool).toBeDefined();
+      expect(prepared.dts).toBeDefined();
+
+      const comparison = compareStrictHintsToOpenApiTypes(tool!, "cloudflare", prepared.dts!);
+
+      // Reproduces the current mismatch between fallback strict hints and generated operation types.
+      expect(comparison.ok).toBe(false);
+      expect(
+        comparison.errors.some((error) => error.includes("allowed_methods") || error.includes("target_criteria")),
+      ).toBe(true);
+
+      // Ensure UI/discovery hints remain compact even when strict hints are very large.
+      expect(tool!.metadata!.displayArgsType).toContain("account_id");
+      expect(tool!.metadata!.displayArgsType!.length).toBeLessThan(240);
+      expect(tool!.metadata!.argsType!.length).toBeGreaterThan(8_000);
     },
     300_000,
   );

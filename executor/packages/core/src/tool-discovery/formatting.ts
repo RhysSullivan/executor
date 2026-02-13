@@ -1,6 +1,5 @@
 import {
-  compactArgKeysHint,
-  compactArgTypeHint,
+  compactArgDisplayHint,
   compactReturnTypeHint,
   extractTopLevelTypeKeys,
 } from "../type-hints";
@@ -35,9 +34,7 @@ export function formatSignature(entry: DiscoverIndexEntry, depth: number, compac
       return "(input: ...): Promise<...>";
     }
 
-    const args = entry.argPreviewKeys.length > 0
-      ? compactArgKeysHint(entry.argPreviewKeys)
-      : compactArgTypeHint(entry.argsType);
+    const args = compactArgDisplayHint(entry.argsType, entry.argPreviewKeys);
     const returns = compactReturnTypeHint(entry.returnsType);
 
     if (depth === 1) {

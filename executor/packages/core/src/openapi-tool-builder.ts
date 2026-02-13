@@ -9,7 +9,7 @@ import {
 import { buildOpenApiToolPath } from "./openapi-tool-path";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "./tool-source-auth";
 import { executeOpenApiRequest } from "./tool-source-execution";
-import { compactArgKeysHint, compactArgTypeHint, compactReturnTypeHint } from "./type-hints";
+import { compactArgDisplayHint, compactReturnTypeHint } from "./type-hints";
 import type { OpenApiToolSourceConfig, PreparedOpenApiSpec } from "./tool-source-types";
 import type { ToolDefinition } from "./types";
 import { asRecord } from "./utils";
@@ -135,9 +135,7 @@ export function buildOpenApiToolsFromPrepared(
 
       const { argsType, returnsType, argPreviewKeys } = buildOpenApiOperationTypeHints(operation, parameters);
 
-      const displayArgsType = argPreviewKeys.length > 0
-        ? compactArgKeysHint(argPreviewKeys)
-        : compactArgTypeHint(argsType);
+      const displayArgsType = compactArgDisplayHint(argsType, argPreviewKeys);
       const displayReturnsType = compactReturnTypeHint(returnsType);
 
       const approval = config.overrides?.[operationIdRaw]?.approval
