@@ -5,7 +5,7 @@ import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { workspaceMutation } from "../core/src/function-builders";
 import { actorIdForAccount } from "../core/src/identity";
-import { isKnownRuntimeId } from "../core/src/runtimes/runtime-catalog";
+import { defaultRuntimeId, isKnownRuntimeId, isRuntimeEnabled } from "../core/src/runtimes/runtime-catalog";
 import type { ApprovalRecord, TaskRecord } from "../core/src/types";
 import { isTerminalTaskStatus, taskTerminalEventType } from "./task/status";
 import { DEFAULT_TASK_TIMEOUT_MS } from "./task/constants";
@@ -29,9 +29,12 @@ async function createTaskRecord(
     throw new Error("Task code is required");
   }
 
-  const runtimeId = args.runtimeId ?? "local-bun";
+  const runtimeId = args.runtimeId ?? defaultRuntimeId();
   if (!isKnownRuntimeId(runtimeId)) {
     throw new Error(`Unsupported runtime: ${runtimeId}`);
+  }
+  if (!isRuntimeEnabled(runtimeId)) {
+    throw new Error(`Runtime is disabled for this deployment: ${runtimeId}`);
   }
 
   const taskId = `task_${crypto.randomUUID()}`;
@@ -212,7 +215,6 @@ export const completeRuntimeRun = internalMutation({
   args: {
     runId: v.string(),
     status: v.union(v.literal("completed"), v.literal("failed"), v.literal("timed_out"), v.literal("denied")),
-    result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     error: v.optional(v.string()),
     durationMs: v.optional(v.number()),
@@ -230,7 +232,6 @@ export const completeRuntimeRun = internalMutation({
     const finished = await markTaskFinished(ctx, {
       taskId: args.runId,
       status: args.status,
-      result: args.result,
       exitCode: args.exitCode,
       error: args.error,
     });

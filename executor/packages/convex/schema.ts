@@ -53,7 +53,7 @@ export default defineSchema({
   accounts: defineTable({
     provider: accountProvider,
     providerAccountId: v.string(), // WorkOS user ID or anon_* UUID
-    email: v.string(),
+    email: v.optional(v.string()),
     name: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
@@ -188,7 +188,6 @@ export default defineSchema({
     error: v.optional(v.string()),
     stdout: v.optional(v.string()),
     stderr: v.optional(v.string()),
-    result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),

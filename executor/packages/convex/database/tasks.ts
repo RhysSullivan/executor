@@ -115,7 +115,6 @@ export const markTaskFinished = internalMutation({
   args: {
     taskId: v.string(),
     status: completedTaskStatusValidator,
-    result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     error: v.optional(v.string()),
   },
@@ -132,7 +131,6 @@ export const markTaskFinished = internalMutation({
     const now = Date.now();
     await ctx.db.patch(doc._id, {
       status: args.status,
-      result: args.result,
       exitCode: args.exitCode,
       error: args.error,
       completedAt: now,

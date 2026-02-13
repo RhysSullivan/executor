@@ -10,7 +10,7 @@ import {
 import type { AccountId, DbCtx } from "./types";
 
 type PersonalWorkspaceOptions = {
-  email: string;
+  email?: string;
   firstName?: string;
   fullName?: string;
   workosUserId: string;

@@ -5,7 +5,7 @@ export interface WorkosAccount {
   _id: Id<"accounts">;
   provider: "workos" | "anonymous";
   providerAccountId: string;
-  email: string;
+  email?: string;
   name: string;
   avatarUrl?: string | null;
 }

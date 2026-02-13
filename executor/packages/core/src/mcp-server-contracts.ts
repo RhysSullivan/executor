@@ -3,6 +3,7 @@ import type {
   AnonymousContext,
   CreateTaskInput,
   PendingApprovalRecord,
+  TaskExecutionOutcome,
   TaskRecord,
   ToolDescriptor,
 } from "./types";
@@ -10,7 +11,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 
 export interface McpExecutorService {
   createTask(input: CreateTaskInput): Promise<{ task: TaskRecord }>;
-  runTaskNow?(taskId: string): Promise<null>;
+  runTaskNow?(taskId: string): Promise<TaskExecutionOutcome | null>;
   getTask(taskId: string, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null>;
   subscribe(taskId: string, workspaceId: Id<"workspaces">, listener: (event: LiveTaskEvent) => void): () => void;
   bootstrapAnonymousContext(sessionId?: string): Promise<AnonymousContext>;

@@ -160,7 +160,7 @@ export const createCustomerPortal = action({
   handler: async (ctx, args): Promise<{ url: string }> => {
     const access: {
       role: string;
-      email: string;
+      email?: string;
       organizationName: string;
       billableMembers: number;
       customerId: string | null;

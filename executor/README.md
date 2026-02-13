@@ -136,6 +136,7 @@ Important env vars (see root `.env.example` for the base template):
 - Core:
   - `CONVEX_URL`
   - `CONVEX_SITE_URL`
+  - `EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY` (`1` in production to force Cloudflare dynamic worker runtime)
 - WorkOS (optional auth/org features):
   - `WORKOS_CLIENT_ID`
   - `WORKOS_API_KEY`

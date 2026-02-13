@@ -11,7 +11,6 @@ import {
   type WorkspaceToolSnapshot,
 } from "../../core/src/tool-sources";
 import type { ExternalToolSourceConfig } from "../../core/src/tool-source-types";
-import { DEFAULT_TOOLS } from "../../core/src/tools";
 import type {
   AccessPolicyRecord,
   OpenApiSourceQuality,
@@ -22,7 +21,7 @@ import type {
 import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_descriptors";
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
 
-const baseTools = new Map<string, ToolDefinition>(DEFAULT_TOOLS.map((tool) => [tool.path, tool]));
+const baseTools = new Map<string, ToolDefinition>();
 
 export interface DtsStorageEntry {
   sourceKey: string;

@@ -8,6 +8,10 @@ type WorkosProfile = {
   profilePictureUrl?: string | null;
 };
 
+function deriveFallbackUserLabel(workosUserId: string): string {
+  return `User ${workosUserId.slice(-6)}`;
+}
+
 export function getIdentityString(identity: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = identity[key];
@@ -36,28 +40,26 @@ export function resolveIdentityProfile(args: {
 
   const email =
     authKitProfile?.email
-    ?? getIdentityString(identity, ["email", "https://workos.com/email", "upn"])
-    ?? `${identity.subject}@workos.executor.local`;
+    ?? getIdentityString(identity, ["email", "upn"]);
 
   const firstName = authKitProfile?.firstName
-    ?? getIdentityString(identity, ["given_name", "first_name", "https://workos.com/first_name"]);
+    ?? getIdentityString(identity, ["given_name", "first_name"]);
 
   const lastName = authKitProfile?.lastName
-    ?? getIdentityString(identity, ["family_name", "last_name", "https://workos.com/last_name"]);
+    ?? getIdentityString(identity, ["family_name", "last_name"]);
+
+  const combinedName = [firstName, lastName].filter(Boolean).join(" ").trim();
 
   const fullName =
-    (getIdentityString(identity, ["name", "https://workos.com/name"]) ?? [firstName, lastName].filter(Boolean).join(" "))
-    || email;
+    getIdentityString(identity, ["name", "full_name"])
+    ?? (combinedName.length > 0 ? combinedName : undefined)
+    ?? deriveFallbackUserLabel(identity.subject);
 
   const avatarUrl =
     (authKitProfile?.profilePictureUrl ?? undefined)
-    ?? getIdentityString(identity, ["picture", "avatar_url", "https://workos.com/profile_picture_url"]);
+    ?? getIdentityString(identity, ["picture", "avatar_url", "profile_picture_url"]);
 
-  const hintedWorkosOrgId = getIdentityString(identity, [
-    "org_id",
-    "organization_id",
-    "https://workos.com/organization_id",
-  ]);
+  const hintedWorkosOrgId = getIdentityString(identity, ["org_id", "organization_id"]);
 
   return {
     email,

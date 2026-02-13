@@ -38,7 +38,7 @@ export function isGeneratedPersonalWorkspaceName(name: string, workosUserId: str
   return new RegExp(`^${escapeRegex(workosUserId)}'s workspace$`, "i").test(name);
 }
 
-function deriveOwnerLabel(args: { firstName?: string; fullName?: string; email: string; workosUserId: string }): string {
+function deriveOwnerLabel(args: { firstName?: string; fullName?: string; email?: string; workosUserId: string }): string {
   const firstName = args.firstName?.trim();
   if (firstName && !/^my$/i.test(firstName)) {
     return firstName;
@@ -49,7 +49,7 @@ function deriveOwnerLabel(args: { firstName?: string; fullName?: string; email: 
     return fullName;
   }
 
-  const emailLocalPart = args.email.split("@")[0]?.trim();
+  const emailLocalPart = args.email?.split("@")[0]?.trim();
   if (emailLocalPart) {
     const normalized = emailLocalPart
       .replace(/[._-]+/g, " ")
@@ -64,7 +64,7 @@ function deriveOwnerLabel(args: { firstName?: string; fullName?: string; email: 
   return `User ${args.workosUserId.slice(-6)}`;
 }
 
-export function derivePersonalNames(args: { firstName?: string; fullName?: string; email: string; workosUserId: string }) {
+export function derivePersonalNames(args: { firstName?: string; fullName?: string; email?: string; workosUserId: string }) {
   const ownerLabel = deriveOwnerLabel(args);
   return {
     organizationName: `${ownerLabel}'s Organization`,
@@ -72,8 +72,8 @@ export function derivePersonalNames(args: { firstName?: string; fullName?: strin
   };
 }
 
-export function buildPersonalWorkspaceSlugSeed(email: string, workosUserId: string): string {
-  const baseSlug = slugify(email.split("@")[0] ?? workosUserId, "workspace");
+export function buildPersonalWorkspaceSlugSeed(email: string | undefined, workosUserId: string): string {
+  const baseSlug = slugify(email?.split("@")[0] ?? workosUserId, "workspace");
   return `${baseSlug}-${workosUserId.slice(-6)}`;
 }
 

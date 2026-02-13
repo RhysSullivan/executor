@@ -1,5 +1,5 @@
 import { StaticAppShell } from "@/components/static-app-shell";
 
-export default function OrganizationPage() {
+export default function DashboardRoutesPage() {
   return <StaticAppShell />;
 }

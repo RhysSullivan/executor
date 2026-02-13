@@ -8,7 +8,6 @@ type TaskFinishContext = Pick<ActionCtx, "runMutation"> | Pick<MutationCtx, "run
 export interface MarkTaskFinishedInput {
   taskId: string;
   status: TerminalTaskStatus;
-  result?: unknown;
   exitCode?: number;
   error?: string;
 }

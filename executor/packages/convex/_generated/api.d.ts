@@ -326,7 +326,6 @@ export declare const api: {
         error?: string;
         exitCode?: number;
         internalSecret: string;
-        result?: any;
         runId: string;
         status: "completed" | "failed" | "timed_out" | "denied";
       },
@@ -557,6 +556,60 @@ export declare const internal: {
     >;
   };
   database: {
+    anonymous_session: {
+      bootstrapAnonymousSession: FunctionReference<
+        "mutation",
+        "internal",
+        { sessionId?: string },
+        any
+      >;
+    };
+    approvals: {
+      createApproval: FunctionReference<
+        "mutation",
+        "internal",
+        { id: string; input?: any; taskId: string; toolPath: string },
+        any
+      >;
+      getApproval: FunctionReference<
+        "query",
+        "internal",
+        { approvalId: string },
+        any
+      >;
+      getApprovalInWorkspace: FunctionReference<
+        "query",
+        "internal",
+        { approvalId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      listApprovals: FunctionReference<
+        "query",
+        "internal",
+        {
+          status?: "pending" | "approved" | "denied";
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      listPendingApprovals: FunctionReference<
+        "query",
+        "internal",
+        { workspaceId: Id<"workspaces"> },
+        any
+      >;
+      resolveApproval: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          approvalId: string;
+          decision: "approved" | "denied";
+          reason?: string;
+          reviewerId?: string;
+        },
+        any
+      >;
+    };
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
       "internal",
@@ -602,6 +655,41 @@ export declare const internal: {
       { eventName: string; payload: any; taskId: string; type: string },
       any
     >;
+    credentials: {
+      listCredentialProviders: FunctionReference<"query", "internal", {}, any>;
+      listCredentials: FunctionReference<
+        "query",
+        "internal",
+        { workspaceId: Id<"workspaces"> },
+        any
+      >;
+      resolveCredential: FunctionReference<
+        "query",
+        "internal",
+        {
+          actorId?: string;
+          scope: "workspace" | "actor";
+          sourceKey: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      upsertCredential: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          actorId?: string;
+          id?: string;
+          overridesJson?: any;
+          provider?: "local-convex" | "workos-vault";
+          scope: "workspace" | "actor";
+          secretJson: any;
+          sourceKey: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+    };
     deleteToolSource: FunctionReference<
       "mutation",
       "internal",
@@ -721,7 +809,6 @@ export declare const internal: {
       {
         error?: string;
         exitCode?: number;
-        result?: any;
         status: "completed" | "failed" | "timed_out" | "denied";
         taskId: string;
       },
@@ -733,6 +820,94 @@ export declare const internal: {
       { taskId: string },
       any
     >;
+    oauth: {
+      consumeAnonymousOauthAuthorizationCode: FunctionReference<
+        "mutation",
+        "internal",
+        { code: string },
+        any
+      >;
+      countAnonymousOauthAuthorizationCodes: FunctionReference<
+        "query",
+        "internal",
+        {},
+        any
+      >;
+      getActiveAnonymousOauthSigningKey: FunctionReference<
+        "query",
+        "internal",
+        {},
+        any
+      >;
+      getAnonymousOauthClient: FunctionReference<
+        "query",
+        "internal",
+        { clientId: string },
+        any
+      >;
+      purgeExpiredAnonymousOauthAuthorizationCodes: FunctionReference<
+        "mutation",
+        "internal",
+        { now: number },
+        any
+      >;
+      registerAnonymousOauthClient: FunctionReference<
+        "mutation",
+        "internal",
+        { clientId: string; clientName?: string; redirectUris: Array<string> },
+        any
+      >;
+      storeAnonymousOauthAuthorizationCode: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          actorId: string;
+          clientId: string;
+          code: string;
+          codeChallenge: string;
+          codeChallengeMethod: string;
+          createdAt: number;
+          expiresAt: number;
+          redirectUri: string;
+          tokenClaims?: any;
+        },
+        any
+      >;
+      storeAnonymousOauthSigningKey: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          algorithm: string;
+          keyId: string;
+          privateKeyJwk: any;
+          publicKeyJwk: any;
+        },
+        any
+      >;
+    };
+    policies: {
+      listAccessPolicies: FunctionReference<
+        "query",
+        "internal",
+        { workspaceId: Id<"workspaces"> },
+        any
+      >;
+      listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
+      upsertAccessPolicy: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          actorId?: string;
+          clientId?: string;
+          decision: "allow" | "require_approval" | "deny";
+          id?: string;
+          priority?: number;
+          toolPathPattern: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+    };
     purgeExpiredAnonymousOauthAuthorizationCodes: FunctionReference<
       "mutation",
       "internal",
@@ -800,6 +975,142 @@ export declare const internal: {
       },
       any
     >;
+    task_events: {
+      createTaskEvent: FunctionReference<
+        "mutation",
+        "internal",
+        { eventName: string; payload: any; taskId: string; type: string },
+        any
+      >;
+      listTaskEvents: FunctionReference<
+        "query",
+        "internal",
+        { taskId: string },
+        any
+      >;
+    };
+    tasks: {
+      createTask: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          actorId: string;
+          clientId?: string;
+          code: string;
+          id: string;
+          metadata?: any;
+          runtimeId: string;
+          timeoutMs?: number;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      getTask: FunctionReference<"query", "internal", { taskId: string }, any>;
+      getTaskInWorkspace: FunctionReference<
+        "query",
+        "internal",
+        { taskId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      listQueuedTaskIds: FunctionReference<
+        "query",
+        "internal",
+        { limit?: number },
+        any
+      >;
+      listTasks: FunctionReference<
+        "query",
+        "internal",
+        { workspaceId: Id<"workspaces"> },
+        any
+      >;
+      markTaskFinished: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          error?: string;
+          exitCode?: number;
+          status: "completed" | "failed" | "timed_out" | "denied";
+          taskId: string;
+        },
+        any
+      >;
+      markTaskRunning: FunctionReference<
+        "mutation",
+        "internal",
+        { taskId: string },
+        any
+      >;
+    };
+    tool_calls: {
+      finishToolCall: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          callId: string;
+          error?: string;
+          status: "completed" | "failed" | "denied";
+          taskId: string;
+        },
+        any
+      >;
+      getToolCall: FunctionReference<
+        "query",
+        "internal",
+        { callId: string; taskId: string },
+        any
+      >;
+      listToolCalls: FunctionReference<
+        "query",
+        "internal",
+        { taskId: string },
+        any
+      >;
+      setToolCallPendingApproval: FunctionReference<
+        "mutation",
+        "internal",
+        { approvalId: string; callId: string; taskId: string },
+        any
+      >;
+      upsertToolCallRequested: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          callId: string;
+          taskId: string;
+          toolPath: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+    };
+    tool_sources: {
+      deleteToolSource: FunctionReference<
+        "mutation",
+        "internal",
+        { sourceId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      listToolSources: FunctionReference<
+        "query",
+        "internal",
+        { workspaceId: Id<"workspaces"> },
+        any
+      >;
+      upsertToolSource: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          config: any;
+          enabled?: boolean;
+          id?: string;
+          name: string;
+          type: "mcp" | "openapi" | "graphql";
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+    };
     upsertAccessPolicy: FunctionReference<
       "mutation",
       "internal",
@@ -838,320 +1149,6 @@ export declare const internal: {
         toolPath: string;
         workspaceId: Id<"workspaces">;
       },
-      any
-    >;
-    upsertToolSource: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        config: any;
-        enabled?: boolean;
-        id?: string;
-        name: string;
-        type: "mcp" | "openapi" | "graphql";
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-  };
-  database_anonymous_session: {
-    bootstrapAnonymousSession: FunctionReference<
-      "mutation",
-      "internal",
-      { sessionId?: string },
-      any
-    >;
-  };
-  database_approvals: {
-    createApproval: FunctionReference<
-      "mutation",
-      "internal",
-      { id: string; input?: any; taskId: string; toolPath: string },
-      any
-    >;
-    getApproval: FunctionReference<
-      "query",
-      "internal",
-      { approvalId: string },
-      any
-    >;
-    getApprovalInWorkspace: FunctionReference<
-      "query",
-      "internal",
-      { approvalId: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    listApprovals: FunctionReference<
-      "query",
-      "internal",
-      {
-        status?: "pending" | "approved" | "denied";
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-    listPendingApprovals: FunctionReference<
-      "query",
-      "internal",
-      { workspaceId: Id<"workspaces"> },
-      any
-    >;
-    resolveApproval: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        approvalId: string;
-        decision: "approved" | "denied";
-        reason?: string;
-        reviewerId?: string;
-      },
-      any
-    >;
-  };
-  database_credentials: {
-    listCredentialProviders: FunctionReference<"query", "internal", {}, any>;
-    listCredentials: FunctionReference<
-      "query",
-      "internal",
-      { workspaceId: Id<"workspaces"> },
-      any
-    >;
-    resolveCredential: FunctionReference<
-      "query",
-      "internal",
-      {
-        actorId?: string;
-        scope: "workspace" | "actor";
-        sourceKey: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-    upsertCredential: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        actorId?: string;
-        id?: string;
-        overridesJson?: any;
-        provider?: "local-convex" | "workos-vault";
-        scope: "workspace" | "actor";
-        secretJson: any;
-        sourceKey: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-  };
-  database_oauth: {
-    consumeAnonymousOauthAuthorizationCode: FunctionReference<
-      "mutation",
-      "internal",
-      { code: string },
-      any
-    >;
-    countAnonymousOauthAuthorizationCodes: FunctionReference<
-      "query",
-      "internal",
-      {},
-      any
-    >;
-    getActiveAnonymousOauthSigningKey: FunctionReference<
-      "query",
-      "internal",
-      {},
-      any
-    >;
-    getAnonymousOauthClient: FunctionReference<
-      "query",
-      "internal",
-      { clientId: string },
-      any
-    >;
-    purgeExpiredAnonymousOauthAuthorizationCodes: FunctionReference<
-      "mutation",
-      "internal",
-      { now: number },
-      any
-    >;
-    registerAnonymousOauthClient: FunctionReference<
-      "mutation",
-      "internal",
-      { clientId: string; clientName?: string; redirectUris: Array<string> },
-      any
-    >;
-    storeAnonymousOauthAuthorizationCode: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        actorId: string;
-        clientId: string;
-        code: string;
-        codeChallenge: string;
-        codeChallengeMethod: string;
-        createdAt: number;
-        expiresAt: number;
-        redirectUri: string;
-        tokenClaims?: any;
-      },
-      any
-    >;
-    storeAnonymousOauthSigningKey: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        algorithm: string;
-        keyId: string;
-        privateKeyJwk: any;
-        publicKeyJwk: any;
-      },
-      any
-    >;
-  };
-  database_policies: {
-    listAccessPolicies: FunctionReference<
-      "query",
-      "internal",
-      { workspaceId: Id<"workspaces"> },
-      any
-    >;
-    listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
-    upsertAccessPolicy: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        actorId?: string;
-        clientId?: string;
-        decision: "allow" | "require_approval" | "deny";
-        id?: string;
-        priority?: number;
-        toolPathPattern: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-  };
-  database_task_events: {
-    createTaskEvent: FunctionReference<
-      "mutation",
-      "internal",
-      { eventName: string; payload: any; taskId: string; type: string },
-      any
-    >;
-    listTaskEvents: FunctionReference<
-      "query",
-      "internal",
-      { taskId: string },
-      any
-    >;
-  };
-  database_tasks: {
-    createTask: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        actorId: string;
-        clientId?: string;
-        code: string;
-        id: string;
-        metadata?: any;
-        runtimeId: string;
-        timeoutMs?: number;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-    getTask: FunctionReference<"query", "internal", { taskId: string }, any>;
-    getTaskInWorkspace: FunctionReference<
-      "query",
-      "internal",
-      { taskId: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    listQueuedTaskIds: FunctionReference<
-      "query",
-      "internal",
-      { limit?: number },
-      any
-    >;
-    listTasks: FunctionReference<
-      "query",
-      "internal",
-      { workspaceId: Id<"workspaces"> },
-      any
-    >;
-    markTaskFinished: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        error?: string;
-        exitCode?: number;
-        result?: any;
-        status: "completed" | "failed" | "timed_out" | "denied";
-        taskId: string;
-      },
-      any
-    >;
-    markTaskRunning: FunctionReference<
-      "mutation",
-      "internal",
-      { taskId: string },
-      any
-    >;
-  };
-  database_tool_calls: {
-    finishToolCall: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        callId: string;
-        error?: string;
-        status: "completed" | "failed" | "denied";
-        taskId: string;
-      },
-      any
-    >;
-    getToolCall: FunctionReference<
-      "query",
-      "internal",
-      { callId: string; taskId: string },
-      any
-    >;
-    listToolCalls: FunctionReference<
-      "query",
-      "internal",
-      { taskId: string },
-      any
-    >;
-    setToolCallPendingApproval: FunctionReference<
-      "mutation",
-      "internal",
-      { approvalId: string; callId: string; taskId: string },
-      any
-    >;
-    upsertToolCallRequested: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        callId: string;
-        taskId: string;
-        toolPath: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-  };
-  database_tool_sources: {
-    deleteToolSource: FunctionReference<
-      "mutation",
-      "internal",
-      { sourceId: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    listToolSources: FunctionReference<
-      "query",
-      "internal",
-      { workspaceId: Id<"workspaces"> },
       any
     >;
     upsertToolSource: FunctionReference<
@@ -1176,7 +1173,6 @@ export declare const internal: {
         durationMs?: number;
         error?: string;
         exitCode?: number;
-        result?: any;
         runId: string;
         status: "completed" | "failed" | "timed_out" | "denied";
       },

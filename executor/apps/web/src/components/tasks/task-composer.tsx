@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Play, Send } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -21,20 +21,12 @@ import { useSession } from "@/lib/session-context";
 import type { RuntimeTargetDescriptor } from "@/lib/types";
 import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
 
-const DEFAULT_CODE = `// Example: call some tools and return a compact result
-const time = await tools.utils.get_time();
-const sum = await tools.math.add({ a: 7, b: 35 });
-
-// This will require approval:
-await tools.admin.send_announcement({
-  channel: "general",
-  message: "Hello from executor!"
+const DEFAULT_CODE = `// Example: discover tools and return matching tool names
+const found = await tools.discover({
+  query: "Discover",
 });
 
-return {
-  isoTime: time.iso,
-  total: sum.result,
-};`;
+return found.results.map((tool) => tool.path);`;
 const DEFAULT_TIMEOUT_MS = 300_000;
 
 export function TaskComposer() {
@@ -47,14 +39,27 @@ export function TaskComposer() {
   const runtimes = useQuery(convexApi.workspace.listRuntimeTargets, {});
   const createTask = useMutation(convexApi.executor.createTask);
   const { tools, dtsUrls, loadingTools, loadingTypes } = useWorkspaceTools(context ?? null);
+  const runtimeTargets = runtimes ?? [];
+
+  useEffect(() => {
+    if (runtimeTargets.length === 0) {
+      return;
+    }
+    if (!runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)) {
+      setRuntimeId(runtimeTargets[0]!.id);
+    }
+  }, [runtimeId, runtimeTargets]);
 
   const handleSubmit = async () => {
     if (!context || !code.trim()) return;
     setSubmitting(true);
     try {
+      const selectedRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
+        ? runtimeId
+        : undefined;
       const data = await createTask({
         code,
-        runtimeId,
+        runtimeId: selectedRuntimeId,
         timeoutMs: Number.parseInt(timeoutMs, 10) || DEFAULT_TIMEOUT_MS,
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
@@ -87,7 +92,7 @@ export function TaskComposer() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(runtimes ?? []).map((r: RuntimeTargetDescriptor) => (
+                {runtimeTargets.map((r: RuntimeTargetDescriptor) => (
                   <SelectItem key={r.id} value={r.id} className="text-xs">
                     {r.label}
                   </SelectItem>

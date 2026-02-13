@@ -39,6 +39,12 @@ export interface TaskRecord {
   exitCode?: number;
 }
 
+export interface TaskExecutionOutcome {
+  task: TaskRecord;
+  result?: unknown;
+  durationMs?: number;
+}
+
 export interface ApprovalRecord {
   id: string;
   taskId: string;

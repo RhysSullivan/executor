@@ -87,8 +87,8 @@ function createRunCodeTool(
     }
 
     if (service.runTaskNow) {
-      await service.runTaskNow(created.task.id);
-      const task = await service.getTask(created.task.id, context.workspaceId);
+      const runOutcome = await service.runTaskNow(created.task.id);
+      const task = runOutcome?.task ?? await service.getTask(created.task.id, context.workspaceId);
       if (!task) {
         return {
           content: [textContent(`Task ${created.task.id} not found after execution`)],
@@ -96,16 +96,17 @@ function createRunCodeTool(
         };
       }
 
+      const result = runOutcome?.result ?? task.result;
       const isError = task.status !== "completed";
       return {
-        content: [textContent(summarizeTask(task))],
+        content: [textContent(summarizeTask(task, result))],
         structuredContent: {
           taskId: task.id,
           status: task.status,
           runtimeId: task.runtimeId,
           exitCode: task.exitCode,
           error: task.error,
-          result: task.result,
+          result,
           workspaceId: context.workspaceId,
           actorId: context.actorId,
           sessionId: context.sessionId,

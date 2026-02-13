@@ -24,6 +24,7 @@ describe("buildEnvChecks", () => {
     expect(byName.get("env:CLOUDFLARE_SANDBOX_RUN_URL")?.ok).toBe(false);
     expect(byName.get("env:CLOUDFLARE_SANDBOX_AUTH_TOKEN")?.ok).toBe(false);
     expect(byName.get("env:EXECUTOR_INTERNAL_TOKEN")?.ok).toBe(false);
+    expect(byName.get("env:EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY")?.ok).toBe(false);
     expect(byName.get("env:CONVEX_URL")?.ok).toBe(false);
     expect(byName.get("env:WORKOS_CLIENT_ID")?.ok).toBe(false);
     expect(byName.get("env:WORKOS_API_KEY")?.ok).toBe(false);
@@ -40,6 +41,7 @@ describe("buildEnvChecks", () => {
       ["CLOUDFLARE_SANDBOX_RUN_URL", "https://executor-sandbox-host.example.workers.dev/v1/runs"],
       ["CLOUDFLARE_SANDBOX_AUTH_TOKEN", "abcdefghijklmnopqrstuvwxyz0123456789"],
       ["EXECUTOR_INTERNAL_TOKEN", "abcdefghijklmnopqrstuvwxyz0123456789"],
+      ["EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY", "1"],
       ["CONVEX_URL", "https://perceptive-pigeon-577.convex.site"],
       ["WORKOS_CLIENT_ID", "client_123"],
       ["WORKOS_API_KEY", "sk_test_123"],
@@ -61,6 +63,7 @@ describe("buildEnvChecks", () => {
       ["CLOUDFLARE_SANDBOX_RUN_URL", "https://executor-sandbox-host.example.workers.dev/v1/runs"],
       ["CLOUDFLARE_SANDBOX_AUTH_TOKEN", "abcdefghijklmnopqrstuvwxyz0123456789"],
       ["EXECUTOR_INTERNAL_TOKEN", "abcdefghijklmnopqrstuvwxyz0123456789"],
+      ["EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY", "1"],
       ["CONVEX_URL", "https://perceptive-pigeon-577.convex.cloud"],
       ["CONVEX_SITE_URL", "https://perceptive-pigeon-577.convex.site"],
       ["WORKOS_CLIENT_ID", "client_123"],
@@ -76,5 +79,28 @@ describe("buildEnvChecks", () => {
     const checks = buildEnvChecks(env);
     const failures = checks.filter((check) => !check.ok);
     expect(failures).toEqual([]);
+  });
+
+  test("requires cloudflare-only runtime mode to be truthy", () => {
+    const env = new Map<string, string>([
+      ["CLOUDFLARE_SANDBOX_RUN_URL", "https://executor-sandbox-host.example.workers.dev/v1/runs"],
+      ["CLOUDFLARE_SANDBOX_AUTH_TOKEN", "abcdefghijklmnopqrstuvwxyz0123456789"],
+      ["EXECUTOR_INTERNAL_TOKEN", "abcdefghijklmnopqrstuvwxyz0123456789"],
+      ["EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY", "0"],
+      ["CONVEX_URL", "https://perceptive-pigeon-577.convex.cloud"],
+      ["CONVEX_SITE_URL", "https://perceptive-pigeon-577.convex.site"],
+      ["WORKOS_CLIENT_ID", "client_123"],
+      ["WORKOS_API_KEY", "sk_test_123"],
+      ["WORKOS_WEBHOOK_SECRET", "whsec_123"],
+      ["WORKOS_COOKIE_PASSWORD", "cookie_password_123"],
+      ["STRIPE_SECRET_KEY", "sk_live_123"],
+      ["STRIPE_WEBHOOK_SECRET", "whsec_live_123"],
+      ["STRIPE_PRICE_ID", "price_123"],
+      ["MCP_AUTHORIZATION_SERVER", "https://auth.example.com"],
+    ]);
+
+    const checks = buildEnvChecks(env);
+    const runtimeModeCheck = checks.find((check) => check.name === "runtime restriction mode");
+    expect(runtimeModeCheck?.ok).toBe(false);
   });
 });

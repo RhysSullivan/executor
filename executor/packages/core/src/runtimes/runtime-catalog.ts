@@ -2,6 +2,9 @@
 
 export const LOCAL_BUN_RUNTIME_ID = "local-bun";
 export const CLOUDFLARE_WORKER_LOADER_RUNTIME_ID = "cloudflare-worker-loader";
+export const CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY = "EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY";
+
+const TRUTHY_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
 
 const KNOWN_RUNTIME_IDS = new Set([
   LOCAL_BUN_RUNTIME_ID,
@@ -10,6 +13,56 @@ const KNOWN_RUNTIME_IDS = new Set([
 
 export function isKnownRuntimeId(runtimeId: string): boolean {
   return KNOWN_RUNTIME_IDS.has(runtimeId);
+}
+
+function isTruthyEnvValue(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  return TRUTHY_ENV_VALUES.has(value.trim().toLowerCase());
+}
+
+export function isCloudflareDynamicWorkerOnlyMode(): boolean {
+  return isTruthyEnvValue(process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY]);
+}
+
+export function isRuntimeEnabled(runtimeId: string): boolean {
+  if (!isKnownRuntimeId(runtimeId)) {
+    return false;
+  }
+  if (!isCloudflareDynamicWorkerOnlyMode()) {
+    return true;
+  }
+  return runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID;
+}
+
+export function defaultRuntimeId(): string {
+  return isCloudflareDynamicWorkerOnlyMode()
+    ? CLOUDFLARE_WORKER_LOADER_RUNTIME_ID
+    : LOCAL_BUN_RUNTIME_ID;
+}
+
+export interface RuntimeTargetDescriptor {
+  id: string;
+  label: string;
+  description: string;
+}
+
+const RUNTIME_TARGETS: RuntimeTargetDescriptor[] = [
+  {
+    id: LOCAL_BUN_RUNTIME_ID,
+    label: "Local JS Runtime",
+    description: "Runs generated code in-process using Bun",
+  },
+  {
+    id: CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
+    label: "Cloudflare Worker Loader",
+    description: "Runs generated code in a Cloudflare Worker",
+  },
+];
+
+export function listRuntimeTargets(): RuntimeTargetDescriptor[] {
+  return RUNTIME_TARGETS.filter((target) => isRuntimeEnabled(target.id));
 }
 
 // ── Cloudflare Worker Loader config ──────────────────────────────────────────

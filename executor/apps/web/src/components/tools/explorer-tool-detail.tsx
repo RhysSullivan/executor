@@ -11,6 +11,8 @@ const codePlugin = createCodePlugin({
 
 export function ToolDetail({ tool, depth }: { tool: ToolDescriptor; depth: number }) {
   const insetLeft = depth * 20 + 8 + 16 + 8;
+  const argsType = tool.strictArgsType?.trim() || tool.argsType;
+  const returnsType = tool.strictReturnsType?.trim() || tool.returnsType;
 
   return (
     <div className="space-y-2.5 pb-3 pt-1 pr-2" style={{ paddingLeft: insetLeft }}>
@@ -36,8 +38,8 @@ export function ToolDetail({ tool, depth }: { tool: ToolDescriptor; depth: numbe
         )}
       </div>
 
-      {tool.argsType && <TypeSignature raw={tool.argsType} label="Arguments" />}
-      {tool.returnsType && <TypeSignature raw={tool.returnsType} label="Returns" />}
+      {argsType && <TypeSignature raw={argsType} label="Arguments" />}
+      {returnsType && <TypeSignature raw={returnsType} label="Returns" />}
     </div>
   );
 }

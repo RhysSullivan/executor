@@ -37,7 +37,6 @@ export const completeRun = mutation({
     internalSecret: v.string(),
     runId: v.string(),
     status: v.union(v.literal("completed"), v.literal("failed"), v.literal("timed_out"), v.literal("denied")),
-    result: v.optional(v.any()),
     exitCode: v.optional(v.number()),
     error: v.optional(v.string()),
     durationMs: v.optional(v.number()),
@@ -48,7 +47,6 @@ export const completeRun = mutation({
     return await ctx.runMutation(internal.executor.completeRuntimeRun, {
       runId: args.runId,
       status: args.status,
-      result: args.result,
       exitCode: args.exitCode,
       error: args.error,
       durationMs: args.durationMs,

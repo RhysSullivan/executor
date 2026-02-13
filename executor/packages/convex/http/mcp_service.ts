@@ -4,6 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import type {
   AnonymousContext,
   PendingApprovalRecord,
+  TaskExecutionOutcome,
   TaskRecord,
   ToolDescriptor,
 } from "../../core/src/types";
@@ -25,7 +26,7 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       };
       return await ctx.runMutation(internal.executor.createTaskInternal, taskInput);
     },
-    runTaskNow: async (taskId: string): Promise<null> => {
+    runTaskNow: async (taskId: string): Promise<TaskExecutionOutcome | null> => {
       return await ctx.runAction(internal.executorNode.runTask, { taskId });
     },
     getTask: async (taskId: string, workspaceId?: Id<"workspaces">): Promise<TaskRecord | null> => {

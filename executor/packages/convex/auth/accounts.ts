@@ -3,7 +3,7 @@ import type { DbCtx } from "./types";
 
 type UpsertWorkosAccountArgs = {
   workosUserId: string;
-  email: string;
+  email?: string;
   fullName: string;
   firstName?: string;
   lastName?: string;
@@ -15,13 +15,13 @@ type UpsertWorkosAccountArgs = {
 export async function upsertWorkosAccount(ctx: DbCtx, args: UpsertWorkosAccountArgs) {
   let account = await getAccountByWorkosId(ctx, args.workosUserId);
   const patchData = {
-    email: args.email,
     name: args.fullName,
-    firstName: args.firstName,
-    lastName: args.lastName,
-    avatarUrl: args.avatarUrl,
     status: "active" as const,
     updatedAt: args.now,
+    ...(args.email ? { email: args.email } : null),
+    ...(args.firstName !== undefined ? { firstName: args.firstName } : null),
+    ...(args.lastName !== undefined ? { lastName: args.lastName } : null),
+    ...(args.avatarUrl !== undefined ? { avatarUrl: args.avatarUrl } : null),
     ...(args.includeLastLoginAt ? { lastLoginAt: args.now } : null),
   };
 

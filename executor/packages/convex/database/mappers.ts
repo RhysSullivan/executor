@@ -58,7 +58,6 @@ export function mapTask(doc: Doc<"tasks">) {
     startedAt: doc.startedAt,
     completedAt: doc.completedAt,
     error: doc.error,
-    result: doc.result,
     exitCode: doc.exitCode,
   };
 }

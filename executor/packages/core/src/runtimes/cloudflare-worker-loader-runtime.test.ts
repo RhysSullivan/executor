@@ -153,6 +153,35 @@ describe("runtime catalog", () => {
     expect(isCloudflareWorkerLoaderConfigured()).toBe(true);
   });
 
+  test("can restrict runtime targets to cloudflare dynamic worker", async () => {
+    const {
+      CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY,
+      CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
+      LOCAL_BUN_RUNTIME_ID,
+      defaultRuntimeId,
+      isRuntimeEnabled,
+      listRuntimeTargets,
+    } = await import("./runtime-catalog");
+
+    const previous = process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY];
+    try {
+      process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY] = "1";
+
+      expect(defaultRuntimeId()).toBe(CLOUDFLARE_WORKER_LOADER_RUNTIME_ID);
+      expect(isRuntimeEnabled(LOCAL_BUN_RUNTIME_ID)).toBe(false);
+      expect(isRuntimeEnabled(CLOUDFLARE_WORKER_LOADER_RUNTIME_ID)).toBe(true);
+      expect(listRuntimeTargets().map((target) => target.id)).toEqual([
+        CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
+      ]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY];
+      } else {
+        process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY] = previous;
+      }
+    }
+  });
+
   test("getCloudflareWorkerLoaderConfig reads env vars", async () => {
     const { getCloudflareWorkerLoaderConfig } = await import("./runtime-catalog");
     const config = getCloudflareWorkerLoaderConfig();

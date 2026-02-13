@@ -271,8 +271,26 @@ export function withUniqueSourceName(baseName: string, takenNames: Set<string>):
   }
 }
 
-export function catalogSourceName(item: { providerName: string; name: string }): string {
+function sourceNameFromCatalogId(id: string): string {
+  let slug = sanitizeSourceName(id);
+  slug = slug
+    .replace(/-openapi$/, "")
+    .replace(/-graphql-api$/, "")
+    .replace(/-rest-api$/, "")
+    .replace(/-api$/, "")
+    .replace(/-rest$/, "");
+  return slug || "catalog";
+}
+
+export function catalogSourceName(item: { id?: string; providerName: string; name: string }): string {
+  if (item.id && item.id.trim().length > 0) {
+    return sourceNameFromCatalogId(item.id);
+  }
+
   const owner = sanitizeSourceName(item.providerName || "catalog");
   const title = sanitizeSourceName(item.name);
-  return sanitizeSourceName(`${owner}-${title}`);
+  if (!title || title === "api" || title === "openapi" || title === "graphql") {
+    return owner;
+  }
+  return title;
 }

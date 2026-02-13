@@ -9,9 +9,10 @@ import {
   CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
   isCloudflareWorkerLoaderConfigured,
   isKnownRuntimeId,
+  isRuntimeEnabled,
 } from "../../core/src/runtimes/runtime-catalog";
 import { runCodeWithAdapter } from "../../core/src/runtimes/runtime-core";
-import type { TaskRecord } from "../../core/src/types";
+import type { TaskExecutionOutcome, TaskRecord } from "../../core/src/types";
 import { describeError } from "../../core/src/utils";
 import { publishTaskEvent } from "./events";
 import { taskTerminalEventType } from "../task/status";
@@ -21,7 +22,7 @@ import { invokeTool } from "./tool_invocation";
 async function markTaskFailedAndPublish(
   ctx: ActionCtx,
   args: { taskId: string; error: string },
-): Promise<void> {
+): Promise<TaskExecutionOutcome | null> {
   const failed = await markTaskFinished(ctx, {
     taskId: args.taskId,
     status: "failed",
@@ -29,7 +30,7 @@ async function markTaskFailedAndPublish(
   });
 
   if (!failed) {
-    return;
+    return null;
   }
 
   await publishTaskEvent(ctx, args.taskId, "task", "task.failed", {
@@ -38,6 +39,8 @@ async function markTaskFailedAndPublish(
     error: failed.error,
     ...(failed.completedAt ? { completedAt: failed.completedAt } : {}),
   });
+
+  return { task: failed };
 }
 
 async function publishTerminalTaskResult(
@@ -62,26 +65,31 @@ async function publishTerminalTaskResult(
 export async function runQueuedTask(
   ctx: ActionCtx,
   args: { taskId: string },
-): Promise<null> {
+): Promise<TaskExecutionOutcome | null> {
   const task = (await ctx.runQuery(internal.database.getTask, { taskId: args.taskId })) as TaskRecord | null;
   if (!task || task.status !== "queued") {
     return null;
   }
 
   if (!isKnownRuntimeId(task.runtimeId)) {
-    await markTaskFailedAndPublish(ctx, {
+    return await markTaskFailedAndPublish(ctx, {
       taskId: args.taskId,
       error: `Runtime not found: ${task.runtimeId}`,
     });
-    return null;
+  }
+
+  if (!isRuntimeEnabled(task.runtimeId)) {
+    return await markTaskFailedAndPublish(ctx, {
+      taskId: args.taskId,
+      error: `Runtime is disabled for this deployment: ${task.runtimeId}`,
+    });
   }
 
   if (task.runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID && !isCloudflareWorkerLoaderConfigured()) {
-    await markTaskFailedAndPublish(ctx, {
+    return await markTaskFailedAndPublish(ctx, {
       taskId: args.taskId,
       error: `Runtime is not configured: ${task.runtimeId}`,
     });
-    return null;
   }
 
   try {
@@ -106,17 +114,15 @@ export async function runQueuedTask(
       });
 
       if (!dispatchResult.ok) {
-        await markTaskFailedAndPublish(ctx, {
+        return await markTaskFailedAndPublish(ctx, {
           taskId: args.taskId,
           error: dispatchResult.error,
         });
-        return null;
       }
 
       const finished = await markTaskFinished(ctx, {
         taskId: args.taskId,
         status: dispatchResult.status,
-        result: dispatchResult.result,
         exitCode: dispatchResult.exitCode,
         error: dispatchResult.error,
       });
@@ -131,7 +137,11 @@ export async function runQueuedTask(
         finished,
         durationMs: dispatchResult.durationMs,
       });
-      return null;
+      return {
+        task: finished,
+        result: dispatchResult.result,
+        durationMs: dispatchResult.durationMs,
+      };
     }
 
     const runtimeResult = await (async () => {
@@ -153,7 +163,6 @@ export async function runQueuedTask(
     const finished = await markTaskFinished(ctx, {
       taskId: args.taskId,
       status: runtimeResult.status,
-      result: runtimeResult.result,
       exitCode: runtimeResult.exitCode,
       error: runtimeResult.error,
     });
@@ -168,6 +177,11 @@ export async function runQueuedTask(
       finished,
       durationMs: runtimeResult.durationMs,
     });
+    return {
+      task: finished,
+      result: runtimeResult.result,
+      durationMs: runtimeResult.durationMs,
+    };
   } catch (error) {
     const message = describeError(error);
     const denied = message.startsWith(APPROVAL_DENIED_PREFIX);
@@ -183,6 +197,7 @@ export async function runQueuedTask(
         status: denied ? "denied" : "failed",
         finished,
       });
+      return { task: finished };
     }
   }
 

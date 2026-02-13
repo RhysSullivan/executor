@@ -1,23 +1,13 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { listRuntimeTargets as listAvailableRuntimeTargets } from "../../core/src/runtimes/runtime-catalog";
 import { mapPolicy } from "./mappers";
 import { policyDecisionValidator } from "./validators";
 
 export const listRuntimeTargets = internalQuery({
   args: {},
   handler: async () => {
-    return [
-      {
-        id: "local-bun",
-        label: "Local JS Runtime",
-        description: "Runs generated code in-process using Bun",
-      },
-      {
-        id: "cloudflare-worker-loader",
-        label: "Cloudflare Worker Loader",
-        description: "Runs generated code in a Cloudflare Worker",
-      },
-    ];
+    return listAvailableRuntimeTargets();
   },
 });
 

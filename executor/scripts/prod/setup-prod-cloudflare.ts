@@ -260,12 +260,14 @@ async function main(): Promise<void> {
   await setConvexEnv("CLOUDFLARE_SANDBOX_RUN_URL", runUrl);
   await setConvexEnv("CLOUDFLARE_SANDBOX_AUTH_TOKEN", authToken);
   await setConvexEnv("EXECUTOR_INTERNAL_TOKEN", internalToken);
+  await setConvexEnv("EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY", "1");
   await setConvexEnv("CONVEX_URL", convexUrl);
 
   console.log("\n[setup] cloudflare production runtime configured");
   console.log(`  CLOUDFLARE_SANDBOX_RUN_URL: ${runUrl}`);
   console.log(`  CLOUDFLARE_SANDBOX_AUTH_TOKEN: ${redact(authToken)}`);
   console.log(`  EXECUTOR_INTERNAL_TOKEN: ${redact(internalToken)}`);
+  console.log("  EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY: 1");
   console.log(`  CONVEX_URL: ${convexUrl}`);
 
   if (options.runDoctor) {

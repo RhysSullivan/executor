@@ -16,7 +16,7 @@ async function seedHintedOrganizationMembership(
   args: {
     accountId: AccountId;
     hintedWorkosOrgId?: string;
-    email: string;
+    email?: string;
     now: number;
   },
 ) {

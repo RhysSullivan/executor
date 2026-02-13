@@ -15,7 +15,7 @@ function listTopLevelToolKeys(tools: ToolDescriptor[]): string[] {
   return [...keys].sort();
 }
 
-export function summarizeTask(task: TaskRecord): string {
+export function summarizeTask(task: TaskRecord, result: unknown = task.result): string {
   const maxResultPreviewChars = 30_000;
   const lines = [
     `taskId: ${task.id}`,
@@ -32,8 +32,8 @@ export function summarizeTask(task: TaskRecord): string {
   }
 
   let text = lines.join("\n");
-  if (task.result !== undefined) {
-    const serialized = Result.try(() => JSON.stringify(task.result, null, 2)).unwrapOr(String(task.result));
+  if (result !== undefined) {
+    const serialized = Result.try(() => JSON.stringify(result, null, 2)).unwrapOr(String(result));
     if (serialized.length > maxResultPreviewChars) {
       text += asCodeBlock(
         "json",
