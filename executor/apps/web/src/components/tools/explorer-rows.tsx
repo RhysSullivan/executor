@@ -35,7 +35,7 @@ const ToolRow = memo(function ToolRow({
       <CollapsibleTrigger asChild>
         <div
           className={cn(
-            "flex items-center gap-2 px-2 py-1.5 transition-colors cursor-pointer group/tool select-none",
+            "flex items-center gap-2 px-2 py-1.5 transition-colors cursor-pointer group/tool",
             expanded
               ? "sticky bg-background/95 backdrop-blur-sm bg-accent/30"
               : selected

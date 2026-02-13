@@ -51,8 +51,8 @@ export function getSetupSteps({
     {
       label: "Run a first task",
       done: taskCount > 0,
-      href: "/tasks",
-      pendingText: "Use the advanced runner to execute code",
+      href: "/tools?tab=editor",
+      pendingText: "Use the editor to execute code",
       doneText: `${taskCount} task${taskCount === 1 ? "" : "s"} recorded`,
     },
     {

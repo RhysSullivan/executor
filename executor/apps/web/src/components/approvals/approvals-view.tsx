@@ -97,9 +97,9 @@ function ApprovalCard({
               variant="ghost"
               size="sm"
               className="h-7 text-[11px]"
-              onClick={() => navigate(`/tasks?selected=${approval.taskId}`)}
+              onClick={() => navigate("/tools?tab=editor")}
             >
-              Open task
+              Open editor
             </Button>
           </div>
         </div>

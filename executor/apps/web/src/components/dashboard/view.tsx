@@ -1,108 +1,73 @@
 "use client";
 
-import { CheckCircle2, Play, ShieldCheck, XCircle } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { PageHeader } from "@/components/page-header";
-import { DashboardSetupCard } from "@/components/dashboard/setup-card";
-import { DashboardStatCard } from "@/components/dashboard/stat-card";
-import { DashboardPendingApprovalsCard } from "@/components/dashboard/pending-approvals-card";
-import { DashboardRecentTasksCard } from "@/components/dashboard/recent-tasks-card";
-import { DashboardToolsSummaryCard } from "@/components/dashboard/tools-summary-card";
-import { useSession } from "@/lib/session-context";
-import { useWorkspaceTools } from "@/hooks/use-workspace-tools";
+import { Server } from "lucide-react";
 import { useQuery } from "convex/react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import { DashboardPendingApprovalsCard } from "@/components/dashboard/pending-approvals-card";
+import { McpSetupCard } from "@/components/tools/setup-card";
+import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
-import {
-  getPendingApprovals,
-  getRecentTasks,
-  getSetupSteps,
-  getTaskStats,
-} from "@/components/dashboard/view-helpers";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 
 export function DashboardView() {
   const { context, loading: sessionLoading } = useSession();
-
-  const tasks = useQuery(
-    convexApi.workspace.listTasks,
-    workspaceQueryArgs(context),
-  );
-
   const approvals = useQuery(
     convexApi.workspace.listPendingApprovals,
     workspaceQueryArgs(context),
   );
-
-  const sources = useQuery(
-    convexApi.workspace.listToolSources,
-    workspaceQueryArgs(context),
-  );
-
-  const { tools } = useWorkspaceTools(context ?? null);
+  const approvalsLoading = Boolean(context) && approvals === undefined;
+  const pendingApprovals = (approvals ?? []).slice(0, 5);
+  const pendingCount = approvals?.length ?? 0;
 
   if (sessionLoading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-24" />
+        <div className="grid gap-6 xl:grid-cols-2">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <Skeleton key={i} className="h-[420px]" />
           ))}
         </div>
+        <Skeleton className="h-[360px]" />
       </div>
     );
   }
-
-  const pendingCount = approvals?.length ?? 0;
-  const sourceCount = sources?.length ?? 0;
-  const taskItems = tasks ?? [];
-  const { runningCount, completedCount, failedCount } = getTaskStats(taskItems);
-  const recentTasks = getRecentTasks(taskItems);
-  const pendingApprovals = getPendingApprovals(approvals ?? []);
-  const setupSteps = getSetupSteps({ sourceCount, taskCount: taskItems.length, pendingCount });
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Workspace Home"
-        description="Start from the current status, then jump straight to execution"
+        description="Approvals on the left and agent setup on the right"
       />
 
-      <DashboardSetupCard taskCount={taskItems.length} setupSteps={setupSteps} />
+      <div className="grid gap-6 xl:grid-cols-2">
+        {approvalsLoading ? (
+          <Skeleton className="h-[420px]" />
+        ) : (
+          <DashboardPendingApprovalsCard
+            pendingCount={pendingCount}
+            approvals={pendingApprovals}
+          />
+        )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <DashboardStatCard
-          label="Pending Approvals"
-          value={pendingCount}
-          icon={ShieldCheck}
-          accent={pendingCount > 0 ? "amber" : "default"}
-        />
-        <DashboardStatCard
-          label="Running"
-          value={runningCount}
-          icon={Play}
-          accent={runningCount > 0 ? "green" : "default"}
-        />
-        <DashboardStatCard
-          label="Completed"
-          value={completedCount}
-          icon={CheckCircle2}
-          accent="green"
-        />
-        <DashboardStatCard
-          label="Failed"
-          value={failedCount}
-          icon={XCircle}
-          accent={failedCount > 0 ? "red" : "default"}
-        />
+        <Card id="mcp-setup" className="bg-card border-border">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Server className="h-4 w-4 text-primary" />
+              Integrate with your agent
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <McpSetupCard
+              workspaceId={context?.workspaceId}
+              actorId={context?.actorId}
+              sessionId={context?.sessionId}
+            />
+          </CardContent>
+        </Card>
       </div>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        <DashboardPendingApprovalsCard pendingCount={pendingCount} approvals={pendingApprovals} />
-        <DashboardRecentTasksCard recentTasks={recentTasks} />
-      </div>
-
-      {tools.length > 0 && <DashboardToolsSummaryCard tools={tools} />}
     </div>
   );
 }

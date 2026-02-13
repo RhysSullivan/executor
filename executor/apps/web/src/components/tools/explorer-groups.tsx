@@ -58,7 +58,7 @@ export function GroupNode({
       <CollapsibleTrigger asChild>
         <div
           className={cn(
-            "flex items-center gap-2 px-2 py-1.5 transition-colors cursor-pointer group/row select-none",
+            "flex items-center gap-2 px-2 py-1.5 transition-colors cursor-pointer group/row",
             "sticky bg-background/95 backdrop-blur-sm",
             isExpanded && "border-b border-border/30",
             isGroupSelected

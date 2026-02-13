@@ -11,7 +11,7 @@ function RecentTaskRow({ task }: { task: TaskRecord }) {
 
   return (
     <button
-      onClick={() => navigate(`/tasks?selected=${task.id}`)}
+      onClick={() => navigate("/tools?tab=editor")}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
     >
       <div className="flex-1 min-w-0">
@@ -26,6 +26,8 @@ function RecentTaskRow({ task }: { task: TaskRecord }) {
 }
 
 export function DashboardRecentTasksCard({ recentTasks }: { recentTasks: TaskRecord[] }) {
+  const navigate = useNavigate();
+
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
@@ -34,8 +36,14 @@ export function DashboardRecentTasksCard({ recentTasks }: { recentTasks: TaskRec
             <Clock className="h-4 w-4 text-muted-foreground" />
             Recent Tasks
           </CardTitle>
-          <Button variant="ghost" size="sm" className="text-xs h-7" asChild>
-            <a href="/tasks">View all</a>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => navigate("/tools?tab=editor")}
+          >
+            Open editor
           </Button>
         </div>
       </CardHeader>

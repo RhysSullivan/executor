@@ -7,16 +7,16 @@ import { DashboardView } from "@/components/dashboard/view";
 import { MenubarMvpView } from "@/components/menubar/mvp-view";
 import { OnboardingView } from "@/components/organization/onboarding-view";
 import { OrganizationSettingsView } from "@/components/organization/organization-settings-view";
-import { TasksView } from "@/components/tasks/tasks-view";
 import { ToolsView } from "@/components/tools/view";
 
 function ToolsRoute() {
   const [searchParams] = useSearchParams();
   const source = searchParams.get("source");
+  const tab = searchParams.get("tab");
 
   return (
     <div className="h-full min-h-0">
-      <ToolsView initialSource={source} />
+      <ToolsView key={`${tab ?? "catalog"}:${source ?? "all"}`} initialSource={source} initialTab={tab} />
     </div>
   );
 }
@@ -37,7 +37,7 @@ export default function FrontendApp() {
         <Route element={<ShellLayout />}>
           <Route path="/" element={<DashboardView />} />
           <Route path="/static-app-shell" element={<DashboardView />} />
-          <Route path="/tasks" element={<TasksView />} />
+          <Route path="/tasks" element={<Navigate to="/tools?tab=editor" replace />} />
           <Route path="/approvals" element={<ApprovalsView />} />
           <Route path="/tools" element={<ToolsRoute />} />
           <Route path="/organization" element={<OrganizationSettingsView />} />

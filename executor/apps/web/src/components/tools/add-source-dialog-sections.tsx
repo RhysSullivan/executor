@@ -148,8 +148,6 @@ export function CustomViewSection({
   onBaseUrlChange,
   mcpTransport,
   onMcpTransportChange,
-  mcpActorQueryParamKey,
-  onMcpActorQueryParamKeyChange,
   submitting,
   submitDisabled,
   onBackToCatalog,
@@ -165,8 +163,6 @@ export function CustomViewSection({
   onBaseUrlChange: (value: string) => void;
   mcpTransport: "auto" | "streamable-http" | "sse";
   onMcpTransportChange: (value: "auto" | "streamable-http" | "sse") => void;
-  mcpActorQueryParamKey: string;
-  onMcpActorQueryParamKeyChange: (value: string) => void;
   submitting: boolean;
   submitDisabled: boolean;
   onBackToCatalog: () => void;
@@ -226,34 +222,22 @@ export function CustomViewSection({
       )}
 
       {type === "mcp" && (
-        <>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Transport</Label>
-            <Select
-              value={mcpTransport}
-              onValueChange={(value) => onMcpTransportChange(value as "auto" | "streamable-http" | "sse")}
-            >
-              <SelectTrigger className="h-8 text-xs bg-background">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto" className="text-xs">Auto (streamable, then SSE)</SelectItem>
-                <SelectItem value="streamable-http" className="text-xs">Streamable HTTP</SelectItem>
-                <SelectItem value="sse" className="text-xs">SSE</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Anon actor query key (optional)</Label>
-            <Input
-              value={mcpActorQueryParamKey}
-              onChange={(event) => onMcpActorQueryParamKeyChange(event.target.value)}
-              placeholder="userId"
-              className="h-8 text-xs font-mono bg-background"
-            />
-          </div>
-        </>
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Transport</Label>
+          <Select
+            value={mcpTransport}
+            onValueChange={(value) => onMcpTransportChange(value as "auto" | "streamable-http" | "sse")}
+          >
+            <SelectTrigger className="h-8 text-xs bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto" className="text-xs">Auto (streamable, then SSE)</SelectItem>
+              <SelectItem value="streamable-http" className="text-xs">Streamable HTTP</SelectItem>
+              <SelectItem value="sse" className="text-xs">SSE</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       )}
 
       <Button onClick={onSubmit} disabled={submitDisabled} className="w-full h-9" size="sm">

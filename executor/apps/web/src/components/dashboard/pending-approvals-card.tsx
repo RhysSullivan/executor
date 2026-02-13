@@ -10,7 +10,7 @@ function PendingApprovalRow({ approval }: { approval: PendingApprovalRecord }) {
 
   return (
     <button
-      onClick={() => navigate(`/tasks?selected=${approval.taskId}`)}
+      onClick={() => navigate("/approvals")}
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
     >
       <div className="h-2 w-2 rounded-full bg-terminal-amber pulse-dot shrink-0" />
@@ -30,6 +30,8 @@ export function DashboardPendingApprovalsCard({
   pendingCount: number;
   approvals: PendingApprovalRecord[];
 }) {
+  const navigate = useNavigate();
+
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
@@ -43,8 +45,14 @@ export function DashboardPendingApprovalsCard({
               </span>
             )}
           </CardTitle>
-          <Button variant="ghost" size="sm" className="text-xs h-7" asChild>
-            <a href="/approvals">View all</a>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => navigate("/approvals")}
+          >
+            View all
           </Button>
         </div>
       </CardHeader>

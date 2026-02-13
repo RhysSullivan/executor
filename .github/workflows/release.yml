@@ -1,0 +1,145 @@
+name: Release Executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Version bump"
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      version:
+        description: "Optional explicit version (e.g. 1.2.3 or v1.2.3)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: executor-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          requested="${{ inputs.version }}"
+          requested="${requested#v}"
+
+          if [[ -n "${requested}" ]]; then
+            next_version="${requested}"
+          else
+            latest_tag="$(git tag -l 'v*' --sort=-v:refname | head -n 1)"
+            if [[ -z "${latest_tag}" ]]; then
+              latest_version="0.0.0"
+            else
+              latest_version="${latest_tag#v}"
+            fi
+
+            if [[ ! "${latest_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Latest tag is not semver: ${latest_tag}" >&2
+              exit 1
+            fi
+
+            IFS='.' read -r major minor patch <<< "${latest_version}"
+
+            case "${{ inputs.release_type }}" in
+              major)
+                major=$((major + 1))
+                minor=0
+                patch=0
+                ;;
+              minor)
+                minor=$((minor + 1))
+                patch=0
+                ;;
+              patch)
+                patch=$((patch + 1))
+                ;;
+              *)
+                echo "Unsupported release_type: ${{ inputs.release_type }}" >&2
+                exit 1
+                ;;
+            esac
+
+            next_version="${major}.${minor}.${patch}"
+          fi
+
+          if [[ ! "${next_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be semver (x.y.z). Got: ${next_version}" >&2
+            exit 1
+          fi
+
+          next_tag="v${next_version}"
+
+          if git rev-parse -q --verify "refs/tags/${next_tag}" >/dev/null; then
+            echo "Tag already exists locally: ${next_tag}" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${next_tag}" >/dev/null 2>&1; then
+            echo "Tag already exists on origin: ${next_tag}" >&2
+            exit 1
+          fi
+
+          echo "version=${next_version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${next_tag}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: ${next_tag}"
+
+      - name: Build release artifacts
+        run: bun run --cwd executor build:release
+
+      - name: Verify release artifacts exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            executor/dist/release/executor-linux-x64.tar.gz
+            executor/dist/release/executor-linux-arm64.tar.gz
+            executor/dist/release/executor-darwin-x64.tar.gz
+            executor/dist/release/executor-darwin-arm64.tar.gz
+            executor/dist/release/executor-web-linux-x64.tar.gz
+            executor/dist/release/executor-web-linux-arm64.tar.gz
+            executor/dist/release/executor-web-darwin-x64.tar.gz
+            executor/dist/release/executor-web-darwin-arm64.tar.gz
+            executor/dist/release/checksums.txt
+          )
+
+          for file in "${expected[@]}"; do
+            [[ -f "${file}" ]] || { echo "Missing artifact: ${file}" >&2; exit 1; }
+          done
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            executor/dist/release/executor-*.tar.gz
+            executor/dist/release/executor-web-*.tar.gz
+            executor/dist/release/checksums.txt

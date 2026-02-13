@@ -31,6 +31,10 @@ function archiveName(platform: ReleaseTarget["platform"], arch: ReleaseTarget["a
   return `executor-${platform}-${arch}.tar.gz`;
 }
 
+function webArchiveName(platform: ReleaseTarget["platform"], arch: ReleaseTarget["arch"]): string {
+  return `executor-web-${platform}-${arch}.tar.gz`;
+}
+
 async function sha256(filePath: string): Promise<string> {
   const bytes = await Bun.file(filePath).arrayBuffer();
   return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
@@ -75,7 +79,7 @@ async function runCommand(command: string[], options: { cwd?: string; env?: Reco
 async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: string[]): Promise<void> {
   const host = hostPlatformArch();
   const webAppDir = path.join(rootDir, "apps", "web");
-  const webArtifactName = `executor-web-${host.platform}-${host.arch}.tar.gz`;
+  const webArtifactName = webArchiveName(host.platform, host.arch);
   const archivePath = path.join(releaseDir, webArtifactName);
 
   const webBuildEnv = {
@@ -112,6 +116,20 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
   const digest = await sha256(archivePath);
   checksums.push(`${digest}  ${path.basename(archivePath)}`);
   console.log(`built ${webArtifactName}`);
+
+  for (const target of targets) {
+    if (target.platform === host.platform && target.arch === host.arch) {
+      continue;
+    }
+
+    const targetArtifactName = webArchiveName(target.platform, target.arch);
+    const targetArchivePath = path.join(releaseDir, targetArtifactName);
+    await fs.copyFile(archivePath, targetArchivePath);
+
+    const targetDigest = await sha256(targetArchivePath);
+    checksums.push(`${targetDigest}  ${targetArtifactName}`);
+    console.log(`aliased ${targetArtifactName} from ${webArtifactName}`);
+  }
 }
 
 async function main(): Promise<void> {

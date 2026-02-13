@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Play, Send } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -39,7 +39,7 @@ export function TaskComposer() {
   const runtimes = useQuery(convexApi.workspace.listRuntimeTargets, {});
   const createTask = useMutation(convexApi.executor.createTask);
   const { tools, dtsUrls, loadingTools, loadingTypes } = useWorkspaceTools(context ?? null);
-  const runtimeTargets = runtimes ?? [];
+  const runtimeTargets = useMemo(() => runtimes ?? [], [runtimes]);
 
   useEffect(() => {
     if (runtimeTargets.length === 0) {
@@ -78,10 +78,15 @@ export function TaskComposer() {
   return (
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium flex items-center gap-2">
-          <Play className="h-4 w-4 text-terminal-green" />
-          New Task
-        </CardTitle>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Play className="h-4 w-4 text-terminal-green" />
+            Editor
+          </CardTitle>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          This editor lets you see what your changes see when running code and can be used for debugging types and intellisense
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3">

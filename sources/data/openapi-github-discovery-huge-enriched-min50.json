@@ -1,0 +1,3956 @@
+{
+  "generatedAt": "2026-02-13T05:05:40.413Z",
+  "maxPagesPerQuery": 10,
+  "perPage": 100,
+  "searchQueries": [
+    {
+      "query": "filename:openapi.yaml \"openapi: 3\"",
+      "versionHint": "openapi-3"
+    },
+    {
+      "query": "filename:openapi.yml \"openapi: 3\"",
+      "versionHint": "openapi-3"
+    },
+    {
+      "query": "filename:openapi.json openapi",
+      "versionHint": "openapi-3"
+    },
+    {
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\"",
+      "versionHint": "openapi-3"
+    },
+    {
+      "query": "path:/openapi/ extension:yml \"openapi: 3\"",
+      "versionHint": "openapi-3"
+    },
+    {
+      "query": "filename:swagger.json swagger",
+      "versionHint": "swagger-2.0"
+    },
+    {
+      "query": "filename:swagger.yaml \"swagger: 2.0\"",
+      "versionHint": "swagger-2.0"
+    },
+    {
+      "query": "filename:swagger.yml \"swagger: 2.0\"",
+      "versionHint": "swagger-2.0"
+    }
+  ],
+  "queryStats": [
+    {
+      "query": "filename:openapi.yaml \"openapi: 3\"",
+      "totalCount": 7824,
+      "pagesFetched": 10
+    },
+    {
+      "query": "filename:openapi.yml \"openapi: 3\"",
+      "totalCount": 1912,
+      "pagesFetched": 10
+    },
+    {
+      "query": "filename:openapi.json openapi",
+      "totalCount": 11168,
+      "pagesFetched": 10
+    },
+    {
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\"",
+      "totalCount": 1948,
+      "pagesFetched": 10
+    },
+    {
+      "query": "path:/openapi/ extension:yml \"openapi: 3\"",
+      "totalCount": 1200,
+      "pagesFetched": 10
+    },
+    {
+      "query": "filename:swagger.json swagger",
+      "totalCount": 21280,
+      "pagesFetched": 10
+    },
+    {
+      "query": "filename:swagger.yaml \"swagger: 2.0\"",
+      "totalCount": 58,
+      "pagesFetched": 1
+    },
+    {
+      "query": "filename:swagger.yml \"swagger: 2.0\"",
+      "totalCount": 11,
+      "pagesFetched": 1
+    }
+  ],
+  "totalDiscoveredSpecs": 430,
+  "items": [
+    {
+      "repo": "kubernetes/kubernetes",
+      "repoUrl": "https://github.com/kubernetes/kubernetes",
+      "stars": 120463,
+      "path": "api/openapi-spec/v3/apis__coordination.k8s.io__v1_openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/v3/apis__coordination.k8s.io__v1_openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "mindsdb/mindsdb",
+      "repoUrl": "https://github.com/mindsdb/mindsdb",
+      "stars": 38449,
+      "path": "mindsdb/api/http/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/mindsdb/mindsdb/main/mindsdb/api/http/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "eugenp/tutorials",
+      "repoUrl": "https://github.com/eugenp/tutorials",
+      "stars": 37342,
+      "path": "spring-boot-modules/spring-boot-springdoc/src/main/resources/static/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/eugenp/tutorials/master/spring-boot-modules/spring-boot-springdoc/src/main/resources/static/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "nextcloud/server",
+      "repoUrl": "https://github.com/nextcloud/server",
+      "stars": 34075,
+      "path": "apps/user_ldap/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/nextcloud/server/master/apps/user_ldap/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "TabbyML/tabby",
+      "repoUrl": "https://github.com/TabbyML/tabby",
+      "stars": 32885,
+      "path": "website/static/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/TabbyML/tabby/main/website/static/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "qdrant/qdrant",
+      "repoUrl": "https://github.com/qdrant/qdrant",
+      "stars": 28766,
+      "path": "docs/redoc/v1.6.x/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/qdrant/qdrant/master/docs/redoc/v1.6.x/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "qdrant/qdrant",
+      "repoUrl": "https://github.com/qdrant/qdrant",
+      "stars": 28766,
+      "path": "openapi/openapi-main.ytt.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/qdrant/qdrant/master/openapi/openapi-main.ytt.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "microsoft/semantic-kernel",
+      "repoUrl": "https://github.com/microsoft/semantic-kernel",
+      "stars": 27220,
+      "path": "dotnet/src/Functions/Functions.UnitTests/OpenApi/TestPlugins/messages-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/semantic-kernel/main/dotnet/src/Functions/Functions.UnitTests/OpenApi/TestPlugins/messages-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "openfaas/faas",
+      "repoUrl": "https://github.com/openfaas/faas",
+      "stars": 26088,
+      "path": "api-docs/spec.openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/openfaas/faas/master/api-docs/spec.openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "Comfy-Org/ComfyUI-Manager",
+      "repoUrl": "https://github.com/Comfy-Org/ComfyUI-Manager",
+      "stars": 13587,
+      "path": "openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/Comfy-Org/ComfyUI-Manager/main/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "qgis/QGIS",
+      "repoUrl": "https://github.com/qgis/QGIS",
+      "stars": 13258,
+      "path": "src/server/services/wfs3/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/qgis/QGIS/master/src/server/services/wfs3/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "formbricks/formbricks",
+      "repoUrl": "https://github.com/formbricks/formbricks",
+      "stars": 11833,
+      "path": "docs/api-v2-reference/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/formbricks/formbricks/main/docs/api-v2-reference/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "drakkan/sftpgo",
+      "repoUrl": "https://github.com/drakkan/sftpgo",
+      "stars": 11673,
+      "path": "openapi/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/drakkan/sftpgo/main/openapi/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "grafana/pyroscope",
+      "repoUrl": "https://github.com/grafana/pyroscope",
+      "stars": 11199,
+      "path": "api/connect-openapi/gen/vcs/v1/vcs.openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/grafana/pyroscope/main/api/connect-openapi/gen/vcs/v1/vcs.openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "yugabyte/yugabyte-db",
+      "repoUrl": "https://github.com/yugabyte/yugabyte-db",
+      "stars": 10104,
+      "path": "yugabyted-ui/apiserver/conf/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/yugabyte/yugabyte-db/master/yugabyted-ui/apiserver/conf/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "gotson/komga",
+      "repoUrl": "https://github.com/gotson/komga",
+      "stars": 5912,
+      "path": "komga/docs/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/gotson/komga/master/komga/docs/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "alexjustesen/speedtest-tracker",
+      "repoUrl": "https://github.com/alexjustesen/speedtest-tracker",
+      "stars": 5236,
+      "path": "openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/alexjustesen/speedtest-tracker/1.x/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "PokeAPI/pokeapi",
+      "repoUrl": "https://github.com/PokeAPI/pokeapi",
+      "stars": 4969,
+      "path": "openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/PokeAPI/pokeapi/master/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "parca-dev/parca",
+      "repoUrl": "https://github.com/parca-dev/parca",
+      "stars": 4781,
+      "path": "gen/proto/swagger/opentelemetry/proto/profiles/v1/profiles.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/parca-dev/parca/main/gen/proto/swagger/opentelemetry/proto/profiles/v1/profiles.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "xlang-ai/OpenAgents",
+      "repoUrl": "https://github.com/xlang-ai/OpenAgents",
+      "stars": 4704,
+      "path": "real_agents/plugins_agent/plugins/aldenbot/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/xlang-ai/OpenAgents/main/real_agents/plugins_agent/plugins/aldenbot/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "xlang-ai/OpenAgents",
+      "repoUrl": "https://github.com/xlang-ai/OpenAgents",
+      "stars": 4704,
+      "path": "real_agents/plugins_agent/plugins/nextpaper/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/xlang-ai/OpenAgents/main/real_agents/plugins_agent/plugins/nextpaper/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "xlang-ai/OpenAgents",
+      "repoUrl": "https://github.com/xlang-ai/OpenAgents",
+      "stars": 4704,
+      "path": "real_agents/plugins_agent/plugins/Roshi/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/xlang-ai/OpenAgents/main/real_agents/plugins_agent/plugins/Roshi/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "xlang-ai/OpenAgents",
+      "repoUrl": "https://github.com/xlang-ai/OpenAgents",
+      "stars": 4704,
+      "path": "real_agents/plugins_agent/plugins/Tax_Calculator/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/xlang-ai/OpenAgents/main/real_agents/plugins_agent/plugins/Tax_Calculator/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/amazonaws.com/grafana/2020-08-18/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/amazonaws.com/grafana/2020-08-18/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/amazonaws.com/iotfleethub/2020-11-03/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/amazonaws.com/iotfleethub/2020-11-03/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/amentum.space/global-magnet/1.3.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/amentum.space/global-magnet/1.3.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/apideck.com/sms/10.0.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/apideck.com/sms/10.0.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/apideck.com/vault/10.0.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/apideck.com/vault/10.0.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/apisetu.gov.in/ncert/3.0.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/apisetu.gov.in/ncert/3.0.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/apisetu.gov.in/transportld/3.0.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/apisetu.gov.in/transportld/3.0.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/canada-holidays.ca/1.8.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/canada-holidays.ca/1.8.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/dev.to/chatgpt/v1/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/dev.to/chatgpt/v1/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/googleapis.com/alloydb/v1alpha/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/googleapis.com/alloydb/v1alpha/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/googleapis.com/blockchainnodeengine/v1/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/googleapis.com/blockchainnodeengine/v1/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/googleapis.com/cloudshell/v1/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/googleapis.com/cloudshell/v1/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/googleapis.com/securitycenter/v1beta2/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/googleapis.com/securitycenter/v1beta2/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/hubapi.com/automation/v4/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/hubapi.com/automation/v4/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/kumpeapps.com/5.0.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/kumpeapps.com/5.0.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/nfusionsolutions.biz/1/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/nfusionsolutions.biz/1/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/nytimes.com/article_search/1.0.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/nytimes.com/article_search/1.0.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/pdfgeneratorapi.com/3.1.1/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/pdfgeneratorapi.com/3.1.1/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/shop-pro.jp/1.0.0/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/shop-pro.jp/1.0.0/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "APIs-guru/openapi-directory",
+      "repoUrl": "https://github.com/APIs-guru/openapi-directory",
+      "stars": 4360,
+      "path": "APIs/storecove.com/2.0.1/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/storecove.com/2.0.1/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "rudderlabs/rudder-server",
+      "repoUrl": "https://github.com/rudderlabs/rudder-server",
+      "stars": 4356,
+      "path": "gateway/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/rudderlabs/rudder-server/master/gateway/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "cerbos/cerbos",
+      "repoUrl": "https://github.com/cerbos/cerbos",
+      "stars": 4220,
+      "path": "schema/openapiv2/cerbos/request/v1/request.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/cerbos/cerbos/main/schema/openapiv2/cerbos/request/v1/request.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "cerbos/cerbos",
+      "repoUrl": "https://github.com/cerbos/cerbos",
+      "stars": 4220,
+      "path": "schema/openapiv2/cerbos/svc/v1/svc.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/cerbos/cerbos/main/schema/openapiv2/cerbos/svc/v1/svc.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "UnicomAI/wanwu",
+      "repoUrl": "https://github.com/UnicomAI/wanwu",
+      "stars": 4106,
+      "path": "configs/microservice/mcp-service/configs/tool/fileurlconvertbase64/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/UnicomAI/wanwu/main/configs/microservice/mcp-service/configs/tool/fileurlconvertbase64/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "alextselegidis/easyappointments",
+      "repoUrl": "https://github.com/alextselegidis/easyappointments",
+      "stars": 4040,
+      "path": "openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/alextselegidis/easyappointments/main/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "AzuraCast/AzuraCast",
+      "repoUrl": "https://github.com/AzuraCast/AzuraCast",
+      "stars": 3709,
+      "path": "web/static/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/AzuraCast/AzuraCast/main/web/static/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "bknd-io/bknd",
+      "repoUrl": "https://github.com/bknd-io/bknd",
+      "stars": 3612,
+      "path": "docs/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/bknd-io/bknd/main/docs/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "fern-api/fern",
+      "repoUrl": "https://github.com/fern-api/fern",
+      "stars": 3503,
+      "path": "seed/openapi/nullable-optional/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fern-api/fern/main/seed/openapi/nullable-optional/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "fern-api/fern",
+      "repoUrl": "https://github.com/fern-api/fern",
+      "stars": 3503,
+      "path": "seed/openapi/oauth-client-credentials-nested-root/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fern-api/fern/main/seed/openapi/oauth-client-credentials-nested-root/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "fern-api/fern",
+      "repoUrl": "https://github.com/fern-api/fern",
+      "stars": 3503,
+      "path": "seed/openapi/objects-with-imports/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fern-api/fern/main/seed/openapi/objects-with-imports/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "fern-api/fern",
+      "repoUrl": "https://github.com/fern-api/fern",
+      "stars": 3503,
+      "path": "seed/openapi/plain-text/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fern-api/fern/main/seed/openapi/plain-text/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "fern-api/fern",
+      "repoUrl": "https://github.com/fern-api/fern",
+      "stars": 3503,
+      "path": "seed/openapi/query-parameters/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fern-api/fern/main/seed/openapi/query-parameters/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "fern-api/fern",
+      "repoUrl": "https://github.com/fern-api/fern",
+      "stars": 3503,
+      "path": "seed/openapi/unknown/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fern-api/fern/main/seed/openapi/unknown/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "fern-api/fern",
+      "repoUrl": "https://github.com/fern-api/fern",
+      "stars": 3503,
+      "path": "seed/openapi/webhook-audience/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fern-api/fern/main/seed/openapi/webhook-audience/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "go-dev-frame/sponge",
+      "repoUrl": "https://github.com/go-dev-frame/sponge",
+      "stars": 2795,
+      "path": "docs/apis.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/go-dev-frame/sponge/main/docs/apis.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/mcp",
+      "repoUrl": "https://github.com/microsoft/mcp",
+      "stars": 2583,
+      "path": "tools/Fabric.Mcp.Tools.PublicApi/src/Resources/fabric-rest-api-specs/contents/graphModel/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/mcp/main/tools/Fabric.Mcp.Tools.PublicApi/src/Resources/fabric-rest-api-specs/contents/graphModel/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "anycable/anycable",
+      "repoUrl": "https://github.com/anycable/anycable",
+      "stars": 2271,
+      "path": "etc/rpc-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/anycable/anycable/main/etc/rpc-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "JetBrains/intellij-plugins",
+      "repoUrl": "https://github.com/JetBrains/intellij-plugins",
+      "stars": 2248,
+      "path": "CloudFormation/testData/serverless-application-model/src/2016-10-31_api_swagger_cors_swagger.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/JetBrains/intellij-plugins/master/CloudFormation/testData/serverless-application-model/src/2016-10-31_api_swagger_cors_swagger.yaml",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.yaml \"swagger: 2.0\""
+    },
+    {
+      "repo": "liferay/liferay-portal",
+      "repoUrl": "https://github.com/liferay/liferay-portal",
+      "stars": 2224,
+      "path": "modules/apps/headless/headless-admin-configuration/headless-admin-configuration-impl/rest-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/liferay/liferay-portal/master/modules/apps/headless/headless-admin-configuration/headless-admin-configuration-impl/rest-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "liferay/liferay-portal",
+      "repoUrl": "https://github.com/liferay/liferay-portal",
+      "stars": 2224,
+      "path": "modules/dxp/apps/portal-workflow/portal-workflow-metrics-rest-impl/rest-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/liferay/liferay-portal/master/modules/dxp/apps/portal-workflow/portal-workflow-metrics-rest-impl/rest-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "liferay/liferay-portal",
+      "repoUrl": "https://github.com/liferay/liferay-portal",
+      "stars": 2224,
+      "path": "modules/sdk/gradle-plugins-rest-builder/src/gradleTest/smoke/sample-rest/rest-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/liferay/liferay-portal/master/modules/sdk/gradle-plugins-rest-builder/src/gradleTest/smoke/sample-rest/rest-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "bytebase/dbhub",
+      "repoUrl": "https://github.com/bytebase/dbhub",
+      "stars": 2104,
+      "path": "src/api/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/bytebase/dbhub/main/src/api/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "bestruirui/BestSub",
+      "repoUrl": "https://github.com/bestruirui/BestSub",
+      "stars": 1991,
+      "path": "docs/api/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/bestruirui/BestSub/dev/docs/api/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "EsperoTech/yaade",
+      "repoUrl": "https://github.com/EsperoTech/yaade",
+      "stars": 1953,
+      "path": "server/src/main/resources/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/EsperoTech/yaade/main/server/src/main/resources/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "shellhub-io/shellhub",
+      "repoUrl": "https://github.com/shellhub-io/shellhub",
+      "stars": 1890,
+      "path": "openapi/spec/enterprise-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/shellhub-io/shellhub/master/openapi/spec/enterprise-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "Dictionarry-Hub/profilarr",
+      "repoUrl": "https://github.com/Dictionarry-Hub/profilarr",
+      "stars": 1849,
+      "path": "docs/api/v1/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/Dictionarry-Hub/profilarr/v2/docs/api/v1/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "tus/tus-resumable-upload-protocol",
+      "repoUrl": "https://github.com/tus/tus-resumable-upload-protocol",
+      "stars": 1687,
+      "path": "OpenAPI/openapi3.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/tus/tus-resumable-upload-protocol/main/OpenAPI/openapi3.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "grafeas/grafeas",
+      "repoUrl": "https://github.com/grafeas/grafeas",
+      "stars": 1563,
+      "path": "proto/v1beta1/swagger/project.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/grafeas/grafeas/master/proto/v1beta1/swagger/project.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "konfig-dev/konfig",
+      "repoUrl": "https://github.com/konfig-dev/konfig",
+      "stars": 1534,
+      "path": "sdks/db/intermediate-fixed-specs/payfactory/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/konfig-dev/konfig/main/sdks/db/intermediate-fixed-specs/payfactory/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "konfig-dev/konfig",
+      "repoUrl": "https://github.com/konfig-dev/konfig",
+      "stars": 1534,
+      "path": "sdks/db/intermediate-fixed-specs/rotten-tomatoes/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/konfig-dev/konfig/main/sdks/db/intermediate-fixed-specs/rotten-tomatoes/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "konfig-dev/konfig",
+      "repoUrl": "https://github.com/konfig-dev/konfig",
+      "stars": 1534,
+      "path": "sdks/db/intermediate-fixed-specs/terminal/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/konfig-dev/konfig/main/sdks/db/intermediate-fixed-specs/terminal/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ontola/atomic-server",
+      "repoUrl": "https://github.com/ontola/atomic-server",
+      "stars": 1494,
+      "path": "server/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ontola/atomic-server/develop/server/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ethersphere/bee",
+      "repoUrl": "https://github.com/ethersphere/bee",
+      "stars": 1481,
+      "path": "openapi/SwarmCommon.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ethersphere/bee/master/openapi/SwarmCommon.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "edgexfoundry/edgex-go",
+      "repoUrl": "https://github.com/edgexfoundry/edgex-go",
+      "stars": 1477,
+      "path": "openapi/support-scheduler.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/edgexfoundry/edgex-go/main/openapi/support-scheduler.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "Autumn-27/ScopeSentry",
+      "repoUrl": "https://github.com/Autumn-27/ScopeSentry",
+      "stars": 1463,
+      "path": "docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/Autumn-27/ScopeSentry/main/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "agi-inc/agent-protocol",
+      "repoUrl": "https://github.com/agi-inc/agent-protocol",
+      "stars": 1441,
+      "path": "schemas/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/agi-inc/agent-protocol/main/schemas/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "oracle-samples/oracle-db-examples",
+      "repoUrl": "https://github.com/oracle-samples/oracle-db-examples",
+      "stars": 1406,
+      "path": "machine-learning/oml-services/oml-services-swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/oracle-samples/oracle-db-examples/main/machine-learning/oml-services/oml-services-swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "lenML/Speech-AI-Forge",
+      "repoUrl": "https://github.com/lenML/Speech-AI-Forge",
+      "stars": 1384,
+      "path": "docs/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/lenML/Speech-AI-Forge/main/docs/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "arterli/CmsWing",
+      "repoUrl": "https://github.com/arterli/CmsWing",
+      "stars": 1358,
+      "path": "app/pages/sys/openApi.json",
+      "rawUrl": "https://raw.githubusercontent.com/arterli/CmsWing/master/app/pages/sys/openApi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "InsForge/InsForge",
+      "repoUrl": "https://github.com/InsForge/InsForge",
+      "stars": 1300,
+      "path": "openapi/health.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/InsForge/InsForge/main/openapi/health.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "InsForge/InsForge",
+      "repoUrl": "https://github.com/InsForge/InsForge",
+      "stars": 1300,
+      "path": "openapi/metadata.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/InsForge/InsForge/main/openapi/metadata.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "InsForge/InsForge",
+      "repoUrl": "https://github.com/InsForge/InsForge",
+      "stars": 1300,
+      "path": "openapi/records.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/InsForge/InsForge/main/openapi/records.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "InsForge/InsForge",
+      "repoUrl": "https://github.com/InsForge/InsForge",
+      "stars": 1300,
+      "path": "openapi/secrets.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/InsForge/InsForge/main/openapi/secrets.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "conradoqg/naivecoin",
+      "repoUrl": "https://github.com/conradoqg/naivecoin",
+      "stars": 1287,
+      "path": "lib/httpServer/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/conradoqg/naivecoin/master/lib/httpServer/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "elastic/apm-server",
+      "repoUrl": "https://github.com/elastic/apm-server",
+      "stars": 1272,
+      "path": "docs/spec/openapi/apm-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/elastic/apm-server/main/docs/spec/openapi/apm-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "stackrox/stackrox",
+      "repoUrl": "https://github.com/stackrox/stackrox",
+      "stars": 1256,
+      "path": "generated/api/v2/vuln_state.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/stackrox/stackrox/master/generated/api/v2/vuln_state.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "OpenLiberty/open-liberty",
+      "repoUrl": "https://github.com/OpenLiberty/open-liberty",
+      "stars": 1239,
+      "path": "dev/com.ibm.ws.microprofile.openapi/resources/airlines_openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/OpenLiberty/open-liberty/integration/dev/com.ibm.ws.microprofile.openapi/resources/airlines_openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/Alkymi/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/Alkymi/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/E-Sign/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/E-Sign/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/HouseRaterQA/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/HouseRaterQA/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/InfoVetted/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/InfoVetted/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/Jupyrest/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/Jupyrest/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/Nextset WorkFlow/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/Nextset WorkFlow/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/Seismic Engagement/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/Seismic Engagement/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/smsapi/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/smsapi/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "certified-connectors/Zvanu parvaldnieks/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/certified-connectors/Zvanu parvaldnieks/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/Airtable/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/Airtable/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/Checkly/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/Checkly/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/DiceBear/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/DiceBear/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/GitLab/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/GitLab/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/Govee/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/Govee/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/NewsData.io/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/NewsData.io/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/NREL/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/NREL/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/Tax ID Pro/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/Tax ID Pro/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/VIES/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/VIES/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/WeatherForecast/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/WeatherForecast/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "microsoft/PowerPlatformConnectors",
+      "repoUrl": "https://github.com/microsoft/PowerPlatformConnectors",
+      "stars": 1207,
+      "path": "independent-publisher-connectors/WhatIsMyBrowser/apiDefinition.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/microsoft/PowerPlatformConnectors/dev/independent-publisher-connectors/WhatIsMyBrowser/apiDefinition.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "paralus/paralus",
+      "repoUrl": "https://github.com/paralus/paralus",
+      "stars": 1171,
+      "path": "gen/openapi/proto/types/infrapb/v3/cluster.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/paralus/paralus/main/gen/openapi/proto/types/infrapb/v3/cluster.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "formancehq/ledger",
+      "repoUrl": "https://github.com/formancehq/ledger",
+      "stars": 1144,
+      "path": "openapi/v1.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/formancehq/ledger/main/openapi/v1.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "formancehq/ledger",
+      "repoUrl": "https://github.com/formancehq/ledger",
+      "stars": 1144,
+      "path": "openapi/v2.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/formancehq/ledger/main/openapi/v2.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "php/web-php",
+      "repoUrl": "https://github.com/php/web-php",
+      "stars": 1062,
+      "path": "openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/php/web-php/master/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "vxcontrol/pentagi",
+      "repoUrl": "https://github.com/vxcontrol/pentagi",
+      "stars": 1043,
+      "path": "backend/fern/langfuse/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/vxcontrol/pentagi/master/backend/fern/langfuse/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "apache/celeborn",
+      "repoUrl": "https://github.com/apache/celeborn",
+      "stars": 1038,
+      "path": "openapi/openapi-client/src/main/openapi3/master_rest_v1.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/apache/celeborn/main/openapi/openapi-client/src/main/openapi3/master_rest_v1.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "apache/celeborn",
+      "repoUrl": "https://github.com/apache/celeborn",
+      "stars": 1038,
+      "path": "openapi/openapi-client/src/main/openapi3/worker_rest_v1.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/apache/celeborn/main/openapi/openapi-client/src/main/openapi3/worker_rest_v1.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "jamsocket/y-sweet",
+      "repoUrl": "https://github.com/jamsocket/y-sweet",
+      "stars": 972,
+      "path": "openapi/document.yml",
+      "rawUrl": "https://raw.githubusercontent.com/jamsocket/y-sweet/main/openapi/document.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "givanz/Vvveb",
+      "repoUrl": "https://github.com/givanz/Vvveb",
+      "stars": 970,
+      "path": "public/rest/default/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/givanz/Vvveb/master/public/rest/default/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jocmp/capyreader",
+      "repoUrl": "https://github.com/jocmp/capyreader",
+      "stars": 967,
+      "path": "openapi/miniflux.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/jocmp/capyreader/main/openapi/miniflux.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "golemcloud/golem",
+      "repoUrl": "https://github.com/golemcloud/golem",
+      "stars": 953,
+      "path": "openapi/golem-registry-service.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/golemcloud/golem/main/openapi/golem-registry-service.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "taozhi1010/nest-admin",
+      "repoUrl": "https://github.com/taozhi1010/nest-admin",
+      "stars": 910,
+      "path": "server/openApi.json",
+      "rawUrl": "https://raw.githubusercontent.com/taozhi1010/nest-admin/master/server/openApi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "openshift/microshift",
+      "repoUrl": "https://github.com/openshift/microshift",
+      "stars": 813,
+      "path": "deps/github.com/openshift/kubernetes/api/openapi-spec/v3/apis__autoscaling__v2_openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/openshift/microshift/main/deps/github.com/openshift/kubernetes/api/openapi-spec/v3/apis__autoscaling__v2_openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "openshift/microshift",
+      "repoUrl": "https://github.com/openshift/microshift",
+      "stars": 813,
+      "path": "deps/github.com/openshift/kubernetes/api/openapi-spec/v3/apis__events.k8s.io__v1_openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/openshift/microshift/main/deps/github.com/openshift/kubernetes/api/openapi-spec/v3/apis__events.k8s.io__v1_openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "sigstore/fulcio",
+      "repoUrl": "https://github.com/sigstore/fulcio",
+      "stars": 800,
+      "path": "fulcio_legacy.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/sigstore/fulcio/main/fulcio_legacy.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "google/turbinia",
+      "repoUrl": "https://github.com/google/turbinia",
+      "stars": 782,
+      "path": "turbinia/api/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/google/turbinia/master/turbinia/api/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "Apicurio/apicurio-registry",
+      "repoUrl": "https://github.com/Apicurio/apicurio-registry",
+      "stars": 766,
+      "path": "app/src/main/resources-unfiltered/META-INF/resources/api-specifications/ccompat/v7/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/Apicurio/apicurio-registry/main/app/src/main/resources-unfiltered/META-INF/resources/api-specifications/ccompat/v7/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "Apicurio/apicurio-registry",
+      "repoUrl": "https://github.com/Apicurio/apicurio-registry",
+      "stars": 766,
+      "path": "app/src/main/resources-unfiltered/META-INF/resources/api-specifications/registry/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/Apicurio/apicurio-registry/main/app/src/main/resources-unfiltered/META-INF/resources/api-specifications/registry/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "rohit-gohri/redocusaurus",
+      "repoUrl": "https://github.com/rohit-gohri/redocusaurus",
+      "stars": 736,
+      "path": "website/openapi/using-multi-file-yaml/index.openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/rohit-gohri/redocusaurus/main/website/openapi/using-multi-file-yaml/index.openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "openml/OpenML",
+      "repoUrl": "https://github.com/openml/OpenML",
+      "stars": 727,
+      "path": "openapi/swagger.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/openml/OpenML/develop/openapi/swagger.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "GoogleChrome/chromium-dashboard",
+      "repoUrl": "https://github.com/GoogleChrome/chromium-dashboard",
+      "stars": 714,
+      "path": "openapi/api.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/GoogleChrome/chromium-dashboard/main/openapi/api.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "leepeuker/movary",
+      "repoUrl": "https://github.com/leepeuker/movary",
+      "stars": 691,
+      "path": "docs/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/leepeuker/movary/main/docs/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "plutov/packagemain",
+      "repoUrl": "https://github.com/plutov/packagemain",
+      "stars": 667,
+      "path": "oapi-example/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/plutov/packagemain/master/oapi-example/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "openchoreo/openchoreo",
+      "repoUrl": "https://github.com/openchoreo/openchoreo",
+      "stars": 656,
+      "path": "openapi/openchoreo-api.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/openchoreo/openchoreo/main/openapi/openchoreo-api.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "qingwave/weave",
+      "repoUrl": "https://github.com/qingwave/weave",
+      "stars": 603,
+      "path": "docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/qingwave/weave/master/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "McShelby/hugo-theme-relearn",
+      "repoUrl": "https://github.com/McShelby/hugo-theme-relearn",
+      "stars": 584,
+      "path": "docs/data/shortcodes/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/McShelby/hugo-theme-relearn/main/docs/data/shortcodes/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "casvisor/casvisor",
+      "repoUrl": "https://github.com/casvisor/casvisor",
+      "stars": 533,
+      "path": "swagger/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/casvisor/casvisor/master/swagger/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "remorses/holocron",
+      "repoUrl": "https://github.com/remorses/holocron",
+      "stars": 528,
+      "path": "website/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/remorses/holocron/main/website/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "api-bricks/api-bricks-sdk",
+      "repoUrl": "https://github.com/api-bricks/api-bricks-sdk",
+      "stars": 526,
+      "path": "coinapi/exchange-rates-api-rest-realtime/sdk/go/api/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/api-bricks/api-bricks-sdk/master/coinapi/exchange-rates-api-rest-realtime/sdk/go/api/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "api-bricks/api-bricks-sdk",
+      "repoUrl": "https://github.com/api-bricks/api-bricks-sdk",
+      "stars": 526,
+      "path": "coinapi/exchange-rates-api-rest-realtime/sdk/haskell-http-client/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/api-bricks/api-bricks-sdk/master/coinapi/exchange-rates-api-rest-realtime/sdk/haskell-http-client/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "api-bricks/api-bricks-sdk",
+      "repoUrl": "https://github.com/api-bricks/api-bricks-sdk",
+      "stars": 526,
+      "path": "finfeedapi/sec-api-rest/spec/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/api-bricks/api-bricks-sdk/master/finfeedapi/sec-api-rest/spec/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "langchain-ai/agent-protocol",
+      "repoUrl": "https://github.com/langchain-ai/agent-protocol",
+      "stars": 519,
+      "path": "openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/langchain-ai/agent-protocol/main/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "SecurityBrewery/catalyst",
+      "repoUrl": "https://github.com/SecurityBrewery/catalyst",
+      "stars": 511,
+      "path": "openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/SecurityBrewery/catalyst/main/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "exoego/rspec-openapi",
+      "repoUrl": "https://github.com/exoego/rspec-openapi",
+      "stars": 493,
+      "path": "spec/apps/rails/doc/minitest_openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/exoego/rspec-openapi/master/spec/apps/rails/doc/minitest_openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "hitobito/hitobito",
+      "repoUrl": "https://github.com/hitobito/hitobito",
+      "stars": 463,
+      "path": "config/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/hitobito/hitobito/master/config/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "Accenture/mcp-bench",
+      "repoUrl": "https://github.com/Accenture/mcp-bench",
+      "stars": 448,
+      "path": "mcp_servers/dexpaprika-mcp/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/Accenture/mcp-bench/main/mcp_servers/dexpaprika-mcp/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "getcandy/candy-api",
+      "repoUrl": "https://github.com/getcandy/candy-api",
+      "stars": 443,
+      "path": "openapi/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/getcandy/candy-api/master/openapi/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "xiaodingding/iotfast",
+      "repoUrl": "https://github.com/xiaodingding/iotfast",
+      "stars": 435,
+      "path": "server/mqtt/plugin/federation/swagger/federation.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/xiaodingding/iotfast/master/server/mqtt/plugin/federation/swagger/federation.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "koddr/tutorial-go-fiber-rest-api",
+      "repoUrl": "https://github.com/koddr/tutorial-go-fiber-rest-api",
+      "stars": 398,
+      "path": "docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/koddr/tutorial-go-fiber-rest-api/main/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "qicfan/qmediasync",
+      "repoUrl": "https://github.com/qicfan/qmediasync",
+      "stars": 395,
+      "path": "docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/qicfan/qmediasync/main/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "AnimeAIChat/xiaozhi-server-go",
+      "repoUrl": "https://github.com/AnimeAIChat/xiaozhi-server-go",
+      "stars": 387,
+      "path": "src/docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/AnimeAIChat/xiaozhi-server-go/main/src/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "fission/fission-workflows",
+      "repoUrl": "https://github.com/fission/fission-workflows",
+      "stars": 382,
+      "path": "api/swagger/apiserver.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/fission/fission-workflows/master/api/swagger/apiserver.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "gravitee-io/gravitee-api-management",
+      "repoUrl": "https://github.com/gravitee-io/gravitee-api-management",
+      "stars": 380,
+      "path": "gravitee-apim-rest-api/gravitee-apim-rest-api-portal/gravitee-apim-rest-api-portal-rest/src/main/resources/portal-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/gravitee-io/gravitee-api-management/master/gravitee-apim-rest-api/gravitee-apim-rest-api-portal/gravitee-apim-rest-api-portal-rest/src/main/resources/portal-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "hyperledger-cacti/cacti",
+      "repoUrl": "https://github.com/hyperledger-cacti/cacti",
+      "stars": 378,
+      "path": "packages/cactus-plugin-keychain-aws-sm/src/main/go/generated/openapi/go-client/api/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/hyperledger-cacti/cacti/main/packages/cactus-plugin-keychain-aws-sm/src/main/go/generated/openapi/go-client/api/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "hyperledger-cacti/cacti",
+      "repoUrl": "https://github.com/hyperledger-cacti/cacti",
+      "stars": 378,
+      "path": "packages/cactus-plugin-ledger-connector-aries/src/main/json/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/hyperledger-cacti/cacti/main/packages/cactus-plugin-ledger-connector-aries/src/main/json/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "MystenLabs/walrus",
+      "repoUrl": "https://github.com/MystenLabs/walrus",
+      "stars": 332,
+      "path": "crates/walrus-service/daemon_openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/MystenLabs/walrus/main/crates/walrus-service/daemon_openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "fredlcore/BSB-LAN",
+      "repoUrl": "https://github.com/fredlcore/BSB-LAN",
+      "stars": 312,
+      "path": "openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/fredlcore/BSB-LAN/master/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "tmobile/jazz",
+      "repoUrl": "https://github.com/tmobile/jazz",
+      "stars": 310,
+      "path": "core/jazz_create-serverless-service/swagger/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/tmobile/jazz/develop/core/jazz_create-serverless-service/swagger/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "Myprivateclonelibrary/openBilibili-1",
+      "repoUrl": "https://github.com/Myprivateclonelibrary/openBilibili-1",
+      "stars": 303,
+      "path": "openbilibili-go-common-master/openbilibili-go-common-master/app/service/main/up/api/v1/api.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/Myprivateclonelibrary/openBilibili-1/master/openbilibili-go-common-master/openbilibili-go-common-master/app/service/main/up/api/v1/api.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "NVIDIA/ACE",
+      "repoUrl": "https://github.com/NVIDIA/ACE",
+      "stars": 303,
+      "path": "microservices/ace_agent/4.1/openapi/plugin_server_openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/NVIDIA/ACE/main/microservices/ace_agent/4.1/openapi/plugin_server_openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "sourcefuse/loopback4-microservice-catalog",
+      "repoUrl": "https://github.com/sourcefuse/loopback4-microservice-catalog",
+      "stars": 299,
+      "path": "services/authentication-service/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/sourcefuse/loopback4-microservice-catalog/master/services/authentication-service/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "Mermade/openapi-codegen",
+      "repoUrl": "https://github.com/Mermade/openapi-codegen",
+      "stars": 295,
+      "path": "configs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/Mermade/openapi-codegen/main/configs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "cloudflare/chatgpt-plugin",
+      "repoUrl": "https://github.com/cloudflare/chatgpt-plugin",
+      "stars": 293,
+      "path": "example-retrieval-plugin/plugin/src/manifests/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/cloudflare/chatgpt-plugin/main/example-retrieval-plugin/plugin/src/manifests/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "vloschiavo/powerwall2",
+      "repoUrl": "https://github.com/vloschiavo/powerwall2",
+      "stars": 293,
+      "path": "openapi/spec.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vloschiavo/powerwall2/master/openapi/spec.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "cowprotocol/services",
+      "repoUrl": "https://github.com/cowprotocol/services",
+      "stars": 288,
+      "path": "crates/solvers/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/cowprotocol/services/main/crates/solvers/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "usnistgov/dioptra",
+      "repoUrl": "https://github.com/usnistgov/dioptra",
+      "stars": 277,
+      "path": "docs/source/reference/api-restapi/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/usnistgov/dioptra/main/docs/source/reference/api-restapi/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "KelvinTegelaar/CIPP-API",
+      "repoUrl": "https://github.com/KelvinTegelaar/CIPP-API",
+      "stars": 274,
+      "path": "openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/KelvinTegelaar/CIPP-API/master/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v1/front/application.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v1/front/application.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v1/restful/event.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v1/restful/event.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v1/restful/oauthserver.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v1/restful/oauthserver.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v1/restful/pipelinerun.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v1/restful/pipelinerun.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v2/front/build.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v2/front/build.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v2/restful/applicationregion.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v2/restful/applicationregion.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v2/restful/metatag.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v2/restful/metatag.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v2/restful/scope.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v2/restful/scope.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "horizoncd/horizon",
+      "repoUrl": "https://github.com/horizoncd/horizon",
+      "stars": 256,
+      "path": "openapi/v2/restful/tag.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/horizoncd/horizon/main/openapi/v2/restful/tag.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "iflytek/aiges",
+      "repoUrl": "https://github.com/iflytek/aiges",
+      "stars": 253,
+      "path": "docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/iflytek/aiges/grpc/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "bluewave-labs/capture",
+      "repoUrl": "https://github.com/bluewave-labs/capture",
+      "stars": 248,
+      "path": "openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/bluewave-labs/capture/develop/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "felipebarcelospro/igniter-js",
+      "repoUrl": "https://github.com/felipebarcelospro/igniter-js",
+      "stars": 241,
+      "path": "apps/starter-tanstack-start/src/docs/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/felipebarcelospro/igniter-js/main/apps/starter-tanstack-start/src/docs/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "input-output-hk/cardano-js-sdk",
+      "repoUrl": "https://github.com/input-output-hk/cardano-js-sdk",
+      "stars": 238,
+      "path": "packages/cardano-services/src/Handle/openApi.json",
+      "rawUrl": "https://raw.githubusercontent.com/input-output-hk/cardano-js-sdk/master/packages/cardano-services/src/Handle/openApi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/ClimateControl-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/ClimateControl-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/IntrusionDetectionSystem-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/IntrusionDetectionSystem-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/LightControl-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/LightControl-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/MainResources-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/MainResources-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/MotionDetector-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/MotionDetector-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/PresenceSimulationSystem-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/PresenceSimulationSystem-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/ShcInfo-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/ShcInfo-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/SmokeDetector-II-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/SmokeDetector-II-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/Thermostat-II-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/Thermostat-II-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/Twinguard-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/Twinguard-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "BoschSmartHome/bosch-shc-api-docs",
+      "repoUrl": "https://github.com/BoschSmartHome/bosch-shc-api-docs",
+      "stars": 231,
+      "path": "openapi/UniversalSwitch-local-openapi-v3.yml",
+      "rawUrl": "https://raw.githubusercontent.com/BoschSmartHome/bosch-shc-api-docs/master/openapi/UniversalSwitch-local-openapi-v3.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "grafana/grafana-foundation-sdk",
+      "repoUrl": "https://github.com/grafana/grafana-foundation-sdk",
+      "stars": 213,
+      "path": "openapi/gauge.openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/grafana/grafana-foundation-sdk/main/openapi/gauge.openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "grafana/grafana-foundation-sdk",
+      "repoUrl": "https://github.com/grafana/grafana-foundation-sdk",
+      "stars": 213,
+      "path": "openapi/testdata.openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/grafana/grafana-foundation-sdk/main/openapi/testdata.openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/adyen.com/StoredValueService/46/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/adyen.com/StoredValueService/46/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/amadeus.com/amadeus-hotel-booking/1.1.3/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/amadeus.com/amadeus-hotel-booking/1.1.3/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/apideck.com/file-storage/10.14.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/apideck.com/file-storage/10.14.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/apideck.com/hris/10.14.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/apideck.com/hris/10.14.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/apimatic.io/main/1.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/apimatic.io/main/1.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/autodealerdata.com/main/1.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/autodealerdata.com/main/1.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/envoice.in/main/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/envoice.in/main/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/apphub/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/apphub/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/binaryauthorization/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/binaryauthorization/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/cloudkms/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/cloudkms/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/domains/v1beta1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/domains/v1beta1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/games/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/games/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/migrationcenter/v1alpha1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/migrationcenter/v1alpha1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/mybusinessverifications/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/mybusinessverifications/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/networkservices/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/networkservices/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/safebrowsing/v4/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/safebrowsing/v4/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/serviceusage/v1beta1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/serviceusage/v1beta1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/googleapis.com/tpu/v2/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/googleapis.com/tpu/v2/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/gov.bc.ca/geocoder/2.0.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/gov.bc.ca/geocoder/2.0.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/healthcare.gov/main/1.0.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/healthcare.gov/main/1.0.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/hubspot.com/Auth-oauth/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/hubspot.com/Auth-oauth/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/hubspot.com/CRM-products/v3/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/hubspot.com/CRM-products/v3/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/hubspot.com/Marketing-marketingEvents/v3/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/hubspot.com/Marketing-marketingEvents/v3/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/mailboxvalidator.com/disposable/1.0.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/mailboxvalidator.com/disposable/1.0.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/nytimes.com/movie_reviews/2.0.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/nytimes.com/movie_reviews/2.0.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/parliament.uk/lordsvotes/v1/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/parliament.uk/lordsvotes/v1/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/sendgrid.com/mc-stats/1.0.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/sendgrid.com/mc-stats/1.0.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/thebluealliance.com/main/3.9.13/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/thebluealliance.com/main/3.9.13/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/twilio.com/twilio_bulkexports_v1/1.0.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/twilio.com/twilio_bulkexports_v1/1.0.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/twilio.com/twilio_supersim_v1/1.0.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/twilio.com/twilio_supersim_v1/1.0.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "jentic/jentic-public-apis",
+      "repoUrl": "https://github.com/jentic/jentic-public-apis",
+      "stars": 211,
+      "path": "apis/openapi/wordnik.com/main/4.0/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/jentic/jentic-public-apis/main/apis/openapi/wordnik.com/main/4.0/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "omnilaboratory/obd",
+      "repoUrl": "https://github.com/omnilaboratory/obd",
+      "stars": 211,
+      "path": "oblnd/lnrpc/walletrpc/walletkit.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/omnilaboratory/obd/master/oblnd/lnrpc/walletrpc/walletkit.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "MAIF/izanami",
+      "repoUrl": "https://github.com/MAIF/izanami",
+      "stars": 207,
+      "path": "docs/swagger/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/MAIF/izanami/main/docs/swagger/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "MAIF/izanami",
+      "repoUrl": "https://github.com/MAIF/izanami",
+      "stars": 207,
+      "path": "manual/static/swagger/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/MAIF/izanami/main/manual/static/swagger/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "MAIF/izanami",
+      "repoUrl": "https://github.com/MAIF/izanami",
+      "stars": 207,
+      "path": "swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/MAIF/izanami/main/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "Q1mi/goweb_pro",
+      "repoUrl": "https://github.com/Q1mi/goweb_pro",
+      "stars": 207,
+      "path": "lesson77/bluebell/docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/Q1mi/goweb_pro/master/lesson77/bluebell/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "supallm/supallm",
+      "repoUrl": "https://github.com/supallm/supallm",
+      "stars": 205,
+      "path": "openapi/spec.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/supallm/supallm/main/openapi/spec.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "adsabs/adsabs-dev-api",
+      "repoUrl": "https://github.com/adsabs/adsabs-dev-api",
+      "stars": 186,
+      "path": "openapi/openapi_internal.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/adsabs/adsabs-dev-api/master/openapi/openapi_internal.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "arjun-g/vs-swagger-viewer",
+      "repoUrl": "https://github.com/arjun-g/vs-swagger-viewer",
+      "stars": 178,
+      "path": "src/schemas/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/arjun-g/vs-swagger-viewer/master/src/schemas/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "arjun-g/vs-swagger-viewer",
+      "repoUrl": "https://github.com/arjun-g/vs-swagger-viewer",
+      "stars": 178,
+      "path": "src/schemas/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/arjun-g/vs-swagger-viewer/master/src/schemas/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "canva-sdks/canva-connect-api-starter-kit",
+      "repoUrl": "https://github.com/canva-sdks/canva-connect-api-starter-kit",
+      "stars": 177,
+      "path": "openapi/spec.yml",
+      "rawUrl": "https://raw.githubusercontent.com/canva-sdks/canva-connect-api-starter-kit/main/openapi/spec.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/create_team_role.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/create_team_role.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/destroy_instance.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/destroy_instance.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/detach_ssh.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/detach_ssh.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/label_instance.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/label_instance.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/search_invoices.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/search_invoices.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/search_templates.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/search_templates.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/search_volumes.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/search_volumes.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/set_user.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/set_user.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/show_api_keys.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/show_api_keys.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/show_connections.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/show_connections.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/start_instance.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/start_instance.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/stop_instance.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/stop_instance.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vast-ai/vast-cli",
+      "repoUrl": "https://github.com/vast-ai/vast-cli",
+      "stars": 177,
+      "path": "openapi/yaml/unlist_machine.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vast-ai/vast-cli/master/openapi/yaml/unlist_machine.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "hellofresh/kangal",
+      "repoUrl": "https://github.com/hellofresh/kangal",
+      "stars": 172,
+      "path": "openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/hellofresh/kangal/master/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "PacktPublishing/Mastering-Object-Oriented-Python-Second-Edition",
+      "repoUrl": "https://github.com/PacktPublishing/Mastering-Object-Oriented-Python-Second-Edition",
+      "stars": 164,
+      "path": "Chapter_13/cards_openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/PacktPublishing/Mastering-Object-Oriented-Python-Second-Edition/master/Chapter_13/cards_openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "fauna/faunadb",
+      "repoUrl": "https://github.com/fauna/faunadb",
+      "stars": 158,
+      "path": "ext/api/src/main/resources/environment-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/fauna/faunadb/main/ext/api/src/main/resources/environment-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "networknt/light-example-4j",
+      "repoUrl": "https://github.com/networknt/light-example-4j",
+      "stars": 150,
+      "path": "rest/openapi/ms-aggregate/ad/generated/src/main/resources/config/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/networknt/light-example-4j/release/rest/openapi/ms-aggregate/ad/generated/src/main/resources/config/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "networknt/light-example-4j",
+      "repoUrl": "https://github.com/networknt/light-example-4j",
+      "stars": 150,
+      "path": "rest/openapi/ms-aggregate/ad/https/src/main/resources/config/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/networknt/light-example-4j/release/rest/openapi/ms-aggregate/ad/https/src/main/resources/config/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "solana-foundation/kora",
+      "repoUrl": "https://github.com/solana-foundation/kora",
+      "stars": 149,
+      "path": "openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/solana-foundation/kora/main/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "Dicklesworthstone/ntm",
+      "repoUrl": "https://github.com/Dicklesworthstone/ntm",
+      "stars": 143,
+      "path": "docs/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/docs/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/deprecated/azure_arm_authorization/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/deprecated/azure_arm_authorization/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/amazonaws_forecastquery/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/amazonaws_forecastquery/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/amazonaws_globalaccelerator/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/amazonaws_globalaccelerator/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/amazonaws_inspector/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/amazonaws_inspector/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_apimanagement_apimapisbytags/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_apimanagement_apimapisbytags/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_apimanagement_apimissues/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_apimanagement_apimissues/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_apimanagement_apimversionsets/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_apimanagement_apimversionsets/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_applicationinsights_querypacks_api/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_applicationinsights_querypacks_api/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_azsadmin_delegatedprovider/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_azsadmin_delegatedprovider/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_containerinstance_containerinstance/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_containerinstance_containerinstance/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_mysql_dataencryptionkeys/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_mysql_dataencryptionkeys/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_mysql_privatelinkresources/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_mysql_privatelinkresources/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_operationalinsights_swagger/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_operationalinsights_swagger/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_servicebus/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_servicebus/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_web_logicappsmanagementclient/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_web_logicappsmanagementclient/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/azure_web_topleveldomains/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/azure_web_topleveldomains/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/deutschebahn_fahrplan/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/deutschebahn_fahrplan/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/google_adsense/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/google_adsense/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/google_billingbudgets/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/google_billingbudgets/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/google_sheets/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/google_sheets/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/maif_local_otoroshi/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/maif_local_otoroshi/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/mozilla_kinto/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/mozilla_kinto/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/nytimes_books_api/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/nytimes_books_api/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "DataFire/Integrations",
+      "repoUrl": "https://github.com/DataFire/Integrations",
+      "stars": 136,
+      "path": "integrations/generated/wikimedia/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/DataFire/Integrations/master/integrations/generated/wikimedia/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "Runtime-Radar/runtime-radar",
+      "repoUrl": "https://github.com/Runtime-Radar/runtime-radar",
+      "stars": 136,
+      "path": "auth-center/api/openapiv2/role.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/Runtime-Radar/runtime-radar/main/auth-center/api/openapiv2/role.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "zizdlp/zbook",
+      "repoUrl": "https://github.com/zizdlp/zbook",
+      "stars": 136,
+      "path": "zbook_backend/doc/swagger/rpcs/rpc_follow.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/zizdlp/zbook/main/zbook_backend/doc/swagger/rpcs/rpc_follow.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "synadia-io/rethink_connectivity",
+      "repoUrl": "https://github.com/synadia-io/rethink_connectivity",
+      "stars": 130,
+      "path": "09-microservices/client/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/synadia-io/rethink_connectivity/main/09-microservices/client/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "sctg-development/sctgdesk-api-server",
+      "repoUrl": "https://github.com/sctg-development/sctgdesk-api-server",
+      "stars": 125,
+      "path": "webconsole/src/api/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/sctg-development/sctgdesk-api-server/main/webconsole/src/api/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "sigscale/ocs",
+      "repoUrl": "https://github.com/sigscale/ocs",
+      "stars": 125,
+      "path": "priv/schema/balanceManagement.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/sigscale/ocs/master/priv/schema/balanceManagement.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "ukama/ukama",
+      "repoUrl": "https://github.com/ukama/ukama",
+      "stars": 124,
+      "path": "nodes/ukamaOS/distro/system/deviced/docs/api/client-swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/ukama/ukama/main/nodes/ukamaOS/distro/system/deviced/docs/api/client-swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "nfe/client-nodejs",
+      "repoUrl": "https://github.com/nfe/client-nodejs",
+      "stars": 123,
+      "path": "openapi/spec/consulta-cte-v2.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/nfe/client-nodejs/master/openapi/spec/consulta-cte-v2.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "nfe/client-nodejs",
+      "repoUrl": "https://github.com/nfe/client-nodejs",
+      "stars": 123,
+      "path": "openapi/spec/nf-consumidor-v2.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/nfe/client-nodejs/master/openapi/spec/nf-consumidor-v2.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "nfe/client-nodejs",
+      "repoUrl": "https://github.com/nfe/client-nodejs",
+      "stars": 123,
+      "path": "openapi/spec/nf-produto-v2.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/nfe/client-nodejs/master/openapi/spec/nf-produto-v2.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "nfe/client-nodejs",
+      "repoUrl": "https://github.com/nfe/client-nodejs",
+      "stars": 123,
+      "path": "openapi/spec/nfeio.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/nfe/client-nodejs/master/openapi/spec/nfeio.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "wrannaman/rememberall",
+      "repoUrl": "https://github.com/wrannaman/rememberall",
+      "stars": 123,
+      "path": "api/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/wrannaman/rememberall/main/api/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/activecampaign/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/activecampaign/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/atspoke/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/atspoke/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/automata/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/automata/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/azure.openai.chat/original-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/azure.openai.chat/original-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/bitbucket/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/bitbucket/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/bitly/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/bitly/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/bulksms/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/bulksms/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/dracoon.public/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/dracoon.public/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/ebay.negotiation/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/ebay.negotiation/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/ebay.recommendation/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/ebay.recommendation/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/elmah/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/elmah/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/eventbrite/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/eventbrite/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/file360/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/file360/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/fraudlabspro.smsverification/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/fraudlabspro.smsverification/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/fungenerators.barcode/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/fungenerators.barcode/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/fungenerators.uuid/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/fungenerators.uuid/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/giphy/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/giphy/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/gitlab/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/gitlab/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/godaddy.orders/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/godaddy.orders/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/googleapis.classroom/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/googleapis.classroom/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/googleapis.cloudbuild/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/googleapis.cloudbuild/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/googleapis.clouddatastore/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/googleapis.clouddatastore/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/googleapis.cloudfilestore/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/googleapis.cloudfilestore/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/googleapis.cloudtranslation/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/googleapis.cloudtranslation/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/googleapis.mybusiness/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/googleapis.mybusiness/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/gotowebinar/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/gotowebinar/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/hubspot.crm.company/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/hubspot.crm.company/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/hubspot.crm.deal/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/hubspot.crm.deal/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/hubspot.crm.product/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/hubspot.crm.product/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/interzoid.globalpageload/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/interzoid.globalpageload/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/interzoid.globaltime/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/interzoid.globaltime/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/interzoid.weatherzip/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/interzoid.weatherzip/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/ipgeolocation/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/ipgeolocation/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/iris.disputeresponder/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/iris.disputeresponder/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/iris.lead/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/iris.lead/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/iris.residuals/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/iris.residuals/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/listen.notes/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/listen.notes/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/logoraisr/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/logoraisr/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/magento.address/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/magento.address/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/magento.async.customer/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/magento.async.customer/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/magento.cart/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/magento.cart/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/mathtools.numbers/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/mathtools.numbers/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/notion/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/notion/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/nytimes.moviereviews/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/nytimes.moviereviews/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/nytimes.timestags/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/nytimes.timestags/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/nytimes.topstories/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/nytimes.topstories/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/odweather/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/odweather/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/openai.chat/original-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/openai.chat/original-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/openfigi/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/openfigi/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/pinecone.index/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/pinecone.index/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/pinecone.vector/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/pinecone.vector/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/powertoolsdeveloper.data/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/powertoolsdeveloper.data/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/powertoolsdeveloper.datetime/original-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/powertoolsdeveloper.datetime/original-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/powertoolsdeveloper.files/original-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/powertoolsdeveloper.files/original-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/powertoolsdeveloper.math/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/powertoolsdeveloper.math/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/powertoolsdeveloper.math/original-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/powertoolsdeveloper.math/original-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/powertoolsdeveloper.weather/original-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/powertoolsdeveloper.weather/original-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/prodpad/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/prodpad/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/ritekit/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/ritekit/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/saps4hana.externaltaxcalculation.taxquote/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/saps4hana.externaltaxcalculation.taxquote/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/saps4hana.wls.screeninghits/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/saps4hana.wls.screeninghits/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/servicenow/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/servicenow/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/shippit/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/shippit/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/shipwire.receivings/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/shipwire.receivings/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/shopify.admin/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/shopify.admin/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/siemens.analytics.anomalydetection/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/siemens.analytics.anomalydetection/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/siemens.iotandstorage.iotfileservice/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/siemens.iotandstorage.iotfileservice/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/spotto/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/spotto/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/stabilityai/original-openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/stabilityai/original-openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/sugarcrm/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/sugarcrm/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/techport/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/techport/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/themoviedb/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/themoviedb/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/uber/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/uber/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/vonage.numbers/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/vonage.numbers/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/whatsapp.business/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/whatsapp.business/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/wordpress/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/wordpress/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/workday.coreaccounting/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/workday.coreaccounting/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/xero.files/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/xero.files/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ballerina-platform/openapi-connectors",
+      "repoUrl": "https://github.com/ballerina-platform/openapi-connectors",
+      "stars": 120,
+      "path": "openapi/ynab/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/ballerina-platform/openapi-connectors/main/openapi/ynab/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "dvaJi/genshin-data",
+      "repoUrl": "https://github.com/dvaJi/genshin-data",
+      "stars": 117,
+      "path": "src/data/english/furnishing/blue_torso_swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/dvaJi/genshin-data/master/src/data/english/furnishing/blue_torso_swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "stellar/stellar-docs",
+      "repoUrl": "https://github.com/stellar/stellar-docs",
+      "stars": 117,
+      "path": "openapi/horizon/main.yml",
+      "rawUrl": "https://raw.githubusercontent.com/stellar/stellar-docs/main/openapi/horizon/main.yml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yml \"openapi: 3\""
+    },
+    {
+      "repo": "JiayuXu0/create-fastapi-app",
+      "repoUrl": "https://github.com/JiayuXu0/create-fastapi-app",
+      "stars": 116,
+      "path": "{{cookiecutter.project_slug}}/docs/api/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/JiayuXu0/create-fastapi-app/main/{{cookiecutter.project_slug}}/docs/api/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "TencentBlueKing/blueking-dbm",
+      "repoUrl": "https://github.com/TencentBlueKing/blueking-dbm",
+      "stars": 115,
+      "path": "dbm-services/bigdata/db-tools/dbactuator/docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/TencentBlueKing/blueking-dbm/v1.5.0/dbm-services/bigdata/db-tools/dbactuator/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "nimblehq/rails-templates",
+      "repoUrl": "https://github.com/nimblehq/rails-templates",
+      "stars": 105,
+      "path": ".template/addons/openapi/docs/openapi/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/nimblehq/rails-templates/develop/.template/addons/openapi/docs/openapi/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "pagopa/io-backend",
+      "repoUrl": "https://github.com/pagopa/io-backend",
+      "stars": 102,
+      "path": "openapi/consumed/api-piattaforma-notifiche.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/pagopa/io-backend/master/openapi/consumed/api-piattaforma-notifiche.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "pagopa/io-backend",
+      "repoUrl": "https://github.com/pagopa/io-backend",
+      "stars": 102,
+      "path": "openapi/consumed/lollipop_first_consumer.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/pagopa/io-backend/master/openapi/consumed/lollipop_first_consumer.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "pagopa/io-backend",
+      "repoUrl": "https://github.com/pagopa/io-backend",
+      "stars": 102,
+      "path": "openapi/generated/api_cdc_support_platform.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/pagopa/io-backend/master/openapi/generated/api_cdc_support_platform.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "pagopa/io-backend",
+      "repoUrl": "https://github.com/pagopa/io-backend",
+      "stars": 102,
+      "path": "openapi/generated/api_fims_platform.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/pagopa/io-backend/master/openapi/generated/api_fims_platform.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "xrdebug/xrdebug",
+      "repoUrl": "https://github.com/xrdebug/xrdebug",
+      "stars": 101,
+      "path": "api/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/xrdebug/xrdebug/3.0/api/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "ahobsonsayers/abs-tract",
+      "repoUrl": "https://github.com/ahobsonsayers/abs-tract",
+      "stars": 96,
+      "path": "schema/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ahobsonsayers/abs-tract/main/schema/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "hoangsonww/MERN-Stack-Ecommerce-App",
+      "repoUrl": "https://github.com/hoangsonww/MERN-Stack-Ecommerce-App",
+      "stars": 94,
+      "path": "openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/hoangsonww/MERN-Stack-Ecommerce-App/master/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "mvrilo/go-redoc",
+      "repoUrl": "https://github.com/mvrilo/go-redoc",
+      "stars": 94,
+      "path": "_examples/fiber/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/mvrilo/go-redoc/master/_examples/fiber/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "mvrilo/go-redoc",
+      "repoUrl": "https://github.com/mvrilo/go-redoc",
+      "stars": 94,
+      "path": "_examples/http/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/mvrilo/go-redoc/master/_examples/http/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "julien-blanchon/Montelimar",
+      "repoUrl": "https://github.com/julien-blanchon/Montelimar",
+      "stars": 88,
+      "path": "src-python/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/julien-blanchon/Montelimar/main/src-python/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "platformatic/intelligent-command-center",
+      "repoUrl": "https://github.com/platformatic/intelligent-command-center",
+      "stars": 87,
+      "path": "clients/scaler/scaler.openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/platformatic/intelligent-command-center/main/clients/scaler/scaler.openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "thomasdacosta/bff-marvel-api",
+      "repoUrl": "https://github.com/thomasdacosta/bff-marvel-api",
+      "stars": 87,
+      "path": "05-swagger/marvel-public-api-v1-swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/thomasdacosta/bff-marvel-api/main/05-swagger/marvel-public-api-v1-swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "clouditor/clouditor",
+      "repoUrl": "https://github.com/clouditor/clouditor",
+      "stars": 83,
+      "path": "openapi/discovery/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/clouditor/clouditor/main/openapi/discovery/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "influxdata/docs-v2",
+      "repoUrl": "https://github.com/influxdata/docs-v2",
+      "stars": 81,
+      "path": "api-docs/influxdb3/cloud-dedicated/management/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/influxdata/docs-v2/master/api-docs/influxdb3/cloud-dedicated/management/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "wso2/samples-is",
+      "repoUrl": "https://github.com/wso2/samples-is",
+      "stars": 80,
+      "path": "petcare-sample/b2c/web-app/petdesk/apis/ballerina/salesforce-integration-service/service_openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/wso2/samples-is/master/petcare-sample/b2c/web-app/petdesk/apis/ballerina/salesforce-integration-service/service_openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "Sphereon-Opensource/SSI-SDK",
+      "repoUrl": "https://github.com/Sphereon-Opensource/SSI-SDK",
+      "stars": 74,
+      "path": "packages/oid4vci-issuer-rest-api/oid4vci-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/Sphereon-Opensource/SSI-SDK/develop/packages/oid4vci-issuer-rest-api/oid4vci-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "Sphereon-Opensource/SSI-SDK",
+      "repoUrl": "https://github.com/Sphereon-Opensource/SSI-SDK",
+      "stars": 74,
+      "path": "packages/siopv2-oid4vp-rp-rest-api/oid4vp-openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/Sphereon-Opensource/SSI-SDK/develop/packages/siopv2-oid4vp-rp-rest-api/oid4vp-openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "tmforum-apis/Open_Api_And_Data_Model",
+      "repoUrl": "https://github.com/tmforum-apis/Open_Api_And_Data_Model",
+      "stars": 74,
+      "path": "apis/TMF669_Party_Role/swaggers/TMF669-PartyRole-v4.0.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/tmforum-apis/Open_Api_And_Data_Model/master/apis/TMF669_Party_Role/swaggers/TMF669-PartyRole-v4.0.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "tmforum-apis/Open_Api_And_Data_Model",
+      "repoUrl": "https://github.com/tmforum-apis/Open_Api_And_Data_Model",
+      "stars": 74,
+      "path": "apis/TMF673_Geographic_Address/swaggers/TMF673-GeographicAddress-v4.0.1.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/tmforum-apis/Open_Api_And_Data_Model/master/apis/TMF673_Geographic_Address/swaggers/TMF673-GeographicAddress-v4.0.1.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "Kuuga89757/sonyAgent",
+      "repoUrl": "https://github.com/Kuuga89757/sonyAgent",
+      "stars": 73,
+      "path": "schemas/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/Kuuga89757/sonyAgent/subwaySony/schemas/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "Q1mi/go-micro-service-and-cloud-native-course",
+      "repoUrl": "https://github.com/Q1mi/go-micro-service-and-cloud-native-course",
+      "stars": 72,
+      "path": "lesson113/review-service/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/Q1mi/go-micro-service-and-cloud-native-course/master/lesson113/review-service/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "Q1mi/go-micro-service-and-cloud-native-course",
+      "repoUrl": "https://github.com/Q1mi/go-micro-service-and-cloud-native-course",
+      "stars": 72,
+      "path": "lesson114/review-service/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/Q1mi/go-micro-service-and-cloud-native-course/master/lesson114/review-service/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "dhojayev/traderepublic-portfolio-downloader",
+      "repoUrl": "https://github.com/dhojayev/traderepublic-portfolio-downloader",
+      "stars": 69,
+      "path": "v2/pkg/traderepublic/oapi/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/dhojayev/traderepublic-portfolio-downloader/main/v2/pkg/traderepublic/oapi/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "mixpanel/docs",
+      "repoUrl": "https://github.com/mixpanel/docs",
+      "stars": 68,
+      "path": "openapi/src/annotations.openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/mixpanel/docs/main/openapi/src/annotations.openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "typesense/typesense-rust",
+      "repoUrl": "https://github.com/typesense/typesense-rust",
+      "stars": 65,
+      "path": "preprocessed_openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/typesense/typesense-rust/main/preprocessed_openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "vrchatapi/specification",
+      "repoUrl": "https://github.com/vrchatapi/specification",
+      "stars": 64,
+      "path": "openapi/components/paths/authentication.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vrchatapi/specification/main/openapi/components/paths/authentication.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vrchatapi/specification",
+      "repoUrl": "https://github.com/vrchatapi/specification",
+      "stars": 64,
+      "path": "openapi/components/paths/avatars.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vrchatapi/specification/main/openapi/components/paths/avatars.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vrchatapi/specification",
+      "repoUrl": "https://github.com/vrchatapi/specification",
+      "stars": 64,
+      "path": "openapi/components/paths/invite.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vrchatapi/specification/main/openapi/components/paths/invite.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "vrchatapi/specification",
+      "repoUrl": "https://github.com/vrchatapi/specification",
+      "stars": 64,
+      "path": "openapi/components/paths/prints.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/vrchatapi/specification/main/openapi/components/paths/prints.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ga4gh/data-repository-service-schemas",
+      "repoUrl": "https://github.com/ga4gh/data-repository-service-schemas",
+      "stars": 63,
+      "path": "openapi/data_repository_service.openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/ga4gh/data-repository-service-schemas/master/openapi/data_repository_service.openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "LordMoMA/Intelli-Mall",
+      "repoUrl": "https://github.com/LordMoMA/Intelli-Mall",
+      "stars": 63,
+      "path": "stores/internal/rest/api.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/LordMoMA/Intelli-Mall/master/stores/internal/rest/api.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "mediaurl/mediaurl-js",
+      "repoUrl": "https://github.com/mediaurl/mediaurl-js",
+      "stars": 62,
+      "path": "packages/schema/schema/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/mediaurl/mediaurl-js/main/packages/schema/schema/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "CFBD/cfb-api",
+      "repoUrl": "https://github.com/CFBD/cfb-api",
+      "stars": 61,
+      "path": "swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/CFBD/cfb-api/main/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "serverless-projects/aws-sam-examples",
+      "repoUrl": "https://github.com/serverless-projects/aws-sam-examples",
+      "stars": 60,
+      "path": "samples_3/api_swagger_cors/swagger.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/serverless-projects/aws-sam-examples/master/samples_3/api_swagger_cors/swagger.yaml",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.yaml \"swagger: 2.0\""
+    },
+    {
+      "repo": "alexc-MSFT/m365-insider",
+      "repoUrl": "https://github.com/alexc-MSFT/m365-insider",
+      "stars": 59,
+      "path": "appPackage/apiSpecificationFile/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/alexc-MSFT/m365-insider/main/appPackage/apiSpecificationFile/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "ibm-wm-transition/webmethods-api-gateway",
+      "repoUrl": "https://github.com/ibm-wm-transition/webmethods-api-gateway",
+      "stars": 58,
+      "path": "apigatewayservices/APIGatewayUserManagementSwagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/ibm-wm-transition/webmethods-api-gateway/master/apigatewayservices/APIGatewayUserManagementSwagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "kontext-dev/agent-browser",
+      "repoUrl": "https://github.com/kontext-dev/agent-browser",
+      "stars": 57,
+      "path": "openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/kontext-dev/agent-browser/main/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "superblocksteam/agent",
+      "repoUrl": "https://github.com/superblocksteam/agent",
+      "stars": 57,
+      "path": "types/api/secrets/v1/store.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/superblocksteam/agent/main/types/api/secrets/v1/store.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "abayomi185/astrysk-packages",
+      "repoUrl": "https://github.com/abayomi185/astrysk-packages",
+      "stars": 55,
+      "path": "applets/lidarr/lidarr-openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/abayomi185/astrysk-packages/main/applets/lidarr/lidarr-openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "gfleury/go-bitbucket-v1",
+      "repoUrl": "https://github.com/gfleury/go-bitbucket-v1",
+      "stars": 54,
+      "path": "docs/bitbucketV1-rest-swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/gfleury/go-bitbucket-v1/master/docs/bitbucketV1-rest-swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "opengeospatial/ogcapi-processes",
+      "repoUrl": "https://github.com/opengeospatial/ogcapi-processes",
+      "stars": 54,
+      "path": "openapi/ogcapi-processes.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/opengeospatial/ogcapi-processes/master/openapi/ogcapi-processes.yaml",
+      "versionHint": "openapi-3",
+      "query": "path:/openapi/ extension:yaml \"openapi: 3\""
+    },
+    {
+      "repo": "OpenInterConnect/IoTDataModels",
+      "repoUrl": "https://github.com/OpenInterConnect/IoTDataModels",
+      "stars": 54,
+      "path": "mediaSourceResURI.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/OpenInterConnect/IoTDataModels/master/mediaSourceResURI.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "OpenInterConnect/IoTDataModels",
+      "repoUrl": "https://github.com/OpenInterConnect/IoTDataModels",
+      "stars": 54,
+      "path": "MediaVideoResURI.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/OpenInterConnect/IoTDataModels/master/MediaVideoResURI.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "OpenInterConnect/IoTDataModels",
+      "repoUrl": "https://github.com/OpenInterConnect/IoTDataModels",
+      "stars": 54,
+      "path": "RestrictedSwitchResURI.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/OpenInterConnect/IoTDataModels/master/RestrictedSwitchResURI.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "OpenInterConnect/IoTDataModels",
+      "repoUrl": "https://github.com/OpenInterConnect/IoTDataModels",
+      "stars": 54,
+      "path": "SpeechTTSResURI.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/OpenInterConnect/IoTDataModels/master/SpeechTTSResURI.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "OpenInterConnect/IoTDataModels",
+      "repoUrl": "https://github.com/OpenInterConnect/IoTDataModels",
+      "stars": 54,
+      "path": "WeightResURI.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/OpenInterConnect/IoTDataModels/master/WeightResURI.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "SignalK/freeboard-sk",
+      "repoUrl": "https://github.com/SignalK/freeboard-sk",
+      "stars": 54,
+      "path": "helper/openApi.json",
+      "rawUrl": "https://raw.githubusercontent.com/SignalK/freeboard-sk/master/helper/openApi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    },
+    {
+      "repo": "xmtp/xmtpd",
+      "repoUrl": "https://github.com/xmtp/xmtpd",
+      "stars": 54,
+      "path": "pkg/proto/openapi/message_contents/private_key.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/xmtp/xmtpd/main/pkg/proto/openapi/message_contents/private_key.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "xmtp/xmtpd",
+      "repoUrl": "https://github.com/xmtp/xmtpd",
+      "stars": 54,
+      "path": "pkg/proto/openapi/xmtpv4/message_api/message_api.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/xmtp/xmtpd/main/pkg/proto/openapi/xmtpv4/message_api/message_api.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "nickadam/ordig",
+      "repoUrl": "https://github.com/nickadam/ordig",
+      "stars": 53,
+      "path": "api/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/nickadam/ordig/master/api/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "qlcchain/go-qlc",
+      "repoUrl": "https://github.com/qlcchain/go-qlc",
+      "stars": 52,
+      "path": "rpc/grpc/proto/swagger/ledger.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/qlcchain/go-qlc/master/rpc/grpc/proto/swagger/ledger.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "qlcchain/go-qlc",
+      "repoUrl": "https://github.com/qlcchain/go-qlc",
+      "stars": 52,
+      "path": "rpc/grpc/proto/swagger/publicKeyDistribution.swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/qlcchain/go-qlc/master/rpc/grpc/proto/swagger/publicKeyDistribution.swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "wilhelm-lab/koina",
+      "repoUrl": "https://github.com/wilhelm-lab/koina",
+      "stars": 52,
+      "path": "web/openapi/templates/openapi.yml",
+      "rawUrl": "https://raw.githubusercontent.com/wilhelm-lab/koina/main/web/openapi/templates/openapi.yml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yml \"openapi: 3\""
+    },
+    {
+      "repo": "spaship/spaship",
+      "repoUrl": "https://github.com/spaship/spaship",
+      "stars": 51,
+      "path": "packages/router/openapi.yaml",
+      "rawUrl": "https://raw.githubusercontent.com/spaship/spaship/master/packages/router/openapi.yaml",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.yaml \"openapi: 3\""
+    },
+    {
+      "repo": "Agelessbaby/BloomBlog",
+      "repoUrl": "https://github.com/Agelessbaby/BloomBlog",
+      "stars": 50,
+      "path": "docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/Agelessbaby/BloomBlog/main/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "FlowShield/flowshield",
+      "repoUrl": "https://github.com/FlowShield/flowshield",
+      "stars": 50,
+      "path": "fullnode/docs/swagger.json",
+      "rawUrl": "https://raw.githubusercontent.com/FlowShield/flowshield/main/fullnode/docs/swagger.json",
+      "versionHint": "swagger-2.0",
+      "query": "filename:swagger.json swagger"
+    },
+    {
+      "repo": "janwilmake/socialdatapod",
+      "repoUrl": "https://github.com/janwilmake/socialdatapod",
+      "stars": 50,
+      "path": "x-search-mcp/openapi.json",
+      "rawUrl": "https://raw.githubusercontent.com/janwilmake/socialdatapod/main/x-search-mcp/openapi.json",
+      "versionHint": "openapi-3",
+      "query": "filename:openapi.json openapi"
+    }
+  ],
+  "enrichedAt": "2026-02-13T05:06:52.221Z",
+  "minStars": 50
+}

@@ -25,7 +25,6 @@ import {
 } from "@/lib/tools-source-helpers";
 import {
   createCustomSourceConfig,
-  DEFAULT_MCP_ACTOR_QUERY_PARAM_KEY,
   getVisibleCatalogItems,
   type SourceCatalogSort,
   type SourceType,
@@ -52,9 +51,6 @@ export function AddSourceDialog({
   const [endpoint, setEndpoint] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [mcpTransport, setMcpTransport] = useState<"auto" | "streamable-http" | "sse">("auto");
-  const [mcpActorQueryParamKey, setMcpActorQueryParamKey] = useState(
-    DEFAULT_MCP_ACTOR_QUERY_PARAM_KEY,
-  );
   const [submitting, setSubmitting] = useState(false);
   const [locallyReservedNames, setLocallyReservedNames] = useState<string[]>([]);
   const [catalogQuery, setCatalogQuery] = useState("");
@@ -102,7 +98,6 @@ export function AddSourceDialog({
     setEndpoint("");
     setBaseUrl("");
     setMcpTransport("auto");
-    setMcpActorQueryParamKey(DEFAULT_MCP_ACTOR_QUERY_PARAM_KEY);
     setNameManuallyEdited(false);
     setLocallyReservedNames([]);
     setCatalogQuery("");
@@ -174,7 +169,6 @@ export function AddSourceDialog({
         endpoint,
         baseUrl,
         mcpTransport,
-        mcpActorQueryParamKey,
         actorId: context.actorId,
       });
       await addSource(name.trim(), type, config);
@@ -227,8 +221,6 @@ export function AddSourceDialog({
               onBaseUrlChange={setBaseUrl}
               mcpTransport={mcpTransport}
               onMcpTransportChange={setMcpTransport}
-              mcpActorQueryParamKey={mcpActorQueryParamKey}
-              onMcpActorQueryParamKeyChange={setMcpActorQueryParamKey}
               submitting={submitting}
               submitDisabled={submitting || !name.trim() || !endpoint.trim()}
               onBackToCatalog={() => setView("catalog")}

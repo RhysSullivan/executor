@@ -112,7 +112,13 @@ bun run build:release
 Notes:
 
 - `build:binary` compiles a host-native `dist/executor` binary.
-- `build:release` builds multi-platform binary archives and a host-platform web bundle in `dist/release/`.
+- `build:release` builds multi-platform binary archives and web archives for all release target names in `dist/release/`.
+
+Manual GitHub release (recommended):
+
+- Run the `Release Executor` workflow from Actions.
+- Choose `release_type` (`patch`, `minor`, `major`), or provide `version` explicitly.
+- The workflow builds artifacts, creates a new tag (`vX.Y.Z`), and publishes the GitHub release with all required assets.
 
 ## MCP and OAuth Surface
 
@@ -201,4 +207,4 @@ executor/
 
 - `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER` (or disable MCP OAuth in local dev).
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
-- Release build missing web archive for your platform: run `bun run build:release` on that target platform.
+- Release build missing web archive files: run `bun run build:release` and verify `executor/dist/release/` contains all expected `executor-web-*.tar.gz` assets.

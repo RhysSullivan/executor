@@ -3,15 +3,14 @@
 import { useState } from "react";
 import {
   Globe,
-  Server,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
-import { McpSetupCard } from "@/components/tools/setup-card";
 import { ToolExplorer } from "@/components/tools/explorer";
+import { TaskComposer } from "@/components/tasks/task-composer";
 import { AddSourceDialog, SourceCard } from "@/components/tools/sources";
 import { CredentialsPanel } from "@/components/tools/credentials";
 import { useSession } from "@/lib/session-context";
@@ -29,14 +28,30 @@ import {
 } from "@/lib/tools-source-helpers";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 
-// ── Tool Inventory (legacy removed — replaced by ToolExplorer) ──
+type ToolsTab = "catalog" | "credentials" | "editor";
+
+function parseInitialTab(tab?: string | null): ToolsTab {
+  if (tab === "runner" || tab === "editor") {
+    return "editor";
+  }
+  if (tab === "catalog" || tab === "credentials") {
+    return tab;
+  }
+  return "catalog";
+}
 
 // ── Tools View ──
 
-export function ToolsView({ initialSource }: { initialSource?: string | null }) {
+export function ToolsView({
+  initialSource,
+  initialTab,
+}: {
+  initialSource?: string | null;
+  initialTab?: string | null;
+}) {
   const { context, loading: sessionLoading } = useSession();
   const [selectedSource, setSelectedSource] = useState<string | null>(initialSource ?? null);
-  const [activeTab, setActiveTab] = useState<"catalog" | "credentials" | "mcp">("catalog");
+  const [activeTab, setActiveTab] = useState<ToolsTab>(parseInitialTab(initialTab));
   const [focusCredentialSourceKey, setFocusCredentialSourceKey] = useState<string | null>(null);
 
   const sources = useQuery(
@@ -78,12 +93,12 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
     <div className="flex h-full min-h-0 flex-col gap-6">
       <PageHeader
         title="Tools"
-        description="Manage sources, auth, connections, and available tools"
+        description="Run tasks, manage sources, auth, connections, and available tools"
       />
 
       <Tabs
         value={activeTab}
-        onValueChange={(value) => setActiveTab(value as "catalog" | "credentials" | "mcp")}
+        onValueChange={(value) => setActiveTab(value as ToolsTab)}
         className="w-full min-h-0 flex-1"
       >
         <TabsList className="bg-muted/50 h-9">
@@ -101,10 +116,14 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="mcp" className="text-xs data-[state=active]:bg-background">
-            MCP Setup
+          <TabsTrigger value="editor" className="text-xs data-[state=active]:bg-background">
+            Editor
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="editor" className="mt-4">
+          <TaskComposer />
+        </TabsContent>
 
         <TabsContent value="catalog" className="mt-4 min-h-0">
           <Card className="bg-card border-border min-h-0 flex flex-col">
@@ -200,23 +219,6 @@ export function ToolsView({ initialSource }: { initialSource?: string | null }) 
           />
         </TabsContent>
 
-        <TabsContent value="mcp" className="mt-4">
-          <Card className="bg-card border-border">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Server className="h-4 w-4 text-primary" />
-                MCP Client Installation
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <McpSetupCard
-                workspaceId={context?.workspaceId}
-                actorId={context?.actorId}
-                sessionId={context?.sessionId}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );
