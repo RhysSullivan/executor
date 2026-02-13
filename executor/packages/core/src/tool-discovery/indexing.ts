@@ -1,5 +1,10 @@
 import type { ToolDefinition } from "../types";
-import { compactArgDisplayHint, compactReturnTypeHint } from "../type-hints";
+import {
+  compactArgDisplayHint,
+  compactReturnTypeHint,
+  llmExpandedArgShapeHint,
+  llmExpandedReturnShapeHint,
+} from "../type-hints";
 import type { DiscoverIndexEntry } from "./types";
 
 const GENERIC_NAMESPACE_SUFFIXES = new Set([
@@ -107,6 +112,12 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
         tool.metadata?.displayReturnsType
         ?? compactReturnTypeHint(returnsType),
       );
+      const expandedArgsShape = normalizeType(
+        llmExpandedArgShapeHint(argsType, argPreviewKeys),
+      );
+      const expandedReturnsShape = normalizeType(
+        llmExpandedReturnShapeHint(returnsType),
+      );
 
       return {
         path: tool.path,
@@ -119,6 +130,8 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
         returnsType,
         displayArgsType,
         displayReturnsType,
+        expandedArgsShape,
+        expandedReturnsShape,
         argPreviewKeys,
         searchText,
         normalizedPath: normalizeSearchToken(tool.path),

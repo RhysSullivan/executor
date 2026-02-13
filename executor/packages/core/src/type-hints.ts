@@ -43,6 +43,16 @@ function splitTopLevelBy(value: string, separator: string): string[] {
   return parts;
 }
 
+function dedupeStrings(values: string[]): string[] {
+  const unique: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (!unique.includes(trimmed)) unique.push(trimmed);
+  }
+  return unique;
+}
+
 function normalizeSimpleUnion(typeExpression: string): string {
   const parts = splitTopLevelBy(typeExpression, "|")
     .map((part) => part.trim())
@@ -178,6 +188,21 @@ export function extractTopLevelTypeKeys(typeHint: string): string[] {
   return keys;
 }
 
+export function extractTopLevelTypeKeysFromExpression(typeHint: string): string[] {
+  const direct = extractTopLevelTypeKeys(typeHint);
+  if (direct.length > 0) return direct;
+
+  const fromIntersections = splitTopLevelBy(typeHint, "&")
+    .flatMap((part) => extractTopLevelTypeKeys(part));
+  if (fromIntersections.length > 0) {
+    return dedupeStrings(fromIntersections);
+  }
+
+  const fromUnions = splitTopLevelBy(typeHint, "|")
+    .flatMap((part) => extractTopLevelTypeKeys(part));
+  return dedupeStrings(fromUnions);
+}
+
 export function compactArgKeysHint(keys: string[]): string {
   const normalized = keys
     .map((key) => key.trim())
@@ -270,6 +295,42 @@ export function compactReturnTypeHint(returnsType: string): string {
     return "Array<...>";
   }
   return truncateInline(normalized, 130);
+}
+
+export function llmExpandedArgShapeHint(argsType: string, argPreviewKeys: string[] = []): string {
+  const normalized = argsType.replace(/\s+/g, " ").trim();
+  if (!normalized || normalized === "{}") return "{}";
+
+  const simpleInline = normalized.length <= 480 && !normalized.includes('components["schemas"]');
+  if (simpleInline) return normalized;
+
+  const keys = dedupeStrings(argPreviewKeys.length > 0
+    ? argPreviewKeys
+    : extractTopLevelTypeKeysFromExpression(argsType));
+  if (keys.length > 0) {
+    const shown = keys.slice(0, 12).map((key) => `${key}: ...`);
+    const suffix = keys.length > 12 ? "; ..." : "";
+    return `{ ${shown.join("; ")}${suffix} }`;
+  }
+
+  return truncateInline(normalized, 260);
+}
+
+export function llmExpandedReturnShapeHint(returnsType: string): string {
+  const normalized = returnsType.replace(/\s+/g, " ").trim();
+  if (!normalized) return "unknown";
+
+  const simpleInline = normalized.length <= 560 && !normalized.includes('components["schemas"]');
+  if (simpleInline) return normalized;
+
+  const keys = extractTopLevelTypeKeysFromExpression(returnsType);
+  if (keys.length > 0) {
+    const shown = keys.slice(0, 12).map((key) => `${key}: ...`);
+    const suffix = keys.length > 12 ? "; ..." : "";
+    return `{ ${shown.join("; ")}${suffix} }`;
+  }
+
+  return truncateInline(normalized, 280);
 }
 
 export function compactDescriptionLine(description: string): string {

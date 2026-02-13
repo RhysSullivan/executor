@@ -2,7 +2,12 @@ import type { ToolDefinition } from "./types";
 import {
   compactDescriptionLine,
 } from "./type-hints";
-import { buildExampleCall, formatSignature } from "./tool-discovery/formatting";
+import {
+  buildExampleCall,
+  buildExpandedShape,
+  formatCanonicalSignature,
+  formatSignature,
+} from "./tool-discovery/formatting";
 import { buildIndex, getTopLevelNamespace, listIndexForContext } from "./tool-discovery/indexing";
 import { chooseBestPath, deriveIntentPhrase, extractNamespaceHints, scoreEntry } from "./tool-discovery/ranking";
 
@@ -119,7 +124,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
     metadata: {
       argsType: "{ query: string; depth?: number; limit?: number; compact?: boolean }",
       returnsType:
-        "{ bestPath: string | null; results: Array<{ path: string; aliases: string[]; source: string; approval: 'auto' | 'required'; description: string; signature: string; exampleCall: string }>; total: number }",
+        "{ bestPath: string | null; results: Array<{ path: string; aliases: string[]; source: string; approval: 'auto' | 'required'; description: string; signature: string; canonicalSignature: string; expandedShape: { input: string; output: string }; exampleCall: string }>; total: number }",
     },
     run: async (input: unknown, context) => {
       const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
@@ -151,6 +156,8 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
         approval: entry.approval,
         description: compact ? compactDescriptionLine(entry.description) : entry.description,
         signature: formatSignature(entry, depth, compact),
+        canonicalSignature: formatCanonicalSignature(entry),
+        expandedShape: buildExpandedShape(entry),
         exampleCall: buildExampleCall(entry),
       }));
 

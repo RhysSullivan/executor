@@ -52,3 +52,14 @@ export function formatSignature(entry: DiscoverIndexEntry, depth: number, compac
 
   return `(input: ${entry.argsType}): Promise<${entry.returnsType}> [source=${entry.source}]`;
 }
+
+export function formatCanonicalSignature(entry: DiscoverIndexEntry): string {
+  return `(input: ${entry.argsType}): Promise<${entry.returnsType}>`;
+}
+
+export function buildExpandedShape(entry: DiscoverIndexEntry): { input: string; output: string } {
+  return {
+    input: entry.expandedArgsShape,
+    output: entry.expandedReturnsShape,
+  };
+}

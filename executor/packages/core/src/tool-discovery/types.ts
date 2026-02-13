@@ -11,6 +11,8 @@ export interface DiscoverIndexEntry {
   returnsType: string;
   displayArgsType: string;
   displayReturnsType: string;
+  expandedArgsShape: string;
+  expandedReturnsShape: string;
   argPreviewKeys: string[];
   searchText: string;
   normalizedPath: string;

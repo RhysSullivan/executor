@@ -30,6 +30,8 @@ test("discover returns aliases and example calls", async () => {
       aliases: string[];
       exampleCall: string;
       signature: string;
+      canonicalSignature: string;
+      expandedShape: { input: string; output: string };
     }>;
     total: number;
   };
@@ -41,6 +43,9 @@ test("discover returns aliases and example calls", async () => {
   expect(result.results[0]?.aliases).toContain("calc.math.addnumbers");
   expect(result.results[0]?.exampleCall).toBe("await tools.calc.math.add_numbers({ a: ..., b: ... });");
   expect(result.results[0]?.signature).toContain("Promise<{ sum: number }>");
+  expect(result.results[0]?.canonicalSignature).toContain("Promise<{ sum: number }>");
+  expect(result.results[0]?.expandedShape.input).toContain("a:");
+  expect(result.results[0]?.expandedShape.output).toContain("sum");
 });
 
 test("discover example call handles input-shaped args", async () => {
@@ -92,7 +97,12 @@ test("discover uses compact signatures by default and allows full mode", async (
     { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     bestPath: string | null;
-    results: Array<{ description: string; signature: string }>;
+    results: Array<{
+      description: string;
+      signature: string;
+      canonicalSignature: string;
+      expandedShape: { input: string; output: string };
+    }>;
   };
 
   const fullResult = await tool.run(
@@ -100,12 +110,19 @@ test("discover uses compact signatures by default and allows full mode", async (
     { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
     bestPath: string | null;
-    results: Array<{ description: string; signature: string }>;
+    results: Array<{
+      description: string;
+      signature: string;
+      canonicalSignature: string;
+      expandedShape: { input: string; output: string };
+    }>;
   };
 
   expect(compactResult.bestPath).toBe("linear.query.teams");
   expect(fullResult.bestPath).toBe("linear.query.teams");
   expect(compactResult.results[0]?.signature).toContain("Promise<{ data: ...; errors: unknown[] }>");
+  expect(compactResult.results[0]?.canonicalSignature).toContain("TeamConnection");
+  expect(compactResult.results[0]?.expandedShape.input).toContain("filter");
   expect(compactResult.results[0]?.description).not.toContain("TRAILING_MARKER_TEXT");
 
   expect(fullResult.results[0]?.signature).toContain("TeamFilter");

@@ -7,6 +7,7 @@ import { DashboardView } from "@/components/dashboard/view";
 import { MenubarMvpView } from "@/components/menubar/mvp-view";
 import { OnboardingView } from "@/components/organization/onboarding-view";
 import { OrganizationSettingsView } from "@/components/organization/organization-settings-view";
+import { TasksView } from "@/components/tasks/tasks-view";
 import { ToolsView } from "@/components/tools/view";
 
 function ToolsRoute() {
@@ -37,7 +38,7 @@ export default function FrontendApp() {
         <Route element={<ShellLayout />}>
           <Route path="/" element={<DashboardView />} />
           <Route path="/static-app-shell" element={<DashboardView />} />
-          <Route path="/tasks" element={<Navigate to="/tools?tab=editor" replace />} />
+          <Route path="/tasks" element={<TasksView />} />
           <Route path="/approvals" element={<ApprovalsView />} />
           <Route path="/tools" element={<ToolsRoute />} />
           <Route path="/organization" element={<OrganizationSettingsView />} />

@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { ExternalLink, Github, LayoutDashboard, ShieldCheck, Wrench, Menu, X } from "lucide-react";
+import { ExternalLink, Github, LayoutDashboard, ListTodo, ShieldCheck, Wrench, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useSession } from "@/lib/session-context";
@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: LayoutDashboard },
+  { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/tools", label: "Tools", icon: Wrench },
 ];
