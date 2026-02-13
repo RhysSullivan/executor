@@ -344,7 +344,8 @@ Stops background backend/web services started by the install script.`);
 
 async function runDoctor(args: string[]): Promise<number> {
   const verbose = args.includes("-v") || args.includes("--verbose");
-  const unknownArgs = args.filter((arg) => arg !== "-v" && arg !== "--verbose");
+  const runtimeOnly = args.includes("--runtime-only");
+  const unknownArgs = args.filter((arg) => arg !== "-v" && arg !== "--verbose" && arg !== "--runtime-only");
   if (unknownArgs.length > 0) {
     console.log(`Unknown option: ${unknownArgs[0]}`);
     return 1;
@@ -358,17 +359,19 @@ async function runDoctor(args: string[]): Promise<number> {
   const webRunning = await checkHttp(`http://127.0.0.1:${webPort}/`);
 
   let bootstrapState: Awaited<ReturnType<typeof checkBootstrapHealth>> | null = null;
-  if (backendRunning) {
+  if (backendRunning && !runtimeOnly) {
     bootstrapState = await checkBootstrapHealth(info);
   }
 
-  const functionsReady = bootstrapState?.state === "ready";
+  const functionsReady = runtimeOnly ? true : bootstrapState?.state === "ready";
   const healthy = nodeInstalled && webInstalled && backendRunning && webRunning && functionsReady;
 
   console.log(`Executor status: ${healthy ? "ready" : "needs attention"}`);
   console.log(`Dashboard: http://127.0.0.1:${webPort} (${webRunning ? "running" : "not running"})`);
   console.log(`Backend: ${backendRunning ? "running" : "not running"} (${info.convexUrl})`);
-  if (!backendRunning) {
+  if (runtimeOnly) {
+    console.log("Functions: skipped (runtime-only check)");
+  } else if (!backendRunning) {
     console.log("Functions: unavailable (backend is not running)");
   } else if (bootstrapState?.state === "ready") {
     console.log("Functions: bootstrapped");
@@ -387,13 +390,13 @@ async function runDoctor(args: string[]): Promise<number> {
   if (!webRunning) {
     console.log("Next step: run `executor web`");
   }
-  if (backendRunning && bootstrapState?.state === "no_project") {
+  if (!runtimeOnly && backendRunning && bootstrapState?.state === "no_project") {
     console.log("Next step: run from your repo root or set `EXECUTOR_PROJECT_DIR` to a Convex project.");
   }
-  if (backendRunning && bootstrapState?.state === "missing_functions") {
+  if (!runtimeOnly && backendRunning && bootstrapState?.state === "missing_functions") {
     console.log("Next step: run `executor up` from your project root to bootstrap functions.");
   }
-  if (backendRunning && bootstrapState?.state === "check_failed") {
+  if (!runtimeOnly && backendRunning && bootstrapState?.state === "check_failed") {
     console.log("Next step: run `executor up` and inspect ~/.executor/runtime/logs/backend.log");
   }
   if (!webInstalled || !nodeInstalled) {
@@ -409,7 +412,7 @@ async function runDoctor(args: string[]): Promise<number> {
     console.log(`  convex site: ${info.convexSiteUrl}`);
     console.log(`  node runtime: ${nodeInstalled ? info.nodeBin : "missing"}`);
     console.log(`  web bundle: ${webInstalled ? info.webServerEntry : "missing"}`);
-    console.log(`  functions: ${bootstrapState?.state ?? "unavailable"}`);
+    console.log(`  functions: ${runtimeOnly ? "skipped" : (bootstrapState?.state ?? "unavailable")}`);
     if (bootstrapState?.detail) {
       console.log(`  functions detail: ${bootstrapState.detail}`);
     }

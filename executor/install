@@ -367,7 +367,7 @@ start_background_services() {
 wait_for_executor_ready() {
   local max_seconds="${1:-90}"
   local started now elapsed
-  local doctor_interval=5
+  local doctor_interval=10
   local last_doctor_at=0
   local backend_up=0
   local web_up=0
@@ -389,11 +389,17 @@ wait_for_executor_ready() {
 
     if (( backend_up == 1 && web_up == 1 )); then
       if (( now - last_doctor_at >= doctor_interval )); then
-        if "$INSTALL_DIR/$APP" doctor >/dev/null 2>&1; then
+        if "$INSTALL_DIR/$APP" doctor --runtime-only >/dev/null 2>&1; then
           echo -e "${MUTED}Executor services healthy${NC}"
           return 0
         fi
-        last_doctor_at=$now
+        last_doctor_at="$(date +%s)"
+
+        now="$(date +%s)"
+        elapsed=$((now - started))
+        if (( elapsed >= max_seconds )); then
+          break
+        fi
       fi
       doctor_ok=0
     fi
@@ -402,7 +408,7 @@ wait_for_executor_ready() {
       break
     fi
 
-    if (( elapsed > 0 && elapsed % 5 == 0 )); then
+    if (( elapsed > 0 && elapsed % 10 == 0 )); then
       if (( backend_up == 0 || web_up == 0 )); then
         local backend_state="starting"
         local web_state="starting"
