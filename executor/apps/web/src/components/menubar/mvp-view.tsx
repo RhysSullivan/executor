@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { convexApi } from "@/lib/convex-api";
 import { useSession } from "@/lib/session-context";
-import type { RuntimeTargetDescriptor, TaskRecord } from "@/lib/types";
+import type { TaskRecord } from "@/lib/types";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 import { getTaskRuntimeLabel } from "@/lib/runtime-display";
 
