@@ -164,7 +164,7 @@ export function ToolsView({
               {debug ? (
                 <div className="space-y-0.5">
                   <p className="text-[10px] font-mono text-muted-foreground/90">
-                    debug mode={debug.mode} · cacheHit={String(debug.cacheHit)} · cacheFresh={String(debug.cacheFresh)} · duration={debug.durationMs}ms · sources={debug.normalizedSourceCount}/{debug.sourceCount}
+                    debug mode={debug.mode} · cacheHit={String(debug.cacheHit)} · cacheFresh={String(debug.cacheFresh)} · skipCacheRead={String(debug.skipCacheRead)} · duration={debug.durationMs}ms · sources={debug.normalizedSourceCount}/{debug.sourceCount}
                     {debug.timedOutSources.length > 0 ? ` · timedOut=${debug.timedOutSources.join(",")}` : " · timedOut=none"}
                   </p>
                   <p className="text-[10px] font-mono text-muted-foreground/80 truncate" title={debug.trace.join(" | ")}>

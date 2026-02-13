@@ -39,6 +39,7 @@ export interface WorkspaceToolsDebug {
   mode: "cache-fresh" | "cache-stale" | "rebuild";
   includeDts: boolean;
   sourceTimeoutMs: number | null;
+  skipCacheRead: boolean;
   sourceCount: number;
   normalizedSourceCount: number;
   cacheHit: boolean;
@@ -52,6 +53,7 @@ interface GetWorkspaceToolsOptions {
   includeDts?: boolean;
   sourceTimeoutMs?: number;
   allowStaleOnMismatch?: boolean;
+  skipCacheRead?: boolean;
 }
 
 export interface WorkspaceToolInventory {
@@ -133,6 +135,7 @@ export async function getWorkspaceTools(
   const includeDts = options.includeDts ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch ?? false;
+  const skipCacheRead = options.skipCacheRead ?? false;
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
   traceStep("listToolSources", listSourcesStartedAt);
@@ -141,10 +144,12 @@ export async function getWorkspaceTools(
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
     includeDts,
     sourceTimeoutMs: sourceTimeoutMs ?? null,
+    skipCacheRead,
     sourceCount: sources.length,
   };
 
-  try {
+  if (!skipCacheRead) {
+    try {
     const cacheReadStartedAt = Date.now();
     const cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
       workspaceId,
@@ -202,9 +207,12 @@ export async function getWorkspaceTools(
         }
       }
     }
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.warn(`[executor] workspace tool cache read failed for '${workspaceId}': ${msg}`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.warn(`[executor] workspace tool cache read failed for '${workspaceId}': ${msg}`);
+    }
+  } else {
+    trace.push("cacheEntryLookup=skipped");
   }
 
   const configs: ExternalToolSourceConfig[] = [];
@@ -364,13 +372,24 @@ export async function getWorkspaceTools(
 export async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean; sourceTimeoutMs?: number; allowStaleOnMismatch?: boolean } = {},
+  options: {
+    includeDts?: boolean;
+    sourceTimeoutMs?: number;
+    allowStaleOnMismatch?: boolean;
+    skipCacheRead?: boolean;
+  } = {},
 ): Promise<WorkspaceToolInventory> {
   const includeDts = options.includeDts ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch;
+  const skipCacheRead = options.skipCacheRead;
   const [result, policies] = await Promise.all([
-    getWorkspaceTools(ctx, context.workspaceId, { includeDts, sourceTimeoutMs, allowStaleOnMismatch }),
+    getWorkspaceTools(ctx, context.workspaceId, {
+      includeDts,
+      sourceTimeoutMs,
+      allowStaleOnMismatch,
+      skipCacheRead,
+    }),
     ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
   ]);
   const typedPolicies = policies as AccessPolicyRecord[];
@@ -405,7 +424,12 @@ export async function loadWorkspaceToolInventoryForContext(
 export async function listToolsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean; sourceTimeoutMs?: number; allowStaleOnMismatch?: boolean } = {},
+  options: {
+    includeDts?: boolean;
+    sourceTimeoutMs?: number;
+    allowStaleOnMismatch?: boolean;
+    skipCacheRead?: boolean;
+  } = {},
 ): Promise<ToolDescriptor[]> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   return inventory.tools;
@@ -414,7 +438,12 @@ export async function listToolsForContext(
 export async function listToolsWithWarningsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean; sourceTimeoutMs?: number; allowStaleOnMismatch?: boolean } = {},
+  options: {
+    includeDts?: boolean;
+    sourceTimeoutMs?: number;
+    allowStaleOnMismatch?: boolean;
+    skipCacheRead?: boolean;
+  } = {},
 ): Promise<{
   tools: ToolDescriptor[];
   warnings: string[];

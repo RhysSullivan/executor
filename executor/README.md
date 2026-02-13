@@ -83,7 +83,7 @@ executor web
 Uninstall:
 
 ```bash
-bash executor/uninstall --yes
+executor uninstall --yes
 ```
 
 Default managed-runtime ports:

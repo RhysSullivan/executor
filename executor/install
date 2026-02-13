@@ -269,6 +269,7 @@ echo "  executor up"
 echo "  executor web       # defaults to http://localhost:5312"
 echo ""
 echo "To uninstall later:"
+echo "  executor uninstall --yes"
 echo "  bash executor/uninstall --yes"
 echo ""
 show_star_prompt

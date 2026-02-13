@@ -33,6 +33,67 @@ async function generateSelfHostedAdminKey(info: ManagedRuntimeInfo): Promise<str
   return parsed.adminKey;
 }
 
+async function hasAnyPath(paths: string[]): Promise<boolean> {
+  for (const candidate of paths) {
+    if (await pathExists(candidate)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getConfigCandidates(baseDir: string): string[] {
+  return [
+    path.join(baseDir, "convex.config.ts"),
+    path.join(baseDir, "convex.config.js"),
+    path.join(baseDir, "convex.config.mts"),
+    path.join(baseDir, "convex.config.mjs"),
+    path.join(baseDir, "convex.config.cts"),
+    path.join(baseDir, "convex.config.cjs"),
+  ];
+}
+
+async function getConfiguredFunctionsPath(candidate: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(path.join(candidate, "convex.json"), "utf8");
+    const parsed = JSON.parse(raw) as { functions?: unknown };
+    if (typeof parsed.functions !== "string") {
+      return null;
+    }
+    const value = parsed.functions.trim();
+    return value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function hasConvexProjectConfig(candidate: string): Promise<boolean> {
+  const convexJson = path.join(candidate, "convex.json");
+  if (!(await pathExists(convexJson))) {
+    return false;
+  }
+
+  const legacyDir = path.join(candidate, "convex");
+  const legacyMatches = await hasAnyPath(getConfigCandidates(legacyDir));
+  if (legacyMatches) {
+    return true;
+  }
+
+  if (await hasAnyPath(getConfigCandidates(candidate))) {
+    return true;
+  }
+
+  const configuredFunctionsPath = await getConfiguredFunctionsPath(candidate);
+  if (!configuredFunctionsPath) {
+    return false;
+  }
+
+  const resolvedFunctionsPath = path.isAbsolute(configuredFunctionsPath)
+    ? configuredFunctionsPath
+    : path.resolve(candidate, configuredFunctionsPath);
+  return await hasAnyPath(getConfigCandidates(resolvedFunctionsPath));
+}
+
 async function findProjectDir(): Promise<string | null> {
   const roots = [
     Bun.env.EXECUTOR_PROJECT_DIR,
@@ -47,10 +108,7 @@ async function findProjectDir(): Promise<string | null> {
   }
 
   for (const candidate of candidates) {
-    const convexDir = path.join(candidate, "convex");
-    const convexConfig = path.join(convexDir, "convex.config.ts");
-    const convexJson = path.join(candidate, "convex.json");
-    if ((await pathExists(convexDir)) && (await pathExists(convexConfig)) && (await pathExists(convexJson))) {
+    if (await hasConvexProjectConfig(candidate)) {
       return candidate;
     }
   }

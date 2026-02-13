@@ -23,6 +23,7 @@ interface WorkspaceToolsQueryResult {
     mode: "cache-fresh" | "cache-stale" | "rebuild";
     includeDts: boolean;
     sourceTimeoutMs: number | null;
+    skipCacheRead: boolean;
     sourceCount: number;
     normalizedSourceCount: number;
     cacheHit: boolean;
@@ -96,6 +97,7 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       durationMs: inventoryData.debug.durationMs,
       cacheHit: inventoryData.debug.cacheHit,
       cacheFresh: inventoryData.debug.cacheFresh,
+      skipCacheRead: inventoryData.debug.skipCacheRead,
       sourceCount: inventoryData.debug.sourceCount,
       normalizedSourceCount: inventoryData.debug.normalizedSourceCount,
       timedOutSources: inventoryData.debug.timedOutSources,

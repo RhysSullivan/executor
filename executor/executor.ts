@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./packages/core/src/managed-runtime";
 
 function printHelp(): void {
@@ -11,12 +13,14 @@ Usage:
   executor up [backend-args]
   executor backend <args>
   executor web [--port <number>]
+  executor uninstall [--yes]
 
 Commands:
   doctor        Bootstrap and verify managed Convex backend runtime
   up            Run managed backend and auto-bootstrap Convex functions
   backend       Pass through arguments to managed convex-local-backend binary
   web           Run packaged web UI (default port: 5312)
+  uninstall     Remove local managed runtime install
 `);
 }
 
@@ -59,6 +63,73 @@ async function checkHttp(url: string): Promise<boolean> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function runUninstall(args: string[]): Promise<number> {
+  let assumeYes = false;
+  let index = 0;
+
+  while (index < args.length) {
+    const arg = args[index];
+    if (arg === "-y" || arg === "--yes") {
+      assumeYes = true;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "-h" || arg === "--help") {
+      console.log(`Usage:
+  executor uninstall [--yes]
+
+Options:
+  -y, --yes     Skip confirmation prompt
+  -h, --help    Show this help`);
+      return 0;
+    }
+
+    console.log(`Unknown option: ${arg}`);
+    return 1;
+  }
+
+  const installDir = Bun.env.EXECUTOR_INSTALL_DIR ?? path.join(os.homedir(), ".executor", "bin");
+  const runtimeDir = Bun.env.EXECUTOR_RUNTIME_DIR ?? path.join(os.homedir(), ".executor", "runtime");
+  const homeDir = Bun.env.EXECUTOR_HOME_DIR ?? path.join(os.homedir(), ".executor");
+
+  if (!assumeYes) {
+    console.log("This will remove:");
+    console.log(`  - ${installDir}/executor`);
+    console.log(`  - ${runtimeDir}`);
+    const response = prompt("Continue? [y/N] ");
+    if (response === null || response.toLowerCase() !== "y") {
+      console.log("Cancelled.");
+      return 0;
+    }
+  }
+
+  await fs.rm(path.join(installDir, "executor"), { force: true });
+  await fs.rm(runtimeDir, { recursive: true, force: true });
+
+  if (await pathExists(installDir)) {
+    try {
+      await fs.rmdir(installDir);
+    } catch {
+      // keep if it is not empty
+    }
+  }
+
+  if (await pathExists(homeDir)) {
+    try {
+      await fs.rmdir(homeDir);
+    } catch {
+      // keep if other files remain
+    }
+  }
+
+  console.log("Executor uninstall complete.");
+  console.log("");
+  console.log("If you previously added PATH manually, remove this line from your shell rc:");
+  console.log(`  export PATH=${installDir}:$PATH`);
+  return 0;
 }
 
 async function run(): Promise<void> {
@@ -107,6 +178,11 @@ async function run(): Promise<void> {
   if (command === "web") {
     const port = parsePort(rest);
     const exitCode = await runManagedWeb({ port });
+    process.exit(exitCode);
+  }
+
+  if (command === "uninstall") {
+    const exitCode = await runUninstall(rest);
     process.exit(exitCode);
   }
 
