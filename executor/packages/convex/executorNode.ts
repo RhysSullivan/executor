@@ -45,7 +45,7 @@ export const listToolsWithWarnings = action({
       workspaceId: args.workspaceId,
       actorId: canonicalActorId,
       clientId: args.clientId,
-    }, { includeDts: false });
+    }, { includeDts: false, sourceTimeoutMs: 2_500 });
   },
 });
 

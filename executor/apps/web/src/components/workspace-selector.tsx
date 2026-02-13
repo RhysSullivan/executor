@@ -145,7 +145,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
   };
 
   const triggerClassName = inHeader
-    ? "h-full w-full justify-between rounded-none border-0 bg-transparent px-3 text-[12px] font-medium shadow-none hover:bg-accent/40"
+    ? "h-full w-full justify-between rounded-none border-0 bg-transparent px-3 text-left text-[12px] font-medium shadow-none hover:bg-accent/40"
     : "h-8 w-full justify-between text-[11px]";
   const isCreating = creatingWorkspace || creatingOrganization;
 
@@ -158,7 +158,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
             size="sm"
             className={triggerClassName}
           >
-            <span className="flex items-center gap-2 min-w-0">
+            <span className={cn("flex gap-2 min-w-0", supportsOrganizationManagement ? "items-start" : "items-center")}>
               {activeWorkspace?.iconUrl ? (
                 <Image
                   src={activeWorkspace.iconUrl}
@@ -173,7 +173,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
                   {activeWorkspaceInitial}
                 </span>
               )}
-              <span className="min-w-0">
+              <span className={cn("min-w-0 text-left", supportsOrganizationManagement ? "leading-tight" : undefined)}>
                 {supportsOrganizationManagement ? (
                   <>
                     <span className="truncate block text-[10px] text-muted-foreground">{activeOrganizationLabel}</span>

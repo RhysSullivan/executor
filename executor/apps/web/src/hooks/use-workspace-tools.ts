@@ -64,6 +64,11 @@ export function useWorkspaceTools(context: WorkspaceContext | null) {
       });
     },
     enabled: !!context,
+    refetchInterval: (query) => {
+      const data = query.state.data as WorkspaceToolsQueryResult | undefined;
+      const hasPendingSource = (data?.warnings ?? []).some((warning) => warning.includes("still loading"));
+      return hasPendingSource ? 2_000 : false;
+    },
     placeholderData: (previousData) => previousData,
   });
 

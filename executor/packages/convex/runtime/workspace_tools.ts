@@ -36,6 +36,7 @@ export interface WorkspaceToolsResult {
 
 interface GetWorkspaceToolsOptions {
   includeDts?: boolean;
+  sourceTimeoutMs?: number;
 }
 
 export interface WorkspaceToolInventory {
@@ -107,6 +108,7 @@ export async function getWorkspaceTools(
   options: GetWorkspaceToolsOptions = {},
 ): Promise<WorkspaceToolsResult> {
   const includeDts = options.includeDts ?? false;
+  const sourceTimeoutMs = options.sourceTimeoutMs;
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
   const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
@@ -150,16 +152,45 @@ export async function getWorkspaceTools(
     }
   }
 
-  const loadedSources = await Promise.all(configs.map((config) => loadSourceArtifact(ctx, config, { includeDts })));
+  const loadedSources = await Promise.all(configs.map(async (config) => {
+    if (!sourceTimeoutMs || sourceTimeoutMs <= 0) {
+      return { ...(await loadSourceArtifact(ctx, config, { includeDts })), timedOut: false };
+    }
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutResult = new Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[]; timedOut: boolean }>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({
+          artifact: undefined,
+          warnings: [`Source '${config.name}' is still loading; showing partial results.`],
+          timedOut: true,
+        });
+      }, sourceTimeoutMs);
+    });
+
+    const loadResult = loadSourceArtifact(ctx, config, { includeDts })
+      .then((result) => ({ ...result, timedOut: false }));
+
+    const result = await Promise.race([loadResult, timeoutResult]);
+    if (timer && !result.timedOut) {
+      clearTimeout(timer);
+    }
+    return result;
+  }));
   const externalArtifacts = loadedSources
     .map((loaded) => loaded.artifact)
     .filter((artifact): artifact is CompiledToolSourceArtifact => Boolean(artifact));
   const externalTools = externalArtifacts.flatMap((artifact) => materializeCompiledToolSource(artifact));
   warnings.push(...loadedSources.flatMap((loaded) => loaded.warnings));
+  const hasTimedOutSource = loadedSources.some((loaded) => loaded.timedOut);
   const merged = mergeToolsWithCatalog(externalTools);
 
   let dtsStorageIds: DtsStorageEntry[] = [];
   try {
+    if (hasTimedOutSource) {
+      return { tools: merged, warnings, dtsStorageIds };
+    }
+
     const allTools = [...merged.values()];
 
     const seenDtsSources = new Set<string>();
@@ -220,11 +251,12 @@ export async function getWorkspaceTools(
 export async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean } = {},
+  options: { includeDts?: boolean; sourceTimeoutMs?: number } = {},
 ): Promise<WorkspaceToolInventory> {
   const includeDts = options.includeDts ?? false;
+  const sourceTimeoutMs = options.sourceTimeoutMs;
   const [result, policies] = await Promise.all([
-    getWorkspaceTools(ctx, context.workspaceId, { includeDts }),
+    getWorkspaceTools(ctx, context.workspaceId, { includeDts, sourceTimeoutMs }),
     ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
   ]);
   const typedPolicies = policies as AccessPolicyRecord[];
@@ -244,7 +276,7 @@ export async function loadWorkspaceToolInventoryForContext(
 export async function listToolsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean } = {},
+  options: { includeDts?: boolean; sourceTimeoutMs?: number } = {},
 ): Promise<ToolDescriptor[]> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   return inventory.tools;
@@ -253,7 +285,7 @@ export async function listToolsForContext(
 export async function listToolsWithWarningsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
-  options: { includeDts?: boolean } = {},
+  options: { includeDts?: boolean; sourceTimeoutMs?: number } = {},
 ): Promise<{
   tools: ToolDescriptor[];
   warnings: string[];
