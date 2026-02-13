@@ -284,6 +284,48 @@ wait_for_http() {
   return 1
 }
 
+stop_pid_file() {
+  local pid_file="$1"
+  if [[ ! -f "$pid_file" ]]; then
+    return
+  fi
+
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if [[ -n "$pid" ]] && is_pid_running "$pid"; then
+    kill "$pid" >/dev/null 2>&1 || true
+    sleep 1
+    if is_pid_running "$pid"; then
+      kill -9 "$pid" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  rm -f "$pid_file"
+}
+
+stop_existing_services() {
+  local likely_running=0
+
+  if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version" 2; then
+    likely_running=1
+  fi
+  if wait_for_http "http://127.0.0.1:${WEB_PORT}/" 2; then
+    likely_running=1
+  fi
+  if [[ -f "$BACKEND_PID_FILE" || -f "$WEB_PID_FILE" ]]; then
+    likely_running=1
+  fi
+
+  if (( likely_running == 0 )); then
+    return
+  fi
+
+  echo -e "${MUTED}Stopping existing managed services before update${NC}"
+  "$INSTALL_DIR/$APP" down >/dev/null 2>&1 || true
+  stop_pid_file "$WEB_PID_FILE"
+  stop_pid_file "$BACKEND_PID_FILE"
+}
+
 start_background_services() {
   mkdir -p "$SERVICE_DIR"
   mkdir -p "$LOG_DIR"
@@ -390,6 +432,7 @@ wait_for_executor_ready() {
   return 1
 }
 
+stop_existing_services
 install_web_bundle
 
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
