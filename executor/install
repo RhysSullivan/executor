@@ -372,6 +372,7 @@ wait_for_executor_ready() {
   local backend_up=0
   local web_up=0
   local doctor_ok=1
+  local runtime_only_supported="unknown"
 
   started="$(date +%s)"
   echo -e "${MUTED}Waiting for services to become healthy (up to ${max_seconds}s)${NC}"
@@ -389,7 +390,20 @@ wait_for_executor_ready() {
 
     if (( backend_up == 1 && web_up == 1 )); then
       if (( now - last_doctor_at >= doctor_interval )); then
-        if "$INSTALL_DIR/$APP" doctor --runtime-only >/dev/null 2>&1; then
+        if [[ "$runtime_only_supported" == "unknown" ]]; then
+          if "$INSTALL_DIR/$APP" doctor --help 2>/dev/null | grep -q -- "--runtime-only"; then
+            runtime_only_supported="yes"
+          else
+            runtime_only_supported="no"
+          fi
+        fi
+
+        if [[ "$runtime_only_supported" == "yes" ]]; then
+          if "$INSTALL_DIR/$APP" doctor --runtime-only >/dev/null 2>&1; then
+            echo -e "${MUTED}Executor services healthy${NC}"
+            return 0
+          fi
+        else
           echo -e "${MUTED}Executor services healthy${NC}"
           return 0
         fi
@@ -420,7 +434,7 @@ wait_for_executor_ready() {
         fi
         echo -e "${MUTED}Still starting... backend=${backend_state} web=${web_state}${NC}"
       elif (( doctor_ok == 0 )); then
-        echo -e "${MUTED}Services up; waiting for Convex functions bootstrap...${NC}"
+        echo -e "${MUTED}Services up; finalizing health checks...${NC}"
       fi
     fi
 
