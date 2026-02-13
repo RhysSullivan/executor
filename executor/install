@@ -334,6 +334,74 @@ is_convex_project_dir() {
   [[ -f "$candidate/convex.json" ]]
 }
 
+download_bootstrap_project_archive() {
+  local destination="$1"
+  local requested_archive="${EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE:-}"
+
+  if [[ -n "$requested_archive" ]]; then
+    if [[ -f "$requested_archive" ]]; then
+      cp "$requested_archive" "$destination"
+      return 0
+    fi
+    echo -e "${RED}Configured EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE was not found: ${requested_archive}${NC}"
+    return 1
+  fi
+
+  local urls=()
+  if [[ -n "$RESOLVED_VERSION" ]]; then
+    urls+=("https://github.com/${REPO}/archive/refs/tags/v${RESOLVED_VERSION}.tar.gz")
+    urls+=("https://github.com/${REPO}/archive/refs/tags/${RESOLVED_VERSION}.tar.gz")
+  fi
+  urls+=("https://github.com/${REPO}/archive/refs/heads/main.tar.gz")
+
+  local url
+  for url in "${urls[@]}"; do
+    if curl -fsSL "$url" -o "$destination"; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+prepare_release_bootstrap_project() {
+  local bootstrap_dir="$RUNTIME_DIR/bootstrap-project"
+  local version_file="$bootstrap_dir/.executor-bootstrap-version"
+  local cache_key="${RESOLVED_VERSION:-main}"
+
+  if [[ -f "$version_file" ]] && [[ "$(cat "$version_file" 2>/dev/null || true)" == "$cache_key" ]] && is_convex_project_dir "$bootstrap_dir"; then
+    printf "%s" "$bootstrap_dir"
+    return
+  fi
+
+  local archive_file
+  archive_file="$(mktemp)"
+  if ! download_bootstrap_project_archive "$archive_file"; then
+    rm -f "$archive_file"
+    printf ""
+    return
+  fi
+
+  rm -rf "$bootstrap_dir"
+  mkdir -p "$bootstrap_dir"
+  if ! tar -xzf "$archive_file" -C "$bootstrap_dir" --strip-components=1; then
+    rm -f "$archive_file"
+    rm -rf "$bootstrap_dir"
+    printf ""
+    return
+  fi
+  rm -f "$archive_file"
+
+  if ! is_convex_project_dir "$bootstrap_dir"; then
+    rm -rf "$bootstrap_dir"
+    printf ""
+    return
+  fi
+
+  printf "%s\n" "$cache_key" > "$version_file"
+  printf "%s" "$bootstrap_dir"
+}
+
 resolve_project_dir() {
   if [[ -n "${EXECUTOR_PROJECT_DIR:-}" ]] && is_convex_project_dir "$EXECUTOR_PROJECT_DIR"; then
     printf "%s" "$EXECUTOR_PROJECT_DIR"
@@ -533,8 +601,12 @@ stop_existing_services
 install_web_bundle
 PROJECT_DIR="$(resolve_project_dir)"
 
+if [[ -z "$PROJECT_DIR" ]]; then
+  PROJECT_DIR="$(prepare_release_bootstrap_project)"
+fi
+
 if [[ -n "$PROJECT_DIR" ]]; then
-  echo -e "${MUTED}Detected local Convex project${NC} $PROJECT_DIR"
+  echo -e "${MUTED}Detected Convex project${NC} $PROJECT_DIR"
 else
   echo -e "${MUTED}No local Convex project detected from current directory${NC}"
 fi

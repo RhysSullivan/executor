@@ -78,7 +78,6 @@ function assertSuccess(result: CommandResult, label: string): void {
 
 test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   const repoRoot = repositoryRoot();
-  const installCwd = path.dirname(repoRoot);
   const installScript = path.join(repoRoot, "install");
   const binaryPath = path.join(repoRoot, "dist", "executor");
 
@@ -92,6 +91,8 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   }
 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "executor-install-e2e-"));
+  const installCwd = path.join(tempRoot, "workdir");
+  const bootstrapArchive = path.join(tempRoot, "bootstrap-project.tar.gz");
   const homeDir = path.join(tempRoot, "home");
   const executorHome = path.join(homeDir, ".executor");
   const installDir = path.join(executorHome, "bin");
@@ -114,9 +115,31 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
     EXECUTOR_BACKEND_PORT: backendPort,
     EXECUTOR_BACKEND_SITE_PORT: sitePort,
     EXECUTOR_WEB_PORT: webPort,
+    EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE: bootstrapArchive,
   };
 
   try {
+    await fs.mkdir(installCwd, { recursive: true });
+
+    const archiveSource = await runCommand([
+      "tar",
+      "--exclude=.git",
+      "--exclude=node_modules",
+      "--exclude=dist",
+      "--exclude=.next",
+      "--exclude=.turbo",
+      "-czf",
+      bootstrapArchive,
+      "-C",
+      path.dirname(repoRoot),
+      path.basename(repoRoot),
+    ], {
+      cwd: repoRoot,
+      env,
+      timeoutMs: 300_000,
+    });
+    assertSuccess(archiveSource, "create bootstrap project archive");
+
     const preUninstall = await runCommand(["bash", path.join(repoRoot, "uninstall"), "--yes"], {
       cwd: repoRoot,
       env,
