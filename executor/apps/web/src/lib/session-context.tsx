@@ -30,6 +30,7 @@ import {
   readStoredSessionId,
   readWorkspaceByAccount,
 } from "@/lib/session-storage";
+import { clearAnonymousAuth } from "@/lib/anonymous-auth";
 import type { AnonymousContext } from "./types";
 import type { Id } from "@executor/convex/_generated/dataModel";
 
@@ -177,6 +178,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const resetWorkspace = useCallback(async () => {
     clearSessionStorage();
+    clearAnonymousAuth({ clearActor: true });
     setStoredSessionId(null);
     setActiveWorkspaceId(null);
     setManualGuestContext(null);

@@ -57,7 +57,7 @@ Default source-dev endpoints:
 - Web UI: `http://localhost:4312`
 - Convex HTTP MCP routes:
   - `<CONVEX_SITE_URL>/mcp` (WorkOS / external OAuth)
-  - `<CONVEX_SITE_URL>/mcp/anonymous` (anonymous trial mode, no OAuth)
+  - `<CONVEX_SITE_URL>/mcp/anonymous` (anonymous bearer-token mode)
 
 ## Binary Install (No Global Bun/Node/Convex Required)
 
@@ -131,12 +131,13 @@ Manual GitHub release (recommended):
 Convex HTTP routes (`packages/convex/http.ts`) expose:
 
 - `/mcp` (direct Convex MCP transport for WorkOS / external OAuth)
-- `/mcp/anonymous` (direct Convex MCP transport for anonymous trial mode)
+- `/mcp/anonymous` (direct Convex MCP transport for anonymous bearer tokens)
 - `/.well-known/oauth-protected-resource`
 - `/.well-known/oauth-authorization-server`
 - `/internal/runs/:runId/tool-call`
 
 MCP bearer-token verification is enabled on `/mcp` when `MCP_AUTHORIZATION_SERVER` / `MCP_AUTHORIZATION_SERVER_URL` is configured.
+Anonymous bearer tokens can be minted from `/auth/anonymous/token` (and verified by `/.well-known/jwks.json`).
 
 ## Configuration Reference
 
@@ -221,6 +222,6 @@ executor/
 ## Troubleshooting
 
 - `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER`.
-- `400` on `/mcp` with `anon_*` context: use `/mcp/anonymous` instead.
+- `401` on `/mcp/anonymous`: pass `Authorization: Bearer <anonymous token>` from `/auth/anonymous/token`.
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
 - Release build missing web archive files: run `bun run build:release` and verify `executor/dist/release/` contains all expected `executor-web-*.tar.gz` assets.
