@@ -28,6 +28,7 @@ export interface SerializedTool {
         url: string;
         transport?: "sse" | "streamable-http";
         queryParams?: Record<string, string>;
+        authHeaders: Record<string, string>;
         toolName: string;
       }
     | PostmanSerializedRunSpec
@@ -57,8 +58,16 @@ function resolveSerializedRunSpec(tool: ToolDefinition): SerializedTool["runSpec
   return runSpec ?? { kind: "builtin" };
 }
 
-function buildMcpConnectionKey(url: string, transport?: "sse" | "streamable-http"): string {
-  return `${url}|${transport ?? ""}`;
+function buildMcpConnectionKey(
+  url: string,
+  transport: "sse" | "streamable-http" | undefined,
+  headers: Record<string, string>,
+): string {
+  const headerEntries = Object.entries(headers)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}:${value}`)
+    .join("|");
+  return `${url}|${transport ?? ""}|${headerEntries}`;
 }
 
 function getOrCreateMcpConnection(
@@ -137,14 +146,19 @@ export function rehydrateTools(
 
     if (st.runSpec.kind === "mcp") {
       const { url, transport, queryParams, toolName } = st.runSpec;
+      const authHeaders = st.runSpec.authHeaders ?? {};
       return {
         ...base,
-        run: async (input: unknown) => {
-          const connKey = buildMcpConnectionKey(url, transport);
+        run: async (input: unknown, context) => {
+          const mergedHeaders = {
+            ...authHeaders,
+            ...(context.credential?.headers ?? {}),
+          };
+          const connKey = buildMcpConnectionKey(url, transport, mergedHeaders);
           let conn = await getOrCreateMcpConnection(
             mcpConnections,
             connKey,
-            () => connectMcp(url, queryParams, transport),
+            () => connectMcp(url, queryParams, transport, mergedHeaders),
           );
 
           const payload = asRecord(input);
@@ -156,7 +170,7 @@ export function rehydrateTools(
               } catch {
                 // ignore
               }
-              const newConnPromise = connectMcp(url, queryParams, transport);
+              const newConnPromise = connectMcp(url, queryParams, transport, mergedHeaders);
               mcpConnections.set(connKey, { promise: newConnPromise });
               conn = await newConnPromise;
               return await conn.client.callTool({ name: toolName, arguments: payload });

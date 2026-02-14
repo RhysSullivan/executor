@@ -1,5 +1,6 @@
-import { KeyRound, LockKeyhole, ShieldCheck, UserRound } from "lucide-react";
+import { KeyRound, LockKeyhole, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -25,6 +26,10 @@ export type SourceAuthPanelModel = {
   specStatus: "idle" | "detecting" | "ready" | "error";
   inferredSpecAuth: InferredSpecAuth | null;
   specError: string;
+  mcpOAuthStatus: "idle" | "checking" | "oauth" | "none" | "error";
+  mcpOAuthDetail: string;
+  mcpOAuthAuthorizationServers: string[];
+  mcpOAuthConnected: boolean;
   authType: Exclude<SourceAuthType, "mixed">;
   authScope: CredentialScope;
   apiKeyHeader: string;
@@ -51,7 +56,7 @@ function inferredAuthBadge(inferredSpecAuth: InferredSpecAuth | null): string | 
   if (inferredSpecAuth.type === "bearer") {
     return "Bearer";
   }
-  return "No auth";
+  return null;
 }
 
 export function SourceAuthPanel({
@@ -59,17 +64,25 @@ export function SourceAuthPanel({
   onAuthTypeChange,
   onAuthScopeChange,
   onFieldChange,
+  onMcpOAuthConnect,
+  mcpOAuthBusy = false,
 }: {
   model: SourceAuthPanelModel;
   onAuthTypeChange: (value: Exclude<SourceAuthType, "mixed">) => void;
   onAuthScopeChange: (value: CredentialScope) => void;
   onFieldChange: (field: SourceAuthPanelEditableField, value: string) => void;
+  onMcpOAuthConnect?: () => void;
+  mcpOAuthBusy?: boolean;
 }) {
   const {
     sourceType,
     specStatus,
     inferredSpecAuth,
     specError,
+    mcpOAuthStatus,
+    mcpOAuthDetail,
+    mcpOAuthAuthorizationServers,
+    mcpOAuthConnected,
     authType,
     authScope,
     apiKeyHeader,
@@ -80,50 +93,51 @@ export function SourceAuthPanel({
     hasExistingCredential,
   } = model;
 
-  if (sourceType !== "openapi" && sourceType !== "graphql") {
+  if (sourceType !== "openapi" && sourceType !== "graphql" && sourceType !== "mcp") {
     return null;
   }
 
   const badge = inferredAuthBadge(inferredSpecAuth);
-  const scopeHint = authScope === "workspace" ? "Shared with workspace" : "Private to your user";
-
   return (
-    <div className="rounded-xl border border-border/70 bg-gradient-to-br from-muted/60 via-muted/30 to-background p-3 space-y-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="space-y-1">
-          <div className="flex items-center gap-1.5 text-xs font-medium">
-            <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-            Authentication
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Configure runtime and spec access credentials together.
-          </p>
-        </div>
-        {sourceType === "openapi" ? (
-          <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
-            {specStatus === "detecting"
-              ? "Inspecting"
-              : specStatus === "ready"
-                ? "Schema ready"
-                : specStatus === "error"
-                  ? "Schema error"
-                  : "Awaiting URL"}
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
-            GraphQL
-          </Badge>
-        )}
-      </div>
+    <div className="space-y-3">
 
       {sourceType === "openapi" ? (
         <div className="flex items-center gap-2 flex-wrap">
+          {specStatus !== "ready" && specStatus !== "detecting" ? (
+            <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
+              {specStatus === "error" ? "Schema error" : "Awaiting URL"}
+            </Badge>
+          ) : null}
           {badge ? (
             <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
               {badge}
             </Badge>
           ) : null}
           {specError ? <span className="text-[10px] text-terminal-amber">{specError}</span> : null}
+        </div>
+      ) : null}
+
+      {sourceType === "mcp" ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
+            {mcpOAuthStatus === "idle"
+              ? "Awaiting URL"
+              : mcpOAuthStatus === "checking"
+              ? "Checking OAuth"
+              : mcpOAuthStatus === "oauth"
+                ? "OAuth detected"
+                : mcpOAuthStatus === "error"
+                  ? "OAuth unknown"
+                  : "No OAuth metadata"}
+          </Badge>
+          {mcpOAuthAuthorizationServers.length > 0 ? (
+            <span className="text-[10px] text-muted-foreground">
+              {mcpOAuthAuthorizationServers[0]}
+            </span>
+          ) : null}
+          {mcpOAuthStatus === "error" && mcpOAuthDetail ? (
+            <span className="text-[10px] text-terminal-amber">{mcpOAuthDetail}</span>
+          ) : null}
         </div>
       ) : null}
 
@@ -158,9 +172,31 @@ export function SourceAuthPanel({
               <SelectItem value="actor" className="text-xs">Only me</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-[10px] text-muted-foreground">{scopeHint}</p>
         </div>
       </div>
+
+      {sourceType === "mcp" && authType === "bearer" && onMcpOAuthConnect ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-muted-foreground">OAuth</Label>
+            {mcpOAuthConnected ? (
+              <Badge variant="outline" className="text-[10px] uppercase tracking-wider text-terminal-green">
+                Connected
+              </Badge>
+            ) : null}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            disabled={mcpOAuthBusy}
+            onClick={onMcpOAuthConnect}
+          >
+            {mcpOAuthBusy ? "Connecting..." : mcpOAuthConnected ? "Reconnect OAuth" : "Connect OAuth in popup"}
+          </Button>
+        </div>
+      ) : null}
 
       {authType === "apiKey" ? (
         <div className="space-y-1.5">

@@ -6,6 +6,7 @@ export interface McpToolSourceConfig {
   sourceId?: string;
   sourceKey?: string;
   url: string;
+  auth?: OpenApiAuth;
   transport?: "sse" | "streamable-http";
   queryParams?: Record<string, string>;
   defaultApproval?: ToolApprovalMode;

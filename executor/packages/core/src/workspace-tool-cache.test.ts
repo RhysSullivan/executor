@@ -256,6 +256,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
         kind: "mcp" as const,
         url: "https://mcp.example.com/sse",
         transport: "sse" as const,
+        authHeaders: {},
         toolName: "some_tool",
       },
       run: async () => "mock",

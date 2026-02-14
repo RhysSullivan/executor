@@ -17,6 +17,7 @@ import { convexApi } from "@/lib/convex-api";
 import type { CredentialRecord, ToolSourceRecord } from "@/lib/types";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
+import { startMcpOAuthPopup } from "@/lib/mcp-oauth-popup";
 import {
   CatalogViewSection,
   CustomViewSection,
@@ -49,6 +50,7 @@ export function AddSourceDialog({
   const credentialsLoading = Boolean(context) && credentials === undefined;
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [mcpOAuthBusy, setMcpOAuthBusy] = useState(false);
   const form = useAddSourceFormState({
     open,
     sourceToEdit,
@@ -100,6 +102,7 @@ export function AddSourceDialog({
           mcpTransport: form.mcpTransport,
           authType: form.authType,
           authScope: form.authScope,
+          apiKeyHeader: form.apiKeyHeader,
           existingScopedCredential: form.existingScopedCredential,
           buildAuthConfig: form.buildAuthConfig,
           hasCredentialInput: form.hasCredentialInput,
@@ -126,6 +129,31 @@ export function AddSourceDialog({
       toast.error(err instanceof Error ? err.message : sourceToEdit ? "Failed to update source" : "Failed to add source");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleMcpOAuthConnect = async () => {
+    if (form.type !== "mcp") {
+      return;
+    }
+    const endpoint = form.endpoint.trim();
+    if (!endpoint) {
+      toast.error("Enter an MCP endpoint URL first");
+      return;
+    }
+
+    setMcpOAuthBusy(true);
+    try {
+      const result = await startMcpOAuthPopup(endpoint);
+      if (form.authType !== "bearer") {
+        form.handleAuthTypeChange("bearer");
+      }
+      form.handleAuthFieldChange("tokenValue", result.accessToken);
+      toast.success("OAuth linked. Bearer token populated.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to connect OAuth");
+    } finally {
+      setMcpOAuthBusy(false);
     }
   };
 
@@ -194,6 +222,10 @@ export function AddSourceDialog({
                   specStatus: form.specStatus,
                   inferredSpecAuth: form.inferredSpecAuth,
                   specError: form.specError,
+                  mcpOAuthStatus: form.mcpOAuthStatus,
+                  mcpOAuthDetail: form.mcpOAuthDetail,
+                  mcpOAuthAuthorizationServers: form.mcpOAuthAuthorizationServers,
+                  mcpOAuthConnected: form.mcpOAuthConnected,
                   authType: form.authType,
                   authScope: form.authScope,
                   apiKeyHeader: form.apiKeyHeader,
@@ -201,11 +233,15 @@ export function AddSourceDialog({
                   apiKeyValue: form.apiKeyValue,
                   basicUsername: form.basicUsername,
                   basicPassword: form.basicPassword,
-                  hasExistingCredential: Boolean(form.existingScopedCredential),
+                  hasExistingCredential: form.type === "mcp"
+                    ? form.hasPersistedMcpBearerToken
+                    : Boolean(form.existingScopedCredential),
                 }}
                 onAuthTypeChange={form.handleAuthTypeChange}
                 onAuthScopeChange={form.handleAuthScopeChange}
                 onFieldChange={form.handleAuthFieldChange}
+                onMcpOAuthConnect={form.type === "mcp" ? handleMcpOAuthConnect : undefined}
+                mcpOAuthBusy={mcpOAuthBusy}
               />
             </CustomViewSection>
           )}

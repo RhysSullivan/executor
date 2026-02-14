@@ -69,6 +69,7 @@ export function normalizeExternalToolSource(raw: {
       sourceId: raw.id,
       sourceKey: `source:${raw.id}`,
       url: config.url,
+      auth: config.auth as McpToolSourceConfig["auth"],
       transport: config.transport as McpToolSourceConfig["transport"],
       queryParams: config.queryParams as McpToolSourceConfig["queryParams"],
       defaultApproval: config.defaultApproval as McpToolSourceConfig["defaultApproval"],

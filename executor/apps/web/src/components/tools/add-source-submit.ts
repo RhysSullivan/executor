@@ -36,6 +36,7 @@ type SaveFormSnapshot = {
   mcpTransport: "auto" | "streamable-http" | "sse";
   authType: Exclude<SourceAuthType, "mixed">;
   authScope: CredentialScope;
+  apiKeyHeader: string;
   existingScopedCredential: CredentialRecord | null;
   buildAuthConfig: () => Record<string, unknown> | undefined;
   hasCredentialInput: () => boolean;
@@ -57,9 +58,49 @@ export async function saveSourceWithCredentials({
   upsertToolSource: UpsertToolSourceFn;
   upsertCredential: UpsertCredentialFn;
 }): Promise<{ source: ToolSourceRecord; connected: boolean }> {
-  const authConfig = form.type === "openapi" || form.type === "graphql"
-    ? form.buildAuthConfig()
-    : undefined;
+  let authConfig: Record<string, unknown> | undefined;
+  if (form.type === "mcp") {
+    if (form.authType === "none") {
+      authConfig = { type: "none" };
+    } else if (form.hasCredentialInput()) {
+      const secret = form.buildSecretJson();
+      if (!secret.value) {
+        throw new Error(secret.error ?? "Credential values are required");
+      }
+      if (form.authType === "bearer") {
+        authConfig = {
+          type: "bearer",
+          mode: "static",
+          token: String(secret.value.token ?? "").trim(),
+        };
+      } else if (form.authType === "apiKey") {
+        authConfig = {
+          type: "apiKey",
+          mode: "static",
+          header: form.apiKeyHeader.trim() || "x-api-key",
+          value: String(secret.value.value ?? "").trim(),
+        };
+      } else {
+        authConfig = {
+          type: "basic",
+          mode: "static",
+          username: String(secret.value.username ?? ""),
+          password: String(secret.value.password ?? ""),
+        };
+      }
+    } else if (sourceToEdit?.type === "mcp") {
+      const existingAuth = sourceToEdit.config.auth as Record<string, unknown> | undefined;
+      if (existingAuth && existingAuth.type === form.authType) {
+        authConfig = existingAuth;
+      } else {
+        throw new Error("Enter credentials to finish setup");
+      }
+    } else {
+      throw new Error("Enter credentials to finish setup");
+    }
+  } else if (form.type === "openapi" || form.type === "graphql") {
+    authConfig = form.buildAuthConfig();
+  }
 
   const config = createCustomSourceConfig({
     type: form.type,
@@ -80,6 +121,10 @@ export async function saveSourceWithCredentials({
   }) as ToolSourceRecord;
 
   let linkedCredential = false;
+
+  if (form.type === "mcp" && form.authType !== "none") {
+    linkedCredential = true;
+  }
 
   if ((form.type === "openapi" || form.type === "graphql") && form.authType !== "none") {
     const sourceKey = sourceKeyForSource(created);

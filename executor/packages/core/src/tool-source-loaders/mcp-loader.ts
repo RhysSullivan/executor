@@ -2,6 +2,7 @@
 
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
 import { jsonSchemaTypeHintFallback } from "../openapi-schema-hints";
+import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool-source-auth";
 import { callMcpToolWithReconnect } from "../tool-source-execution";
 import { sanitizeSegment } from "../tool-path-utils";
 import type { McpToolSourceConfig } from "../tool-source-types";
@@ -15,11 +16,21 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
     ? Object.fromEntries(
       Object.entries(config.queryParams).map(([key, value]) => [key, String(value)]),
     )
-    : undefined;
+      : undefined;
+  const authHeaders = buildStaticAuthHeaders(config.auth);
+  const credentialSpec = buildCredentialSpec(getCredentialSourceKey(config), config.auth);
 
-  let connection = await connectMcp(config.url, queryParams, config.transport);
+  let connection = await connectMcp(config.url, queryParams, config.transport, authHeaders);
 
-  async function callToolWithReconnect(name: string, input: Record<string, unknown>): Promise<unknown> {
+  async function callToolWithReconnect(
+    name: string,
+    input: Record<string, unknown>,
+    credentialHeaders?: Record<string, string>,
+  ): Promise<unknown> {
+    const mergedHeaders = {
+      ...authHeaders,
+      ...(credentialHeaders ?? {}),
+    };
     return await callMcpToolWithReconnect(
       () => connection.client.callTool({ name, arguments: input }),
       async () => {
@@ -29,7 +40,7 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
           // ignore
         }
 
-        connection = await connectMcp(config.url, queryParams, config.transport);
+        connection = await connectMcp(config.url, queryParams, config.transport, mergedHeaders);
         return await connection.client.callTool({ name, arguments: input });
       },
     );
@@ -61,16 +72,18 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
         displayReturnsType: compactReturnTypeHint(returnsType),
         ...(argPreviewKeys.length > 0 ? { argPreviewKeys } : {}),
       },
+      credential: credentialSpec,
       _runSpec: {
         kind: "mcp" as const,
         url: config.url,
         transport: config.transport,
         queryParams: config.queryParams,
+        authHeaders,
         toolName,
       },
-      run: async (input: unknown) => {
+      run: async (input: unknown, context) => {
         const payload = asRecord(input);
-        const result = await callToolWithReconnect(toolName, payload);
+        const result = await callToolWithReconnect(toolName, payload, context.credential?.headers);
         return extractMcpResult(result);
       },
     } satisfies ToolDefinition & { _runSpec: SerializedTool["runSpec"] };
