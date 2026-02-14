@@ -4,11 +4,23 @@ import { ensureAnonymousIdentity } from "./anonymous";
 import { mapAnonymousContext } from "./readers";
 
 export const bootstrapAnonymousSession = internalMutation({
-  args: { sessionId: v.optional(v.string()) },
+  args: {
+    sessionId: v.optional(v.string()),
+    actorId: v.optional(v.string()),
+    clientId: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const now = Date.now();
     const requestedSessionId = args.sessionId?.trim() || "";
-    const allowRequestedSessionId = requestedSessionId?.startsWith("mcp_") ?? false;
+    const requestedActorId = args.actorId?.trim() || "";
+    const clientId = args.clientId?.trim() || "web";
+
+    if (requestedActorId && !requestedActorId.startsWith("anon_")) {
+      throw new Error("actorId must be an anonymous actor");
+    }
+
+    const allowRequestedSessionId = requestedSessionId.startsWith("mcp_")
+      || requestedSessionId.startsWith("anon_session_");
 
     if (requestedSessionId) {
       const sessionId = requestedSessionId;
@@ -20,11 +32,13 @@ export const bootstrapAnonymousSession = internalMutation({
         const identity = await ensureAnonymousIdentity(ctx, {
           sessionId,
           workspaceId: existing.workspaceId,
-          actorId: existing.actorId,
+          actorId: requestedActorId || existing.actorId,
           timestamp: now,
         });
 
         await ctx.db.patch(existing._id, {
+          actorId: requestedActorId || existing.actorId,
+          clientId,
           workspaceId: identity.workspaceId,
           accountId: identity.accountId,
           userId: identity.userId,
@@ -43,13 +57,12 @@ export const bootstrapAnonymousSession = internalMutation({
     }
 
     const generatedSessionId = allowRequestedSessionId
-      ? `mcp_${crypto.randomUUID()}`
+      ? (requestedSessionId.startsWith("mcp_") ? `mcp_${crypto.randomUUID()}` : `anon_session_${crypto.randomUUID()}`)
       : `anon_session_${crypto.randomUUID()}`;
     const sessionId = allowRequestedSessionId
       ? requestedSessionId as string
       : generatedSessionId;
-    const actorId = `anon_${crypto.randomUUID()}`;
-    const clientId = "web";
+    const actorId = requestedActorId || `anon_${crypto.randomUUID()}`;
 
     const identity = await ensureAnonymousIdentity(ctx, {
       sessionId,

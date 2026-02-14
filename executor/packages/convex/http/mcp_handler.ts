@@ -1,6 +1,7 @@
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { handleMcpRequest, type McpWorkspaceContext } from "../../core/src/mcp-server";
+import { isAnonymousIdentity } from "../auth/anonymous";
 import {
   getMcpAuthConfig,
   isAnonymousSessionId,
@@ -41,56 +42,34 @@ function createMcpHandler(mode: McpEndpointMode) {
           );
         }
 
-        const requestedSessionId = requestedContext?.sessionId;
-        const requestedActorId = requestedContext?.actorId?.trim();
-
-        if (requestedSessionId && !isAnonymousSessionId(requestedSessionId)) {
+        if (requestedContext?.sessionId || requestedContext?.actorId) {
           return Response.json(
-            { error: "sessionId for /mcp/anonymous must be an anonymous session" },
+            {
+              error:
+                "Legacy anonymous context query params are disabled. Use Authorization: Bearer <anonymous token>.",
+            },
             { status: 400 },
           );
         }
 
-        if (requestedSessionId) {
-          const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-            workspaceId,
-            sessionId: requestedSessionId,
-          });
-
-          if (access.provider !== "anonymous") {
-            return Response.json({ error: "Anonymous MCP endpoint requires an anonymous session" }, { status: 403 });
-          }
-
-          if (requestedActorId && requestedActorId !== access.actorId) {
-            return Response.json({ error: "actorId does not match the provided anonymous session" }, { status: 403 });
-          }
-
-          context = {
-            workspaceId,
-            actorId: access.actorId,
-            clientId: requestedContext?.clientId,
-            sessionId: requestedSessionId,
-          };
-        } else {
-          if (!requestedActorId || !requestedActorId.startsWith("anon_")) {
-            return Response.json(
-              { error: "actorId query parameter is required for /mcp/anonymous when sessionId is omitted" },
-              { status: 400 },
-            );
-          }
-
-          const ensured = await ctx.runMutation(internal.database.ensureAnonymousMcpSession, {
-            workspaceId,
-            actorId: requestedActorId,
-          });
-
-          context = {
-            workspaceId,
-            actorId: ensured.actorId,
-            clientId: requestedContext?.clientId,
-            sessionId: ensured.sessionId,
-          };
+        const identity = await ctx.auth.getUserIdentity().catch(() => null);
+        if (!identity || !isAnonymousIdentity(identity)) {
+          return Response.json(
+            { error: "Anonymous bearer token is required for /mcp/anonymous" },
+            { status: 401 },
+          );
         }
+
+        const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAnonymousSubject, {
+          workspaceId,
+          actorId: identity.subject,
+        });
+
+        context = {
+          workspaceId,
+          actorId: access.actorId,
+          clientId: requestedContext?.clientId,
+        };
       } catch (error) {
         return Response.json(
           { error: error instanceof Error ? error.message : "Workspace authorization failed" },

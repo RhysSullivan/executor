@@ -1,9 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronRight, Copy } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MCP_PROVIDERS } from "@/components/tools/install-configs";
+import { getAnonymousAuthToken } from "@/lib/anonymous-auth";
+import { cn } from "@/lib/utils";
 
 function inferServerName(workspaceId?: string): string {
   if (!workspaceId) return "executor";
@@ -49,15 +56,16 @@ function resolveMcpOrigin(windowOrigin: string): string {
 
 export function McpSetupCard({
   workspaceId,
-  actorId,
   sessionId,
 }: {
   workspaceId?: string;
-  actorId?: string;
   sessionId?: string;
 }) {
   const [selectedProviderId, setSelectedProviderId] = useState(MCP_PROVIDERS[0]?.id ?? "claude-code");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [headersOpen, setHeadersOpen] = useState(false);
+  const [anonymousAccessToken, setAnonymousAccessToken] = useState<string | null>(null);
+  const [anonymousTokenError, setAnonymousTokenError] = useState<string | null>(null);
 
   const origin = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -69,13 +77,52 @@ export function McpSetupCard({
     const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp";
     const base = origin ? new URL(mcpPath, origin) : new URL(`http://localhost${mcpPath}`);
     if (workspaceId) base.searchParams.set("workspaceId", workspaceId);
-    if (isAnonymousSession && actorId) base.searchParams.set("actorId", actorId);
     if (!isAnonymousSession && sessionId) base.searchParams.set("sessionId", sessionId);
     if (!origin) {
       return `${base.pathname}${base.search}`;
     }
     return base.toString();
-  }, [origin, workspaceId, actorId, sessionId]);
+  }, [origin, workspaceId, sessionId]);
+
+  const isAnonymousSession = isAnonymousSessionId(sessionId);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isAnonymousSession) {
+      setAnonymousAccessToken(null);
+      setAnonymousTokenError(null);
+      return;
+    }
+
+    const hydrateToken = async () => {
+      try {
+        const token = await getAnonymousAuthToken();
+        if (!cancelled) {
+          setAnonymousAccessToken(token.accessToken);
+          setAnonymousTokenError(null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAnonymousAccessToken(null);
+          setAnonymousTokenError(error instanceof Error ? error.message : "Failed to get anonymous token");
+        }
+      }
+    };
+
+    void hydrateToken();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAnonymousSession, sessionId]);
+
+  const headerLines = useMemo(() => {
+    return [
+      `Authorization: Bearer ${anonymousAccessToken ?? "<loading anonymous token...>"}`,
+      "Accept: application/json, text/event-stream",
+    ];
+  }, [anonymousAccessToken]);
 
   const provider = MCP_PROVIDERS.find((item) => item.id === selectedProviderId) ?? MCP_PROVIDERS[0];
   if (!provider) {
@@ -114,6 +161,41 @@ export function McpSetupCard({
             {copiedKey === "url" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </Button>
         </div>
+
+        {isAnonymousSession && (
+          <Collapsible open={headersOpen} onOpenChange={setHeadersOpen}>
+            <div className="mt-2">
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[10px] text-muted-foreground">
+                  <ChevronRight
+                    className={cn("mr-1 h-3 w-3 transition-transform", headersOpen && "rotate-90")}
+                  />
+                  {headersOpen ? "Hide headers" : "Set these headers also"}
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+
+            <CollapsibleContent className="mt-1.5">
+              <div className="rounded-md border border-border/60 bg-background/70 px-2.5 py-2 space-y-2">
+                <div className="flex items-center justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px]"
+                    onClick={() => void copyText("headers", headerLines.join("\n"))}
+                  >
+                    {copiedKey === "headers" ? "Copied" : "Copy headers"}
+                  </Button>
+                </div>
+                <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-foreground">
+                  <code>{headerLines.join("\n")}</code>
+                </pre>
+                {anonymousTokenError && <p className="text-[10px] text-destructive">{anonymousTokenError}</p>}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        )}
       </div>
 
       <div className="space-y-1.5">

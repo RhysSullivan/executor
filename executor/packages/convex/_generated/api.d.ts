@@ -493,7 +493,7 @@ export declare const internal: {
       bootstrapAnonymousSession: FunctionReference<
         "mutation",
         "internal",
-        { sessionId?: string },
+        { actorId?: string; clientId?: string; sessionId?: string },
         any
       >;
       ensureAnonymousMcpSession: FunctionReference<
@@ -552,7 +552,7 @@ export declare const internal: {
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
       "internal",
-      { sessionId?: string },
+      { actorId?: string; clientId?: string; sessionId?: string },
       any
     >;
     createApproval: FunctionReference<
@@ -1227,6 +1227,12 @@ export declare const internal: {
     >;
   };
   workspaceAuthInternal: {
+    getWorkspaceAccessForAnonymousSubject: FunctionReference<
+      "query",
+      "internal",
+      { actorId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     getWorkspaceAccessForRequest: FunctionReference<
       "query",
       "internal",

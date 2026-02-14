@@ -62,7 +62,6 @@ export function DashboardView() {
           <CardContent className="pt-0">
             <McpSetupCard
               workspaceId={context?.workspaceId}
-              actorId={context?.actorId}
               sessionId={context?.sessionId}
             />
           </CardContent>

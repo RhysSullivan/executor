@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
+import { isAnonymousIdentity } from "../../convex/auth/anonymous";
 
 type IdentityCtx = Pick<QueryCtx, "auth" | "db"> | Pick<MutationCtx, "auth" | "db">;
 type MembershipCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;
@@ -34,29 +35,27 @@ export function slugify(input: string, fallback = "team"): string {
 
 export async function resolveAccountForRequest(
   ctx: IdentityCtx,
-  sessionId?: string,
+  _sessionId?: string,
 ): Promise<Doc<"accounts"> | null> {
   const identity = await ctx.auth.getUserIdentity();
   if (identity) {
-    const fromAccounts = await ctx.db
+    if (isAnonymousIdentity(identity)) {
+      const anonymousAccount = await ctx.db
+        .query("accounts")
+        .withIndex("by_provider", (q) => q.eq("provider", "anonymous").eq("providerAccountId", identity.subject))
+        .unique();
+      if (anonymousAccount) {
+        return anonymousAccount;
+      }
+    }
+
+    const workosAccount = await ctx.db
       .query("accounts")
       .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", identity.subject))
       .unique();
-    if (fromAccounts) {
-      return fromAccounts;
+    if (workosAccount) {
+      return workosAccount;
     }
-  }
-
-  if (!sessionId) {
-    return null;
-  }
-
-  const anonymous = await ctx.db
-    .query("anonymousSessions")
-    .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
-    .unique();
-  if (anonymous?.accountId) {
-    return await ctx.db.get(anonymous.accountId);
   }
 
   return null;

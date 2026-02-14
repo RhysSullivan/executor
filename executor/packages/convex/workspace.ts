@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { workspaceMutation, workspaceQuery } from "../core/src/function-builders";
+import { isAnonymousIdentity } from "./auth/anonymous";
 
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
@@ -17,8 +18,26 @@ function redactCredential<T extends { secretJson: Record<string, unknown> }>(cre
 
 export const bootstrapAnonymousSession = mutation({
   args: { sessionId: v.optional(v.string()) },
-  handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.bootstrapAnonymousSession, args);
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Anonymous auth token is required");
+    }
+
+    if (!isAnonymousIdentity(identity)) {
+      throw new Error("Anonymous auth token is required");
+    }
+
+    const actorId = identity.subject;
+    if (!actorId.startsWith("anon_")) {
+      throw new Error("Anonymous token subject must use anon_* actor ids");
+    }
+    const stableSessionId = `anon_session_${actorId}`;
+    return await ctx.runMutation(internal.database.bootstrapAnonymousSession, {
+      sessionId: stableSessionId,
+      actorId,
+      clientId: "web",
+    });
   },
 });
 
