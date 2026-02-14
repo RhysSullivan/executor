@@ -18,9 +18,13 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
     )
       : undefined;
   const authHeaders = buildStaticAuthHeaders(config.auth);
+  const discoveryHeaders = {
+    ...authHeaders,
+    ...(config.discoveryHeaders ?? {}),
+  };
   const credentialSpec = buildCredentialSpec(getCredentialSourceKey(config), config.auth);
 
-  let connection = await connectMcp(config.url, queryParams, config.transport, authHeaders);
+  let connection = await connectMcp(config.url, queryParams, config.transport, discoveryHeaders);
 
   async function callToolWithReconnect(
     name: string,
@@ -28,7 +32,7 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
     credentialHeaders?: Record<string, string>,
   ): Promise<unknown> {
     const mergedHeaders = {
-      ...authHeaders,
+      ...discoveryHeaders,
       ...(credentialHeaders ?? {}),
     };
     return await callMcpToolWithReconnect(

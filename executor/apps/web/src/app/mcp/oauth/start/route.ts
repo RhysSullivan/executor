@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { getExternalOrigin, isExternalHttps } from "@/lib/mcp-oauth-request";
+import { parseMcpSourceUrl } from "@/lib/mcp-oauth-url";
 import {
   buildPendingCookieName,
   createOAuthState,
@@ -12,15 +14,6 @@ import {
   type McpOAuthPopupResult,
 } from "@/lib/mcp-oauth-provider";
 
-function getExternalOrigin(request: NextRequest): string {
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
-  if (host && proto) {
-    return `${proto}://${host}`;
-  }
-  return request.nextUrl.origin;
-}
-
 function popupResultRedirect(request: NextRequest, payload: McpOAuthPopupResult): NextResponse {
   const externalOrigin = getExternalOrigin(request);
   const response = NextResponse.redirect(`${externalOrigin}/mcp/oauth/complete`);
@@ -28,7 +21,7 @@ function popupResultRedirect(request: NextRequest, payload: McpOAuthPopupResult)
     name: MCP_OAUTH_RESULT_COOKIE,
     value: encodePopupResultCookieValue(payload),
     httpOnly: true,
-    secure: request.nextUrl.protocol === "https:",
+    secure: isExternalHttps(request),
     sameSite: "lax",
     maxAge: 2 * 60,
     path: "/",
@@ -59,9 +52,9 @@ export async function GET(request: NextRequest) {
     return badPopupResponse(request, "Missing sourceUrl");
   }
 
-  const sourceUrlResult = Result.try(() => new URL(sourceUrlRaw));
+  const sourceUrlResult = parseMcpSourceUrl(sourceUrlRaw);
   if (!sourceUrlResult.isOk()) {
-    return badPopupResponse(request, "Invalid sourceUrl");
+    return badPopupResponse(request, resultErrorMessage(sourceUrlResult.error, "Invalid sourceUrl"));
   }
   const sourceUrl = sourceUrlResult.value;
 
@@ -104,7 +97,7 @@ export async function GET(request: NextRequest) {
     name: buildPendingCookieName(state),
     value: pendingCookie,
     httpOnly: true,
-    secure: request.nextUrl.protocol === "https:",
+    secure: isExternalHttps(request),
     sameSite: "lax",
     maxAge: 10 * 60,
     path: "/",

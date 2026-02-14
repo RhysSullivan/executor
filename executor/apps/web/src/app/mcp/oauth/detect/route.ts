@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Result } from "better-result";
 import { discoverOAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/client/auth.js";
+import { parseMcpSourceUrl } from "@/lib/mcp-oauth-url";
 
 type DetectResponse = {
   oauth: boolean;
@@ -37,9 +38,16 @@ export async function GET(request: NextRequest) {
     return noStoreJson({ oauth: false, authorizationServers: [], detail: "Missing sourceUrl" }, 400);
   }
 
-  const sourceUrlResult = Result.try(() => new URL(sourceUrlRaw));
+  const sourceUrlResult = parseMcpSourceUrl(sourceUrlRaw);
   if (!sourceUrlResult.isOk()) {
-    return noStoreJson({ oauth: false, authorizationServers: [], detail: "Invalid sourceUrl" }, 400);
+    return noStoreJson(
+      {
+        oauth: false,
+        authorizationServers: [],
+        detail: resultErrorMessage(sourceUrlResult.error, "Invalid sourceUrl"),
+      },
+      400,
+    );
   }
   const sourceUrl = sourceUrlResult.value;
 

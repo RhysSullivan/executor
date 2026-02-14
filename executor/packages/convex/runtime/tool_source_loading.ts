@@ -2,20 +2,25 @@
 
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import {
   compileExternalToolSource,
   compileOpenApiToolSourceFromPrepared,
   prepareOpenApiSpec,
   type CompiledToolSourceArtifact,
 } from "../../core/src/tool-sources";
+import { resolveCredentialPayload } from "../../core/src/credential-providers";
+import { buildStaticAuthHeaders } from "../../core/src/tool-source-auth";
 import type {
   ExternalToolSourceConfig,
   GraphqlToolSourceConfig,
   McpToolSourceConfig,
+  OpenApiAuth,
   OpenApiToolSourceConfig,
   PreparedOpenApiSpec,
 } from "../../core/src/tool-source-types";
 import type { ToolSourceRecord } from "../../core/src/types";
+import { asPayload } from "../lib/object";
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
@@ -118,6 +123,103 @@ export function normalizeExternalToolSource(raw: {
   return result;
 }
 
+function buildHeadersFromCredentialSecret(
+  auth: OpenApiAuth,
+  secret: Record<string, unknown>,
+): Record<string, string> {
+  if (auth.type === "bearer") {
+    const token = String(secret.token ?? "").trim();
+    return token ? { authorization: `Bearer ${token}` } : {};
+  }
+
+  if (auth.type === "apiKey") {
+    const value = String(secret.value ?? secret.token ?? "").trim();
+    return value ? { [auth.header]: value } : {};
+  }
+
+  if (auth.type === "basic") {
+    const username = String(secret.username ?? "");
+    const password = String(secret.password ?? "");
+    if (!username && !password) {
+      return {};
+    }
+    const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
+    return { authorization: `Basic ${encoded}` };
+  }
+
+  return {};
+}
+
+async function resolveMcpDiscoveryHeaders(
+  ctx: ActionCtx,
+  source: McpToolSourceConfig,
+  workspaceId: Id<"workspaces">,
+  actorId?: string,
+): Promise<{ headers: Record<string, string>; warnings: string[] }> {
+  const auth = source.auth;
+  if (!auth || auth.type === "none") {
+    return { headers: {}, warnings: [] };
+  }
+
+  const mode = auth.mode ?? "static";
+  if (mode === "static") {
+    return { headers: buildStaticAuthHeaders(auth), warnings: [] };
+  }
+
+  if (!source.sourceKey) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': missing source key for MCP credential discovery`],
+    };
+  }
+
+  const record = await ctx.runQuery(internal.database.resolveCredential, {
+    workspaceId,
+    sourceKey: source.sourceKey,
+    scope: mode,
+    actorId,
+  });
+
+  if (!record) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': missing ${mode} credential for MCP discovery`],
+    };
+  }
+
+  try {
+    const secret = await resolveCredentialPayload(record);
+    if (!secret) {
+      return {
+        headers: {},
+        warnings: [`Source '${source.name}': credential payload unavailable for MCP discovery`],
+      };
+    }
+
+    const headers = buildHeadersFromCredentialSecret(auth, secret);
+    const overrideHeaders = asPayload(asPayload(record.overridesJson).headers);
+    for (const [key, value] of Object.entries(overrideHeaders)) {
+      if (!key) continue;
+      headers[key] = String(value);
+    }
+
+    if (Object.keys(headers).length === 0) {
+      return {
+        headers: {},
+        warnings: [`Source '${source.name}': credential did not produce MCP auth headers for discovery`],
+      };
+    }
+
+    return { headers, warnings: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': failed to resolve MCP credential for discovery: ${message}`],
+    };
+  }
+}
+
 async function loadCachedOpenApiSpec(
   ctx: ActionCtx,
   specUrl: string,
@@ -176,7 +278,7 @@ async function loadCachedOpenApiSpec(
 export async function loadSourceArtifact(
   ctx: ActionCtx,
   source: ExternalToolSourceConfig,
-  options: { includeDts?: boolean } = {},
+  options: { includeDts?: boolean; workspaceId: Id<"workspaces">; actorId?: string },
 ): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[] }> {
   const includeDts = options.includeDts ?? true;
 
@@ -197,14 +299,34 @@ export async function loadSourceArtifact(
     }
   }
 
+  const preWarnings: string[] = [];
+  let sourceForCompile: ExternalToolSourceConfig = source;
+
+  if (source.type === "mcp") {
+    const resolved = await resolveMcpDiscoveryHeaders(
+      ctx,
+      source,
+      options.workspaceId,
+      options.actorId,
+    );
+    preWarnings.push(...resolved.warnings);
+    sourceForCompile = {
+      ...source,
+      discoveryHeaders: resolved.headers,
+    };
+  }
+
   try {
-    const artifact = await compileExternalToolSource(source);
-    return { artifact, warnings: [] };
+    const artifact = await compileExternalToolSource(sourceForCompile);
+    return { artifact, warnings: preWarnings };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return {
       artifact: undefined,
-      warnings: [`Failed to load ${source.type} source '${source.name}': ${message}`],
+      warnings: [
+        ...preWarnings,
+        `Failed to load ${source.type} source '${source.name}': ${message}`,
+      ],
     };
   }
 }

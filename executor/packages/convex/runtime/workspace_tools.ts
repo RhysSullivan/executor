@@ -54,6 +54,7 @@ interface GetWorkspaceToolsOptions {
   sourceTimeoutMs?: number;
   allowStaleOnMismatch?: boolean;
   skipCacheRead?: boolean;
+  actorId?: string;
 }
 
 interface WorkspaceToolInventory {
@@ -154,16 +155,25 @@ export async function getWorkspaceTools(
   const includeDts = options.includeDts ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch ?? false;
-  const skipCacheRead = options.skipCacheRead ?? false;
+  const actorId = options.actorId;
   const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
     .filter((source: { enabled: boolean }) => source.enabled);
+  const hasActorScopedMcpSource = sources.some((source: { type: string; config: Record<string, unknown> }) => {
+    if (source.type !== "mcp") {
+      return false;
+    }
+    const auth = source.config.auth as Record<string, unknown> | undefined;
+    return auth?.mode === "actor";
+  });
+  const skipCacheRead = (options.skipCacheRead ?? false) || hasActorScopedMcpSource;
+  const skipCacheWrite = hasActorScopedMcpSource;
   traceStep("listToolSources", listSourcesStartedAt);
   const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
-    includeDts,
-    sourceTimeoutMs: sourceTimeoutMs ?? null,
-    skipCacheRead,
+      includeDts,
+      sourceTimeoutMs: sourceTimeoutMs ?? null,
+      skipCacheRead,
     sourceCount: sources.length,
   };
 
@@ -251,7 +261,7 @@ export async function getWorkspaceTools(
   const loadedSources = await Promise.all(configs.map(async (config) => {
     if (!sourceTimeoutMs || sourceTimeoutMs <= 0) {
       return {
-        ...(await loadSourceArtifact(ctx, config, { includeDts })),
+        ...(await loadSourceArtifact(ctx, config, { includeDts, workspaceId, actorId })),
         timedOut: false,
         sourceName: config.name,
       };
@@ -274,7 +284,7 @@ export async function getWorkspaceTools(
       }, sourceTimeoutMs);
     });
 
-    const loadResult = loadSourceArtifact(ctx, config, { includeDts })
+    const loadResult = loadSourceArtifact(ctx, config, { includeDts, workspaceId, actorId })
       .then((result) => ({ ...result, timedOut: false, sourceName: config.name }));
 
     const result = await Promise.race([loadResult, timeoutResult]);
@@ -354,18 +364,22 @@ export async function getWorkspaceTools(
       warnings,
     };
 
-    const json = JSON.stringify(snapshot);
-    const blob = new Blob([json], { type: "application/json" });
-    const storageId = await ctx.storage.store(blob);
-    await ctx.runMutation(internal.workspaceToolCache.putEntry, {
-      workspaceId,
-      signature,
-      storageId,
-      dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId })),
-      toolCount: allTools.length,
-      sizeBytes: json.length,
-    });
-    traceStep("snapshotWrite", snapshotWriteStartedAt);
+    if (!skipCacheWrite) {
+      const json = JSON.stringify(snapshot);
+      const blob = new Blob([json], { type: "application/json" });
+      const storageId = await ctx.storage.store(blob);
+      await ctx.runMutation(internal.workspaceToolCache.putEntry, {
+        workspaceId,
+        signature,
+        storageId,
+        dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId })),
+        toolCount: allTools.length,
+        sizeBytes: json.length,
+      });
+      traceStep("snapshotWrite", snapshotWriteStartedAt);
+    } else {
+      trace.push("snapshotWrite=skipped(actor-scoped-mcp)");
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.warn(`[executor] workspace tool cache write failed for '${workspaceId}': ${msg}`);
@@ -413,6 +427,7 @@ async function loadWorkspaceToolInventoryForContext(
       sourceTimeoutMs,
       allowStaleOnMismatch,
       skipCacheRead,
+      actorId: context.actorId,
     }),
     ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
   ]);

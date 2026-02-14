@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { getExternalOrigin, isExternalHttps } from "@/lib/mcp-oauth-request";
+import { parseMcpSourceUrl } from "@/lib/mcp-oauth-url";
 import {
   buildPendingCookieName,
   decodePendingCookieValue,
@@ -16,15 +18,13 @@ function popupResultRedirect(
   pendingCookieName: string | null,
   payload: McpOAuthPopupResult,
 ): NextResponse {
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
-  const origin = host && proto ? `${proto}://${host}` : request.nextUrl.origin;
+  const origin = getExternalOrigin(request);
   const response = NextResponse.redirect(`${origin}/mcp/oauth/complete`);
   response.cookies.set({
     name: MCP_OAUTH_RESULT_COOKIE,
     value: encodePopupResultCookieValue(payload),
     httpOnly: true,
-    secure: request.nextUrl.protocol === "https:",
+    secure: isExternalHttps(request),
     sameSite: "lax",
     maxAge: 2 * 60,
     path: "/",
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const sourceUrlResult = Result.try(() => new URL(pending.sourceUrl));
+  const sourceUrlResult = parseMcpSourceUrl(pending.sourceUrl);
   if (!sourceUrlResult.isOk()) {
     return popupResultRedirect(request, cookieName, { ok: false, error: "Invalid MCP source URL" });
   }
