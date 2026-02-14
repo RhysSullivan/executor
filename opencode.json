@@ -5,6 +5,11 @@
 		"type": "remote",
 		"url": "https://www.answeroverflow.com/mcp",
 		"enabled": true
+	},
+	"oracle": {
+		"type": "local",
+		"command": ["npx", "-y", "@steipete/oracle", "oracle-mcp"],
+		"enabled": true
 	}
   },
   "agent":{

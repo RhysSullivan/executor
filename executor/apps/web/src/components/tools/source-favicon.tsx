@@ -1,13 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Layers, Globe, Server } from "lucide-react";
+import Image from "next/image";
 import type { ToolSourceRecord } from "@/lib/types";
-import {
-  getSourceFaviconCandidates,
-  getSourceFaviconCandidatesForSource,
-  getSourceFaviconProxyUrl,
-} from "@/lib/tools/source-helpers";
+import { getSourceFavicon, getSourceFaviconUrl } from "@/lib/tools/source-helpers";
 
 interface SourceFaviconProps {
   source?: ToolSourceRecord;
@@ -36,58 +33,32 @@ export function SourceFavicon({
   imageSize = 20,
   fallbackType,
 }: SourceFaviconProps) {
-  const sourceFaviconCandidates = useMemo(() => {
-    if (sourceUrl) {
-      return getSourceFaviconCandidates(sourceUrl);
-    }
-
-    return source
-      ? getSourceFaviconCandidatesForSource(source)
-      : [];
-  }, [
-    source?.id,
-    source?.type,
-    source?.name,
-    sourceUrl,
-    source?.config?.url,
-    source?.config?.endpoint,
-    source?.config?.baseUrl,
-    source?.config?.collectionUrl,
-    source?.config?.specUrl,
-    source?.config?.spec,
-  ]);
-
-  const sourceFaviconCandidateKey = sourceFaviconCandidates.join("|");
-  const [faviconIndex, setFaviconIndex] = useState(0);
+  const sourceFavicon = sourceUrl
+    ? getSourceFaviconUrl(sourceUrl)
+    : source
+      ? getSourceFavicon(source)
+      : null;
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    setFaviconIndex(0);
-  }, [sourceFaviconCandidateKey]);
+    setFailed(false);
+  }, [sourceFavicon]);
 
-  const sourceFavicon = sourceFaviconCandidates[faviconIndex] ?? null;
-  const sourceFaviconSrc = sourceFavicon ? getSourceFaviconProxyUrl(sourceFavicon) : null;
-  const hasExhaustedCandidates = faviconIndex >= sourceFaviconCandidates.length;
-
-  if (!sourceFaviconSrc || hasExhaustedCandidates) {
+  if (!sourceFavicon || failed) {
     const sourceType = fallbackType ?? source?.type ?? "openapi";
     return <DefaultSourceIcon type={sourceType} className={iconClassName} />;
   }
 
-  const handleFaviconError = () => {
-    setFaviconIndex((current) => {
-      return current + 1;
-    });
-  };
-
   return (
-    <img
-      src={sourceFaviconSrc}
+    <Image
+      src={sourceFavicon}
       alt=""
       width={imageSize}
       height={imageSize}
       className={imageClassName ?? "w-full h-full object-contain"}
       loading="lazy"
-      onError={handleFaviconError}
+      unoptimized
+      onError={() => setFailed(true)}
     />
   );
 }

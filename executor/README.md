@@ -178,7 +178,20 @@ From `executor/`:
 
 ```bash
 bun test
+bun run sandbox:install:session
 ```
+
+`sandbox:install:session` starts a fresh Vercel sandbox, runs `curl -fsSL https://executor.sh/install | bash`, and prints externally reachable URLs for:
+
+- Web UI
+- Convex API port
+- Convex Site (MCP) port (`/mcp`, `/mcp/anonymous`)
+
+Useful environment overrides:
+
+- `EXECUTOR_SANDBOX_TIMEOUT_MS` (default `1800000`)
+- `EXECUTOR_SANDBOX_INSTALL_TIMEOUT_MS` (default `900000`)
+- `EXECUTOR_BACKEND_PORT`, `EXECUTOR_BACKEND_SITE_PORT`, `EXECUTOR_WEB_PORT`
 
 From repo root:
 
