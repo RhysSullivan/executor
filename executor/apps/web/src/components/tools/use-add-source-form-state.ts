@@ -28,6 +28,18 @@ import {
 
 export { existingCredentialMatchesAuthType } from "./add-source-form-utils";
 
+function normalizeEndpointForOAuth(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return trimmed;
+  }
+}
+
 function patchUi(
   setUi: Dispatch<SetStateAction<AddSourceUiState>>,
   patch: Partial<AddSourceUiState>,
@@ -139,6 +151,7 @@ export function useAddSourceFormState({
 
   const handleEndpointChange = (endpoint: string) => {
     form.setValue("endpoint", endpoint, { shouldDirty: true, shouldTouch: true });
+    patchUi(setUi, { mcpOAuthLinkedEndpoint: null });
 
     if (values.type === "openapi") {
       const inferredBaseUrl = deriveBaseUrlFromEndpoint(endpoint);
@@ -189,6 +202,7 @@ export function useAddSourceFormState({
       patchUi(setUi, {
         openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
         authManuallyEdited: false,
+        mcpOAuthLinkedEndpoint: null,
       });
       if (!baseUrlManuallyEdited) {
         form.setValue("baseUrl", inferredBaseUrl, { shouldDirty: false, shouldTouch: false });
@@ -199,6 +213,7 @@ export function useAddSourceFormState({
     patchUiWithAuthRevision(setUi, {
       openApiBaseUrlOptions: [],
       authManuallyEdited: false,
+      mcpOAuthLinkedEndpoint: null,
     });
     form.setValue("authType", "none", { shouldDirty: false, shouldTouch: false });
     form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
@@ -213,12 +228,18 @@ export function useAddSourceFormState({
 
   const handleAuthTypeChange = (authType: Exclude<SourceAuthType, "mixed">) => {
     form.setValue("authType", authType, { shouldDirty: true, shouldTouch: true });
-    patchUiWithAuthRevision(setUi, { authManuallyEdited: true });
+    patchUiWithAuthRevision(setUi, {
+      authManuallyEdited: true,
+      ...(authType === "bearer" ? {} : { mcpOAuthLinkedEndpoint: null }),
+    });
   };
 
   const handleAuthScopeChange = (authScope: CredentialScope) => {
     form.setValue("authScope", authScope, { shouldDirty: true, shouldTouch: true });
-    patchUiWithAuthRevision(setUi, { authManuallyEdited: true });
+    patchUiWithAuthRevision(setUi, {
+      authManuallyEdited: true,
+      mcpOAuthLinkedEndpoint: null,
+    });
   };
 
   const handleAuthFieldChange = (field: SourceAuthPanelEditableField, value: string) => {
@@ -230,7 +251,7 @@ export function useAddSourceFormState({
 
     if (field === "tokenValue") {
       form.setValue("tokenValue", value, { shouldDirty: true, shouldTouch: true });
-      bumpAuthRevision();
+      patchUiWithAuthRevision(setUi, { mcpOAuthLinkedEndpoint: null });
       return;
     }
     if (field === "apiKeyValue") {
@@ -378,7 +399,9 @@ export function useAddSourceFormState({
   const mcpOAuthAuthorizationServers = mcpOAuthQuery.data?.authorizationServers ?? [];
   const mcpOAuthConnected = values.type === "mcp"
     && values.authType === "bearer"
-    && (values.tokenValue.trim().length > 0 || hasPersistedMcpBearerToken);
+    && normalizeEndpointForOAuth(values.endpoint) !== ""
+    && normalizeEndpointForOAuth(values.endpoint) === ui.mcpOAuthLinkedEndpoint
+    && values.tokenValue.trim().length > 0;
 
   useEffect(() => {
     if (!inspectionEnabled || !specInspectionQuery.data) {
@@ -506,6 +529,10 @@ export function useAddSourceFormState({
     handleAuthTypeChange,
     handleAuthScopeChange,
     handleAuthFieldChange,
+    markMcpOAuthLinked: (endpoint: string) =>
+      patchUi(setUi, {
+        mcpOAuthLinkedEndpoint: normalizeEndpointForOAuth(endpoint),
+      }),
     setBaseUrl: (baseUrl: string) => form.setValue("baseUrl", baseUrl, { shouldDirty: true, shouldTouch: true }),
     setMcpTransport: (mcpTransport: "auto" | "streamable-http" | "sse") =>
       form.setValue("mcpTransport", mcpTransport, { shouldDirty: true, shouldTouch: true }),

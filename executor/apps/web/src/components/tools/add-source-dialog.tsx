@@ -42,6 +42,18 @@ function resultErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+function normalizeEndpoint(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return trimmed;
+  }
+}
+
 export function AddSourceDialog({
   existingSourceNames,
   onSourceAdded,
@@ -161,6 +173,7 @@ export function AddSourceDialog({
       toast.error("Enter an MCP endpoint URL first");
       return;
     }
+    const initiatedEndpoint = normalizeEndpoint(endpoint);
 
     setMcpOAuthBusy(true);
     const oauthResult = await Result.tryPromise(() => startMcpOAuthPopup(endpoint));
@@ -171,10 +184,23 @@ export function AddSourceDialog({
       return;
     }
 
+    const returnedEndpoint = normalizeEndpoint(oauthResult.value.sourceUrl);
+    if (returnedEndpoint && initiatedEndpoint && returnedEndpoint !== initiatedEndpoint) {
+      toast.error("OAuth finished for a different endpoint. Try again.");
+      return;
+    }
+
+    const currentEndpoint = normalizeEndpoint(form.endpoint);
+    if (currentEndpoint !== initiatedEndpoint) {
+      toast.error("Endpoint changed while OAuth was running. Please reconnect OAuth.");
+      return;
+    }
+
     if (form.authType !== "bearer") {
       form.handleAuthTypeChange("bearer");
     }
     form.handleAuthFieldChange("tokenValue", oauthResult.value.accessToken);
+    form.markMcpOAuthLinked(initiatedEndpoint);
     toast.success("OAuth linked successfully.");
   };
 
