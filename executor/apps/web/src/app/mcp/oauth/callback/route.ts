@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   buildPendingCookieName,
@@ -34,6 +35,19 @@ function popupResultRedirect(
   return response;
 }
 
+function resultErrorMessage(error: unknown, fallback: string): string {
+  const cause = typeof error === "object" && error && "cause" in error
+    ? (error as { cause?: unknown }).cause
+    : error;
+  if (cause instanceof Error && cause.message.trim()) {
+    return cause.message;
+  }
+  if (typeof cause === "string" && cause.trim()) {
+    return cause;
+  }
+  return fallback;
+}
+
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code")?.trim() ?? "";
   const state = request.nextUrl.searchParams.get("state")?.trim() ?? "";
@@ -65,12 +79,11 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  let sourceUrl: URL;
-  try {
-    sourceUrl = new URL(pending.sourceUrl);
-  } catch {
+  const sourceUrlResult = Result.try(() => new URL(pending.sourceUrl));
+  if (!sourceUrlResult.isOk()) {
     return popupResultRedirect(request, cookieName, { ok: false, error: "Invalid MCP source URL" });
   }
+  const sourceUrl = sourceUrlResult.value;
 
   const provider = new McpPopupOAuthProvider({
     redirectUrl: pending.redirectUrl,
@@ -79,15 +92,14 @@ export async function GET(request: NextRequest) {
     clientInformation: pending.clientInformation,
   });
 
-  try {
-    await auth(provider, {
+  const authResult = await Result.tryPromise(() => auth(provider, {
       serverUrl: sourceUrl,
       authorizationCode: code,
-    });
-  } catch (finishError) {
+    }));
+  if (!authResult.isOk()) {
     return popupResultRedirect(request, cookieName, {
       ok: false,
-      error: finishError instanceof Error ? finishError.message : "Failed to finish OAuth",
+      error: resultErrorMessage(authResult.error, "Failed to finish OAuth"),
     });
   }
 

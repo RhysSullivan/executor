@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { Result } from "better-result";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +28,19 @@ import {
   useAddSourceFormState,
 } from "./use-add-source-form-state";
 import { saveSourceWithCredentials } from "./add-source-submit";
+
+function resultErrorMessage(error: unknown, fallback: string): string {
+  const cause = typeof error === "object" && error && "cause" in error
+    ? (error as { cause?: unknown }).cause
+    : error;
+  if (cause instanceof Error && cause.message.trim()) {
+    return cause.message;
+  }
+  if (typeof cause === "string" && cause.trim()) {
+    return cause;
+  }
+  return fallback;
+}
 
 export function AddSourceDialog({
   existingSourceNames,
@@ -87,8 +101,8 @@ export function AddSourceDialog({
     }
 
     setSubmitting(true);
-    try {
-      const result = await saveSourceWithCredentials({
+    const saveResult = await Result.tryPromise(() =>
+      saveSourceWithCredentials({
         context,
         sourceToEdit,
         credentialsLoading,
@@ -108,28 +122,34 @@ export function AddSourceDialog({
           hasCredentialInput: form.hasCredentialInput,
           buildSecretJson: form.buildSecretJson,
         },
-      });
+      })
+    );
+    setSubmitting(false);
 
-      onSourceAdded?.(result.source, { connected: result.connected });
-      toast.success(
-        sourceToEdit
-          ? result.connected
-            ? `Source "${form.name.trim()}" updated with credentials`
-            : `Source "${form.name.trim()}" updated`
-          : result.connected
-            ? `Source "${form.name.trim()}" added with credentials — loading tools…`
-            : `Source "${form.name.trim()}" added — loading tools…`,
-      );
-      if (!sourceToEdit) {
-        form.reserveSourceName(form.name.trim());
-      }
-      form.setView("catalog");
-      setOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : sourceToEdit ? "Failed to update source" : "Failed to add source");
-    } finally {
-      setSubmitting(false);
+    if (!saveResult.isOk()) {
+      toast.error(resultErrorMessage(
+        saveResult.error,
+        sourceToEdit ? "Failed to update source" : "Failed to add source",
+      ));
+      return;
     }
+
+    const result = saveResult.value;
+    onSourceAdded?.(result.source, { connected: result.connected });
+    toast.success(
+      sourceToEdit
+        ? result.connected
+          ? `Source "${form.name.trim()}" updated with credentials`
+          : `Source "${form.name.trim()}" updated`
+        : result.connected
+          ? `Source "${form.name.trim()}" added with credentials — loading tools…`
+          : `Source "${form.name.trim()}" added — loading tools…`,
+    );
+    if (!sourceToEdit) {
+      form.reserveSourceName(form.name.trim());
+    }
+    form.setView("catalog");
+    setOpen(false);
   };
 
   const handleMcpOAuthConnect = async () => {
@@ -143,18 +163,19 @@ export function AddSourceDialog({
     }
 
     setMcpOAuthBusy(true);
-    try {
-      const result = await startMcpOAuthPopup(endpoint);
-      if (form.authType !== "bearer") {
-        form.handleAuthTypeChange("bearer");
-      }
-      form.handleAuthFieldChange("tokenValue", result.accessToken);
-      toast.success("OAuth linked successfully.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to connect OAuth");
-    } finally {
-      setMcpOAuthBusy(false);
+    const oauthResult = await Result.tryPromise(() => startMcpOAuthPopup(endpoint));
+    setMcpOAuthBusy(false);
+
+    if (!oauthResult.isOk()) {
+      toast.error(resultErrorMessage(oauthResult.error, "Failed to connect OAuth"));
+      return;
     }
+
+    if (form.authType !== "bearer") {
+      form.handleAuthTypeChange("bearer");
+    }
+    form.handleAuthFieldChange("tokenValue", oauthResult.value.accessToken);
+    toast.success("OAuth linked successfully.");
   };
 
   const dialogTitle = sourceToEdit ? "Edit Tool Source" : "Add Tool Source";

@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   buildPendingCookieName,
@@ -39,18 +40,30 @@ function badPopupResponse(request: NextRequest, message: string): NextResponse {
   return popupResultRedirect(request, { ok: false, error: message });
 }
 
+function resultErrorMessage(error: unknown, fallback: string): string {
+  const cause = typeof error === "object" && error && "cause" in error
+    ? (error as { cause?: unknown }).cause
+    : error;
+  if (cause instanceof Error && cause.message.trim()) {
+    return cause.message;
+  }
+  if (typeof cause === "string" && cause.trim()) {
+    return cause;
+  }
+  return fallback;
+}
+
 export async function GET(request: NextRequest) {
   const sourceUrlRaw = request.nextUrl.searchParams.get("sourceUrl")?.trim() ?? "";
   if (!sourceUrlRaw) {
     return badPopupResponse(request, "Missing sourceUrl");
   }
 
-  let sourceUrl: URL;
-  try {
-    sourceUrl = new URL(sourceUrlRaw);
-  } catch {
+  const sourceUrlResult = Result.try(() => new URL(sourceUrlRaw));
+  if (!sourceUrlResult.isOk()) {
     return badPopupResponse(request, "Invalid sourceUrl");
   }
+  const sourceUrl = sourceUrlResult.value;
 
   const state = createOAuthState();
   const redirectUrl = `${getExternalOrigin(request)}/mcp/oauth/callback`;
@@ -59,15 +72,12 @@ export async function GET(request: NextRequest) {
     state,
   });
 
-  let authResult: "AUTHORIZED" | "REDIRECT";
-  try {
-    authResult = await auth(provider, { serverUrl: sourceUrl });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to start OAuth flow";
-    return badPopupResponse(request, message);
+  const authResult = await Result.tryPromise(() => auth(provider, { serverUrl: sourceUrl }));
+  if (!authResult.isOk()) {
+    return badPopupResponse(request, resultErrorMessage(authResult.error, "Failed to start OAuth flow"));
   }
 
-  if (authResult === "AUTHORIZED") {
+  if (authResult.value === "AUTHORIZED") {
     const tokens = provider.getTokens();
     const accessToken = tokens?.access_token?.trim() ?? "";
     if (!accessToken) {

@@ -53,10 +53,8 @@ export async function startMcpOAuthPopup(sourceUrl: string): Promise<McpOAuthPop
     const cleanup = () => {
       window.removeEventListener("message", onMessage);
       window.clearInterval(closedPoll);
-      try {
+      if (!popup.closed) {
         popup.close();
-      } catch {
-        // ignore
       }
     };
 

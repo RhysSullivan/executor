@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Result } from "better-result";
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type {
   OAuthClientInformationMixed,
@@ -40,27 +41,32 @@ export function encodePendingCookieValue(pending: McpOAuthPending): string {
 }
 
 export function decodePendingCookieValue(raw: string): McpOAuthPending | null {
-  try {
-    const decoded = Buffer.from(raw, "base64url").toString("utf8");
-    const parsed = JSON.parse(decoded) as Partial<McpOAuthPending>;
-    if (
-      typeof parsed.state !== "string"
-      || typeof parsed.sourceUrl !== "string"
-      || typeof parsed.redirectUrl !== "string"
-    ) {
-      return null;
-    }
-
-    return {
-      state: parsed.state,
-      sourceUrl: parsed.sourceUrl,
-      redirectUrl: parsed.redirectUrl,
-      ...(typeof parsed.codeVerifier === "string" ? { codeVerifier: parsed.codeVerifier } : {}),
-      ...(parsed.clientInformation ? { clientInformation: parsed.clientInformation } : {}),
-    };
-  } catch {
+  const decodedResult = Result.try(() => Buffer.from(raw, "base64url").toString("utf8"));
+  if (!decodedResult.isOk()) {
     return null;
   }
+
+  const parsedResult = Result.try(() => JSON.parse(decodedResult.value) as Partial<McpOAuthPending>);
+  if (!parsedResult.isOk()) {
+    return null;
+  }
+
+  const parsed = parsedResult.value;
+  if (
+    typeof parsed.state !== "string"
+    || typeof parsed.sourceUrl !== "string"
+    || typeof parsed.redirectUrl !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    state: parsed.state,
+    sourceUrl: parsed.sourceUrl,
+    redirectUrl: parsed.redirectUrl,
+    ...(typeof parsed.codeVerifier === "string" ? { codeVerifier: parsed.codeVerifier } : {}),
+    ...(parsed.clientInformation ? { clientInformation: parsed.clientInformation } : {}),
+  };
 }
 
 export function encodePopupResultCookieValue(result: McpOAuthPopupResult): string {
@@ -68,25 +74,30 @@ export function encodePopupResultCookieValue(result: McpOAuthPopupResult): strin
 }
 
 export function decodePopupResultCookieValue(raw: string): McpOAuthPopupResult | null {
-  try {
-    const decoded = Buffer.from(raw, "base64url").toString("utf8");
-    const parsed = JSON.parse(decoded) as Partial<McpOAuthPopupResult>;
-    if (typeof parsed.ok !== "boolean") {
-      return null;
-    }
-
-    return {
-      ok: parsed.ok,
-      ...(typeof parsed.sourceUrl === "string" ? { sourceUrl: parsed.sourceUrl } : {}),
-      ...(typeof parsed.accessToken === "string" ? { accessToken: parsed.accessToken } : {}),
-      ...(typeof parsed.refreshToken === "string" ? { refreshToken: parsed.refreshToken } : {}),
-      ...(typeof parsed.scope === "string" ? { scope: parsed.scope } : {}),
-      ...(typeof parsed.expiresIn === "number" ? { expiresIn: parsed.expiresIn } : {}),
-      ...(typeof parsed.error === "string" ? { error: parsed.error } : {}),
-    };
-  } catch {
+  const decodedResult = Result.try(() => Buffer.from(raw, "base64url").toString("utf8"));
+  if (!decodedResult.isOk()) {
     return null;
   }
+
+  const parsedResult = Result.try(() => JSON.parse(decodedResult.value) as Partial<McpOAuthPopupResult>);
+  if (!parsedResult.isOk()) {
+    return null;
+  }
+
+  const parsed = parsedResult.value;
+  if (typeof parsed.ok !== "boolean") {
+    return null;
+  }
+
+  return {
+    ok: parsed.ok,
+    ...(typeof parsed.sourceUrl === "string" ? { sourceUrl: parsed.sourceUrl } : {}),
+    ...(typeof parsed.accessToken === "string" ? { accessToken: parsed.accessToken } : {}),
+    ...(typeof parsed.refreshToken === "string" ? { refreshToken: parsed.refreshToken } : {}),
+    ...(typeof parsed.scope === "string" ? { scope: parsed.scope } : {}),
+    ...(typeof parsed.expiresIn === "number" ? { expiresIn: parsed.expiresIn } : {}),
+    ...(typeof parsed.error === "string" ? { error: parsed.error } : {}),
+  };
 }
 
 export class McpPopupOAuthProvider implements OAuthClientProvider {
