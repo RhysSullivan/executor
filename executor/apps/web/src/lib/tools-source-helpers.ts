@@ -72,6 +72,7 @@ export function sourceEndpointLabel(source: ToolSourceRecord): string {
 export function sourceKeyForSource(source: ToolSourceRecord): string | null {
   if (source.type === "openapi") return `source:${source.id}`;
   if (source.type === "graphql") return `source:${source.id}`;
+  if (source.type === "mcp") return `source:${source.id}`;
   return null;
 }
 
@@ -146,7 +147,7 @@ export function readSourceAuth(
   header?: string;
   inferred?: boolean;
 } {
-  if (source.type !== "openapi" && source.type !== "graphql") {
+  if (source.type !== "openapi" && source.type !== "graphql" && source.type !== "mcp") {
     return { type: "none" };
   }
 

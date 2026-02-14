@@ -77,6 +77,7 @@ export function createCustomSourceConfig({
   if (type === "mcp") {
     return {
       url: endpoint,
+      ...(auth ? { auth } : {}),
       ...(mcpTransport !== "auto" ? { transport: mcpTransport } : {}),
       ...(actorId
         ? { queryParams: { [DEFAULT_MCP_ACTOR_QUERY_PARAM_KEY]: actorId } }

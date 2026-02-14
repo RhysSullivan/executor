@@ -36,11 +36,44 @@ type SaveFormSnapshot = {
   mcpTransport: "auto" | "streamable-http" | "sse";
   authType: Exclude<SourceAuthType, "mixed">;
   authScope: CredentialScope;
+  apiKeyHeader: string;
   existingScopedCredential: CredentialRecord | null;
   buildAuthConfig: () => Record<string, unknown> | undefined;
   hasCredentialInput: () => boolean;
   buildSecretJson: () => { value?: Record<string, unknown>; error?: string };
 };
+
+function readLegacyMcpStaticSecret(
+  sourceToEdit: ToolSourceRecord | undefined,
+  authType: Exclude<SourceAuthType, "mixed">,
+): Record<string, unknown> | null {
+  if (sourceToEdit?.type !== "mcp") {
+    return null;
+  }
+
+  const auth = sourceToEdit.config.auth as Record<string, unknown> | undefined;
+  if (!auth || auth.mode !== "static" || auth.type !== authType) {
+    return null;
+  }
+
+  if (authType === "bearer") {
+    const token = typeof auth.token === "string" ? auth.token.trim() : "";
+    return token ? { token } : null;
+  }
+
+  if (authType === "apiKey") {
+    const value = typeof auth.value === "string" ? auth.value.trim() : "";
+    return value ? { value } : null;
+  }
+
+  if (authType === "basic") {
+    const username = typeof auth.username === "string" ? auth.username.trim() : "";
+    const password = typeof auth.password === "string" ? auth.password.trim() : "";
+    return username && password ? { username, password } : null;
+  }
+
+  return null;
+}
 
 export async function saveSourceWithCredentials({
   context,
@@ -57,7 +90,7 @@ export async function saveSourceWithCredentials({
   upsertToolSource: UpsertToolSourceFn;
   upsertCredential: UpsertCredentialFn;
 }): Promise<{ source: ToolSourceRecord; connected: boolean }> {
-  const authConfig = form.type === "openapi" || form.type === "graphql"
+  const authConfig = form.type === "openapi" || form.type === "graphql" || form.type === "mcp"
     ? form.buildAuthConfig()
     : undefined;
 
@@ -81,7 +114,7 @@ export async function saveSourceWithCredentials({
 
   let linkedCredential = false;
 
-  if ((form.type === "openapi" || form.type === "graphql") && form.authType !== "none") {
+  if ((form.type === "openapi" || form.type === "graphql" || form.type === "mcp") && form.authType !== "none") {
     const sourceKey = sourceKeyForSource(created);
     if (!sourceKey) {
       throw new Error("Failed to resolve source key for credentials");
@@ -116,6 +149,21 @@ export async function saveSourceWithCredentials({
       if (!existingCredentialMatchesAuthType(form.existingScopedCredential, form.authType)) {
         throw new Error("Enter credentials for the selected auth type");
       }
+      linkedCredential = true;
+    } else if (form.type === "mcp") {
+      const legacySecret = readLegacyMcpStaticSecret(sourceToEdit, form.authType);
+      if (!legacySecret) {
+        throw new Error("Enter credentials to finish setup");
+      }
+
+      await upsertCredential({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        sourceKey,
+        scope: form.authScope,
+        ...(form.authScope === "actor" ? { actorId: context.actorId } : {}),
+        secretJson: legacySecret,
+      });
       linkedCredential = true;
     } else {
       throw new Error("Enter credentials to finish setup");

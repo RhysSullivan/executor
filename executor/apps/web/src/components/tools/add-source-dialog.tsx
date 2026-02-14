@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import { Plus } from "lucide-react";
 import { useAction, useMutation, useQuery } from "convex/react";
+import { Result } from "better-result";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +18,7 @@ import { convexApi } from "@/lib/convex-api";
 import type { CredentialRecord, ToolSourceRecord } from "@/lib/types";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
+import { startMcpOAuthPopup } from "@/lib/mcp-oauth-popup";
 import {
   CatalogViewSection,
   CustomViewSection,
@@ -26,6 +28,31 @@ import {
   useAddSourceFormState,
 } from "./use-add-source-form-state";
 import { saveSourceWithCredentials } from "./add-source-submit";
+
+function resultErrorMessage(error: unknown, fallback: string): string {
+  const cause = typeof error === "object" && error && "cause" in error
+    ? (error as { cause?: unknown }).cause
+    : error;
+  if (cause instanceof Error && cause.message.trim()) {
+    return cause.message;
+  }
+  if (typeof cause === "string" && cause.trim()) {
+    return cause;
+  }
+  return fallback;
+}
+
+function normalizeEndpoint(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return trimmed;
+  }
+}
 
 export function AddSourceDialog({
   existingSourceNames,
@@ -49,6 +76,7 @@ export function AddSourceDialog({
   const credentialsLoading = Boolean(context) && credentials === undefined;
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [mcpOAuthBusy, setMcpOAuthBusy] = useState(false);
   const form = useAddSourceFormState({
     open,
     sourceToEdit,
@@ -85,8 +113,8 @@ export function AddSourceDialog({
     }
 
     setSubmitting(true);
-    try {
-      const result = await saveSourceWithCredentials({
+    const saveResult = await Result.tryPromise(() =>
+      saveSourceWithCredentials({
         context,
         sourceToEdit,
         credentialsLoading,
@@ -100,33 +128,80 @@ export function AddSourceDialog({
           mcpTransport: form.mcpTransport,
           authType: form.authType,
           authScope: form.authScope,
+          apiKeyHeader: form.apiKeyHeader,
           existingScopedCredential: form.existingScopedCredential,
           buildAuthConfig: form.buildAuthConfig,
           hasCredentialInput: form.hasCredentialInput,
           buildSecretJson: form.buildSecretJson,
         },
-      });
+      })
+    );
+    setSubmitting(false);
 
-      onSourceAdded?.(result.source, { connected: result.connected });
-      toast.success(
-        sourceToEdit
-          ? result.connected
-            ? `Source "${form.name.trim()}" updated with credentials`
-            : `Source "${form.name.trim()}" updated`
-          : result.connected
-            ? `Source "${form.name.trim()}" added with credentials — loading tools…`
-            : `Source "${form.name.trim()}" added — loading tools…`,
-      );
-      if (!sourceToEdit) {
-        form.reserveSourceName(form.name.trim());
-      }
-      form.setView("catalog");
-      setOpen(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : sourceToEdit ? "Failed to update source" : "Failed to add source");
-    } finally {
-      setSubmitting(false);
+    if (!saveResult.isOk()) {
+      toast.error(resultErrorMessage(
+        saveResult.error,
+        sourceToEdit ? "Failed to update source" : "Failed to add source",
+      ));
+      return;
     }
+
+    const result = saveResult.value;
+    onSourceAdded?.(result.source, { connected: result.connected });
+    toast.success(
+      sourceToEdit
+        ? result.connected
+          ? `Source "${form.name.trim()}" updated with credentials`
+          : `Source "${form.name.trim()}" updated`
+        : result.connected
+          ? `Source "${form.name.trim()}" added with credentials — loading tools…`
+          : `Source "${form.name.trim()}" added — loading tools…`,
+    );
+    if (!sourceToEdit) {
+      form.reserveSourceName(form.name.trim());
+    }
+    form.setView("catalog");
+    setOpen(false);
+  };
+
+  const handleMcpOAuthConnect = async () => {
+    if (form.type !== "mcp") {
+      return;
+    }
+    const endpoint = form.endpoint.trim();
+    if (!endpoint) {
+      toast.error("Enter an MCP endpoint URL first");
+      return;
+    }
+    const initiatedEndpoint = normalizeEndpoint(endpoint);
+
+    setMcpOAuthBusy(true);
+    const oauthResult = await Result.tryPromise(() => startMcpOAuthPopup(endpoint));
+    setMcpOAuthBusy(false);
+
+    if (!oauthResult.isOk()) {
+      toast.error(resultErrorMessage(oauthResult.error, "Failed to connect OAuth"));
+      return;
+    }
+
+    const returnedEndpoint = normalizeEndpoint(oauthResult.value.sourceUrl);
+    if (returnedEndpoint && initiatedEndpoint && returnedEndpoint !== initiatedEndpoint) {
+      toast.error("OAuth finished for a different endpoint. Try again.");
+      return;
+    }
+
+    const currentEndpoint = normalizeEndpoint(form.endpoint);
+    if (currentEndpoint !== initiatedEndpoint) {
+      toast.error("Endpoint changed while OAuth was running. Please reconnect OAuth.");
+      return;
+    }
+
+    if (form.authType !== "bearer") {
+      form.handleAuthTypeChange("bearer");
+    }
+    form.handleAuthFieldChange("tokenValue", oauthResult.value.accessToken);
+    form.markMcpOAuthLinked(initiatedEndpoint);
+    toast.success("OAuth linked successfully.");
   };
 
   const dialogTitle = sourceToEdit ? "Edit Tool Source" : "Add Tool Source";
@@ -194,6 +269,10 @@ export function AddSourceDialog({
                   specStatus: form.specStatus,
                   inferredSpecAuth: form.inferredSpecAuth,
                   specError: form.specError,
+                  mcpOAuthStatus: form.mcpOAuthStatus,
+                  mcpOAuthDetail: form.mcpOAuthDetail,
+                  mcpOAuthAuthorizationServers: form.mcpOAuthAuthorizationServers,
+                  mcpOAuthConnected: form.mcpOAuthConnected,
                   authType: form.authType,
                   authScope: form.authScope,
                   apiKeyHeader: form.apiKeyHeader,
@@ -206,6 +285,8 @@ export function AddSourceDialog({
                 onAuthTypeChange={form.handleAuthTypeChange}
                 onAuthScopeChange={form.handleAuthScopeChange}
                 onFieldChange={form.handleAuthFieldChange}
+                onMcpOAuthConnect={form.type === "mcp" ? handleMcpOAuthConnect : undefined}
+                mcpOAuthBusy={mcpOAuthBusy}
               />
             </CustomViewSection>
           )}

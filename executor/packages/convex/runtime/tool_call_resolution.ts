@@ -84,7 +84,9 @@ export async function ensureWorkspaceTools(
   if (workspaceTools) {
     return workspaceTools;
   }
-  const result = await getWorkspaceTools(ctx, task.workspaceId);
+  const result = await getWorkspaceTools(ctx, task.workspaceId, {
+    actorId: task.actorId,
+  });
   return result.tools;
 }
 
