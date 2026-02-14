@@ -206,9 +206,7 @@ export function CodeEditor({
       {toolTypesLoading ? (
         <div className="pointer-events-none absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-background/85 px-2 py-1 text-[10px] font-mono text-muted-foreground backdrop-blur-sm">
           <Loader2 className="h-3 w-3 animate-spin" />
-          {tools.length > 0
-            ? `Loaded ${tools.length} tools, loading type definitions...`
-            : "Loading tool metadata..."}
+          {tools.length > 0 ? "Loading type definitions..." : "Loading tool metadata..."}
         </div>
       ) : null}
       <Editor

@@ -11,8 +11,32 @@ const codePlugin = createCodePlugin({
 
 type CodeTone = "default" | "green" | "amber" | "red";
 
+function longestRun(content: string, marker: string): number {
+  let current = 0;
+  let longest = 0;
+
+  for (const char of content) {
+    if (char === marker) {
+      current += 1;
+      if (current > longest) {
+        longest = current;
+      }
+    } else {
+      current = 0;
+    }
+  }
+
+  return longest;
+}
+
 function toCodeFence(content: string, language: string) {
-  return `~~~~${language}\n${content}\n~~~~`;
+  const tickFenceLength = Math.max(4, longestRun(content, "`") + 1);
+  const tildeFenceLength = Math.max(4, longestRun(content, "~") + 1);
+  const marker = tickFenceLength <= tildeFenceLength ? "`" : "~";
+  const length = marker === "`" ? tickFenceLength : tildeFenceLength;
+  const fence = marker.repeat(length);
+
+  return `${fence}${language}\n${content}\n${fence}`;
 }
 
 function toneClass(tone: CodeTone): string {

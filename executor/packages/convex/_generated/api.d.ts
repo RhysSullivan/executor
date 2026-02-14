@@ -100,7 +100,7 @@ export declare const api: {
   };
   executor: {
     createTask: FunctionReference<
-      "mutation",
+      "action",
       "public",
       {
         actorId?: string;
@@ -110,6 +110,7 @@ export declare const api: {
         runtimeId?: string;
         sessionId?: string;
         timeoutMs?: number;
+        waitForResult?: boolean;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -142,6 +143,7 @@ export declare const api: {
         actorId?: string;
         clientId?: string;
         includeDetails?: boolean;
+        includeSchemaRegistry?: boolean;
         includeSourceMeta?: boolean;
         sessionId?: string;
         toolPaths?: Array<string>;

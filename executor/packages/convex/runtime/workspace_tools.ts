@@ -18,6 +18,10 @@ import type {
   ToolDefinition,
   ToolDescriptor,
 } from "../../core/src/types";
+import {
+  extractSchemaRefKeys,
+  extractSourceSchemaTypesFromDts,
+} from "../../core/src/tool-discovery/schema-registry";
 import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_descriptors";
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
 
@@ -63,6 +67,7 @@ interface WorkspaceToolInventory {
   dtsStorageIds: DtsStorageEntry[];
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  sourceSchemas: Record<string, Record<string, string>>;
   debug: WorkspaceToolsDebug;
 }
 
@@ -115,6 +120,102 @@ function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<s
   }
 
   return profiles;
+}
+
+function formatSchemaRefToken(schemaKey: string): string {
+  return `components["schemas"][${JSON.stringify(schemaKey)}]`;
+}
+
+function collectSchemaKeysBySource(tools: ToolDescriptor[]): Map<string, Set<string>> {
+  const refsBySource = new Map<string, Set<string>>();
+
+  for (const tool of tools) {
+    if (!tool.source) continue;
+    const candidateTypes = [
+      tool.strictArgsType,
+      tool.strictReturnsType,
+      tool.argsType,
+      tool.returnsType,
+    ];
+
+    for (const typeExpression of candidateTypes) {
+      if (!typeExpression) continue;
+      const keys = extractSchemaRefKeys(typeExpression);
+      if (keys.length === 0) continue;
+
+      let sourceRefs = refsBySource.get(tool.source);
+      if (!sourceRefs) {
+        sourceRefs = new Set<string>();
+        refsBySource.set(tool.source, sourceRefs);
+      }
+
+      for (const key of keys) {
+        sourceRefs.add(key);
+      }
+    }
+  }
+
+  return refsBySource;
+}
+
+async function loadSourceSchemasForTools(
+  ctx: ActionCtx,
+  tools: ToolDescriptor[],
+  dtsStorageIds: DtsStorageEntry[],
+): Promise<Record<string, Record<string, string>>> {
+  const refsBySource = collectSchemaKeysBySource(tools);
+  if (refsBySource.size === 0 || dtsStorageIds.length === 0) {
+    return {};
+  }
+
+  const storageBySource = new Map<string, Id<"_storage">>();
+  for (const entry of dtsStorageIds) {
+    storageBySource.set(entry.sourceKey, entry.storageId);
+  }
+
+  const entries = await Promise.all([...refsBySource.entries()].map(async ([source, keys]) => {
+    const storageId = storageBySource.get(source);
+    if (!storageId) {
+      return null;
+    }
+
+    try {
+      const blob = await ctx.storage.get(storageId);
+      if (!blob) {
+        return null;
+      }
+
+      const dtsText = await blob.text();
+      const schemaTypes = extractSourceSchemaTypesFromDts(dtsText);
+      if (Object.keys(schemaTypes).length === 0) {
+        return null;
+      }
+
+      const sourceSchemas: Record<string, string> = {};
+      for (const key of keys) {
+        const schemaType = schemaTypes[key];
+        if (!schemaType) continue;
+        sourceSchemas[formatSchemaRefToken(key)] = schemaType;
+      }
+
+      if (Object.keys(sourceSchemas).length === 0) {
+        return null;
+      }
+
+      return [source, sourceSchemas] as const;
+    } catch {
+      return null;
+    }
+  }));
+
+  const sourceSchemas: Record<string, Record<string, string>> = {};
+  for (const entry of entries) {
+    if (!entry) continue;
+    const [source, schemas] = entry;
+    sourceSchemas[source] = schemas;
+  }
+
+  return sourceSchemas;
 }
 
 function mergeToolsWithCatalog(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
@@ -409,6 +510,7 @@ async function loadWorkspaceToolInventoryForContext(
     includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
+    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
@@ -418,6 +520,7 @@ async function loadWorkspaceToolInventoryForContext(
   const includeDts = options.includeDts ?? false;
   const includeDetails = options.includeDetails ?? true;
   const includeSourceMeta = options.includeSourceMeta ?? true;
+  const includeSchemaRegistry = options.includeSchemaRegistry ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch;
   const skipCacheRead = options.skipCacheRead;
@@ -440,8 +543,10 @@ async function loadWorkspaceToolInventoryForContext(
   const descriptorsMs = Date.now() - descriptorsStartedAt;
   let sourceQuality: Record<string, OpenApiSourceQuality> = {};
   let sourceAuthProfiles: Record<string, SourceAuthProfile> = {};
+  let sourceSchemas: Record<string, Record<string, string>> = {};
   let qualityMs = 0;
   let authProfilesMs = 0;
+  let schemaRegistryMs = 0;
 
   if (includeSourceMeta) {
     const qualityStartedAt = Date.now();
@@ -459,6 +564,16 @@ async function loadWorkspaceToolInventoryForContext(
       ]
     : ["sourceMeta=skipped"];
 
+  if (includeSchemaRegistry) {
+    const schemaRegistryStartedAt = Date.now();
+    sourceSchemas = await loadSourceSchemasForTools(ctx, tools, result.dtsStorageIds);
+    schemaRegistryMs = Date.now() - schemaRegistryStartedAt;
+  }
+
+  const schemaRegistryTrace = includeSchemaRegistry
+    ? [`buildSourceSchemas=${schemaRegistryMs}ms`]
+    : ["sourceSchemas=skipped"];
+
   const { tools: boundedTools, warnings: boundedWarnings } = truncateToolsForActionResult(
     tools,
     result.warnings,
@@ -470,12 +585,14 @@ async function loadWorkspaceToolInventoryForContext(
     dtsStorageIds: result.dtsStorageIds,
     sourceQuality,
     sourceAuthProfiles,
+    sourceSchemas,
     debug: {
       ...result.debug,
       trace: [
         ...result.debug.trace,
         `listVisibleToolDescriptors=${descriptorsMs}ms`,
         ...sourceMetaTrace,
+        ...schemaRegistryTrace,
       ],
     },
   };
@@ -488,6 +605,7 @@ export async function listToolsForContext(
     includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
+    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
@@ -505,6 +623,7 @@ export async function listToolsWithWarningsForContext(
     includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
+    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
@@ -516,6 +635,7 @@ export async function listToolsWithWarningsForContext(
   dtsUrls: Record<string, string>;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  sourceSchemas: Record<string, Record<string, string>>;
   debug: WorkspaceToolsDebug;
 }> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
@@ -527,6 +647,7 @@ export async function listToolsWithWarningsForContext(
     dtsUrls,
     sourceQuality: inventory.sourceQuality,
     sourceAuthProfiles: inventory.sourceAuthProfiles,
+    sourceSchemas: inventory.sourceSchemas,
     debug: inventory.debug,
   };
 }

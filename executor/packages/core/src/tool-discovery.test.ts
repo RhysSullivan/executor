@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { createCatalogTools, createDiscoverTool } from "./tool-discovery";
+import { extractSourceSchemaTypesFromDts } from "./tool-discovery/schema-registry";
 import type { ToolDefinition } from "./types";
 
 const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
@@ -128,6 +129,78 @@ test("discover uses compact signatures by default and allows full mode", async (
   expect(fullResult.results[0]?.signature).toContain("TeamFilter");
   expect(fullResult.results[0]?.signature).toContain("TeamConnection");
   expect(fullResult.results[0]?.description).toContain("TRAILING_MARKER_TEXT");
+});
+
+test("discover includes deduped schema registry for component refs", async () => {
+  const sourceDts = `
+interface components {
+  schemas: {
+    "runner-label": { id?: number; name?: string };
+    runner: { labels?: components["schemas"]["runner-label"][] };
+  };
+}
+interface operations {}
+`;
+
+  const tool = createDiscoverTool([
+    {
+      path: "github.actions.add_custom_labels_to_self_hosted_runner_for_org",
+      description: "Add custom labels to org runner",
+      approval: "required",
+      source: "openapi:github",
+      metadata: {
+        argsType: "{ org: string; runner_id: number; labels: string[] }",
+        returnsType: "{ labels: components[\"schemas\"][\"runner-label\"][] }",
+        sourceDts,
+      },
+      run: async () => ({ labels: [] }),
+    } satisfies ToolDefinition,
+    {
+      path: "github.actions.list_labels_for_self_hosted_runner_for_org",
+      description: "List labels for org runner",
+      approval: "auto",
+      source: "openapi:github",
+      metadata: {
+        argsType: "{ org: string; runner_id: number }",
+        returnsType: "{ labels: components[\"schemas\"][\"runner-label\"][] }",
+      },
+      run: async () => ({ labels: [] }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "runner labels", compact: false, depth: 2 },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as {
+    schemas?: Record<string, Record<string, string>>;
+    total: number;
+  };
+
+  expect(result.total).toBe(2);
+  expect(result.schemas?.["openapi:github"]).toBeDefined();
+  const sourceSchemas = result.schemas?.["openapi:github"] ?? {};
+  expect(sourceSchemas['components["schemas"]["runner-label"]']).toContain("name");
+  expect(Object.keys(sourceSchemas)).toHaveLength(1);
+});
+
+test("schema parser handles semicolons inside schema comments", () => {
+  const dts = `
+interface components {
+  schemas: {
+    root: {
+      /** this comment has a semicolon; and should not terminate parsing */
+      id: string;
+    };
+    "runner-label": {
+      name: string;
+    };
+  };
+}
+`;
+
+  const schemaTypes = extractSourceSchemaTypesFromDts(dts);
+  expect(schemaTypes["root"]).toContain("id: string");
+  expect(schemaTypes["runner-label"]).toContain("name: string");
 });
 
 test("discover returns null bestPath when there are no matches", async () => {

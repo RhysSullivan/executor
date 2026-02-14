@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, memo } from "react";
+import { Button } from "@/components/ui/button";
 import {
   Check,
   ChevronDown,
@@ -12,6 +13,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { toolDisplayPath } from "@/lib/tool/explorer-grouping";
 import type { ToolDescriptor } from "@/lib/types";
 import { CopyButton } from "./explorer/copy-button";
 import { ToolDetail } from "./explorer/tool-detail";
@@ -24,6 +26,7 @@ const ToolRow = memo(function ToolRow({
   onSelect,
   onExpandedChange,
   detailLoading,
+  sourceSchemas,
 }: {
   tool: ToolDescriptor;
   label: string;
@@ -32,6 +35,7 @@ const ToolRow = memo(function ToolRow({
   onSelect: (e: React.MouseEvent) => void;
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoading?: boolean;
+  sourceSchemas?: Record<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -97,7 +101,7 @@ const ToolRow = memo(function ToolRow({
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <ToolDetail tool={tool} depth={depth} loading={detailLoading} />
+        <ToolDetail tool={tool} depth={depth} loading={detailLoading} sourceSchemas={sourceSchemas} />
       </CollapsibleContent>
     </Collapsible>
   );
@@ -111,6 +115,7 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   onSelectTool,
   onExpandedChange,
   detailLoading,
+  sourceSchemas,
 }: {
   tool: ToolDescriptor;
   label: string;
@@ -119,6 +124,7 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   onSelectTool: (path: string, e: React.MouseEvent) => void;
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoading?: boolean;
+  sourceSchemas?: Record<string, string>;
 }) {
   const selected = selectedKeys.has(tool.path);
   const handleSelect = useCallback(
@@ -135,6 +141,7 @@ export const SelectableToolRow = memo(function SelectableToolRow({
       onSelect={handleSelect}
       onExpandedChange={onExpandedChange}
       detailLoading={detailLoading}
+      sourceSchemas={sourceSchemas}
     />
   );
 },
@@ -143,6 +150,7 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   prev.label === next.label &&
   prev.depth === next.depth &&
   prev.detailLoading === next.detailLoading &&
+  prev.sourceSchemas === next.sourceSchemas &&
   prev.selectedKeys.has(prev.tool.path) === next.selectedKeys.has(next.tool.path),
 );
 
@@ -153,6 +161,7 @@ export function VirtualFlatList({
   onExpandedChange,
   detailLoadingPaths,
   loadingRows,
+  sourceSchemasBySource,
   scrollContainerRef,
 }: {
   tools: ToolDescriptor[];
@@ -161,6 +170,7 @@ export function VirtualFlatList({
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoadingPaths?: Set<string>;
   loadingRows?: { source: string; count: number }[];
+  sourceSchemasBySource?: Record<string, Record<string, string>>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
@@ -173,12 +183,13 @@ export function VirtualFlatList({
           <SelectableToolRow
             key={tool.path}
             tool={tool}
-            label={tool.path}
+            label={toolDisplayPath(tool.path)}
             depth={0}
             selectedKeys={selectedKeys}
             onSelectTool={onSelectTool}
             onExpandedChange={onExpandedChange}
             detailLoading={detailLoadingPaths?.has(tool.path)}
+            sourceSchemas={tool.source ? sourceSchemasBySource?.[tool.source] : undefined}
           />
         ))}
 
@@ -195,7 +206,13 @@ export function VirtualFlatList({
   );
 }
 
-export function EmptyState({ hasSearch }: { hasSearch: boolean }) {
+export function EmptyState({
+  hasSearch,
+  onClearSearch,
+}: {
+  hasSearch: boolean;
+  onClearSearch?: () => void;
+}) {
   return (
     <div className="flex flex-col items-center justify-center h-full py-12 gap-2">
       <div className="h-10 w-10 rounded-full bg-muted/50 flex items-center justify-center">
@@ -204,6 +221,16 @@ export function EmptyState({ hasSearch }: { hasSearch: boolean }) {
       <p className="text-sm text-muted-foreground/60">
         {hasSearch ? "No tools match your search" : "No tools available"}
       </p>
+      {hasSearch && onClearSearch ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-[11px]"
+          onClick={onClearSearch}
+        >
+          Clear search
+        </Button>
+      ) : null}
     </div>
   );
 }

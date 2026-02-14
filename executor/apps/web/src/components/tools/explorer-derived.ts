@@ -12,6 +12,79 @@ import type { GroupBy, ViewMode } from "./explorer-toolbar";
 
 export type FilterApproval = "all" | "required" | "auto";
 
+function normalizeSearchToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function splitSearchTerms(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function expandSearchToken(token: string): string[] {
+  const variants = new Set<string>([token]);
+  if (token.endsWith("s") && token.length > 2) {
+    variants.add(token.slice(0, -1));
+  }
+  const compact = normalizeSearchToken(token);
+  if (compact.length > 0) {
+    variants.add(compact);
+  }
+
+  const compactSingular = token.endsWith("s") && token.length > 2
+    ? token.slice(0, -1)
+    : token;
+  if (compactSingular !== token) {
+    variants.add(normalizeSearchToken(compactSingular));
+  }
+
+  return Array.from(variants);
+}
+
+function buildSearchNeedles(search: string): string[][] {
+  const tokens = splitSearchTerms(search);
+  return tokens.map((token) => Array.from(new Set(expandSearchToken(token))));
+}
+
+function buildToolSearchTokens(tool: ToolDescriptor): string[] {
+  const pathAndDescription = `${tool.path} ${tool.description}`;
+  const tokens = splitSearchTerms(pathAndDescription);
+  const normalized = new Set<string>([normalizeSearchToken(pathAndDescription)]);
+  for (const token of tokens) {
+    for (const variant of expandSearchToken(token)) {
+      if (variant.length > 0) {
+        normalized.add(variant);
+      }
+    }
+  }
+
+  return Array.from(normalized);
+}
+
+function tokenMatchesNeedle(token: string, needle: string): boolean {
+  return token.includes(needle)
+    || token.includes(needle.replace(/_/g, ""))
+    || normalizeSearchToken(token).includes(needle);
+}
+
+function matchesSearchNeedles(tool: ToolDescriptor, searchNeedles: string[][]): boolean {
+  const haystack = buildToolSearchTokens(tool);
+  return searchNeedles.every((needles) => {
+    if (needles.length === 0) {
+      return true;
+    }
+
+    return haystack.some((token) =>
+      needles.some((needle) => tokenMatchesNeedle(token, needle)),
+    );
+  });
+}
+
 export function expandedKeysForSource(source: string | null): Set<string> {
   return source ? new Set([`source:${source}`]) : new Set();
 }
@@ -44,11 +117,10 @@ export function filterToolsBySearch(
     return tools;
   }
 
-  const lowerSearch = search.toLowerCase();
+  const searchNeedles = buildSearchNeedles(search);
   return tools.filter(
     (tool) =>
-      tool.path.toLowerCase().includes(lowerSearch) ||
-      tool.description.toLowerCase().includes(lowerSearch),
+      matchesSearchNeedles(tool, searchNeedles),
   );
 }
 
@@ -144,11 +216,9 @@ export function autoExpandedKeysForSearch(
   }
 
   const allGroupKeys = new Set<string>();
-  const lowerSearch = search.toLowerCase();
+  const searchNeedles = buildSearchNeedles(search);
   const matching = filteredTools.filter(
-    (tool) =>
-      tool.path.toLowerCase().includes(lowerSearch) ||
-      tool.description.toLowerCase().includes(lowerSearch),
+    (tool) => matchesSearchNeedles(tool, searchNeedles),
   );
 
   for (const tool of matching) {

@@ -11,16 +11,24 @@ import {
   Loader2,
   Server,
   ShieldCheck,
+  Settings2,
 } from "lucide-react";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { toolOperation, type ToolGroup } from "@/lib/tool/explorer-grouping";
-import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
+import { AddSourceDialog } from "./add/source-dialog";
+import type { SourceDialogMeta } from "./add/source-dialog";
+import {
+  toolDisplayOperation,
+  toolDisplaySegment,
+  type ToolGroup,
+} from "@/lib/tool/explorer-grouping";
+import type { SourceAuthProfile, ToolDescriptor, ToolSourceRecord } from "@/lib/types";
 import { SelectableToolRow, ToolLoadingRows } from "./explorer-rows";
 import { SourceFavicon } from "./source-favicon";
 
@@ -34,6 +42,7 @@ export function GroupNode({
   onSelectTool,
   onExpandedChange,
   detailLoadingPaths,
+  sourceSchemasBySource,
   search,
   source,
 }: {
@@ -46,6 +55,7 @@ export function GroupNode({
   onSelectTool: (path: string, e: React.MouseEvent) => void;
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoadingPaths?: Set<string>;
+  sourceSchemasBySource?: Record<string, Record<string, string>>;
   search: string;
   source?: ToolSourceRecord;
 }) {
@@ -64,8 +74,8 @@ export function GroupNode({
         ? "graphql"
         : "openapi";
 
-  const hasNestedGroups =
-    group.children.length > 0 && "key" in group.children[0];
+  const hasNestedGroups = group.children.some((child): child is ToolGroup => "key" in child);
+  const displayLabel = toolDisplaySegment(group.label);
 
   return (
     <Collapsible open={isExpanded} onOpenChange={() => onToggle(group.key)}>
@@ -131,7 +141,7 @@ export function GroupNode({
                 : "font-medium text-foreground/90",
             )}
           >
-            {group.label}
+            {displayLabel}
           </span>
 
           <span className="text-[10px] font-mono text-muted-foreground/60 ml-auto flex items-center gap-2 shrink-0">
@@ -165,42 +175,50 @@ export function GroupNode({
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        {hasNestedGroups
-          ? (group.children as ToolGroup[]).map((child) => (
-              <GroupNode
-                key={child.key}
-                group={child}
-                depth={depth + 1}
-                expandedKeys={expandedKeys}
-                onToggle={onToggle}
-                selectedKeys={selectedKeys}
-                onSelectGroup={onSelectGroup}
-                onSelectTool={onSelectTool}
-                onExpandedChange={onExpandedChange}
-                detailLoadingPaths={detailLoadingPaths}
-                search={search}
-              />
-            ))
-          : isLoading
-            ? (
-              <ToolLoadingRows
-                source={group.label}
-                count={group.loadingPlaceholderCount ?? 0}
-                depth={depth + 1}
-              />
-            )
-            : (group.children as ToolDescriptor[]).map((tool) => (
+        {hasNestedGroups || group.children.some((child) => !("key" in child))
+          ? group.children.map((child) => {
+              if ("key" in child) {
+                return (
+                  <GroupNode
+                    key={child.key}
+                    group={child}
+                    depth={depth + 1}
+                    expandedKeys={expandedKeys}
+                    onToggle={onToggle}
+                    selectedKeys={selectedKeys}
+                    onSelectGroup={onSelectGroup}
+                    onSelectTool={onSelectTool}
+                    onExpandedChange={onExpandedChange}
+                    detailLoadingPaths={detailLoadingPaths}
+                    sourceSchemasBySource={sourceSchemasBySource}
+                    search={search}
+                  />
+                );
+              }
+
+              return (
                 <SelectableToolRow
-                  key={tool.path}
-                  tool={tool}
-                  label={toolOperation(tool.path)}
+                  key={child.path}
+                  tool={child}
+                  label={toolDisplayOperation(child.path)}
                   depth={depth + 1}
                   selectedKeys={selectedKeys}
                   onSelectTool={onSelectTool}
                   onExpandedChange={onExpandedChange}
-                  detailLoading={detailLoadingPaths?.has(tool.path)}
+                  detailLoading={detailLoadingPaths?.has(child.path)}
+                  sourceSchemas={child.source ? sourceSchemasBySource?.[child.source] : undefined}
                 />
-              ))}
+              );
+            })
+          : isLoading
+            ? (
+              <ToolLoadingRows
+                source={displayLabel}
+                count={group.loadingPlaceholderCount ?? 0}
+                depth={depth + 1}
+              />
+            )
+            : null}
       </CollapsibleContent>
     </Collapsible>
   );
@@ -210,52 +228,33 @@ export function SourceSidebar({
   sources,
   sourceCounts,
   loadingSources,
-  warnings,
+  warningsBySource,
   activeSource,
   onSelectSource,
+  sourceDialogMeta,
+  existingSourceNames,
+  sourceAuthProfiles,
 }: {
   sources: ToolSourceRecord[];
   sourceCounts: Record<string, number>;
   loadingSources: Set<string>;
-  warnings: string[];
+  warningsBySource: Record<string, string[]>;
   activeSource: string | null;
   onSelectSource: (source: string | null) => void;
+  sourceDialogMeta?: Record<string, SourceDialogMeta>;
+  existingSourceNames: Set<string>;
+  sourceAuthProfiles?: Record<string, SourceAuthProfile>;
 }) {
-  const totalToolCount = useMemo(
-    () => Object.values(sourceCounts).reduce((sum, count) => sum + count, 0),
-    [sourceCounts],
-  );
-  const hasLoadingSources = useMemo(
-    () => loadingSources.size > 0,
-    [loadingSources],
-  );
   const warningCountsBySource = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const warning of warnings) {
-      const source = warning.match(/source '([^']+)'/i)?.[1];
-      if (!source) {
-        continue;
-      }
-      counts[source] = (counts[source] ?? 0) + 1;
+    for (const [sourceName, messages] of Object.entries(warningsBySource)) {
+      counts[sourceName] = messages.length;
     }
     return counts;
-  }, [warnings]);
+  }, [warningsBySource]);
   const warningMessagesBySource = useMemo(() => {
-    const messages: Record<string, string[]> = {};
-    for (const warning of warnings) {
-      const source = warning.match(/source '([^']+)'/i)?.[1];
-      if (!source) {
-        continue;
-      }
-      messages[source] ??= [];
-      messages[source].push(warning);
-    }
-    return messages;
-  }, [warnings]);
-  const totalSourceWarningCount = useMemo(
-    () => Object.values(warningCountsBySource).reduce((sum, count) => sum + count, 0),
-    [warningCountsBySource],
-  );
+    return warningsBySource;
+  }, [warningsBySource]);
   const activeSourceWarnings = useMemo(
     () => (activeSource ? warningMessagesBySource[activeSource] ?? [] : []),
     [activeSource, warningMessagesBySource],
@@ -305,75 +304,68 @@ export function SourceSidebar({
       </div>
 
       <div className="space-y-0.5 px-1">
-        <button
-          onClick={() => onSelectSource(null)}
-          className={cn(
-            "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-left transition-colors text-[12px]",
-            activeSource === null
-              ? "bg-accent/40 text-foreground"
-              : "text-muted-foreground hover:text-foreground hover:bg-accent/20",
-          )}
-        >
-          <Layers className="h-3 w-3 shrink-0" />
-          <span className="font-medium truncate">All sources</span>
-          <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
-            {totalSourceWarningCount > 0 ? (
-              <span
-                className="inline-flex items-center gap-0.5 text-terminal-amber"
-                title={`${totalSourceWarningCount} source warning${totalSourceWarningCount !== 1 ? "s" : ""}`}
-              >
-                <AlertTriangle className="h-3 w-3" />
-                {totalSourceWarningCount}
-              </span>
-            ) : null}
-            <span className="inline-flex items-center gap-1">
-              {hasLoadingSources ? <Skeleton className="h-3 w-8" /> : totalToolCount}
-            </span>
-          </span>
-        </button>
-
         {groups.map((g) => {
+          const editMeta = g.source ? sourceDialogMeta?.[g.name] : undefined;
           return (
-            <button
-              key={g.name}
-              onClick={() => onSelectSource(g.name)}
-              className={cn(
-                "flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-left transition-colors text-[12px]",
-                activeSource === g.name
-                  ? "bg-accent/40 text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/20",
-              )}
-            >
-              {g.source ? (
-                <SourceFavicon
-                  source={g.source}
-                  iconClassName="h-3 w-3 text-muted-foreground"
-                  imageClassName="w-3 h-3"
-                />
-              ) : (
-                <Layers className="h-3 w-3 shrink-0" />
-              )}
-              <span className="font-mono font-medium truncate">{g.name}</span>
-              <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
-                {g.warningCount > 0 ? (
-                  <span
-                    className="inline-flex items-center gap-0.5 text-terminal-amber"
-                    title={`${g.warningCount} warning${g.warningCount !== 1 ? "s" : ""}`}
-                  >
-                    <AlertTriangle className="h-3 w-3" />
-                    {g.warningCount}
-                  </span>
-                ) : null}
-                {g.isLoading ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    <Skeleton className="h-3 w-4" />
-                  </>
-                ) : (
-                  g.count
+            <div key={g.name} className="relative">
+              <button
+                onClick={() => onSelectSource(activeSource === g.name ? null : g.name)}
+                className={cn(
+                  "flex items-center gap-2 w-full px-2 py-1.5 pr-10 rounded-md text-left transition-colors text-[12px]",
+                  activeSource === g.name
+                    ? "bg-accent/40 text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/20",
                 )}
-              </span>
-            </button>
+              >
+                {g.source ? (
+                  <SourceFavicon
+                    source={g.source}
+                    iconClassName="h-3 w-3 text-muted-foreground"
+                    imageClassName="w-3 h-3"
+                  />
+                ) : (
+                  <Layers className="h-3 w-3 shrink-0" />
+                )}
+                <span className="font-mono font-medium truncate">{g.name}</span>
+                <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
+                  {g.warningCount > 0 ? (
+                    <span
+                      className="inline-flex items-center gap-0.5 text-terminal-amber"
+                      title={`${g.warningCount} warning${g.warningCount !== 1 ? "s" : ""}`}
+                    >
+                      <AlertTriangle className="h-3 w-3" />
+                      {g.warningCount}
+                    </span>
+                  ) : null}
+                  {g.isLoading ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      <Skeleton className="h-3 w-4" />
+                    </>
+                  ) : (
+                    g.count
+                  )}
+                </span>
+              </button>
+              {g.source ? (
+                <AddSourceDialog
+                  existingSourceNames={existingSourceNames}
+                  sourceToEdit={g.source}
+                  sourceDialogMeta={editMeta}
+                  sourceAuthProfiles={sourceAuthProfiles}
+                  trigger={
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </Button>
+                  }
+                />
+              ) : null}
+            </div>
           );
         })}
 

@@ -4,14 +4,14 @@ import { useMemo, useState } from "react";
 import {
   Plus,
 } from "lucide-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { ToolExplorer } from "@/components/tools/explorer";
 import { TaskComposer } from "@/components/tasks/task-composer";
-import { AddSourceDialog, SourceCard } from "@/components/tools/sources";
+import { AddSourceDialog } from "@/components/tools/sources";
 import { CredentialsPanel } from "@/components/tools/credentials";
 import { ConnectionFormDialog } from "@/components/tools/connection/form-dialog";
 import { useSession } from "@/lib/session-context";
@@ -23,11 +23,11 @@ import type {
   CredentialRecord,
 } from "@/lib/types";
 import {
-  credentialStatsForSource,
-  toolSourceLabelForSource,
+  warningsBySourceName,
 } from "@/lib/tools/source-helpers";
 import { sourceLabel } from "@/lib/tool/source-utils";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
+import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
 
 type ToolsTab = "catalog" | "credentials" | "editor";
 
@@ -76,23 +76,34 @@ export function ToolsView({
     warnings,
     sourceQuality,
     sourceAuthProfiles,
+    sourceSchemas,
     loadingSources,
     loadingTools,
     refreshingTools,
     loadToolDetails,
   } = useWorkspaceTools(context ?? null, { includeDetails: false, includeDtsUrls: false });
+  const existingSourceNames = useMemo(() => new Set(sourceItems.map((source) => source.name)), [sourceItems]);
   const toolSourceNames = useMemo(
     () => new Set(tools.map((tool) => sourceLabel(tool.source))),
     [tools],
   );
+  const warningsBySource = useMemo(() => warningsBySourceName(warnings), [warnings]);
+  const sourceDialogMeta = useMemo(() => {
+    const bySource: Record<string, SourceDialogMeta> = {};
+    for (const source of sourceItems) {
+      const label = `${source.type}:${source.name}`;
+      bySource[source.name] = {
+        quality: source.type === "openapi" ? sourceQuality[label] : undefined,
+        qualityLoading: source.type === "openapi" && !sourceQuality[label] && refreshingTools,
+        warnings: warningsBySource[source.name] ?? [],
+      };
+    }
+    return bySource;
+  }, [sourceItems, sourceQuality, refreshingTools, warningsBySource]);
   const activeSource = selectedSource
     && (sourceItems.some((source) => source.name === selectedSource) || toolSourceNames.has(selectedSource))
     ? selectedSource
     : null;
-  const selectedSourceRecord = activeSource
-    ? sourceItems.find((source) => source.name === activeSource) ?? null
-    : null;
-
   const openConnectionCreate = (sourceKey?: string) => {
     setConnectionDialogEditing(null);
     setConnectionDialogSourceKey(sourceKey ?? null);
@@ -160,20 +171,6 @@ export function ToolsView({
 
         <TabsContent value="catalog" className="mt-4 min-h-0">
           <Card className="bg-card border-border min-h-0 flex flex-col pt-4 gap-3">
-            {activeSource ? (
-              <CardHeader className="pb-1">
-                <div className="flex items-center justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-[11px]"
-                    onClick={() => setSelectedSource(null)}
-                  >
-                    Clear source filter
-                  </Button>
-                </div>
-              </CardHeader>
-            ) : null}
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
               {sourcesLoading ? (
                 <div className="space-y-2">
@@ -191,28 +188,16 @@ export function ToolsView({
                 </div>
               ) : null}
 
-              {selectedSourceRecord ? (
-                <div className="space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Selected source</p>
-                  <SourceCard
-                    source={selectedSourceRecord}
-                    quality={sourceQuality[toolSourceLabelForSource(selectedSourceRecord)]}
-                    qualityLoading={selectedSourceRecord.type === "openapi" && !sourceQuality[toolSourceLabelForSource(selectedSourceRecord)] && refreshingTools}
-                    credentialStats={credentialStatsForSource(selectedSourceRecord, credentialItems)}
-                    existingSourceNames={new Set(sourceItems.map((s) => s.name))}
-                    sourceAuthProfiles={sourceAuthProfiles}
-                    selected
-                    onFocusSource={setSelectedSource}
-                  />
-                </div>
-              ) : null}
-
               <div className="min-h-0 flex-1">
                 <ToolExplorer
                   tools={tools}
                   sources={sourceItems}
                   loadingSources={loadingSources}
                   loading={loadingTools}
+                  sourceDialogMeta={sourceDialogMeta}
+                  sourceAuthProfiles={sourceAuthProfiles}
+                  sourceSchemas={sourceSchemas}
+                  existingSourceNames={existingSourceNames}
                   onLoadToolDetails={loadToolDetails}
                   warnings={warnings}
                   initialSource={initialSource}
@@ -220,7 +205,7 @@ export function ToolsView({
                   onActiveSourceChange={setSelectedSource}
                   addSourceAction={
                     <AddSourceDialog
-                        existingSourceNames={new Set(sourceItems.map((s) => s.name))}
+                        existingSourceNames={existingSourceNames}
                         trigger={
                           <Button
                             variant="default"

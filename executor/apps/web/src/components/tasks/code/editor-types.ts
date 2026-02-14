@@ -1,5 +1,6 @@
 import type { ToolDescriptor } from "@/lib/types";
 export { OPENAPI_HELPER_TYPES } from "@executor/core/openapi/helper-types";
+import { toolDisplaySegment } from "@/lib/tool/explorer-grouping";
 
 interface NamespaceNode {
   children: Map<string, NamespaceNode>;
@@ -26,6 +27,16 @@ function buildTree(tools: ToolDescriptor[]): NamespaceNode {
   return root;
 }
 
+const memberNameRegex = /^[$A-Z_][0-9A-Z_$]*$/i;
+
+function emitMemberName(name: string): string {
+  if (memberNameRegex.test(name)) {
+    return name;
+  }
+
+  return JSON.stringify(name);
+}
+
 function countAllTools(node: NamespaceNode): number {
   let count = node.tools.length;
   for (const child of node.children.values()) {
@@ -35,7 +46,7 @@ function countAllTools(node: NamespaceNode): number {
 }
 
 function emitToolMethod(tool: ToolDescriptor, dtsSources: Set<string>): string {
-  const funcName = tool.path.split(".").pop()!;
+  const funcName = emitMemberName(toolDisplaySegment(tool.path.split(".").pop()!));
   const approvalNote =
     tool.approval === "required"
       ? " **Requires approval** - execution will pause until approved."
@@ -85,7 +96,7 @@ function emitNamespaceInterface(
   for (const [childName, childNode] of node.children) {
     const toolCount = childNode.tools.length + countAllTools(childNode);
     members.push(`  /** ${toolCount} tool${toolCount !== 1 ? "s" : ""} in the \`${childName}\` namespace */
-  readonly ${childName}: ToolNS_${name}_${childName};`);
+  readonly ${emitMemberName(toolDisplaySegment(childName))}: ToolNS_${name}_${childName};`);
   }
 
   for (const tool of node.tools) {
@@ -105,7 +116,7 @@ export function generateToolsDts(tools: ToolDescriptor[], dtsSources: Set<string
 
   const rootMembers: string[] = [];
   for (const [name] of root.children) {
-    rootMembers.push(`  readonly ${name}: ToolNS_${name};`);
+    rootMembers.push(`  readonly ${emitMemberName(toolDisplaySegment(name))}: ToolNS_${name};`);
   }
   for (const tool of root.tools) {
     rootMembers.push(emitToolMethod(tool, dtsSources));

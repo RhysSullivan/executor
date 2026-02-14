@@ -6,6 +6,7 @@ import type {
   ToolDefinition,
   ToolDescriptor,
 } from "../../core/src/types";
+import { formatTypeExpressionForClient } from "../../core/src/type-format";
 import { getDecisionForContext } from "./policy";
 
 function toToolDescriptor(
@@ -22,10 +23,10 @@ function toToolDescriptor(
     source: tool.source,
     ...(includeDetails
       ? {
-          argsType: tool.metadata?.displayArgsType ?? tool.metadata?.argsType,
-          returnsType: tool.metadata?.displayReturnsType ?? tool.metadata?.returnsType,
-          strictArgsType: tool.metadata?.argsType,
-          strictReturnsType: tool.metadata?.returnsType,
+          argsType: formatTypeExpressionForClient(tool.metadata?.displayArgsType ?? tool.metadata?.argsType),
+          returnsType: formatTypeExpressionForClient(tool.metadata?.displayReturnsType ?? tool.metadata?.returnsType),
+          strictArgsType: formatTypeExpressionForClient(tool.metadata?.argsType),
+          strictReturnsType: formatTypeExpressionForClient(tool.metadata?.returnsType),
           argPreviewKeys: tool.metadata?.argPreviewKeys,
           operationId: tool.metadata?.operationId,
         }

@@ -10,8 +10,11 @@ export function findToolsInGroupByKey(
       return collectToolsFromGroup(group);
     }
 
-    if (group.children.length > 0 && "key" in group.children[0]) {
-      const found = findToolsInGroupByKey(group.children as ToolGroup[], key);
+    const childGroups = group.children.filter(
+      (child): child is ToolGroup => "key" in child,
+    );
+    if (childGroups.length > 0) {
+      const found = findToolsInGroupByKey(childGroups, key);
       if (found.length > 0) {
         return found;
       }
@@ -26,8 +29,9 @@ function collectToolsFromGroup(group: ToolGroup): ToolDescriptor[] {
     return [];
   }
 
-  if ("key" in group.children[0]) {
-    return (group.children as ToolGroup[]).flatMap(collectToolsFromGroup);
+  const childGroups = group.children.filter((child): child is ToolGroup => "key" in child);
+  if (childGroups.length > 0) {
+    return childGroups.flatMap(collectToolsFromGroup);
   }
 
   return group.children as ToolDescriptor[];

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import {
   collectGroupKeys,
 } from "@/lib/tool/explorer-grouping";
-import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
+import type { SourceAuthProfile, ToolDescriptor, ToolSourceRecord } from "@/lib/types";
 import { findToolsInGroupByKey } from "./explorer-helpers";
 import {
   autoExpandedKeysForSearch,
@@ -30,6 +30,8 @@ import {
   type GroupBy,
   type ViewMode,
 } from "./explorer-toolbar";
+import type { SourceDialogMeta } from "./add/source-dialog";
+import { warningsBySourceName } from "@/lib/tools/source-helpers";
 
 // ── Main Explorer ──
 
@@ -45,6 +47,20 @@ interface ToolExplorerProps {
   onActiveSourceChange?: (source: string | null) => void;
   showSourceSidebar?: boolean;
   addSourceAction?: ReactNode;
+  sourceDialogMeta?: Record<string, SourceDialogMeta>;
+  sourceAuthProfiles?: Record<string, SourceAuthProfile>;
+  existingSourceNames?: Set<string>;
+  sourceSchemas?: Record<string, Record<string, string>>;
+}
+
+function hasSchemaReference(tool: ToolDescriptor): boolean {
+  const values = [
+    tool.argsType,
+    tool.returnsType,
+    tool.strictArgsType,
+    tool.strictReturnsType,
+  ];
+  return values.some((value) => value?.includes('components["schemas"]['));
 }
 
 export function ToolExplorer({
@@ -59,6 +75,10 @@ export function ToolExplorer({
   onActiveSourceChange,
   showSourceSidebar = true,
   addSourceAction,
+  sourceDialogMeta,
+  sourceAuthProfiles,
+  existingSourceNames,
+  sourceSchemas = {},
 }: ToolExplorerProps) {
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput);
@@ -181,6 +201,12 @@ export function ToolExplorer({
     return filterToolsBySearch(filteredTools, search);
   }, [filteredTools, search]);
 
+  const warningsBySource = useMemo(() => warningsBySourceName(warnings), [warnings]);
+
+  const sidebarExistingSourceNames = useMemo(() => {
+    return existingSourceNames ?? new Set(stableSources.map((source) => source.name));
+  }, [existingSourceNames, stableSources]);
+
   const treeGroups = useMemo(() => {
     return treeGroupsForView(searchedTools, viewMode, groupBy, {
       loadingSources: visibleLoadingSources,
@@ -282,6 +308,10 @@ export function ToolExplorer({
       return;
     }
 
+    const sourceSchemasForTool = tool.source ? sourceSchemas[tool.source] : undefined;
+    const needsSchemaHydration = hasSchemaReference(tool)
+      && (!sourceSchemasForTool || Object.keys(sourceSchemasForTool).length === 0);
+
     const hasDetails = Boolean(
       tool.description
       || tool.strictArgsType
@@ -290,7 +320,7 @@ export function ToolExplorer({
       || tool.returnsType,
     );
 
-    if (hasDetails || toolDetailsByPath[tool.path]) {
+    if ((hasDetails || toolDetailsByPath[tool.path]) && !needsSchemaHydration) {
       return;
     }
 
@@ -317,7 +347,7 @@ export function ToolExplorer({
         return next;
       });
     }
-  }, [loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
+  }, [loadingDetailPaths, onLoadToolDetails, sourceSchemas, toolDetailsByPath]);
 
   const flatLoadingRows = useMemo(() => {
     if (search.length > 0 || viewMode !== "flat") {
@@ -371,9 +401,12 @@ export function ToolExplorer({
           sources={stableSources}
           sourceCounts={sourceCounts}
           loadingSources={loadingSourceSet}
-          warnings={warnings}
+          warningsBySource={warningsBySource}
           activeSource={resolvedActiveSource}
           onSelectSource={handleSourceSelect}
+          sourceDialogMeta={sourceDialogMeta}
+          sourceAuthProfiles={sourceAuthProfiles}
+          existingSourceNames={sidebarExistingSourceNames}
         />
       ) : null}
 
@@ -415,7 +448,11 @@ export function ToolExplorer({
               ref={flatListRef}
               className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
             >
-              {awaitingInitialInventory ? <LoadingState /> : <EmptyState hasSearch={!!search} />}
+              {awaitingInitialInventory ? (
+                <LoadingState />
+              ) : (
+                <EmptyState hasSearch={!!search} onClearSearch={() => setSearchInput("")} />
+              )}
             </div>
           ) : (
             <VirtualFlatList
@@ -424,6 +461,7 @@ export function ToolExplorer({
               onSelectTool={toggleSelectTool}
               onExpandedChange={maybeLoadToolDetails}
               detailLoadingPaths={loadingDetailPaths}
+              sourceSchemasBySource={sourceSchemas}
               scrollContainerRef={flatListRef}
               loadingRows={flatLoadingRows}
             />
@@ -434,7 +472,11 @@ export function ToolExplorer({
             className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
           >
             {treeGroups.length === 0 ? (
-              awaitingInitialInventory ? <LoadingState /> : <EmptyState hasSearch={!!search} />
+              awaitingInitialInventory ? (
+                <LoadingState />
+              ) : (
+                <EmptyState hasSearch={!!search} onClearSearch={() => setSearchInput("")} />
+              )
             ) : (
               <div className="p-1">
                 {treeGroups.map((group) => (
@@ -449,6 +491,7 @@ export function ToolExplorer({
                     onSelectTool={toggleSelectTool}
                     onExpandedChange={maybeLoadToolDetails}
                     detailLoadingPaths={loadingDetailPaths}
+                    sourceSchemasBySource={sourceSchemas}
                     source={group.type === "source" ? sourceByName.get(group.label) : undefined}
                     search={search}
                   />

@@ -17,6 +17,7 @@ function setup() {
     "./executor.ts": () => import("./executor"),
     "./executorNode.ts": () => import("./executorNode"),
     "./database.ts": () => import("./database"),
+    "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./app.ts": () => import("./app"),
     "./billingInternal.ts": () => import("./billingInternal"),
     "./billingSync.ts": () => import("./billingSync"),
@@ -197,7 +198,7 @@ describe("authentication", () => {
     const owner = await seedUser(t, { subject: "owner-4" });
 
     await expect(
-      t.mutation(api.executor.createTask, {
+      t.action(api.executor.createTask, {
         workspaceId: owner.workspaceId,
         code: "console.log('hello')",
       }),
@@ -703,7 +704,7 @@ describe("cross-workspace isolation", () => {
     const authedA = t.withIdentity({ subject: "task-user-a" });
 
     await expect(
-      authedA.mutation(api.executor.createTask, {
+      authedA.action(api.executor.createTask, {
         workspaceId: userB.workspaceId,
         code: "console.log('pwned')",
       }),
@@ -1012,7 +1013,7 @@ describe("task creation with access controls", () => {
     const user = await seedUser(t, { subject: "task-creator" });
     const authed = t.withIdentity({ subject: "task-creator" });
 
-    const result = await authed.mutation(api.executor.createTask, {
+    const result = await authed.action(api.executor.createTask, {
       workspaceId: user.workspaceId,
       code: "console.log('hello')",
     });
@@ -1039,7 +1040,7 @@ describe("task creation with access controls", () => {
 
     // Owner creates a task
     const authedOwner = t.withIdentity({ subject: "task-scope-owner" });
-    await authedOwner.mutation(api.executor.createTask, {
+    await authedOwner.action(api.executor.createTask, {
       workspaceId: owner.workspaceId,
       code: "1 + 1",
     });
@@ -1061,7 +1062,7 @@ describe("task creation with access controls", () => {
 
     // Owner creates a task
     const authedOwner = t.withIdentity({ subject: "task-vis-owner" });
-    await authedOwner.mutation(api.executor.createTask, {
+    await authedOwner.action(api.executor.createTask, {
       workspaceId: owner.workspaceId,
       code: "secret code",
     });

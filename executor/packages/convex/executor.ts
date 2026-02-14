@@ -2,18 +2,22 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel.d.ts";
 import type { MutationCtx } from "./_generated/server";
-import { internalMutation } from "./_generated/server";
+import { action, internalMutation } from "./_generated/server";
 import { workspaceMutation } from "../core/src/function-builders";
 import { actorIdForAccount } from "../core/src/identity";
 import { defaultRuntimeId, isKnownRuntimeId, isRuntimeEnabled } from "../core/src/runtimes/runtime-catalog";
-import type { ApprovalRecord, TaskRecord } from "../core/src/types";
+import type { ApprovalRecord, TaskExecutionOutcome, TaskRecord } from "../core/src/types";
 import { isTerminalTaskStatus, taskTerminalEventType } from "./task/status";
 import { DEFAULT_TASK_TIMEOUT_MS } from "./task/constants";
 import { createTaskEvent } from "./task/events";
 import { markTaskFinished } from "./task/finish";
 
+type TaskCreateContext = Pick<MutationCtx, "runMutation"> & {
+  scheduler?: Pick<MutationCtx, "scheduler">["scheduler"];
+};
+
 async function createTaskRecord(
-  ctx: MutationCtx,
+  ctx: TaskCreateContext,
   args: {
     code: string;
     timeoutMs?: number;
@@ -76,6 +80,10 @@ async function createTaskRecord(
   });
 
   if (args.scheduleAfterCreate ?? true) {
+    if (!ctx.scheduler) {
+      throw new Error("Task scheduling is unavailable in this execution context");
+    }
+
     await ctx.scheduler.runAfter(1, internal.executorNode.runTask, {
       taskId,
     });
@@ -137,27 +145,68 @@ async function resolveApprovalRecord(
   return { approval, task };
 }
 
-export const createTask = workspaceMutation({
+export const createTask = action({
   args: {
     code: v.string(),
     timeoutMs: v.optional(v.number()),
     runtimeId: v.optional(v.string()),
     metadata: v.optional(v.any()),
+    workspaceId: v.id("workspaces"),
+    sessionId: v.optional(v.string()),
     actorId: v.optional(v.string()),
     clientId: v.optional(v.string()),
+    waitForResult: v.optional(v.boolean()),
   },
-  handler: async (ctx, args): Promise<{ task: TaskRecord }> => {
-    const canonicalActorId = actorIdForAccount(ctx.account as { _id: string; provider: string; providerAccountId: string });
+  handler: async (ctx, args): Promise<TaskExecutionOutcome> => {
+    const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
+      workspaceId: args.workspaceId,
+      sessionId: args.sessionId,
+    });
+
+    const canonicalActorId = actorIdForAccount({
+      _id: access.accountId,
+      provider: access.provider,
+      providerAccountId: access.providerAccountId,
+    });
+
     if (args.actorId && args.actorId !== canonicalActorId) {
       throw new Error("actorId must match the authenticated workspace actor");
     }
 
-    return await createTaskRecord(ctx, {
-      ...args,
-      workspaceId: ctx.workspaceId,
+    const waitForResult = args.waitForResult ?? false;
+    const created = await createTaskRecord(ctx as TaskCreateContext, {
+      code: args.code,
+      timeoutMs: args.timeoutMs,
+      runtimeId: args.runtimeId,
+      metadata: args.metadata,
+      workspaceId: args.workspaceId,
       actorId: canonicalActorId,
       clientId: args.clientId,
+      scheduleAfterCreate: !waitForResult,
     });
+
+    if (!waitForResult) {
+      return { task: created.task };
+    }
+
+    const runOutcome = await ctx.runAction(internal.executorNode.runTask, {
+      taskId: created.task.id,
+    });
+
+    if (runOutcome?.task) {
+      return runOutcome;
+    }
+
+    const task = await ctx.runQuery(internal.database.getTaskInWorkspace, {
+      taskId: created.task.id,
+      workspaceId: args.workspaceId,
+    });
+
+    if (!task) {
+      throw new Error(`Task ${created.task.id} not found after execution`);
+    }
+
+    return { task };
   },
 });
 

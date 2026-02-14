@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Plus } from "lucide-react";
+import { AlertTriangle, Plus } from "lucide-react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Result } from "better-result";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +16,21 @@ import {
 } from "@/components/ui/dialog";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
-import type { CredentialRecord, ToolSourceRecord } from "@/lib/types";
+import type {
+  CredentialRecord,
+  OpenApiSourceQuality,
+  SourceAuthProfile,
+  ToolSourceRecord,
+} from "@/lib/types";
+import {
+  compactEndpointLabel,
+  formatSourceAuthBadge,
+  readSourceAuth,
+  sourceAuthProfileForSource,
+  sourceEndpointLabel,
+} from "@/lib/tools/source-helpers";
+import { displaySourceName } from "@/lib/tool/source-utils";
+import { SourceFavicon } from "../source-favicon";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
 import { startMcpOAuthPopup } from "@/lib/mcp/oauth-popup";
@@ -25,9 +40,19 @@ import {
 } from "./source/dialog-sections";
 import { SourceAuthPanel } from "./source/auth-panel";
 import {
+  OpenApiQualityDetails,
+  SourceQualitySummary,
+} from "../source/quality-details";
+import {
   useAddSourceFormState,
 } from "../use/add/source/form-state";
 import { saveSourceWithCredentials } from "./source-submit";
+
+export type SourceDialogMeta = {
+  quality?: OpenApiSourceQuality;
+  qualityLoading?: boolean;
+  warnings?: string[];
+};
 
 function resultErrorMessage(error: unknown, fallback: string): string {
   const cause = typeof error === "object" && error && "cause" in error
@@ -58,11 +83,15 @@ export function AddSourceDialog({
   existingSourceNames,
   onSourceAdded,
   sourceToEdit,
+  sourceDialogMeta,
+  sourceAuthProfiles,
   trigger,
 }: {
   existingSourceNames: Set<string>;
   onSourceAdded?: (source: ToolSourceRecord, options?: { connected?: boolean }) => void;
   sourceToEdit?: ToolSourceRecord;
+  sourceDialogMeta?: SourceDialogMeta;
+  sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   trigger?: ReactNode;
 }) {
   const { context } = useSession();
@@ -77,6 +106,21 @@ export function AddSourceDialog({
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [mcpOAuthBusy, setMcpOAuthBusy] = useState(false);
+
+  const sourceDialogHeader = sourceToEdit ? "Edit Tool Source" : "Add Tool Source";
+  const sourceDialogDescription = sourceToEdit
+    ? "Update endpoint, auth, and credentials from one place."
+    : "Connect a source and configure credentials in a single flow.";
+
+  const editSourceMeta = sourceToEdit ? sourceDialogMeta : undefined;
+  const editSourceWarnings = editSourceMeta?.warnings ?? [];
+  const editSourceQuality = editSourceMeta?.quality;
+  const editSourceQualityLoading = Boolean(editSourceMeta?.qualityLoading);
+  const editAuthProfile = sourceToEdit && sourceAuthProfiles
+    ? sourceAuthProfileForSource(sourceToEdit, sourceAuthProfiles)
+    : undefined;
+  const editAuthBadge = sourceToEdit ? formatSourceAuthBadge(sourceToEdit, editAuthProfile) : null;
+  const editAuth = sourceToEdit ? readSourceAuth(sourceToEdit, editAuthProfile) : null;
   const form = useAddSourceFormState({
     open,
     sourceToEdit,
@@ -204,10 +248,8 @@ export function AddSourceDialog({
     toast.success("OAuth linked successfully.");
   };
 
-  const dialogTitle = sourceToEdit ? "Edit Tool Source" : "Add Tool Source";
-  const dialogDescription = sourceToEdit
-    ? "Update endpoint, auth, and credentials from one place."
-    : "Connect a source and configure credentials in a single flow.";
+  const dialogTitle = sourceDialogHeader;
+  const dialogDescription = sourceDialogDescription;
   const submitLabel = form.editing
     ? "Save Source"
     : form.type === "openapi" || form.type === "graphql"
@@ -229,6 +271,83 @@ export function AddSourceDialog({
           <DialogTitle className="text-sm font-medium">{dialogTitle}</DialogTitle>
           <p className="text-[11px] text-muted-foreground pt-1">{dialogDescription}</p>
         </DialogHeader>
+
+        {sourceToEdit ? (
+          <div className="px-5 pt-2">
+            <div className="rounded-md border border-border/60 bg-muted/20 px-2.5 py-2">
+              <div className="flex items-start gap-2.5">
+                <SourceFavicon
+                  source={sourceToEdit}
+                  iconClassName="h-5 w-5 text-muted-foreground"
+                  imageClassName="w-6 h-6"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-medium truncate" title={sourceToEdit.name}>
+                    {displaySourceName(sourceToEdit.name)}
+                  </p>
+                  <p
+                    className="text-[10px] text-muted-foreground truncate mt-0.5"
+                    title={sourceEndpointLabel(sourceToEdit)}
+                  >
+                    {compactEndpointLabel(sourceToEdit)}
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    <Badge variant="outline" className="h-5 px-2 text-[9px] uppercase tracking-wide">
+                      {sourceToEdit.type}
+                    </Badge>
+                    {editAuthBadge ? (
+                      <Badge
+                        variant="outline"
+                        className="h-5 px-2 text-[9px] uppercase tracking-wide text-primary border-primary/30"
+                      >
+                        {editAuthBadge}
+                      </Badge>
+                    ) : null}
+                    {editAuth && editAuth.type !== "none" ? (
+                      <Badge
+                        variant="outline"
+                        className="h-5 px-2 text-[9px] uppercase tracking-wide text-amber-500 border-amber-500/30"
+                      >
+                        auth
+                      </Badge>
+                    ) : null}
+                    {editSourceWarnings.length > 0 ? (
+                      <Badge
+                        variant="outline"
+                        className="h-5 px-2 text-[9px] uppercase tracking-wide text-terminal-amber border-terminal-amber/30 inline-flex items-center gap-1"
+                      >
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        {editSourceWarnings.length} warning{editSourceWarnings.length !== 1 ? "s" : ""}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+              {sourceToEdit.type === "openapi" ? (
+                <div className="mt-2 flex flex-col gap-1">
+                  <SourceQualitySummary
+                    quality={editSourceQuality}
+                    qualityLoading={editSourceQualityLoading}
+                  />
+                  <OpenApiQualityDetails
+                    quality={editSourceQuality}
+                    qualityLoading={editSourceQualityLoading}
+                  />
+                </div>
+              ) : null}
+
+              {editSourceWarnings.length > 0 ? (
+                <div className="mt-2 rounded-sm border border-terminal-amber/30 bg-terminal-amber/5 px-2 py-1.5">
+                    {editSourceWarnings.map((warning: string, index: number) => (
+                    <p key={`${sourceToEdit.name}-warning-${index}`} className="text-[10px] text-terminal-amber/90">
+                      {warning}
+                    </p>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div className="p-5 space-y-4">
           {form.view === "catalog" && !sourceToEdit ? (

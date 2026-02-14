@@ -28,6 +28,7 @@ export const listToolsWithWarnings = action({
     sessionId: v.optional(v.string()),
     includeDetails: v.optional(v.boolean()),
     includeSourceMeta: v.optional(v.boolean()),
+    includeSchemaRegistry: v.optional(v.boolean()),
     toolPaths: v.optional(v.array(v.string())),
   },
   handler: async (
@@ -39,6 +40,7 @@ export const listToolsWithWarnings = action({
     dtsUrls: Record<string, string>;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
+    sourceSchemas: Record<string, Record<string, string>>;
     debug: WorkspaceToolsDebug;
   }> => {
     const canonicalActorId = await requireCanonicalActor(ctx, {
@@ -55,6 +57,7 @@ export const listToolsWithWarnings = action({
       includeDts: false,
       includeDetails: args.includeDetails ?? true,
       includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
+      includeSchemaRegistry: args.includeSchemaRegistry ?? false,
       toolPaths: args.toolPaths,
       sourceTimeoutMs: 2_500,
       allowStaleOnMismatch: true,
@@ -125,6 +128,7 @@ export const listToolsWithWarningsInternal = internalAction({
     dtsUrls: Record<string, string>;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
+    sourceSchemas: Record<string, Record<string, string>>;
     debug: WorkspaceToolsDebug;
   }> => {
     return await listToolsWithWarningsForContext(ctx, args, { includeDts: false });

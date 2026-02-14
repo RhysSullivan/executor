@@ -9,7 +9,7 @@ export interface ToolGroup {
   childCount: number;
   approvalCount: number;
   loadingPlaceholderCount?: number;
-  children: ToolGroup[] | ToolDescriptor[];
+  children: Array<ToolGroup | ToolDescriptor>;
 }
 
 export function toolNamespace(path: string): string {
@@ -18,17 +18,59 @@ export function toolNamespace(path: string): string {
   return parts[0];
 }
 
+function normalizeTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
 function trimLeadingNamespace(path: string, prefix: string): string {
-  const dottedPrefix = `${prefix}.`;
-  if (path.startsWith(dottedPrefix)) {
-    return path.slice(dottedPrefix.length);
+  const pathTokens = normalizeTokens(path);
+  const prefixTokens = normalizeTokens(prefix);
+  let idx = 0;
+
+  while (
+    idx < pathTokens.length
+    && idx < prefixTokens.length
+    && pathTokens[idx] === prefixTokens[idx]
+  ) {
+    idx += 1;
   }
-  return path;
+
+  return pathTokens.slice(idx).join(".");
 }
 
 export function toolOperation(path: string): string {
   const parts = path.split(".");
   return parts[parts.length - 1];
+}
+
+export function toolDisplaySegment(segment: string): string {
+  return segment.replace(/_/g, "-");
+}
+
+export function toolDisplayOperation(path: string): string {
+  return toolDisplaySegment(toolOperation(path));
+}
+
+export function toolDisplayPath(path: string): string {
+  return path
+    .split(".")
+    .map(toolDisplaySegment)
+    .join("/");
+}
+
+function collapseMcpNamespace(namespace: string, sourceType: string): string {
+  if (sourceType !== "mcp") {
+    return namespace;
+  }
+
+  const parts = namespace.split(".").filter(Boolean);
+  while (parts.length > 0 && parts[0] === "mcp") {
+    parts.shift();
+  }
+  return parts.join(".");
 }
 
 export function buildSourceTree(tools: ToolDescriptor[]): ToolGroup[] {
@@ -59,19 +101,33 @@ export function buildSourceTree(tools: ToolDescriptor[]): ToolGroup[] {
         list.push(tool);
       }
 
-      const nsGroups: ToolGroup[] = Array.from(byNs.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([ns, nsTools]) => ({
+      const children: Array<ToolGroup | ToolDescriptor> = [];
+      for (const [ns, nsTools] of Array.from(byNs.entries()).sort((a, b) =>
+        a[0].localeCompare(b[0]))
+      ) {
+        const normalizedNs = collapseMcpNamespace(trimLeadingNamespace(ns, src), sType);
+        const sortedNsTools = [...nsTools].sort((a, b) => a.path.localeCompare(b.path));
+
+        if (normalizedNs.length === 0) {
+          children.push(...sortedNsTools);
+          continue;
+        }
+
+        children.push({
           key: `source:${src}:ns:${ns}`,
-          label: trimLeadingNamespace(ns, src),
-          type: "namespace" as const,
+          label: normalizedNs,
+          type: "namespace",
           childCount: nsTools.length,
-          approvalCount: nsTools.filter((t) => t.approval === "required")
-            .length,
-          children: [...nsTools].sort((a, b) =>
-            a.path.localeCompare(b.path),
-          ),
-        }));
+          approvalCount: nsTools.filter((t) => t.approval === "required").length,
+          children: sortedNsTools,
+        });
+      }
+
+      const filteredNsChildren = children.sort((a, b) => {
+        const aKey = "label" in a ? `namespace:${a.label}` : a.path;
+        const bKey = "label" in b ? `namespace:${b.label}` : b.path;
+        return aKey.localeCompare(bKey);
+      });
 
       return {
         key: `source:${src}`,
@@ -81,7 +137,7 @@ export function buildSourceTree(tools: ToolDescriptor[]): ToolGroup[] {
         childCount: srcTools.length,
         approvalCount: srcTools.filter((t) => t.approval === "required")
           .length,
-        children: nsGroups,
+        children: filteredNsChildren,
       };
     });
 }
@@ -100,14 +156,14 @@ export function buildNamespaceTree(tools: ToolDescriptor[]): ToolGroup[] {
 
   return Array.from(byNs.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([ns, nsTools]) => ({
-      key: `ns:${ns}`,
-      label: ns,
-      type: "namespace" as const,
-      childCount: nsTools.length,
-      approvalCount: nsTools.filter((t) => t.approval === "required").length,
-      children: [...nsTools].sort((a, b) => a.path.localeCompare(b.path)),
-    }));
+      .map(([ns, nsTools]) => ({
+        key: `ns:${ns}`,
+        label: ns,
+        type: "namespace" as const,
+        childCount: nsTools.length,
+        approvalCount: nsTools.filter((t) => t.approval === "required").length,
+        children: [...nsTools].sort((a, b) => a.path.localeCompare(b.path)),
+      }));
 }
 
 export function buildApprovalTree(tools: ToolDescriptor[]): ToolGroup[] {
@@ -148,8 +204,10 @@ export function collectGroupKeys(groups: ToolGroup[]): Set<string> {
     if (!group) continue;
 
     keys.add(group.key);
-    if (group.children.length > 0 && "key" in group.children[0]) {
-      stack.push(...(group.children as ToolGroup[]));
+    for (const child of group.children) {
+      if ("key" in child) {
+        stack.push(child);
+      }
     }
   }
 

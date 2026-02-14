@@ -9,6 +9,7 @@ import {
   formatSignature,
 } from "./tool-discovery/formatting";
 import { buildIndex, getTopLevelNamespace, listIndexForContext } from "./tool-discovery/indexing";
+import { buildSchemaRegistryForEntries, buildSourceSchemaTypeMap } from "./tool-discovery/schema-registry";
 import { chooseBestPath, deriveIntentPhrase, extractNamespaceHints, scoreEntry } from "./tool-discovery/ranking";
 
 export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
@@ -114,6 +115,7 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
 
 export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
   const index = buildIndex(tools);
+  const sourceSchemaTypes = buildSourceSchemaTypeMap(tools);
 
   return {
     path: "discover",
@@ -124,7 +126,7 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
     metadata: {
       argsType: "{ query: string; depth?: number; limit?: number; compact?: boolean }",
       returnsType:
-        "{ bestPath: string | null; results: Array<{ path: string; aliases: string[]; source: string; approval: 'auto' | 'required'; description: string; signature: string; canonicalSignature: string; expandedShape: { input: string; output: string }; exampleCall: string }>; total: number }",
+        "{ bestPath: string | null; results: Array<{ path: string; aliases: string[]; source: string; approval: 'auto' | 'required'; description: string; signature: string; canonicalSignature: string; expandedShape: { input: string; output: string }; exampleCall: string }>; schemas?: Record<string, Record<string, string>>; total: number }",
     },
     run: async (input: unknown, context) => {
       const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
@@ -161,9 +163,15 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
         exampleCall: buildExampleCall(entry),
       }));
 
+      const schemas = buildSchemaRegistryForEntries(
+        ranked.map(({ entry }) => entry),
+        sourceSchemaTypes,
+      );
+
       return {
         bestPath: chooseBestPath(ranked, terms.length),
         results,
+        ...(Object.keys(schemas).length > 0 ? { schemas } : {}),
         total: results.length,
       };
     },

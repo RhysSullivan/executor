@@ -16,17 +16,121 @@ const RAW_HOSTS = new Set([
   "raw.github.com",
 ]);
 
-export function getSourceFaviconUrl(url: string | undefined | null): string | null {
-  if (!url) return null;
+function normalizeFaviconDomain(value: string): string {
+  return (value || "").toLowerCase().trim();
+}
+
+function uniqueFaviconUrls(urls: string[]): string[] {
+  const dedupe = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of urls) {
+    const normalized = value.trim();
+    if (normalized.length === 0 || dedupe.has(normalized)) {
+      continue;
+    }
+    dedupe.add(normalized);
+    result.push(normalized);
+  }
+
+  return result;
+}
+
+function faviconHostCandidates(hostname: string): string[] {
+  const normalized = normalizeFaviconDomain(hostname);
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  const parts = normalized.split(".").filter(Boolean);
+  if (parts.length === 0) {
+    return [];
+  }
+
+  const candidates = new Set<string>([normalized]);
+  for (let i = 1; i < parts.length; i += 1) {
+    const suffix = parts.slice(i).join(".");
+    if (suffix.includes(".")) {
+      candidates.add(suffix);
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function candidateHostsFromPath(pathname: string): string[] {
+  const trimmed = normalizeFaviconDomain(pathname);
+  if (trimmed.length === 0) {
+    return [];
+  }
+
+  const segments = trimmed.split("/").filter(Boolean);
+  const suffixes = [".json", ".yaml", ".yml", ".xml", ".txt", ".html"];
+  const candidates = new Set<string>();
+
+  for (const segment of segments) {
+    if (!segment.includes(".")) {
+      continue;
+    }
+
+    let normalized = segment;
+    for (const suffix of suffixes) {
+      if (normalized.endsWith(suffix)) {
+        normalized = normalized.slice(0, -suffix.length);
+        break;
+      }
+    }
+
+    const parsed = parseDomain(normalized);
+    if (!parsed.isIcann || !parsed.domain || !parsed.domainWithoutSuffix) {
+      continue;
+    }
+
+    candidates.add(normalizeFaviconDomain(normalized));
+  }
+
+  return Array.from(candidates);
+}
+
+export function getSourceFaviconCandidates(url: string | undefined | null): string[] {
+  if (!url) return [];
   try {
     const hostname = new URL(url).hostname;
-    const parsed = parseDomain(hostname);
-    const domain = parsed.domain ?? hostname;
+    const sourceUrl = new URL(url);
+    const hostCandidates = [
+      ...faviconHostCandidates(hostname),
+      ...candidateHostsFromPath(sourceUrl.pathname),
+    ];
 
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
+    const candidateUrls: string[] = [`${sourceUrl.origin}/favicon.ico`];
+    for (const host of hostCandidates) {
+      candidateUrls.push(
+        `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
+        `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`,
+      );
+    }
+
+    return uniqueFaviconUrls(candidateUrls);
   } catch {
-    return null;
+    return [];
   }
+}
+
+export function getSourceFaviconUrl(url: string | undefined | null): string | null {
+  return getSourceFaviconCandidates(url)[0] ?? null;
+}
+
+export function getSourceFaviconProxyUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.startsWith("/")) {
+    return trimmed;
+  }
+
+  return `/api/favicon?url=${encodeURIComponent(trimmed)}`;
 }
 
 function sourceFaviconSourceUrl(source: ToolSourceRecord): string | null {
@@ -58,6 +162,11 @@ function sourceFaviconSourceUrl(source: ToolSourceRecord): string | null {
     ?? parseOrigin(source.config.collectionUrl)
     ?? parseOrigin(specUrl)
     ?? parseOrigin(spec);
+}
+
+export function getSourceFaviconCandidatesForSource(source: ToolSourceRecord): string[] {
+  const sourceUrl = sourceFaviconSourceUrl(source);
+  return getSourceFaviconCandidates(sourceUrl);
 }
 
 export function getSourceFavicon(source: ToolSourceRecord): string | null {
@@ -103,6 +212,22 @@ export function sourceForCredentialKey(sources: ToolSourceRecord[], sourceKey: s
   const sourceId = sourceKey.slice(prefix.length);
   if (!sourceId) return null;
   return sources.find((source) => source.id === sourceId) ?? null;
+}
+
+export function parseWarningSourceName(warning: string): string | null {
+  return warning.match(/source '([^']+)'/i)?.[1] ?? null;
+}
+
+export function warningsBySourceName(warnings: string[]): Record<string, string[]> {
+  const messages: Record<string, string[]> = {};
+  for (const warning of warnings) {
+    const sourceName = parseWarningSourceName(warning);
+    if (!sourceName) continue;
+    messages[sourceName] ??= [];
+    messages[sourceName].push(warning);
+  }
+
+  return messages;
 }
 
 export function sourceAuthProfileForSource(
@@ -319,6 +444,7 @@ export function withUniqueSourceName(baseName: string, takenNames: Set<string>):
 function sourceNameFromCatalogId(id: string): string {
   let slug = sanitizeSourceName(id);
   slug = slug
+    .replace(/-mcp$/, "")
     .replace(/-openapi$/, "")
     .replace(/-graphql-api$/, "")
     .replace(/-rest-api$/, "")

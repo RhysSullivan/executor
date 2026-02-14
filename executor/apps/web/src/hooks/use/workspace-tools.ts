@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
@@ -19,6 +19,7 @@ interface WorkspaceToolsQueryResult {
   warnings: string[];
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  sourceSchemas: Record<string, Record<string, string>>;
   debug?: {
     mode: "cache-fresh" | "cache-stale" | "rebuild";
     includeDts: boolean;
@@ -59,6 +60,7 @@ export function useWorkspaceTools(
   const listToolDtsUrls = useAction(convexApi.executorNode.listToolDtsUrls);
   const listToolsWithWarnings = listToolsWithWarningsRaw as unknown as (args: Record<string, unknown>) => Promise<WorkspaceToolsQueryResult>;
   const detailsCacheRef = useRef<Map<string, ToolDescriptor>>(new Map());
+  const [sourceSchemasBySource, setSourceSchemasBySource] = useState<Record<string, Record<string, string>>>({});
 
   // Watch tool sources reactively so we invalidate when sources change
   const toolSources = useConvexQuery(
@@ -81,7 +83,13 @@ export function useWorkspaceTools(
     ],
     queryFn: async (): Promise<WorkspaceToolsQueryResult> => {
       if (!context) {
-        return { tools: [], warnings: [], sourceQuality: {}, sourceAuthProfiles: {} };
+        return {
+          tools: [],
+          warnings: [],
+          sourceQuality: {},
+          sourceAuthProfiles: {},
+          sourceSchemas: {},
+        };
       }
       return await listToolsWithWarnings({
         workspaceId: context.workspaceId,
@@ -89,6 +97,7 @@ export function useWorkspaceTools(
         ...(context.clientId && { clientId: context.clientId }),
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails,
+        includeSchemaRegistry: false,
       });
     },
     enabled: !!context,
@@ -124,11 +133,38 @@ export function useWorkspaceTools(
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails: true,
         includeSourceMeta: false,
+        includeSchemaRegistry: true,
         toolPaths: missing,
       });
 
       for (const tool of detailedInventory.tools) {
         cache.set(tool.path, tool);
+      }
+
+      if (Object.keys(detailedInventory.sourceSchemas ?? {}).length > 0) {
+        setSourceSchemasBySource((prev) => {
+          let changed = false;
+          const next: Record<string, Record<string, string>> = { ...prev };
+
+          for (const [source, schemas] of Object.entries(detailedInventory.sourceSchemas ?? {})) {
+            const current = next[source] ?? {};
+            let sourceChanged = false;
+            const merged = { ...current };
+
+            for (const [schemaRef, schemaType] of Object.entries(schemas)) {
+              if (merged[schemaRef] === schemaType) continue;
+              merged[schemaRef] = schemaType;
+              sourceChanged = true;
+            }
+
+            if (sourceChanged || !next[source]) {
+              next[source] = merged;
+              changed = true;
+            }
+          }
+
+          return changed ? next : prev;
+        });
       }
     }
 
@@ -147,6 +183,10 @@ export function useWorkspaceTools(
   }, [context?.workspaceId, context?.actorId, context?.clientId, context?.sessionId]);
 
   useEffect(() => {
+    setSourceSchemasBySource({});
+  }, [context?.workspaceId, context?.actorId, context?.clientId, context?.sessionId]);
+
+  useEffect(() => {
     if (!inventoryData || !includeDetails) {
       return;
     }
@@ -155,6 +195,37 @@ export function useWorkspaceTools(
       cache.set(tool.path, tool);
     }
   }, [inventoryData, includeDetails]);
+
+  useEffect(() => {
+    const nextSchemas = inventoryData?.sourceSchemas ?? {};
+    if (Object.keys(nextSchemas).length === 0) {
+      return;
+    }
+
+    setSourceSchemasBySource((prev) => {
+      let changed = false;
+      const next: Record<string, Record<string, string>> = { ...prev };
+
+      for (const [source, schemas] of Object.entries(nextSchemas)) {
+        const current = next[source] ?? {};
+        let sourceChanged = false;
+        const merged = { ...current };
+
+        for (const [schemaRef, schemaType] of Object.entries(schemas)) {
+          if (merged[schemaRef] === schemaType) continue;
+          merged[schemaRef] = schemaType;
+          sourceChanged = true;
+        }
+
+        if (sourceChanged || !next[source]) {
+          next[source] = merged;
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [inventoryData?.sourceSchemas]);
 
   const hasOpenApiSource = (toolSources ?? []).some(
     (source: ToolSourceRecord) => source.type === "openapi" && source.enabled,
@@ -190,6 +261,7 @@ export function useWorkspaceTools(
     /** Per-source OpenAPI quality metrics (unknown/fallback type rates). */
     sourceQuality: inventoryData?.sourceQuality ?? {},
     sourceAuthProfiles: inventoryData?.sourceAuthProfiles ?? {},
+    sourceSchemas: sourceSchemasBySource,
     debug: inventoryData?.debug,
     loadingSources: inventoryData?.debug?.timedOutSources ?? [],
     loadingTools: !!context && toolsLoading,
