@@ -43,6 +43,38 @@ type SaveFormSnapshot = {
   buildSecretJson: () => { value?: Record<string, unknown>; error?: string };
 };
 
+function readLegacyMcpStaticSecret(
+  sourceToEdit: ToolSourceRecord | undefined,
+  authType: Exclude<SourceAuthType, "mixed">,
+): Record<string, unknown> | null {
+  if (sourceToEdit?.type !== "mcp") {
+    return null;
+  }
+
+  const auth = sourceToEdit.config.auth as Record<string, unknown> | undefined;
+  if (!auth || auth.mode !== "static" || auth.type !== authType) {
+    return null;
+  }
+
+  if (authType === "bearer") {
+    const token = typeof auth.token === "string" ? auth.token.trim() : "";
+    return token ? { token } : null;
+  }
+
+  if (authType === "apiKey") {
+    const value = typeof auth.value === "string" ? auth.value.trim() : "";
+    return value ? { value } : null;
+  }
+
+  if (authType === "basic") {
+    const username = typeof auth.username === "string" ? auth.username.trim() : "";
+    const password = typeof auth.password === "string" ? auth.password.trim() : "";
+    return username && password ? { username, password } : null;
+  }
+
+  return null;
+}
+
 export async function saveSourceWithCredentials({
   context,
   sourceToEdit,
@@ -58,49 +90,9 @@ export async function saveSourceWithCredentials({
   upsertToolSource: UpsertToolSourceFn;
   upsertCredential: UpsertCredentialFn;
 }): Promise<{ source: ToolSourceRecord; connected: boolean }> {
-  let authConfig: Record<string, unknown> | undefined;
-  if (form.type === "mcp") {
-    if (form.authType === "none") {
-      authConfig = { type: "none" };
-    } else if (form.hasCredentialInput()) {
-      const secret = form.buildSecretJson();
-      if (!secret.value) {
-        throw new Error(secret.error ?? "Credential values are required");
-      }
-      if (form.authType === "bearer") {
-        authConfig = {
-          type: "bearer",
-          mode: "static",
-          token: String(secret.value.token ?? "").trim(),
-        };
-      } else if (form.authType === "apiKey") {
-        authConfig = {
-          type: "apiKey",
-          mode: "static",
-          header: form.apiKeyHeader.trim() || "x-api-key",
-          value: String(secret.value.value ?? "").trim(),
-        };
-      } else {
-        authConfig = {
-          type: "basic",
-          mode: "static",
-          username: String(secret.value.username ?? ""),
-          password: String(secret.value.password ?? ""),
-        };
-      }
-    } else if (sourceToEdit?.type === "mcp") {
-      const existingAuth = sourceToEdit.config.auth as Record<string, unknown> | undefined;
-      if (existingAuth && existingAuth.type === form.authType) {
-        authConfig = existingAuth;
-      } else {
-        throw new Error("Enter credentials to finish setup");
-      }
-    } else {
-      throw new Error("Enter credentials to finish setup");
-    }
-  } else if (form.type === "openapi" || form.type === "graphql") {
-    authConfig = form.buildAuthConfig();
-  }
+  const authConfig = form.type === "openapi" || form.type === "graphql" || form.type === "mcp"
+    ? form.buildAuthConfig()
+    : undefined;
 
   const config = createCustomSourceConfig({
     type: form.type,
@@ -122,11 +114,7 @@ export async function saveSourceWithCredentials({
 
   let linkedCredential = false;
 
-  if (form.type === "mcp" && form.authType !== "none") {
-    linkedCredential = true;
-  }
-
-  if ((form.type === "openapi" || form.type === "graphql") && form.authType !== "none") {
+  if ((form.type === "openapi" || form.type === "graphql" || form.type === "mcp") && form.authType !== "none") {
     const sourceKey = sourceKeyForSource(created);
     if (!sourceKey) {
       throw new Error("Failed to resolve source key for credentials");
@@ -161,6 +149,21 @@ export async function saveSourceWithCredentials({
       if (!existingCredentialMatchesAuthType(form.existingScopedCredential, form.authType)) {
         throw new Error("Enter credentials for the selected auth type");
       }
+      linkedCredential = true;
+    } else if (form.type === "mcp") {
+      const legacySecret = readLegacyMcpStaticSecret(sourceToEdit, form.authType);
+      if (!legacySecret) {
+        throw new Error("Enter credentials to finish setup");
+      }
+
+      await upsertCredential({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        sourceKey,
+        scope: form.authScope,
+        ...(form.authScope === "actor" ? { actorId: context.actorId } : {}),
+        secretJson: legacySecret,
+      });
       linkedCredential = true;
     } else {
       throw new Error("Enter credentials to finish setup");

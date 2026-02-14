@@ -233,9 +233,7 @@ export function AddSourceDialog({
                   apiKeyValue: form.apiKeyValue,
                   basicUsername: form.basicUsername,
                   basicPassword: form.basicPassword,
-                  hasExistingCredential: form.type === "mcp"
-                    ? form.hasPersistedMcpBearerToken
-                    : Boolean(form.existingScopedCredential),
+                  hasExistingCredential: Boolean(form.existingScopedCredential),
                 }}
                 onAuthTypeChange={form.handleAuthTypeChange}
                 onAuthScopeChange={form.handleAuthScopeChange}

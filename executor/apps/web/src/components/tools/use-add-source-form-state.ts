@@ -92,17 +92,14 @@ export function useAddSourceFormState({
   }, [actorId, credentialItems, editingSourceKey, values.authScope]);
 
   const hasPersistedMcpBearerToken = useMemo(() => {
-    if (sourceToEdit?.type !== "mcp") {
+    if (values.type !== "mcp" || values.authType !== "bearer") {
       return false;
     }
-
-    const auth = sourceToEdit.config.auth as Record<string, unknown> | undefined;
-    if (!auth || auth.type !== "bearer") {
+    if (!existingScopedCredential) {
       return false;
     }
-
-    return typeof auth.token === "string" && auth.token.trim().length > 0;
-  }, [sourceToEdit]);
+    return existingCredentialMatchesAuthType(existingScopedCredential, "bearer");
+  }, [existingScopedCredential, values.authType, values.type]);
 
   useEffect(() => {
     if (!open) {
