@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import {
+  AlertTriangle,
   Check,
   ChevronDown,
   ChevronRight,
@@ -193,12 +194,14 @@ export function SourceSidebar({
   sources,
   sourceCounts,
   loadingSources,
+  warnings,
   activeSource,
   onSelectSource,
 }: {
   sources: ToolSourceRecord[];
   sourceCounts: Record<string, number>;
   loadingSources: Set<string>;
+  warnings: string[];
   activeSource: string | null;
   onSelectSource: (source: string | null) => void;
 }) {
@@ -210,11 +213,26 @@ export function SourceSidebar({
     () => loadingSources.size > 0,
     [loadingSources],
   );
+  const warningCountsBySource = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const warning of warnings) {
+      const source = warning.match(/source '([^']+)'/i)?.[1];
+      if (!source) {
+        continue;
+      }
+      counts[source] = (counts[source] ?? 0) + 1;
+    }
+    return counts;
+  }, [warnings]);
+  const totalSourceWarningCount = useMemo(
+    () => Object.values(warningCountsBySource).reduce((sum, count) => sum + count, 0),
+    [warningCountsBySource],
+  );
 
   const groups = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; type: string; count: number; isLoading: boolean }
+      { name: string; type: string; count: number; isLoading: boolean; warningCount: number }
     >();
 
     for (const source of sources) {
@@ -224,8 +242,9 @@ export function SourceSidebar({
 
       const count = sourceCounts[source.name] ?? 0;
       const isLoading = loadingSources.has(source.name);
+      const warningCount = warningCountsBySource[source.name] ?? 0;
 
-      if (count === 0 && !isLoading) {
+      if (count === 0 && !isLoading && warningCount === 0) {
         continue;
       }
 
@@ -234,6 +253,7 @@ export function SourceSidebar({
         type: source.type,
         count,
         isLoading,
+        warningCount,
       });
     }
 
@@ -241,7 +261,7 @@ export function SourceSidebar({
       if (a.count !== b.count) return b.count - a.count;
       return a.name.localeCompare(b.name);
     });
-  }, [sourceCounts, sources, loadingSources]);
+  }, [sourceCounts, sources, loadingSources, warningCountsBySource]);
 
   return (
     <div className="w-52 shrink-0 border-r border-border/50 pr-0 hidden lg:block">
@@ -263,7 +283,16 @@ export function SourceSidebar({
         >
           <Layers className="h-3 w-3 shrink-0" />
           <span className="font-medium truncate">All sources</span>
-          <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60">
+          <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
+            {totalSourceWarningCount > 0 ? (
+              <span
+                className="inline-flex items-center gap-0.5 text-terminal-amber"
+                title={`${totalSourceWarningCount} source warning${totalSourceWarningCount !== 1 ? "s" : ""}`}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                {totalSourceWarningCount}
+              </span>
+            ) : null}
             <span className="inline-flex items-center gap-1">
               {hasLoadingSources ? <Skeleton className="h-3 w-8" /> : totalToolCount}
             </span>
@@ -286,6 +315,15 @@ export function SourceSidebar({
               <Icon className="h-3 w-3 shrink-0" />
               <span className="font-mono font-medium truncate">{g.name}</span>
               <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
+                {g.warningCount > 0 ? (
+                  <span
+                    className="inline-flex items-center gap-0.5 text-terminal-amber"
+                    title={`${g.warningCount} warning${g.warningCount !== 1 ? "s" : ""}`}
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    {g.warningCount}
+                  </span>
+                ) : null}
                 {g.isLoading ? (
                   <>
                     <Loader2 className="h-3 w-3 animate-spin" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Globe,
 } from "lucide-react";
@@ -26,6 +26,7 @@ import {
   credentialStatsForSource,
   toolSourceLabelForSource,
 } from "@/lib/tools-source-helpers";
+import { sourceLabel } from "@/lib/tool-source-utils";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 
 type ToolsTab = "catalog" | "credentials" | "editor";
@@ -80,7 +81,12 @@ export function ToolsView({
     refreshingTools,
     loadToolDetails,
   } = useWorkspaceTools(context ?? null, { includeDetails: false, includeDtsUrls: false });
-  const activeSource = selectedSource && sourceItems.some((source) => source.name === selectedSource)
+  const toolSourceNames = useMemo(
+    () => new Set(tools.map((tool) => sourceLabel(tool.source))),
+    [tools],
+  );
+  const activeSource = selectedSource
+    && (sourceItems.some((source) => source.name === selectedSource) || toolSourceNames.has(selectedSource))
     ? selectedSource
     : null;
   const selectedSourceRecord = activeSource
@@ -171,9 +177,6 @@ export function ToolsView({
                   ) : null}
                   <AddSourceDialog
                     existingSourceNames={new Set(sourceItems.map((s) => s.name))}
-                    onSourceAdded={(source) => {
-                      setSelectedSource(source.name);
-                    }}
                   />
                 </div>
               </div>

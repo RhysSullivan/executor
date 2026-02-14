@@ -36,7 +36,6 @@ interface ToolExplorerToolbarProps {
   activeSource: string | null;
   sourceOptions: string[];
   selectedToolCount: number;
-  warningsCount: number;
   onSearchChange: (value: string) => void;
   onClearSearch: () => void;
   onViewModeChange: (mode: ViewMode) => void;
@@ -62,7 +61,6 @@ export function ToolExplorerToolbar({
   activeSource,
   sourceOptions,
   selectedToolCount,
-  warningsCount,
   onSearchChange,
   onClearSearch,
   onViewModeChange,
@@ -281,15 +279,6 @@ export function ToolExplorerToolbar({
             <ShieldCheck className="h-3 w-3 mr-1" />
             Set approval
           </Button>
-        </div>
-      )}
-
-      {warningsCount > 0 && (
-        <div className="mb-2 rounded-md border border-terminal-amber/20 bg-terminal-amber/5 px-3 py-2">
-          <p className="text-[11px] text-terminal-amber/80">
-            {warningsCount} source warning{warningsCount !== 1 ? "s" : ""} — inventory may
-            be incomplete
-          </p>
         </div>
       )}
 

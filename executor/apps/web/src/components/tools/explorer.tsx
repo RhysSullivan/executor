@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useDeferredValue } from "react";
+import { useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import {
   collectGroupKeys,
@@ -130,6 +130,51 @@ export function ToolExplorer({
     return counts;
   }, [hydratedTools]);
 
+  const [stableSources, setStableSources] = useState<ToolSourceRecord[]>(sources);
+
+  useEffect(() => {
+    setStableSources((previous) => {
+      const nextByName = new Map<string, ToolSourceRecord>();
+
+      for (const source of previous) {
+        if (source.enabled) {
+          nextByName.set(source.name, source);
+        }
+      }
+
+      const enabledSourceNames = new Set<string>();
+      for (const source of sources) {
+        if (!source.enabled) {
+          continue;
+        }
+        enabledSourceNames.add(source.name);
+        nextByName.set(source.name, source);
+      }
+
+      for (const [name] of nextByName) {
+        const hasTools = (sourceCounts[name] ?? 0) > 0;
+        const isLoading = loadingSourceSet.has(name);
+        const stillEnabled = enabledSourceNames.has(name);
+        if (!stillEnabled && !hasTools && !isLoading) {
+          nextByName.delete(name);
+        }
+      }
+
+      const next = Array.from(nextByName.values()).sort((a, b) => a.name.localeCompare(b.name));
+      const unchanged =
+        next.length === previous.length
+        && next.every((source, index) => {
+          const prior = previous[index];
+          return prior
+            && prior.id === source.id
+            && prior.name === source.name
+            && prior.type === source.type
+            && prior.enabled === source.enabled;
+        });
+      return unchanged ? previous : next;
+    });
+  }, [loadingSourceSet, sourceCounts, sources]);
+
   const searchedTools = useMemo(() => {
     return filterToolsBySearch(filteredTools, search);
   }, [filteredTools, search]);
@@ -137,10 +182,10 @@ export function ToolExplorer({
   const treeGroups = useMemo(() => {
     return treeGroupsForView(searchedTools, viewMode, groupBy, {
       loadingSources: visibleLoadingSources,
-      sourceRecords: sources,
+      sourceRecords: stableSources,
       activeSource: resolvedActiveSource,
     });
-  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, sources, resolvedActiveSource]);
+  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, stableSources, resolvedActiveSource]);
 
   const flatTools = useMemo(() => {
     return flatToolsForView(searchedTools, viewMode);
@@ -313,9 +358,10 @@ export function ToolExplorer({
     <div className="flex" onWheelCapture={handleExplorerWheel}>
       {showSourceSidebar ? (
         <SourceSidebar
-          sources={sources}
+          sources={stableSources}
           sourceCounts={sourceCounts}
           loadingSources={loadingSourceSet}
+          warnings={warnings}
           activeSource={resolvedActiveSource}
           onSelectSource={handleSourceSelect}
         />
@@ -340,7 +386,6 @@ export function ToolExplorer({
           activeSource={resolvedActiveSource}
           sourceOptions={sourceOptions}
           selectedToolCount={selectedToolCount}
-          warningsCount={warnings.length}
           onSearchChange={setSearchInput}
           onClearSearch={() => setSearchInput("")}
           onViewModeChange={setViewMode}
