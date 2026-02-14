@@ -35,6 +35,17 @@ function patchUi(
   setUi((current) => ({ ...current, ...patch }));
 }
 
+function patchUiWithAuthRevision(
+  setUi: Dispatch<SetStateAction<AddSourceUiState>>,
+  patch: Partial<AddSourceUiState> = {},
+) {
+  setUi((current) => ({
+    ...current,
+    ...patch,
+    authRevision: current.authRevision + 1,
+  }));
+}
+
 export function useAddSourceFormState({
   open,
   sourceToEdit,
@@ -88,7 +99,7 @@ export function useAddSourceFormState({
     if (sourceToEdit) {
       const editValues = sourceToFormValues(sourceToEdit);
       form.reset(editValues);
-      patchUi(setUi, {
+      patchUiWithAuthRevision(setUi, {
         ...createDefaultUiState("custom"),
         openApiBaseUrlOptions: editValues.baseUrl
           ? [editValues.baseUrl]
@@ -97,16 +108,12 @@ export function useAddSourceFormState({
               return fallback ? [fallback] : [];
             })(),
         authManuallyEdited: Boolean(sourceToEdit.config.auth),
-        authRevision: ui.authRevision + 1,
       });
       return;
     }
 
     form.reset(createDefaultFormValues());
-    patchUi(setUi, {
-      ...createDefaultUiState("catalog"),
-      authRevision: ui.authRevision + 1,
-    });
+    patchUiWithAuthRevision(setUi, createDefaultUiState("catalog"));
   }, [form, open, sourceToEdit]);
 
   const getTakenSourceNames = () => {
@@ -157,11 +164,10 @@ export function useAddSourceFormState({
       endpoint: item.specUrl,
       baseUrl: defaultBaseUrl,
     });
-    patchUi(setUi, {
+    patchUiWithAuthRevision(setUi, {
       view: "custom",
       openApiBaseUrlOptions: defaultBaseUrl ? [defaultBaseUrl] : [],
       authManuallyEdited: false,
-      authRevision: ui.authRevision + 1,
     });
   };
 
@@ -180,10 +186,9 @@ export function useAddSourceFormState({
       return;
     }
 
-    patchUi(setUi, {
+    patchUiWithAuthRevision(setUi, {
       openApiBaseUrlOptions: [],
       authManuallyEdited: false,
-      authRevision: ui.authRevision + 1,
     });
     form.setValue("authType", "none", { shouldDirty: false, shouldTouch: false });
     form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
@@ -194,22 +199,22 @@ export function useAddSourceFormState({
     form.setValue("basicPassword", "", { shouldDirty: false, shouldTouch: false });
   };
 
-  const bumpAuthRevision = () => patchUi(setUi, { authRevision: ui.authRevision + 1 });
+  const bumpAuthRevision = () => patchUiWithAuthRevision(setUi);
 
   const handleAuthTypeChange = (authType: Exclude<SourceAuthType, "mixed">) => {
     form.setValue("authType", authType, { shouldDirty: true, shouldTouch: true });
-    patchUi(setUi, { authManuallyEdited: true, authRevision: ui.authRevision + 1 });
+    patchUiWithAuthRevision(setUi, { authManuallyEdited: true });
   };
 
   const handleAuthScopeChange = (authScope: CredentialScope) => {
     form.setValue("authScope", authScope, { shouldDirty: true, shouldTouch: true });
-    patchUi(setUi, { authManuallyEdited: true, authRevision: ui.authRevision + 1 });
+    patchUiWithAuthRevision(setUi, { authManuallyEdited: true });
   };
 
   const handleAuthFieldChange = (field: SourceAuthPanelEditableField, value: string) => {
     if (field === "apiKeyHeader") {
       form.setValue("apiKeyHeader", value, { shouldDirty: true, shouldTouch: true });
-      patchUi(setUi, { authManuallyEdited: true, authRevision: ui.authRevision + 1 });
+      patchUiWithAuthRevision(setUi, { authManuallyEdited: true });
       return;
     }
 

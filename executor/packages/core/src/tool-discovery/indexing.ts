@@ -55,7 +55,7 @@ function simplifyNamespaceSegment(segment: string): string {
   return collapsed.join("_");
 }
 
-export function preferredToolPath(path: string): string {
+function preferredToolPath(path: string): string {
   const segments = path.split(".").filter(Boolean);
   if (segments.length === 0) return path;
 

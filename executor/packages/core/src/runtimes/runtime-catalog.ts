@@ -22,7 +22,7 @@ function isTruthyEnvValue(value: string | undefined): boolean {
   return TRUTHY_ENV_VALUES.has(value.trim().toLowerCase());
 }
 
-export function isCloudflareDynamicWorkerOnlyMode(): boolean {
+function isCloudflareDynamicWorkerOnlyMode(): boolean {
   return isTruthyEnvValue(process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY]);
 }
 

@@ -2,7 +2,7 @@ import { internal } from "../_generated/api";
 
 export type TaskEventName = "task" | "approval";
 
-export interface TaskEventMutationContext {
+interface TaskEventMutationContext {
   runMutation: (
     mutation: typeof internal.database.createTaskEvent,
     args: {

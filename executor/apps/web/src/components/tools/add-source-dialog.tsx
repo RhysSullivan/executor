@@ -17,19 +17,15 @@ import { convexApi } from "@/lib/convex-api";
 import type { CredentialRecord, ToolSourceRecord } from "@/lib/types";
 import { workspaceQueryArgs } from "@/lib/workspace-query-args";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
-import { sourceKeyForSource } from "@/lib/tools-source-helpers";
-import {
-  createCustomSourceConfig,
-} from "./add-source-dialog-helpers";
 import {
   CatalogViewSection,
   CustomViewSection,
 } from "./add-source-dialog-sections";
 import { SourceAuthPanel } from "./add-source-auth-panel";
 import {
-  existingCredentialMatchesAuthType,
   useAddSourceFormState,
 } from "./use-add-source-form-state";
+import { saveSourceWithCredentials } from "./add-source-submit";
 
 export function AddSourceDialog({
   existingSourceNames,
@@ -90,76 +86,34 @@ export function AddSourceDialog({
 
     setSubmitting(true);
     try {
-      const authConfig = form.type === "openapi" || form.type === "graphql"
-        ? form.buildAuthConfig()
-        : undefined;
-      const config = createCustomSourceConfig({
-        type: form.type,
-        endpoint: form.endpoint.trim(),
-        baseUrl: form.baseUrl,
-        auth: authConfig,
-        mcpTransport: form.mcpTransport,
-        actorId: context.actorId,
+      const result = await saveSourceWithCredentials({
+        context,
+        sourceToEdit,
+        credentialsLoading,
+        upsertToolSource,
+        upsertCredential,
+        form: {
+          name: form.name,
+          endpoint: form.endpoint,
+          type: form.type,
+          baseUrl: form.baseUrl,
+          mcpTransport: form.mcpTransport,
+          authType: form.authType,
+          authScope: form.authScope,
+          existingScopedCredential: form.existingScopedCredential,
+          buildAuthConfig: form.buildAuthConfig,
+          hasCredentialInput: form.hasCredentialInput,
+          buildSecretJson: form.buildSecretJson,
+        },
       });
 
-      const created = await upsertToolSource({
-        ...(sourceToEdit ? { id: sourceToEdit.id } : {}),
-        workspaceId: context.workspaceId,
-        sessionId: context.sessionId,
-        name: form.name.trim(),
-        type: form.type,
-        config,
-      }) as ToolSourceRecord;
-      let linkedCredential = false;
-
-      if ((form.type === "openapi" || form.type === "graphql") && form.authType !== "none") {
-        const sourceKey = sourceKeyForSource(created);
-        if (!sourceKey) {
-          throw new Error("Failed to resolve source key for credentials");
-        }
-
-        if (form.authScope === "actor" && !context.actorId) {
-          throw new Error("Actor credentials require an authenticated actor");
-        }
-
-        const enteredCredential = form.hasCredentialInput();
-        if (!enteredCredential && credentialsLoading) {
-          throw new Error("Loading existing connections, try again in a moment");
-        }
-
-        if (enteredCredential) {
-          const secret = form.buildSecretJson();
-          if (!secret.value) {
-            throw new Error(secret.error ?? "Credential values are required");
-          }
-
-          await upsertCredential({
-            ...(form.existingScopedCredential ? { id: form.existingScopedCredential.id } : {}),
-            workspaceId: context.workspaceId,
-            sessionId: context.sessionId,
-            sourceKey,
-            scope: form.authScope,
-            ...(form.authScope === "actor" ? { actorId: context.actorId } : {}),
-            secretJson: secret.value,
-          });
-          linkedCredential = true;
-        } else if (form.existingScopedCredential) {
-          if (!existingCredentialMatchesAuthType(form.existingScopedCredential, form.authType)) {
-            throw new Error("Enter credentials for the selected auth type");
-          }
-          linkedCredential = true;
-        } else {
-          throw new Error("Enter credentials to finish setup");
-        }
-      }
-
-      onSourceAdded?.(created, { connected: linkedCredential });
+      onSourceAdded?.(result.source, { connected: result.connected });
       toast.success(
         sourceToEdit
-          ? linkedCredential
+          ? result.connected
             ? `Source "${form.name.trim()}" updated with credentials`
             : `Source "${form.name.trim()}" updated`
-          : linkedCredential
+          : result.connected
             ? `Source "${form.name.trim()}" added with credentials — loading tools…`
             : `Source "${form.name.trim()}" added — loading tools…`,
       );

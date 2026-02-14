@@ -188,7 +188,7 @@ export function extractTopLevelTypeKeys(typeHint: string): string[] {
   return keys;
 }
 
-export function extractTopLevelTypeKeysFromExpression(typeHint: string): string[] {
+function extractTopLevelTypeKeysFromExpression(typeHint: string): string[] {
   const direct = extractTopLevelTypeKeys(typeHint);
   if (direct.length > 0) return direct;
 

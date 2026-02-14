@@ -5,7 +5,7 @@ import type { TaskRecord, TaskStatus } from "../../core/src/types";
 type TerminalTaskStatus = Extract<TaskStatus, "completed" | "failed" | "timed_out" | "denied">;
 type TaskFinishContext = Pick<ActionCtx, "runMutation"> | Pick<MutationCtx, "runMutation">;
 
-export interface MarkTaskFinishedInput {
+interface MarkTaskFinishedInput {
   taskId: string;
   status: TerminalTaskStatus;
   exitCode?: number;

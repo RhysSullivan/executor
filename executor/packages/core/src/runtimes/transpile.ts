@@ -6,7 +6,7 @@ import { Result, TaggedError } from "better-result";
 // Errors
 // ---------------------------------------------------------------------------
 
-export class TranspileError extends TaggedError("TranspileError")<{
+class TranspileError extends TaggedError("TranspileError")<{
   message: string;
 }>() {}
 

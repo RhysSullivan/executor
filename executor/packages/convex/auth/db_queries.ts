@@ -1,5 +1,4 @@
-import type { Doc } from "../_generated/dataModel";
-import type { AccountId, DbCtx, OrganizationId } from "./types";
+import type { DbCtx, OrganizationId } from "./types";
 
 export async function getAccountByWorkosId(ctx: DbCtx, workosUserId: string) {
   return await ctx.db
@@ -27,15 +26,4 @@ export async function getFirstWorkspaceByOrganizationId(ctx: DbCtx, organization
     .query("workspaces")
     .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
     .first();
-}
-
-export async function getWorkspaceMembershipByWorkspaceAndAccount(
-  ctx: DbCtx,
-  workspaceId: Doc<"workspaces">["_id"],
-  accountId: AccountId,
-) {
-  return await ctx.db
-    .query("workspaceMembers")
-    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
-    .unique();
 }

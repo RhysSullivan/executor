@@ -2,7 +2,7 @@ import type { Doc } from "../_generated/dataModel";
 import { asRecord } from "../lib/object";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
 
-export function stableStringify(value: unknown): string {
+function stableStringify(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
   }

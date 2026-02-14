@@ -24,52 +24,6 @@ export { prepareOpenApiSpec } from "./openapi-prepare";
 export { parseGraphqlOperationPaths } from "./graphql-operation-paths";
 export { rehydrateTools, serializeTools, type SerializedTool } from "./tool-source-serialization";
 export { buildOpenApiToolsFromPrepared } from "./openapi-tool-builder";
-export { parsePostmanCollectionUid } from "./tool-source-loaders/openapi-loader";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function isExternalToolSourceType(value: unknown): value is ExternalToolSourceConfig["type"] {
-  return value === "mcp" || value === "openapi" || value === "graphql";
-}
-
-export function parseToolSourcesFromEnv(raw: string | undefined): ExternalToolSourceConfig[] {
-  if (!raw || raw.trim().length === 0) {
-    return [];
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`EXECUTOR_TOOL_SOURCES must be valid JSON: ${message}`);
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error("EXECUTOR_TOOL_SOURCES must be a JSON array");
-  }
-
-  for (let i = 0; i < parsed.length; i += 1) {
-    const entry = parsed[i];
-    if (!isRecord(entry)) {
-      throw new Error(`EXECUTOR_TOOL_SOURCES[${i}] must be an object`);
-    }
-    if (!isExternalToolSourceType(entry.type)) {
-      throw new Error(`EXECUTOR_TOOL_SOURCES[${i}].type must be one of: mcp, openapi, graphql`);
-    }
-    if (!isNonEmptyString(entry.name)) {
-      throw new Error(`EXECUTOR_TOOL_SOURCES[${i}].name must be a non-empty string`);
-    }
-  }
-
-  return parsed as ExternalToolSourceConfig[];
-}
 
 export interface CompiledToolSourceArtifact {
   version: "v1";

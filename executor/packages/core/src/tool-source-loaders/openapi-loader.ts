@@ -21,7 +21,7 @@ import type { SerializedTool } from "../tool-source-serialization";
 const POSTMAN_SPEC_PREFIX = "postman:";
 const DEFAULT_POSTMAN_PROXY_URL = "https://www.postman.com/_api/ws/proxy";
 
-export function parsePostmanCollectionUid(spec: string): string | null {
+function parsePostmanCollectionUid(spec: string): string | null {
   if (!spec.startsWith(POSTMAN_SPEC_PREFIX)) {
     return null;
   }

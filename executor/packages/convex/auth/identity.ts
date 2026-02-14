@@ -12,7 +12,7 @@ function deriveFallbackUserLabel(workosUserId: string): string {
   return `User ${workosUserId.slice(-6)}`;
 }
 
-export function getIdentityString(identity: Record<string, unknown>, keys: string[]): string | undefined {
+function getIdentityString(identity: Record<string, unknown>, keys: string[]): string | undefined {
   for (const key of keys) {
     const value = identity[key];
     if (typeof value === "string" && value.trim().length > 0) {

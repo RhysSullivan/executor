@@ -13,7 +13,7 @@ export interface GraphqlExecutionEnvelope {
   errors: unknown[];
 }
 
-export function isMcpReconnectableError(error: unknown): boolean {
+function isMcpReconnectableError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /(socket|closed|ECONNRESET|fetch failed)/i.test(message);
 }
@@ -106,14 +106,14 @@ export async function executeOpenApiRequest(
   return await response.text();
 }
 
-export function hasGraphqlData(data: unknown): boolean {
+function hasGraphqlData(data: unknown): boolean {
   if (data === null || data === undefined) return false;
   if (Array.isArray(data)) return data.length > 0;
   if (typeof data === "object") return Object.keys(data as Record<string, unknown>).length > 0;
   return true;
 }
 
-export function normalizeGraphqlEnvelope(result: { data?: unknown; errors?: unknown[] }): GraphqlExecutionEnvelope {
+function normalizeGraphqlEnvelope(result: { data?: unknown; errors?: unknown[] }): GraphqlExecutionEnvelope {
   return {
     data: result.data ?? null,
     errors: Array.isArray(result.errors) ? result.errors : [],
