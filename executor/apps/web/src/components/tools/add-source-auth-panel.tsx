@@ -98,6 +98,7 @@ export function SourceAuthPanel({
   }
 
   const badge = inferredAuthBadge(inferredSpecAuth);
+  const mcpBearerConnected = sourceType === "mcp" && authType === "bearer" && mcpOAuthConnected;
   return (
     <div className="space-y-3">
 
@@ -179,7 +180,7 @@ export function SourceAuthPanel({
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <Label className="text-xs text-muted-foreground">OAuth</Label>
-            {mcpOAuthConnected ? (
+            {mcpBearerConnected ? (
               <Badge variant="outline" className="text-[10px] uppercase tracking-wider text-terminal-green">
                 Connected
               </Badge>
@@ -193,8 +194,11 @@ export function SourceAuthPanel({
             disabled={mcpOAuthBusy}
             onClick={onMcpOAuthConnect}
           >
-            {mcpOAuthBusy ? "Connecting..." : mcpOAuthConnected ? "Reconnect OAuth" : "Connect OAuth in popup"}
+            {mcpOAuthBusy ? "Connecting..." : mcpBearerConnected ? "Reconnect OAuth" : "Connect OAuth in popup"}
           </Button>
+          {mcpBearerConnected ? (
+            <p className="text-[11px] text-muted-foreground">OAuth linked successfully.</p>
+          ) : null}
         </div>
       ) : null}
 
@@ -210,7 +214,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "bearer" ? (
+      {authType === "bearer" && !mcpBearerConnected ? (
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <LockKeyhole className="h-3 w-3" />

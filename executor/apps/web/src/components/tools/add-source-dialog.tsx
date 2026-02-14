@@ -149,7 +149,7 @@ export function AddSourceDialog({
         form.handleAuthTypeChange("bearer");
       }
       form.handleAuthFieldChange("tokenValue", result.accessToken);
-      toast.success("OAuth linked. Bearer token populated.");
+      toast.success("OAuth linked successfully.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to connect OAuth");
     } finally {
