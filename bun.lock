@@ -90,6 +90,8 @@
         "@executor/convex": "workspace:*",
         "@executor/core": "workspace:*",
         "@executor/ui": "workspace:*",
+        "@json-render/core": "^0.5.2",
+        "@json-render/react": "^0.5.2",
         "@monaco-editor/react": "^4.7.0",
         "@streamdown/code": "^1.0.1",
         "@tanstack/react-query": "^5.80.7",
@@ -604,6 +606,10 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
 
     "@js-sdsl/ordered-map": ["@js-sdsl/ordered-map@4.4.2", "", {}, "sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw=="],
+
+    "@json-render/core": ["@json-render/core@0.5.2", "", { "dependencies": { "zod": "^4.0.0" } }, "sha512-Ti4RXoY3rZbkWiB5sLha0ldKkl0k6s1kXwbdrnB/+W3EWqi9w1bwhboYwUo5MZGQ1n9N44TvMviesXpLISxaEQ=="],
+
+    "@json-render/react": ["@json-render/react@0.5.2", "", { "dependencies": { "@json-render/core": "0.5.2" }, "peerDependencies": { "react": "^19.2.3" } }, "sha512-VO6OujdzaXYfVF5jtpW1BQY9p6xVcL1Fbl3LrfU4LjbdEpHCVJqFoRRiJLg10PU8teSs/ndBy0VS3WznCZoZuw=="],
 
     "@logdna/tail-file": ["@logdna/tail-file@2.2.0", "", {}, "sha512-XGSsWDweP80Fks16lwkAUIr54ICyBs6PsI4mpfTLQaWgEJRtY9xEV+PeyDpJ+sJEGZxqINlpmAwe/6tS1pP8Ng=="],
 
