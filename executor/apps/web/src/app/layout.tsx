@@ -38,13 +38,13 @@ export default function RootLayout({
           enableSystem
           enableColorScheme
         >
-          <AppConvexProvider>
-            <QueryProvider>
+          <QueryProvider>
+            <AppConvexProvider>
               <SessionProvider>
                 {children}
               </SessionProvider>
-            </QueryProvider>
-          </AppConvexProvider>
+            </AppConvexProvider>
+          </QueryProvider>
           <Toaster position="bottom-right" />
         </ThemeProvider>
       </body>
