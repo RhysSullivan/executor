@@ -11,6 +11,8 @@ export type CredentialProvider = "local-convex" | "workos-vault";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
 
+export type JsonSchema = Record<string, unknown>;
+
 export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
 
 export interface SourceAuthProfile {
@@ -126,17 +128,13 @@ export interface ToolDescriptor {
   description: string;
   approval: ToolApprovalMode;
   source?: string;
-  /** Compact display type hint for tool arguments. */
-  argsType?: string;
-  /** Compact display type hint for tool return value. */
-  returnsType?: string;
-  /** Full-fidelity args type hint for strict editor/typecheck usage. */
-  strictArgsType?: string;
-  /** Full-fidelity return type hint for strict editor/typecheck usage. */
-  strictReturnsType?: string;
-  /** Top-level argument key preview for examples/UI. */
-  argPreviewKeys?: string[];
-  operationId?: string;
+  /** Canonical tool typing/signature info for clients (schema-less Convex-safe subset). */
+  typing?: ToolDescriptorTyping;
+  /** Lightweight, human-readable signature hints (derived from schema/typed refs). */
+  display?: {
+    input?: string;
+    output?: string;
+  };
 }
 
 export interface OpenApiSourceQuality {
@@ -246,24 +244,36 @@ export interface ToolRunContext {
   isToolAllowed: (toolPath: string) => boolean;
 }
 
-export interface ToolTypeMetadata {
-  /** Lightweight TS type hint for args (for LLM prompt / discover tool). */
-  argsType?: string;
-  /** Lightweight TS type hint for return value (for LLM prompt / discover tool). */
-  returnsType?: string;
-  /** Compact args hint intended for UI/discovery display. */
-  displayArgsType?: string;
-  /** Compact return hint intended for UI/discovery display. */
-  displayReturnsType?: string;
-  /** Top-level argument keys for examples/UI without parsing type strings. */
-  argPreviewKeys?: string[];
-  /** Raw operationId from the OpenAPI spec (used to generate typechecker wrapper). */
-  operationId?: string;
-  /**
-   * Raw .d.ts from openapi-typescript for this tool's source.
-   * Only set on the FIRST tool per source to avoid duplication.
-   */
-  sourceDts?: string;
+export type ToolTypedRef =
+  | {
+      kind: "openapi_operation";
+      /** Source key (e.g. "openapi:github") used for namespacing in type bundles. */
+      sourceKey: string;
+      /** OperationId in the OpenAPI spec (key for `operations[...]`). */
+      operationId: string;
+    };
+
+export interface ToolTyping {
+  /** JSON Schema describing the tool input payload. */
+  inputSchema?: JsonSchema;
+  /** JSON Schema describing the tool output payload. */
+  outputSchema?: JsonSchema;
+  /** Required top-level keys for quick validation and examples. */
+  requiredInputKeys?: string[];
+  /** Preview keys for UI/examples (required keys first, then common keys). */
+  previewInputKeys?: string[];
+  /** Optional high-fidelity typed reference for sources with native type maps (e.g. OpenAPI). */
+  typedRef?: ToolTypedRef;
+}
+
+/**
+ * Convex cannot serialize objects with `$`-prefixed keys.
+ * Keep ToolDescriptor typing limited to Convex-safe scalar/array fields.
+ */
+export interface ToolDescriptorTyping {
+  requiredInputKeys?: string[];
+  previewInputKeys?: string[];
+  typedRef?: ToolTypedRef;
 }
 
 export interface ToolDefinition {
@@ -271,7 +281,7 @@ export interface ToolDefinition {
   description: string;
   approval: ToolApprovalMode;
   source?: string;
-  metadata?: ToolTypeMetadata;
+  typing?: ToolTyping;
   credential?: ToolCredentialSpec;
   /** For GraphQL sources: the source name used for dynamic path extraction */
   _graphqlSource?: string;

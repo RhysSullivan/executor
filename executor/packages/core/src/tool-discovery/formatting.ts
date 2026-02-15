@@ -1,6 +1,3 @@
-import {
-  extractTopLevelTypeKeys,
-} from "../type-hints";
 import type { DiscoverIndexEntry } from "./types";
 
 export function buildExampleCall(entry: DiscoverIndexEntry): string {
@@ -9,11 +6,11 @@ export function buildExampleCall(entry: DiscoverIndexEntry): string {
     return `await tools.${callPath}({ query: "query { __typename }", variables: {} });`;
   }
 
-  if (entry.argsType === "{}") {
+  if (entry.displayInputHint === "{}") {
     return `await tools.${callPath}({});`;
   }
 
-  const keys = entry.argPreviewKeys.length > 0 ? entry.argPreviewKeys : extractTopLevelTypeKeys(entry.argsType);
+  const keys = entry.previewInputKeys;
   if (keys.length > 0) {
     const argsSnippet = keys
       .slice(0, 5)
@@ -32,8 +29,8 @@ export function formatSignature(entry: DiscoverIndexEntry, depth: number, compac
       return "(input: ...): Promise<...>";
     }
 
-    const args = entry.displayArgsType;
-    const returns = entry.displayReturnsType;
+    const args = entry.displayInputHint;
+    const returns = entry.displayOutputHint;
 
     if (depth === 1) {
       return `(input: ${args}): Promise<${returns}>`;
@@ -43,23 +40,16 @@ export function formatSignature(entry: DiscoverIndexEntry, depth: number, compac
   }
 
   if (depth <= 0) {
-    return `(input: ${entry.argsType}): Promise<...>`;
+    return `(input: ${entry.displayInputHint}): Promise<...>`;
   }
 
   if (depth === 1) {
-    return `(input: ${entry.argsType}): Promise<${entry.returnsType}>`;
+    return `(input: ${entry.displayInputHint}): Promise<${entry.displayOutputHint}>`;
   }
 
-  return `(input: ${entry.argsType}): Promise<${entry.returnsType}> [source=${entry.source}]`;
+  return `(input: ${entry.displayInputHint}): Promise<${entry.displayOutputHint}> [source=${entry.source}]`;
 }
 
 export function formatCanonicalSignature(entry: DiscoverIndexEntry): string {
-  return `(input: ${entry.argsType}): Promise<${entry.returnsType}>`;
-}
-
-export function buildExpandedShape(entry: DiscoverIndexEntry): { input: string; output: string } {
-  return {
-    input: entry.expandedArgsShape,
-    output: entry.expandedReturnsShape,
-  };
+  return `(input: ${entry.displayInputHint}): Promise<${entry.displayOutputHint}>`;
 }

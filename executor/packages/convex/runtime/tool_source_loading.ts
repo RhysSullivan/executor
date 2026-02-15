@@ -279,7 +279,7 @@ export async function loadSourceArtifact(
   ctx: ActionCtx,
   source: ExternalToolSourceConfig,
   options: { includeDts?: boolean; workspaceId: Id<"workspaces">; actorId?: string },
-): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[] }> {
+): Promise<{ artifact?: CompiledToolSourceArtifact; warnings: string[]; openApiDts?: string }> {
   const includeDts = options.includeDts ?? true;
 
   if (source.type === "openapi" && typeof source.spec === "string") {
@@ -289,7 +289,7 @@ export async function loadSourceArtifact(
       const warnings = (prepared.warnings ?? []).map(
         (warning) => `Source '${source.name}': ${warning}`,
       );
-      return { artifact, warnings };
+      return { artifact, warnings, openApiDts: prepared.dts };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {

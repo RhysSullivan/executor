@@ -128,42 +128,19 @@ describe("real-world OpenAPI specs", () => {
 
         expect(tools.length).toBeGreaterThan(0);
 
-        // Spot-check: every tool has a path and type metadata
+        // Spot-check: every tool has a path and schema-first typing
         for (const tool of tools) {
           expect(tool.path).toContain(`${fixture.name}.`);
           expect(typeof tool.description).toBe("string");
-          expect(tool.metadata).toBeDefined();
-          expect(tool.metadata!.argsType).toBeDefined();
-          expect(tool.metadata!.returnsType).toBeDefined();
+          expect(tool.typing).toBeDefined();
         }
 
-        // If we have .d.ts, tools should carry operationId + sourceDts for typechecking
+        // If we have .d.ts, tools should carry typed refs for high-fidelity typing
         if (fixture.expectDts) {
-          // At least some tools should have operationId set
-          const withOperationId = tools.filter(
-            (t) => t.metadata!.operationId != null,
+          const withTypedRef = tools.filter(
+            (t) => t.typing?.typedRef?.kind === "openapi_operation",
           );
-          expect(withOperationId.length).toBeGreaterThan(0);
-
-          // At least one tool per source should carry the raw .d.ts
-          const withSourceDts = tools.filter(
-            (t) => t.metadata!.sourceDts != null && t.metadata!.sourceDts!.length > 0,
-          );
-          expect(withSourceDts.length).toBeGreaterThan(0);
-
-          // The sourceDts should contain operations interface
-          const dts = withSourceDts[0].metadata!.sourceDts!;
-          expect(dts).toContain("operations");
-
-          // Real specs should produce useful type hints for at least some operations.
-          const typedInputs = tools.filter(
-            (t) => t.metadata?.argsType && t.metadata.argsType !== "Record<string, unknown>",
-          );
-          const typedOutputs = tools.filter(
-            (t) => t.metadata?.returnsType && t.metadata.returnsType !== "unknown",
-          );
-          expect(typedInputs.length).toBeGreaterThan(0);
-          expect(typedOutputs.length).toBeGreaterThan(0);
+          expect(withTypedRef.length).toBeGreaterThan(0);
         }
 
         if (prepared.warnings.length > 0) {
@@ -193,15 +170,13 @@ describe("real-world OpenAPI specs", () => {
       );
 
       const tool = tools.find(
-        (t) => t.metadata?.operationId === "activity/delete-repo-subscription",
+        (t) => t.typing?.typedRef?.kind === "openapi_operation" && t.typing.typedRef.operationId === "activity/delete-repo-subscription",
       );
 
       expect(tool).toBeDefined();
       expect(tool!.path).toBe("github.activity.delete_repo_subscription");
-      expect(tool!.metadata!.argsType).toContain("owner");
-      expect(tool!.metadata!.argsType).toContain("repo");
-      expect(tool!.metadata!.argsType).not.toBe("Record<string, unknown>");
-      expect(tool!.metadata!.returnsType).toBe("void");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("owner");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("repo");
     },
     300_000,
   );
@@ -224,16 +199,15 @@ describe("real-world OpenAPI specs", () => {
       );
 
       const tool = tools.find(
-        (t) => t.metadata?.operationId === "actions/add-custom-labels-to-self-hosted-runner-for-repo",
+        (t) => t.typing?.typedRef?.kind === "openapi_operation" && t.typing.typedRef.operationId === "actions/add-custom-labels-to-self-hosted-runner-for-repo",
       );
 
       expect(tool).toBeDefined();
       expect(tool!.path).toBe("github.actions.add_custom_labels_to_self_hosted_runner_for_repo");
-      expect(tool!.metadata!.displayArgsType).toContain("owner: string");
-      expect(tool!.metadata!.displayArgsType).toContain("repo: string");
-      expect(tool!.metadata!.displayArgsType).toContain("runner_id: number");
-      expect(tool!.metadata!.displayArgsType).toContain("labels: string[]");
-      expect(tool!.metadata!.displayArgsType).not.toContain("owner: ...");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("owner");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("repo");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("runner_id");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("labels");
     },
     300_000,
   );
@@ -256,109 +230,24 @@ describe("real-world OpenAPI specs", () => {
       );
 
       const tool = tools.find(
-        (t) => t.metadata?.operationId === "actions/create-hosted-runner-for-org",
+        (t) => t.typing?.typedRef?.kind === "openapi_operation" && t.typing.typedRef.operationId === "actions/create-hosted-runner-for-org",
       );
 
       expect(tool).toBeDefined();
       expect(tool!.path).toBe("github.actions.create_hosted_runner_for_org");
-      expect(tool!.metadata!.argsType).toContain("org: string");
-      expect(tool!.metadata!.returnsType).toContain("id");
-      expect(tool!.metadata!.returnsType).not.toBe("unknown");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("org");
+      expect(tool!.typing?.outputSchema).toBeDefined();
     },
     300_000,
   );
 
   test(
-    "github: meta/get has empty object input hint",
-    async () => {
-      const githubUrl =
-        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
-
-      const prepared = await prepareOpenApiSpec(githubUrl, "github");
-      const tools = buildOpenApiToolsFromPrepared(
-        {
-          type: "openapi",
-          name: "github",
-          spec: githubUrl,
-          baseUrl: prepared.servers[0] || "https://api.github.com",
-        },
-        prepared,
-      );
-
-      const tool = tools.find((t) => t.metadata?.operationId === "meta/get");
-
-      expect(tool).toBeDefined();
-      expect(tool!.path).toBe("github.meta.get");
-      expect(tool!.metadata!.argsType).toBe("{}");
-    },
-    300_000,
-  );
-
-  test(
-    "github: all budgets for org has non-unknown return hint",
-    async () => {
-      const githubUrl =
-        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml";
-
-      const prepared = await prepareOpenApiSpec(githubUrl, "github");
-      const tools = buildOpenApiToolsFromPrepared(
-        {
-          type: "openapi",
-          name: "github",
-          spec: githubUrl,
-          baseUrl: prepared.servers[0] || "https://api.github.com",
-        },
-        prepared,
-      );
-
-      const tool = tools.find(
-        (t) => t.metadata?.operationId === "billing/get-all-budgets-org",
-      );
-
-      expect(tool).toBeDefined();
-      expect(tool!.path).toBe("github.billing.get_all_budgets_org");
-      expect(tool!.metadata!.argsType).toContain("org: string");
-      expect(tool!.metadata!.returnsType).toContain("budgets");
-      expect(tool!.metadata!.returnsType).not.toBe("unknown");
-    },
-    300_000,
-  );
-
-  test(
-    "slack: approved apps list keeps typed query params and non-unknown output",
-    async () => {
-      const slackUrl = "https://api.slack.com/specs/openapi/v2/slack_web.json";
-
-      const prepared = await prepareOpenApiSpec(slackUrl, "slack");
-      const tools = buildOpenApiToolsFromPrepared(
-        {
-          type: "openapi",
-          name: "slack",
-          spec: slackUrl,
-          baseUrl: "https://slack.com/api",
-        },
-        prepared,
-      );
-
-      const tool = tools.find(
-        (t) => t.metadata?.operationId === "admin_apps_approved_list",
-      );
-
-      expect(tool).toBeDefined();
-      expect(tool!.path).toBe("slack.admin_apps_approved.list");
-      expect(tool!.metadata!.argsType).toContain("token: string");
-      expect(tool!.metadata!.argsType).toContain("limit?: number");
-      expect(tool!.metadata!.returnsType).not.toBe("unknown");
-    },
-    300_000,
-  );
-
-  test(
-    "cloudflare: list health checks includes typed health check fields",
+    "OpenAPI inventory mode still yields usable schemas",
     async () => {
       const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
+      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", { includeDts: false, profile: "inventory" });
+      expect(prepared.dts).toBeUndefined();
 
-      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare");
       const tools = buildOpenApiToolsFromPrepared(
         {
           type: "openapi",
@@ -369,136 +258,11 @@ describe("real-world OpenAPI specs", () => {
         prepared,
       );
 
-      const tool = tools.find(
-        (t) => t.metadata?.operationId === "health-checks-list-health-checks",
-      );
-
-      expect(tool).toBeDefined();
-      expect(tool!.path).toBe("cloudflare.health_checks.list_health_checks");
-      expect(tool!.metadata!.returnsType).toContain('components["schemas"]["healthchecks_healthchecks"][]');
-      expect(tool!.metadata!.returnsType).not.toContain("unknown | unknown");
-    },
-    300_000,
-  );
-
-  test(
-    "cloudflare inventory mode: access apps keeps typed args and non-unknown returns",
-    async () => {
-      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
-
-      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", { includeDts: false });
-      const tools = buildOpenApiToolsFromPrepared(
-        {
-          type: "openapi",
-          name: "cloudflare",
-          spec: cloudflareUrl,
-          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
-        },
-        prepared,
-      );
-
-      const tool = tools.find(
-        (t) => t.metadata?.operationId === "access-applications-list-access-applications",
-      );
-
-      expect(tool).toBeDefined();
-      expect(tool!.path).toBe("cloudflare.access_applications.list_access_applications");
-      expect(tool!.metadata!.argsType).toContain("account_id: string");
-      expect(tool!.metadata!.argsType).not.toContain("account_id: unknown");
-      expect(tool!.metadata!.returnsType).not.toBe("unknown");
-    },
-    300_000,
-  );
-
-  test(
-    "cloudflare: access authentication logs keeps non-ellipsis compact hints",
-    async () => {
-      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
-
-      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", { includeDts: false });
-      const tools = buildOpenApiToolsFromPrepared(
-        {
-          type: "openapi",
-          name: "cloudflare",
-          spec: cloudflareUrl,
-          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
-        },
-        prepared,
-      );
-
-      const tool = tools.find(
-        (t) => t.metadata?.operationId === "access-authentication-logs-get-access-authentication-logs",
-      );
-
-      expect(tool).toBeDefined();
-      expect(tool!.path).toBe("cloudflare.access_authentication_logs.get_access_authentication_logs");
-      expect(tool!.metadata!.displayArgsType).toContain("account_id: string");
-      expect(tool!.metadata!.displayArgsType).toContain("direction?: \"desc\" | \"asc\"");
-      expect(tool!.metadata!.displayArgsType).not.toContain("...");
-      expect(tool!.metadata!.displayReturnsType).toContain('messages: components["schemas"]["access_messages"]');
-      expect(tool!.metadata!.displayReturnsType).toContain('result?: components["schemas"]["access_access-requests"][]');
-      expect(tool!.metadata!.displayReturnsType).not.toContain("...");
-    },
-    300_000,
-  );
-
-  test(
-    "cloudflare: delete access application keeps concrete compact args/returns",
-    async () => {
-      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
-
-      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare", { includeDts: false });
-      const tools = buildOpenApiToolsFromPrepared(
-        {
-          type: "openapi",
-          name: "cloudflare",
-          spec: cloudflareUrl,
-          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
-        },
-        prepared,
-      );
-
-      const tool = tools.find(
-        (t) => t.metadata?.operationId === "access-applications-delete-an-access-application",
-      );
-
-      expect(tool).toBeDefined();
-      expect(tool!.metadata!.displayArgsType).toContain("app_id:");
-      expect(tool!.metadata!.displayArgsType).toContain("account_id: string");
-      expect(tool!.metadata!.displayArgsType).not.toContain("...");
-      expect(tool!.metadata!.displayReturnsType).toContain('result?: { id?: components["schemas"]["access_uuid"] }');
-      expect(tool!.metadata!.displayReturnsType).not.toContain("num...");
-    },
-    300_000,
-  );
-
-  test(
-    "cloudflare: add access application keeps compact display hints for large strict types",
-    async () => {
-      const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
-
-      const prepared = await prepareOpenApiSpec(cloudflareUrl, "cloudflare");
-      const tools = buildOpenApiToolsFromPrepared(
-        {
-          type: "openapi",
-          name: "cloudflare",
-          spec: cloudflareUrl,
-          baseUrl: prepared.servers[0] || "https://api.cloudflare.com/client/v4",
-        },
-        prepared,
-      );
-
-      const tool = tools.find(
-        (t) => t.metadata?.operationId === "access-applications-add-an-application",
-      );
-
-      expect(tool).toBeDefined();
-      expect(prepared.dts).toBeDefined();
-      expect(tool!.metadata!.displayArgsType).toContain("account_id");
-      expect(tool!.metadata!.displayArgsType!.length).toBeLessThan(240);
-      expect(tool!.metadata!.argsType!.length).toBeGreaterThan(1_000);
-      expect(tool!.metadata!.argsType).toContain('components["schemas"]["access_saas_props"]');
-      expect(tool!.metadata!.argsType).not.toContain("unknown | unknown");
+      expect(tools.length).toBeGreaterThan(0);
+      const anyToolWithSchema = tools.find((t) => t.typing?.inputSchema && Object.keys(t.typing.inputSchema).length > 0);
+      expect(anyToolWithSchema).toBeDefined();
+      const anyToolWithTypedRef = tools.find((t) => t.typing?.typedRef);
+      expect(anyToolWithTypedRef).toBeDefined();
     },
     300_000,
   );

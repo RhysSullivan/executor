@@ -21,6 +21,7 @@ function setup() {
     "./app.ts": () => import("./app"),
     "./billingInternal.ts": () => import("./billingInternal"),
     "./billingSync.ts": () => import("./billingSync"),
+    "./toolRegistry.ts": () => import("./toolRegistry"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 }

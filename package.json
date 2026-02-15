@@ -24,7 +24,7 @@
     "dev:assistant": "bun run --cwd assistant/packages/server dev",
     "dev:bot": "bun run --cwd assistant/packages/bot dev",
     "test": "bun run test:executor && bun run test:assistant",
-    "test:executor": "bun test --cwd executor",
+    "test:executor": "DISABLE_CONVEX_SCHEDULER=1 bun test --cwd executor",
     "test:assistant": "bun run --cwd assistant test",
     "typecheck": "bun run typecheck:executor && bun run typecheck:assistant",
     "typecheck:executor": "bunx tsc --noEmit -p executor/tsconfig.json",

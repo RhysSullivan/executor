@@ -64,10 +64,8 @@ async function deleteWorkspaceData(
     .collect();
   for (const cacheEntry of cachedToolsets) {
     await ctx.storage.delete(cacheEntry.storageId).catch(() => {});
-    if (cacheEntry.dtsStorageIds) {
-      for (const dtsEntry of cacheEntry.dtsStorageIds) {
-        await ctx.storage.delete(dtsEntry.storageId).catch(() => {});
-      }
+    if (cacheEntry.typesStorageId) {
+      await ctx.storage.delete(cacheEntry.typesStorageId).catch(() => {});
     }
     await ctx.db.delete(cacheEntry._id);
   }

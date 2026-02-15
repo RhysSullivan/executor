@@ -124,9 +124,12 @@ test("mcp tools use outputSchema for return type hints when available", async ()
 
     const tool = tools[0];
     expect(tool?.path).toBe("status.get_status");
-    expect(tool?.metadata?.returnsType).toContain("ok");
-    expect(tool?.metadata?.returnsType).toContain("retries");
-    expect(tool?.metadata?.displayReturnsType).toContain("ok");
+    const output = tool?.typing?.outputSchema as Record<string, unknown> | undefined;
+    expect(output).toBeDefined();
+    const props = output && typeof output === "object" ? (output.properties as Record<string, unknown> | undefined) : undefined;
+    expect(props).toBeDefined();
+    expect(Object.keys(props ?? {})).toContain("ok");
+    expect(Object.keys(props ?? {})).toContain("retries");
   } finally {
     mcp.server.stop(true);
   }
@@ -791,7 +794,10 @@ test("openapi fallback type hints include index signature when truncated", async
   expect(warnings).toHaveLength(0);
   const getItems = tools.find((tool) => tool.path === "wide.items.get_items");
   expect(getItems).toBeDefined();
-  expect(getItems?.metadata?.returnsType).toContain("[key: string]: any");
+  const outputSchema = getItems?.typing?.outputSchema as Record<string, unknown> | undefined;
+  expect(outputSchema).toBeDefined();
+  const props = outputSchema && typeof outputSchema === "object" ? (outputSchema.properties as Record<string, unknown> | undefined) : undefined;
+  expect(Object.keys(props ?? {}).length).toBeGreaterThan(12);
 });
 
 test("graphql helper tools inherit credential spec from source auth", async () => {

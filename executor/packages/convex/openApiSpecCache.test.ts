@@ -6,6 +6,7 @@ import schema from "./schema";
 function setup() {
   return convexTest(schema, {
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
+    "./toolRegistry.ts": () => import("./toolRegistry"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 }

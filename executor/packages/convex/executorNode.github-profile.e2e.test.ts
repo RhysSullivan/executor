@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
-import { api } from "./_generated/api";
 import { internal } from "./_generated/api";
 import schema from "./schema";
 
@@ -13,6 +12,7 @@ function setup() {
     "./executorNode.ts": () => import("./executorNode"),
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
+    "./toolRegistry.ts": () => import("./toolRegistry"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
@@ -47,11 +47,6 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   });
   const warmMs = performance.now() - warmStart;
 
-  const publicWarm = await t.action(api.executorNode.listToolsWithWarnings, {
-    workspaceId: session.workspaceId,
-    sessionId: session.sessionId,
-  });
-
   console.log(
     `github openapi convex-test profiling: cold=${coldMs.toFixed(0)}ms warm=${warmMs.toFixed(0)}ms tools=${cold.tools.length}`,
   );
@@ -60,18 +55,12 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   expect(cold.tools.length).toBe(warm.tools.length);
   expect(cold.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
   expect(warm.warnings.some((warning: string) => warning.includes("skipped bundle"))).toBe(false);
-  expect(Object.keys(cold.dtsUrls).length).toBe(0);
-  expect(Object.keys(warm.dtsUrls).length).toBe(0);
-  expect(publicWarm.tools.length).toBe(warm.tools.length);
-  expect(publicWarm.debug.skipCacheRead).toBe(false);
-  expect(publicWarm.debug.cacheHit).toBe(true);
-  expect(publicWarm.debug.mode).toBe("cache-fresh");
-
-  const dts = await t.action(api.executorNode.listToolDtsUrls, {
-    workspaceId: session.workspaceId,
-    sessionId: session.sessionId,
-  });
-  expect(Object.keys(dts.dtsUrls).length).toBeGreaterThan(0);
+  expect(typeof cold.typesUrl).toBe("string");
+  expect(typeof warm.typesUrl).toBe("string");
+  expect(cold.typesUrl).toBe(warm.typesUrl);
+  expect(warm.debug.skipCacheRead).toBe(false);
+  expect(warm.debug.cacheHit).toBe(true);
+  expect(warm.debug.mode).toBe("cache-fresh");
 
   expect(coldMs).toBeLessThan(12_000);
   expect(coldMs).toBeGreaterThan(warmMs * 3);

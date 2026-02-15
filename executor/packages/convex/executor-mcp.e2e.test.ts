@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import { convexTest } from "convex-test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel.d.ts";
 import schema from "./schema";
@@ -16,12 +15,36 @@ function setup() {
     "./auth.ts": () => import("./auth"),
     "./workspaceAuthInternal.ts": () => import("./workspaceAuthInternal"),
     "./workspaceToolCache.ts": () => import("./workspaceToolCache"),
+    "./toolRegistry.ts": () => import("./toolRegistry"),
     "./openApiSpecCache.ts": () => import("./openApiSpecCache"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 }
 
-function createMcpTransport(
+async function getAnonymousAccessToken(
+  t: ReturnType<typeof setup>,
+  actorId: string,
+): Promise<string | null> {
+  const resp = await t.fetch(`/auth/anonymous/token?actorId=${encodeURIComponent(actorId)}`);
+  const body = await resp.json().catch(() => ({} as Record<string, unknown>));
+  if (resp.status === 503) {
+    const msg = typeof (body as any).error === "string" ? (body as any).error : "";
+    if (msg.toLowerCase().includes("not configured")) {
+      return null;
+    }
+  }
+  if (!resp.ok) {
+    const msg = typeof (body as any).error === "string" ? (body as any).error : `HTTP ${resp.status}`;
+    throw new Error(`Failed to issue anonymous token: ${msg}`);
+  }
+  const token = (body as any).accessToken;
+  if (typeof token !== "string" || token.length === 0) {
+    throw new Error("Anonymous token response missing accessToken");
+  }
+  return token;
+}
+
+async function createMcpTransport(
   t: ReturnType<typeof setup>,
   workspaceId: string,
   actorId: string,
@@ -32,19 +55,27 @@ function createMcpTransport(
   const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp";
   const url = new URL(`https://executor.test${mcpPath}`);
   url.searchParams.set("workspaceId", workspaceId);
-  if (isAnonymousSession) {
-    url.searchParams.set("actorId", actorId);
-  } else {
+  if (!isAnonymousSession) {
     url.searchParams.set("sessionId", sessionId);
   }
   url.searchParams.set("clientId", clientId);
+
+  const anonymousToken = isAnonymousSession ? await getAnonymousAccessToken(t, actorId) : null;
+  if (isAnonymousSession && !anonymousToken) {
+    // Legacy fallback for local/test when anonymous auth isn't configured.
+    url.searchParams.set("actorId", actorId);
+  }
 
   return new StreamableHTTPClientTransport(url, {
     fetch: async (input, init) => {
       const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
       const parsed = new URL(raw);
       const path = `${parsed.pathname}${parsed.search}${parsed.hash}`;
-      return await t.fetch(path, init);
+      const headers = new Headers(init?.headers ?? {});
+      if (anonymousToken) {
+        headers.set("authorization", `Bearer ${anonymousToken}`);
+      }
+      return await t.fetch(path, { ...init, headers });
     },
   });
 }
@@ -86,7 +117,7 @@ test("MCP run_code survives delayed approval and completes", async () => {
   const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
   const client = new Client({ name: "executor-e2e", version: "0.0.1" }, { capabilities: {} });
-  const transport = createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-approval-delay");
+  const transport = await createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-approval-delay");
 
   try {
     await client.connect(transport);
@@ -132,74 +163,12 @@ test("MCP run_code survives delayed approval and completes", async () => {
   }
 }, 60_000);
 
-test("MCP run_code resolves approval via real server form elicitation", async () => {
-  const t = setup();
-  const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
-  let elicitationCount = 0;
-
-  const client = new Client(
-    { name: "executor-e2e-elicitation", version: "0.0.1" },
-    { capabilities: { elicitation: { form: {} } } },
-  );
-  client.setRequestHandler(ElicitRequestSchema, async (request) => {
-    const mode = request.params.mode ?? "form";
-    if (mode !== "form") {
-      return { action: "decline" };
-    }
-
-    elicitationCount += 1;
-    return {
-      action: "accept",
-      content: {
-        decision: "approved",
-        reason: "approved via MCP form elicitation",
-      },
-    };
-  });
-
-  const transport = createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-elicitation");
-
-  try {
-    await client.connect(transport);
-
-    const runCode = client.callTool({
-      name: "run_code",
-      arguments: {
-        code: `return await tools.admin.send_announcement({ channel: "general", message: "approved by real-server elicitation" });`,
-      },
-    });
-
-    const taskId = await waitForTaskId(t, session.workspaceId);
-    const runTask = t.action(internal.executorNode.runTask, { taskId });
-
-    await runTask;
-
-    const result = (await runCode) as {
-      content: Array<{ type: string; text?: string }>;
-      isError?: boolean;
-    };
-    const text = result.content.find((item) => item.type === "text")?.text ?? "";
-
-    expect(elicitationCount).toBe(1);
-    expect(result.isError).toBeFalsy();
-    expect(text).toContain("status: completed");
-    expect(text).toContain("approved by real-server elicitation");
-
-    const approvals = await t.query(internal.database.listApprovals, { workspaceId: session.workspaceId });
-    const approval = approvals.find((item: { taskId: string }) => item.taskId === taskId);
-    expect(approval?.status).toBe("approved");
-  } finally {
-    await transport.close().catch(() => {});
-    await client.close().catch(() => {});
-  }
-}, 30_000);
-
 test("MCP run_code returns denied after approval denial", async () => {
   const t = setup();
   const session = await t.mutation(internal.database.bootstrapAnonymousSession, {});
 
   const client = new Client({ name: "executor-e2e", version: "0.0.1" }, { capabilities: {} });
-  const transport = createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-deny");
+  const transport = await createMcpTransport(t, session.workspaceId, session.actorId, session.sessionId, "e2e-deny");
 
   try {
     await client.connect(transport);

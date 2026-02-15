@@ -1,0 +1,130 @@
+import { describe, expect, test } from "bun:test";
+import { buildOpenApiToolsFromPrepared, prepareOpenApiSpec } from "./tool-sources";
+
+function makeLargeSpec(operationCount: number): Record<string, unknown> {
+  const paths: Record<string, unknown> = {};
+
+  for (let i = 0; i < operationCount; i += 1) {
+    const tag = `resource_${i}`;
+    const pathTemplate = `/api/v1/${tag}/{id}`;
+
+    paths[pathTemplate] = {
+      get: {
+        operationId: `get_${tag}`,
+        tags: [tag],
+        summary: `Get ${tag} by ID`,
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string" } },
+          { name: "include", in: "query", schema: { type: "string", enum: ["metadata", "related", "all"] } },
+        ],
+        responses: {
+          "200": {
+            description: "ok",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                  },
+                  required: ["id", "name"],
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        operationId: `create_${tag}`,
+        tags: [tag],
+        summary: `Create ${tag}`,
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                },
+                required: ["name"],
+              },
+            },
+          },
+        },
+        responses: {
+          "201": {
+            description: "created",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                  },
+                  required: ["id", "name"],
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  return {
+    openapi: "3.0.3",
+    info: { title: "Large API", version: "1.0.0" },
+    servers: [{ url: "https://api.example.com" }],
+    paths,
+  };
+}
+
+describe("OpenAPI schema-first typing", () => {
+  test("buildOpenApiToolsFromPrepared emits input/output schemas and preview keys", async () => {
+    const spec = makeLargeSpec(50);
+    const prepared = await prepareOpenApiSpec(spec, "large", { includeDts: false, profile: "inventory" });
+
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "large", spec, baseUrl: "https://api.example.com" },
+      prepared,
+    );
+
+    expect(tools.length).toBeGreaterThan(0);
+
+    const getTool = tools.find((t) => t.path.includes("get_resource_"));
+    expect(getTool).toBeDefined();
+    expect(getTool!.typing?.inputSchema).toBeDefined();
+    expect(getTool!.typing?.outputSchema).toBeDefined();
+    expect(getTool!.typing?.requiredInputKeys ?? []).toContain("id");
+    expect(getTool!.typing?.previewInputKeys ?? []).toContain("include");
+    expect(getTool!.typing?.typedRef).toBeDefined();
+  });
+
+  test("full profile with dts sets typedRef for OpenAPI operations", async () => {
+    const spec = makeLargeSpec(3);
+    const prepared = await prepareOpenApiSpec(spec, "large", { includeDts: true, profile: "full" });
+    expect(prepared.dts).toBeDefined();
+
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "large", spec, baseUrl: "https://api.example.com" },
+      prepared,
+    );
+
+    const anyTyped = tools.find((t) => t.typing?.typedRef?.kind === "openapi_operation");
+    expect(anyTyped).toBeDefined();
+    expect(anyTyped!.typing!.typedRef!.sourceKey).toBe("openapi:large");
+  });
+
+  test("prepared spec stays reasonably small for many operations", async () => {
+    const spec = makeLargeSpec(250);
+    const prepared = await prepareOpenApiSpec(spec, "large", { includeDts: false, profile: "inventory" });
+    const json = JSON.stringify(prepared);
+    const sizeKB = json.length / 1024;
+    console.log(`prepared OpenAPI (250 ops): ${sizeKB.toFixed(0)}KB`);
+    // Loose threshold; this guards against accidentally embedding full .d.ts or huge raw specs.
+    expect(json.length).toBeLessThan(5_000_000);
+  }, 300_000);
+});

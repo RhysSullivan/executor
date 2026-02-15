@@ -106,12 +106,19 @@ export interface ToolDescriptor {
   description: string;
   approval: ToolApprovalMode;
   source?: string;
-  argsType?: string;
-  returnsType?: string;
-  strictArgsType?: string;
-  strictReturnsType?: string;
-  argPreviewKeys?: string[];
-  operationId?: string;
+  typing?: {
+    requiredInputKeys?: string[];
+    previewInputKeys?: string[];
+    typedRef?: {
+      kind: "openapi_operation";
+      sourceKey: string;
+      operationId: string;
+    };
+  };
+  display?: {
+    input?: string;
+    output?: string;
+  };
 }
 
 export interface OpenApiSourceQuality {

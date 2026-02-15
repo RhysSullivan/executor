@@ -46,7 +46,7 @@ function normalizeToolPathSegment(segment: string, isNamespace = false): string 
   return collapsed.join("");
 }
 
-function normalizeToolPath(path: string): string {
+export function normalizeToolPathForLookup(path: string): string {
   const segments = path
     .split(".")
     .filter(Boolean);
@@ -110,12 +110,12 @@ export function resolveAliasedToolPath(
 ): string | null {
   if (toolMap.has(requestedPath)) return requestedPath;
 
-  const normalizedRequested = normalizeToolPath(requestedPath);
+  const normalizedRequested = normalizeToolPathForLookup(requestedPath);
   if (!normalizedRequested) return null;
 
   const matches: string[] = [];
   for (const path of toolMap.keys()) {
-    if (normalizeToolPath(path) === normalizedRequested) {
+    if (normalizeToolPathForLookup(path) === normalizedRequested) {
       matches.push(path);
     }
   }
@@ -134,13 +134,13 @@ export function suggestToolPaths(
   toolMap: Map<string, ToolDefinition>,
   limit = 3,
 ): string[] {
-  const normalizedRequested = normalizeToolPath(requestedPath);
+  const normalizedRequested = normalizeToolPathForLookup(requestedPath);
   const requestedSegments = normalizedRequested.split(".").filter(Boolean);
   const requestedNamespace = requestedSegments[0] ?? "";
 
   return [...toolMap.keys()]
     .map((path) => {
-      const normalizedCandidate = normalizeToolPath(path);
+      const normalizedCandidate = normalizeToolPathForLookup(path);
       const candidateSegments = normalizedCandidate.split(".").filter(Boolean);
       const candidateNamespace = candidateSegments[0] ?? "";
 
@@ -173,7 +173,7 @@ export function resolveClosestToolPath(
   requestedPath: string,
   toolMap: Map<string, ToolDefinition>,
 ): string | null {
-  const normalizedRequested = normalizeToolPath(requestedPath);
+  const normalizedRequested = normalizeToolPathForLookup(requestedPath);
   if (!normalizedRequested) return null;
 
   const requestedNamespace = normalizedRequested.split(".").filter(Boolean)[0] ?? "";
@@ -182,7 +182,7 @@ export function resolveClosestToolPath(
 
   const ranked = [...toolMap.keys()]
     .map((path) => {
-      const normalizedCandidate = normalizeToolPath(path);
+      const normalizedCandidate = normalizeToolPathForLookup(path);
       const candidateNamespace = normalizedCandidate.split(".").filter(Boolean)[0] ?? "";
       const distance = levenshteinDistance(normalizedRequested, normalizedCandidate);
       let score = -distance;

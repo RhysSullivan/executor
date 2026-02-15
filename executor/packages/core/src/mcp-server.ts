@@ -191,14 +191,14 @@ async function createMcpServer(
 ): Promise<McpServer> {
   const mcp = new McpServer(
     { name: "executor", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, elicitation: { form: {} } } as any },
   );
   const onApprovalPrompt = createMcpApprovalPrompt(mcp);
-  const registerTool = mcp.registerTool as (
+  const registerTool = (mcp.registerTool as (
     name: string,
     config: { description: string; inputSchema: AnySchema },
     cb: ReturnType<typeof createRunCodeTool>,
-  ) => void;
+  ) => void).bind(mcp);
 
   registerTool(
     "run_code",
@@ -241,8 +241,7 @@ export async function handleMcpRequest(
   request: Request,
   context?: McpWorkspaceContext,
 ): Promise<Response> {
-  const headers = new Headers(request.headers);
-  headers.delete("mcp-session-id");
-  const requestWithoutSession = new Request(request, { headers });
-  return await handleStatelessMcpRequest(service, requestWithoutSession, context);
+  // Preserve MCP session headers so the SDK can negotiate capabilities
+  // (elicitation/sampling) across requests.
+  return await handleStatelessMcpRequest(service, request, context);
 }

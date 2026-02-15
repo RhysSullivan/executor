@@ -50,17 +50,6 @@ interface ToolExplorerProps {
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   existingSourceNames?: Set<string>;
-  sourceSchemas?: Record<string, Record<string, string>>;
-}
-
-function hasSchemaReference(tool: ToolDescriptor): boolean {
-  const values = [
-    tool.argsType,
-    tool.returnsType,
-    tool.strictArgsType,
-    tool.strictReturnsType,
-  ];
-  return values.some((value) => value?.includes('components["schemas"]['));
 }
 
 export function ToolExplorer({
@@ -78,7 +67,6 @@ export function ToolExplorer({
   sourceDialogMeta,
   sourceAuthProfiles,
   existingSourceNames,
-  sourceSchemas = {},
 }: ToolExplorerProps) {
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput);
@@ -308,19 +296,14 @@ export function ToolExplorer({
       return;
     }
 
-    const sourceSchemasForTool = tool.source ? sourceSchemas[tool.source] : undefined;
-    const needsSchemaHydration = hasSchemaReference(tool)
-      && (!sourceSchemasForTool || Object.keys(sourceSchemasForTool).length === 0);
-
     const hasDetails = Boolean(
       tool.description
-      || tool.strictArgsType
-      || tool.strictReturnsType
-      || tool.argsType
-      || tool.returnsType,
+      || tool.display?.input
+      || tool.display?.output
+      || (tool.typing?.requiredInputKeys?.length ?? 0) > 0,
     );
 
-    if ((hasDetails || toolDetailsByPath[tool.path]) && !needsSchemaHydration) {
+    if (hasDetails || toolDetailsByPath[tool.path]) {
       return;
     }
 
@@ -347,7 +330,7 @@ export function ToolExplorer({
         return next;
       });
     }
-  }, [loadingDetailPaths, onLoadToolDetails, sourceSchemas, toolDetailsByPath]);
+  }, [loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
 
   const flatLoadingRows = useMemo(() => {
     if (search.length > 0 || viewMode !== "flat") {
@@ -461,7 +444,6 @@ export function ToolExplorer({
               onSelectTool={toggleSelectTool}
               onExpandedChange={maybeLoadToolDetails}
               detailLoadingPaths={loadingDetailPaths}
-              sourceSchemasBySource={sourceSchemas}
               scrollContainerRef={flatListRef}
               loadingRows={flatLoadingRows}
             />
@@ -491,7 +473,6 @@ export function ToolExplorer({
                     onSelectTool={toggleSelectTool}
                     onExpandedChange={maybeLoadToolDetails}
                     detailLoadingPaths={loadingDetailPaths}
-                    sourceSchemasBySource={sourceSchemas}
                     source={group.type === "source" ? sourceByName.get(group.label) : undefined}
                     search={search}
                   />

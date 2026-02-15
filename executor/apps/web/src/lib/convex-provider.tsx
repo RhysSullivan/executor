@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo } from "react";
 import { ConvexProviderWithAuth } from "convex/react";
 import {
   AuthKitProvider,
@@ -9,6 +9,7 @@ import {
 } from "@workos-inc/authkit-nextjs/components";
 import { ConvexReactClient } from "convex/react";
 import type { ReactNode } from "react";
+import { useQueryClient, useQuery as useTanstackQuery } from "@tanstack/react-query";
 import {
   getAnonymousAuthToken,
   readStoredAnonymousAuthToken,
@@ -34,58 +35,40 @@ export function useWorkosAuthState() {
 }
 
 function useConvexAuthFromAnonymous() {
-  const [loading, setLoading] = useState(() => readStoredAnonymousAuthToken() === null);
-  const [token, setToken] = useState<string | null>(() => readStoredAnonymousAuthToken()?.accessToken ?? null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const bootstrap = async () => {
-      try {
-        const auth = await getAnonymousAuthToken();
-        if (!cancelled) {
-          setToken(auth.accessToken);
-        }
-      } catch {
-        if (!cancelled) {
-          setToken(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void bootstrap();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const queryClient = useQueryClient();
+  const tokenQuery = useTanstackQuery<string | null>({
+    queryKey: ["anonymous-auth-token"],
+    queryFn: async () => {
+      const auth = await getAnonymousAuthToken();
+      return auth.accessToken;
+    },
+    initialData: () => readStoredAnonymousAuthToken()?.accessToken ?? null,
+    retry: false,
+  });
 
   const fetchAccessToken = useCallback(async () => {
     const stored = readStoredAnonymousAuthToken();
     if (stored) {
-      if (stored.accessToken !== token) {
-        setToken(stored.accessToken);
+      if (stored.accessToken !== tokenQuery.data) {
+        queryClient.setQueryData(["anonymous-auth-token"], stored.accessToken);
+        return stored.accessToken;
       }
-      return stored.accessToken;
+      queryClient.setQueryData(["anonymous-auth-token"], tokenQuery.data);
+      return tokenQuery.data;
     }
 
     const refreshed = await getAnonymousAuthToken(true);
-    setToken(refreshed.accessToken);
-    setLoading(false);
+    queryClient.setQueryData(["anonymous-auth-token"], refreshed.accessToken);
     return refreshed.accessToken;
-  }, [token]);
+  }, [queryClient, tokenQuery.data]);
 
   return useMemo(
     () => ({
-      isLoading: loading,
-      isAuthenticated: Boolean(token),
+      isLoading: tokenQuery.isPending,
+      isAuthenticated: Boolean(tokenQuery.data),
       fetchAccessToken,
     }),
-    [fetchAccessToken, loading, token],
+    [fetchAccessToken, tokenQuery.isPending, tokenQuery.data],
   );
 }
 

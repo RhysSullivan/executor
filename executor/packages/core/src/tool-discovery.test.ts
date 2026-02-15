@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { createCatalogTools, createDiscoverTool } from "./tool-discovery";
-import { extractSourceSchemaTypesFromDts } from "./tool-discovery/schema-registry";
 import type { ToolDefinition } from "./types";
 
 const TEST_WORKSPACE_ID = "w" as Id<"workspaces">;
@@ -13,9 +12,24 @@ test("discover returns aliases and example calls", async () => {
       description: "Add numbers",
       approval: "auto",
       source: "openapi:calc",
-      metadata: {
-        argsType: "{ a: number; b: number }",
-        returnsType: "{ sum: number }",
+      typing: {
+        inputSchema: {
+          type: "object",
+          properties: {
+            a: { type: "number" },
+            b: { type: "number" },
+          },
+          required: ["a", "b"],
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            sum: { type: "number" },
+          },
+          required: ["sum"],
+        },
+        requiredInputKeys: ["a", "b"],
+        previewInputKeys: ["a", "b"],
       },
       run: async () => ({ sum: 0 }),
     } satisfies ToolDefinition,
@@ -32,7 +46,10 @@ test("discover returns aliases and example calls", async () => {
       exampleCall: string;
       signature: string;
       canonicalSignature: string;
-      expandedShape: { input: string; output: string };
+      signatureInfo: {
+        requiredKeys: string[];
+        previewKeys: string[];
+      };
     }>;
     total: number;
   };
@@ -43,10 +60,10 @@ test("discover returns aliases and example calls", async () => {
   expect(result.results[0]?.aliases).toContain("calc.math.addNumbers");
   expect(result.results[0]?.aliases).toContain("calc.math.addnumbers");
   expect(result.results[0]?.exampleCall).toBe("await tools.calc.math.add_numbers({ a: ..., b: ... });");
-  expect(result.results[0]?.signature).toContain("Promise<{ sum: number }>");
-  expect(result.results[0]?.canonicalSignature).toContain("Promise<{ sum: number }>");
-  expect(result.results[0]?.expandedShape.input).toContain("a:");
-  expect(result.results[0]?.expandedShape.output).toContain("sum");
+  expect(result.results[0]?.signature).toContain("Promise<");
+  expect(result.results[0]?.signature).toContain("sum");
+  expect(result.results[0]?.canonicalSignature).toContain("sum");
+  expect(result.results[0]?.signatureInfo.requiredKeys).toEqual(["a", "b"]);
 });
 
 test("discover example call handles input-shaped args", async () => {
@@ -56,9 +73,23 @@ test("discover example call handles input-shaped args", async () => {
       description: "Create issue",
       approval: "required",
       source: "graphql:linear",
-      metadata: {
-        argsType: "{ input: { teamId: string; title: string } }",
-        returnsType: "{ data: { id: string }; errors: unknown[] }",
+      typing: {
+        inputSchema: {
+          type: "object",
+          properties: {
+            input: {
+              type: "object",
+              properties: {
+                teamId: { type: "string" },
+                title: { type: "string" },
+              },
+              required: ["teamId", "title"],
+            },
+          },
+          required: ["input"],
+        },
+        requiredInputKeys: ["input"],
+        previewInputKeys: ["input"],
       },
       run: async () => ({ data: { id: "x" }, errors: [] }),
     } satisfies ToolDefinition,
@@ -85,9 +116,28 @@ test("discover uses compact signatures by default and allows full mode", async (
       description: "All teams whose issues can be accessed by the user. Compact output should trim this long explanation before it reaches the trailing marker text to keep discover results concise for models. TRAILING_MARKER_TEXT",
       approval: "auto",
       source: "graphql:linear",
-      metadata: {
-        argsType: "{ filter?: TeamFilter; before?: string; after?: string; first?: number; last?: number; includeArchived?: boolean; orderBy?: PaginationOrderBy }",
-        returnsType: "{ data: TeamConnection; errors: unknown[] }",
+      typing: {
+        inputSchema: {
+          type: "object",
+          properties: {
+            filter: {},
+            before: { type: "string" },
+            after: { type: "string" },
+            first: { type: "number" },
+            last: { type: "number" },
+            includeArchived: { type: "boolean" },
+            orderBy: {},
+          },
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            data: {},
+            errors: { type: "array", items: {} },
+          },
+          required: ["data"],
+        },
+        previewInputKeys: ["filter", "before", "after", "first", "last"],
       },
       run: async () => ({ data: {}, errors: [] }),
     } satisfies ToolDefinition,
@@ -102,7 +152,7 @@ test("discover uses compact signatures by default and allows full mode", async (
       description: string;
       signature: string;
       canonicalSignature: string;
-      expandedShape: { input: string; output: string };
+      signatureInfo: { previewKeys: string[] };
     }>;
   };
 
@@ -115,92 +165,19 @@ test("discover uses compact signatures by default and allows full mode", async (
       description: string;
       signature: string;
       canonicalSignature: string;
-      expandedShape: { input: string; output: string };
+      signatureInfo: { previewKeys: string[] };
     }>;
   };
 
   expect(compactResult.bestPath).toBe("linear.query.teams");
   expect(fullResult.bestPath).toBe("linear.query.teams");
-  expect(compactResult.results[0]?.signature).toContain("Promise<{ data: ...; errors: unknown[] }>");
-  expect(compactResult.results[0]?.canonicalSignature).toContain("TeamConnection");
-  expect(compactResult.results[0]?.expandedShape.input).toContain("filter");
+  expect(compactResult.results[0]?.signature).toContain("Promise<");
+  expect(compactResult.results[0]?.signature).toContain("errors");
+  expect(compactResult.results[0]?.signatureInfo.previewKeys).toContain("filter");
   expect(compactResult.results[0]?.description).not.toContain("TRAILING_MARKER_TEXT");
 
-  expect(fullResult.results[0]?.signature).toContain("TeamFilter");
-  expect(fullResult.results[0]?.signature).toContain("TeamConnection");
+  expect(fullResult.results[0]?.signature).toContain("Promise<");
   expect(fullResult.results[0]?.description).toContain("TRAILING_MARKER_TEXT");
-});
-
-test("discover includes deduped schema registry for component refs", async () => {
-  const sourceDts = `
-interface components {
-  schemas: {
-    "runner-label": { id?: number; name?: string };
-    runner: { labels?: components["schemas"]["runner-label"][] };
-  };
-}
-interface operations {}
-`;
-
-  const tool = createDiscoverTool([
-    {
-      path: "github.actions.add_custom_labels_to_self_hosted_runner_for_org",
-      description: "Add custom labels to org runner",
-      approval: "required",
-      source: "openapi:github",
-      metadata: {
-        argsType: "{ org: string; runner_id: number; labels: string[] }",
-        returnsType: "{ labels: components[\"schemas\"][\"runner-label\"][] }",
-        sourceDts,
-      },
-      run: async () => ({ labels: [] }),
-    } satisfies ToolDefinition,
-    {
-      path: "github.actions.list_labels_for_self_hosted_runner_for_org",
-      description: "List labels for org runner",
-      approval: "auto",
-      source: "openapi:github",
-      metadata: {
-        argsType: "{ org: string; runner_id: number }",
-        returnsType: "{ labels: components[\"schemas\"][\"runner-label\"][] }",
-      },
-      run: async () => ({ labels: [] }),
-    } satisfies ToolDefinition,
-  ]);
-
-  const result = await tool.run(
-    { query: "runner labels", compact: false, depth: 2 },
-    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
-  ) as {
-    schemas?: Record<string, Record<string, string>>;
-    total: number;
-  };
-
-  expect(result.total).toBe(2);
-  expect(result.schemas?.["openapi:github"]).toBeDefined();
-  const sourceSchemas = result.schemas?.["openapi:github"] ?? {};
-  expect(sourceSchemas['components["schemas"]["runner-label"]']).toContain("name");
-  expect(Object.keys(sourceSchemas)).toHaveLength(1);
-});
-
-test("schema parser handles semicolons inside schema comments", () => {
-  const dts = `
-interface components {
-  schemas: {
-    root: {
-      /** this comment has a semicolon; and should not terminate parsing */
-      id: string;
-    };
-    "runner-label": {
-      name: string;
-    };
-  };
-}
-`;
-
-  const schemaTypes = extractSourceSchemaTypesFromDts(dts);
-  expect(schemaTypes["root"]).toContain("id: string");
-  expect(schemaTypes["runner-label"]).toContain("name: string");
 });
 
 test("discover returns null bestPath when there are no matches", async () => {
@@ -210,9 +187,15 @@ test("discover returns null bestPath when there are no matches", async () => {
       description: "Add numbers",
       approval: "auto",
       source: "openapi:calc",
-      metadata: {
-        argsType: "{ a: number; b: number }",
-        returnsType: "{ sum: number }",
+      typing: {
+        inputSchema: {
+          type: "object",
+          properties: {
+            a: { type: "number" },
+            b: { type: "number" },
+          },
+          required: ["a", "b"],
+        },
       },
       run: async () => ({ sum: 0 }),
     } satisfies ToolDefinition,
@@ -235,9 +218,14 @@ test("discover bestPath prefers simpler exact intent operation", async () => {
       description: "Create issue-to-release join",
       approval: "required",
       source: "graphql:linear",
-      metadata: {
-        argsType: "{ input: { issueId: string; releaseId: string } }",
-        returnsType: "{ data: IssueToReleasePayload; errors: unknown[] }",
+      typing: {
+        inputSchema: {
+          type: "object",
+          properties: { input: { type: "object", properties: { issueId: { type: "string" }, releaseId: { type: "string" } }, required: ["issueId", "releaseId"] } },
+          required: ["input"],
+        },
+        requiredInputKeys: ["input"],
+        previewInputKeys: ["input"],
       },
       run: async () => ({ data: {}, errors: [] }),
     } satisfies ToolDefinition,
@@ -246,9 +234,14 @@ test("discover bestPath prefers simpler exact intent operation", async () => {
       description: "Create issue",
       approval: "required",
       source: "graphql:linear",
-      metadata: {
-        argsType: "{ input: { teamId: string; title: string } }",
-        returnsType: "{ data: IssuePayload; errors: unknown[] }",
+      typing: {
+        inputSchema: {
+          type: "object",
+          properties: { input: { type: "object", properties: { teamId: { type: "string" }, title: { type: "string" } }, required: ["teamId", "title"] } },
+          required: ["input"],
+        },
+        requiredInputKeys: ["input"],
+        previewInputKeys: ["input"],
       },
       run: async () => ({ data: {}, errors: [] }),
     } satisfies ToolDefinition,
@@ -270,9 +263,10 @@ test("discover namespace hint suppresses cross-namespace bestPath", async () => 
       description: "List teams",
       approval: "auto",
       source: "openapi:github",
-      metadata: {
-        argsType: "{ org: string }",
-        returnsType: "Array<Team>",
+      typing: {
+        inputSchema: { type: "object", properties: { org: { type: "string" } }, required: ["org"] },
+        requiredInputKeys: ["org"],
+        previewInputKeys: ["org"],
       },
       run: async () => ([]),
     } satisfies ToolDefinition,
@@ -281,9 +275,9 @@ test("discover namespace hint suppresses cross-namespace bestPath", async () => 
       description: "List teams in Linear",
       approval: "auto",
       source: "graphql:linear",
-      metadata: {
-        argsType: "{}",
-        returnsType: "{ data: TeamConnection; errors: unknown[] }",
+      typing: {
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: { type: "object", properties: { data: {}, errors: { type: "array", items: {} } }, required: ["data"] },
       },
       run: async () => ({ data: {}, errors: [] }),
     } satisfies ToolDefinition,
@@ -305,9 +299,11 @@ test("discover prefers simplified alias path for ugly namespaces", async () => {
       description: "Get Vercel domain",
       approval: "auto",
       source: "openapi:vercel",
-      metadata: {
-        argsType: "{ domain: string; teamId?: string }",
-        returnsType: "{ domain: string }",
+      typing: {
+        inputSchema: { type: "object", properties: { domain: { type: "string" }, teamId: { type: "string" } }, required: ["domain"] },
+        outputSchema: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] },
+        requiredInputKeys: ["domain"],
+        previewInputKeys: ["domain", "teamId"],
       },
       run: async () => ({ domain: "executor.sh" }),
     } satisfies ToolDefinition,
@@ -334,9 +330,11 @@ test("catalog tools list namespaces and typed signatures", async () => {
       description: "Get domain",
       approval: "auto",
       source: "openapi:vercel",
-      metadata: {
-        argsType: "{ domain: string; teamId?: string }",
-        returnsType: "{ domain: string }",
+      typing: {
+        inputSchema: { type: "object", properties: { domain: { type: "string" }, teamId: { type: "string" } }, required: ["domain"] },
+        outputSchema: { type: "object", properties: { domain: { type: "string" } }, required: ["domain"] },
+        requiredInputKeys: ["domain"],
+        previewInputKeys: ["domain", "teamId"],
       },
       run: async () => ({ domain: "executor.sh" }),
     } satisfies ToolDefinition,
@@ -345,9 +343,9 @@ test("catalog tools list namespaces and typed signatures", async () => {
       description: "Get time",
       approval: "auto",
       source: "local",
-      metadata: {
-        argsType: "{}",
-        returnsType: "{ iso: string; unix: number }",
+      typing: {
+        inputSchema: { type: "object", properties: {} },
+        outputSchema: { type: "object", properties: { iso: { type: "string" }, unix: { type: "number" } }, required: ["iso", "unix"] },
       },
       run: async () => ({ iso: "", unix: 0 }),
     } satisfies ToolDefinition,
@@ -365,14 +363,14 @@ test("catalog tools list namespaces and typed signatures", async () => {
     { namespace: "vercel", compact: false, depth: 2, limit: 10 },
     { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
   ) as {
-    results: Array<{ path: string; aliases: string[]; signature: string; argsType: string; returnsType: string }>;
+    results: Array<{ path: string; aliases: string[]; signatureText: string; signatureInfo: { input: string; output: string } }>;
     total: number;
   };
 
   expect(listed.total).toBe(1);
   expect(listed.results[0]?.path).toBe("vercel.domains.get_domain");
   expect(listed.results[0]?.aliases).toContain("vercel.domains.get_domain");
-  expect(listed.results[0]?.signature).toContain("domain: string");
-  expect(listed.results[0]?.argsType).toContain("domain: string");
-  expect(listed.results[0]?.returnsType).toContain("domain: string");
+  expect(listed.results[0]?.signatureText).toContain("domain");
+  expect(listed.results[0]?.signatureInfo.input).toContain("domain");
+  expect(listed.results[0]?.signatureInfo.output).toContain("domain");
 });

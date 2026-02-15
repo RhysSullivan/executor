@@ -21,7 +21,7 @@ export const getEntry = internalQuery({
     return {
       isFresh: entry.signature === args.signature,
       storageId: entry.storageId,
-      dtsStorageIds: entry.dtsStorageIds,
+      typesStorageId: entry.typesStorageId,
       toolCount: entry.toolCount,
       sizeBytes: entry.sizeBytes,
       createdAt: entry.createdAt,
@@ -38,10 +38,7 @@ export const putEntry = internalMutation({
     workspaceId: v.id("workspaces"),
     signature: v.string(),
     storageId: v.id("_storage"),
-    dtsStorageIds: v.array(v.object({
-      sourceKey: v.string(),
-      storageId: v.id("_storage"),
-    })),
+    typesStorageId: v.optional(v.id("_storage")),
     toolCount: v.number(),
     sizeBytes: v.number(),
   },
@@ -54,9 +51,16 @@ export const putEntry = internalMutation({
     if (existing) {
       // Delete old main snapshot blob
       await ctx.storage.delete(existing.storageId).catch(() => {});
-      // Delete old .d.ts blobs
-      for (const entry of existing.dtsStorageIds) {
-        await ctx.storage.delete(entry.storageId).catch(() => {});
+      const legacy = (existing as any).dtsStorageIds as Array<{ storageId?: string }> | undefined;
+      if (Array.isArray(legacy)) {
+        for (const entry of legacy) {
+          if (entry && typeof entry.storageId === "string") {
+            await ctx.storage.delete(entry.storageId as any).catch(() => {});
+          }
+        }
+      }
+      if (existing.typesStorageId) {
+        await ctx.storage.delete(existing.typesStorageId).catch(() => {});
       }
       await ctx.db.delete(existing._id);
     }
@@ -65,7 +69,7 @@ export const putEntry = internalMutation({
       workspaceId: args.workspaceId,
       signature: args.signature,
       storageId: args.storageId,
-      dtsStorageIds: args.dtsStorageIds,
+      typesStorageId: args.typesStorageId,
       toolCount: args.toolCount,
       sizeBytes: args.sizeBytes,
       createdAt: Date.now(),
