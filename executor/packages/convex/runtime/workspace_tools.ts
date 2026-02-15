@@ -12,7 +12,7 @@ import {
   type CompiledToolSourceArtifact,
   type WorkspaceToolSnapshot,
 } from "../../core/src/tool-sources";
-import { serializeTools } from "../../core/src/tool/source-serialization";
+import type { SerializedTool } from "../../core/src/tool/source-serialization";
 import type { ExternalToolSourceConfig } from "../../core/src/tool/source-types";
 import type {
   AccessPolicyRecord,
@@ -370,20 +370,18 @@ async function buildWorkspaceToolRegistry(
   ctx: ActionCtx,
   args: {
     workspaceId: Id<"workspaces">;
-    signature: string;
-    tools: ToolDefinition[];
+    registrySignature: string;
+    serializedTools: SerializedTool[];
   },
 ): Promise<{ buildId: string }> {
   const buildId = `toolreg_${crypto.randomUUID()}`;
   await ctx.runMutation(internal.toolRegistry.beginBuild, {
     workspaceId: args.workspaceId,
-    signature: args.signature,
+    signature: args.registrySignature,
     buildId,
   });
 
-  const serialized = serializeTools(args.tools);
-
-  const entries = serialized.map((st) => {
+  const entries = args.serializedTools.map((st) => {
     if (st.path === "discover" || st.path.startsWith("catalog.")) {
       return null;
     }
@@ -487,6 +485,25 @@ async function buildWorkspaceToolRegistry(
   return { buildId };
 }
 
+async function maybeBuildWorkspaceToolRegistry(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    registrySignature: string;
+    serializedTools: SerializedTool[];
+  },
+): Promise<void> {
+  const state = await ctx.runQuery(internal.toolRegistry.getState, { workspaceId: args.workspaceId }) as
+    | null
+    | { signature: string; readyBuildId?: string };
+
+  if (state?.readyBuildId && state.signature === args.registrySignature) {
+    return;
+  }
+
+  await buildWorkspaceToolRegistry(ctx, args);
+}
+
 export async function getWorkspaceTools(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
@@ -517,6 +534,7 @@ export async function getWorkspaceTools(
   traceStep("listToolSources", listSourcesStartedAt);
   const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
+  const registrySignature = `toolreg_v1|${signature}`;
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
       includeDts,
       sourceTimeoutMs: sourceTimeoutMs ?? null,
@@ -545,6 +563,17 @@ export async function getWorkspaceTools(
         const typesStorageId = cacheEntry.typesStorageId as Id<"_storage"> | undefined;
         if (cacheEntry.isFresh) {
           if (typesStorageId) {
+            // Registry is derived from the cached snapshot. Keep it in sync.
+            try {
+              await maybeBuildWorkspaceToolRegistry(ctx, {
+                workspaceId,
+                registrySignature,
+                serializedTools: snapshot.externalArtifacts.flatMap((artifact) => artifact.tools),
+              });
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              console.warn(`[executor] workspace tool registry build failed for '${workspaceId}': ${msg}`);
+            }
             return {
               tools: merged,
               warnings: snapshot.warnings,
@@ -677,10 +706,10 @@ export async function getWorkspaceTools(
 
     // Build a per-tool registry for fast discover + invocation.
     const registryStartedAt = Date.now();
-    await buildWorkspaceToolRegistry(ctx, {
+    await maybeBuildWorkspaceToolRegistry(ctx, {
       workspaceId,
-      signature,
-      tools: allTools,
+      registrySignature,
+      serializedTools: externalArtifacts.flatMap((artifact) => artifact.tools),
     });
     traceStep("toolRegistryWrite", registryStartedAt);
 
