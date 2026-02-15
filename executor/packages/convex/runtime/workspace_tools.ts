@@ -3,13 +3,16 @@
 import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel.d.ts";
-import { createCatalogTools, createDiscoverTool } from "../../core/src/tool-discovery";
+import { buildWorkspaceTypeBundle } from "../../core/src/tool-typing/typebundle";
+import { jsonSchemaTypeHintFallback } from "../../core/src/openapi/schema-hints";
+import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../core/src/tool-typing/schema-utils";
 import {
   materializeCompiledToolSource,
   materializeWorkspaceSnapshot,
   type CompiledToolSourceArtifact,
   type WorkspaceToolSnapshot,
 } from "../../core/src/tool-sources";
+import type { SerializedTool } from "../../core/src/tool/source-serialization";
 import type { ExternalToolSourceConfig } from "../../core/src/tool/source-types";
 import type {
   AccessPolicyRecord,
@@ -18,24 +21,165 @@ import type {
   ToolDefinition,
   ToolDescriptor,
 } from "../../core/src/types";
-import {
-  extractSchemaRefKeys,
-  extractSourceSchemaTypesFromDts,
-} from "../../core/src/tool-discovery/schema-registry";
 import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_descriptors";
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
+import { normalizeToolPathForLookup } from "./tool_paths";
 
 const baseTools = new Map<string, ToolDefinition>();
 
-interface DtsStorageEntry {
-  sourceKey: string;
-  storageId: Id<"_storage">;
-}
+// Minimal built-in tools used by tests/demos.
+// These are intentionally simple and are always approval-gated.
+baseTools.set("admin.send_announcement", {
+  path: "admin.send_announcement",
+  source: "system",
+  approval: "required",
+  description: "Send an announcement message (demo tool; approval-gated).",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel: { type: "string" },
+        message: { type: "string" },
+      },
+      required: ["channel", "message"],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        ok: { type: "boolean" },
+        channel: { type: "string" },
+        message: { type: "string" },
+      },
+      required: ["ok", "channel", "message"],
+      additionalProperties: false,
+    },
+  },
+  run: async (input: unknown) => {
+    const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+    const channel = typeof payload.channel === "string" ? payload.channel : "";
+    const message = typeof payload.message === "string" ? payload.message : "";
+    return { ok: true, channel, message };
+  },
+});
+
+baseTools.set("admin.delete_data", {
+  path: "admin.delete_data",
+  source: "system",
+  approval: "required",
+  description: "Delete data (demo tool; approval-gated).",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: { type: "string" },
+        id: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        ok: { type: "boolean" },
+      },
+      required: ["ok"],
+      additionalProperties: false,
+    },
+  },
+  run: async () => {
+    return { ok: true };
+  },
+});
+
+// System tools (discover/catalog) are resolved server-side.
+// Their execution is handled in the Convex tool invocation pipeline.
+baseTools.set("discover", {
+  path: "discover",
+  source: "system",
+  approval: "auto",
+  description:
+    "Search available tools by keyword. Returns preferred path aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        depth: { type: "number" },
+        limit: { type: "number" },
+        compact: { type: "boolean" },
+      },
+      required: ["query"],
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        bestPath: {},
+        results: { type: "array" },
+        total: { type: "number" },
+      },
+      required: ["bestPath", "results", "total"],
+    },
+  },
+  run: async () => {
+    throw new Error("discover is handled by the server tool invocation pipeline");
+  },
+});
+
+baseTools.set("catalog.namespaces", {
+  path: "catalog.namespaces",
+  source: "system",
+  approval: "auto",
+  description: "List available tool namespaces with counts and sample callable paths.",
+  typing: {
+    inputSchema: { type: "object", properties: {} },
+    outputSchema: {
+      type: "object",
+      properties: {
+        namespaces: { type: "array" },
+        total: { type: "number" },
+      },
+      required: ["namespaces", "total"],
+    },
+  },
+  run: async () => {
+    throw new Error("catalog.namespaces is handled by the server tool invocation pipeline");
+  },
+});
+
+baseTools.set("catalog.tools", {
+  path: "catalog.tools",
+  source: "system",
+  approval: "auto",
+  description: "List tools with typed signatures. Supports namespace and query filters in one call.",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        namespace: { type: "string" },
+        query: { type: "string" },
+        depth: { type: "number" },
+        limit: { type: "number" },
+        compact: { type: "boolean" },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        results: { type: "array" },
+        total: { type: "number" },
+      },
+      required: ["results", "total"],
+    },
+  },
+  run: async () => {
+    throw new Error("catalog.tools is handled by the server tool invocation pipeline");
+  },
+});
 
 interface WorkspaceToolsResult {
   tools: Map<string, ToolDefinition>;
   warnings: string[];
-  dtsStorageIds: DtsStorageEntry[];
+  typesStorageId?: Id<"_storage">;
   debug: WorkspaceToolsDebug;
 }
 
@@ -54,7 +198,6 @@ export interface WorkspaceToolsDebug {
 }
 
 interface GetWorkspaceToolsOptions {
-  includeDts?: boolean;
   sourceTimeoutMs?: number;
   allowStaleOnMismatch?: boolean;
   skipCacheRead?: boolean;
@@ -64,10 +207,9 @@ interface GetWorkspaceToolsOptions {
 interface WorkspaceToolInventory {
   tools: ToolDescriptor[];
   warnings: string[];
-  dtsStorageIds: DtsStorageEntry[];
+  typesUrl?: string;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  sourceSchemas: Record<string, Record<string, string>>;
   debug: WorkspaceToolsDebug;
 }
 
@@ -122,124 +264,227 @@ function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<s
   return profiles;
 }
 
-function formatSchemaRefToken(schemaKey: string): string {
-  return `components["schemas"][${JSON.stringify(schemaKey)}]`;
-}
-
-function collectSchemaKeysBySource(tools: ToolDescriptor[]): Map<string, Set<string>> {
-  const refsBySource = new Map<string, Set<string>>();
-
-  for (const tool of tools) {
-    if (!tool.source) continue;
-    const candidateTypes = [
-      tool.strictArgsType,
-      tool.strictReturnsType,
-      tool.argsType,
-      tool.returnsType,
-    ];
-
-    for (const typeExpression of candidateTypes) {
-      if (!typeExpression) continue;
-      const keys = extractSchemaRefKeys(typeExpression);
-      if (keys.length === 0) continue;
-
-      let sourceRefs = refsBySource.get(tool.source);
-      if (!sourceRefs) {
-        sourceRefs = new Set<string>();
-        refsBySource.set(tool.source, sourceRefs);
-      }
-
-      for (const key of keys) {
-        sourceRefs.add(key);
-      }
-    }
-  }
-
-  return refsBySource;
-}
-
-async function loadSourceSchemasForTools(
-  ctx: ActionCtx,
-  tools: ToolDescriptor[],
-  dtsStorageIds: DtsStorageEntry[],
-): Promise<Record<string, Record<string, string>>> {
-  const refsBySource = collectSchemaKeysBySource(tools);
-  if (refsBySource.size === 0 || dtsStorageIds.length === 0) {
-    return {};
-  }
-
-  const storageBySource = new Map<string, Id<"_storage">>();
-  for (const entry of dtsStorageIds) {
-    storageBySource.set(entry.sourceKey, entry.storageId);
-  }
-
-  const entries = await Promise.all([...refsBySource.entries()].map(async ([source, keys]) => {
-    const storageId = storageBySource.get(source);
-    if (!storageId) {
-      return null;
-    }
-
-    try {
-      const blob = await ctx.storage.get(storageId);
-      if (!blob) {
-        return null;
-      }
-
-      const dtsText = await blob.text();
-      const schemaTypes = extractSourceSchemaTypesFromDts(dtsText);
-      if (Object.keys(schemaTypes).length === 0) {
-        return null;
-      }
-
-      const sourceSchemas: Record<string, string> = {};
-      for (const key of keys) {
-        const schemaType = schemaTypes[key];
-        if (!schemaType) continue;
-        sourceSchemas[formatSchemaRefToken(key)] = schemaType;
-      }
-
-      if (Object.keys(sourceSchemas).length === 0) {
-        return null;
-      }
-
-      return [source, sourceSchemas] as const;
-    } catch {
-      return null;
-    }
-  }));
-
-  const sourceSchemas: Record<string, Record<string, string>> = {};
-  for (const entry of entries) {
-    if (!entry) continue;
-    const [source, schemas] = entry;
-    sourceSchemas[source] = schemas;
-  }
-
-  return sourceSchemas;
-}
-
-function mergeToolsWithCatalog(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
+function mergeTools(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
   const merged = new Map<string, ToolDefinition>();
 
   for (const tool of baseTools.values()) {
-    if (tool.path === "discover") continue;
     merged.set(tool.path, tool);
   }
 
   for (const tool of externalTools) {
-    if (tool.path === "discover") continue;
     merged.set(tool.path, tool);
   }
-
-  const catalogTools = createCatalogTools([...merged.values()]);
-  for (const tool of catalogTools) {
-    merged.set(tool.path, tool);
-  }
-
-  const discover = createDiscoverTool([...merged.values()]);
-  merged.set(discover.path, discover);
   return merged;
 }
+
+function tokenizePathSegment(value: string): string[] {
+  const normalized = value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .toLowerCase();
+
+  return normalized
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+const GENERIC_NAMESPACE_SUFFIXES = new Set([
+  "api",
+  "apis",
+  "openapi",
+  "sdk",
+  "service",
+  "services",
+]);
+
+function simplifyNamespaceSegment(segment: string): string {
+  const tokens = tokenizePathSegment(segment);
+  if (tokens.length === 0) return segment;
+
+  const collapsed: string[] = [];
+  for (const token of tokens) {
+    if (collapsed[collapsed.length - 1] === token) continue;
+    collapsed.push(token);
+  }
+
+  while (collapsed.length > 1) {
+    const last = collapsed[collapsed.length - 1];
+    if (!last || !GENERIC_NAMESPACE_SUFFIXES.has(last)) break;
+    collapsed.pop();
+  }
+
+  return collapsed.join("_");
+}
+
+function preferredToolPath(path: string): string {
+  const segments = path.split(".").filter(Boolean);
+  if (segments.length === 0) return path;
+
+  const simplifiedNamespace = simplifyNamespaceSegment(segments[0]!);
+  if (!simplifiedNamespace || simplifiedNamespace === segments[0]) {
+    return path;
+  }
+
+  return [simplifiedNamespace, ...segments.slice(1)].join(".");
+}
+
+function toCamelSegment(segment: string): string {
+  return segment.replace(/_+([a-z0-9])/g, (_m, char: string) => char.toUpperCase());
+}
+
+function getPathAliases(path: string): string[] {
+  const segments = path.split(".").filter(Boolean);
+  if (segments.length === 0) return [];
+
+  const canonicalPath = path;
+  const publicPath = preferredToolPath(path);
+
+  const aliases = new Set<string>();
+  const publicSegments = publicPath.split(".").filter(Boolean);
+  const camelPath = publicSegments.map(toCamelSegment).join(".");
+  const compactPath = publicSegments.map((segment) => segment.replace(/[_-]/g, "")).join(".");
+  const lowerPath = publicPath.toLowerCase();
+
+  if (publicPath !== canonicalPath) aliases.add(publicPath);
+  if (camelPath !== publicPath) aliases.add(camelPath);
+  if (compactPath !== publicPath) aliases.add(compactPath);
+  if (lowerPath !== publicPath) aliases.add(lowerPath);
+
+  return [...aliases].slice(0, 4);
+}
+
+
+function normalizeHint(type?: string): string {
+  return type && type.trim().length > 0 ? type : "unknown";
+}
+
+async function buildWorkspaceToolRegistry(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    registrySignature: string;
+    serializedTools: SerializedTool[];
+  },
+): Promise<{ buildId: string }> {
+  const buildId = `toolreg_${crypto.randomUUID()}`;
+  await ctx.runMutation(internal.toolRegistry.beginBuild, {
+    workspaceId: args.workspaceId,
+    signature: args.registrySignature,
+    buildId,
+  });
+
+  const entries = args.serializedTools.map((st) => {
+    if (st.path === "discover" || st.path.startsWith("catalog.")) {
+      return null;
+    }
+    const preferredPath = preferredToolPath(st.path);
+    const aliases = getPathAliases(st.path);
+    const namespace = (preferredPath.split(".")[0] ?? "default").toLowerCase();
+    const normalizedPath = normalizeToolPathForLookup(st.path);
+    const searchText = `${st.path} ${preferredPath} ${aliases.join(" ")} ${st.description} ${st.source ?? ""}`.toLowerCase();
+
+    const inputSchema = (st.typing?.inputSchema && typeof st.typing.inputSchema === "object")
+      ? st.typing.inputSchema
+      : {};
+    const outputSchema = (st.typing?.outputSchema && typeof st.typing.outputSchema === "object")
+      ? st.typing.outputSchema
+      : {};
+
+    const requiredInputKeys = Array.isArray(st.typing?.requiredInputKeys)
+      ? st.typing!.requiredInputKeys!.filter((v): v is string => typeof v === "string")
+      : extractTopLevelRequiredKeys(inputSchema as any);
+    const previewInputKeys = Array.isArray(st.typing?.previewInputKeys)
+      ? st.typing!.previewInputKeys!.filter((v): v is string => typeof v === "string")
+      : buildPreviewKeys(inputSchema as any);
+
+    const displayInput = typeof st.typing?.inputHint === "string" && st.typing.inputHint.trim().length > 0
+      ? st.typing.inputHint.trim()
+      : (Object.keys(inputSchema as any).length === 0
+        ? "{}"
+        : normalizeHint(jsonSchemaTypeHintFallback(inputSchema)));
+
+    const displayOutput = typeof st.typing?.outputHint === "string" && st.typing.outputHint.trim().length > 0
+      ? st.typing.outputHint.trim()
+      : (Object.keys(outputSchema as any).length === 0
+        ? "unknown"
+        : normalizeHint(jsonSchemaTypeHintFallback(outputSchema)));
+
+    const typedRef = st.typing?.typedRef && st.typing.typedRef.kind === "openapi_operation"
+      ? {
+          kind: "openapi_operation" as const,
+          sourceKey: st.typing.typedRef.sourceKey,
+          operationId: st.typing.typedRef.operationId,
+        }
+      : undefined;
+
+    return {
+      path: st.path,
+      preferredPath,
+      namespace,
+      normalizedPath,
+      aliases,
+      description: st.description,
+      approval: st.approval,
+      source: st.source,
+      searchText,
+      displayInput,
+      displayOutput,
+      requiredInputKeys,
+      previewInputKeys,
+      typedRef,
+      serializedToolJson: JSON.stringify(st),
+    };
+  });
+
+  const filteredEntries = entries.filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  const namespaceMap = new Map<string, { toolCount: number; samplePaths: string[] }>();
+  for (const entry of filteredEntries) {
+    const current = namespaceMap.get(entry.namespace) ?? { toolCount: 0, samplePaths: [] };
+    current.toolCount += 1;
+    if (current.samplePaths.length < 6) {
+      current.samplePaths.push(entry.preferredPath);
+    }
+    namespaceMap.set(entry.namespace, current);
+  }
+
+  const namespaces = [...namespaceMap.entries()]
+    .map(([namespace, meta]) => ({
+      namespace,
+      toolCount: meta.toolCount,
+      samplePaths: [...meta.samplePaths].sort((a, b) => a.localeCompare(b)).slice(0, 3),
+    }))
+    .sort((a, b) => a.namespace.localeCompare(b.namespace));
+
+  const TOOL_BATCH = 100;
+  for (let i = 0; i < filteredEntries.length; i += TOOL_BATCH) {
+    await ctx.runMutation(internal.toolRegistry.putToolsBatch, {
+      workspaceId: args.workspaceId,
+      buildId,
+      tools: filteredEntries.slice(i, i + TOOL_BATCH),
+    });
+  }
+
+  const NS_BATCH = 100;
+  for (let i = 0; i < namespaces.length; i += NS_BATCH) {
+    await ctx.runMutation(internal.toolRegistry.putNamespacesBatch, {
+      workspaceId: args.workspaceId,
+      buildId,
+      namespaces: namespaces.slice(i, i + NS_BATCH),
+    });
+  }
+
+  await ctx.runMutation(internal.toolRegistry.finishBuild, {
+    workspaceId: args.workspaceId,
+    buildId,
+  });
+
+  return { buildId };
+}
+
+// No implicit "ensure"/backfill on reads: the registry is built alongside the
+// workspace tool snapshot during rebuilds.
 
 export async function getWorkspaceTools(
   ctx: ActionCtx,
@@ -253,7 +498,7 @@ export async function getWorkspaceTools(
   };
 
   const listSourcesStartedAt = Date.now();
-  const includeDts = options.includeDts ?? false;
+  const includeDts = true;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch ?? false;
   const actorId = options.actorId;
@@ -271,6 +516,7 @@ export async function getWorkspaceTools(
   traceStep("listToolSources", listSourcesStartedAt);
   const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
+  const registrySignature = `toolreg_v2|${signature}`;
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
       includeDts,
       sourceTimeoutMs: sourceTimeoutMs ?? null,
@@ -293,19 +539,16 @@ export async function getWorkspaceTools(
       if (blob) {
         const snapshot = JSON.parse(await blob.text()) as WorkspaceToolSnapshot;
         const restored = materializeWorkspaceSnapshot(snapshot);
-        const merged = mergeToolsWithCatalog(restored);
+        const merged = mergeTools(restored);
         traceStep("cacheHydrate", cacheHydrateStartedAt);
 
-        const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
+        const typesStorageId = cacheEntry.typesStorageId as Id<"_storage"> | undefined;
         if (cacheEntry.isFresh) {
-          const hasCachedDts = dtsStorageIds.length > 0;
-          if (includeDts && hasOpenApiSource && !hasCachedDts) {
-            // Continue into rebuild path to generate missing DTS.
-          } else {
+          if (typesStorageId) {
             return {
               tools: merged,
               warnings: snapshot.warnings,
-              dtsStorageIds,
+              typesStorageId,
               debug: {
                 ...debugBase,
                 mode: "cache-fresh",
@@ -318,11 +561,12 @@ export async function getWorkspaceTools(
               },
             };
           }
-        } else if (allowStaleOnMismatch && !includeDts) {
+          // Continue into rebuild path to generate missing type bundle.
+        } else if (allowStaleOnMismatch) {
           return {
             tools: merged,
             warnings: [...snapshot.warnings, "Tool sources changed; showing previous results while refreshing."],
-            dtsStorageIds,
+            typesStorageId,
             debug: {
               ...debugBase,
               mode: "cache-stale",
@@ -374,6 +618,7 @@ export async function getWorkspaceTools(
       warnings: string[];
       timedOut: boolean;
       sourceName: string;
+      openApiDts?: string;
     }>((resolve) => {
       timer = setTimeout(() => {
         resolve({
@@ -381,6 +626,7 @@ export async function getWorkspaceTools(
           warnings: [`Source '${config.name}' is still loading; showing partial results.`],
           timedOut: true,
           sourceName: config.name,
+          openApiDts: undefined,
         });
       }, sourceTimeoutMs);
     });
@@ -404,15 +650,15 @@ export async function getWorkspaceTools(
   const timedOutSources = loadedSources
     .filter((loaded) => loaded.timedOut)
     .map((loaded) => loaded.sourceName);
-  const merged = mergeToolsWithCatalog(externalTools);
+  const merged = mergeTools(externalTools);
 
-  let dtsStorageIds: DtsStorageEntry[] = [];
+  let typesStorageId: Id<"_storage"> | undefined;
   try {
     if (hasTimedOutSource) {
       return {
         tools: merged,
         warnings,
-        dtsStorageIds,
+        typesStorageId,
         debug: {
           ...debugBase,
           mode: "rebuild",
@@ -429,39 +675,32 @@ export async function getWorkspaceTools(
     const snapshotWriteStartedAt = Date.now();
     const allTools = [...merged.values()];
 
-    const seenDtsSources = new Set<string>();
-    const dtsEntries: { sourceKey: string; content: string }[] = [];
-    for (const artifact of externalArtifacts) {
-      for (const tool of artifact.tools) {
-        if (tool.metadata?.sourceDts && tool.source && !seenDtsSources.has(tool.source)) {
-          seenDtsSources.add(tool.source);
-          dtsEntries.push({ sourceKey: tool.source, content: tool.metadata.sourceDts });
-        }
+    // Build a per-tool registry for fast discover + invocation.
+    const registryStartedAt = Date.now();
+    await buildWorkspaceToolRegistry(ctx, {
+      workspaceId,
+      registrySignature,
+      serializedTools: externalArtifacts.flatMap((artifact) => artifact.tools),
+    });
+    traceStep("toolRegistryWrite", registryStartedAt);
+
+    // Build and store a workspace-wide Monaco type bundle.
+    const openApiDtsBySource: Record<string, string> = {};
+    for (const loaded of loadedSources) {
+      if (loaded.openApiDts && loaded.openApiDts.trim().length > 0) {
+        openApiDtsBySource[`openapi:${loaded.sourceName}`] = loaded.openApiDts;
       }
     }
-
-    const storedDts = await Promise.all(
-      dtsEntries.map(async (entry) => {
-        const dtsBlob = new Blob([entry.content], { type: "text/plain" });
-        const sid = await ctx.storage.store(dtsBlob);
-        return { sourceKey: entry.sourceKey, storageId: sid };
-      }),
-    );
-    dtsStorageIds = storedDts;
-
-    const sanitizedArtifacts: CompiledToolSourceArtifact[] = externalArtifacts.map((artifact) => ({
-      ...artifact,
-      tools: artifact.tools.map((tool) => {
-        if (!tool.metadata?.sourceDts) return tool;
-        const metadata = { ...tool.metadata };
-        delete (metadata as Record<string, unknown>).sourceDts;
-        return { ...tool, metadata };
-      }),
-    }));
+    const typeBundle = buildWorkspaceTypeBundle({
+      tools: allTools,
+      openApiDtsBySource,
+    });
+    const typesBlob = new Blob([typeBundle], { type: "text/plain" });
+    typesStorageId = await ctx.storage.store(typesBlob);
 
     const snapshot: WorkspaceToolSnapshot = {
       version: "v2",
-      externalArtifacts: sanitizedArtifacts,
+      externalArtifacts,
       warnings,
     };
 
@@ -473,7 +712,7 @@ export async function getWorkspaceTools(
         workspaceId,
         signature,
         storageId,
-        dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId })),
+        typesStorageId,
         toolCount: allTools.length,
         sizeBytes: json.length,
       });
@@ -489,7 +728,7 @@ export async function getWorkspaceTools(
   return {
     tools: merged,
     warnings,
-    dtsStorageIds,
+    typesStorageId,
     debug: {
       ...debugBase,
       mode: "rebuild",
@@ -507,26 +746,21 @@ async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
-    includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
-    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
     skipCacheRead?: boolean;
   } = {},
 ): Promise<WorkspaceToolInventory> {
-  const includeDts = options.includeDts ?? false;
   const includeDetails = options.includeDetails ?? true;
   const includeSourceMeta = options.includeSourceMeta ?? true;
-  const includeSchemaRegistry = options.includeSchemaRegistry ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch;
   const skipCacheRead = options.skipCacheRead;
   const [result, policies] = await Promise.all([
     getWorkspaceTools(ctx, context.workspaceId, {
-      includeDts,
       sourceTimeoutMs,
       allowStaleOnMismatch,
       skipCacheRead,
@@ -543,10 +777,8 @@ async function loadWorkspaceToolInventoryForContext(
   const descriptorsMs = Date.now() - descriptorsStartedAt;
   let sourceQuality: Record<string, OpenApiSourceQuality> = {};
   let sourceAuthProfiles: Record<string, SourceAuthProfile> = {};
-  let sourceSchemas: Record<string, Record<string, string>> = {};
   let qualityMs = 0;
   let authProfilesMs = 0;
-  let schemaRegistryMs = 0;
 
   if (includeSourceMeta) {
     const qualityStartedAt = Date.now();
@@ -564,15 +796,14 @@ async function loadWorkspaceToolInventoryForContext(
       ]
     : ["sourceMeta=skipped"];
 
-  if (includeSchemaRegistry) {
-    const schemaRegistryStartedAt = Date.now();
-    sourceSchemas = await loadSourceSchemasForTools(ctx, tools, result.dtsStorageIds);
-    schemaRegistryMs = Date.now() - schemaRegistryStartedAt;
+  let typesUrl: string | undefined;
+  if (result.typesStorageId) {
+    try {
+      typesUrl = await ctx.storage.getUrl(result.typesStorageId) ?? undefined;
+    } catch {
+      typesUrl = undefined;
+    }
   }
-
-  const schemaRegistryTrace = includeSchemaRegistry
-    ? [`buildSourceSchemas=${schemaRegistryMs}ms`]
-    : ["sourceSchemas=skipped"];
 
   const { tools: boundedTools, warnings: boundedWarnings } = truncateToolsForActionResult(
     tools,
@@ -582,17 +813,15 @@ async function loadWorkspaceToolInventoryForContext(
   return {
     tools: boundedTools,
     warnings: boundedWarnings,
-    dtsStorageIds: result.dtsStorageIds,
+    typesUrl,
     sourceQuality,
     sourceAuthProfiles,
-    sourceSchemas,
     debug: {
       ...result.debug,
       trace: [
         ...result.debug.trace,
         `listVisibleToolDescriptors=${descriptorsMs}ms`,
         ...sourceMetaTrace,
-        ...schemaRegistryTrace,
       ],
     },
   };
@@ -602,10 +831,8 @@ export async function listToolsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
-    includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
-    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
@@ -620,10 +847,8 @@ export async function listToolsWithWarningsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
-    includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
-    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
@@ -632,74 +857,20 @@ export async function listToolsWithWarningsForContext(
 ): Promise<{
   tools: ToolDescriptor[];
   warnings: string[];
-  dtsUrls: Record<string, string>;
+  typesUrl?: string;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  sourceSchemas: Record<string, Record<string, string>>;
   debug: WorkspaceToolsDebug;
 }> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
-  const dtsUrls = await loadDtsUrls(ctx, inventory.dtsStorageIds);
-
   return {
     tools: inventory.tools,
     warnings: inventory.warnings,
-    dtsUrls,
+    typesUrl: inventory.typesUrl,
     sourceQuality: inventory.sourceQuality,
     sourceAuthProfiles: inventory.sourceAuthProfiles,
-    sourceSchemas: inventory.sourceSchemas,
     debug: inventory.debug,
   };
-}
-
-export async function loadDtsUrls(ctx: ActionCtx, entries: DtsStorageEntry[]): Promise<Record<string, string>> {
-  if (entries.length === 0) return {};
-
-  const urlEntries = await Promise.all(entries.map(async (entry) => {
-    try {
-      const url = await ctx.storage.getUrl(entry.storageId);
-      return url ? [entry.sourceKey, url] as const : null;
-    } catch {
-      return null;
-    }
-  }));
-
-  const dtsUrls: Record<string, string> = {};
-  for (const pair of urlEntries) {
-    if (!pair) continue;
-    const [sourceKey, url] = pair;
-    dtsUrls[sourceKey] = url;
-  }
-
-  return dtsUrls;
-}
-
-export async function loadWorkspaceDtsStorageIds(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-): Promise<DtsStorageEntry[]> {
-  const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
-    .filter((source: { enabled: boolean }) => source.enabled);
-  const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
-  const signature = sourceSignature(workspaceId, sources);
-
-  try {
-    const cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
-      workspaceId,
-      signature,
-    });
-    if (cacheEntry) {
-      const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
-      if (dtsStorageIds.length > 0 || !hasOpenApiSource) {
-        return dtsStorageIds;
-      }
-    }
-  } catch {
-    // Fall through to a full rebuild path.
-  }
-
-  const rebuilt = await getWorkspaceTools(ctx, workspaceId, { includeDts: true });
-  return rebuilt.dtsStorageIds;
 }
 
 export { baseTools };

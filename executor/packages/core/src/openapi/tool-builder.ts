@@ -9,9 +9,10 @@ import {
 import { buildOpenApiToolPath } from "./tool-path";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import { executeOpenApiRequest } from "../tool/source-execution";
-import { compactArgDisplayHint, compactReturnTypeHint } from "../type-hints";
 import type { OpenApiToolSourceConfig, PreparedOpenApiSpec } from "../tool/source-types";
 import type { ToolDefinition } from "../types";
+import type { ToolTypedRef } from "../types";
+import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import { asRecord } from "../utils";
 import type { SerializedTool } from "../tool/source-serialization";
 
@@ -20,12 +21,6 @@ type OpenApiOperationParameter = {
   in: string;
   required: boolean;
   schema: Record<string, unknown>;
-};
-
-type OpenApiOperationTypeHints = {
-  argsType: string;
-  returnsType: string;
-  argPreviewKeys: string[];
 };
 
 function buildOpenApiOperationParameters(
@@ -45,51 +40,6 @@ function buildOpenApiOperationParameters(
   }));
 }
 
-function buildOpenApiOperationTypeHints(
-  operation: Record<string, unknown>,
-  parameters: OpenApiOperationParameter[],
-): OpenApiOperationTypeHints {
-  let argPreviewKeys: string[] = Array.isArray(operation._argPreviewKeys)
-    ? operation._argPreviewKeys.filter((value): value is string => typeof value === "string")
-    : [];
-
-  if (typeof operation._argsTypeHint === "string" && typeof operation._returnsTypeHint === "string") {
-    return {
-      argsType: operation._argsTypeHint,
-      returnsType: operation._returnsTypeHint,
-      argPreviewKeys,
-    };
-  }
-
-  const requestBody = asRecord(operation.requestBody);
-  const requestBodyContent = asRecord(requestBody.content);
-  const requestBodySchema = getPreferredContentSchema(requestBodyContent);
-
-  const responses = asRecord(operation.responses);
-  let responseSchema: Record<string, unknown> = {};
-  let responseStatus = "";
-  for (const [status, responseValue] of Object.entries(responses)) {
-    if (!status.startsWith("2")) continue;
-    responseSchema = getPreferredResponseSchema(asRecord(responseValue));
-    responseStatus = status;
-    if (Object.keys(responseSchema).length > 0) break;
-  }
-
-  const hasInputSchema = parameters.length > 0 || Object.keys(requestBodySchema).length > 0;
-  const combinedSchema = buildOpenApiInputSchema(parameters, requestBodySchema);
-  const argsType = hasInputSchema ? jsonSchemaTypeHintFallback(combinedSchema) : "{}";
-  const returnsType = responseTypeHintFromSchema(responseSchema, responseStatus);
-  if (argPreviewKeys.length === 0) {
-    argPreviewKeys = buildOpenApiArgPreviewKeys(parameters, requestBodySchema);
-  }
-
-  return {
-    argsType,
-    returnsType,
-    argPreviewKeys,
-  };
-}
-
 export function buildOpenApiToolsFromPrepared(
   config: OpenApiToolSourceConfig,
   prepared: PreparedOpenApiSpec,
@@ -106,13 +56,6 @@ export function buildOpenApiToolsFromPrepared(
   const credentialSpec = buildCredentialSpec(credentialSourceKey, effectiveAuth);
   const paths = asRecord(prepared.paths);
   const tools: ToolDefinition[] = [];
-
-  // The raw .d.ts is attached to the first tool only (one per source to avoid duplication).
-  // The typechecker/Monaco use this directly via indexed access types.
-  const sourceDts = prepared.dts
-    ? prepared.dts.replace(/^export /gm, "")
-    : undefined;
-  let sourceDtsEmitted = false;
 
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const readMethods = new Set(["get", "head", "options"]);
@@ -133,10 +76,24 @@ export function buildOpenApiToolsFromPrepared(
       const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
       const parameters = buildOpenApiOperationParameters(sharedParameters, operation);
 
-      const { argsType, returnsType, argPreviewKeys } = buildOpenApiOperationTypeHints(operation, parameters);
+      const inputSchema = asRecord(operation._inputSchema);
+      const outputSchema = asRecord(operation._outputSchema);
+      const inputHint = typeof operation._argsTypeHint === "string" && operation._argsTypeHint.trim().length > 0
+        ? operation._argsTypeHint.trim()
+        : undefined;
+      const outputHint = typeof operation._returnsTypeHint === "string" && operation._returnsTypeHint.trim().length > 0
+        ? operation._returnsTypeHint.trim()
+        : undefined;
+      const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
+      const previewInputKeys = Array.isArray(operation._previewInputKeys)
+        ? operation._previewInputKeys.filter((value): value is string => typeof value === "string")
+        : buildPreviewKeys(inputSchema);
 
-      const displayArgsType = compactArgDisplayHint(argsType, argPreviewKeys);
-      const displayReturnsType = compactReturnTypeHint(returnsType);
+      const typedRef: ToolTypedRef = {
+        kind: "openapi_operation",
+        sourceKey: sourceLabel,
+        operationId: operationIdRaw,
+      };
 
       const approval = config.overrides?.[operationIdRaw]?.approval
         ?? (readMethods.has(method)
@@ -157,14 +114,14 @@ export function buildOpenApiToolsFromPrepared(
         source: sourceLabel,
         approval,
         description: String(operation.summary ?? operation.description ?? `${method.toUpperCase()} ${pathTemplate}`),
-        metadata: {
-          argsType,
-          returnsType,
-          displayArgsType,
-          displayReturnsType,
-          ...(argPreviewKeys.length > 0 ? { argPreviewKeys } : {}),
-          operationId: operationIdRaw,
-          ...(sourceDts && !sourceDtsEmitted ? { sourceDts } : {}),
+        typing: {
+          ...(Object.keys(inputSchema).length > 0 ? { inputSchema } : {}),
+          ...(Object.keys(outputSchema).length > 0 ? { outputSchema } : {}),
+          ...(inputHint ? { inputHint } : {}),
+          ...(outputHint ? { outputHint } : {}),
+          ...(requiredInputKeys.length > 0 ? { requiredInputKeys } : {}),
+          ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
+          typedRef,
         },
         credential: credentialSpec,
         _runSpec: runSpec,
@@ -173,10 +130,6 @@ export function buildOpenApiToolsFromPrepared(
         },
       };
       tools.push(tool);
-
-      if (sourceDts && !sourceDtsEmitted) {
-        sourceDtsEmitted = true;
-      }
     }
   }
 

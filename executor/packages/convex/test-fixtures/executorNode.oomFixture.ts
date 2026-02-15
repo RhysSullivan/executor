@@ -8,9 +8,19 @@ const TOOL = {
   description: "Get the authenticated GitHub user",
   approval: "auto" as const,
   source: "openapi:github",
-  argsType: "{}",
-  returnsType: "{ login: string; name: string | null; email: string | null }",
-  operationId: "users/get-authenticated",
+  typing: {
+    typedRef: {
+      kind: "openapi_operation" as const,
+      sourceKey: "openapi:github",
+      operationId: "users/get-authenticated",
+    },
+    requiredInputKeys: [],
+    previewInputKeys: [],
+  },
+  display: {
+    input: "{}",
+    output: "{ login: string; name: string | null; email: string | null }",
+  },
 };
 
 export const listToolsInternal = internalAction({

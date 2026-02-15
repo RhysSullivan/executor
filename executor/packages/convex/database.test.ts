@@ -7,6 +7,7 @@ import schema from "./schema";
 function setup() {
   return convexTest(schema, {
     "./database.ts": () => import("./database"),
+    "./toolRegistry.ts": () => import("./toolRegistry"),
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 }

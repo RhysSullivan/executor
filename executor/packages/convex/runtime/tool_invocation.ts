@@ -8,18 +8,20 @@ import type {
   PolicyDecision,
   ResolvedToolCredential,
   TaskRecord,
+  ToolDefinition,
   ToolCallRecord,
   ToolCallRequest,
   ToolRunContext,
 } from "../../core/src/types";
 import { describeError } from "../../core/src/utils";
 import { asPayload } from "../lib/object";
-import { getToolDecision, isToolAllowedForTask } from "./policy";
+import { getToolDecision, getDecisionForContext } from "./policy";
 import { baseTools } from "./workspace_tools";
 import { publishTaskEvent } from "./events";
 import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecycle";
 import { assertPersistedCallRunnable, resolveCredentialHeaders } from "./tool_call_credentials";
-import { ensureWorkspaceTools, getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
+import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
+import { sourceSignature } from "./tool_source_loading";
 
 function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
@@ -57,13 +59,132 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
   const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: task.workspaceId });
   const typedPolicies = policies as AccessPolicyRecord[];
 
-  let { tool, resolvedToolPath, workspaceTools } = await resolveToolForCall(ctx, task, toolPath);
+  // Fast system tools are handled server-side from the registry.
+  if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
+    const toolRegistry = internal.toolRegistry;
+    const [state, sources] = await Promise.all([
+      ctx.runQuery(toolRegistry.getState, { workspaceId: task.workspaceId }) as Promise<null | { signature: string; readyBuildId?: string }>,
+      ctx.runQuery(internal.database.listToolSources, { workspaceId: task.workspaceId }) as Promise<Array<{ id: string; updatedAt: number; enabled: boolean }>>,
+    ]);
+    const enabledSources = sources.filter((source) => source.enabled);
+    const signature = sourceSignature(task.workspaceId, enabledSources);
+    const expectedSignature = `toolreg_v2|${signature}`;
+    const buildId = state?.readyBuildId;
+    if (!buildId || state.signature !== expectedSignature) {
+      throw new Error(
+        "Tool registry is not ready (or is stale). Open Tools to refresh, or call listToolsWithWarnings to rebuild.",
+      );
+    }
+
+    const payload = typeof input === "string"
+      ? { query: input }
+      : (input && typeof input === "object" ? (input as Record<string, unknown>) : {});
+    const isAllowed = (path: string, approval: ToolDefinition["approval"]) =>
+      getDecisionForContext(
+        { path, approval, description: "", run: async () => null } as ToolDefinition,
+        { workspaceId: task.workspaceId, actorId: task.actorId, clientId: task.clientId },
+        typedPolicies,
+      ) !== "deny";
+
+    const normalizeHint = (value: unknown, fallback: string) => {
+      const str = typeof value === "string" ? value.trim() : "";
+      return str.length > 0 ? str : fallback;
+    };
+
+    if (toolPath === "catalog.namespaces") {
+      const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 200)));
+      const namespaces = await ctx.runQuery(toolRegistry.listNamespaces, {
+        workspaceId: task.workspaceId,
+        buildId,
+        limit,
+      }) as Array<{ namespace: string; toolCount: number; samplePaths: string[] }>;
+      return { namespaces, total: namespaces.length };
+    }
+
+    if (toolPath === "catalog.tools") {
+      const namespace = String(payload.namespace ?? "").trim().toLowerCase();
+      const query = String(payload.query ?? "").trim();
+      const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 50)));
+
+      const raw = query
+        ? await ctx.runQuery(toolRegistry.searchTools, {
+            workspaceId: task.workspaceId,
+            buildId,
+            query,
+            limit,
+          })
+        : namespace
+          ? await ctx.runQuery(toolRegistry.listToolsByNamespace, {
+              workspaceId: task.workspaceId,
+              buildId,
+              namespace,
+              limit,
+            })
+          : [];
+
+      const results = (raw as Array<any>)
+        .filter((entry) => !namespace || String(entry.preferredPath ?? entry.path ?? "").toLowerCase().startsWith(`${namespace}.`))
+        .filter((entry) => isAllowed(entry.path, entry.approval))
+        .slice(0, limit)
+        .map((entry) => {
+          const preferredPath = entry.preferredPath ?? entry.path;
+          return {
+            path: preferredPath,
+            source: entry.source,
+            approval: entry.approval,
+            description: entry.description,
+            input: normalizeHint(entry.displayInput, "{}"),
+            output: normalizeHint(entry.displayOutput, "unknown"),
+            // required keys are encoded in the `input` type hint
+          };
+        });
+
+      return { results, total: results.length };
+    }
+
+    // discover
+    const query = String(payload.query ?? "").trim();
+    const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
+    const compact = payload.compact === false ? false : true;
+    const hits = await ctx.runQuery(toolRegistry.searchTools, {
+      workspaceId: task.workspaceId,
+      buildId,
+      query,
+      limit: Math.max(limit * 2, limit),
+    }) as Array<any>;
+
+    const filtered = hits
+      .filter((entry) => isAllowed(entry.path, entry.approval))
+      .slice(0, limit);
+
+    const results = filtered.map((entry) => {
+      const preferredPath = entry.preferredPath ?? entry.path;
+      const description = compact ? String(entry.description ?? "").split("\n")[0] : entry.description;
+      return {
+        path: preferredPath,
+        source: entry.source,
+        approval: entry.approval,
+        description,
+        input: normalizeHint(entry.displayInput, "{}"),
+        output: normalizeHint(entry.displayOutput, "unknown"),
+        // required keys are encoded in the `input` type hint
+      };
+    });
+
+    const bestPath = results[0]?.path ?? null;
+    return {
+      bestPath,
+      results,
+      total: results.length,
+    };
+  }
+
+  let { tool, resolvedToolPath } = await resolveToolForCall(ctx, task, toolPath);
 
   let decision: PolicyDecision;
   let effectiveToolPath = resolvedToolPath;
   if (tool._graphqlSource) {
-    workspaceTools = await ensureWorkspaceTools(ctx, task, workspaceTools);
-    const result = getGraphqlDecision(task, tool, input, workspaceTools, typedPolicies);
+    const result = getGraphqlDecision(task, tool, input, undefined, typedPolicies);
     decision = result.decision;
     if (result.effectivePaths.length > 0) {
       effectiveToolPath = result.effectivePaths.join(", ");
@@ -179,7 +300,8 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       actorId: task.actorId,
       clientId: task.clientId,
       credential,
-      isToolAllowed: (path) => isToolAllowedForTask(task, path, workspaceTools ?? baseTools, typedPolicies),
+      // Tool visibility is enforced server-side; runtime tool implementations don't use this.
+      isToolAllowed: (_path) => true,
     };
     const value = await tool.run(input, context);
     await completeToolCall(ctx, {

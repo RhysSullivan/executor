@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { AlertTriangle, Plus } from "lucide-react";
+import { AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { Result } from "better-result";
 import { toast } from "sonner";
@@ -82,6 +82,7 @@ function normalizeEndpoint(value: string): string {
 export function AddSourceDialog({
   existingSourceNames,
   onSourceAdded,
+  onSourceDeleted,
   sourceToEdit,
   sourceDialogMeta,
   sourceAuthProfiles,
@@ -89,6 +90,7 @@ export function AddSourceDialog({
 }: {
   existingSourceNames: Set<string>;
   onSourceAdded?: (source: ToolSourceRecord, options?: { connected?: boolean }) => void;
+  onSourceDeleted?: (sourceName: string) => void;
   sourceToEdit?: ToolSourceRecord;
   sourceDialogMeta?: SourceDialogMeta;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
@@ -96,6 +98,7 @@ export function AddSourceDialog({
 }) {
   const { context } = useSession();
   const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
+  const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
   const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
   const credentials = useQuery(
     convexApi.workspace.listCredentials,
@@ -106,6 +109,7 @@ export function AddSourceDialog({
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [mcpOAuthBusy, setMcpOAuthBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const sourceDialogHeader = sourceToEdit ? "Edit Tool Source" : "Add Tool Source";
   const sourceDialogDescription = sourceToEdit
@@ -256,6 +260,33 @@ export function AddSourceDialog({
       ? "Add Source + Save Credentials"
       : "Add Source";
 
+  const handleDeleteSource = async () => {
+    if (!sourceToEdit || !context) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Remove source "${sourceToEdit.name}" and all related tools from this workspace?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      await deleteToolSource({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        sourceId: sourceToEdit.id,
+      });
+      toast.success(`Removed "${sourceToEdit.name}"`);
+      onSourceDeleted?.(sourceToEdit.name);
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to remove source");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
@@ -338,13 +369,27 @@ export function AddSourceDialog({
 
               {editSourceWarnings.length > 0 ? (
                 <div className="mt-2 rounded-sm border border-terminal-amber/30 bg-terminal-amber/5 px-2 py-1.5">
-                    {editSourceWarnings.map((warning: string, index: number) => (
+                  {editSourceWarnings.map((warning: string, index: number) => (
                     <p key={`${sourceToEdit.name}-warning-${index}`} className="text-[10px] text-terminal-amber/90">
                       {warning}
                     </p>
                   ))}
                 </div>
               ) : null}
+
+              <div className="mt-3 flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[11px] border-terminal-red/40 text-terminal-red hover:bg-terminal-red/10"
+                  onClick={handleDeleteSource}
+                  disabled={deleting}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  {deleting ? "Removing..." : "Remove source"}
+                </Button>
+              </div>
             </div>
           </div>
         ) : null}

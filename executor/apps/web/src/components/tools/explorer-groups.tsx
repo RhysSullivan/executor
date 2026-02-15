@@ -42,7 +42,6 @@ export function GroupNode({
   onSelectTool,
   onExpandedChange,
   detailLoadingPaths,
-  sourceSchemasBySource,
   search,
   source,
 }: {
@@ -55,7 +54,6 @@ export function GroupNode({
   onSelectTool: (path: string, e: React.MouseEvent) => void;
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoadingPaths?: Set<string>;
-  sourceSchemasBySource?: Record<string, Record<string, string>>;
   search: string;
   source?: ToolSourceRecord;
 }) {
@@ -190,7 +188,6 @@ export function GroupNode({
                     onSelectTool={onSelectTool}
                     onExpandedChange={onExpandedChange}
                     detailLoadingPaths={detailLoadingPaths}
-                    sourceSchemasBySource={sourceSchemasBySource}
                     search={search}
                   />
                 );
@@ -206,7 +203,6 @@ export function GroupNode({
                   onSelectTool={onSelectTool}
                   onExpandedChange={onExpandedChange}
                   detailLoading={detailLoadingPaths?.has(child.path)}
-                  sourceSchemas={child.source ? sourceSchemasBySource?.[child.source] : undefined}
                 />
               );
             })
@@ -234,6 +230,7 @@ export function SourceSidebar({
   sourceDialogMeta,
   existingSourceNames,
   sourceAuthProfiles,
+  onSourceDeleted,
 }: {
   sources: ToolSourceRecord[];
   sourceCounts: Record<string, number>;
@@ -244,6 +241,7 @@ export function SourceSidebar({
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
   existingSourceNames: Set<string>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
+  onSourceDeleted?: (sourceName: string) => void;
 }) {
   const warningCountsBySource = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -353,6 +351,7 @@ export function SourceSidebar({
                   sourceToEdit={g.source}
                   sourceDialogMeta={editMeta}
                   sourceAuthProfiles={sourceAuthProfiles}
+                  onSourceDeleted={onSourceDeleted}
                   trigger={
                     <Button
                       variant="ghost"

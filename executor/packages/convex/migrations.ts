@@ -92,15 +92,6 @@ export const deleteAnonymousSessionsMissingUserId = migrations.define({
   },
 });
 
-export const backfillDtsStorageIds = migrations.define({
-  table: "workspaceToolCache",
-  migrateOne: async (_ctx, entry) => {
-    if (entry.dtsStorageIds === undefined) {
-      return { dtsStorageIds: [] };
-    }
-  },
-});
-
 export const cleanupTaskEmptyStringSentinels = migrations.define({
   table: "tasks",
   migrateOne: async (_ctx, task) => {
@@ -118,6 +109,27 @@ export const cleanupAccessPolicyEmptyStringSentinels = migrations.define({
     if (policy.actorId === "") patch.actorId = undefined;
     if (policy.clientId === "") patch.clientId = undefined;
     if (Object.keys(patch).length > 0) return patch;
+  },
+});
+
+export const cleanupWorkspaceToolCacheLegacyDtsStorageIds = migrations.define({
+  table: "workspaceToolCache",
+  migrateOne: async (ctx, entry) => {
+    const legacy = (entry as any).dtsStorageIds as Array<{ storageId?: string }> | undefined;
+    if (!Array.isArray(legacy) || legacy.length === 0) {
+      if ((entry as any).dtsStorageIds !== undefined) {
+        return { dtsStorageIds: undefined };
+      }
+      return;
+    }
+
+    for (const dts of legacy) {
+      if (dts && typeof dts.storageId === "string") {
+        await ctx.storage.delete(dts.storageId as any).catch(() => {});
+      }
+    }
+
+    return { dtsStorageIds: undefined };
   },
 });
 

@@ -11,6 +11,7 @@ import { isTerminalTaskStatus, taskTerminalEventType } from "./task/status";
 import { DEFAULT_TASK_TIMEOUT_MS } from "./task/constants";
 import { createTaskEvent } from "./task/events";
 import { markTaskFinished } from "./task/finish";
+import { safeRunAfter } from "./lib/scheduler";
 
 type TaskCreateContext = Pick<MutationCtx, "runMutation"> & {
   scheduler?: Pick<MutationCtx, "scheduler">["scheduler"];
@@ -84,9 +85,7 @@ async function createTaskRecord(
       throw new Error("Task scheduling is unavailable in this execution context");
     }
 
-    await ctx.scheduler.runAfter(1, internal.executorNode.runTask, {
-      taskId,
-    });
+    await safeRunAfter(ctx.scheduler, 1, internal.executorNode.runTask, { taskId });
   }
 
   return { task };
@@ -174,7 +173,9 @@ export const createTask = action({
     }
 
     const waitForResult = args.waitForResult ?? false;
-    const created = await createTaskRecord(ctx as TaskCreateContext, {
+    // Use the internal mutation so task scheduling runs in a mutation context
+    // (convex-test does not support scheduler writes directly from actions).
+    const created = await ctx.runMutation(internal.executor.createTaskInternal, {
       code: args.code,
       timeoutMs: args.timeoutMs,
       runtimeId: args.runtimeId,
@@ -186,7 +187,7 @@ export const createTask = action({
     });
 
     if (!waitForResult) {
-      return { task: created.task };
+      return { task: created.task as TaskRecord };
     }
 
     const runOutcome = await ctx.runAction(internal.executorNode.runTask, {

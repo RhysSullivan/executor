@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 
 function prettyType(raw: string): string {
   const trimmed = raw.trim();
@@ -48,26 +49,18 @@ function prettyType(raw: string): string {
 
 export function TypeSignature({ raw, label }: { raw: string; label: string }) {
   const formatted = useMemo(() => prettyType(raw), [raw]);
-  const [highlightedHtml, setHighlightedHtml] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    import("shiki").then(({ codeToHtml }) =>
-      codeToHtml(formatted, {
+  const { data: highlightedHtml } = useTanstackQuery<string>({
+    queryKey: ["type-signature", formatted],
+    queryFn: async () => {
+      const { codeToHtml } = await import("shiki");
+      return codeToHtml(formatted, {
         lang: "typescript",
         themes: { light: "github-light", dark: "github-dark" },
-      }).then((html) => {
-        if (!cancelled) {
-          setHighlightedHtml(html);
-        }
-      }),
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [formatted]);
+      });
+    },
+    staleTime: Infinity,
+  });
 
   return (
     <div>

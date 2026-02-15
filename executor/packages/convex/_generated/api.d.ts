@@ -130,12 +130,6 @@ export declare const api: {
     >;
   };
   executorNode: {
-    listToolDtsUrls: FunctionReference<
-      "action",
-      "public",
-      { actorId?: string; sessionId?: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
     listToolsWithWarnings: FunctionReference<
       "action",
       "public",
@@ -143,7 +137,6 @@ export declare const api: {
         actorId?: string;
         clientId?: string;
         includeDetails?: boolean;
-        includeSchemaRegistry?: boolean;
         includeSourceMeta?: boolean;
         sessionId?: string;
         toolPaths?: Array<string>;
@@ -287,7 +280,7 @@ export declare const api: {
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
       "public",
-      { sessionId?: string },
+      { actorId?: string; sessionId?: string },
       any
     >;
     deleteToolSource: FunctionReference<
@@ -1098,18 +1091,6 @@ export declare const internal: {
     >;
   };
   migrations: {
-    backfillDtsStorageIds: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
     cleanupAccessPolicyEmptyStringSentinels: FunctionReference<
       "mutation",
       "internal",
@@ -1123,6 +1104,18 @@ export declare const internal: {
       any
     >;
     cleanupTaskEmptyStringSentinels: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    cleanupWorkspaceToolCacheLegacyDtsStorageIds: FunctionReference<
       "mutation",
       "internal",
       {
@@ -1226,6 +1219,115 @@ export declare const internal: {
       any
     >;
   };
+  toolRegistry: {
+    beginBuild: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; signature: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    finishBuild: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getState: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getToolByPath: FunctionReference<
+      "query",
+      "internal",
+      { buildId: string; path: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getToolsByNormalizedPath: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        limit: number;
+        normalizedPath: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    listNamespaces: FunctionReference<
+      "query",
+      "internal",
+      { buildId: string; limit: number; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolsByNamespace: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        limit: number;
+        namespace: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    putNamespacesBatch: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        buildId: string;
+        namespaces: Array<{
+          namespace: string;
+          samplePaths: Array<string>;
+          toolCount: number;
+        }>;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    putToolsBatch: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        buildId: string;
+        tools: Array<{
+          aliases: Array<string>;
+          approval: "auto" | "required";
+          description: string;
+          displayInput?: string;
+          displayOutput?: string;
+          namespace: string;
+          normalizedPath: string;
+          path: string;
+          preferredPath: string;
+          previewInputKeys?: Array<string>;
+          requiredInputKeys?: Array<string>;
+          searchText: string;
+          serializedToolJson: string;
+          source?: string;
+          typedRef?: {
+            kind: "openapi_operation";
+            operationId: string;
+            sourceKey: string;
+          };
+        }>;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    searchTools: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        limit: number;
+        query: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+  };
   workspaceAuthInternal: {
     getWorkspaceAccessForAnonymousSubject: FunctionReference<
       "query",
@@ -1257,11 +1359,11 @@ export declare const internal: {
       "mutation",
       "internal",
       {
-        dtsStorageIds: Array<{ sourceKey: string; storageId: Id<"_storage"> }>;
         signature: string;
         sizeBytes: number;
         storageId: Id<"_storage">;
         toolCount: number;
+        typesStorageId?: Id<"_storage">;
         workspaceId: Id<"workspaces">;
       },
       any

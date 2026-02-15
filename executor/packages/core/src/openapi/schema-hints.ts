@@ -3,6 +3,18 @@ import { asRecord } from "../utils";
 type JsonSchema = Record<string, unknown>;
 const COMPONENT_REF_INLINE_DEPTH = 2;
 
+function isSmallInlineableComponentSchema(schema: Record<string, unknown>): boolean {
+  const shape = schema as JsonSchema;
+  const type = typeof shape.type === "string" ? shape.type : undefined;
+  const props = asRecord(shape.properties);
+  const propCount = Object.keys(props).length;
+  if (type !== "object" && propCount === 0) return false;
+  if (propCount === 0) return false;
+  if (propCount > 8) return false;
+  if (Array.isArray(shape.oneOf) || Array.isArray(shape.anyOf) || Array.isArray(shape.allOf)) return false;
+  return true;
+}
+
 export type OpenApiParameterHint = {
   name: string;
   required: boolean;
@@ -224,11 +236,454 @@ function joinUnion(parts: string[]): string {
     .join(" | ");
 }
 
+function isObjectSchema(schema: JsonSchema): boolean {
+  const type = typeof schema.type === "string" ? schema.type : undefined;
+  if (type === "object") return true;
+  return Object.keys(asRecord(schema.properties)).length > 0;
+}
+
+function isEmptyObjectSchema(schema: JsonSchema): boolean {
+  const type = typeof schema.type === "string" ? schema.type : undefined;
+  if (type !== "object") return false;
+  return Object.keys(asRecord(schema.properties)).length === 0;
+}
+
+function isPlainScalarSchema(schema: JsonSchema): boolean {
+  const type = typeof schema.type === "string" ? schema.type : undefined;
+  if (type !== "string" && type !== "number" && type !== "integer" && type !== "boolean") {
+    return false;
+  }
+  if (Array.isArray(schema.enum) && schema.enum.length > 0) return false;
+
+  // If this scalar has any meaningful constraints, keep it.
+  const allowedKeys = new Set([
+    "type",
+    "title",
+    "description",
+    "deprecated",
+    "examples",
+    "example",
+    "nullable",
+    "default",
+  ]);
+  for (const key of Object.keys(schema)) {
+    if (!allowedKeys.has(key)) return false;
+  }
+
+  return true;
+}
+
+function normalizeUnionSchemaVariants(variants: JsonSchema[]): JsonSchema[] {
+  if (variants.length < 2) return variants;
+
+  // Many real-world OpenAPI specs include `oneOf: [{type:"object"}, { ...specific... }]`
+  // or even `oneOf: [{type:"string"}, { ...object... }, { ...object... }]`.
+  // These broad scalar/empty-object variants add noise without helping the UI/LLM.
+  const hasNonEmptyObject = variants.some((v) => isObjectSchema(v) && Object.keys(asRecord(v.properties)).length > 0);
+
+  let filtered = variants;
+  if (hasNonEmptyObject) {
+    filtered = filtered.filter((v) => !isEmptyObjectSchema(v));
+  }
+
+  const objectCount = filtered.filter(isObjectSchema).length;
+  if (objectCount >= 2) {
+    filtered = filtered.filter((v) => !isPlainScalarSchema(v));
+  }
+
+  return filtered.length > 0 ? filtered : variants;
+}
+
+function extractStringLiteralFromSchema(schema: JsonSchema): string | null {
+  // Support the two common encodings we see in OpenAPI:
+  // - { type: "string", enum: ["A"] }
+  // - { const: "A" }
+  const enumValues = Array.isArray(schema.enum) ? schema.enum : undefined;
+  if (enumValues && enumValues.length === 1 && typeof enumValues[0] === "string") {
+    return enumValues[0];
+  }
+  if (typeof (schema as Record<string, unknown>).const === "string") {
+    return String((schema as Record<string, unknown>).const);
+  }
+  return null;
+}
+
+function mergeDiscriminatedObjectUnionVariants(
+  variants: JsonSchema[],
+  discriminantKey: string,
+  depth: number,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): JsonSchema[] {
+  if (variants.length < 2) return variants;
+  if (!variants.every(isObjectSchema)) return variants;
+
+  type VariantInfo = {
+    idx: number;
+    schema: JsonSchema;
+    disc: string;
+    signature: string;
+  };
+
+  const infos: VariantInfo[] = [];
+
+  for (let i = 0; i < variants.length; i++) {
+    const variant = variants[i]!;
+    const props = asRecord(variant.properties);
+    const discSchema = asRecord(props[discriminantKey]);
+    const disc = extractStringLiteralFromSchema(discSchema);
+    if (!disc) {
+      return variants;
+    }
+
+    const required = new Set(
+      (Array.isArray(variant.required) ? variant.required : []).filter(
+        (k): k is string => typeof k === "string",
+      ),
+    );
+
+    const otherKeys = Object.keys(props)
+      .filter((k) => k !== discriminantKey)
+      .sort();
+    const requiredOther = [...required]
+      .filter((k) => k !== discriminantKey)
+      .sort();
+
+    const keyHints = otherKeys.map((k) => {
+      const hint = jsonSchemaTypeHintFallback(props[k], depth + 1, componentSchemas, seenRefs);
+      return `${k}:${hint}`;
+    });
+
+    // Group by: same other keys + same required set + same per-key hints.
+    const signature = JSON.stringify({ otherKeys, requiredOther, keyHints });
+    infos.push({ idx: i, schema: variant, disc, signature });
+  }
+
+  const bySig = new Map<string, VariantInfo[]>();
+  for (const info of infos) {
+    const bucket = bySig.get(info.signature);
+    if (bucket) bucket.push(info);
+    else bySig.set(info.signature, [info]);
+  }
+
+  let changed = false;
+  const used = new Set<number>();
+  const out: JsonSchema[] = [];
+
+  // Preserve stable order: walk original variants and emit merged groups
+  // when we encounter their first member.
+  for (let i = 0; i < variants.length; i++) {
+    if (used.has(i)) continue;
+    const info = infos.find((x) => x.idx === i);
+    if (!info) {
+      out.push(variants[i]!);
+      continue;
+    }
+
+    const group = bySig.get(info.signature) ?? [info];
+    if (group.length < 2) {
+      out.push(variants[i]!);
+      used.add(i);
+      continue;
+    }
+
+    // Merge group: same schema shape, only discriminant differs.
+    changed = true;
+    for (const member of group) used.add(member.idx);
+
+    const base = group[0]!.schema;
+    const baseProps = asRecord(base.properties);
+    const discSchema = asRecord(baseProps[discriminantKey]);
+    const discType = typeof discSchema.type === "string" ? discSchema.type : "string";
+
+    const mergedDiscriminant: JsonSchema = {
+      type: discType,
+      enum: group.map((m) => m.disc),
+    };
+
+    const mergedProps = {
+      ...baseProps,
+      [discriminantKey]: mergedDiscriminant,
+    };
+
+    out.push({
+      ...base,
+      properties: mergedProps,
+    });
+  }
+
+  return changed ? out : variants;
+}
+
+function subsetKeys(left: string[], right: string[]): boolean {
+  const rightSet = new Set(right);
+  for (const key of left) {
+    if (!rightSet.has(key)) return false;
+  }
+  return true;
+}
+
+function tryCollapseSimpleObjectUnion(
+  variants: JsonSchema[],
+  depth: number,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): string | null {
+  if (variants.length !== 2) return null;
+  const left = variants[0]!;
+  const right = variants[1]!;
+  if (!isObjectSchema(left) || !isObjectSchema(right)) return null;
+
+  const leftProps = asRecord(left.properties);
+  const rightProps = asRecord(right.properties);
+  const leftKeys = Object.keys(leftProps);
+  const rightKeys = Object.keys(rightProps);
+  if (leftKeys.length === 0 || rightKeys.length === 0) return null;
+
+  // Only collapse the simplest case: one object is a strict subset of the other
+  // and they differ by exactly one additional property.
+  const leftSubRight = subsetKeys(leftKeys, rightKeys);
+  const rightSubLeft = subsetKeys(rightKeys, leftKeys);
+  if (!leftSubRight && !rightSubLeft) return null;
+
+  const sup = leftSubRight ? right : left;
+  const sub = leftSubRight ? left : right;
+  const supProps = asRecord(sup.properties);
+  const subProps = asRecord(sub.properties);
+  const supKeys = Object.keys(supProps);
+  const subKeys = Object.keys(subProps);
+  const extraKeys = supKeys.filter((k) => !subKeys.includes(k));
+  if (extraKeys.length !== 1) return null;
+
+  // Shared keys must have identical type hints.
+  for (const key of subKeys) {
+    const supHint = jsonSchemaTypeHintFallback(supProps[key], depth + 1, componentSchemas, seenRefs);
+    const subHint = jsonSchemaTypeHintFallback(subProps[key], depth + 1, componentSchemas, seenRefs);
+    if (supHint !== subHint) return null;
+  }
+
+  const requiredSup = new Set((Array.isArray(sup.required) ? sup.required : []).filter((v): v is string => typeof v === "string"));
+  const requiredSub = new Set((Array.isArray(sub.required) ? sub.required : []).filter((v): v is string => typeof v === "string"));
+  const requiredBoth = new Set<string>();
+  for (const key of subKeys) {
+    if (requiredSup.has(key) && requiredSub.has(key)) {
+      requiredBoth.add(key);
+    }
+  }
+
+  const inner = supKeys
+    .map((key) => {
+      const hint = jsonSchemaTypeHintFallback(supProps[key], depth + 1, componentSchemas, seenRefs);
+      return `${formatTsPropertyKey(key)}${requiredBoth.has(key) ? "" : "?"}: ${hint}`;
+    })
+    .join("; ");
+
+  return `{ ${inner} }`;
+}
+
+function intersectKeys(variants: Array<Record<string, unknown>>): string[] {
+  if (variants.length === 0) return [];
+  const sets = variants.map((props) => new Set(Object.keys(props)));
+  const [first, ...rest] = sets;
+  if (!first) return [];
+  const out: string[] = [];
+  for (const key of first) {
+    if (rest.every((set) => set.has(key))) {
+      out.push(key);
+    }
+  }
+  return out;
+}
+
+function tryFactorCommonObjectFields(
+  variants: JsonSchema[],
+  depth: number,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): string | null {
+  if (variants.length < 2) return null;
+  if (!variants.every(isObjectSchema)) return null;
+
+  const propsList = variants.map((v) => asRecord(v.properties));
+  const commonKeys = intersectKeys(propsList);
+  if (commonKeys.length === 0) return null;
+
+  const commonEntries: Array<{ key: string; hint: string; required: boolean }> = [];
+  for (const key of commonKeys) {
+    const hints = variants.map((v) => jsonSchemaTypeHintFallback(asRecord(v.properties)[key], depth + 1, componentSchemas, seenRefs));
+    const firstHint = hints[0];
+    if (!firstHint || hints.some((h) => h !== firstHint)) continue;
+
+    const requiredEverywhere = variants.every((v) => {
+      const req = Array.isArray(v.required) ? v.required : [];
+      return req.includes(key);
+    });
+    commonEntries.push({ key, hint: firstHint, required: requiredEverywhere });
+  }
+
+  if (commonEntries.length === 0) return null;
+
+  const commonProps = new Set(commonEntries.map((e) => e.key));
+  const residualSchemas: JsonSchema[] = [];
+  for (const variant of variants) {
+    const props = asRecord(variant.properties);
+    const residualProps = Object.fromEntries(Object.entries(props).filter(([key]) => !commonProps.has(key)));
+    const req = Array.isArray(variant.required) ? variant.required : [];
+    const residualRequired = req.filter((key) => typeof key === "string" && !commonProps.has(key));
+    residualSchemas.push({
+      type: "object",
+      properties: residualProps,
+      ...(residualRequired.length > 0 ? { required: residualRequired } : {}),
+    } as unknown as JsonSchema);
+  }
+
+  // If factoring doesn't reduce anything, bail.
+  const reduces = residualSchemas.some((s) => Object.keys(asRecord(s.properties)).length > 0);
+  if (!reduces) return null;
+
+  const commonInner = commonEntries
+    .map((e) => `${formatTsPropertyKey(e.key)}${e.required ? "" : "?"}: ${e.hint}`)
+    .join("; ");
+  const commonType = `{ ${commonInner} }`;
+
+  const partiallyFactoredResidual = tryFactorPartialCommonObjectFields(
+    residualSchemas,
+    depth,
+    componentSchemas,
+    seenRefs,
+  );
+
+  const residualType = partiallyFactoredResidual
+    ?? joinUnion(residualSchemas.map((s) => jsonSchemaTypeHintFallback(s, depth + 1, componentSchemas, seenRefs)));
+  if (residualType === "unknown") return commonType;
+
+  return `${commonType} & (${residualType})`;
+}
+
+function tryFactorPartialCommonObjectFields(
+  variants: JsonSchema[],
+  depth: number,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): string | null {
+  // If there's a large union where a field repeats across many (but not all)
+  // object variants (e.g. Vercel DNS createRecord repeats `name` in most
+  // variants), pull it out as:
+  //   ({ name: string } & (<union-without-name>)) | <remaining>
+  // This is purely a *hint* readability improvement.
+
+  if (variants.length < 3) return null;
+  if (!variants.every(isObjectSchema)) return null;
+
+  const propsList = variants.map((v) => asRecord(v.properties));
+  const requiredList = variants.map((v) => new Set(
+    (Array.isArray(v.required) ? v.required : []).filter((k): k is string => typeof k === "string"),
+  ));
+
+  type Candidate = {
+    key: string;
+    hint: string;
+    indices: number[];
+  };
+
+  const candidates: Candidate[] = [];
+  const minGroupSize = variants.length >= 4 ? 3 : 2;
+
+  // Collect keys present in at least minGroupSize variants.
+  const keyCounts = new Map<string, number>();
+  for (const props of propsList) {
+    for (const key of Object.keys(props)) {
+      keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+    }
+  }
+
+  for (const [key, count] of keyCounts.entries()) {
+    if (count < minGroupSize) continue;
+
+    // Consider only keys that are required in the variants we factor.
+    const indicesWithKey = propsList
+      .map((props, idx) => (props[key] !== undefined ? idx : -1))
+      .filter((idx) => idx !== -1);
+
+    // Group by identical type hint.
+    const byHint = new Map<string, number[]>();
+    for (const idx of indicesWithKey) {
+      const variant = variants[idx]!;
+      if (!requiredList[idx]!.has(key)) continue;
+      const props = propsList[idx]!;
+      const hint = jsonSchemaTypeHintFallback(props[key], depth + 1, componentSchemas, seenRefs);
+      const bucket = byHint.get(hint);
+      if (bucket) bucket.push(idx);
+      else byHint.set(hint, [idx]);
+    }
+
+    for (const [hint, indices] of byHint.entries()) {
+      if (indices.length < minGroupSize) continue;
+      if (indices.length === variants.length) continue;
+      candidates.push({ key, hint, indices });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Pick the best candidate: largest group first, then stable key order.
+  candidates.sort((a, b) => {
+    if (b.indices.length !== a.indices.length) return b.indices.length - a.indices.length;
+    if (a.key !== b.key) return a.key.localeCompare(b.key);
+    return a.hint.localeCompare(b.hint);
+  });
+  const best = candidates[0]!;
+
+  // Build the factored group.
+  const commonType = `{ ${formatTsPropertyKey(best.key)}: ${best.hint} }`;
+  const bestSet = new Set(best.indices);
+
+  const residualSchemas: JsonSchema[] = [];
+  const remainingSchemas: JsonSchema[] = [];
+
+  for (let i = 0; i < variants.length; i++) {
+    const variant = variants[i]!;
+    const props = propsList[i]!;
+    if (!bestSet.has(i)) {
+      remainingSchemas.push(variant);
+      continue;
+    }
+
+    const residualProps = Object.fromEntries(
+      Object.entries(props).filter(([k]) => k !== best.key),
+    );
+    const req = Array.isArray(variant.required) ? variant.required : [];
+    const residualRequired = req.filter(
+      (k) => typeof k === "string" && k !== best.key,
+    );
+
+    residualSchemas.push({
+      type: "object",
+      properties: residualProps,
+      ...(residualRequired.length > 0 ? { required: residualRequired } : {}),
+    } as unknown as JsonSchema);
+  }
+
+  // If factoring doesn't actually remove anything useful, bail.
+  const anyResidualHasProps = residualSchemas.some(
+    (s) => Object.keys(asRecord(s.properties)).length > 0,
+  );
+  if (!anyResidualHasProps) return null;
+
+  const residualType = joinUnion(residualSchemas.map((s) => jsonSchemaTypeHintFallback(s, depth + 1, componentSchemas, seenRefs)));
+  const groupType = `${commonType} & (${residualType})`;
+
+  if (remainingSchemas.length === 0) return groupType;
+  const remainingType = joinUnion(remainingSchemas.map((s) => jsonSchemaTypeHintFallback(s, depth + 1, componentSchemas, seenRefs)));
+  return joinUnion([groupType, remainingType]);
+}
+
 function joinIntersection(parts: string[]): string {
   const expanded = parts.flatMap((part) => splitTopLevelBy(part, "&"));
   const unique = dedupeTypeParts(expanded).filter((part) => part !== "unknown");
   if (unique.length === 0) return "unknown";
-  return unique.length === 1 ? unique[0]! : unique.join(" & ");
+  const wrapped = unique.map((part) => (part.includes(" | ") ? `(${part})` : part));
+  return wrapped.length === 1 ? wrapped[0]! : wrapped.join(" & ");
 }
 
 function maybeParenthesizeArrayElement(typeHint: string): string {
@@ -252,19 +707,18 @@ export function jsonSchemaTypeHintFallback(
     const prefix = "#/components/schemas/";
     if (ref.startsWith(prefix)) {
       const key = ref.slice(prefix.length);
-      if (depth >= COMPONENT_REF_INLINE_DEPTH) {
-        return formatComponentSchemaRefType(key);
-      }
-      if (seenRefs.has(ref)) {
-        return "unknown";
-      }
       const resolved = componentSchemas ? asRecord(componentSchemas[key]) : {};
-      if (Object.keys(resolved).length > 0) {
+      const canInline = Object.keys(resolved).length > 0
+        && !seenRefs.has(ref)
+        && (depth < COMPONENT_REF_INLINE_DEPTH || isSmallInlineableComponentSchema(resolved));
+
+      if (canInline) {
         const nextSeen = new Set(seenRefs);
         nextSeen.add(ref);
         return jsonSchemaTypeHintFallback(resolved, depth + 1, componentSchemas, nextSeen);
       }
 
+      // Fall back to a stable named reference.
       return formatComponentSchemaRefType(key);
     }
   }
@@ -276,12 +730,88 @@ export function jsonSchemaTypeHintFallback(
 
   const oneOf = Array.isArray(shape.oneOf) ? shape.oneOf : undefined;
   if (oneOf && oneOf.length > 0) {
-    return joinUnion(oneOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
+    const variants = normalizeUnionSchemaVariants(
+      oneOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+    );
+    const objectVariantsMerged = mergeDiscriminatedObjectUnionVariants(
+      variants.filter(isObjectSchema),
+      "type",
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    const mergedVariants = variants.some((v) => !isObjectSchema(v))
+      ? variants.filter((v) => !isObjectSchema(v)).concat(objectVariantsMerged)
+      : objectVariantsMerged;
+    const objectVariants = mergedVariants.filter(isObjectSchema);
+
+    const collapsed = tryCollapseSimpleObjectUnion(
+      objectVariants,
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (collapsed) return collapsed;
+
+    const factored = tryFactorCommonObjectFields(
+      objectVariants,
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (factored) return factored;
+
+    const partial = tryFactorPartialCommonObjectFields(
+      objectVariants,
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (partial) return partial;
+    return joinUnion(mergedVariants.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
   }
 
   const anyOf = Array.isArray(shape.anyOf) ? shape.anyOf : undefined;
   if (anyOf && anyOf.length > 0) {
-    return joinUnion(anyOf.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
+    const variants = normalizeUnionSchemaVariants(
+      anyOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+    );
+    const objectVariantsMerged = mergeDiscriminatedObjectUnionVariants(
+      variants.filter(isObjectSchema),
+      "type",
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    const mergedVariants = variants.some((v) => !isObjectSchema(v))
+      ? variants.filter((v) => !isObjectSchema(v)).concat(objectVariantsMerged)
+      : objectVariantsMerged;
+    const objectVariants = mergedVariants.filter(isObjectSchema);
+
+    const collapsed = tryCollapseSimpleObjectUnion(
+      objectVariants,
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (collapsed) return collapsed;
+
+    const factored = tryFactorCommonObjectFields(
+      objectVariants,
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (factored) return factored;
+
+    const partial = tryFactorPartialCommonObjectFields(
+      objectVariants,
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    if (partial) return partial;
+    return joinUnion(mergedVariants.map((entry) => jsonSchemaTypeHintFallback(entry, depth + 1, componentSchemas, seenRefs)));
   }
 
   const allOf = Array.isArray(shape.allOf) ? shape.allOf : undefined;

@@ -26,7 +26,6 @@ const ToolRow = memo(function ToolRow({
   onSelect,
   onExpandedChange,
   detailLoading,
-  sourceSchemas,
 }: {
   tool: ToolDescriptor;
   label: string;
@@ -35,7 +34,6 @@ const ToolRow = memo(function ToolRow({
   onSelect: (e: React.MouseEvent) => void;
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoading?: boolean;
-  sourceSchemas?: Record<string, string>;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -101,7 +99,7 @@ const ToolRow = memo(function ToolRow({
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <ToolDetail tool={tool} depth={depth} loading={detailLoading} sourceSchemas={sourceSchemas} />
+        <ToolDetail tool={tool} depth={depth} loading={detailLoading} />
       </CollapsibleContent>
     </Collapsible>
   );
@@ -115,7 +113,6 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   onSelectTool,
   onExpandedChange,
   detailLoading,
-  sourceSchemas,
 }: {
   tool: ToolDescriptor;
   label: string;
@@ -124,7 +121,6 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   onSelectTool: (path: string, e: React.MouseEvent) => void;
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoading?: boolean;
-  sourceSchemas?: Record<string, string>;
 }) {
   const selected = selectedKeys.has(tool.path);
   const handleSelect = useCallback(
@@ -141,7 +137,6 @@ export const SelectableToolRow = memo(function SelectableToolRow({
       onSelect={handleSelect}
       onExpandedChange={onExpandedChange}
       detailLoading={detailLoading}
-      sourceSchemas={sourceSchemas}
     />
   );
 },
@@ -150,7 +145,6 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   prev.label === next.label &&
   prev.depth === next.depth &&
   prev.detailLoading === next.detailLoading &&
-  prev.sourceSchemas === next.sourceSchemas &&
   prev.selectedKeys.has(prev.tool.path) === next.selectedKeys.has(next.tool.path),
 );
 
@@ -161,7 +155,6 @@ export function VirtualFlatList({
   onExpandedChange,
   detailLoadingPaths,
   loadingRows,
-  sourceSchemasBySource,
   scrollContainerRef,
 }: {
   tools: ToolDescriptor[];
@@ -170,7 +163,6 @@ export function VirtualFlatList({
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoadingPaths?: Set<string>;
   loadingRows?: { source: string; count: number }[];
-  sourceSchemasBySource?: Record<string, Record<string, string>>;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
@@ -189,7 +181,6 @@ export function VirtualFlatList({
             onSelectTool={onSelectTool}
             onExpandedChange={onExpandedChange}
             detailLoading={detailLoadingPaths?.has(tool.path)}
-            sourceSchemas={tool.source ? sourceSchemasBySource?.[tool.source] : undefined}
           />
         ))}
 

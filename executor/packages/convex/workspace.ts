@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { workspaceMutation, workspaceQuery } from "../core/src/function-builders";
 import { isAnonymousIdentity } from "./auth/anonymous";
+import { safeRunAfter } from "./lib/scheduler";
 
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
@@ -17,25 +18,33 @@ function redactCredential<T extends { secretJson: Record<string, unknown> }>(cre
 }
 
 export const bootstrapAnonymousSession = mutation({
-  args: { sessionId: v.optional(v.string()) },
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Anonymous auth token is required");
+  args: {
+    sessionId: v.optional(v.string()),
+    actorId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity().catch(() => null);
+    const requestedSessionId = args.sessionId?.trim() || undefined;
+    const requestedActorId = args.actorId?.trim() || undefined;
+
+    if (identity && !isAnonymousIdentity(identity)) {
+      throw new Error("Cannot bootstrap an anonymous session while authenticated");
     }
 
-    if (!isAnonymousIdentity(identity)) {
-      throw new Error("Anonymous auth token is required");
+    const actorId = identity ? identity.subject : requestedActorId;
+    if (actorId && !actorId.startsWith("anon_")) {
+      throw new Error("actorId must be an anonymous actor (anon_*)");
     }
 
-    const actorId = identity.subject;
-    if (!actorId.startsWith("anon_")) {
-      throw new Error("Anonymous token subject must use anon_* actor ids");
-    }
-    const stableSessionId = `anon_session_${actorId}`;
+    // Allow unauthenticated callers to bootstrap a fresh anonymous session.
+    // The internal mutation will generate ids when not provided.
+    const sessionId = identity
+      ? (requestedSessionId ?? `anon_session_${actorId}`)
+      : requestedSessionId;
+
     return await ctx.runMutation(internal.database.bootstrapAnonymousSession, {
-      sessionId: stableSessionId,
-      actorId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(actorId ? { actorId } : {}),
       clientId: "web",
     });
   },
@@ -192,7 +201,7 @@ export const upsertToolSource = workspaceMutation({
     });
 
     try {
-      await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+      await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
         workspaceId: ctx.workspaceId,
       });
     } catch {
@@ -222,7 +231,7 @@ export const deleteToolSource = workspaceMutation({
     });
 
     try {
-      await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+      await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
         workspaceId: ctx.workspaceId,
       });
     } catch {

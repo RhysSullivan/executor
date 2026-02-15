@@ -10,11 +10,10 @@ import type {
   SourceAuthProfile,
 } from "../core/src/types";
 import { requireCanonicalActor } from "./runtime/actor_auth";
+import { safeRunAfter } from "./lib/scheduler";
 import {
   listToolsForContext,
   listToolsWithWarningsForContext,
-  loadDtsUrls,
-  loadWorkspaceDtsStorageIds,
   type WorkspaceToolsDebug,
 } from "./runtime/workspace_tools";
 import { runQueuedTask } from "./runtime/task_runner";
@@ -28,7 +27,6 @@ export const listToolsWithWarnings = action({
     sessionId: v.optional(v.string()),
     includeDetails: v.optional(v.boolean()),
     includeSourceMeta: v.optional(v.boolean()),
-    includeSchemaRegistry: v.optional(v.boolean()),
     toolPaths: v.optional(v.array(v.string())),
   },
   handler: async (
@@ -37,10 +35,9 @@ export const listToolsWithWarnings = action({
   ): Promise<{
     tools: ToolDescriptor[];
     warnings: string[];
-    dtsUrls: Record<string, string>;
+    typesUrl?: string;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
-    sourceSchemas: Record<string, Record<string, string>>;
     debug: WorkspaceToolsDebug;
   }> => {
     const canonicalActorId = await requireCanonicalActor(ctx, {
@@ -54,10 +51,8 @@ export const listToolsWithWarnings = action({
       actorId: canonicalActorId,
       clientId: args.clientId,
     }, {
-      includeDts: false,
       includeDetails: args.includeDetails ?? true,
       includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
-      includeSchemaRegistry: args.includeSchemaRegistry ?? false,
       toolPaths: args.toolPaths,
       sourceTimeoutMs: 2_500,
       allowStaleOnMismatch: true,
@@ -65,7 +60,7 @@ export const listToolsWithWarnings = action({
 
     if (inventory.warnings.some((warning) => warning.includes("showing previous results while refreshing"))) {
       try {
-        await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+        await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
           workspaceId: args.workspaceId,
           actorId: canonicalActorId,
           clientId: args.clientId,
@@ -79,29 +74,6 @@ export const listToolsWithWarnings = action({
   },
 });
 
-export const listToolDtsUrls = action({
-  args: {
-    workspaceId: v.id("workspaces"),
-    actorId: v.optional(v.string()),
-    sessionId: v.optional(v.string()),
-  },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{
-    dtsUrls: Record<string, string>;
-  }> => {
-    await requireCanonicalActor(ctx, {
-      workspaceId: args.workspaceId,
-      sessionId: args.sessionId,
-      actorId: args.actorId,
-    });
-    const dtsStorageIds = await loadWorkspaceDtsStorageIds(ctx, args.workspaceId);
-    const dtsUrls = await loadDtsUrls(ctx, dtsStorageIds);
-    return { dtsUrls };
-  },
-});
-
 export const listToolsInternal = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
@@ -109,7 +81,7 @@ export const listToolsInternal = internalAction({
     clientId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ToolDescriptor[]> => {
-    return await listToolsForContext(ctx, args, { includeDts: false });
+    return await listToolsForContext(ctx, args);
   },
 });
 
@@ -125,13 +97,12 @@ export const listToolsWithWarningsInternal = internalAction({
   ): Promise<{
     tools: ToolDescriptor[];
     warnings: string[];
-    dtsUrls: Record<string, string>;
+    typesUrl?: string;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
-    sourceSchemas: Record<string, Record<string, string>>;
     debug: WorkspaceToolsDebug;
   }> => {
-    return await listToolsWithWarningsForContext(ctx, args, { includeDts: false });
+    return await listToolsWithWarningsForContext(ctx, args);
   },
 });
 

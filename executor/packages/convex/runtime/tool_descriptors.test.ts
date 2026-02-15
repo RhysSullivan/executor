@@ -2,17 +2,32 @@ import { expect, test } from "bun:test";
 import type { ToolDefinition } from "../../core/src/types";
 import { listVisibleToolDescriptors } from "./tool_descriptors";
 
-test("listVisibleToolDescriptors formats type hints for client responses", () => {
+test("listVisibleToolDescriptors derives display hints from schemas", () => {
   const tool: ToolDefinition = {
     path: "github.actions.add_custom_labels_to_self_hosted_runner_for_org",
     description: "Add custom labels",
     approval: "required",
     source: "openapi:github",
-    metadata: {
-      argsType: '{org:string;runner_id:number;labels:string[]}',
-      returnsType: '{total_count:number;labels:components["schemas"]["runner-label"][]}',
-      displayArgsType: '{ org: string; runner_id: number; labels: string[] }',
-      displayReturnsType: '{ total_count: number; labels: components["schemas"]["runner-label"][] }',
+    typing: {
+      inputSchema: {
+        type: "object",
+        properties: {
+          org: { type: "string" },
+          runner_id: { type: "number" },
+          labels: { type: "array", items: { type: "string" } },
+        },
+        required: ["org", "runner_id", "labels"],
+        additionalProperties: false,
+      },
+      outputSchema: {
+        type: "object",
+        properties: {
+          total_count: { type: "number" },
+          labels: { type: "array", items: { type: "string" } },
+        },
+        required: ["total_count", "labels"],
+        additionalProperties: true,
+      },
     },
     run: async () => ({ total_count: 0, labels: [] }),
   };
@@ -27,8 +42,9 @@ test("listVisibleToolDescriptors formats type hints for client responses", () =>
 
   expect(descriptors).toHaveLength(1);
   const descriptor = descriptors[0]!;
-  expect(descriptor.argsType).toContain("org: string");
-  expect(descriptor.strictArgsType).toContain("runner_id: number");
-  expect(descriptor.returnsType).toContain('components["schemas"]["runner-label"][]');
-  expect(descriptor.strictReturnsType).toContain("total_count: number");
+  expect(descriptor.display?.input).toContain("org");
+  expect(descriptor.display?.input).toContain("runner_id");
+  expect(descriptor.display?.output).toContain("total_count");
+  expect(descriptor.typing?.requiredInputKeys).toEqual(expect.arrayContaining(["org", "runner_id", "labels"]));
+  expect(descriptor.typing?.previewInputKeys).toEqual(expect.arrayContaining(["org", "runner_id"]));
 });

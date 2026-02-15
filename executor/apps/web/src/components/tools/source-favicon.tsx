@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Layers, Globe, Server } from "lucide-react";
 import Image from "next/image";
 import type { ToolSourceRecord } from "@/lib/types";
@@ -38,19 +38,17 @@ export function SourceFavicon({
     : source
       ? getSourceFavicon(source)
       : null;
-  const [failed, setFailed] = useState(false);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const isFailed = Boolean(sourceFavicon && failedSrc === sourceFavicon);
 
-  useEffect(() => {
-    setFailed(false);
-  }, [sourceFavicon]);
-
-  if (!sourceFavicon || failed) {
+  if (!sourceFavicon || isFailed) {
     const sourceType = fallbackType ?? source?.type ?? "openapi";
     return <DefaultSourceIcon type={sourceType} className={iconClassName} />;
   }
 
   return (
     <Image
+      key={sourceFavicon}
       src={sourceFavicon}
       alt=""
       width={imageSize}
@@ -58,7 +56,7 @@ export function SourceFavicon({
       className={imageClassName ?? "w-full h-full object-contain"}
       loading="lazy"
       unoptimized
-      onError={() => setFailed(true)}
+      onError={() => setFailedSrc(sourceFavicon)}
     />
   );
 }

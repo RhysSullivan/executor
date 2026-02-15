@@ -29,7 +29,12 @@ function makeBaseTools(): Map<string, ToolDefinition> {
         description: "Echo input",
         approval: "auto" as const,
         source: "system",
-        metadata: { argsType: "{ message: string }", returnsType: "string" },
+        typing: {
+          inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+          outputSchema: { type: "string" },
+          requiredInputKeys: ["message"],
+          previewInputKeys: ["message"],
+        },
         run: async (input: unknown) => {
           const payload = input as Record<string, unknown>;
           return payload.message;
@@ -190,9 +195,8 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     for (const tool of rehydrated) {
       expect(typeof tool.run).toBe("function");
       expect(tool.path).toContain("test_api.");
-      expect(tool.metadata).toBeDefined();
-      expect(tool.metadata!.argsType).toBeDefined();
-      expect(tool.metadata!.returnsType).toBeDefined();
+      expect(tool.typing).toBeDefined();
+      expect(tool.typing!.inputSchema).toBeDefined();
     }
   });
 
@@ -218,8 +222,8 @@ describe("serializeTools + rehydrateTools round-trip", () => {
       expect(rehydrated[i]!.description).toBe(tools[i]!.description);
       expect(rehydrated[i]!.approval).toBe(tools[i]!.approval);
       expect(rehydrated[i]!.source).toBe(tools[i]!.source);
-      expect(rehydrated[i]!.metadata?.argsType).toBe(tools[i]!.metadata?.argsType);
-      expect(rehydrated[i]!.metadata?.returnsType).toBe(tools[i]!.metadata?.returnsType);
+      expect(rehydrated[i]!.typing?.typedRef?.operationId).toBe(tools[i]!.typing?.typedRef?.operationId);
+      expect(rehydrated[i]!.typing?.requiredInputKeys).toEqual(tools[i]!.typing?.requiredInputKeys);
     }
   });
 
@@ -251,7 +255,11 @@ describe("serializeTools + rehydrateTools round-trip", () => {
       description: "An MCP tool",
       approval: "auto",
       source: "mcp:my_mcp",
-      metadata: { argsType: "{ input: string }", returnsType: "unknown" },
+      typing: {
+        inputSchema: { type: "object", properties: { input: { type: "string" } }, required: ["input"] },
+        requiredInputKeys: ["input"],
+        previewInputKeys: ["input"],
+      },
       _runSpec: {
         kind: "mcp" as const,
         url: "https://mcp.example.com/sse",
@@ -282,9 +290,10 @@ describe("serializeTools + rehydrateTools round-trip", () => {
         description: "Execute GraphQL",
         approval: "auto",
         source: "graphql:linear",
-        metadata: {
-          argsType: "{ query: string; variables?: Record<string, unknown> }",
-          returnsType: "unknown",
+        typing: {
+          inputSchema: { type: "object", properties: { query: { type: "string" }, variables: {} }, required: ["query"] },
+          requiredInputKeys: ["query"],
+          previewInputKeys: ["query", "variables"],
         },
         _runSpec: {
           kind: "graphql_raw" as const,
@@ -298,9 +307,8 @@ describe("serializeTools + rehydrateTools round-trip", () => {
         description: "List teams",
         approval: "auto",
         source: "graphql:linear",
-        metadata: {
-          argsType: "{}",
-          returnsType: "unknown",
+        typing: {
+          inputSchema: { type: "object", properties: {} },
         },
         _pseudoTool: true,
         _runSpec: {
@@ -404,11 +412,11 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     expect(restoredTools.some((tool) => tool.path === "echo")).toBe(false);
 
     // OpenAPI tools should have correct metadata
-    const listTool = restoredTools.find((t) => t.metadata?.operationId === "listWidgets")!;
+    const listTool = restoredTools.find((t) => t.typing?.typedRef?.operationId === "listWidgets")!;
     expect(listTool.approval).toBe("auto"); // GET = auto
-    expect(listTool.metadata!.argsType).toBeDefined();
+    expect(listTool.typing!.inputSchema).toBeDefined();
 
-    const createTool = restoredTools.find((t) => t.metadata?.operationId === "createWidget")!;
+    const createTool = restoredTools.find((t) => t.typing?.typedRef?.operationId === "createWidget")!;
     expect(createTool.approval).toBe("required"); // POST = required
   });
 
@@ -529,7 +537,6 @@ describe("workspace tool cache table", () => {
       storageId,
       toolCount: 0,
       sizeBytes: 27,
-      dtsStorageIds: [],
     });
 
     // Hit
@@ -563,7 +570,6 @@ describe("workspace tool cache table", () => {
       storageId: storageId1,
       toolCount: 5,
       sizeBytes: 3,
-      dtsStorageIds: [],
     });
 
     const storageId2 = await t.run(async (ctx) => {
@@ -576,7 +582,6 @@ describe("workspace tool cache table", () => {
       storageId: storageId2,
       toolCount: 10,
       sizeBytes: 3,
-      dtsStorageIds: [],
     });
 
     // New entry

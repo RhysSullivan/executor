@@ -2,8 +2,6 @@
 
 import {
   buildFieldQuery,
-  gqlFieldArgsTypeHint,
-  gqlTypeToHint,
   normalizeGraphqlFieldVariables,
   selectGraphqlFieldEnvelope,
   type GqlSchema,
@@ -16,7 +14,7 @@ import {
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import { sanitizeSegment } from "../tool/path-utils";
 import type { GraphqlToolSourceConfig } from "../tool/source-types";
-import { compactArgTypeHint } from "../type-hints";
+import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";
 
@@ -55,6 +53,107 @@ const INTROSPECTION_QUERY = `
     }
   }
 `;
+
+function unwrapNonNull(ref: { kind: string; ofType?: unknown } | null | undefined): unknown {
+  if (!ref || typeof ref !== "object") return ref;
+  if (ref.kind === "NON_NULL" && ref.ofType) return unwrapNonNull(ref.ofType as any);
+  return ref;
+}
+
+function schemaForNamedScalar(name: string): Record<string, unknown> {
+  switch (name) {
+    case "String":
+    case "ID":
+    case "DateTime":
+    case "Date":
+    case "UUID":
+    case "TimelessDate":
+      return { type: "string" };
+    case "Int":
+    case "Float":
+      return { type: "number" };
+    case "Boolean":
+      return { type: "boolean" };
+    case "JSON":
+    case "JSONObject":
+    case "JSONString":
+      return {};
+    default:
+      return {};
+  }
+}
+
+function schemaForTypeRef(
+  ref: { kind: string; name: string | null; ofType?: unknown } | null | undefined,
+  typeMap: Map<string, GqlType>,
+  depth = 0,
+): Record<string, unknown> {
+  if (!ref || typeof ref !== "object") return {};
+
+  if (ref.kind === "NON_NULL" && ref.ofType) {
+    return schemaForTypeRef(ref.ofType as any, typeMap, depth);
+  }
+
+  if (ref.kind === "LIST" && ref.ofType) {
+    return {
+      type: "array",
+      items: schemaForTypeRef(ref.ofType as any, typeMap, depth),
+    };
+  }
+
+  const name = typeof ref.name === "string" ? ref.name : "";
+  if (!name) return {};
+
+  const resolved = typeMap.get(name);
+  if (resolved?.kind === "ENUM" && resolved.enumValues && resolved.enumValues.length > 0) {
+    return { type: "string", enum: resolved.enumValues.map((v) => v.name).slice(0, 200) };
+  }
+
+  if (resolved?.kind === "INPUT_OBJECT" && resolved.inputFields && depth < 2) {
+    const props: Record<string, unknown> = {};
+    const required: string[] = [];
+    for (const field of resolved.inputFields) {
+      if (!field?.name) continue;
+      props[field.name] = schemaForTypeRef(field.type as any, typeMap, depth + 1);
+      const unwrapped = unwrapNonNull(field.type as any) as any;
+      if ((field.type as any)?.kind === "NON_NULL") {
+        required.push(field.name);
+      }
+      // Prevent unused variable lint: unwrapped is kept for future enhancements.
+      void unwrapped;
+    }
+    return {
+      type: "object",
+      properties: props,
+      ...(required.length > 0 ? { required } : {}),
+    };
+  }
+
+  return schemaForNamedScalar(name);
+}
+
+function buildArgsObjectSchema(
+  args: Array<{ name: string; type: unknown }>,
+  typeMap: Map<string, GqlType>,
+): Record<string, unknown> {
+  const props: Record<string, unknown> = {};
+  const required: string[] = [];
+
+  for (const arg of args) {
+    const name = typeof arg?.name === "string" ? arg.name : "";
+    if (!name) continue;
+    props[name] = schemaForTypeRef(arg.type as any, typeMap);
+    if ((arg.type as any)?.kind === "NON_NULL") {
+      required.push(name);
+    }
+  }
+
+  return {
+    type: "object",
+    properties: props,
+    ...(required.length > 0 ? { required } : {}),
+  };
+}
 
 export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDefinition[]> {
   const authHeaders = buildStaticAuthHeaders(config.auth);
@@ -101,12 +200,25 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
     source: sourceKey,
     description: `Execute a GraphQL query or mutation against ${config.name}. Returns { data, errors }. Use ${sourceName}.query.* and ${sourceName}.mutation.* helpers when available.`,
     approval: "auto", // Actual approval is determined dynamically per-invocation
-    metadata: {
-      argsType: "{ query: string; variables?: Record<string, unknown> }",
-      returnsType: "{ data: unknown; errors: unknown[] }",
-      displayArgsType: "{ query: string; variables?: ... }",
-      displayReturnsType: "{ data: ...; errors: unknown[] }",
-      argPreviewKeys: ["query", "variables"],
+    typing: {
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          variables: {},
+        },
+        required: ["query"],
+      },
+      outputSchema: {
+        type: "object",
+        properties: {
+          data: {},
+          errors: { type: "array", items: {} },
+        },
+        required: ["data"],
+      },
+      requiredInputKeys: ["query"],
+      previewInputKeys: ["query", "variables"],
     },
     credential: credentialSpec,
     // Tag as graphql source so invokeTool knows to do dynamic path extraction
@@ -155,9 +267,9 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
 
       const fieldPath = `${sourceName}.${operationType}.${sanitizeSegment(field.name)}`;
       const approval = config.overrides?.[field.name]?.approval ?? defaultApproval;
-      const argsType = gqlFieldArgsTypeHint(field.args, typeMap);
-      const returnsType = `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`;
-      const argPreviewKeys = field.args.map((arg) => arg.name).filter((name) => name.length > 0);
+      const inputSchema = buildArgsObjectSchema(field.args as any, typeMap);
+      const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
+      const previewInputKeys = buildPreviewKeys(inputSchema);
 
       // Build the example query for the description
       const exampleQuery = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
@@ -173,12 +285,18 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
           : `GraphQL ${operationType}: ${field.name}\n\nPreferred: ${directCallExample}\nReturns: { data, errors }\nRaw GraphQL: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`,
         approval,
         credential: credentialSpec,
-        metadata: {
-          argsType,
-          returnsType,
-          displayArgsType: compactArgTypeHint(argsType),
-          displayReturnsType: "{ data: ...; errors: unknown[] }",
-          ...(argPreviewKeys.length > 0 ? { argPreviewKeys } : {}),
+        typing: {
+          inputSchema,
+          outputSchema: {
+            type: "object",
+            properties: {
+              data: {},
+              errors: { type: "array", items: {} },
+            },
+            required: ["data"],
+          },
+          ...(requiredInputKeys.length > 0 ? { requiredInputKeys } : {}),
+          ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
         },
         _runSpec: {
           kind: "graphql_field" as const,

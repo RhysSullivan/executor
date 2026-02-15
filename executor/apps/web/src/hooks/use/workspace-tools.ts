@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
-import type { OpenApiSourceQuality, SourceAuthProfile, ToolDescriptor, ToolSourceRecord } from "@/lib/types";
+import type { OpenApiSourceQuality, SourceAuthProfile, ToolDescriptor } from "@/lib/types";
 import type { Id } from "@executor/convex/_generated/dataModel";
 
 interface WorkspaceContext {
@@ -19,7 +19,8 @@ interface WorkspaceToolsQueryResult {
   warnings: string[];
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  sourceSchemas: Record<string, Record<string, string>>;
+  /** URL to a workspace-wide Monaco `.d.ts` bundle (may be undefined). */
+  typesUrl?: string;
   debug?: {
     mode: "cache-fresh" | "cache-stale" | "rebuild";
     includeDts: boolean;
@@ -35,13 +36,8 @@ interface WorkspaceToolsQueryResult {
   };
 }
 
-interface WorkspaceToolDtsResult {
-  dtsUrls: Record<string, string>;
-}
-
 interface UseWorkspaceToolsOptions {
   includeDetails?: boolean;
-  includeDtsUrls?: boolean;
 }
 
 /**
@@ -55,12 +51,9 @@ export function useWorkspaceTools(
   options: UseWorkspaceToolsOptions = {},
 ) {
   const includeDetails = options.includeDetails ?? true;
-  const includeDtsUrls = options.includeDtsUrls ?? true;
   const listToolsWithWarningsRaw = useAction(convexApi.executorNode.listToolsWithWarnings);
-  const listToolDtsUrls = useAction(convexApi.executorNode.listToolDtsUrls);
   const listToolsWithWarnings = listToolsWithWarningsRaw as unknown as (args: Record<string, unknown>) => Promise<WorkspaceToolsQueryResult>;
   const detailsCacheRef = useRef<Map<string, ToolDescriptor>>(new Map());
-  const [sourceSchemasBySource, setSourceSchemasBySource] = useState<Record<string, Record<string, string>>>({});
 
   // Watch tool sources reactively so we invalidate when sources change
   const toolSources = useConvexQuery(
@@ -88,7 +81,7 @@ export function useWorkspaceTools(
           warnings: [],
           sourceQuality: {},
           sourceAuthProfiles: {},
-          sourceSchemas: {},
+          typesUrl: undefined,
         };
       }
       return await listToolsWithWarnings({
@@ -97,7 +90,6 @@ export function useWorkspaceTools(
         ...(context.clientId && { clientId: context.clientId }),
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails,
-        includeSchemaRegistry: false,
       });
     },
     enabled: !!context,
@@ -133,38 +125,11 @@ export function useWorkspaceTools(
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails: true,
         includeSourceMeta: false,
-        includeSchemaRegistry: true,
         toolPaths: missing,
       });
 
       for (const tool of detailedInventory.tools) {
         cache.set(tool.path, tool);
-      }
-
-      if (Object.keys(detailedInventory.sourceSchemas ?? {}).length > 0) {
-        setSourceSchemasBySource((prev) => {
-          let changed = false;
-          const next: Record<string, Record<string, string>> = { ...prev };
-
-          for (const [source, schemas] of Object.entries(detailedInventory.sourceSchemas ?? {})) {
-            const current = next[source] ?? {};
-            let sourceChanged = false;
-            const merged = { ...current };
-
-            for (const [schemaRef, schemaType] of Object.entries(schemas)) {
-              if (merged[schemaRef] === schemaType) continue;
-              merged[schemaRef] = schemaType;
-              sourceChanged = true;
-            }
-
-            if (sourceChanged || !next[source]) {
-              next[source] = merged;
-              changed = true;
-            }
-          }
-
-          return changed ? next : prev;
-        });
       }
     }
 
@@ -183,10 +148,6 @@ export function useWorkspaceTools(
   }, [context?.workspaceId, context?.actorId, context?.clientId, context?.sessionId]);
 
   useEffect(() => {
-    setSourceSchemasBySource({});
-  }, [context?.workspaceId, context?.actorId, context?.clientId, context?.sessionId]);
-
-  useEffect(() => {
     if (!inventoryData || !includeDetails) {
       return;
     }
@@ -196,77 +157,18 @@ export function useWorkspaceTools(
     }
   }, [inventoryData, includeDetails]);
 
-  useEffect(() => {
-    const nextSchemas = inventoryData?.sourceSchemas ?? {};
-    if (Object.keys(nextSchemas).length === 0) {
-      return;
-    }
-
-    setSourceSchemasBySource((prev) => {
-      let changed = false;
-      const next: Record<string, Record<string, string>> = { ...prev };
-
-      for (const [source, schemas] of Object.entries(nextSchemas)) {
-        const current = next[source] ?? {};
-        let sourceChanged = false;
-        const merged = { ...current };
-
-        for (const [schemaRef, schemaType] of Object.entries(schemas)) {
-          if (merged[schemaRef] === schemaType) continue;
-          merged[schemaRef] = schemaType;
-          sourceChanged = true;
-        }
-
-        if (sourceChanged || !next[source]) {
-          next[source] = merged;
-          changed = true;
-        }
-      }
-
-      return changed ? next : prev;
-    });
-  }, [inventoryData?.sourceSchemas]);
-
-  const hasOpenApiSource = (toolSources ?? []).some(
-    (source: ToolSourceRecord) => source.type === "openapi" && source.enabled,
-  );
-
-  const { data: dtsData, isLoading: dtsLoading } = useTanstackQuery({
-    queryKey: [
-      "workspace-tools-dts",
-      context?.workspaceId,
-      context?.actorId,
-      includeDtsUrls,
-      toolSources,
-    ],
-    queryFn: async (): Promise<WorkspaceToolDtsResult> => {
-      if (!context) {
-        return { dtsUrls: {} };
-      }
-      return await listToolDtsUrls({
-        workspaceId: context.workspaceId,
-        ...(context.actorId && { actorId: context.actorId }),
-        ...(context.sessionId && { sessionId: context.sessionId }),
-      });
-    },
-    enabled: !!context && !!inventoryData && hasOpenApiSource && includeDtsUrls,
-    placeholderData: (previousData) => previousData,
-  });
-
   return {
     tools: inventoryData?.tools ?? [],
     warnings: inventoryData?.warnings ?? [],
-    /** Per-source .d.ts download URLs for Monaco IntelliSense. Keyed by source key (e.g. "openapi:cloudflare"). */
-    dtsUrls: dtsData?.dtsUrls ?? {},
+    /** Workspace-wide Monaco `.d.ts` bundle URL (may be undefined). */
+    typesUrl: inventoryData?.typesUrl,
     /** Per-source OpenAPI quality metrics (unknown/fallback type rates). */
     sourceQuality: inventoryData?.sourceQuality ?? {},
     sourceAuthProfiles: inventoryData?.sourceAuthProfiles ?? {},
-    sourceSchemas: sourceSchemasBySource,
     debug: inventoryData?.debug,
     loadingSources: inventoryData?.debug?.timedOutSources ?? [],
     loadingTools: !!context && toolsLoading,
     refreshingTools: !!context && toolsFetching,
-    loadingTypes: !!context && includeDtsUrls && hasOpenApiSource && !!inventoryData && dtsLoading,
     // Backward compatibility for callers that still use a single loading state.
     loading: !!context && toolsLoading,
     loadToolDetails,

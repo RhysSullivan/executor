@@ -35,6 +35,16 @@ async function runSandboxBash(
   }
 }
 
+function isSandboxStoppedError(error: unknown): boolean {
+  if (!error) return false;
+  const anyErr = error as any;
+  const status = typeof anyErr?.response?.status === "number" ? anyErr.response.status : null;
+  if (status === 410) return true;
+
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("sandbox_stopped") || message.includes("Status code 410");
+}
+
 function assertSuccess(result: CommandResult, label: string): void {
   if (result.exitCode === 0) {
     return;
@@ -59,52 +69,65 @@ test("installer works in fresh Vercel sandbox", async () => {
         }
       : {};
 
-  let sandbox: Sandbox | null = null;
+  const createSandbox = async () => {
+    try {
+      return await Sandbox.create({
+        runtime: "node22",
+        timeout: 30 * 60 * 1000,
+        ...credentials,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Could not create Vercel sandbox. Configure auth via VERCEL_TOKEN/VERCEL_TEAM_ID/VERCEL_PROJECT_ID or VERCEL_OIDC_TOKEN.\n\n${message}`,
+      );
+    }
+  };
+
+  let sandbox: Sandbox | null = await createSandbox();
 
   try {
-    sandbox = await Sandbox.create({
-      runtime: "node22",
-      timeout: 30 * 60 * 1000,
-      ...credentials,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Could not create Vercel sandbox. Configure auth via VERCEL_TOKEN/VERCEL_TEAM_ID/VERCEL_PROJECT_ID or VERCEL_OIDC_TOKEN.\n\n${message}`,
-    );
-  }
+    const installScript = [
+      "set -euo pipefail",
+      "cd ~",
+      "if [ -x ~/.executor/bin/executor ]; then ~/.executor/bin/executor uninstall --yes || true; fi",
+      "rm -rf ~/.executor",
+      "start=$(date +%s)",
+      "curl -fsSL https://executor.sh/install | bash",
+      "end=$(date +%s)",
+      "echo INSTALL_SECONDS=$((end-start))",
+      "~/.executor/bin/executor doctor --verbose",
+    ].join("; ");
 
-  try {
-    const install = await runSandboxBash(
-      sandbox,
-      [
-        "set -euo pipefail",
-        "cd ~",
-        "if [ -x ~/.executor/bin/executor ]; then ~/.executor/bin/executor uninstall --yes || true; fi",
-        "rm -rf ~/.executor",
-        "start=$(date +%s)",
-        "curl -fsSL https://executor.sh/install | bash",
-        "end=$(date +%s)",
-        "echo INSTALL_SECONDS=$((end-start))",
-        "~/.executor/bin/executor doctor --verbose",
-      ].join("; "),
-      900_000,
-    );
+    let install: CommandResult;
+    try {
+      install = await runSandboxBash(sandbox, installScript, 900_000);
+    } catch (error) {
+      if (!isSandboxStoppedError(error)) {
+        throw error;
+      }
+      // Vercel sandboxes can stop unexpectedly; recreate once and retry.
+      try {
+        await sandbox.stop();
+      } catch {
+        // ignore
+      }
+      sandbox = await createSandbox();
+      install = await runSandboxBash(sandbox, installScript, 900_000);
+    }
     assertSuccess(install, "sandbox install + doctor");
 
     const output = `${install.stdout}\n${install.stderr}`;
     expect(output).toContain("Executor status: ready");
     expect(output).toContain("Functions: bootstrapped");
 
-    const uninstall = await runSandboxBash(
-      sandbox,
-      [
-        "set -euo pipefail",
-        "~/.executor/bin/executor uninstall --yes",
-        "test ! -e ~/.executor/runtime/convex-data/convex_local_backend.sqlite3",
-      ].join("; "),
-      300_000,
-    );
+    const uninstallScript = [
+      "set -euo pipefail",
+      "~/.executor/bin/executor uninstall --yes",
+      "test ! -e ~/.executor/runtime/convex-data/convex_local_backend.sqlite3",
+    ].join("; ");
+
+    const uninstall = await runSandboxBash(sandbox, uninstallScript, 300_000);
     assertSuccess(uninstall, "sandbox uninstall validation");
   } finally {
     await sandbox.stop();

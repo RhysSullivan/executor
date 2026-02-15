@@ -57,7 +57,7 @@ export function TaskComposer() {
 
   const runtimes = useQuery(convexApi.workspace.listRuntimeTargets, {});
   const createTask = useAction(convexApi.executor.createTask);
-  const { tools, dtsUrls, loadingTools, loadingTypes } = useWorkspaceTools(context ?? null);
+  const { tools, typesUrl, loadingTools } = useWorkspaceTools(context ?? null);
   const runtimeTargets = useMemo(() => runtimes ?? [], [runtimes]);
   const effectiveRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
     ? runtimeId
@@ -141,35 +141,15 @@ export function TaskComposer() {
             <span className="text-[10px] font-mono text-muted-foreground">
               {loadingTools
                 ? "Loading tool inventory..."
-                : loadingTypes
-                  ? `${tools.length} tool${tools.length === 1 ? "" : "s"} loaded, type defs warming...`
-                  : `${tools.length} tool${tools.length === 1 ? "" : "s"} ready`}
+                : `${tools.length} tool${tools.length === 1 ? "" : "s"} loaded${typesUrl ? ", type defs ready" : ""}`}
             </span>
           </div>
-          {!loadingTools && loadingTypes && tools.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 rounded-md border border-border/50 bg-muted/20 px-2 py-1.5">
-              {tools.slice(0, 8).map((tool) => (
-                <span
-                  key={tool.path}
-                  className="rounded bg-background px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
-                >
-                  {tool.path}
-                </span>
-              ))}
-              {tools.length > 8 && (
-                <span className="rounded bg-background px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-                  +{tools.length - 8} more
-                </span>
-              )}
-            </div>
-          )}
           <div className="rounded-md border border-border">
             <CodeEditor
               value={code}
               onChange={setCode}
               tools={tools}
-              dtsUrls={dtsUrls}
-              typesLoading={loadingTypes}
+              typesUrl={typesUrl}
               height="400px"
             />
           </div>
