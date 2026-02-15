@@ -1,4 +1,18 @@
+import { Result, TaggedError } from "better-result";
 import { asRecord } from "../utils";
+
+type OpenApiRequestErrorArgs = {
+  status: number | null;
+  message: string;
+};
+
+type GraphqlRequestErrorArgs = {
+  message: string;
+};
+
+class OpenApiRequestError extends TaggedError("OpenApiRequestError")<OpenApiRequestErrorArgs>() {}
+
+class GraphqlRequestError extends TaggedError("GraphqlRequestError")<GraphqlRequestErrorArgs>() {}
 
 export interface OpenApiRequestRunSpec {
   baseUrl: string;
@@ -73,7 +87,7 @@ export async function executeOpenApiRequest(
   runSpec: OpenApiRequestRunSpec,
   input: unknown,
   credentialHeaders?: Record<string, string>,
-): Promise<unknown> {
+): Promise<Result<unknown, OpenApiRequestError>> {
   const payload = asRecord(input);
   const readMethods = new Set(["get", "head", "options"]);
   const { url, bodyInput } = buildOpenApiUrl(
@@ -84,7 +98,7 @@ export async function executeOpenApiRequest(
   );
   const hasBody = !readMethods.has(runSpec.method) && Object.keys(bodyInput).length > 0;
 
-  const response = await fetch(url, {
+  const request = Result.try(() => ({
     method: runSpec.method.toUpperCase(),
     headers: {
       ...runSpec.authHeaders,
@@ -92,18 +106,50 @@ export async function executeOpenApiRequest(
       ...(hasBody ? { "content-type": "application/json" } : {}),
     },
     body: hasBody ? JSON.stringify(bodyInput) : undefined,
-  });
+  }));
+  if (request.isErr()) {
+    return Result.err(new OpenApiRequestError({
+      status: null,
+      message: request.error.message,
+    }));
+  }
+
+  const responseResult = await Result.tryPromise(async () => fetch(url, request.value));
+  if (responseResult.isErr()) {
+    const cause = responseResult.error.cause;
+    return Result.err(new OpenApiRequestError({
+      status: null,
+      message: `OpenAPI request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    }));
+  }
+
+  const response = responseResult.value;
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`);
+    const text = await Result.tryPromise(() => response.text())
+      .map((value) => value.slice(0, 500))
+      .unwrapOr("");
+    return Result.err(new OpenApiRequestError({
+      status: response.status,
+      message: `HTTP ${response.status} ${response.statusText}: ${text}`,
+    }));
   }
 
   const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("json")) {
-    return await response.json();
+  const bodyResult = contentType.includes("json")
+    ? await Result.tryPromise(async () => response.json() as Promise<unknown>)
+    : await Result.tryPromise(() => response.text() as Promise<string>);
+
+  if (bodyResult.isErr()) {
+    return Result.err(new OpenApiRequestError({
+      status: response.status,
+      message: `Failed to read OpenAPI response body: ${
+        bodyResult.error instanceof Error ? bodyResult.error.message : String(bodyResult.error)
+      }`,
+    }));
   }
-  return await response.text();
+
+  return Result.ok(bodyResult.value);
 }
 
 function hasGraphqlData(data: unknown): boolean {
@@ -126,8 +172,8 @@ export async function executeGraphqlRequest(
   query: string,
   variables: unknown,
   credentialHeaders?: Record<string, string>,
-): Promise<GraphqlExecutionEnvelope> {
-  const response = await fetch(endpoint, {
+): Promise<Result<GraphqlExecutionEnvelope, GraphqlRequestError>> {
+  const responseResult = await Result.tryPromise(async () => fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -135,17 +181,41 @@ export async function executeGraphqlRequest(
       ...(credentialHeaders ?? {}),
     },
     body: JSON.stringify({ query, variables }),
-  });
+  }));
+
+  if (responseResult.isErr()) {
+    const cause = responseResult.error.cause;
+    return Result.err(new GraphqlRequestError({
+      message: `GraphQL request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    }));
+  }
+
+  const response = responseResult.value;
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`);
+    const text = await Result.tryPromise(() => response.text()).unwrapOr("");
+    return Result.err(new GraphqlRequestError({
+      message: `HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`,
+    }));
   }
 
-  const result = await response.json() as { data?: unknown; errors?: unknown[] };
+  const result = await Result.tryPromise(async () =>
+    response.json() as Promise<{ data?: unknown; errors?: unknown[] }>
+  );
+  if (result.isErr()) {
+    return Result.err(new GraphqlRequestError({
+      message: `Failed to parse GraphQL response: ${
+        result.error instanceof Error ? result.error.message : String(result.error)
+      }`,
+    }));
+  }
+
+  const decoded = result.value;
   if (result.errors && !hasGraphqlData(result.data)) {
-    throw new Error(`GraphQL errors: ${JSON.stringify(result.errors).slice(0, 1000)}`);
+    return Result.err(new GraphqlRequestError({
+      message: `GraphQL errors: ${JSON.stringify(result.errors).slice(0, 1000)}`,
+    }));
   }
 
-  return normalizeGraphqlEnvelope(result);
+  return Result.ok(normalizeGraphqlEnvelope(decoded));
 }

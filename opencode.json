@@ -13,9 +13,9 @@
 	}
   },
   "agent":{
-
     "quick-build": {
       "mode": "primary",
+      "description": "A smaller context winder but extremely fast at working",
       "model": "openai/gpt-5.3-codex-spark",
       "tools": {
         "write": true,

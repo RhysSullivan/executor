@@ -243,6 +243,146 @@ export declare const api: {
       any
     >;
   };
+  rpcs: {
+    public: {
+      app: {
+        getClientConfig: FunctionReference<"query", "public", {}, any>;
+        getCurrentAccount: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string },
+          any
+        >;
+      };
+      auth: {
+        bootstrapCurrentWorkosAccount: FunctionReference<
+          "mutation",
+          "public",
+          {},
+          any
+        >;
+      };
+      workspace: {
+        bootstrapAnonymousSession: FunctionReference<
+          "mutation",
+          "public",
+          { actorId?: string; sessionId?: string },
+          any
+        >;
+        deleteToolSource: FunctionReference<
+          "mutation",
+          "public",
+          {
+            sessionId?: string;
+            sourceId: string;
+            workspaceId: Id<"workspaces">;
+          },
+          any
+        >;
+        getTaskInWorkspace: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string; taskId: string; workspaceId: Id<"workspaces"> },
+          any
+        >;
+        listAccessPolicies: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string; workspaceId: Id<"workspaces"> },
+          any
+        >;
+        listCredentialProviders: FunctionReference<"query", "public", {}, any>;
+        listCredentials: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string; workspaceId: Id<"workspaces"> },
+          any
+        >;
+        listPendingApprovals: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string; workspaceId: Id<"workspaces"> },
+          any
+        >;
+        listRuntimeTargets: FunctionReference<"query", "public", {}, any>;
+        listTaskEvents: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string; taskId: string; workspaceId: Id<"workspaces"> },
+          any
+        >;
+        listTasks: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string; workspaceId: Id<"workspaces"> },
+          any
+        >;
+        listToolSources: FunctionReference<
+          "query",
+          "public",
+          { sessionId?: string; workspaceId: Id<"workspaces"> },
+          any
+        >;
+        resolveCredential: FunctionReference<
+          "query",
+          "public",
+          {
+            actorId?: string;
+            scope: "workspace" | "actor";
+            sessionId?: string;
+            sourceKey: string;
+            workspaceId: Id<"workspaces">;
+          },
+          any
+        >;
+        upsertAccessPolicy: FunctionReference<
+          "mutation",
+          "public",
+          {
+            actorId?: string;
+            clientId?: string;
+            decision: "allow" | "require_approval" | "deny";
+            id?: string;
+            priority?: number;
+            sessionId?: string;
+            toolPathPattern: string;
+            workspaceId: Id<"workspaces">;
+          },
+          any
+        >;
+        upsertCredential: FunctionReference<
+          "mutation",
+          "public",
+          {
+            actorId?: string;
+            id?: string;
+            overridesJson?: any;
+            provider?: "local-convex" | "workos-vault";
+            scope: "workspace" | "actor";
+            secretJson: any;
+            sessionId?: string;
+            sourceKey: string;
+            workspaceId: Id<"workspaces">;
+          },
+          any
+        >;
+        upsertToolSource: FunctionReference<
+          "mutation",
+          "public",
+          {
+            config: any;
+            enabled?: boolean;
+            id?: string;
+            name: string;
+            sessionId?: string;
+            type: "mcp" | "openapi" | "graphql";
+            workspaceId: Id<"workspaces">;
+          },
+          any
+        >;
+      };
+    };
+  };
   runtimeCallbacks: {
     completeRun: FunctionReference<
       "mutation",
@@ -1218,6 +1358,18 @@ export declare const internal: {
       },
       any
     >;
+  };
+  rpcs: {
+    public: {
+      auth: {
+        authKitEvent: FunctionReference<
+          "mutation",
+          "internal",
+          { data: Record<string, any>; event: string },
+          null
+        >;
+      };
+    };
   };
   toolRegistry: {
     beginBuild: FunctionReference<
