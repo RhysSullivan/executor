@@ -25,7 +25,7 @@ import { asPayload } from "../lib/object";
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version - bump when tool snapshot/registry/type-hint semantics change. */
-const TOOL_SOURCE_CACHE_VERSION = "v24";
+const TOOL_SOURCE_CACHE_VERSION = "v25";
 
 export function sourceSignature(workspaceId: string, sources: Array<{ id: string; updatedAt: number; enabled: boolean }>): string {
   const parts = sources
