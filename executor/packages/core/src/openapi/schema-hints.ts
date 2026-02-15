@@ -308,6 +308,93 @@ function extractStringLiteralFromSchema(schema: JsonSchema): string | null {
   return null;
 }
 
+function repairMissingRequiredProperties(
+  variants: JsonSchema[],
+  depth: number,
+  componentSchemas?: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): JsonSchema[] {
+  // Some specs are internally inconsistent: a property is listed in `required`
+  // but omitted from `properties` while `additionalProperties: false`.
+  // In that case the schema is unsatisfiable; for *type hints* we patch it
+  // by borrowing the property schema from sibling variants when it is stable.
+  if (variants.length < 2) return variants;
+  if (!variants.every(isObjectSchema)) return variants;
+
+  const requiredLists = variants.map((v) => new Set(
+    (Array.isArray(v.required) ? v.required : []).filter((k): k is string => typeof k === "string"),
+  ));
+  const propsLists = variants.map((v) => asRecord(v.properties));
+
+  const keysToConsider = new Set<string>();
+  for (const req of requiredLists) {
+    for (const k of req) keysToConsider.add(k);
+  }
+
+  type InferredProp = { hint: string; schema: JsonSchema };
+  const inferred = new Map<string, InferredProp>();
+
+  for (const key of keysToConsider) {
+    const candidates: Array<{ hint: string; schema: JsonSchema }> = [];
+    for (let i = 0; i < variants.length; i++) {
+      const props = propsLists[i]!;
+      const schema = props[key];
+      if (!schema || typeof schema !== "object") continue;
+      const hint = jsonSchemaTypeHintFallback(schema, depth + 1, componentSchemas, seenRefs);
+      if (!hint || hint === "unknown") continue;
+      candidates.push({ hint, schema: schema as JsonSchema });
+    }
+
+    if (candidates.length === 0) continue;
+    const firstHint = candidates[0]!.hint;
+    if (candidates.some((c) => c.hint !== firstHint)) continue;
+    inferred.set(key, { hint: firstHint, schema: candidates[0]!.schema });
+  }
+
+  if (inferred.size === 0) return variants;
+
+  let changed = false;
+  const out: JsonSchema[] = [];
+
+  for (let i = 0; i < variants.length; i++) {
+    const variant = variants[i]!;
+    const additionalProperties = (variant as Record<string, unknown>).additionalProperties;
+    // Only patch the strict case where the omission would make the schema invalid.
+    if (additionalProperties !== false) {
+      out.push(variant);
+      continue;
+    }
+
+    const required = requiredLists[i]!;
+    const props = propsLists[i]!;
+    const missing: string[] = [];
+
+    for (const key of required) {
+      if (props[key] !== undefined) continue;
+      if (!inferred.has(key)) continue;
+      missing.push(key);
+    }
+
+    if (missing.length === 0) {
+      out.push(variant);
+      continue;
+    }
+
+    changed = true;
+    const nextProps: Record<string, unknown> = { ...props };
+    for (const key of missing) {
+      nextProps[key] = inferred.get(key)!.schema;
+    }
+
+    out.push({
+      ...variant,
+      properties: nextProps,
+    } as JsonSchema);
+  }
+
+  return changed ? out : variants;
+}
+
 function mergeDiscriminatedObjectUnionVariants(
   variants: JsonSchema[],
   discriminantKey: string,
@@ -554,7 +641,7 @@ function tryFactorCommonObjectFields(
   );
 
   const residualType = partiallyFactoredResidual
-    ?? joinUnion(residualSchemas.map((s) => jsonSchemaTypeHintFallback(s, depth + 1, componentSchemas, seenRefs)));
+    ?? jsonSchemaTypeHintFallback({ oneOf: residualSchemas }, depth + 1, componentSchemas, seenRefs);
   if (residualType === "unknown") return commonType;
 
   return `${commonType} & (${residualType})`;
@@ -733,8 +820,14 @@ export function jsonSchemaTypeHintFallback(
     const variants = normalizeUnionSchemaVariants(
       oneOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
     );
-    const objectVariantsMerged = mergeDiscriminatedObjectUnionVariants(
+    const objectVariantsPrepared = repairMissingRequiredProperties(
       variants.filter(isObjectSchema),
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    const objectVariantsMerged = mergeDiscriminatedObjectUnionVariants(
+      objectVariantsPrepared,
       "type",
       depth,
       componentSchemas,
@@ -776,8 +869,14 @@ export function jsonSchemaTypeHintFallback(
     const variants = normalizeUnionSchemaVariants(
       anyOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
     );
-    const objectVariantsMerged = mergeDiscriminatedObjectUnionVariants(
+    const objectVariantsPrepared = repairMissingRequiredProperties(
       variants.filter(isObjectSchema),
+      depth,
+      componentSchemas,
+      seenRefs,
+    );
+    const objectVariantsMerged = mergeDiscriminatedObjectUnionVariants(
+      objectVariantsPrepared,
       "type",
       depth,
       componentSchemas,

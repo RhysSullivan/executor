@@ -303,3 +303,36 @@ test("jsonSchemaTypeHintFallback merges discriminated object variants that only 
   expect(hint).not.toContain("type: \"A\"; value");
   expect(hint).not.toContain("type: \"AAAA\"; value");
 });
+
+test("jsonSchemaTypeHintFallback repairs missing required properties for strict object union variants", () => {
+  const schema = {
+    oneOf: [
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          type: { type: "string", enum: ["A"] },
+          name: { type: "string" },
+          value: { type: "string" },
+        },
+        required: ["type", "name", "value"],
+      },
+      {
+        // Buggy: requires `name` but doesn't declare it.
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          type: { type: "string", enum: ["TXT"] },
+          value: { type: "string" },
+        },
+        required: ["type", "name", "value"],
+      },
+    ],
+  };
+
+  const hint = jsonSchemaTypeHintFallback(schema);
+  // Should include name even though one branch omitted it.
+  expect(hint).toContain("name: string");
+  expect(hint).toContain("value: string");
+  expect(hint).toContain("type: \"A\" | \"TXT\"");
+});
