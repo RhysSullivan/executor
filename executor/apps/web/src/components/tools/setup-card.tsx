@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, ChevronRight, Copy } from "lucide-react";
 import Image from "next/image";
+import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -64,8 +65,6 @@ export function McpSetupCard({
   const [selectedProviderId, setSelectedProviderId] = useState(MCP_PROVIDERS[0]?.id ?? "claude-code");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [headersOpen, setHeadersOpen] = useState(false);
-  const [anonymousAccessToken, setAnonymousAccessToken] = useState<string | null>(null);
-  const [anonymousTokenError, setAnonymousTokenError] = useState<string | null>(null);
 
   const origin = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -86,34 +85,22 @@ export function McpSetupCard({
 
   const isAnonymousSession = isAnonymousSessionId(sessionId);
 
-  useEffect(() => {
-    let cancelled = false;
+  const anonymousTokenQuery = useTanstackQuery<{ accessToken: string; actorId: string; expiresAtMs: number } | null>({
+    queryKey: ["mcp-anonymous-token", sessionId],
+    queryFn: async () => {
+      const token = await getAnonymousAuthToken();
+      return token;
+    },
+    enabled: isAnonymousSession,
+    retry: false,
+  });
 
-    if (!isAnonymousSession) {
-      return;
-    }
-
-    const hydrateToken = async () => {
-      try {
-        const token = await getAnonymousAuthToken();
-        if (!cancelled) {
-          setAnonymousAccessToken(token.accessToken);
-          setAnonymousTokenError(null);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setAnonymousAccessToken(null);
-          setAnonymousTokenError(error instanceof Error ? error.message : "Failed to get anonymous token");
-        }
-      }
-    };
-
-    void hydrateToken();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isAnonymousSession, sessionId]);
+  const anonymousAccessToken = anonymousTokenQuery.data?.accessToken ?? null;
+  const anonymousTokenError = anonymousTokenQuery.isError
+    ? anonymousTokenQuery.error instanceof Error
+      ? anonymousTokenQuery.error.message
+      : "Failed to get anonymous token"
+    : null;
 
   const headerLines = useMemo(() => {
     return [

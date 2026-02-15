@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
+import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import Editor, { type OnMount, type BeforeMount, type Monaco } from "@monaco-editor/react";
 import { Loader2 } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -34,12 +35,32 @@ export function CodeEditor({
   height = "400px",
 }: CodeEditorProps) {
   const { resolvedTheme } = useTheme();
-  const [typesHydrating, setTypesHydrating] = useState(false);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const envLibDisposable = useRef<{ dispose: () => void } | null>(null);
   const toolsLibDisposable = useRef<{ dispose: () => void } | null>(null);
   const toolsLibVersion = useRef(0);
+
+  const typesBundleQuery = useTanstackQuery<string>({
+    queryKey: ["executor-tool-types", typesUrl],
+    queryFn: async ({ signal }) => {
+      if (!typesUrl) {
+        throw new Error("No types URL provided");
+      }
+
+      const resp = await fetch(typesUrl, { signal });
+      if (!resp.ok) {
+        throw new Error(`Failed to load tool types: ${resp.status}`);
+      }
+
+      return resp.text();
+    },
+    enabled: Boolean(typesUrl),
+    retry: false,
+    staleTime: Infinity,
+  });
+
+  const typesHydrating = typesBundleQuery.isLoading || typesBundleQuery.isFetching;
   useEffect(() => {
     const m = monacoRef.current;
     if (!m) return;
@@ -57,43 +78,24 @@ export function CodeEditor({
     );
   }, [tools]);
 
-  // Fetch and register workspace type bundle
+  // Register fetched workspace type bundle.
   useEffect(() => {
+    if (!typesBundleQuery.data) {
+      return;
+    }
+
     const m = monacoRef.current;
     if (!m) return;
 
     const jsDefaults = m.languages.typescript.javascriptDefaults;
 
-    if (!typesUrl) {
-      return;
-    }
-
-    let cancelled = false;
-    void Promise.resolve()
-      .then(async () => {
-        setTypesHydrating(true);
-        const resp = await fetch(typesUrl);
-        if (!resp.ok || cancelled) return;
-        const content = await resp.text();
-        if (cancelled) return;
-
-        toolsLibDisposable.current?.dispose();
-        const version = ++toolsLibVersion.current;
-        toolsLibDisposable.current = jsDefaults.addExtraLib(
-          content,
-          `file:///node_modules/@types/executor-tools/v${version}.d.ts`,
-        );
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setTypesHydrating(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [typesUrl]);
+    toolsLibDisposable.current?.dispose();
+    const version = ++toolsLibVersion.current;
+    toolsLibDisposable.current = jsDefaults.addExtraLib(
+      typesBundleQuery.data,
+      `file:///node_modules/@types/executor-tools/v${version}.d.ts`,
+    );
+  }, [typesBundleQuery.data]);
 
   // Avoid transient semantic errors while tool metadata is still loading.
   useEffect(() => {

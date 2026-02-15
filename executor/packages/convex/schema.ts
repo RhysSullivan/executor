@@ -55,6 +55,7 @@ const toolCallStatus = v.union(
   v.literal("failed"),
   v.literal("denied"),
 );
+const toolApprovalMode = v.union(v.literal("auto"), v.literal("required"));
 const policyDecision = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
 const credentialProvider = v.union(
@@ -423,6 +424,61 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"]),
+
+  // Workspace tool registry state.
+  // Stores the currently "ready" build id for search + invocation.
+  workspaceToolRegistryState: defineTable({
+    workspaceId: v.id("workspaces"),
+    signature: v.string(),
+    readyBuildId: v.optional(v.string()),
+    buildingBuildId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"]),
+
+  // Per-tool registry entries for fast discover + invocation.
+  // NOTE: We avoid storing raw JSON Schemas here because Convex forbids `$`-prefixed keys.
+  workspaceToolRegistry: defineTable({
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    path: v.string(),
+    preferredPath: v.string(),
+    aliases: v.array(v.string()),
+    description: v.string(),
+    approval: toolApprovalMode,
+    source: v.optional(v.string()),
+    searchText: v.string(),
+    displayInput: v.optional(v.string()),
+    displayOutput: v.optional(v.string()),
+    requiredInputKeys: v.optional(v.array(v.string())),
+    previewInputKeys: v.optional(v.array(v.string())),
+    typedRef: v.optional(v.object({
+      kind: v.literal("openapi_operation"),
+      sourceKey: v.string(),
+      operationId: v.string(),
+    })),
+    // JSON string of a core SerializedTool (safe to contain `$ref` etc in string content).
+    serializedToolJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_workspace_build_path", ["workspaceId", "buildId", "path"])
+    .index("by_workspace_build", ["workspaceId", "buildId"])
+    .searchIndex("search_text", {
+      searchField: "searchText",
+      filterFields: ["workspaceId", "buildId"],
+    }),
+
+  // Alias -> canonical path mapping for registry lookups.
+  workspaceToolAliases: defineTable({
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    alias: v.string(),
+    path: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_workspace_build_alias", ["workspaceId", "buildId", "alias"])
+    .index("by_workspace_build", ["workspaceId", "buildId"]),
 
   // Anonymous session linkage.
   // Used to map an unauthenticated/anonymous actor to a backing `accounts` row and a
