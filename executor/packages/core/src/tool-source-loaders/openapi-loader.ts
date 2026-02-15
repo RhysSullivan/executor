@@ -13,7 +13,6 @@ import {
 import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman-runtime";
 import { prepareOpenApiSpec } from "../openapi-prepare";
 import type { OpenApiToolSourceConfig } from "../tool/source-types";
-import { compactArgTypeHint, compactReturnTypeHint } from "../type-hints";
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";
 import type { SerializedTool } from "../tool/source-serialization";
@@ -84,8 +83,16 @@ async function loadPostmanCollectionTools(
   const readMethods = new Set(["get", "head", "options"]);
   const usedPaths = new Set<string>();
   const collectionVariables = extractPostmanVariableMap(collection.variables);
-  const argsType = "{ variables?: Record<string, string | number | boolean>; query?: Record<string, string | number | boolean>; headers?: Record<string, string>; body?: unknown }";
-  const returnsType = "unknown";
+  const inputSchema: Record<string, unknown> = {
+    type: "object",
+    properties: {
+      variables: {},
+      query: {},
+      headers: {},
+      body: {},
+    },
+  };
+  const previewInputKeys = ["variables", "query", "headers", "body"];
 
   const tools: ToolDefinition[] = [];
 
@@ -130,13 +137,10 @@ async function loadPostmanCollectionTools(
       description: typeof request.description === "string" && request.description.trim().length > 0
         ? request.description
         : `${method.toUpperCase()} ${url}`,
-      metadata: {
-        argsType,
-        returnsType,
-        displayArgsType: compactArgTypeHint(argsType),
-        displayReturnsType: compactReturnTypeHint(returnsType),
-        argPreviewKeys: ["variables", "query", "headers", "body"],
-        operationId: requestId || requestName,
+      typing: {
+        inputSchema,
+        outputSchema: {},
+        previewInputKeys,
       },
       credential: credentialSpec,
       _runSpec: runSpec,

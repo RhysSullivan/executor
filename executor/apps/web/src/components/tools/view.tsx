@@ -76,12 +76,11 @@ export function ToolsView({
     warnings,
     sourceQuality,
     sourceAuthProfiles,
-    sourceSchemas,
     loadingSources,
     loadingTools,
     refreshingTools,
     loadToolDetails,
-  } = useWorkspaceTools(context ?? null, { includeDetails: false, includeDtsUrls: false });
+  } = useWorkspaceTools(context ?? null, { includeDetails: false });
   const existingSourceNames = useMemo(() => new Set(sourceItems.map((source) => source.name)), [sourceItems]);
   const toolSourceNames = useMemo(
     () => new Set(tools.map((tool) => sourceLabel(tool.source))),
@@ -196,7 +195,6 @@ export function ToolsView({
                   loading={loadingTools}
                   sourceDialogMeta={sourceDialogMeta}
                   sourceAuthProfiles={sourceAuthProfiles}
-                  sourceSchemas={sourceSchemas}
                   existingSourceNames={existingSourceNames}
                   onLoadToolDetails={loadToolDetails}
                   warnings={warnings}

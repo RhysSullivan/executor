@@ -1,6 +1,20 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+// Convex database schema.
+//
+// Conventions used throughout:
+// - Most tables have `createdAt` / `updatedAt` as epoch milliseconds.
+// - Some tables use a *domain id* string (eg `task_<uuid>`, `approval_<uuid>`) in addition
+//   to Convex's built-in `_id`. When present, the domain id is what gets referenced across
+//   systems and in logs; `_id` stays internal to Convex.
+// - `actorId` is an external-ish identifier and is intentionally a string in some tables.
+//   It can be an `accounts._id` string or an `anon_<uuid>` value.
+//
+// The small validators below act like enums for schema fields.
+// Note: Some of these are duplicated as request validators under `executor/packages/convex/database/validators.ts`
+// and in a few feature modules. Keep the literal sets aligned to avoid drift.
+
 const accountProvider = v.union(v.literal("workos"), v.literal("anonymous"));
 const accountStatus = v.union(v.literal("active"), v.literal("deleted"));
 const organizationStatus = v.union(v.literal("active"), v.literal("deleted"));
@@ -50,6 +64,10 @@ const credentialProvider = v.union(
 const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
 
 export default defineSchema({
+  // User identities (WorkOS-backed or anonymous).
+  //
+  // Primary access patterns:
+  // - Lookup by provider + providerAccountId (WorkOS user id / anon id).
   accounts: defineTable({
     provider: accountProvider,
     providerAccountId: v.string(), // WorkOS user ID or anon_* UUID
@@ -65,6 +83,12 @@ export default defineSchema({
   })
     .index("by_provider", ["provider", "providerAccountId"]),
 
+  // Workspaces are the main unit of isolation for tasks, tools, and credentials.
+  // A workspace always belongs to exactly one `organizations` row.
+  //
+  // Primary access patterns:
+  // - Resolve by slug (global) or by (organizationId, slug).
+  // - List workspaces in an org by creation time.
   workspaces: defineTable({
     workosOrgId: v.optional(v.string()), // external WorkOS org ID
     organizationId: v.id("organizations"),
@@ -80,6 +104,12 @@ export default defineSchema({
     .index("by_organization_slug", ["organizationId", "slug"])
     .index("by_slug", ["slug"]),
 
+  // Billing / membership umbrella entity.
+  // Note: WorkOS organization id is stored here and mirrored onto `workspaces` for convenience.
+  //
+  // Primary access patterns:
+  // - Resolve by slug.
+  // - Resolve by WorkOS org id.
   organizations: defineTable({
     workosOrgId: v.optional(v.string()), // external WorkOS org ID
     slug: v.string(),
@@ -93,6 +123,13 @@ export default defineSchema({
     .index("by_slug", ["slug"])
     .index("by_status_created", ["status", "createdAt"]),
 
+  // Membership of an account within an organization.
+  // `billable` drives seat-count calculations.
+  //
+  // Primary access patterns:
+  // - List members in org.
+  // - Get membership for (org, account).
+  // - Count billable active members (org, billable, status).
   organizationMembers: defineTable({
     organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
@@ -110,6 +147,12 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_org_billable_status", ["organizationId", "billable", "status"]),
 
+  // Membership of an account within a workspace (scopes app permissions within the org).
+  //
+  // Primary access patterns:
+  // - List members in workspace.
+  // - Get membership for (workspace, account).
+  // - Lookup by WorkOS membership id during auth event handlers.
   workspaceMembers: defineTable({
     workspaceId: v.id("workspaces"),
     accountId: v.id("accounts"),
@@ -124,6 +167,12 @@ export default defineSchema({
     .index("by_account", ["accountId"])
     .index("by_workos_membership_id", ["workosOrgMembershipId"]),
 
+  // Organization (and optionally workspace-specific) email invites.
+  // Provider-specific invite id is stored once WorkOS invite delivery succeeds.
+  //
+  // Primary access patterns:
+  // - List invites for org.
+  // - Find invites by (org, email, status) during acceptance flows.
   invites: defineTable({
     organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
@@ -140,6 +189,11 @@ export default defineSchema({
     .index("by_org", ["organizationId"])
     .index("by_org_email_status", ["organizationId", "email", "status"]),
 
+  // Stripe customer linkage for an organization.
+  //
+  // Primary access patterns:
+  // - Resolve by organization.
+  // - (Potential/expected) resolve by Stripe customer id in webhook reconciliation.
   billingCustomers: defineTable({
     organizationId: v.id("organizations"),
     stripeCustomerId: v.string(), // external Stripe customer ID
@@ -149,6 +203,11 @@ export default defineSchema({
     .index("by_org", ["organizationId"])
     .index("by_stripe_customer_id", ["stripeCustomerId"]),
 
+  // Stripe subscription state for an organization.
+  //
+  // Primary access patterns:
+  // - List subscriptions for an org.
+  // - (Potential/expected) resolve by subscription id and filter by status.
   billingSubscriptions: defineTable({
     organizationId: v.id("organizations"),
     stripeSubscriptionId: v.string(), // external Stripe subscription ID
@@ -165,6 +224,8 @@ export default defineSchema({
     .index("by_org_status", ["organizationId", "status"])
     .index("by_stripe_subscription_id", ["stripeSubscriptionId"]),
 
+  // Seat syncing bookkeeping (eg Stripe per-seat quantity).
+  // Stored separately from subscription records so sync logic can be retried/idempotent.
   billingSeatState: defineTable({
     organizationId: v.id("organizations"),
     desiredSeats: v.number(),
@@ -175,6 +236,13 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_org", ["organizationId"]),
 
+  // Task executions (code run in a runtime for a workspace).
+  // Note: `taskId` is a stable domain id used across systems; `_id` is Convex internal.
+  //
+  // Primary access patterns:
+  // - Resolve by domain task id.
+  // - List recent tasks in a workspace.
+  // - Poll queues by status.
   tasks: defineTable({
     taskId: v.string(), // domain ID: task_<uuid>
     code: v.string(),
@@ -198,6 +266,12 @@ export default defineSchema({
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_status_created", ["status", "createdAt"]),
 
+  // Approval records for sensitive tool calls.
+  // `taskId` references `tasks.taskId` (domain id), not `tasks._id`.
+  //
+  // Primary access patterns:
+  // - Resolve by approval id.
+  // - List approvals by workspace and status.
   approvals: defineTable({
     approvalId: v.string(), // domain ID: approval_<uuid>
     taskId: v.string(), // references tasks.taskId (not tasks._id)
@@ -214,6 +288,12 @@ export default defineSchema({
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_workspace_status_created", ["workspaceId", "status", "createdAt"]),
 
+  // Individual tool call rows emitted during a task.
+  //
+  // Primary access patterns:
+  // - Get a specific call by (taskId, callId).
+  // - List calls for a task ordered by creation time.
+  // - (Potential/expected) resolve via approval id to tie approvals to tool call rows.
   toolCalls: defineTable({
     taskId: v.string(),
     callId: v.string(),
@@ -231,6 +311,8 @@ export default defineSchema({
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_approval_id", ["approvalId"]),
 
+  // Append-only event log for a task.
+  // `sequence` is monotonically increasing per task (used for ordered replay).
   taskEvents: defineTable({
     sequence: v.number(),
     taskId: v.string(), // references tasks.taskId (not tasks._id)
@@ -241,6 +323,9 @@ export default defineSchema({
   })
     .index("by_task_sequence", ["taskId", "sequence"]),
 
+  // Workspace access policy rules used by the approval / tool firewall.
+  // `toolPathPattern` is matched against tool paths and combined with actor/client selectors.
+  // Higher `priority` wins when multiple policies match.
   accessPolicies: defineTable({
     policyId: v.string(), // domain ID: policy_<uuid>
     workspaceId: v.id("workspaces"),
@@ -255,6 +340,15 @@ export default defineSchema({
     .index("by_policy_id", ["policyId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"]),
 
+  // Stored credentials for tool sources.
+  //
+  // A single credential "connection" (credentialId) can have multiple rows to support
+  // different bindings (workspace-wide and per-actor). `bindingId` exists as a stable handle
+  // for UI/API operations that need an id before the connection id is known.
+  //
+  // Primary access patterns:
+  // - Resolve by (workspaceId, sourceKey, scope, actorId) - actorId is "" for workspace scope.
+  // - List all credentials in workspace by createdAt.
   sourceCredentials: defineTable({
     bindingId: v.string(), // domain ID: bind_<uuid>
     credentialId: v.string(), // domain ID: conn_<uuid>
@@ -274,6 +368,14 @@ export default defineSchema({
     .index("by_workspace_credential", ["workspaceId", "credentialId"])
     .index("by_binding_id", ["bindingId"]),
 
+  // Configured tool sources for a workspace (MCP servers, OpenAPI sources, GraphQL sources).
+  // `specHash` enables cache invalidation when the definition changes.
+  // `authFingerprint` is used to determine whether cached tool materialization is still valid.
+  //
+  // Primary access patterns:
+  // - Resolve by domain source id.
+  // - List sources by workspace, sorted by updatedAt.
+  // - Enforce name uniqueness per workspace.
   toolSources: defineTable({
     sourceId: v.string(), // domain ID: src_<uuid>
     workspaceId: v.id("workspaces"),
@@ -290,6 +392,8 @@ export default defineSchema({
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
     .index("by_workspace_name", ["workspaceId", "name"]),
 
+  // Cached OpenAPI spec blobs stored in Convex storage.
+  // (specUrl, version) uniquely identifies a stored spec payload.
   openApiSpecCache: defineTable({
     specUrl: v.string(),
     storageId: v.id("_storage"),
@@ -299,21 +403,35 @@ export default defineSchema({
   })
     .index("by_spec_url_version", ["specUrl", "version"]),
 
+  // Cached, materialized tool catalog for a workspace.
+  // This stores large artifacts (compiled tool definitions and per-source .d.ts files)
+  // in `_storage` and keeps pointers + metadata here.
   workspaceToolCache: defineTable({
     workspaceId: v.id("workspaces"),
     signature: v.string(),
     storageId: v.id("_storage"),
-    /** Per-source .d.ts blobs stored separately (too large for action responses). */
-    dtsStorageIds: v.array(v.object({
+    /** Legacy per-source OpenAPI .d.ts blobs. No longer used; retained for safe schema upgrades. */
+    dtsStorageIds: v.optional(v.array(v.object({
       sourceKey: v.string(),
       storageId: v.id("_storage"),
-    })),
+      sizeBytes: v.number(),
+    }))),
+    /** Workspace-wide Monaco type bundle (.d.ts) stored separately. */
+    typesStorageId: v.optional(v.id("_storage")),
     toolCount: v.number(),
     sizeBytes: v.number(),
     createdAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"]),
 
+  // Anonymous session linkage.
+  // Used to map an unauthenticated/anonymous actor to a backing `accounts` row and a
+  // `workspaceMembers` user entry.
+  //
+  // Primary access patterns:
+  // - Resolve by session id.
+  // - Resolve by (workspaceId, actorId) to find an existing session.
+  // - List sessions for an account.
   anonymousSessions: defineTable({
     sessionId: v.string(), // domain ID: anon_session_<uuid> or mcp_<uuid>
     workspaceId: v.id("workspaces"),

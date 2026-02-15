@@ -4,6 +4,7 @@ import type { ActionCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel.d.ts";
 import { createCatalogTools, createDiscoverTool } from "../../core/src/tool-discovery";
+import { buildWorkspaceTypeBundle } from "../../core/src/tool-typing/typebundle";
 import {
   materializeCompiledToolSource,
   materializeWorkspaceSnapshot,
@@ -18,24 +19,79 @@ import type {
   ToolDefinition,
   ToolDescriptor,
 } from "../../core/src/types";
-import {
-  extractSchemaRefKeys,
-  extractSourceSchemaTypesFromDts,
-} from "../../core/src/tool-discovery/schema-registry";
 import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_descriptors";
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
 
 const baseTools = new Map<string, ToolDefinition>();
 
-interface DtsStorageEntry {
-  sourceKey: string;
-  storageId: Id<"_storage">;
-}
+// Minimal built-in tools used by tests/demos.
+// These are intentionally simple and are always approval-gated.
+baseTools.set("admin.send_announcement", {
+  path: "admin.send_announcement",
+  source: "system",
+  approval: "required",
+  description: "Send an announcement message (demo tool; approval-gated).",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        channel: { type: "string" },
+        message: { type: "string" },
+      },
+      required: ["channel", "message"],
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        ok: { type: "boolean" },
+        channel: { type: "string" },
+        message: { type: "string" },
+      },
+      required: ["ok", "channel", "message"],
+      additionalProperties: false,
+    },
+  },
+  run: async (input: unknown) => {
+    const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+    const channel = typeof payload.channel === "string" ? payload.channel : "";
+    const message = typeof payload.message === "string" ? payload.message : "";
+    return { ok: true, channel, message };
+  },
+});
+
+baseTools.set("admin.delete_data", {
+  path: "admin.delete_data",
+  source: "system",
+  approval: "required",
+  description: "Delete data (demo tool; approval-gated).",
+  typing: {
+    inputSchema: {
+      type: "object",
+      properties: {
+        key: { type: "string" },
+        id: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+    outputSchema: {
+      type: "object",
+      properties: {
+        ok: { type: "boolean" },
+      },
+      required: ["ok"],
+      additionalProperties: false,
+    },
+  },
+  run: async () => {
+    return { ok: true };
+  },
+});
 
 interface WorkspaceToolsResult {
   tools: Map<string, ToolDefinition>;
   warnings: string[];
-  dtsStorageIds: DtsStorageEntry[];
+  typesStorageId?: Id<"_storage">;
   debug: WorkspaceToolsDebug;
 }
 
@@ -54,7 +110,6 @@ export interface WorkspaceToolsDebug {
 }
 
 interface GetWorkspaceToolsOptions {
-  includeDts?: boolean;
   sourceTimeoutMs?: number;
   allowStaleOnMismatch?: boolean;
   skipCacheRead?: boolean;
@@ -64,10 +119,9 @@ interface GetWorkspaceToolsOptions {
 interface WorkspaceToolInventory {
   tools: ToolDescriptor[];
   warnings: string[];
-  dtsStorageIds: DtsStorageEntry[];
+  typesUrl?: string;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  sourceSchemas: Record<string, Record<string, string>>;
   debug: WorkspaceToolsDebug;
 }
 
@@ -122,102 +176,6 @@ function computeSourceAuthProfiles(tools: Map<string, ToolDefinition>): Record<s
   return profiles;
 }
 
-function formatSchemaRefToken(schemaKey: string): string {
-  return `components["schemas"][${JSON.stringify(schemaKey)}]`;
-}
-
-function collectSchemaKeysBySource(tools: ToolDescriptor[]): Map<string, Set<string>> {
-  const refsBySource = new Map<string, Set<string>>();
-
-  for (const tool of tools) {
-    if (!tool.source) continue;
-    const candidateTypes = [
-      tool.strictArgsType,
-      tool.strictReturnsType,
-      tool.argsType,
-      tool.returnsType,
-    ];
-
-    for (const typeExpression of candidateTypes) {
-      if (!typeExpression) continue;
-      const keys = extractSchemaRefKeys(typeExpression);
-      if (keys.length === 0) continue;
-
-      let sourceRefs = refsBySource.get(tool.source);
-      if (!sourceRefs) {
-        sourceRefs = new Set<string>();
-        refsBySource.set(tool.source, sourceRefs);
-      }
-
-      for (const key of keys) {
-        sourceRefs.add(key);
-      }
-    }
-  }
-
-  return refsBySource;
-}
-
-async function loadSourceSchemasForTools(
-  ctx: ActionCtx,
-  tools: ToolDescriptor[],
-  dtsStorageIds: DtsStorageEntry[],
-): Promise<Record<string, Record<string, string>>> {
-  const refsBySource = collectSchemaKeysBySource(tools);
-  if (refsBySource.size === 0 || dtsStorageIds.length === 0) {
-    return {};
-  }
-
-  const storageBySource = new Map<string, Id<"_storage">>();
-  for (const entry of dtsStorageIds) {
-    storageBySource.set(entry.sourceKey, entry.storageId);
-  }
-
-  const entries = await Promise.all([...refsBySource.entries()].map(async ([source, keys]) => {
-    const storageId = storageBySource.get(source);
-    if (!storageId) {
-      return null;
-    }
-
-    try {
-      const blob = await ctx.storage.get(storageId);
-      if (!blob) {
-        return null;
-      }
-
-      const dtsText = await blob.text();
-      const schemaTypes = extractSourceSchemaTypesFromDts(dtsText);
-      if (Object.keys(schemaTypes).length === 0) {
-        return null;
-      }
-
-      const sourceSchemas: Record<string, string> = {};
-      for (const key of keys) {
-        const schemaType = schemaTypes[key];
-        if (!schemaType) continue;
-        sourceSchemas[formatSchemaRefToken(key)] = schemaType;
-      }
-
-      if (Object.keys(sourceSchemas).length === 0) {
-        return null;
-      }
-
-      return [source, sourceSchemas] as const;
-    } catch {
-      return null;
-    }
-  }));
-
-  const sourceSchemas: Record<string, Record<string, string>> = {};
-  for (const entry of entries) {
-    if (!entry) continue;
-    const [source, schemas] = entry;
-    sourceSchemas[source] = schemas;
-  }
-
-  return sourceSchemas;
-}
-
 function mergeToolsWithCatalog(externalTools: Iterable<ToolDefinition>): Map<string, ToolDefinition> {
   const merged = new Map<string, ToolDefinition>();
 
@@ -253,7 +211,7 @@ export async function getWorkspaceTools(
   };
 
   const listSourcesStartedAt = Date.now();
-  const includeDts = options.includeDts ?? false;
+  const includeDts = true;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch ?? false;
   const actorId = options.actorId;
@@ -296,16 +254,13 @@ export async function getWorkspaceTools(
         const merged = mergeToolsWithCatalog(restored);
         traceStep("cacheHydrate", cacheHydrateStartedAt);
 
-        const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
+        const typesStorageId = cacheEntry.typesStorageId as Id<"_storage"> | undefined;
         if (cacheEntry.isFresh) {
-          const hasCachedDts = dtsStorageIds.length > 0;
-          if (includeDts && hasOpenApiSource && !hasCachedDts) {
-            // Continue into rebuild path to generate missing DTS.
-          } else {
+          if (typesStorageId) {
             return {
               tools: merged,
               warnings: snapshot.warnings,
-              dtsStorageIds,
+              typesStorageId,
               debug: {
                 ...debugBase,
                 mode: "cache-fresh",
@@ -318,11 +273,12 @@ export async function getWorkspaceTools(
               },
             };
           }
-        } else if (allowStaleOnMismatch && !includeDts) {
+          // Continue into rebuild path to generate missing type bundle.
+        } else if (allowStaleOnMismatch) {
           return {
             tools: merged,
             warnings: [...snapshot.warnings, "Tool sources changed; showing previous results while refreshing."],
-            dtsStorageIds,
+            typesStorageId,
             debug: {
               ...debugBase,
               mode: "cache-stale",
@@ -374,6 +330,7 @@ export async function getWorkspaceTools(
       warnings: string[];
       timedOut: boolean;
       sourceName: string;
+      openApiDts?: string;
     }>((resolve) => {
       timer = setTimeout(() => {
         resolve({
@@ -381,6 +338,7 @@ export async function getWorkspaceTools(
           warnings: [`Source '${config.name}' is still loading; showing partial results.`],
           timedOut: true,
           sourceName: config.name,
+          openApiDts: undefined,
         });
       }, sourceTimeoutMs);
     });
@@ -406,13 +364,13 @@ export async function getWorkspaceTools(
     .map((loaded) => loaded.sourceName);
   const merged = mergeToolsWithCatalog(externalTools);
 
-  let dtsStorageIds: DtsStorageEntry[] = [];
+  let typesStorageId: Id<"_storage"> | undefined;
   try {
     if (hasTimedOutSource) {
       return {
         tools: merged,
         warnings,
-        dtsStorageIds,
+        typesStorageId,
         debug: {
           ...debugBase,
           mode: "rebuild",
@@ -429,39 +387,23 @@ export async function getWorkspaceTools(
     const snapshotWriteStartedAt = Date.now();
     const allTools = [...merged.values()];
 
-    const seenDtsSources = new Set<string>();
-    const dtsEntries: { sourceKey: string; content: string }[] = [];
-    for (const artifact of externalArtifacts) {
-      for (const tool of artifact.tools) {
-        if (tool.metadata?.sourceDts && tool.source && !seenDtsSources.has(tool.source)) {
-          seenDtsSources.add(tool.source);
-          dtsEntries.push({ sourceKey: tool.source, content: tool.metadata.sourceDts });
-        }
+    // Build and store a workspace-wide Monaco type bundle.
+    const openApiDtsBySource: Record<string, string> = {};
+    for (const loaded of loadedSources) {
+      if (loaded.openApiDts && loaded.openApiDts.trim().length > 0) {
+        openApiDtsBySource[`openapi:${loaded.sourceName}`] = loaded.openApiDts;
       }
     }
-
-    const storedDts = await Promise.all(
-      dtsEntries.map(async (entry) => {
-        const dtsBlob = new Blob([entry.content], { type: "text/plain" });
-        const sid = await ctx.storage.store(dtsBlob);
-        return { sourceKey: entry.sourceKey, storageId: sid };
-      }),
-    );
-    dtsStorageIds = storedDts;
-
-    const sanitizedArtifacts: CompiledToolSourceArtifact[] = externalArtifacts.map((artifact) => ({
-      ...artifact,
-      tools: artifact.tools.map((tool) => {
-        if (!tool.metadata?.sourceDts) return tool;
-        const metadata = { ...tool.metadata };
-        delete (metadata as Record<string, unknown>).sourceDts;
-        return { ...tool, metadata };
-      }),
-    }));
+    const typeBundle = buildWorkspaceTypeBundle({
+      tools: allTools,
+      openApiDtsBySource,
+    });
+    const typesBlob = new Blob([typeBundle], { type: "text/plain" });
+    typesStorageId = await ctx.storage.store(typesBlob);
 
     const snapshot: WorkspaceToolSnapshot = {
       version: "v2",
-      externalArtifacts: sanitizedArtifacts,
+      externalArtifacts,
       warnings,
     };
 
@@ -473,7 +415,7 @@ export async function getWorkspaceTools(
         workspaceId,
         signature,
         storageId,
-        dtsStorageIds: storedDts.map((e) => ({ sourceKey: e.sourceKey, storageId: e.storageId })),
+        typesStorageId,
         toolCount: allTools.length,
         sizeBytes: json.length,
       });
@@ -489,7 +431,7 @@ export async function getWorkspaceTools(
   return {
     tools: merged,
     warnings,
-    dtsStorageIds,
+    typesStorageId,
     debug: {
       ...debugBase,
       mode: "rebuild",
@@ -507,26 +449,21 @@ async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
-    includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
-    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
     skipCacheRead?: boolean;
   } = {},
 ): Promise<WorkspaceToolInventory> {
-  const includeDts = options.includeDts ?? false;
   const includeDetails = options.includeDetails ?? true;
   const includeSourceMeta = options.includeSourceMeta ?? true;
-  const includeSchemaRegistry = options.includeSchemaRegistry ?? false;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch;
   const skipCacheRead = options.skipCacheRead;
   const [result, policies] = await Promise.all([
     getWorkspaceTools(ctx, context.workspaceId, {
-      includeDts,
       sourceTimeoutMs,
       allowStaleOnMismatch,
       skipCacheRead,
@@ -543,10 +480,8 @@ async function loadWorkspaceToolInventoryForContext(
   const descriptorsMs = Date.now() - descriptorsStartedAt;
   let sourceQuality: Record<string, OpenApiSourceQuality> = {};
   let sourceAuthProfiles: Record<string, SourceAuthProfile> = {};
-  let sourceSchemas: Record<string, Record<string, string>> = {};
   let qualityMs = 0;
   let authProfilesMs = 0;
-  let schemaRegistryMs = 0;
 
   if (includeSourceMeta) {
     const qualityStartedAt = Date.now();
@@ -564,15 +499,14 @@ async function loadWorkspaceToolInventoryForContext(
       ]
     : ["sourceMeta=skipped"];
 
-  if (includeSchemaRegistry) {
-    const schemaRegistryStartedAt = Date.now();
-    sourceSchemas = await loadSourceSchemasForTools(ctx, tools, result.dtsStorageIds);
-    schemaRegistryMs = Date.now() - schemaRegistryStartedAt;
+  let typesUrl: string | undefined;
+  if (result.typesStorageId) {
+    try {
+      typesUrl = await ctx.storage.getUrl(result.typesStorageId) ?? undefined;
+    } catch {
+      typesUrl = undefined;
+    }
   }
-
-  const schemaRegistryTrace = includeSchemaRegistry
-    ? [`buildSourceSchemas=${schemaRegistryMs}ms`]
-    : ["sourceSchemas=skipped"];
 
   const { tools: boundedTools, warnings: boundedWarnings } = truncateToolsForActionResult(
     tools,
@@ -582,17 +516,15 @@ async function loadWorkspaceToolInventoryForContext(
   return {
     tools: boundedTools,
     warnings: boundedWarnings,
-    dtsStorageIds: result.dtsStorageIds,
+    typesUrl,
     sourceQuality,
     sourceAuthProfiles,
-    sourceSchemas,
     debug: {
       ...result.debug,
       trace: [
         ...result.debug.trace,
         `listVisibleToolDescriptors=${descriptorsMs}ms`,
         ...sourceMetaTrace,
-        ...schemaRegistryTrace,
       ],
     },
   };
@@ -602,10 +534,8 @@ export async function listToolsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
-    includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
-    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
@@ -620,10 +550,8 @@ export async function listToolsWithWarningsForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
   options: {
-    includeDts?: boolean;
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
-    includeSchemaRegistry?: boolean;
     toolPaths?: string[];
     sourceTimeoutMs?: number;
     allowStaleOnMismatch?: boolean;
@@ -632,74 +560,20 @@ export async function listToolsWithWarningsForContext(
 ): Promise<{
   tools: ToolDescriptor[];
   warnings: string[];
-  dtsUrls: Record<string, string>;
+  typesUrl?: string;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  sourceSchemas: Record<string, Record<string, string>>;
   debug: WorkspaceToolsDebug;
 }> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
-  const dtsUrls = await loadDtsUrls(ctx, inventory.dtsStorageIds);
-
   return {
     tools: inventory.tools,
     warnings: inventory.warnings,
-    dtsUrls,
+    typesUrl: inventory.typesUrl,
     sourceQuality: inventory.sourceQuality,
     sourceAuthProfiles: inventory.sourceAuthProfiles,
-    sourceSchemas: inventory.sourceSchemas,
     debug: inventory.debug,
   };
-}
-
-export async function loadDtsUrls(ctx: ActionCtx, entries: DtsStorageEntry[]): Promise<Record<string, string>> {
-  if (entries.length === 0) return {};
-
-  const urlEntries = await Promise.all(entries.map(async (entry) => {
-    try {
-      const url = await ctx.storage.getUrl(entry.storageId);
-      return url ? [entry.sourceKey, url] as const : null;
-    } catch {
-      return null;
-    }
-  }));
-
-  const dtsUrls: Record<string, string> = {};
-  for (const pair of urlEntries) {
-    if (!pair) continue;
-    const [sourceKey, url] = pair;
-    dtsUrls[sourceKey] = url;
-  }
-
-  return dtsUrls;
-}
-
-export async function loadWorkspaceDtsStorageIds(
-  ctx: ActionCtx,
-  workspaceId: Id<"workspaces">,
-): Promise<DtsStorageEntry[]> {
-  const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
-    .filter((source: { enabled: boolean }) => source.enabled);
-  const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
-  const signature = sourceSignature(workspaceId, sources);
-
-  try {
-    const cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
-      workspaceId,
-      signature,
-    });
-    if (cacheEntry) {
-      const dtsStorageIds = (cacheEntry.dtsStorageIds ?? []) as DtsStorageEntry[];
-      if (dtsStorageIds.length > 0 || !hasOpenApiSource) {
-        return dtsStorageIds;
-      }
-    }
-  } catch {
-    // Fall through to a full rebuild path.
-  }
-
-  const rebuilt = await getWorkspaceTools(ctx, workspaceId, { includeDts: true });
-  return rebuilt.dtsStorageIds;
 }
 
 export { baseTools };

@@ -103,6 +103,8 @@ export function compactOpenApiPaths(
       let requestBodySchema: Record<string, unknown> = {};
       let responseSchema: Record<string, unknown> = {};
       let responseStatus = "";
+      // Always attempt to compute minimal input/output schemas. This keeps the
+      // prepared spec compact while enabling schema-first tool signatures.
       if (includeSchemas || hasGeneratedTypes) {
         const requestBody = resolveRequestBodyRef(asRecord(operation.requestBody), compRequestBodies);
         const requestBodyContent = asRecord(requestBody.content);
@@ -122,43 +124,32 @@ export function compactOpenApiPaths(
         }
       }
 
-      if (hasGeneratedTypes) {
-        const mergedParameters = normalizeParameters(operation.parameters).concat(sharedParameters);
-        const hasInputSchema =
-          mergedParameters.length > 0 || Object.keys(requestBodySchema).length > 0;
-        const combinedSchema = buildOpenApiInputSchema(mergedParameters, requestBodySchema);
-        compactOperation._argsTypeHint = hasInputSchema
-          ? jsonSchemaTypeHintFallback(combinedSchema, 0, compSchemas)
-          : "{}";
-        compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
-        const previewKeys = buildOpenApiArgPreviewKeys(mergedParameters, requestBodySchema, compSchemas);
-        if (previewKeys.length > 0) {
-          compactOperation._argPreviewKeys = [...new Set(previewKeys)];
-        }
-      } else if (includeSchemas) {
-        if (Object.keys(requestBodySchema).length > 0) {
-          compactOperation.requestBody = {
-            content: {
-              "application/json": {
-                schema: requestBodySchema,
-              },
-            },
-          };
-        }
-
+      const mergedParameters = normalizeParameters(operation.parameters).concat(sharedParameters);
+      const hasInputSchema = mergedParameters.length > 0 || Object.keys(requestBodySchema).length > 0;
+      if (hasInputSchema) {
+        compactOperation._inputSchema = buildOpenApiInputSchema(mergedParameters, requestBodySchema);
+      }
+      if (Object.keys(responseSchema).length > 0 || responseStatus) {
+        compactOperation._outputSchema = responseSchema;
         if (responseStatus) {
-          compactOperation.responses = {
-            [responseStatus]: Object.keys(responseSchema).length > 0
-              ? {
-                  content: {
-                    "application/json": {
-                      schema: responseSchema,
-                    },
-                  },
-                }
-              : {},
-          };
+          compactOperation._successStatus = responseStatus;
         }
+      }
+
+      const previewKeys = buildOpenApiArgPreviewKeys(mergedParameters, requestBodySchema, compSchemas);
+      if (previewKeys.length > 0) {
+        compactOperation._previewInputKeys = [...new Set(previewKeys)];
+      }
+
+      if (hasGeneratedTypes) {
+        // Keep a low-cost type hint string for optional UI usage.
+        // NOTE: Not required for the schema-first agent signature.
+        if (compactOperation._inputSchema) {
+          compactOperation._argsTypeHint = jsonSchemaTypeHintFallback(compactOperation._inputSchema, 0, compSchemas);
+        } else {
+          compactOperation._argsTypeHint = "{}";
+        }
+        compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
       }
 
       compactPathObject[method] = compactOperation;

@@ -2,7 +2,7 @@ import { connectMcp, extractMcpResult } from "../mcp-runtime";
 import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman-runtime";
 import { normalizeGraphqlFieldVariables, selectGraphqlFieldEnvelope } from "../graphql/field-tools";
 import { callMcpToolWithReconnect, executeGraphqlRequest, executeOpenApiRequest } from "./source-execution";
-import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTypeMetadata } from "../types";
+import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTyping } from "../types";
 import { asRecord } from "../utils";
 
 export interface SerializedTool {
@@ -10,7 +10,7 @@ export interface SerializedTool {
   description: string;
   approval: ToolApprovalMode;
   source?: string;
-  metadata?: ToolTypeMetadata;
+  typing?: ToolTyping;
   credential?: ToolCredentialSpec;
   _graphqlSource?: string;
   _pseudoTool?: boolean;
@@ -91,7 +91,7 @@ export function serializeTools(tools: ToolDefinition[]): SerializedTool[] {
     description: tool.description,
     approval: tool.approval,
     source: tool.source,
-    metadata: tool.metadata,
+    typing: tool.typing,
     credential: tool.credential,
     _graphqlSource: tool._graphqlSource,
     _pseudoTool: tool._pseudoTool,
@@ -111,7 +111,7 @@ export function rehydrateTools(
       description: st.description,
       approval: st.approval,
       source: st.source,
-      metadata: st.metadata,
+      typing: st.typing,
       credential: st.credential,
       _graphqlSource: st._graphqlSource,
       _pseudoTool: st._pseudoTool,

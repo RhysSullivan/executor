@@ -42,7 +42,6 @@ export function GroupNode({
   onSelectTool,
   onExpandedChange,
   detailLoadingPaths,
-  sourceSchemasBySource,
   search,
   source,
 }: {
@@ -55,7 +54,6 @@ export function GroupNode({
   onSelectTool: (path: string, e: React.MouseEvent) => void;
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoadingPaths?: Set<string>;
-  sourceSchemasBySource?: Record<string, Record<string, string>>;
   search: string;
   source?: ToolSourceRecord;
 }) {
@@ -190,7 +188,6 @@ export function GroupNode({
                     onSelectTool={onSelectTool}
                     onExpandedChange={onExpandedChange}
                     detailLoadingPaths={detailLoadingPaths}
-                    sourceSchemasBySource={sourceSchemasBySource}
                     search={search}
                   />
                 );
@@ -206,7 +203,6 @@ export function GroupNode({
                   onSelectTool={onSelectTool}
                   onExpandedChange={onExpandedChange}
                   detailLoading={detailLoadingPaths?.has(child.path)}
-                  sourceSchemas={child.source ? sourceSchemasBySource?.[child.source] : undefined}
                 />
               );
             })

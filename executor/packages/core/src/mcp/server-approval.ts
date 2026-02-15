@@ -111,6 +111,7 @@ export function waitForTerminalTask(
     let loggedElicitationFallback = false;
     const seenApprovalIds = new Set<string>();
     let unsubscribe: (() => void) | undefined;
+    let interval: ReturnType<typeof setInterval> | undefined;
 
     const logElicitationFallback = (reason: string) => {
       if (loggedElicitationFallback) return;
@@ -122,11 +123,35 @@ export function waitForTerminalTask(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      if (interval) {
+        clearInterval(interval);
+      }
       unsubscribe?.();
       resolve(await service.getTask(taskId, workspaceId));
     };
 
     const timeout = setTimeout(done, waitTimeoutMs);
+
+    // Convex HTTP actions don't provide a real push subscription. To avoid hanging
+    // forever, we poll task state and pending approvals on an interval.
+    let polling = false;
+    const poll = async () => {
+      if (settled || polling) return;
+      polling = true;
+      try {
+        await maybeHandleApprovals();
+        const task = await service.getTask(taskId, workspaceId);
+        if (task && getTaskTerminalState(task.status)) {
+          await done();
+        }
+      } finally {
+        polling = false;
+      }
+    };
+
+    interval = setInterval(() => {
+      void poll().catch(() => {});
+    }, 750);
 
     const maybeHandleApprovals = async () => {
       if (!elicitationEnabled || !service.listPendingApprovals || !service.resolveApproval || !onApprovalPrompt || !approvalContext) {
@@ -184,7 +209,7 @@ export function waitForTerminalTask(
       }
     });
 
-    void maybeHandleApprovals().catch(() => {});
+    void poll().catch(() => {});
 
     void service.getTask(taskId, workspaceId).then((task) => {
       if (task && getTaskTerminalState(task.status)) {

@@ -2,6 +2,7 @@ import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { handleMcpRequest, type McpWorkspaceContext } from "../../core/src/mcp-server";
 import { isAnonymousIdentity } from "../auth/anonymous";
+import { getAnonymousAuthIssuer } from "../auth/anonymous";
 import {
   getMcpAuthConfig,
   isAnonymousSessionId,
@@ -12,6 +13,12 @@ import {
 import { createMcpExecutorService } from "./mcp_service";
 
 type McpEndpointMode = "default" | "anonymous";
+
+function isAnonymousAuthConfigured(): boolean {
+  const issuer = getAnonymousAuthIssuer();
+  const privateKeyPem = process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
+  return Boolean(issuer && privateKeyPem && privateKeyPem.trim().length > 0);
+}
 
 function createMcpHandler(mode: McpEndpointMode) {
   return httpAction(async (ctx, request) => {
@@ -32,48 +39,61 @@ function createMcpHandler(mode: McpEndpointMode) {
 
     let context: McpWorkspaceContext | undefined;
 
-    if (mode === "anonymous") {
-      try {
-        const workspaceId = requestedContext?.workspaceId;
-        if (!workspaceId) {
+      if (mode === "anonymous") {
+        try {
+          const workspaceId = requestedContext?.workspaceId;
+          if (!workspaceId) {
           return Response.json(
             { error: "workspaceId query parameter is required for /mcp/anonymous" },
             { status: 400 },
           );
-        }
+          }
 
-        if (requestedContext?.sessionId || requestedContext?.actorId) {
+          const anonymousAuthConfigured = isAnonymousAuthConfigured();
+          if (anonymousAuthConfigured && (requestedContext?.sessionId || requestedContext?.actorId)) {
+            return Response.json(
+              {
+                error:
+                  "Legacy anonymous context query params are disabled. Use Authorization: Bearer <anonymous token>.",
+              },
+              { status: 400 },
+            );
+          }
+
+          const identity = await ctx.auth.getUserIdentity().catch(() => null);
+          if (identity && isAnonymousIdentity(identity)) {
+            const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAnonymousSubject, {
+              workspaceId,
+              actorId: identity.subject,
+            });
+
+            context = {
+              workspaceId,
+              actorId: access.actorId,
+              clientId: requestedContext?.clientId,
+            };
+          } else if (!anonymousAuthConfigured && requestedContext?.actorId) {
+            // Local/test fallback: allow query-param actorId when anonymous auth isn't configured.
+            const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAnonymousSubject, {
+              workspaceId,
+              actorId: requestedContext.actorId,
+            });
+
+            context = {
+              workspaceId,
+              actorId: access.actorId,
+              clientId: requestedContext?.clientId,
+            };
+          } else {
+            return Response.json(
+              { error: "Anonymous bearer token is required for /mcp/anonymous" },
+              { status: 401 },
+            );
+          }
+        } catch (error) {
           return Response.json(
-            {
-              error:
-                "Legacy anonymous context query params are disabled. Use Authorization: Bearer <anonymous token>.",
-            },
-            { status: 400 },
-          );
-        }
-
-        const identity = await ctx.auth.getUserIdentity().catch(() => null);
-        if (!identity || !isAnonymousIdentity(identity)) {
-          return Response.json(
-            { error: "Anonymous bearer token is required for /mcp/anonymous" },
-            { status: 401 },
-          );
-        }
-
-        const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAnonymousSubject, {
-          workspaceId,
-          actorId: identity.subject,
-        });
-
-        context = {
-          workspaceId,
-          actorId: access.actorId,
-          clientId: requestedContext?.clientId,
-        };
-      } catch (error) {
-        return Response.json(
-          { error: error instanceof Error ? error.message : "Workspace authorization failed" },
-          { status: 403 },
+            { error: error instanceof Error ? error.message : "Workspace authorization failed" },
+            { status: 403 },
         );
       }
     } else {

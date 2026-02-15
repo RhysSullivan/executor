@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
 import { workspaceMutation, workspaceQuery } from "../core/src/function-builders";
 import { isAnonymousIdentity } from "./auth/anonymous";
+import { safeRunAfter } from "./lib/scheduler";
 
 const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
@@ -192,7 +193,7 @@ export const upsertToolSource = workspaceMutation({
     });
 
     try {
-      await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+      await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
         workspaceId: ctx.workspaceId,
       });
     } catch {
@@ -222,7 +223,7 @@ export const deleteToolSource = workspaceMutation({
     });
 
     try {
-      await ctx.scheduler.runAfter(0, internal.executorNode.listToolsWithWarningsInternal, {
+      await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
         workspaceId: ctx.workspaceId,
       });
     } catch {

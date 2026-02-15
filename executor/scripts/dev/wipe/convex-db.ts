@@ -13,8 +13,12 @@ const tables = [
   "organizations",
   "sourceCredentials",
   "taskEvents",
+  "toolCalls",
   "tasks",
+  "openApiSpecCache",
   "toolSources",
+  "workspaceMembers",
+  "workspaceToolCache",
   "workspaces",
 ] as const;
 

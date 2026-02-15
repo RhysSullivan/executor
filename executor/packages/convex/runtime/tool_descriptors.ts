@@ -6,7 +6,8 @@ import type {
   ToolDefinition,
   ToolDescriptor,
 } from "../../core/src/types";
-import { formatTypeExpressionForClient } from "../../core/src/type-format";
+import { jsonSchemaTypeHintFallback } from "../../core/src/openapi/schema-hints";
+import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../core/src/tool-typing/schema-utils";
 import { getDecisionForContext } from "./policy";
 
 function toToolDescriptor(
@@ -23,12 +24,23 @@ function toToolDescriptor(
     source: tool.source,
     ...(includeDetails
       ? {
-          argsType: formatTypeExpressionForClient(tool.metadata?.displayArgsType ?? tool.metadata?.argsType),
-          returnsType: formatTypeExpressionForClient(tool.metadata?.displayReturnsType ?? tool.metadata?.returnsType),
-          strictArgsType: formatTypeExpressionForClient(tool.metadata?.argsType),
-          strictReturnsType: formatTypeExpressionForClient(tool.metadata?.returnsType),
-          argPreviewKeys: tool.metadata?.argPreviewKeys,
-          operationId: tool.metadata?.operationId,
+          typing: tool.typing
+            ? {
+                requiredInputKeys: tool.typing.requiredInputKeys
+                  ?? extractTopLevelRequiredKeys(tool.typing.inputSchema),
+                previewInputKeys: tool.typing.previewInputKeys
+                  ?? buildPreviewKeys(tool.typing.inputSchema),
+                typedRef: tool.typing.typedRef,
+              }
+            : undefined,
+          display: {
+            input: tool.typing?.inputSchema
+              ? (Object.keys(tool.typing.inputSchema).length === 0 ? "{}" : jsonSchemaTypeHintFallback(tool.typing.inputSchema))
+              : "{}",
+            output: tool.typing?.outputSchema
+              ? (Object.keys(tool.typing.outputSchema).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(tool.typing.outputSchema))
+              : "unknown",
+          },
         }
       : {}),
   };
@@ -58,21 +70,17 @@ export function computeOpenApiSourceQuality(
     let partialUnknownReturnsCount = 0;
 
     for (const tool of tools) {
-      const argsType = tool.metadata?.argsType?.trim() ?? "";
-      const returnsType = tool.metadata?.returnsType?.trim() ?? "";
-
-      if (!argsType || argsType === "Record<string, unknown>") {
-        unknownArgsCount += 1;
-      }
-      if (!returnsType || returnsType === "unknown") {
-        unknownReturnsCount += 1;
-      }
-      if (argsType.includes("unknown")) {
-        partialUnknownArgsCount += 1;
-      }
-      if (returnsType.includes("unknown")) {
-        partialUnknownReturnsCount += 1;
-      }
+      const inputSchema = tool.typing?.inputSchema ?? {};
+      const outputSchema = tool.typing?.outputSchema ?? {};
+      const hasInput = Object.keys(inputSchema).length > 0;
+      const hasOutput = Object.keys(outputSchema).length > 0;
+      if (!hasInput) unknownArgsCount += 1;
+      if (!hasOutput) unknownReturnsCount += 1;
+      // Best-effort: count schema nodes that still include unknown-ish placeholders.
+      const inputHint = hasInput ? jsonSchemaTypeHintFallback(inputSchema) : "unknown";
+      const outputHint = hasOutput ? jsonSchemaTypeHintFallback(outputSchema) : "unknown";
+      if (inputHint.includes("unknown")) partialUnknownArgsCount += 1;
+      if (outputHint.includes("unknown")) partialUnknownReturnsCount += 1;
     }
 
     const argsQuality = toolCount > 0 ? (toolCount - unknownArgsCount) / toolCount : 1;

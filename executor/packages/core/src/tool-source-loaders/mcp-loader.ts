@@ -1,12 +1,11 @@
 "use node";
 
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
-import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import { callMcpToolWithReconnect } from "../tool/source-execution";
 import { sanitizeSegment } from "../tool/path-utils";
 import type { McpToolSourceConfig } from "../tool/source-types";
-import { compactArgTypeHint, compactReturnTypeHint } from "../type-hints";
+import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";
 import type { SerializedTool } from "../tool/source-serialization";
@@ -59,22 +58,18 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
     const toolName = String(tool.name ?? "tool");
     const inputSchema = asRecord(tool.inputSchema);
     const outputSchema = asRecord(tool.outputSchema);
-    const argPreviewKeys = Object.keys(asRecord(inputSchema.properties)).filter((key) => key.length > 0);
-    const argsType = jsonSchemaTypeHintFallback(inputSchema);
-    const returnsType = Object.keys(outputSchema).length > 0
-      ? jsonSchemaTypeHintFallback(outputSchema)
-      : "unknown";
+    const previewInputKeys = buildPreviewKeys(inputSchema).filter((key) => key.length > 0);
+    const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
     return {
       path: `${sanitizeSegment(config.name)}.${sanitizeSegment(toolName)}`,
       source: `mcp:${config.name}`,
       approval: config.overrides?.[toolName]?.approval ?? config.defaultApproval ?? "auto",
       description: String(tool.description ?? `MCP tool ${toolName}`),
-      metadata: {
-        argsType,
-        returnsType,
-        displayArgsType: compactArgTypeHint(argsType),
-        displayReturnsType: compactReturnTypeHint(returnsType),
-        ...(argPreviewKeys.length > 0 ? { argPreviewKeys } : {}),
+      typing: {
+        inputSchema,
+        ...(Object.keys(outputSchema).length > 0 ? { outputSchema } : {}),
+        ...(requiredInputKeys.length > 0 ? { requiredInputKeys } : {}),
+        ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
       },
       credential: credentialSpec,
       _runSpec: {

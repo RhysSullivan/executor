@@ -1,10 +1,7 @@
 import type { ToolDefinition } from "../types";
-import {
-  compactArgDisplayHint,
-  compactReturnTypeHint,
-  llmExpandedArgShapeHint,
-  llmExpandedReturnShapeHint,
-} from "../type-hints";
+import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
+import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
+import { sanitizeJsonSchemaForConvex } from "../tool-typing/convex-sanitize";
 import type { DiscoverIndexEntry } from "./types";
 
 const GENERIC_NAMESPACE_SUFFIXES = new Set([
@@ -16,8 +13,15 @@ const GENERIC_NAMESPACE_SUFFIXES = new Set([
   "services",
 ]);
 
-function normalizeType(type?: string): string {
+function normalizeHint(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
+}
+
+function isEmptyObjectSchema(schema: Record<string, unknown>): boolean {
+  if (Object.keys(schema).length === 0) return true;
+  const props = schema.properties && typeof schema.properties === "object" ? schema.properties as Record<string, unknown> : {};
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  return Object.keys(props).length === 0 && required.length === 0;
 }
 
 export function normalizeSearchToken(value: string): string {
@@ -99,24 +103,29 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
       const preferredPath = preferredToolPath(tool.path);
       const aliases = getPathAliases(tool.path);
       const searchText = `${tool.path} ${preferredPath} ${aliases.join(" ")} ${tool.description} ${tool.source ?? ""}`.toLowerCase();
-      const argsType = normalizeType(tool.metadata?.argsType);
-      const returnsType = normalizeType(tool.metadata?.returnsType);
-      const argPreviewKeys = Array.isArray(tool.metadata?.argPreviewKeys)
-        ? tool.metadata.argPreviewKeys.filter((value): value is string => typeof value === "string")
-        : [];
-      const displayArgsType = normalizeType(
-        tool.metadata?.displayArgsType
-        ?? compactArgDisplayHint(argsType, argPreviewKeys),
+
+      const inputSchema = (tool.typing?.inputSchema && typeof tool.typing.inputSchema === "object")
+        ? tool.typing.inputSchema
+        : {};
+      const outputSchema = (tool.typing?.outputSchema && typeof tool.typing.outputSchema === "object")
+        ? tool.typing.outputSchema
+        : {};
+
+      const safeInputSchema = sanitizeJsonSchemaForConvex(inputSchema);
+      const safeOutputSchema = sanitizeJsonSchemaForConvex(outputSchema);
+
+      const requiredInputKeys = Array.isArray(tool.typing?.requiredInputKeys)
+        ? tool.typing!.requiredInputKeys!.filter((value): value is string => typeof value === "string")
+        : extractTopLevelRequiredKeys(inputSchema);
+      const previewInputKeys = Array.isArray(tool.typing?.previewInputKeys)
+        ? tool.typing!.previewInputKeys!.filter((value): value is string => typeof value === "string")
+        : buildPreviewKeys(inputSchema);
+
+      const displayInputHint = normalizeHint(
+        isEmptyObjectSchema(inputSchema) ? "{}" : jsonSchemaTypeHintFallback(inputSchema),
       );
-      const displayReturnsType = normalizeType(
-        tool.metadata?.displayReturnsType
-        ?? compactReturnTypeHint(returnsType),
-      );
-      const expandedArgsShape = normalizeType(
-        llmExpandedArgShapeHint(argsType, argPreviewKeys),
-      );
-      const expandedReturnsShape = normalizeType(
-        llmExpandedReturnShapeHint(returnsType),
+      const displayOutputHint = normalizeHint(
+        Object.keys(outputSchema).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(outputSchema),
       );
 
       return {
@@ -126,13 +135,12 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
         description: tool.description,
         approval: tool.approval,
         source: tool.source ?? "local",
-        argsType,
-        returnsType,
-        displayArgsType,
-        displayReturnsType,
-        expandedArgsShape,
-        expandedReturnsShape,
-        argPreviewKeys,
+        inputSchema: safeInputSchema,
+        outputSchema: safeOutputSchema,
+        requiredInputKeys,
+        previewInputKeys,
+        displayInputHint,
+        displayOutputHint,
         searchText,
         normalizedPath: normalizeSearchToken(tool.path),
         normalizedSearchText: normalizeSearchToken(searchText),

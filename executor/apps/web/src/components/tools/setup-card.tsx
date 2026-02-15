@@ -90,8 +90,6 @@ export function McpSetupCard({
     let cancelled = false;
 
     if (!isAnonymousSession) {
-      setAnonymousAccessToken(null);
-      setAnonymousTokenError(null);
       return;
     }
 

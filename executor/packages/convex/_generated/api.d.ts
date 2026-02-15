@@ -130,12 +130,6 @@ export declare const api: {
     >;
   };
   executorNode: {
-    listToolDtsUrls: FunctionReference<
-      "action",
-      "public",
-      { actorId?: string; sessionId?: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
     listToolsWithWarnings: FunctionReference<
       "action",
       "public",
@@ -143,7 +137,6 @@ export declare const api: {
         actorId?: string;
         clientId?: string;
         includeDetails?: boolean;
-        includeSchemaRegistry?: boolean;
         includeSourceMeta?: boolean;
         sessionId?: string;
         toolPaths?: Array<string>;
@@ -1098,18 +1091,6 @@ export declare const internal: {
     >;
   };
   migrations: {
-    backfillDtsStorageIds: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
     cleanupAccessPolicyEmptyStringSentinels: FunctionReference<
       "mutation",
       "internal",
@@ -1123,6 +1104,18 @@ export declare const internal: {
       any
     >;
     cleanupTaskEmptyStringSentinels: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        batchSize?: number;
+        cursor?: string | null;
+        dryRun?: boolean;
+        fn?: string;
+        next?: Array<string>;
+      },
+      any
+    >;
+    cleanupWorkspaceToolCacheLegacyDtsStorageIds: FunctionReference<
       "mutation",
       "internal",
       {
@@ -1257,11 +1250,11 @@ export declare const internal: {
       "mutation",
       "internal",
       {
-        dtsStorageIds: Array<{ sourceKey: string; storageId: Id<"_storage"> }>;
         signature: string;
         sizeBytes: number;
         storageId: Id<"_storage">;
         toolCount: number;
+        typesStorageId?: Id<"_storage">;
         workspaceId: Id<"workspaces">;
       },
       any
