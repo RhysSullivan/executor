@@ -1,10 +1,14 @@
 import SwaggerParser from "@apidevtools/swagger-parser";
 import openapiTS, { astToString } from "openapi-typescript";
+import { Result } from "better-result";
+import { z } from "zod";
 import { inferOpenApiAuth } from "./openapi-auth";
 import { compactOpenApiPaths } from "./openapi-compaction";
 import { extractOperationIdsFromDts } from "./openapi/schema-hints";
 import type { PreparedOpenApiSpec } from "./tool/source-types";
 import { asRecord } from "./utils";
+
+const unknownRecordSchema = z.record(z.unknown());
 
 interface SwaggerParserAdapter {
   bundle(spec: unknown): Promise<unknown>;
@@ -12,16 +16,41 @@ interface SwaggerParserAdapter {
 }
 
 function createSwaggerParserAdapter(parserModule: unknown): SwaggerParserAdapter {
-  const parser = parserModule as Partial<SwaggerParserAdapter>;
-  if (typeof parser.parse !== "function" || typeof parser.bundle !== "function") {
+  if ((typeof parserModule !== "object" || parserModule === null) && typeof parserModule !== "function") {
     throw new Error("SwaggerParser module is missing parse/bundle methods");
   }
-  const parse = parser.parse!;
-  const bundle = parser.bundle!;
+
+  const parse = Reflect.get(parserModule, "parse");
+  const bundle = Reflect.get(parserModule, "bundle");
+  if (typeof parse !== "function" || typeof bundle !== "function") {
+    throw new Error("SwaggerParser module is missing parse/bundle methods");
+  }
+
   return {
     parse: (spec) => parse(spec),
     bundle: (spec) => bundle(spec),
   };
+}
+
+function toRecordResult(value: unknown, label: string): Result<Record<string, unknown>, Error> {
+  const parsed = unknownRecordSchema.safeParse(value);
+  if (!parsed.success) {
+    return Result.err(new Error(`${label} must be an object: ${parsed.error.message}`));
+  }
+
+  return Result.ok(parsed.data);
+}
+
+function describeResultError(error: unknown): string {
+  const cause = asRecord(error).cause;
+  if (cause instanceof Error) {
+    return cause.message;
+  }
+  if (typeof cause === "string" && cause.trim().length > 0) {
+    return cause;
+  }
+
+  return error instanceof Error ? error.message : String(error);
 }
 
 function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string, unknown> | null {
@@ -33,7 +62,7 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
     let target: unknown = spec;
     for (const segment of segments) {
       if (target && typeof target === "object") {
-        target = (target as Record<string, unknown>)[segment];
+        target = asRecord(target)[segment];
       } else {
         return false;
       }
@@ -44,11 +73,11 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
   function hasBrokenDiscriminators(obj: unknown): boolean {
     if (Array.isArray(obj)) return obj.some(hasBrokenDiscriminators);
     if (obj && typeof obj === "object") {
-      const record = obj as Record<string, unknown>;
+      const record = asRecord(obj);
       if (record.discriminator && typeof record.discriminator === "object") {
-        const disc = record.discriminator as Record<string, unknown>;
+        const disc = asRecord(record.discriminator);
         if (disc.mapping && typeof disc.mapping === "object") {
-          const mapping = disc.mapping as Record<string, string>;
+          const mapping = asRecord(disc.mapping);
           if (Object.values(mapping).some((ref) => typeof ref === "string" && !refExists(ref))) {
             return true;
           }
@@ -64,13 +93,13 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
   function walk(obj: unknown): unknown {
     if (Array.isArray(obj)) return obj.map(walk);
     if (obj && typeof obj === "object") {
-      const record = obj as Record<string, unknown>;
+      const record = asRecord(obj);
       const clone: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(record)) {
         if (key === "discriminator" && typeof value === "object" && value !== null) {
-          const disc = value as Record<string, unknown>;
+          const disc = asRecord(value);
           if (disc.mapping && typeof disc.mapping === "object") {
-            const mapping = disc.mapping as Record<string, string>;
+            const mapping = asRecord(disc.mapping);
             const hasBroken = Object.values(mapping).some(
               (ref) => typeof ref === "string" && !refExists(ref),
             );
@@ -87,7 +116,11 @@ function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string
     return obj;
   }
 
-  const result = walk(spec) as Record<string, unknown>;
+  const resultRecord = toRecordResult(walk(spec), "Patched OpenAPI spec");
+  if (resultRecord.isErr()) {
+    return null;
+  }
+  const result = resultRecord.value;
   console.warn(`[executor] stripped ${strippedCount} broken discriminator(s) from OpenAPI spec`);
   return result;
 }
@@ -135,12 +168,18 @@ export async function prepareOpenApiSpec(
 
   let parsed: Record<string, unknown>;
   if (typeof spec === "string") {
-    try {
-      parsed = (await parser.parse(spec)) as Record<string, unknown>;
-    } catch (parseError) {
-      const msg = parseError instanceof Error ? parseError.message : String(parseError);
+    const parsedResult = await Result.tryPromise(() => parser.parse(spec));
+    if (parsedResult.isErr()) {
+      const msg = describeResultError(parsedResult.error);
       throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${msg}`);
     }
+
+    const parsedRecord = toRecordResult(parsedResult.value, `Parsed OpenAPI source '${sourceName}'`);
+    if (parsedRecord.isErr()) {
+      throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${parsedRecord.error.message}`);
+    }
+
+    parsed = parsedRecord.value;
   } else {
     parsed = spec;
   }
@@ -150,12 +189,19 @@ export async function prepareOpenApiSpec(
     ? generateOpenApiDts(parsed)
     : Promise.resolve<string | null>(null);
   if (shouldBundle) {
-    try {
-      bundled = (await parser.bundle(parsed)) as Record<string, unknown>;
-    } catch (bundleError) {
-      const bundleMessage = bundleError instanceof Error ? bundleError.message : String(bundleError);
+    const bundleResult = await Result.tryPromise(() => parser.bundle(parsed));
+    if (bundleResult.isErr()) {
+      const bundleMessage = describeResultError(bundleResult.error);
       warnings.push(`OpenAPI bundle failed for '${sourceName}', using parse-only mode: ${bundleMessage}`);
       bundled = parsed;
+    } else {
+      const bundledRecord = toRecordResult(bundleResult.value, `Bundled OpenAPI source '${sourceName}'`);
+      if (bundledRecord.isErr()) {
+        warnings.push(`OpenAPI bundle returned non-object payload for '${sourceName}', using parse-only mode`);
+        bundled = parsed;
+      } else {
+        bundled = bundledRecord.value;
+      }
     }
   } else {
     bundled = parsed;
@@ -163,12 +209,15 @@ export async function prepareOpenApiSpec(
   const dts = await dtsPromise;
 
   const operationTypeIds = dts ? extractOperationIdsFromDts(dts) : new Set<string>();
-  const servers = Array.isArray(bundled.servers) ? (bundled.servers as Array<{ url?: unknown }>) : [];
+  const servers = Array.isArray(bundled.servers) ? bundled.servers : [];
   const inferredAuth = inferOpenApiAuth(bundled);
 
   return {
     servers: servers
-      .map((server) => (typeof server.url === "string" ? server.url : ""))
+      .map((server) => {
+        const value = asRecord(server).url;
+        return typeof value === "string" ? value : "";
+      })
       .filter((url) => url.length > 0),
     paths: compactOpenApiPaths(
       bundled.paths,

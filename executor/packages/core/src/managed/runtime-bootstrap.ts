@@ -1,11 +1,20 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { z } from "zod";
 
 import type { ManagedRuntimeInfo } from "../managed-runtime";
 import { managedRuntimeVersions, pathExists } from "./runtime-info";
 import { ensureConvexCliRuntime } from "./runtime-installation";
 import { runProcess } from "./runtime-process";
+
+const adminKeyResponseSchema = z.object({
+  adminKey: z.string().min(1),
+});
+
+const convexJsonSchema = z.object({
+  functions: z.string().optional(),
+});
 
 const BOOTSTRAP_REQUIRED_DEPENDENCIES = [
   "convex",
@@ -41,12 +50,12 @@ async function generateSelfHostedAdminKey(info: ManagedRuntimeInfo): Promise<str
     throw new Error(`Failed generating self-hosted admin key: ${text || response.statusText}`);
   }
 
-  const parsed = (await response.json()) as { adminKey?: string };
-  if (!parsed.adminKey) {
+  const parsed = adminKeyResponseSchema.safeParse(await response.json());
+  if (!parsed.success) {
     throw new Error("Convex admin key generation did not return an admin key.");
   }
 
-  return parsed.adminKey;
+  return parsed.data.adminKey;
 }
 
 async function hasAnyPath(paths: string[]): Promise<boolean> {
@@ -72,11 +81,11 @@ function getConfigCandidates(baseDir: string): string[] {
 async function getConfiguredFunctionsPath(candidate: string): Promise<string | null> {
   try {
     const raw = await fs.readFile(path.join(candidate, "convex.json"), "utf8");
-    const parsed = JSON.parse(raw) as { functions?: unknown };
-    if (typeof parsed.functions !== "string") {
+    const parsed = convexJsonSchema.safeParse(JSON.parse(raw));
+    if (!parsed.success || typeof parsed.data.functions !== "string") {
       return null;
     }
-    const value = parsed.functions.trim();
+    const value = parsed.data.functions.trim();
     return value.length > 0 ? value : null;
   } catch {
     return null;

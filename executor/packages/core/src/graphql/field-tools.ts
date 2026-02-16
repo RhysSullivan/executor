@@ -1,4 +1,5 @@
 import type { GraphqlExecutionEnvelope } from "../tool/source-execution";
+import { asRecord } from "../utils";
 
 export interface GqlTypeRef {
   kind: string;
@@ -48,15 +49,12 @@ export function selectGraphqlFieldEnvelope(
   envelope: GraphqlExecutionEnvelope,
   operationName: string,
 ): GraphqlExecutionEnvelope {
-  const data = envelope.data;
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    const record = data as Record<string, unknown>;
-    if (Object.prototype.hasOwnProperty.call(record, operationName)) {
-      return {
-        data: record[operationName],
-        errors: envelope.errors,
-      };
-    }
+  const record = asRecord(envelope.data);
+  if (Object.prototype.hasOwnProperty.call(record, operationName)) {
+    return {
+      data: record[operationName],
+      errors: envelope.errors,
+    };
   }
 
   return envelope;
@@ -84,7 +82,7 @@ export function normalizeGraphqlFieldVariables(
         && typeof value === "object"
         && !Array.isArray(value)
       ) {
-        const nested = value as Record<string, unknown>;
+        const nested = asRecord(value);
         if (Object.keys(nested).length === 1 && Object.prototype.hasOwnProperty.call(nested, argName)) {
           return { [argName]: nested[argName] };
         }

@@ -1,6 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { z } from "zod";
+
+const mcpToolResultSchema = z.object({
+  content: z.array(z.object({ text: z.string().optional() }).passthrough()).optional(),
+}).passthrough();
 
 function withHeaders(
   input: RequestInfo | URL,
@@ -50,14 +55,14 @@ export async function connectMcp(
   if (preferredTransport === "streamable-http") {
     await client.connect(new StreamableHTTPClientTransport(endpoint, {
       requestInit: headers ? { headers } : undefined,
-    }) as Parameters<Client["connect"]>[0]);
+    }));
     return { client, close: () => client.close() };
   }
 
   try {
     await client.connect(new StreamableHTTPClientTransport(endpoint, {
       requestInit: headers ? { headers } : undefined,
-    }) as Parameters<Client["connect"]>[0]);
+    }));
     return { client, close: () => client.close() };
   } catch {
     await client.connect(new SSEClientTransport(endpoint, {
@@ -73,12 +78,16 @@ export async function connectMcp(
 }
 
 export function extractMcpResult(result: unknown): unknown {
-  if (!result || typeof result !== "object") return result;
-  const content = (result as { content?: unknown }).content;
-  if (!Array.isArray(content)) return result;
+  const parsed = mcpToolResultSchema.safeParse(result);
+  if (!parsed.success || !Array.isArray(parsed.data.content)) {
+    return result;
+  }
+
+  const content = parsed.data.content;
   const texts = content
-    .map((item) => (item && typeof item === "object" ? (item as { text?: unknown }).text : undefined))
+    .map((item) => item.text)
     .filter((item): item is string => typeof item === "string");
+
   if (texts.length === 0) return content;
   if (texts.length === 1) return texts[0];
   return texts;

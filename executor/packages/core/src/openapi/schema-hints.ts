@@ -4,7 +4,7 @@ type JsonSchema = Record<string, unknown>;
 const COMPONENT_REF_INLINE_DEPTH = 2;
 
 function isSmallInlineableComponentSchema(schema: Record<string, unknown>): boolean {
-  const shape = schema as JsonSchema;
+  const shape = schema;
   const type = typeof shape.type === "string" ? shape.type : undefined;
   const props = asRecord(shape.properties);
   const propCount = Object.keys(props).length;
@@ -302,8 +302,8 @@ function extractStringLiteralFromSchema(schema: JsonSchema): string | null {
   if (enumValues && enumValues.length === 1 && typeof enumValues[0] === "string") {
     return enumValues[0];
   }
-  if (typeof (schema as Record<string, unknown>).const === "string") {
-    return String((schema as Record<string, unknown>).const);
+  if (typeof schema.const === "string") {
+    return String(schema.const);
   }
   return null;
 }
@@ -342,7 +342,7 @@ function repairMissingRequiredProperties(
       if (!schema || typeof schema !== "object") continue;
       const hint = jsonSchemaTypeHintFallback(schema, depth + 1, componentSchemas, seenRefs);
       if (!hint || hint === "unknown") continue;
-      candidates.push({ hint, schema: schema as JsonSchema });
+      candidates.push({ hint, schema: asRecord(schema) });
     }
 
     if (candidates.length === 0) continue;
@@ -358,7 +358,7 @@ function repairMissingRequiredProperties(
 
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i]!;
-    const additionalProperties = (variant as Record<string, unknown>).additionalProperties;
+    const additionalProperties = variant.additionalProperties;
     // Only patch the strict case where the omission would make the schema invalid.
     if (additionalProperties !== false) {
       out.push(variant);
@@ -389,7 +389,7 @@ function repairMissingRequiredProperties(
     out.push({
       ...variant,
       properties: nextProps,
-    } as JsonSchema);
+    });
   }
 
   return changed ? out : variants;
@@ -788,7 +788,7 @@ export function jsonSchemaTypeHintFallback(
   if (!schema || typeof schema !== "object") return "unknown";
   if (depth > 12) return "unknown";
 
-  const shape = schema as JsonSchema;
+  const shape = asRecord(schema);
   if (typeof shape.$ref === "string") {
     const ref = shape.$ref;
     const prefix = "#/components/schemas/";
@@ -973,7 +973,7 @@ function collectTopLevelSchemaKeys(
 ): string[] {
   if (!schema || typeof schema !== "object") return [];
 
-  const record = schema as Record<string, unknown>;
+  const record = asRecord(schema);
   const ref = typeof record.$ref === "string" ? record.$ref : "";
   if (ref.startsWith("#/components/schemas/")) {
     if (seenRefs.has(ref)) return [];

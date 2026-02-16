@@ -1,5 +1,7 @@
 "use node";
 
+import { Result } from "better-result";
+import { z } from "zod";
 import { buildOpenApiToolsFromPrepared } from "../openapi/tool-builder";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import {
@@ -19,6 +21,14 @@ import type { SerializedTool } from "../tool/source-serialization";
 
 const POSTMAN_SPEC_PREFIX = "postman:";
 const DEFAULT_POSTMAN_PROXY_URL = "https://www.postman.com/_api/ws/proxy";
+const recordArraySchema = z.array(z.record(z.unknown()));
+const postmanCollectionResponseSchema = z.object({
+  data: z.object({
+    requests: z.array(z.record(z.unknown())).optional(),
+    folders: z.array(z.record(z.unknown())).optional(),
+    variables: z.unknown().optional(),
+  }).optional(),
+});
 
 function parsePostmanCollectionUid(spec: string): string | null {
   if (!spec.startsWith(POSTMAN_SPEC_PREFIX)) {
@@ -57,15 +67,23 @@ async function loadPostmanCollectionTools(
     throw new Error(`Failed to fetch API collection ${collectionUid}: HTTP ${response.status} ${text.slice(0, 300)}`);
   }
 
-  const raw = await response.json() as Record<string, unknown>;
-  const collection = asRecord(raw.data);
-  const requests = Array.isArray(collection.requests)
-    ? collection.requests.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
-    : [];
+  const responseJsonResult = await Result.tryPromise(() => response.json());
+  if (responseJsonResult.isErr()) {
+    const cause = responseJsonResult.error.cause;
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new Error(`Failed to parse API collection ${collectionUid}: ${message}`);
+  }
 
-  const folders = Array.isArray(collection.folders)
-    ? collection.folders.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
-    : [];
+  const parsedCollection = postmanCollectionResponseSchema.safeParse(responseJsonResult.value);
+  if (!parsedCollection.success) {
+    throw new Error(`Invalid API collection response for ${collectionUid}: ${parsedCollection.error.message}`);
+  }
+
+  const collection = parsedCollection.data.data ?? {};
+  const requestsResult = recordArraySchema.safeParse(collection.requests);
+  const requests = requestsResult.success ? requestsResult.data : [];
+  const foldersResult = recordArraySchema.safeParse(collection.folders);
+  const folders = foldersResult.success ? foldersResult.data : [];
 
   const folderById = new Map<string, { name: string; parentId?: string }>();
   for (const folder of folders) {

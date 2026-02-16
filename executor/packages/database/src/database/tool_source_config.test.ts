@@ -49,3 +49,33 @@ test("normalizeExternalToolSource returns error result with source context", () 
     );
   }
 });
+
+test("normalizeToolSourceConfig validates string maps with field-level errors", () => {
+  const result = normalizeToolSourceConfig("mcp", {
+    url: "https://example.com/mcp",
+    queryParams: {
+      token: 123,
+    },
+  });
+
+  expect(result.isErr()).toBe(true);
+  if (result.isErr()) {
+    expect(result.error.message).toBe("Tool source queryParams.token must be a string");
+  }
+});
+
+test("normalizeToolSourceConfig validates auth mode for apiKey auth", () => {
+  const result = normalizeToolSourceConfig("openapi", {
+    spec: "https://example.com/openapi.json",
+    auth: {
+      type: "apiKey",
+      mode: "invalid",
+      header: "x-api-key",
+    },
+  });
+
+  expect(result.isErr()).toBe(true);
+  if (result.isErr()) {
+    expect(result.error.message).toBe("Tool source auth.mode must be 'static', 'workspace', or 'actor'");
+  }
+});

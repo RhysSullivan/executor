@@ -5,31 +5,32 @@ function uniq(values: string[]): string[] {
   return [...new Set(values.filter((v) => v.trim().length > 0))];
 }
 
-function collectTopLevelRequiredKeys(schema: JsonSchema, out: string[]): void {
-  const required = Array.isArray((schema as Record<string, unknown>).required)
-    ? ((schema as Record<string, unknown>).required as unknown[]).filter((v): v is string => typeof v === "string")
-    : [];
+function asUnknownArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function collectTopLevelRequiredKeys(schema: Record<string, unknown>, out: string[]): void {
+  const required = asUnknownArray(schema.required)
+    .filter((value): value is string => typeof value === "string");
   out.push(...required);
 
-  const allOf = Array.isArray((schema as Record<string, unknown>).allOf)
-    ? ((schema as Record<string, unknown>).allOf as unknown[])
-    : [];
+  const allOf = asUnknownArray(schema.allOf);
   for (const entry of allOf) {
-    if (!entry || typeof entry !== "object") continue;
-    collectTopLevelRequiredKeys(entry as JsonSchema, out);
+    const nested = asRecord(entry);
+    if (Object.keys(nested).length === 0) continue;
+    collectTopLevelRequiredKeys(nested, out);
   }
 }
 
-function collectTopLevelPropertyKeys(schema: JsonSchema, out: string[]): void {
-  const props = asRecord((schema as Record<string, unknown>).properties);
+function collectTopLevelPropertyKeys(schema: Record<string, unknown>, out: string[]): void {
+  const props = asRecord(schema.properties);
   out.push(...Object.keys(props));
 
-  const allOf = Array.isArray((schema as Record<string, unknown>).allOf)
-    ? ((schema as Record<string, unknown>).allOf as unknown[])
-    : [];
+  const allOf = asUnknownArray(schema.allOf);
   for (const entry of allOf) {
-    if (!entry || typeof entry !== "object") continue;
-    collectTopLevelPropertyKeys(entry as JsonSchema, out);
+    const nested = asRecord(entry);
+    if (Object.keys(nested).length === 0) continue;
+    collectTopLevelPropertyKeys(nested, out);
   }
 }
 

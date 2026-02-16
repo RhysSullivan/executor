@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import type { PendingApprovalRecord, TaskRecord } from "../types";
 import type { Id } from "../../../database/convex/_generated/dataModel";
 import type {
@@ -8,6 +9,15 @@ import type {
   McpExecutorService,
 } from "./server-contracts";
 import { getTaskTerminalState } from "./server-utils";
+import { asRecord } from "../utils";
+
+const elicitationResponseSchema = z.object({
+  action: z.enum(["accept", "decline", "cancel"]),
+  content: z.object({
+    decision: z.enum(["approved", "denied"]).optional(),
+    reason: z.string().optional(),
+  }).optional(),
+});
 
 function formatApprovalInput(input: unknown, maxLength = 2000): string {
   let serialized: string;
@@ -42,7 +52,7 @@ function buildApprovalPromptMessage(approval: PendingApprovalRecord): string {
 
 export function createMcpApprovalPrompt(mcp: McpServer): ApprovalPrompt {
   return async (approval) => {
-    const response = await mcp.server.elicitInput({
+    const rawResponse = await mcp.server.elicitInput({
       mode: "form",
       message: buildApprovalPromptMessage(approval),
       requestedSchema: {
@@ -67,23 +77,31 @@ export function createMcpApprovalPrompt(mcp: McpServer): ApprovalPrompt {
         },
         required: ["decision"],
       },
-    }, { timeout: 15_000 }) as {
-      action: "accept" | "decline" | "cancel";
-      content?: Record<string, unknown>;
-    };
+    }, { timeout: 15_000 });
 
-    if (response.action !== "accept") {
+    const parsedResponse = elicitationResponseSchema.safeParse(rawResponse);
+    if (!parsedResponse.success) {
       return {
         decision: "denied",
-        reason: response.action === "decline"
+        reason: "User canceled approval prompt",
+      };
+    }
+
+    const action = parsedResponse.data.action;
+    const content = asRecord(parsedResponse.data.content);
+
+    if (action !== "accept") {
+      return {
+        decision: "denied",
+        reason: action === "decline"
           ? "User explicitly declined approval"
           : "User canceled approval prompt",
       };
     }
 
-    const selectedDecision = response.content?.decision;
+    const selectedDecision = content.decision;
     const decision = selectedDecision === "approved" ? "approved" : "denied";
-    const selectedReason = response.content?.reason;
+    const selectedReason = content.reason;
     const reason = typeof selectedReason === "string" && selectedReason.trim().length > 0
       ? selectedReason
       : undefined;
@@ -191,9 +209,7 @@ export function waitForTerminalTask(
     };
 
     unsubscribe = service.subscribe(taskId, workspaceId, (event) => {
-      const payload = typeof event.payload === "object" && event.payload
-        ? event.payload as Record<string, unknown>
-        : {};
+      const payload = asRecord(event.payload);
       const type = typeof payload.status === "string" ? payload.status : undefined;
       const pendingApprovalCount = typeof payload.pendingApprovalCount === "number"
         ? payload.pendingApprovalCount

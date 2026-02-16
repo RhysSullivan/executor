@@ -105,12 +105,8 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
       const aliases = getPathAliases(tool.path);
       const searchText = `${tool.path} ${preferredPath} ${aliases.join(" ")} ${tool.description} ${tool.source ?? ""}`.toLowerCase();
 
-      const inputSchema = (tool.typing?.inputSchema && typeof tool.typing.inputSchema === "object")
-        ? tool.typing.inputSchema
-        : {};
-      const outputSchema = (tool.typing?.outputSchema && typeof tool.typing.outputSchema === "object")
-        ? tool.typing.outputSchema
-        : {};
+      const inputSchema = asRecord(tool.typing?.inputSchema);
+      const outputSchema = asRecord(tool.typing?.outputSchema);
 
       const safeInputSchema = sanitizeJsonSchemaForConvex(inputSchema);
       const safeOutputSchema = sanitizeJsonSchemaForConvex(outputSchema);

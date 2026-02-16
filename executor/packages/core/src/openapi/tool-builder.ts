@@ -6,6 +6,7 @@ import {
   jsonSchemaTypeHintFallback,
   responseTypeHintFromSchema,
 } from "./schema-hints";
+import { z } from "zod";
 import { buildOpenApiToolPath } from "./tool-path";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import { executeOpenApiRequest } from "../tool/source-execution";
@@ -23,15 +24,20 @@ type OpenApiOperationParameter = {
   schema: Record<string, unknown>;
 };
 
+const recordArraySchema = z.array(z.record(z.unknown()));
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  const parsed = recordArraySchema.safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
+
 function buildOpenApiOperationParameters(
   sharedParameters: Array<Record<string, unknown>>,
   operation: Record<string, unknown>,
 ): OpenApiOperationParameter[] {
   return [
     ...sharedParameters,
-    ...(Array.isArray(operation.parameters)
-      ? (operation.parameters as Array<Record<string, unknown>>)
-      : []),
+    ...asRecordArray(operation.parameters),
   ].map((entry) => ({
     name: String(entry.name ?? ""),
     in: String(entry.in ?? "query"),
@@ -63,15 +69,13 @@ export function buildOpenApiToolsFromPrepared(
 
   for (const [pathTemplate, pathValue] of Object.entries(paths)) {
     const pathObject = asRecord(pathValue);
-    const sharedParameters = Array.isArray(pathObject.parameters)
-      ? (pathObject.parameters as Array<Record<string, unknown>>)
-      : [];
+    const sharedParameters = asRecordArray(pathObject.parameters);
 
     for (const method of methods) {
       const operation = asRecord(pathObject[method]);
       if (Object.keys(operation).length === 0) continue;
 
-      const tags = Array.isArray(operation.tags) ? (operation.tags as unknown[]) : [];
+      const tags = Array.isArray(operation.tags) ? operation.tags : [];
       const tagRaw = String(tags[0] ?? "default");
       const operationIdRaw = String(operation.operationId ?? `${method}_${pathTemplate}`);
       const parameters = buildOpenApiOperationParameters(sharedParameters, operation);

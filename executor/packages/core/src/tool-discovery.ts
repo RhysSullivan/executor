@@ -1,4 +1,5 @@
 import type { ToolDefinition } from "./types";
+import { z } from "zod";
 import {
   compactDescriptionLine,
 } from "./type-hints";
@@ -10,6 +11,23 @@ import {
 import { buildIndex, getTopLevelNamespace, listIndexForContext } from "./tool-discovery/indexing";
 import { chooseBestPath, deriveIntentPhrase, extractNamespaceHints, scoreEntry } from "./tool-discovery/ranking";
 import { asRecord } from "./utils";
+
+const catalogToolsInputSchema = z.object({
+  namespace: z.string().optional(),
+  query: z.string().optional(),
+  depth: z.coerce.number().optional(),
+  limit: z.coerce.number().optional(),
+  compact: z.boolean().optional(),
+  includeSchemas: z.boolean().optional(),
+});
+
+const discoverInputSchema = z.object({
+  query: z.string().optional(),
+  depth: z.coerce.number().optional(),
+  limit: z.coerce.number().optional(),
+  compact: z.boolean().optional(),
+  includeSchemas: z.boolean().optional(),
+});
 
 export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
   const index = buildIndex(tools);
@@ -70,12 +88,15 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
     },
     run: async (input: unknown, context) => {
       const payload = asRecord(input);
-      const namespaceFilter = String(payload.namespace ?? "").trim().toLowerCase();
-      const query = String(payload.query ?? "").trim().toLowerCase();
-      const depth = Math.max(0, Math.min(2, Number(payload.depth ?? 1)));
-      const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 50)));
-      const compact = payload.compact === false ? false : true;
-      const includeSchemas = payload.includeSchemas === true;
+      const parsedInput = catalogToolsInputSchema.safeParse(payload);
+      const namespaceFilter = (parsedInput.success ? (parsedInput.data.namespace ?? "") : "").trim().toLowerCase();
+      const query = (parsedInput.success ? (parsedInput.data.query ?? "") : "").trim().toLowerCase();
+      const depthValue = parsedInput.success ? parsedInput.data.depth : undefined;
+      const depth = Math.max(0, Math.min(2, Number(depthValue ?? 1)));
+      const limitValue = parsedInput.success ? parsedInput.data.limit : undefined;
+      const limit = Math.max(1, Math.min(200, Number(limitValue ?? 50)));
+      const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
+      const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
       const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
 
       const visible = listIndexForContext(index, context.isToolAllowed);
@@ -157,11 +178,14 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
     },
     run: async (input: unknown, context) => {
       const payload = asRecord(input);
-      const query = String(payload.query ?? "").trim().toLowerCase();
-      const depth = Math.max(0, Math.min(2, Number(payload.depth ?? 1)));
-      const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
-      const compact = payload.compact === false ? false : true;
-      const includeSchemas = payload.includeSchemas === true;
+      const parsedInput = discoverInputSchema.safeParse(payload);
+      const query = (parsedInput.success ? (parsedInput.data.query ?? "") : "").trim().toLowerCase();
+      const depthValue = parsedInput.success ? parsedInput.data.depth : undefined;
+      const depth = Math.max(0, Math.min(2, Number(depthValue ?? 1)));
+      const limitValue = parsedInput.success ? parsedInput.data.limit : undefined;
+      const limit = Math.max(1, Math.min(50, Number(limitValue ?? 8)));
+      const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
+      const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
       const terms = query.length > 0 ? query.split(/\s+/).filter(Boolean) : [];
       const namespaces = new Set(index.map((entry) => getTopLevelNamespace(entry.path)).filter(Boolean));
       const namespaceHints = extractNamespaceHints(terms, namespaces);

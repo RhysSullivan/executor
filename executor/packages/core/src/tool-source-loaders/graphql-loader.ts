@@ -1,5 +1,7 @@
 "use node";
 
+import { Result } from "better-result";
+import { z } from "zod";
 import {
   buildFieldQuery,
   normalizeGraphqlFieldVariables,
@@ -18,6 +20,57 @@ import type { GraphqlToolSourceConfig } from "../tool/source-types";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";
+
+const gqlTypeRefSchema: z.ZodType<GqlTypeRef> = z.lazy(() => z.object({
+  kind: z.string(),
+  name: z.string().nullable(),
+  ofType: gqlTypeRefSchema.nullish(),
+}));
+
+const gqlFieldArgSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable().optional().transform((value) => value ?? null),
+  type: gqlTypeRefSchema,
+  defaultValue: z.string().nullable().optional().transform((value) => value ?? null),
+});
+
+const gqlFieldSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable().optional().transform((value) => value ?? null),
+  args: z.array(gqlFieldArgSchema),
+  type: gqlTypeRefSchema,
+});
+
+const gqlInputFieldSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable().optional().transform((value) => value ?? null),
+  type: gqlTypeRefSchema,
+  defaultValue: z.string().nullable().optional().transform((value) => value ?? null),
+});
+
+const gqlEnumValueSchema = z.object({
+  name: z.string(),
+  description: z.string().nullable().optional().transform((value) => value ?? null),
+});
+
+const gqlTypeSchema: z.ZodType<GqlType> = z.object({
+  kind: z.string(),
+  name: z.string(),
+  fields: z.array(gqlFieldSchema).nullable().optional().transform((value) => value ?? null),
+  inputFields: z.array(gqlInputFieldSchema).nullable().optional().transform((value) => value ?? null),
+  enumValues: z.array(gqlEnumValueSchema).nullable().optional().transform((value) => value ?? null),
+});
+
+const gqlSchemaSchema: z.ZodType<GqlSchema> = z.object({
+  queryType: z.object({ name: z.string() }).nullable().optional().transform((value) => value ?? null),
+  mutationType: z.object({ name: z.string() }).nullable().optional().transform((value) => value ?? null),
+  types: z.array(gqlTypeSchema),
+});
+
+const gqlIntrospectionResponseSchema = z.object({
+  data: z.object({ __schema: gqlSchemaSchema }).optional(),
+  errors: z.array(z.unknown()).optional(),
+});
 
 const INTROSPECTION_QUERY = `
   query IntrospectionQuery {
@@ -147,6 +200,33 @@ function buildArgsObjectSchema(
   };
 }
 
+function parseGraphqlIntrospectionSchema(payload: unknown): Result<GqlSchema, Error> {
+  const parsed = gqlIntrospectionResponseSchema.safeParse(payload);
+  if (!parsed.success) {
+    return Result.err(new Error(`GraphQL introspection payload invalid: ${parsed.error.message}`));
+  }
+
+  const errors = parsed.data.errors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    return Result.err(new Error(`GraphQL introspection errors: ${JSON.stringify(errors).slice(0, 500)}`));
+  }
+
+  const schema = parsed.data.data?.__schema;
+  if (!schema) {
+    return Result.err(new Error("GraphQL introspection returned no schema"));
+  }
+
+  return Result.ok(schema);
+}
+
+function toGraphqlEnvelope(value: unknown): GraphqlExecutionEnvelope {
+  const payload = asRecord(value);
+  return {
+    data: Object.prototype.hasOwnProperty.call(payload, "data") ? payload.data : null,
+    errors: Array.isArray(payload.errors) ? payload.errors : [],
+  };
+}
+
 export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDefinition[]> {
   const authHeaders = buildStaticAuthHeaders(config.auth);
   const sourceKey = `graphql:${config.name}`;
@@ -168,14 +248,19 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
     throw new Error(`GraphQL introspection failed: HTTP ${introspectionResult.status}: ${text.slice(0, 300)}`);
   }
 
-  const introspectionJson = (await introspectionResult.json()) as { data?: { __schema?: GqlSchema }; errors?: unknown[] };
-  if (introspectionJson.errors) {
-    throw new Error(`GraphQL introspection errors: ${JSON.stringify(introspectionJson.errors).slice(0, 500)}`);
+  const introspectionJsonResult = await Result.tryPromise(() => introspectionResult.json());
+  if (introspectionJsonResult.isErr()) {
+    const message = introspectionJsonResult.error.cause instanceof Error
+      ? introspectionJsonResult.error.cause.message
+      : String(introspectionJsonResult.error.cause);
+    throw new Error(`GraphQL introspection response parse failed: ${message}`);
   }
-  const schema = introspectionJson.data?.__schema;
-  if (!schema) {
-    throw new Error("GraphQL introspection returned no schema");
+
+  const schemaResult = parseGraphqlIntrospectionSchema(introspectionJsonResult.value);
+  if (schemaResult.isErr()) {
+    throw schemaResult.error;
   }
+  const schema = schemaResult.value;
 
   // Index types by name
   const typeMap = new Map<string, GqlType>();
@@ -187,7 +272,7 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
 
   // Create the main graphql tool — this is the one that actually executes queries
   const mainToolPath = `${sourceName}.graphql`;
-  tools.push({
+  const mainTool: ToolDefinition & { _graphqlSource: string } = {
     path: mainToolPath,
     source: sourceKey,
     description: `Execute a GraphQL query or mutation against ${config.name}. Returns { data, errors }. Use ${sourceName}.query.* and ${sourceName}.mutation.* helpers when available.`,
@@ -236,7 +321,8 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
         context.credential?.headers,
       );
     },
-  } as ToolDefinition & { _graphqlSource: string });
+  };
+  tools.push(mainTool);
 
   // Create pseudo-tools for each query/mutation field — these are for discovery/intellisense
   // but they all route through the main .graphql tool
@@ -269,7 +355,7 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
         ? `tools.${fieldPath}({})`
         : `tools.${fieldPath}({ ${field.args.map((arg) => `${arg.name}: ...`).join(", ")} })`;
 
-      tools.push({
+      const fieldTool: ToolDefinition & { _pseudoTool: boolean } = {
         path: fieldPath,
         source: sourceKey,
         description: field.description
@@ -315,13 +401,11 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
               );
             }
           }
-          // Find and invoke the main tool
-          const mainTool = tools.find((t) => t.path === mainToolPath);
-          if (!mainTool) throw new Error("Main GraphQL tool not found");
-          const envelope = await mainTool.run(payload, context) as GraphqlExecutionEnvelope;
+          const envelope = toGraphqlEnvelope(await mainTool.run(payload, context));
           return selectGraphqlFieldEnvelope(envelope, field.name);
         },
-      } as ToolDefinition & { _pseudoTool: boolean });
+      };
+      tools.push(fieldTool);
     }
   }
 

@@ -1,3 +1,5 @@
+import { asRecord } from "./utils";
+
 const POSTMAN_TEMPLATE_PATTERN = /\{\{([^{}]+)\}\}/g;
 
 export function stringifyTemplateValue(value: unknown): string {
@@ -26,9 +28,8 @@ export function findUnresolvedPostmanTemplateKeys(value: string): string[] {
 }
 
 export function asStringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const result: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+  for (const [key, entry] of Object.entries(asRecord(value))) {
     result[key] = stringifyTemplateValue(entry);
   }
   return result;

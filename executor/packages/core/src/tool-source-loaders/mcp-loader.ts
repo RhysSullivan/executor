@@ -1,5 +1,6 @@
 "use node";
 
+import { z } from "zod";
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
 import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
 import { callMcpToolWithReconnect } from "../tool/source-execution";
@@ -9,6 +10,19 @@ import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/sc
 import type { ToolDefinition } from "../types";
 import { asRecord } from "../utils";
 import type { SerializedTool } from "../tool/source-serialization";
+
+const listedToolsResponseSchema = z.object({
+  tools: z.array(z.record(z.unknown())).optional(),
+});
+
+function extractListedTools(value: unknown): Record<string, unknown>[] {
+  const parsed = listedToolsResponseSchema.safeParse(value);
+  if (!parsed.success) {
+    return [];
+  }
+
+  return parsed.data.tools ?? [];
+}
 
 export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDefinition[]> {
   const queryParams = config.queryParams
@@ -50,9 +64,7 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
   }
 
   const listed = await connection.client.listTools();
-  const tools = Array.isArray((listed as { tools?: unknown }).tools)
-    ? ((listed as { tools: Array<Record<string, unknown>> }).tools)
-    : [];
+  const tools = extractListedTools(listed);
 
   return tools.map((tool) => {
     const toolName = String(tool.name ?? "tool");

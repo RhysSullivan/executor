@@ -1,11 +1,12 @@
 "use node";
 
 import { Result } from "better-result";
+import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { parseGraphqlOperationPaths } from "../../../core/src/graphql/operation-paths";
 import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
-import { rehydrateTools, type SerializedTool } from "../../../core/src/tool/source-serialization";
+import { parseSerializedTool, rehydrateTools } from "../../../core/src/tool/source-serialization";
 import { asPayload } from "../lib/object";
 import { getDecisionForContext, getToolDecision } from "./policy";
 import { getReadyRegistryBuildId } from "./tool_registry_state";
@@ -17,20 +18,31 @@ type RegistrySerializedToolEntry = {
   serializedToolJson: string;
 };
 
+const registrySearchEntrySchema = z.object({
+  preferredPath: z.string(),
+});
+
+const registrySerializedToolEntrySchema = z.object({
+  path: z.string(),
+  serializedToolJson: z.string(),
+});
+
 async function searchRegistryEntries(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
 ): Promise<Array<{ preferredPath: string }>> {
-  const entries: Array<{ preferredPath: string }> = await ctx.runQuery(internal.toolRegistry.searchTools, args);
-  return entries;
+  const entries = await ctx.runQuery(internal.toolRegistry.searchTools, args);
+  const parsed = z.array(registrySearchEntrySchema).safeParse(entries);
+  return parsed.success ? parsed.data : [];
 }
 
 async function getRegistryToolByPath(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; path: string },
 ): Promise<RegistrySerializedToolEntry | null> {
-  const entry: RegistrySerializedToolEntry | null = await ctx.runQuery(internal.toolRegistry.getToolByPath, args);
-  return entry;
+  const entry = await ctx.runQuery(internal.toolRegistry.getToolByPath, args);
+  const parsed = registrySerializedToolEntrySchema.safeParse(entry);
+  return parsed.success ? parsed.data : null;
 }
 
 async function getRegistryToolsByNormalizedPath(
@@ -42,8 +54,9 @@ async function getRegistryToolsByNormalizedPath(
     limit: number;
   },
 ): Promise<RegistrySerializedToolEntry[]> {
-  const entries: RegistrySerializedToolEntry[] = await ctx.runQuery(internal.toolRegistry.getToolsByNormalizedPath, args);
-  return entries;
+  const entries = await ctx.runQuery(internal.toolRegistry.getToolsByNormalizedPath, args);
+  const parsed = z.array(registrySerializedToolEntrySchema).safeParse(entries);
+  return parsed.success ? parsed.data : [];
 }
 
 export function getGraphqlDecision(
@@ -177,16 +190,21 @@ export async function resolveToolForCall(
   }
 
   const serializedResult = Result.try(() => {
-    const serialized: SerializedTool = JSON.parse(entry.serializedToolJson);
-    return serialized;
+    return JSON.parse(entry.serializedToolJson);
   });
   if (serializedResult.isErr()) {
     return Result.err(
       new Error(`Failed to parse tool registry entry '${resolvedToolPath}': ${serializedResult.error.message}`),
     );
   }
-  const serialized = serializedResult.value;
-  const [tool] = rehydrateTools([serialized], baseTools);
+  const serialized = parseSerializedTool(serializedResult.value);
+  if (serialized.isErr()) {
+    return Result.err(
+      new Error(`Failed to parse tool registry entry '${resolvedToolPath}': ${serialized.error.message}`),
+    );
+  }
+
+  const [tool] = rehydrateTools([serialized.value], baseTools);
   if (!tool) {
     return Result.err(new Error(`Failed to rehydrate tool: ${resolvedToolPath}`));
   }

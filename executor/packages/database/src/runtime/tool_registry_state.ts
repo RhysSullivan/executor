@@ -1,9 +1,9 @@
 "use node";
 
+import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { internal } from "../../convex/_generated/api";
-import { asPayload } from "../lib/object";
 import { sourceSignature } from "./tool_source_loading";
 
 export const TOOL_REGISTRY_SIGNATURE_PREFIX = "toolreg_v2|";
@@ -27,19 +27,26 @@ type ToolSourceState = {
   enabled: boolean;
 };
 
-function toRegistryState(value: unknown): RegistryState {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
+const registryStateSchema = z.object({
+  signature: z.string(),
+  readyBuildId: z.string().optional(),
+});
 
-  const state = asPayload(value);
-  if (typeof state.signature !== "string") {
+const toolSourceStateSchema = z.object({
+  id: z.string(),
+  updatedAt: z.number(),
+  enabled: z.boolean().optional(),
+});
+
+function toRegistryState(value: unknown): RegistryState {
+  const parsed = registryStateSchema.safeParse(value);
+  if (!parsed.success) {
     return null;
   }
 
   return {
-    signature: state.signature,
-    readyBuildId: typeof state.readyBuildId === "string" ? state.readyBuildId : undefined,
+    signature: parsed.data.signature,
+    readyBuildId: parsed.data.readyBuildId,
   };
 }
 
@@ -50,13 +57,13 @@ function toToolSourceStateList(value: unknown): ToolSourceState[] {
 
   const normalized: ToolSourceState[] = [];
   for (const entry of value) {
-    const record = asPayload(entry);
-    if (typeof record.id !== "string") continue;
-    if (typeof record.updatedAt !== "number") continue;
+    const parsed = toolSourceStateSchema.safeParse(entry);
+    if (!parsed.success) continue;
+
     normalized.push({
-      id: record.id,
-      updatedAt: record.updatedAt,
-      enabled: record.enabled !== false,
+      id: parsed.data.id,
+      updatedAt: parsed.data.updatedAt,
+      enabled: parsed.data.enabled !== false,
     });
   }
 

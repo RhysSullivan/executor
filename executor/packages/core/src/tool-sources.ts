@@ -1,10 +1,12 @@
 "use node";
 
+import { Result } from "better-result";
+import { z } from "zod";
 import { loadGraphqlTools } from "./tool-source-loaders/graphql-loader";
 import { loadMcpTools } from "./tool-source-loaders/mcp-loader";
 import { loadOpenApiTools } from "./tool-source-loaders/openapi-loader";
 import { buildOpenApiToolsFromPrepared } from "./openapi/tool-builder";
-import { rehydrateTools, serializeTools, type SerializedTool } from "./tool/source-serialization";
+import { parseSerializedTool, rehydrateTools, serializeTools, type SerializedTool } from "./tool/source-serialization";
 import type {
   ExternalToolSourceConfig,
   OpenApiToolSourceConfig,
@@ -30,6 +32,64 @@ export interface CompiledToolSourceArtifact {
   sourceType: ExternalToolSourceConfig["type"];
   sourceName: string;
   tools: SerializedTool[];
+}
+
+const compiledToolSourceArtifactSchema = z.object({
+  version: z.literal("v1"),
+  sourceType: z.enum(["mcp", "openapi", "graphql"]),
+  sourceName: z.string(),
+  tools: z.array(z.unknown()),
+});
+
+const workspaceToolSnapshotSchema = z.object({
+  version: z.literal("v2"),
+  externalArtifacts: z.array(z.unknown()),
+  warnings: z.array(z.string()),
+});
+
+export function parseCompiledToolSourceArtifact(value: unknown): Result<CompiledToolSourceArtifact, Error> {
+  const parsedArtifact = compiledToolSourceArtifactSchema.safeParse(value);
+  if (!parsedArtifact.success) {
+    return Result.err(new Error(parsedArtifact.error.message));
+  }
+
+  const tools: SerializedTool[] = [];
+  for (const tool of parsedArtifact.data.tools) {
+    const parsedTool = parseSerializedTool(tool);
+    if (parsedTool.isErr()) {
+      return Result.err(new Error(`Invalid serialized tool in artifact '${parsedArtifact.data.sourceName}': ${parsedTool.error.message}`));
+    }
+    tools.push(parsedTool.value);
+  }
+
+  return Result.ok({
+    version: parsedArtifact.data.version,
+    sourceType: parsedArtifact.data.sourceType,
+    sourceName: parsedArtifact.data.sourceName,
+    tools,
+  });
+}
+
+export function parseWorkspaceToolSnapshot(value: unknown): Result<WorkspaceToolSnapshot, Error> {
+  const parsedSnapshot = workspaceToolSnapshotSchema.safeParse(value);
+  if (!parsedSnapshot.success) {
+    return Result.err(new Error(parsedSnapshot.error.message));
+  }
+
+  const externalArtifacts: CompiledToolSourceArtifact[] = [];
+  for (const artifact of parsedSnapshot.data.externalArtifacts) {
+    const parsedArtifact = parseCompiledToolSourceArtifact(artifact);
+    if (parsedArtifact.isErr()) {
+      return Result.err(new Error(`Invalid workspace snapshot artifact: ${parsedArtifact.error.message}`));
+    }
+    externalArtifacts.push(parsedArtifact.value);
+  }
+
+  return Result.ok({
+    version: parsedSnapshot.data.version,
+    externalArtifacts,
+    warnings: parsedSnapshot.data.warnings,
+  });
 }
 
 async function loadSourceToolDefinitions(source: ExternalToolSourceConfig): Promise<ToolDefinition[]> {

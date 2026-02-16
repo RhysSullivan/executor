@@ -1,6 +1,8 @@
 "use node";
 
 import { WorkOS } from "@workos-inc/node";
+import { Result } from "better-result";
+import { z } from "zod";
 import type { CredentialProvider, CredentialRecord } from "./types";
 import { asRecord } from "./utils";
 
@@ -17,6 +19,12 @@ type ProviderResolver = (
   record: Pick<CredentialRecord, "provider" | "secretJson">,
   readVaultObject: VaultObjectReader,
 ) => Promise<CredentialPayload | null>;
+
+const workosVaultSecretConfigSchema = z.object({
+  objectId: z.string().optional(),
+  id: z.string().optional(),
+  apiKey: z.string().optional(),
+});
 
 function resolveWorkosApiKey(explicitApiKey?: string): string {
   const candidate =
@@ -84,14 +92,13 @@ function parseSecretValue(raw: string): CredentialPayload {
     return {};
   }
 
-  try {
-    const parsed = JSON.parse(value);
+  const parsedJson = Result.try(() => JSON.parse(value));
+  if (parsedJson.isOk()) {
+    const parsed = parsedJson.value;
     const asObject = asRecord(parsed);
     if (Object.keys(asObject).length > 0) {
       return asObject;
     }
-  } catch {
-    // not JSON; fall through
   }
 
   return { token: value };
@@ -107,20 +114,16 @@ async function resolveWorkosVault(
   record: Pick<CredentialRecord, "secretJson">,
   readVaultObject: VaultObjectReader,
 ): Promise<CredentialPayload | null> {
-  const config = asRecord(record.secretJson);
-  const objectId =
-    typeof config.objectId === "string" && config.objectId.trim()
-      ? config.objectId.trim()
-      : typeof config.id === "string" && config.id.trim()
-        ? config.id.trim()
-        : "";
+  const parsedConfig = workosVaultSecretConfigSchema.safeParse(asRecord(record.secretJson));
+  const config = parsedConfig.success ? parsedConfig.data : {};
+  const objectId = config.objectId?.trim() || config.id?.trim() || "";
 
   if (!objectId) {
     throw new Error(
       "Encrypted credential is missing its secure reference. Re-save this credential in the dashboard.",
     );
   }
-  const apiKey = typeof config.apiKey === "string" && config.apiKey.trim() ? config.apiKey.trim() : undefined;
+  const apiKey = config.apiKey?.trim() || undefined;
 
   const raw = await readVaultObject({ objectId, apiKey });
   return parseSecretValue(raw);

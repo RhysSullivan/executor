@@ -1,5 +1,7 @@
 "use node";
 
+import { Result } from "better-result";
+import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
@@ -8,6 +10,7 @@ import { jsonSchemaTypeHintFallback } from "../../../core/src/openapi/schema-hin
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../../core/src/tool-typing/schema-utils";
 import {
   materializeCompiledToolSource,
+  parseWorkspaceToolSnapshot,
   materializeWorkspaceSnapshot,
   type CompiledToolSourceArtifact,
   type WorkspaceToolSnapshot,
@@ -21,6 +24,7 @@ import type {
   SourceAuthProfile,
   ToolDefinition,
   ToolDescriptor,
+  ToolSourceRecord,
 } from "../../../core/src/types";
 import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_descriptors";
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
@@ -29,6 +33,41 @@ import { normalizeToolPathForLookup } from "./tool_paths";
 import { asPayload } from "../lib/object";
 
 const baseTools = new Map<string, ToolDefinition>();
+
+const adminAnnouncementInputSchema = z.object({
+  channel: z.string().optional(),
+  message: z.string().optional(),
+});
+
+async function listWorkspaceToolSources(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<ToolSourceRecord[]> {
+  const sources: ToolSourceRecord[] = await ctx.runQuery(internal.database.listToolSources, { workspaceId });
+  return sources;
+}
+
+async function listWorkspaceAccessPolicies(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<AccessPolicyRecord[]> {
+  const policies: AccessPolicyRecord[] = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId });
+  return policies;
+}
+
+async function parseWorkspaceToolSnapshotFromBlob(blob: Blob): Promise<Result<WorkspaceToolSnapshot, Error>> {
+  const textResult = await Result.tryPromise(async () => await blob.text());
+  if (textResult.isErr()) {
+    return Result.err(new Error(`Failed to read cache blob: ${textResult.error.message}`));
+  }
+
+  const jsonResult = Result.try(() => JSON.parse(textResult.value));
+  if (jsonResult.isErr()) {
+    return Result.err(new Error(`Failed to parse cache JSON: ${jsonResult.error.message}`));
+  }
+
+  return parseWorkspaceToolSnapshot(jsonResult.value);
+}
 
 // Minimal built-in tools used by tests/demos.
 // These are intentionally simple and are always approval-gated.
@@ -59,9 +98,9 @@ baseTools.set("admin.send_announcement", {
     },
   },
   run: async (input: unknown) => {
-    const payload = asPayload(input);
-    const channel = typeof payload.channel === "string" ? payload.channel : "";
-    const message = typeof payload.message === "string" ? payload.message : "";
+    const parsedInput = adminAnnouncementInputSchema.safeParse(asPayload(input));
+    const channel = parsedInput.success ? (parsedInput.data.channel ?? "") : "";
+    const message = parsedInput.success ? (parsedInput.data.message ?? "") : "";
     return { ok: true, channel, message };
   },
 });
@@ -508,9 +547,9 @@ export async function getWorkspaceTools(
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch ?? false;
   const actorId = options.actorId;
-  const sources = (await ctx.runQuery(internal.database.listToolSources, { workspaceId }))
-    .filter((source: { enabled: boolean }) => source.enabled);
-  const hasActorScopedMcpSource = sources.some((source: { type: string; config: Record<string, unknown> }) => {
+  const sources = (await listWorkspaceToolSources(ctx, workspaceId))
+    .filter((source) => source.enabled);
+  const hasActorScopedMcpSource = sources.some((source) => {
     if (source.type !== "mcp") {
       return false;
     }
@@ -520,7 +559,7 @@ export async function getWorkspaceTools(
   const skipCacheRead = (options.skipCacheRead ?? false) || hasActorScopedMcpSource;
   const skipCacheWrite = hasActorScopedMcpSource;
   traceStep("listToolSources", listSourcesStartedAt);
-  const hasOpenApiSource = sources.some((source: { type: string }) => source.type === "openapi");
+  const hasOpenApiSource = sources.some((source) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
   const registrySignature = registrySignatureForWorkspace(workspaceId, sources);
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
@@ -543,47 +582,53 @@ export async function getWorkspaceTools(
       const cacheHydrateStartedAt = Date.now();
       const blob = await ctx.storage.get(cacheEntry.storageId);
       if (blob) {
-        const snapshot: WorkspaceToolSnapshot = JSON.parse(await blob.text());
-        const restored = materializeWorkspaceSnapshot(snapshot);
-        const merged = mergeTools(restored);
-        traceStep("cacheHydrate", cacheHydrateStartedAt);
+        const parsedSnapshot = await parseWorkspaceToolSnapshotFromBlob(blob);
+        if (parsedSnapshot.isErr()) {
+          trace.push("cacheHydrate=invalidSnapshot");
+          console.warn(`[executor] invalid workspace tool cache snapshot for '${workspaceId}': ${parsedSnapshot.error.message}`);
+        } else {
+          const snapshot = parsedSnapshot.value;
+          const restored = materializeWorkspaceSnapshot(snapshot);
+          const merged = mergeTools(restored);
+          traceStep("cacheHydrate", cacheHydrateStartedAt);
 
-        const typesStorageId: Id<"_storage"> | undefined = cacheEntry.typesStorageId;
-        if (cacheEntry.isFresh) {
-          if (typesStorageId) {
+          const typesStorageId: Id<"_storage"> | undefined = cacheEntry.typesStorageId;
+          if (cacheEntry.isFresh) {
+            if (typesStorageId) {
+              return {
+                tools: merged,
+                warnings: snapshot.warnings,
+                typesStorageId,
+                debug: {
+                  ...debugBase,
+                  mode: "cache-fresh",
+                  normalizedSourceCount: sources.length,
+                  cacheHit: true,
+                  cacheFresh: true,
+                  timedOutSources: [],
+                  durationMs: Date.now() - startedAt,
+                  trace,
+                },
+              };
+            }
+            // Continue into rebuild path to generate missing type bundle.
+          } else if (allowStaleOnMismatch) {
             return {
               tools: merged,
-              warnings: snapshot.warnings,
+              warnings: [...snapshot.warnings, "Tool sources changed; showing previous results while refreshing."],
               typesStorageId,
               debug: {
                 ...debugBase,
-                mode: "cache-fresh",
+                mode: "cache-stale",
                 normalizedSourceCount: sources.length,
                 cacheHit: true,
-                cacheFresh: true,
+                cacheFresh: false,
                 timedOutSources: [],
                 durationMs: Date.now() - startedAt,
                 trace,
               },
             };
           }
-          // Continue into rebuild path to generate missing type bundle.
-        } else if (allowStaleOnMismatch) {
-          return {
-            tools: merged,
-            warnings: [...snapshot.warnings, "Tool sources changed; showing previous results while refreshing."],
-            typesStorageId,
-            debug: {
-              ...debugBase,
-              mode: "cache-stale",
-              normalizedSourceCount: sources.length,
-              cacheHit: true,
-              cacheFresh: false,
-              timedOutSources: [],
-              durationMs: Date.now() - startedAt,
-              trace,
-            },
-          };
         }
       }
     }
@@ -772,11 +817,10 @@ async function loadWorkspaceToolInventoryForContext(
       skipCacheRead,
       actorId: context.actorId,
     }),
-    ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: context.workspaceId }),
+    listWorkspaceAccessPolicies(ctx, context.workspaceId),
   ]);
-  const typedPolicies: AccessPolicyRecord[] = policies;
   const descriptorsStartedAt = Date.now();
-  const tools = listVisibleToolDescriptors(result.tools, context, typedPolicies, {
+  const tools = listVisibleToolDescriptors(result.tools, context, policies, {
     includeDetails,
     toolPaths: options.toolPaths,
   });

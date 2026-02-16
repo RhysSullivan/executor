@@ -2,6 +2,8 @@ import { connectMcp, extractMcpResult } from "../mcp-runtime";
 import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman-runtime";
 import { normalizeGraphqlFieldVariables, selectGraphqlFieldEnvelope } from "../graphql/field-tools";
 import { callMcpToolWithReconnect, executeGraphqlRequest, executeOpenApiRequest } from "./source-execution";
+import { Result } from "better-result";
+import { z } from "zod";
 import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTyping } from "../types";
 import { asRecord } from "../utils";
 
@@ -48,6 +50,116 @@ export interface SerializedTool {
       }
     | { kind: "builtin" };
 }
+
+const openApiRunSpecSchema = z.object({
+  kind: z.literal("openapi"),
+  baseUrl: z.string(),
+  method: z.string(),
+  pathTemplate: z.string(),
+  parameters: z.array(z.object({
+    name: z.string(),
+    in: z.string(),
+    required: z.boolean(),
+    schema: z.record(z.unknown()),
+  })),
+  authHeaders: z.record(z.string()),
+});
+
+const mcpRunSpecSchema = z.object({
+  kind: z.literal("mcp"),
+  url: z.string(),
+  transport: z.enum(["sse", "streamable-http"]).optional(),
+  queryParams: z.record(z.string()).optional(),
+  authHeaders: z.record(z.string()),
+  toolName: z.string(),
+});
+
+const postmanRunSpecSchema: z.ZodType<PostmanSerializedRunSpec> = z.object({
+  kind: z.literal("postman"),
+  method: z.string(),
+  url: z.string(),
+  headers: z.record(z.string()),
+  queryParams: z.array(z.object({ key: z.string(), value: z.string() })),
+  body: z.union([
+    z.object({ kind: z.literal("urlencoded"), entries: z.array(z.object({ key: z.string(), value: z.string() })) }),
+    z.object({ kind: z.literal("raw"), text: z.string() }),
+  ]).optional(),
+  variables: z.record(z.string()),
+  authHeaders: z.record(z.string()),
+});
+
+const graphqlRawRunSpecSchema = z.object({
+  kind: z.literal("graphql_raw"),
+  endpoint: z.string(),
+  authHeaders: z.record(z.string()),
+});
+
+const graphqlFieldRunSpecSchema = z.object({
+  kind: z.literal("graphql_field"),
+  endpoint: z.string(),
+  operationName: z.string(),
+  operationType: z.enum(["query", "mutation"]),
+  queryTemplate: z.string(),
+  argNames: z.array(z.string()).optional(),
+  authHeaders: z.record(z.string()),
+});
+
+const builtinRunSpecSchema = z.object({ kind: z.literal("builtin") });
+
+const toolTypedRefSchema = z.object({
+  kind: z.literal("openapi_operation"),
+  sourceKey: z.string(),
+  operationId: z.string(),
+});
+
+const toolTypingSchema: z.ZodType<ToolTyping> = z.object({
+  inputSchema: z.record(z.unknown()).optional(),
+  outputSchema: z.record(z.unknown()).optional(),
+  inputHint: z.string().optional(),
+  outputHint: z.string().optional(),
+  requiredInputKeys: z.array(z.string()).optional(),
+  previewInputKeys: z.array(z.string()).optional(),
+  typedRef: toolTypedRefSchema.optional(),
+});
+
+const toolCredentialSpecSchema: z.ZodType<ToolCredentialSpec> = z.object({
+  sourceKey: z.string(),
+  mode: z.enum(["static", "workspace", "actor"]),
+  authType: z.enum(["bearer", "apiKey", "basic"]),
+  headerName: z.string().optional(),
+  staticSecretJson: z.record(z.unknown()).optional(),
+});
+
+const graphqlRawInputSchema = z.object({
+  query: z.string(),
+  variables: z.unknown().optional(),
+});
+
+const graphqlFieldInputSchema = z.object({
+  query: z.string().optional(),
+  variables: z.unknown().optional(),
+}).passthrough();
+
+const serializedRunSpecSchema = z.union([
+  openApiRunSpecSchema,
+  mcpRunSpecSchema,
+  postmanRunSpecSchema,
+  graphqlRawRunSpecSchema,
+  graphqlFieldRunSpecSchema,
+  builtinRunSpecSchema,
+]);
+
+const serializedToolSchema: z.ZodType<SerializedTool> = z.object({
+  path: z.string(),
+  description: z.string(),
+  approval: z.enum(["auto", "required"]),
+  source: z.string().optional(),
+  typing: toolTypingSchema.optional(),
+  credential: toolCredentialSpecSchema.optional(),
+  _graphqlSource: z.string().optional(),
+  _pseudoTool: z.boolean().optional(),
+  runSpec: serializedRunSpecSchema,
+});
 
 type ToolWithRunSpec = ToolDefinition & { _runSpec?: SerializedTool["runSpec"] };
 type McpConnection = Awaited<ReturnType<typeof connectMcp>>;
@@ -99,13 +211,41 @@ export function serializeTools(tools: ToolDefinition[]): SerializedTool[] {
   }));
 }
 
+export function parseSerializedTool(value: unknown): Result<SerializedTool, Error> {
+  const parsed = serializedToolSchema.safeParse(value);
+  if (!parsed.success) {
+    return Result.err(new Error(parsed.error.message));
+  }
+
+  return Result.ok(parsed.data);
+}
+
 export function rehydrateTools(
-  serialized: SerializedTool[],
+  serialized: ReadonlyArray<unknown>,
   baseTools: Map<string, ToolDefinition>,
 ): ToolDefinition[] {
   const mcpConnections = new Map<string, McpConnectionCacheEntry>();
 
-  return serialized.map((st) => {
+  return serialized.map((candidate, index) => {
+    const parsed = parseSerializedTool(candidate);
+    if (parsed.isErr()) {
+      const raw = asRecord(candidate);
+      const path = typeof raw.path === "string" && raw.path.trim().length > 0
+        ? raw.path
+        : `invalid_serialized_tool_${index + 1}`;
+
+      return {
+        path,
+        description: "Invalid serialized tool definition",
+        approval: "required",
+        source: typeof raw.source === "string" ? raw.source : undefined,
+        run: async () => {
+          throw new Error(`Invalid serialized tool '${path}': ${parsed.error.message}`);
+        },
+      };
+    }
+
+    const st = parsed.value;
     const base: Omit<ToolDefinition, "run"> = {
       path: st.path,
       description: st.description,
@@ -191,11 +331,12 @@ export function rehydrateTools(
         ...base,
         run: async (input: unknown, context) => {
           const payload = asRecord(input);
-          const query = typeof payload.query === "string" ? payload.query : "";
+          const parsedInput = graphqlRawInputSchema.safeParse(payload);
+          const query = parsedInput.success ? parsedInput.data.query : "";
           if (!query.trim()) {
             throw new Error("GraphQL query string is required");
           }
-          const variables = payload.variables;
+          const variables = parsedInput.success ? parsedInput.data.variables : undefined;
           const response = await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
           if (response.isErr()) {
             throw new Error(response.error.message);
@@ -211,10 +352,12 @@ export function rehydrateTools(
         ...base,
         run: async (input: unknown, context) => {
           const payload = asRecord(input);
-          const hasExplicitQuery = typeof payload.query === "string" && payload.query.trim().length > 0;
-          const query = hasExplicitQuery ? String(payload.query) : queryTemplate;
+          const parsedInput = graphqlFieldInputSchema.safeParse(payload);
+          const normalizedInput = parsedInput.success ? parsedInput.data : {};
+          const hasExplicitQuery = typeof normalizedInput.query === "string" && normalizedInput.query.trim().length > 0;
+          const query = hasExplicitQuery ? normalizedInput.query : queryTemplate;
 
-          let variables = payload.variables;
+          let variables = normalizedInput.variables;
           if (variables === undefined && !hasExplicitQuery) {
             variables = normalizeGraphqlFieldVariables(argNames ?? [], payload);
           }

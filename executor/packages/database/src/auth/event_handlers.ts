@@ -1,4 +1,5 @@
 import { type AuthKit } from "@convex-dev/workos-authkit";
+import { z } from "zod";
 import type { DataModel, Doc } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx } from "../../convex/_generated/server";
 import { upsertWorkosAccount } from "./accounts";
@@ -16,7 +17,18 @@ import {
 } from "./memberships";
 import { ensureUniqueOrganizationSlug } from "./naming";
 import { seedWorkspaceMembersFromOrganization } from "./workspace_membership_projection";
-import { asPayload } from "../lib/object";
+
+const trimmedStringSchema = z.string().transform((value) => value.trim());
+
+const workosMembershipEventDataSchema = z.object({
+  id: trimmedStringSchema.refine((value) => value.length > 0),
+  user_id: trimmedStringSchema.optional(),
+  userId: trimmedStringSchema.optional(),
+  organization_id: trimmedStringSchema.optional(),
+  organizationId: trimmedStringSchema.optional(),
+  role: z.object({ slug: trimmedStringSchema.optional() }).optional(),
+  status: trimmedStringSchema.optional(),
+});
 
 type WorkosMembershipEventData = {
   id: string;
@@ -35,20 +47,19 @@ type ResolvedMembershipTarget = {
 };
 
 function parseMembershipEventData(value: unknown): WorkosMembershipEventData | null {
-  const record = asPayload(value);
-  if (typeof record.id !== "string" || record.id.trim().length === 0) {
+  const parsed = workosMembershipEventDataSchema.safeParse(value);
+  if (!parsed.success) {
     return null;
   }
 
-  const role = asPayload(record.role);
   return {
-    id: record.id,
-    user_id: typeof record.user_id === "string" ? record.user_id : undefined,
-    userId: typeof record.userId === "string" ? record.userId : undefined,
-    organization_id: typeof record.organization_id === "string" ? record.organization_id : undefined,
-    organizationId: typeof record.organizationId === "string" ? record.organizationId : undefined,
-    role: typeof role.slug === "string" ? { slug: role.slug } : undefined,
-    status: typeof record.status === "string" ? record.status : undefined,
+    id: parsed.data.id,
+    user_id: parsed.data.user_id,
+    userId: parsed.data.userId,
+    organization_id: parsed.data.organization_id,
+    organizationId: parsed.data.organizationId,
+    role: parsed.data.role?.slug ? { slug: parsed.data.role.slug } : undefined,
+    status: parsed.data.status,
   };
 }
 

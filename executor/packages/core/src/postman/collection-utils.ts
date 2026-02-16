@@ -1,5 +1,6 @@
 import { sanitizeSegment, sanitizeSnakeSegment } from "../tool/path-utils";
 import { stringifyTemplateValue } from "../postman-utils";
+import { asRecord } from "../utils";
 
 export type PostmanRequestBody =
   | { kind: "urlencoded"; entries: Array<{ key: string; value: string }> }
@@ -50,8 +51,7 @@ export function extractPostmanVariableMap(value: unknown): Record<string, string
   if (!Array.isArray(value)) return {};
   const result: Record<string, string> = {};
   for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
+    const record = asRecord(entry);
     const key = typeof record.key === "string" ? record.key.trim() : "";
     if (!key) continue;
     if (record.disabled === true) continue;
@@ -64,8 +64,7 @@ export function extractPostmanHeaderMap(value: unknown): Record<string, string> 
   if (!Array.isArray(value)) return {};
   const result: Record<string, string> = {};
   for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
+    const record = asRecord(entry);
     const key = typeof record.key === "string" ? record.key.trim() : "";
     if (!key || record.disabled === true) continue;
     result[key] = stringifyTemplateValue(record.value);
@@ -77,8 +76,7 @@ export function extractPostmanQueryEntries(value: unknown): Array<{ key: string;
   if (!Array.isArray(value)) return [];
   const entries: Array<{ key: string; value: string }> = [];
   for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const record = entry as Record<string, unknown>;
+    const record = asRecord(entry);
     const key = typeof record.key === "string" ? record.key.trim() : "";
     if (!key || record.disabled === true) continue;
     entries.push({ key, value: stringifyTemplateValue(record.value) });
@@ -91,8 +89,7 @@ export function extractPostmanBody(record: Record<string, unknown>): PostmanRequ
   if (dataMode === "urlencoded" && Array.isArray(record.data)) {
     const entries: Array<{ key: string; value: string }> = [];
     for (const item of record.data) {
-      if (!item || typeof item !== "object") continue;
-      const entry = item as Record<string, unknown>;
+      const entry = asRecord(item);
       const key = typeof entry.key === "string" ? entry.key.trim() : "";
       if (!key || entry.disabled === true) continue;
       entries.push({ key, value: stringifyTemplateValue(entry.value) });

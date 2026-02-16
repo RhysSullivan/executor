@@ -10,10 +10,10 @@ import {
   prepareOpenApiSpec,
   buildOpenApiToolsFromPrepared,
   materializeWorkspaceSnapshot,
+  parseWorkspaceToolSnapshot,
   serializeTools,
   rehydrateTools,
   type CompiledToolSourceArtifact,
-  type SerializedTool,
   type WorkspaceToolSnapshot,
 } from "../tool-sources";
 import type { ToolDefinition } from "../types";
@@ -184,7 +184,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
 
     // JSON round-trip (simulates storage)
     const json = JSON.stringify(serialized);
-    const restored = JSON.parse(json) as SerializedTool[];
+    const restored = JSON.parse(json);
     expect(restored.length).toBe(4);
 
     // Rehydrate
@@ -214,7 +214,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
 
     const serialized = serializeTools(tools);
     const json = JSON.stringify(serialized);
-    const restored = JSON.parse(json) as SerializedTool[];
+    const restored = JSON.parse(json);
     const rehydrated = rehydrateTools(restored, makeBaseTools());
 
     for (let i = 0; i < tools.length; i++) {
@@ -235,7 +235,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     expect(serialized[0]!.runSpec.kind).toBe("builtin");
 
     const json = JSON.stringify(serialized);
-    const restored = JSON.parse(json) as SerializedTool[];
+    const restored = JSON.parse(json);
     const rehydrated = rehydrateTools(restored, baseTools);
 
     expect(rehydrated.length).toBe(1);
@@ -279,7 +279,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
 
     // JSON round-trip
     const json = JSON.stringify(serialized);
-    const restored = JSON.parse(json) as SerializedTool[];
+    const restored = JSON.parse(json);
     expect(restored[0]!.runSpec.kind).toBe("mcp");
   });
 
@@ -327,7 +327,7 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     expect(serialized[0]!.runSpec.kind).toBe("graphql_raw");
     expect(serialized[1]!.runSpec.kind).toBe("graphql_field");
 
-    const restored = JSON.parse(JSON.stringify(serialized)) as SerializedTool[];
+    const restored = JSON.parse(JSON.stringify(serialized));
     const rehydrated = rehydrateTools(restored, makeBaseTools());
 
     const rawTool = rehydrated.find((tool) => tool.path === "linear.graphql");
@@ -401,13 +401,17 @@ describe("serializeTools + rehydrateTools round-trip", () => {
     const json = JSON.stringify(snapshot);
     const blob = new Blob([json], { type: "application/json" });
     const text = await blob.text();
-    const restored = JSON.parse(text) as WorkspaceToolSnapshot;
+    const restored = parseWorkspaceToolSnapshot(JSON.parse(text));
+    expect(restored.isOk()).toBe(true);
+    if (restored.isErr()) {
+      throw restored.error;
+    }
 
-    expect(restored.warnings).toEqual(["test warning"]);
-    expect(restored.version).toBe("v2");
-    expect(restored.externalArtifacts).toHaveLength(1);
+    expect(restored.value.warnings).toEqual(["test warning"]);
+    expect(restored.value.version).toBe("v2");
+    expect(restored.value.externalArtifacts).toHaveLength(1);
 
-    const restoredTools = materializeWorkspaceSnapshot(restored);
+    const restoredTools = materializeWorkspaceSnapshot(restored.value);
     expect(restoredTools.length).toBe(tools.length);
     expect(restoredTools.some((tool) => tool.path === "echo")).toBe(false);
 
@@ -481,6 +485,33 @@ describe("serializeTools + rehydrateTools round-trip", () => {
 
     // Should be well under 1MB for 100 tools
     expect(json.length).toBeLessThan(1_000_000);
+  });
+
+  test("invalid serialized tools fail with explicit erroring placeholder", async () => {
+    const invalidSerialized = [
+      {
+        path: "broken.tool",
+        description: "broken",
+        approval: "auto",
+        runSpec: {
+          kind: "mcp",
+        },
+      },
+    ];
+
+    const [tool] = rehydrateTools(invalidSerialized, makeBaseTools());
+    expect(tool.path).toBe("broken.tool");
+
+    await expect(
+      tool.run(
+        {},
+        {
+          taskId: "t",
+          workspaceId: TEST_WORKSPACE_ID,
+          isToolAllowed: () => true,
+        },
+      ),
+    ).rejects.toThrow("Invalid serialized tool 'broken.tool'");
   });
 });
 

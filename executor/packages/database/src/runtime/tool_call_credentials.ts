@@ -1,12 +1,32 @@
 "use node";
 
 import { Result } from "better-result";
+import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { resolveCredentialPayload } from "../../../core/src/credential-providers";
 import type { ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../../core/src/types";
 import { ToolCallControlError } from "../../../core/src/tool-call-control";
 import { asPayload } from "../lib/object";
+
+const bearerSecretSchema = z.object({
+  token: z.coerce.string().optional(),
+});
+
+const apiKeySecretSchema = z.object({
+  headerName: z.coerce.string().optional(),
+  value: z.coerce.string().optional(),
+  token: z.coerce.string().optional(),
+});
+
+const basicSecretSchema = z.object({
+  username: z.coerce.string().optional(),
+  password: z.coerce.string().optional(),
+});
+
+const credentialOverrideHeadersSchema = z.object({
+  headers: z.record(z.coerce.string()).optional(),
+});
 
 export async function resolveCredentialHeaders(
   ctx: ActionCtx,
@@ -30,26 +50,32 @@ export async function resolveCredentialHeaders(
 
   const headers: Record<string, string> = {};
   if (spec.authType === "bearer") {
-    const token = String(sourcePayload.token ?? "").trim();
+    const parsedSecret = bearerSecretSchema.safeParse(sourcePayload);
+    const token = parsedSecret.success ? (parsedSecret.data.token ?? "").trim() : "";
     if (token) headers.authorization = `Bearer ${token}`;
   } else if (spec.authType === "apiKey") {
-    const headerName = spec.headerName ?? String(sourcePayload.headerName ?? "x-api-key");
-    const value = String(sourcePayload.value ?? sourcePayload.token ?? "").trim();
+    const parsedSecret = apiKeySecretSchema.safeParse(sourcePayload);
+    const headerName = spec.headerName
+      ?? (parsedSecret.success ? (parsedSecret.data.headerName ?? "x-api-key") : "x-api-key");
+    const value = parsedSecret.success
+      ? (parsedSecret.data.value ?? parsedSecret.data.token ?? "").trim()
+      : "";
     if (value) headers[headerName] = value;
   } else if (spec.authType === "basic") {
-    const username = String(sourcePayload.username ?? "");
-    const password = String(sourcePayload.password ?? "");
+    const parsedSecret = basicSecretSchema.safeParse(sourcePayload);
+    const username = parsedSecret.success ? (parsedSecret.data.username ?? "") : "";
+    const password = parsedSecret.success ? (parsedSecret.data.password ?? "") : "";
     if (username || password) {
       const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
       headers.authorization = `Basic ${encoded}`;
     }
   }
 
-  const bindingOverrides = asPayload(record?.overridesJson ?? {});
-  const overrideHeaders = asPayload(bindingOverrides.headers);
+  const bindingOverrides = credentialOverrideHeadersSchema.safeParse(record?.overridesJson ?? {});
+  const overrideHeaders = bindingOverrides.success ? (bindingOverrides.data.headers ?? {}) : {};
   for (const [key, value] of Object.entries(overrideHeaders)) {
     if (!key) continue;
-    headers[key] = String(value);
+    headers[key] = value;
   }
 
   if (Object.keys(headers).length === 0) {

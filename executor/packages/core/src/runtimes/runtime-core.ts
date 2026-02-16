@@ -48,7 +48,7 @@ function sanitizeExecutionResult(value: unknown): unknown {
     return null;
   }
 
-  return Result.try(() => JSON.parse(serialized.value) as unknown).unwrapOr(String(value));
+  return Result.try(() => JSON.parse(serialized.value)).unwrapOr(String(value));
 }
 
 function createToolsProxy(

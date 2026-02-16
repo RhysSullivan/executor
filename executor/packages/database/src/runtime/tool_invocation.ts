@@ -1,5 +1,6 @@
 "use node";
 
+import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type {
@@ -40,6 +41,50 @@ type RegistryToolEntry = {
   displayOutput?: string;
 };
 
+const accessPolicyRecordSchema = z.object({
+  id: z.string(),
+  workspaceId: z.custom<TaskRecord["workspaceId"]>(),
+  actorId: z.string().optional(),
+  clientId: z.string().optional(),
+  toolPathPattern: z.string(),
+  decision: z.enum(["allow", "require_approval", "deny"]),
+  priority: z.number(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+
+const registryNamespaceSchema = z.object({
+  namespace: z.string(),
+  toolCount: z.number(),
+  samplePaths: z.array(z.string()),
+});
+
+const registryToolEntrySchema: z.ZodType<RegistryToolEntry> = z.object({
+  path: z.string(),
+  preferredPath: z.string().optional(),
+  source: z.string().optional(),
+  approval: z.enum(["auto", "required"]),
+  description: z.string().optional(),
+  displayInput: z.string().optional(),
+  displayOutput: z.string().optional(),
+});
+
+const catalogNamespacesInputSchema = z.object({
+  limit: z.coerce.number().optional(),
+});
+
+const catalogToolsInputSchema = z.object({
+  namespace: z.string().optional(),
+  query: z.string().optional(),
+  limit: z.coerce.number().optional(),
+});
+
+const discoverInputSchema = z.object({
+  query: z.string().optional(),
+  limit: z.coerce.number().optional(),
+  compact: z.boolean().optional(),
+});
+
 async function upsertRequestedToolCall(
   ctx: ActionCtx,
   args: { taskId: string; callId: string; workspaceId: TaskRecord["workspaceId"]; toolPath: string },
@@ -52,36 +97,36 @@ async function listWorkspaceAccessPolicies(
   ctx: ActionCtx,
   workspaceId: TaskRecord["workspaceId"],
 ): Promise<AccessPolicyRecord[]> {
-  const policies: AccessPolicyRecord[] = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId });
-  return policies;
+  const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId });
+  const parsed = z.array(accessPolicyRecordSchema).safeParse(policies);
+  return parsed.success ? parsed.data : [];
 }
 
 async function listRegistryNamespaces(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; limit: number },
 ): Promise<Array<{ namespace: string; toolCount: number; samplePaths: string[] }>> {
-  const namespaces: Array<{
-    namespace: string;
-    toolCount: number;
-    samplePaths: string[];
-  }> = await ctx.runQuery(internal.toolRegistry.listNamespaces, args);
-  return namespaces;
+  const namespaces = await ctx.runQuery(internal.toolRegistry.listNamespaces, args);
+  const parsed = z.array(registryNamespaceSchema).safeParse(namespaces);
+  return parsed.success ? parsed.data : [];
 }
 
 async function searchRegistryTools(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
 ): Promise<RegistryToolEntry[]> {
-  const entries: RegistryToolEntry[] = await ctx.runQuery(internal.toolRegistry.searchTools, args);
-  return entries;
+  const entries = await ctx.runQuery(internal.toolRegistry.searchTools, args);
+  const parsed = z.array(registryToolEntrySchema).safeParse(entries);
+  return parsed.success ? parsed.data : [];
 }
 
 async function listRegistryToolsByNamespace(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; namespace: string; limit: number },
 ): Promise<RegistryToolEntry[]> {
-  const entries: RegistryToolEntry[] = await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, args);
-  return entries;
+  const entries = await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, args);
+  const parsed = z.array(registryToolEntrySchema).safeParse(entries);
+  return parsed.success ? parsed.data : [];
 }
 
 async function denyToolCallForApproval(
@@ -168,7 +213,9 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       };
 
       if (toolPath === "catalog.namespaces") {
-        const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 200)));
+        const parsedInput = catalogNamespacesInputSchema.safeParse(payload);
+        const limitInput = parsedInput.success ? parsedInput.data.limit : undefined;
+        const limit = Math.max(1, Math.min(200, Number(limitInput ?? 200)));
         const namespaces = await listRegistryNamespaces(ctx, {
           workspaceId: task.workspaceId,
           buildId,
@@ -178,9 +225,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       }
 
       if (toolPath === "catalog.tools") {
-        const namespace = String(payload.namespace ?? "").trim().toLowerCase();
-        const query = String(payload.query ?? "").trim();
-        const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 50)));
+        const parsedInput = catalogToolsInputSchema.safeParse(payload);
+        const namespace = (parsedInput.success ? (parsedInput.data.namespace ?? "") : "").trim().toLowerCase();
+        const query = (parsedInput.success ? (parsedInput.data.query ?? "") : "").trim();
+        const limitInput = parsedInput.success ? parsedInput.data.limit : undefined;
+        const limit = Math.max(1, Math.min(200, Number(limitInput ?? 50)));
 
         const raw = query
           ? await searchRegistryTools(ctx, {
@@ -219,9 +268,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       }
 
       // discover
-      const query = String(payload.query ?? "").trim();
-      const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
-      const compact = payload.compact === false ? false : true;
+      const parsedInput = discoverInputSchema.safeParse(payload);
+      const query = (parsedInput.success ? (parsedInput.data.query ?? "") : "").trim();
+      const limitInput = parsedInput.success ? parsedInput.data.limit : undefined;
+      const limit = Math.max(1, Math.min(50, Number(limitInput ?? 8)));
+      const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
       const hits = await searchRegistryTools(ctx, {
         workspaceId: task.workspaceId,
         buildId,

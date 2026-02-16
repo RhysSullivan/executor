@@ -1,6 +1,7 @@
 import type { ToolDefinition } from "../types";
 import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
 import { OPENAPI_HELPER_TYPES } from "../openapi/helper-types";
+import { asRecord } from "../utils";
 import { BASE_ENVIRONMENT_DTS } from "./env-types";
 
 const memberNameRegex = /^[$A-Z_][0-9A-Z_$]*$/i;
@@ -30,7 +31,7 @@ function wrapDtsInNamespace(namespace: string, rawDts: string): string {
 function typeHintFromSchema(schema: Record<string, unknown> | undefined, fallback: string): string {
   if (!schema || Object.keys(schema).length === 0) return fallback;
   // Special-case empty object input to keep signatures tidy.
-  const props = schema.properties && typeof schema.properties === "object" ? schema.properties as Record<string, unknown> : {};
+  const props = asRecord(schema.properties);
   const required = Array.isArray(schema.required) ? schema.required : [];
   if (Object.keys(props).length === 0 && required.length === 0) {
     return fallback === "{}" ? "{}" : fallback;

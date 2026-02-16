@@ -1,8 +1,18 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { Result } from "better-result";
+import { z } from "zod";
 
 import type { ManagedRuntimeConfig, ManagedRuntimeInfo } from "../managed-runtime";
+
+const managedRuntimeConfigSchema = z.object({
+  instanceName: z.string().min(1),
+  instanceSecret: z.string().min(1),
+  hostInterface: z.string().min(1),
+  backendPort: z.number().int(),
+  siteProxyPort: z.number().int(),
+});
 
 const CONVEX_BACKEND_REPO = "get-convex/convex-backend";
 const EXECUTOR_RELEASE_REPO = Bun.env.EXECUTOR_REPO ?? "RhysSullivan/executor";
@@ -81,6 +91,11 @@ function defaultConfig(): ManagedRuntimeConfig {
   };
 }
 
+function parseManagedRuntimeConfig(value: unknown): ManagedRuntimeConfig | null {
+  const parsed = managedRuntimeConfigSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 export async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -136,7 +151,18 @@ export function runtimeInfo(): ManagedRuntimeInfo {
 export async function ensureConfig(info: ManagedRuntimeInfo): Promise<ManagedRuntimeConfig> {
   if (await pathExists(info.configPath)) {
     const raw = await fs.readFile(info.configPath, "utf8");
-    const parsed = JSON.parse(raw) as ManagedRuntimeConfig;
+    const parsedResult = Result.try(() => JSON.parse(raw));
+    const parsed = parsedResult.isOk()
+      ? parseManagedRuntimeConfig(parsedResult.value)
+      : null;
+
+    if (!parsed) {
+      const config = defaultConfig();
+      await fs.writeFile(info.configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+      console.warn(`[executor] replaced invalid runtime config at ${info.configPath}`);
+      return config;
+    }
+
     if (parsed.instanceName === "executor-local") {
       parsed.instanceName = "anonymous-executor";
       await fs.writeFile(info.configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");

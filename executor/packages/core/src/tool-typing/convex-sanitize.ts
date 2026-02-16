@@ -1,4 +1,5 @@
 import type { JsonSchema } from "../types";
+import { asRecord } from "../utils";
 
 function stripDollarKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -7,7 +8,7 @@ function stripDollarKeysDeep(value: unknown): unknown {
 
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
-    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, child] of Object.entries(asRecord(value))) {
       if (key.startsWith("$")) continue;
       out[key] = stripDollarKeysDeep(child);
     }

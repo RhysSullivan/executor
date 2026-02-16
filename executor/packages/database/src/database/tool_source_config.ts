@@ -1,4 +1,5 @@
 import { Result } from "better-result";
+import { z } from "zod";
 import type {
   GraphqlToolSourceConfig,
   McpToolSourceConfig,
@@ -30,6 +31,29 @@ export type NormalizedToolSourceConfig =
   | NormalizedGraphqlToolSourceConfig
   | NormalizedOpenApiToolSourceConfig;
 
+const approvalModeSchema = z.enum(["auto", "required"]);
+const authModeSchema = z.enum(["static", "workspace", "actor"]);
+const mcpTransportSchema = z.enum(["sse", "streamable-http"]);
+const overrideEntrySchema = z.object({
+  approval: approvalModeSchema.optional(),
+});
+const unknownRecordSchema = z.record(z.unknown());
+const stringMapSchema = z.record(z.string());
+const basicAuthSchema = z.object({
+  mode: authModeSchema.optional(),
+  username: z.string().optional(),
+  password: z.string().optional(),
+});
+const bearerAuthSchema = z.object({
+  mode: authModeSchema.optional(),
+  token: z.string().optional(),
+});
+const apiKeyAuthSchema = z.object({
+  mode: authModeSchema.optional(),
+  header: z.string(),
+  value: z.string().optional(),
+});
+
 function optionalTrimmedString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -53,7 +77,17 @@ function normalizeStringMap(
 ): Result<Record<string, string> | undefined, Error> {
   if (value === undefined) return Result.ok(undefined);
 
-  const record = asRecord(value);
+  const parsedRecord = stringMapSchema.safeParse(value);
+  if (!parsedRecord.success) {
+    const issue = parsedRecord.error.issues[0];
+    const keyPath = issue?.path[0];
+    if (typeof keyPath === "string") {
+      return Result.err(new Error(`Tool source ${fieldName}.${keyPath} must be a string`));
+    }
+    return Result.err(new Error(`Tool source ${fieldName} must be a map of strings`));
+  }
+
+  const record = parsedRecord.data;
   if (Object.keys(record).length === 0) {
     return Result.ok(undefined);
   }
@@ -62,9 +96,6 @@ function normalizeStringMap(
   for (const [key, rawValue] of Object.entries(record)) {
     const normalizedKey = key.trim();
     if (!normalizedKey) continue;
-    if (typeof rawValue !== "string") {
-      return Result.err(new Error(`Tool source ${fieldName}.${normalizedKey} must be a string`));
-    }
     normalized[normalizedKey] = rawValue;
   }
 
@@ -76,9 +107,12 @@ function normalizeApprovalMode(
   fieldName: string,
 ): Result<ToolApprovalMode | undefined, Error> {
   if (value === undefined) return Result.ok(undefined);
-  if (value === "auto" || value === "required") {
-    return Result.ok(value);
+
+  const parsed = approvalModeSchema.safeParse(value);
+  if (parsed.success) {
+    return Result.ok(parsed.data);
   }
+
   return Result.err(new Error(`Tool source ${fieldName} must be 'auto' or 'required'`));
 }
 
@@ -88,7 +122,12 @@ function normalizeOverrides(
 ): Result<Record<string, { approval?: ToolApprovalMode }> | undefined, Error> {
   if (value === undefined) return Result.ok(undefined);
 
-  const raw = asRecord(value);
+  const rawRecord = unknownRecordSchema.safeParse(value);
+  if (!rawRecord.success) {
+    return Result.err(new Error(`Tool source ${fieldName} must be an object`));
+  }
+
+  const raw = rawRecord.data;
   if (Object.keys(raw).length === 0) {
     return Result.ok(undefined);
   }
@@ -97,25 +136,16 @@ function normalizeOverrides(
   for (const [rawKey, rawValue] of Object.entries(raw)) {
     const key = rawKey.trim();
     if (!key) continue;
-    const entry = asRecord(rawValue);
-    const approvalResult = normalizeApprovalMode(entry.approval, `${fieldName}.${key}.approval`);
-    if (approvalResult.isErr()) {
-      return approvalResult;
+
+    const parsedEntry = overrideEntrySchema.safeParse(rawValue);
+    if (!parsedEntry.success) {
+      return Result.err(new Error(`Tool source ${fieldName}.${key}.approval must be 'auto' or 'required'`));
     }
-    normalized[key] = approvalResult.value ? { approval: approvalResult.value } : {};
+
+    normalized[key] = parsedEntry.data.approval ? { approval: parsedEntry.data.approval } : {};
   }
 
   return Result.ok(Object.keys(normalized).length > 0 ? normalized : undefined);
-}
-
-function normalizeAuthMode(
-  value: unknown,
-): Result<"static" | "workspace" | "actor" | undefined, Error> {
-  if (value === undefined) return Result.ok(undefined);
-  if (value === "static" || value === "workspace" || value === "actor") {
-    return Result.ok(value);
-  }
-  return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
 }
 
 function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
@@ -131,39 +161,53 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
     return Result.ok({ type: "none" });
   }
 
-  const modeResult = normalizeAuthMode(auth.mode);
-  if (modeResult.isErr()) {
-    return modeResult;
-  }
-  const mode = modeResult.value;
-
   if (authType === "basic") {
+    const parsed = basicAuthSchema.safeParse(auth);
+    if (!parsed.success) {
+      return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
+    }
+
     return Result.ok({
       type: "basic",
-      mode,
-      username: optionalTrimmedString(auth.username),
-      password: optionalTrimmedString(auth.password),
+      mode: parsed.data.mode,
+      username: optionalTrimmedString(parsed.data.username),
+      password: optionalTrimmedString(parsed.data.password),
     });
   }
 
   if (authType === "bearer") {
+    const parsed = bearerAuthSchema.safeParse(auth);
+    if (!parsed.success) {
+      return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
+    }
+
     return Result.ok({
       type: "bearer",
-      mode,
-      token: optionalTrimmedString(auth.token),
+      mode: parsed.data.mode,
+      token: optionalTrimmedString(parsed.data.token),
     });
   }
 
   if (authType === "apiKey") {
-    const headerResult = requiredTrimmedString(auth.header, "auth.header");
+    const parsed = apiKeyAuthSchema.safeParse(auth);
+    if (!parsed.success) {
+      const headerIssue = parsed.error.issues.some((issue) => issue.path[0] === "header");
+      if (headerIssue) {
+        return Result.err(new Error("Tool source auth.header is required"));
+      }
+      return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
+    }
+
+    const headerResult = requiredTrimmedString(parsed.data.header, "auth.header");
     if (headerResult.isErr()) {
       return headerResult;
     }
+
     return Result.ok({
       type: "apiKey",
-      mode,
+      mode: parsed.data.mode,
       header: headerResult.value,
-      value: optionalTrimmedString(auth.value),
+      value: optionalTrimmedString(parsed.data.value),
     });
   }
 
@@ -173,15 +217,21 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
 function normalizeSpec(
   value: unknown,
 ): Result<string | Record<string, unknown>, Error> {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
+  const stringSpec = z.string().safeParse(value);
+  if (stringSpec.success) {
+    const trimmed = stringSpec.data.trim();
     if (!trimmed) {
       return Result.err(new Error("Tool source spec is required"));
     }
     return Result.ok(trimmed);
   }
 
-  const specObject = asRecord(value);
+  const specObjectResult = unknownRecordSchema.safeParse(value);
+  if (!specObjectResult.success) {
+    return Result.err(new Error("Tool source spec must be a non-empty string or object"));
+  }
+
+  const specObject = specObjectResult.data;
   if (Object.keys(specObject).length === 0) {
     return Result.err(new Error("Tool source spec must be a non-empty string or object"));
   }
@@ -209,7 +259,11 @@ export function normalizeToolSourceConfig(
   type: ToolSourceType,
   rawConfig: unknown,
 ): Result<NormalizedToolSourceConfig, Error> {
-  const config = asRecord(rawConfig);
+  const configResult = unknownRecordSchema.safeParse(rawConfig);
+  if (!configResult.success) {
+    return Result.err(new Error("Tool source config must be an object"));
+  }
+  const config = configResult.data;
 
   if (type === "mcp") {
     const urlResult = requiredTrimmedString(config.url, "url");
@@ -217,10 +271,18 @@ export function normalizeToolSourceConfig(
       return urlResult;
     }
 
-    const transport = config.transport;
-    if (transport !== undefined && transport !== "sse" && transport !== "streamable-http") {
+    const transportResult = config.transport === undefined
+      ? Result.ok(undefined)
+      : (() => {
+          const parsed = mcpTransportSchema.safeParse(config.transport);
+          return parsed.success
+            ? Result.ok(parsed.data)
+            : Result.err(new Error("Tool source transport must be 'sse' or 'streamable-http'"));
+        })();
+    if (transportResult.isErr()) {
       return Result.err(new Error("Tool source transport must be 'sse' or 'streamable-http'"));
     }
+    const transport = transportResult.value;
 
     const authResult = normalizeAuth(config.auth);
     if (authResult.isErr()) {
@@ -290,7 +352,8 @@ export function normalizeToolSourceConfig(
       return overridesResult;
     }
 
-    const schema = asRecord(config.schema);
+    const schemaResult = unknownRecordSchema.safeParse(config.schema);
+    const schema = schemaResult.success ? schemaResult.data : {};
 
     return Result.ok({
       endpoint: endpointResult.value,

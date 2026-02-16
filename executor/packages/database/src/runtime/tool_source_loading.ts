@@ -1,6 +1,7 @@
 "use node";
 
 import { Result } from "better-result";
+import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
@@ -22,37 +23,79 @@ import type {
 } from "../../../core/src/tool/source-types";
 import type { ToolSourceRecord } from "../../../core/src/types";
 import { normalizeToolSourceConfig } from "../database/tool_source_config";
-import { asPayload } from "../lib/object";
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
 /** Cache version - bump when tool snapshot/registry/type-hint semantics change. */
 const TOOL_SOURCE_CACHE_VERSION = "v25";
 
+const openApiAuthModeSchema = z.enum(["static", "workspace", "actor"]);
+
+const openApiAuthSchema = z.union([
+  z.object({ type: z.literal("none") }),
+  z.object({
+    type: z.literal("basic"),
+    mode: openApiAuthModeSchema.optional(),
+    username: z.string().optional(),
+    password: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("bearer"),
+    mode: openApiAuthModeSchema.optional(),
+    token: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("apiKey"),
+    mode: openApiAuthModeSchema.optional(),
+    header: z.string(),
+    value: z.string().optional(),
+  }),
+]);
+
+const bearerSecretSchema = z.object({ token: z.coerce.string().optional() });
+const apiKeySecretSchema = z.object({
+  value: z.coerce.string().optional(),
+  token: z.coerce.string().optional(),
+});
+const basicSecretSchema = z.object({
+  username: z.coerce.string().optional(),
+  password: z.coerce.string().optional(),
+});
+const credentialOverrideHeadersSchema = z.object({
+  headers: z.record(z.coerce.string()).optional(),
+});
+
+const preparedOpenApiSpecSchema = z.object({
+  servers: z.array(z.string()),
+  paths: z.record(z.unknown()),
+  warnings: z.array(z.string()).optional(),
+  dts: z.string().optional(),
+  dtsStatus: z.enum(["ready", "failed", "skipped"]).optional(),
+  inferredAuth: openApiAuthSchema.optional(),
+});
+
+const rawToolSourceSchema = z.object({
+  id: z.string(),
+  type: z.enum(["mcp", "openapi", "graphql"]),
+  name: z.string(),
+  config: z.record(z.unknown()),
+});
+
 function toPreparedOpenApiSpec(value: unknown): PreparedOpenApiSpec | null {
-  const record = asPayload(value);
-  if (!Array.isArray(record.servers)) {
-    return null;
-  }
-  if (!record.paths || typeof record.paths !== "object" || Array.isArray(record.paths)) {
+  const parsed = preparedOpenApiSpecSchema.safeParse(value);
+  if (!parsed.success) {
     return null;
   }
 
-  const servers = record.servers.filter((entry): entry is string => typeof entry === "string");
-  const warnings = Array.isArray(record.warnings)
-    ? record.warnings.filter((entry): entry is string => typeof entry === "string")
-    : [];
-  const dtsStatus =
-    record.dtsStatus === "ready" || record.dtsStatus === "failed" || record.dtsStatus === "skipped"
-      ? record.dtsStatus
-      : undefined;
+  const valueRecord = parsed.data;
 
   return {
-    servers,
-    paths: asPayload(record.paths),
-    warnings,
-    dts: typeof record.dts === "string" ? record.dts : undefined,
-    dtsStatus,
+    servers: valueRecord.servers,
+    paths: valueRecord.paths,
+    warnings: valueRecord.warnings ?? [],
+    dts: valueRecord.dts,
+    dtsStatus: valueRecord.dtsStatus,
+    inferredAuth: valueRecord.inferredAuth,
   };
 }
 
@@ -69,20 +112,25 @@ export function normalizeExternalToolSource(raw: {
   name: string;
   config: Record<string, unknown>;
 }): Result<ExternalToolSourceConfig, Error> {
+  const parsedRaw = rawToolSourceSchema.safeParse(raw);
+  if (!parsedRaw.success) {
+    return Result.err(new Error(`Failed to normalize tool source: ${parsedRaw.error.message}`));
+  }
+  const normalizedRaw = parsedRaw.data;
 
-  if (raw.type === "mcp") {
-    const configResult = normalizeToolSourceConfig("mcp", raw.config);
+  if (normalizedRaw.type === "mcp") {
+    const configResult = normalizeToolSourceConfig("mcp", normalizedRaw.config);
     if (configResult.isErr()) {
       return Result.err(
-        new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`),
+        new Error(`Failed to normalize '${normalizedRaw.name}' source config: ${configResult.error.message}`),
       );
     }
     const config = configResult.value;
     const result: McpToolSourceConfig = {
       type: "mcp",
-      name: raw.name,
-      sourceId: raw.id,
-      sourceKey: `source:${raw.id}`,
+      name: normalizedRaw.name,
+      sourceId: normalizedRaw.id,
+      sourceKey: `source:${normalizedRaw.id}`,
       url: config.url,
       auth: config.auth,
       transport: config.transport,
@@ -93,19 +141,19 @@ export function normalizeExternalToolSource(raw: {
     return Result.ok(result);
   }
 
-  if (raw.type === "graphql") {
-    const configResult = normalizeToolSourceConfig("graphql", raw.config);
+  if (normalizedRaw.type === "graphql") {
+    const configResult = normalizeToolSourceConfig("graphql", normalizedRaw.config);
     if (configResult.isErr()) {
       return Result.err(
-        new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`),
+        new Error(`Failed to normalize '${normalizedRaw.name}' source config: ${configResult.error.message}`),
       );
     }
     const config = configResult.value;
     const result: GraphqlToolSourceConfig = {
       type: "graphql",
-      name: raw.name,
-      sourceId: raw.id,
-      sourceKey: `source:${raw.id}`,
+      name: normalizedRaw.name,
+      sourceId: normalizedRaw.id,
+      sourceKey: `source:${normalizedRaw.id}`,
       endpoint: config.endpoint,
       schema: config.schema,
       auth: config.auth,
@@ -116,19 +164,19 @@ export function normalizeExternalToolSource(raw: {
     return Result.ok(result);
   }
 
-  const configResult = normalizeToolSourceConfig("openapi", raw.config);
+  const configResult = normalizeToolSourceConfig("openapi", normalizedRaw.config);
   if (configResult.isErr()) {
     return Result.err(
-      new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`),
+      new Error(`Failed to normalize '${normalizedRaw.name}' source config: ${configResult.error.message}`),
     );
   }
   const config = configResult.value;
 
   const result: OpenApiToolSourceConfig = {
     type: "openapi",
-    name: raw.name,
-    sourceId: raw.id,
-    sourceKey: `source:${raw.id}`,
+    name: normalizedRaw.name,
+    sourceId: normalizedRaw.id,
+    sourceKey: `source:${normalizedRaw.id}`,
     spec: config.spec,
     collectionUrl: config.collectionUrl,
     postmanProxyUrl: config.postmanProxyUrl,
@@ -146,18 +194,23 @@ function buildHeadersFromCredentialSecret(
   secret: Record<string, unknown>,
 ): Record<string, string> {
   if (auth.type === "bearer") {
-    const token = String(secret.token ?? "").trim();
+    const parsedSecret = bearerSecretSchema.safeParse(secret);
+    const token = parsedSecret.success ? (parsedSecret.data.token ?? "").trim() : "";
     return token ? { authorization: `Bearer ${token}` } : {};
   }
 
   if (auth.type === "apiKey") {
-    const value = String(secret.value ?? secret.token ?? "").trim();
+    const parsedSecret = apiKeySecretSchema.safeParse(secret);
+    const value = parsedSecret.success
+      ? (parsedSecret.data.value ?? parsedSecret.data.token ?? "").trim()
+      : "";
     return value ? { [auth.header]: value } : {};
   }
 
   if (auth.type === "basic") {
-    const username = String(secret.username ?? "");
-    const password = String(secret.password ?? "");
+    const parsedSecret = basicSecretSchema.safeParse(secret);
+    const username = parsedSecret.success ? (parsedSecret.data.username ?? "") : "";
+    const password = parsedSecret.success ? (parsedSecret.data.password ?? "") : "";
     if (!username && !password) {
       return {};
     }
@@ -215,10 +268,11 @@ async function resolveMcpDiscoveryHeaders(
     }
 
     const headers = buildHeadersFromCredentialSecret(auth, secret);
-    const overrideHeaders = asPayload(asPayload(record.overridesJson).headers);
+    const parsedOverrides = credentialOverrideHeadersSchema.safeParse(record.overridesJson ?? {});
+    const overrideHeaders = parsedOverrides.success ? (parsedOverrides.data.headers ?? {}) : {};
     for (const [key, value] of Object.entries(overrideHeaders)) {
       if (!key) continue;
-      headers[key] = String(value);
+      headers[key] = value;
     }
 
     if (Object.keys(headers).length === 0) {
