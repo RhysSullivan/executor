@@ -190,9 +190,9 @@ export async function upsertCredentialHandler(
     ...(args.scope === "actor" ? { actorId } : {}),
   });
 
-  const allCredentials = await ctx.runQuery(internal.database.listCredentials, {
+  const allCredentials: Array<Record<string, unknown>> = await ctx.runQuery(internal.database.listCredentials, {
     workspaceId: args.workspaceId,
-  }) as Array<Record<string, unknown>>;
+  });
   const requestedId = args.id?.trim();
   const existingConnection = requestedId
     ? allCredentials.find((credential) => {
