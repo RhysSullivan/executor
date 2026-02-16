@@ -2,6 +2,10 @@
   "name": "@executor/database",
   "version": "0.0.1",
   "private": true,
+  "scripts": {
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
+  },
   "main": "./convex/_generated/api.js",
   "types": "./convex/_generated/api.d.ts"
 }

@@ -7,7 +7,9 @@
     "dev": "bun with-env next dev -p 4312",
     "build": "bun with-env next build",
     "start": "bun with-env next start -p 5312",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@executor/database": "workspace:*",

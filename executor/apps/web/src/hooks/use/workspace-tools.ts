@@ -179,8 +179,6 @@ export function useWorkspaceTools(
     loadingSources: inventoryData?.debug?.timedOutSources ?? [],
     loadingTools: !!context && toolsLoading,
     refreshingTools: !!context && toolsFetching,
-    // Backward compatibility for callers that still use a single loading state.
-    loading: !!context && toolsLoading,
     loadToolDetails,
   };
 }

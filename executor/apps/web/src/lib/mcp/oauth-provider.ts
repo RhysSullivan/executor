@@ -29,32 +29,28 @@ export type McpOAuthPopupResult = {
 const COOKIE_PREFIX = "executor_mcp_oauth_";
 export const MCP_OAUTH_RESULT_COOKIE = "executor_mcp_oauth_result";
 
-const pendingSchema = z.object({
-  state: z.string(),
-  sourceUrl: z.string(),
-  redirectUrl: z.string(),
-  codeVerifier: z.string().optional(),
-  clientInformation: z.custom<OAuthClientInformationMixed>().optional(),
-});
-
 const versionedPendingSchema = z.object({
   version: z.literal(1),
-  pending: pendingSchema,
-});
-
-const popupResultSchema = z.object({
-  ok: z.boolean(),
-  sourceUrl: z.string().optional(),
-  accessToken: z.string().optional(),
-  refreshToken: z.string().optional(),
-  scope: z.string().optional(),
-  expiresIn: z.number().optional(),
-  error: z.string().optional(),
+  pending: z.object({
+    state: z.string(),
+    sourceUrl: z.string(),
+    redirectUrl: z.string(),
+    codeVerifier: z.string().optional(),
+    clientInformation: z.custom<OAuthClientInformationMixed>().optional(),
+  }),
 });
 
 const versionedPopupResultSchema = z.object({
   version: z.literal(1),
-  result: popupResultSchema,
+  result: z.object({
+    ok: z.boolean(),
+    sourceUrl: z.string().optional(),
+    accessToken: z.string().optional(),
+    refreshToken: z.string().optional(),
+    scope: z.string().optional(),
+    expiresIn: z.number().optional(),
+    error: z.string().optional(),
+  }),
 });
 
 function decodeCookieJson(raw: string): unknown | null {
@@ -86,12 +82,7 @@ export function decodePendingCookieValue(raw: string): McpOAuthPending | null {
   }
 
   const versionedResult = versionedPendingSchema.safeParse(decoded);
-  if (versionedResult.success) {
-    return versionedResult.data.pending;
-  }
-
-  const legacyResult = pendingSchema.safeParse(decoded);
-  return legacyResult.success ? legacyResult.data : null;
+  return versionedResult.success ? versionedResult.data.pending : null;
 }
 
 export function encodePopupResultCookieValue(result: McpOAuthPopupResult): string {
@@ -105,12 +96,7 @@ export function decodePopupResultCookieValue(raw: string): McpOAuthPopupResult |
   }
 
   const versionedResult = versionedPopupResultSchema.safeParse(decoded);
-  if (versionedResult.success) {
-    return versionedResult.data.result;
-  }
-
-  const legacyResult = popupResultSchema.safeParse(decoded);
-  return legacyResult.success ? legacyResult.data : null;
+  return versionedResult.success ? versionedResult.data.result : null;
 }
 
 export class McpPopupOAuthProvider implements OAuthClientProvider {

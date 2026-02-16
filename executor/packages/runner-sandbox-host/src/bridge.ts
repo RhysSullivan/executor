@@ -48,6 +48,11 @@ function asObject(value: unknown): Record<string, unknown> {
   return parsed.success ? parsed.data : {};
 }
 
+function asRecord(value: unknown): Record<string, any> | undefined {
+  const parsed = recordSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export function getBridgePropsFromContext(
   ctx: BridgeEntrypointContext | ExecutionContext | null | undefined,
 ): BridgeProps {
@@ -157,7 +162,7 @@ export async function callToolWithBridge(
         runId: taskId,
         callId: effectiveCallId,
         toolPath,
-        input,
+        input: asRecord(input),
       });
     });
 

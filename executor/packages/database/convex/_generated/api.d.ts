@@ -1146,18 +1146,6 @@ export declare const internal: {
       },
       any
     >;
-    cleanupWorkspaceToolCacheLegacyDtsStorageIds: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
     deleteAnonymousSessionsMissingAccountId: FunctionReference<
       "mutation",
       "internal",
@@ -1170,43 +1158,7 @@ export declare const internal: {
       },
       any
     >;
-    deleteAnonymousSessionsMissingUserId: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
     deleteSourceCredentialsMissingProvider: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
-    renameLegacyAnonymousOrganizations: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
-    renameLegacyAnonymousWorkspaces: FunctionReference<
       "mutation",
       "internal",
       {

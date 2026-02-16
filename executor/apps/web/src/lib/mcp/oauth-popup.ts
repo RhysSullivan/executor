@@ -24,6 +24,8 @@ type McpOAuthPopupMessage =
       error: string;
     };
 
+const MCP_OAUTH_POPUP_RESULT_TIMEOUT_MS = 2 * 60_000;
+
 export async function startMcpOAuthPopup(sourceUrl: string): Promise<McpOAuthPopupSuccess> {
   if (typeof window === "undefined") {
     throw new Error("OAuth popup is only available in a browser context");
@@ -40,8 +42,12 @@ export async function startMcpOAuthPopup(sourceUrl: string): Promise<McpOAuthPop
     throw new Error("Popup blocked. Allow popups and try again.");
   }
 
+  popup.focus();
+
   return await new Promise<McpOAuthPopupSuccess>((resolve, reject) => {
     let settled = false;
+    let closedPoll = 0;
+    let resultTimeout = 0;
 
     const closeAndReject = (message: string) => {
       if (settled) return;
@@ -52,7 +58,12 @@ export async function startMcpOAuthPopup(sourceUrl: string): Promise<McpOAuthPop
 
     const cleanup = () => {
       window.removeEventListener("message", onMessage);
-      window.clearInterval(closedPoll);
+      if (closedPoll) {
+        window.clearInterval(closedPoll);
+      }
+      if (resultTimeout) {
+        window.clearTimeout(resultTimeout);
+      }
       if (!popup.closed) {
         popup.close();
       }
@@ -95,7 +106,11 @@ export async function startMcpOAuthPopup(sourceUrl: string): Promise<McpOAuthPop
 
     window.addEventListener("message", onMessage);
 
-    const closedPoll = window.setInterval(() => {
+    resultTimeout = window.setTimeout(() => {
+      closeAndReject("OAuth popup timed out before completion. Please try again.");
+    }, MCP_OAUTH_POPUP_RESULT_TIMEOUT_MS);
+
+    closedPoll = window.setInterval(() => {
       if (popup.closed) {
         closeAndReject("OAuth popup was closed before completion");
       }

@@ -33,6 +33,8 @@
     "test:e2e:install": "bun test scripts/e2e/install.e2e.test.ts",
     "test:e2e:install:sandbox": "bun test scripts/e2e/install.sandbox.e2e.test.ts",
     "sandbox:install:session": "bun run scripts/e2e/install.sandbox.session.ts",
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json",
     "build:binary": "bun build executor.ts --compile --outfile dist/executor",
     "build:release": "bun run scripts/release/build-release.ts"
   },

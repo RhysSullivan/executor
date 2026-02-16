@@ -5,11 +5,16 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
+  },
   "dependencies": {
     "@mariozechner/pi-ai": "^0.52.6",
     "@modelcontextprotocol/sdk": "^1.26.0"
   },
   "devDependencies": {
+    "typescript": "^5.9.3",
     "zod": "^4.3.6"
   }
 }

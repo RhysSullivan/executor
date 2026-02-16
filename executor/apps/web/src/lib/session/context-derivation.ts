@@ -85,7 +85,6 @@ export function buildAccountWorkspaceContext(
     workspaceId: activeWorkspace.id,
     clientId: "web",
     accountId: account._id,
-    userId: account._id,
     createdAt: Date.now(),
     lastSeenAt: Date.now(),
   } satisfies AnonymousContext;

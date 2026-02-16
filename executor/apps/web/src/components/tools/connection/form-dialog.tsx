@@ -25,7 +25,6 @@ import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type {
   CredentialRecord,
-  OwnerScopeType,
   SourceAuthProfile,
   ToolSourceRecord,
 } from "@/lib/types";
@@ -67,7 +66,7 @@ export function ConnectionFormDialog({
   const [saving, setSaving] = useState(false);
   const {
     sourceKey,
-    ownerScopeType,
+    scopeType,
     scopePreset,
     scope,
     accountId,
@@ -181,17 +180,19 @@ export function ConnectionFormDialog({
 
     setSaving(true);
     try {
+      const credentialScopeType = scope === "account"
+        ? "account"
+        : scopeType === "organization"
+          ? "organization"
+          : "workspace";
+
       await upsertCredential({
-        ...(editing
-          ? { id: editing.id, ownerScopeType: (editing.ownerScopeType ?? "workspace") as OwnerScopeType }
-          : selectedExistingConnection
-            ? { id: selectedExistingConnection.id, ownerScopeType: selectedExistingConnection.ownerScopeType }
-            : { ownerScopeType }),
+        ...(editing ? { id: editing.id } : selectedExistingConnection ? { id: selectedExistingConnection.id } : {}),
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         sourceKey: sourceKey.trim(),
-        scope,
-        ...(scope === "account" ? { accountId: accountId.trim() } : {}),
+        scopeType: credentialScopeType,
+        ...(credentialScopeType === "account" ? { accountId: accountId.trim() as typeof context.accountId } : {}),
         secretJson: secretResult.secretJson,
       });
 

@@ -17,7 +17,6 @@ export const terminalToolCallStatusValidator = v.union(
   v.literal("denied"),
 );
 
-export const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
 export const policyScopeTypeValidator = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
 export const policyMatchTypeValidator = v.union(v.literal("glob"), v.literal("exact"));
 export const policyEffectValidator = v.union(v.literal("allow"), v.literal("deny"));

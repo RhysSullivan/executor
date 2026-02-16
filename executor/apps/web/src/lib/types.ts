@@ -154,7 +154,6 @@ export interface AnonymousContext {
   workspaceId: Id<"workspaces">;
   clientId: string;
   accountId: Id<"accounts">;
-  userId: Id<"accounts">;
   createdAt: number;
   lastSeenAt: number;
 }

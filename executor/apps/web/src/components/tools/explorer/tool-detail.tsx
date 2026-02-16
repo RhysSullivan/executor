@@ -13,19 +13,22 @@ const codePlugin = createCodePlugin({
 export function ToolDetail({
   tool,
   depth,
+  loading,
 }: {
   tool: ToolDescriptor;
   depth: number;
+  loading?: boolean;
 }) {
   const insetLeft = depth * 20 + 8 + 16 + 8;
   const inputHint = tool.display?.input?.trim();
   const outputHint = tool.display?.output?.trim();
   const required = tool.typing?.requiredInputKeys ?? [];
   const hasDetails = Boolean(tool.description || inputHint || outputHint || required.length > 0);
+  const showLoading = loading || !hasDetails;
 
   return (
     <div className="space-y-2.5 pb-3 pt-1 pr-2" style={{ paddingLeft: insetLeft }}>
-      {!hasDetails ? (
+      {showLoading ? (
         <div className="space-y-2.5">
           <Skeleton className="h-3.5 w-64" />
 

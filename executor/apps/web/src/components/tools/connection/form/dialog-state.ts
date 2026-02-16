@@ -1,8 +1,8 @@
 import type {
   CredentialRecord,
   CredentialScope,
-  OwnerScopeType,
   SourceAuthType,
+  ToolSourceScopeType,
   ToolSourceRecord,
 } from "@/lib/types";
 import {
@@ -12,12 +12,13 @@ import {
 import { sourceKeyForSource } from "@/lib/tools/source-helpers";
 
 export type ConnectionMode = "new" | "existing";
+type ConnectionScope = "account" | "workspace";
 
 export type ConnectionOption = {
   key: string;
   id: string;
-  ownerScopeType: OwnerScopeType;
-  scope: CredentialScope;
+  scopeType: ToolSourceScopeType;
+  scope: ConnectionScope;
   accountId?: string;
   sourceKeys: Set<string>;
   updatedAt: number;
@@ -40,21 +41,23 @@ export function buildConnectionOptions(credentials: CredentialRecord[]): Connect
   const grouped = new Map<string, ConnectionOption>();
 
   for (const credential of credentials) {
-    const ownerScopeType = credential.ownerScopeType ?? "workspace";
-    const groupKey = `${ownerScopeType}:${credential.id}`;
+    const credentialScopeType = credential.scopeType ?? "workspace";
+    const scopeType: ToolSourceScopeType = credentialScopeType === "organization" ? "organization" : "workspace";
+    const scope: ConnectionScope = credentialScopeType === "account" ? "account" : "workspace";
+    const groupKey = `${scopeType}:${credential.id}`;
     const existing = grouped.get(groupKey);
     if (existing) {
       existing.sourceKeys.add(credential.sourceKey);
       existing.updatedAt = Math.max(existing.updatedAt, credential.updatedAt);
     } else {
-        grouped.set(groupKey, {
-          key: groupKey,
-          id: credential.id,
-          ownerScopeType,
-          scope: credential.scopeType,
-          accountId: credential.accountId,
-          sourceKeys: new Set([credential.sourceKey]),
-          updatedAt: credential.updatedAt,
+      grouped.set(groupKey, {
+        key: groupKey,
+        id: credential.id,
+        scopeType,
+        scope,
+        accountId: credential.accountId,
+        sourceKeys: new Set([credential.sourceKey]),
+        updatedAt: credential.updatedAt,
       });
     }
   }
@@ -64,12 +67,12 @@ export function buildConnectionOptions(credentials: CredentialRecord[]): Connect
 
 export function compatibleConnections(
   options: ConnectionOption[],
-  ownerScopeType: OwnerScopeType,
-  scope: CredentialScope,
+  scopeType: ToolSourceScopeType,
+  scope: ConnectionScope,
   accountId: string,
 ): ConnectionOption[] {
   return options.filter((connection) => {
-    if (connection.ownerScopeType !== ownerScopeType) {
+    if (connection.scopeType !== scopeType) {
       return false;
     }
     if (connection.scope !== scope) {

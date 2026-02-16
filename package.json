@@ -8,8 +8,7 @@
     "executor/infra",
     "sources",
     "assistant",
-    "assistant/packages/*",
-    "assistant/packages/reacord"
+    "assistant/packages/*"
   ],
   "scripts": {
     "with-env": "bun run --env-file=.env --",
@@ -29,8 +28,10 @@
     "test:executor:e2e": "bun run --cwd executor test:e2e",
     "test:executor:all": "bun run --cwd executor test:all",
     "test:assistant": "bun run --cwd assistant test",
-    "typecheck": "bun run typecheck:executor && bun run typecheck:assistant",
-    "typecheck:slow": "bun run typecheck:executor:slow && bun run typecheck:assistant:slow",
+    "typecheck": "bun run typecheck:workspaces",
+    "typecheck:slow": "bun run typecheck:workspaces:slow",
+    "typecheck:workspaces": "bun run --filter \"@executor/*\" --filter \"executor-infra\" --filter \"@proto/sources\" --filter \"@assistant/*\" --filter \"@openassistant/reacord\" --if-present typecheck",
+    "typecheck:workspaces:slow": "bun run --filter \"@executor/*\" --filter \"executor-infra\" --filter \"@proto/sources\" --filter \"@assistant/*\" --filter \"@openassistant/reacord\" --if-present typecheck:slow",
     "typecheck:executor": "bunx --package @typescript/native-preview tsgo --noEmit -p executor/tsconfig.json",
     "typecheck:executor:slow": "bunx tsc --noEmit -p executor/tsconfig.json",
     "typecheck:assistant": "bunx --package @typescript/native-preview tsgo --noEmit -p assistant/packages/server/tsconfig.json && bunx --package @typescript/native-preview tsgo --noEmit -p assistant/packages/bot/tsconfig.json",

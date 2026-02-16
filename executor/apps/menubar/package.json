@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "bunx electron ./src/main.js",
-    "start": "bunx electron ./src/main.js"
+    "start": "bunx electron ./src/main.js",
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   }
 }

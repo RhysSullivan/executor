@@ -93,10 +93,6 @@ export function sourceKeyForSource(source: ToolSourceRecord): string | null {
   return null;
 }
 
-export function toolSourceLabelForSource(source: ToolSourceRecord): string {
-  return `${source.type}:${source.name}`;
-}
-
 export function sourceForCredentialKey(sources: ToolSourceRecord[], sourceKey: string): ToolSourceRecord | null {
   const prefix = "source:";
   if (!sourceKey.startsWith(prefix)) return null;
@@ -129,12 +125,6 @@ export function sourceAuthProfileForSource(
   if (sourceKey && sourceAuthProfiles[sourceKey]) {
     return sourceAuthProfiles[sourceKey];
   }
-
-  const legacyKey = toolSourceLabelForSource(source);
-  if (sourceAuthProfiles[legacyKey]) {
-    return sourceAuthProfiles[legacyKey];
-  }
-
   return undefined;
 }
 

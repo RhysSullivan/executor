@@ -7,7 +7,9 @@
     "deploy": "sst deploy",
     "remove": "sst remove",
     "diff": "sst diff",
-    "refresh": "sst refresh"
+    "refresh": "sst refresh",
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@pulumi/command": "^1.1.3",

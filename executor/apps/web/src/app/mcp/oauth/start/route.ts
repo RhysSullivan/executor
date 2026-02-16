@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { fetchMcpOAuth } from "@/lib/mcp/oauth-fetch";
 import { getExternalOrigin, isExternalHttps } from "@/lib/mcp/oauth-request";
 import { parseMcpSourceUrl } from "@/lib/mcp/oauth-url";
 import {
@@ -13,6 +14,9 @@ import {
   McpPopupOAuthProvider,
   type McpOAuthPopupResult,
 } from "@/lib/mcp/oauth-provider";
+
+const MCP_OAUTH_FLOW_TIMEOUT_MS = 75_000;
+const MCP_OAUTH_REQUEST_TIMEOUT_MS = 20_000;
 
 function popupResultRedirect(request: NextRequest, payload: McpOAuthPopupResult): NextResponse {
   const externalOrigin = getExternalOrigin(request);
@@ -46,6 +50,25 @@ function resultErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
+async function withTimeout<T>(factory: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    factory().then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function GET(request: NextRequest) {
   const sourceUrlRaw = request.nextUrl.searchParams.get("sourceUrl")?.trim() ?? "";
   if (!sourceUrlRaw) {
@@ -65,7 +88,19 @@ export async function GET(request: NextRequest) {
     state,
   });
 
-  const authResult = await Result.tryPromise(() => auth(provider, { serverUrl: sourceUrl }));
+  const authResult = await Result.tryPromise(() =>
+    withTimeout(
+      () => auth(provider, {
+        serverUrl: sourceUrl,
+        fetchFn: (input, init) => fetchMcpOAuth(input, init ?? {}, {
+          timeoutMs: MCP_OAUTH_REQUEST_TIMEOUT_MS,
+          label: "OAuth startup request",
+        }),
+      }),
+      MCP_OAUTH_FLOW_TIMEOUT_MS,
+      "OAuth startup",
+    )
+  );
   if (!authResult.isOk()) {
     return badPopupResponse(request, resultErrorMessage(authResult.error, "Failed to start OAuth flow"));
   }

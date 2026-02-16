@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Send } from "lucide-react";
-import { useAction, useQuery } from "convex/react";
+import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { FormattedCodeBlock } from "@/components/formatted/code-block";
 import { convexApi } from "@/lib/convex-api";
 import { useSession } from "@/lib/session-context";
 import type { RuntimeTargetDescriptor } from "@/lib/types";
+import { listRuntimeTargets } from "@/lib/runtime-targets";
 import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
 
 const DEFAULT_CODE = `// Example: discover tools and return matching tool names
@@ -55,10 +56,9 @@ export function TaskComposer() {
     error?: string;
   } | null>(null);
 
-  const runtimes = useQuery(convexApi.workspace.listRuntimeTargets, {});
+  const runtimeTargets = useMemo(() => listRuntimeTargets(), []);
   const createTask = useAction(convexApi.executor.createTask);
   const { tools, typesUrl, loadingTools } = useWorkspaceTools(context ?? null);
-  const runtimeTargets = useMemo(() => runtimes ?? [], [runtimes]);
   const effectiveRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
     ? runtimeId
     : runtimeTargets[0]?.id ?? "";

@@ -9,7 +9,9 @@
   "scripts": {
     "with-env": "bun run --env-file=../../../.env --",
     "dev": "bun with-env bun --hot src/index.ts",
-    "start": "bun with-env bun src/index.ts"
+    "start": "bun with-env bun src/index.ts",
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@assistant/core": "workspace:*",

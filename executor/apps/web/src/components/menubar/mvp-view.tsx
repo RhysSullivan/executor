@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { convexApi } from "@/lib/convex-api";
 import { useSession } from "@/lib/session-context";
 import type { TaskRecord } from "@/lib/types";
+import { listRuntimeTargets } from "@/lib/runtime-targets";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import { getTaskRuntimeLabel } from "@/lib/runtime-display";
 
@@ -36,12 +37,7 @@ export function MenubarMvpView() {
   const tasksLoading = Boolean(context) && tasks === undefined;
   const recentTasks = (tasks ?? []).slice(0, 8) as TaskRecord[];
 
-  const runtimeTargets = useQuery(
-    convexApi.workspace.listRuntimeTargets,
-    context ? {} : "skip",
-  );
-
-  const runtimeTargetItems = runtimeTargets ?? [];
+  const runtimeTargetItems = listRuntimeTargets();
 
   if (sessionLoading) {
     return (

@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
 import { convexTest } from "convex-test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -6,29 +7,17 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel.d.ts";
 import schema from "./schema";
 
-let previousAnonymousAuthPrivateKeyPem: string | undefined;
-let previousAnonymousAuthPublicKeyPem: string | undefined;
-
-beforeAll(() => {
-  previousAnonymousAuthPrivateKeyPem = process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
-  previousAnonymousAuthPublicKeyPem = process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM;
-  delete process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
-  delete process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM;
-});
-
-afterAll(() => {
-  if (previousAnonymousAuthPrivateKeyPem === undefined) {
-    delete process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
-  } else {
-    process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM = previousAnonymousAuthPrivateKeyPem;
+function ensureAnonymousAuthKeysConfigured() {
+  if (process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM && process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM) {
+    return;
   }
 
-  if (previousAnonymousAuthPublicKeyPem === undefined) {
-    delete process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM;
-  } else {
-    process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM = previousAnonymousAuthPublicKeyPem;
-  }
-});
+  const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  process.env.ANONYMOUS_AUTH_PUBLIC_KEY_PEM = publicKey.export({ type: "spki", format: "pem" }).toString();
+}
+
+ensureAnonymousAuthKeysConfigured();
 
 function setup() {
   return convexTest(schema, {
@@ -61,23 +50,20 @@ function readAccessToken(body: AnonymousTokenResponse): string | null {
 async function getAnonymousAccessToken(
   t: ReturnType<typeof setup>,
   accountId: string,
-): Promise<string | null> {
+): Promise<string> {
   const resp = await t.fetch(`/auth/anonymous/token?accountId=${encodeURIComponent(accountId)}`);
   const body = await resp.json().catch(() => ({} as AnonymousTokenResponse)) as AnonymousTokenResponse;
-  if (resp.status === 503) {
-    const msg = readErrorMessage(body);
-    if (msg.toLowerCase().includes("not configured")) {
-      return null;
-    }
-  }
+
   if (!resp.ok) {
-    const msg = readErrorMessage(body) || `HTTP ${resp.status}`;
-    throw new Error(`Failed to issue anonymous token: ${msg}`);
+    const message = readErrorMessage(body) || `HTTP ${resp.status}`;
+    throw new Error(`Failed to issue anonymous token: ${message}`);
   }
+
   const token = readAccessToken(body);
   if (!token) {
     throw new Error("Anonymous token response missing accessToken");
   }
+
   return token;
 }
 
@@ -89,19 +75,16 @@ async function createMcpTransport(
   clientId = "e2e",
 ) {
   const isAnonymousSession = sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_");
-  const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp";
-  const url = new URL(`https://executor.test${mcpPath}`);
+  const url = new URL(`https://executor.test${isAnonymousSession ? "/mcp/anonymous" : "/mcp"}`);
   url.searchParams.set("workspaceId", workspaceId);
   if (!isAnonymousSession) {
     url.searchParams.set("sessionId", sessionId);
   }
   url.searchParams.set("clientId", clientId);
 
-  const anonymousToken = isAnonymousSession ? await getAnonymousAccessToken(t, accountId) : null;
-  if (isAnonymousSession && !anonymousToken) {
-    // Legacy fallback for local/test when anonymous auth isn't configured.
-    url.searchParams.set("accountId", accountId);
-  }
+  const anonymousToken = isAnonymousSession
+    ? await getAnonymousAccessToken(t, accountId)
+    : null;
 
   return new StreamableHTTPClientTransport(url, {
     fetch: async (input, init) => {

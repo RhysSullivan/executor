@@ -53,10 +53,12 @@ export function TaskDetail({
 }) {
   const resolveApproval = useMutation(convexApi.executor.resolveApproval);
   const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null);
-  const liveTaskData = useQuery(
-    convexApi.workspace.getTaskInWorkspace,
-    workspaceId ? { taskId: task.id, workspaceId, sessionId } : "skip",
+  const allTasks = useQuery(
+    convexApi.workspace.listTasks,
+    { workspaceId, sessionId },
   );
+
+  const liveTaskData = allTasks?.find((candidate: TaskRecord) => candidate.id === task.id);
 
   const liveTask = liveTaskData ?? task;
   const liveResult = formatResult(liveTask.result);

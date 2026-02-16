@@ -18,9 +18,9 @@ import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type {
   CredentialRecord,
-  OwnerScopeType,
   OpenApiSourceQuality,
   SourceAuthProfile,
+  ToolSourceScopeType,
   ToolSourceRecord,
 } from "@/lib/types";
 import {
@@ -80,8 +80,8 @@ function normalizeEndpoint(value: string): string {
   }
 }
 
-function ownerScopeBadge(ownerScopeType: OwnerScopeType | undefined): string {
-  return ownerScopeType === "organization" ? "org shared" : "workspace only";
+function ownerScopeBadge(scopeType: ToolSourceScopeType | undefined): string {
+  return scopeType === "organization" ? "org shared" : "workspace only";
 }
 
 export function AddSourceDialog({
@@ -177,7 +177,7 @@ export function AddSourceDialog({
           name: form.name,
           endpoint: form.endpoint,
           type: form.type,
-          ownerScopeType: form.ownerScopeType,
+          scopeType: form.scopeType,
           baseUrl: form.baseUrl,
           mcpTransport: form.mcpTransport,
           authType: form.authType,
@@ -271,7 +271,7 @@ export function AddSourceDialog({
       return;
     }
 
-    const scopeLabel = sourceToEdit.ownerScopeType === "organization"
+    const scopeLabel = sourceToEdit.scopeType === "organization"
       ? "your organization"
       : "this workspace";
     const confirmed = window.confirm(`Remove source "${sourceToEdit.name}" and all related tools from ${scopeLabel}?`);
@@ -336,7 +336,7 @@ export function AddSourceDialog({
                       {sourceToEdit.type}
                     </Badge>
                     <Badge variant="outline" className="h-5 px-2 text-[9px] uppercase tracking-wide">
-                      {ownerScopeBadge(sourceToEdit.ownerScopeType)}
+                      {ownerScopeBadge(sourceToEdit.scopeType)}
                     </Badge>
                     {editAuthBadge ? (
                       <Badge
@@ -450,7 +450,7 @@ export function AddSourceDialog({
                   mcpOAuthAuthorizationServers: form.mcpOAuthAuthorizationServers,
                   mcpOAuthConnected: form.mcpOAuthConnected,
                   authType: form.authType,
-                  ownerScopeType: form.ownerScopeType,
+                  scopeType: form.scopeType,
                   authScope: form.authScope,
                   apiKeyHeader: form.apiKeyHeader,
                   tokenValue: form.tokenValue,

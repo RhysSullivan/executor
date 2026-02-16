@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Result } from "better-result";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import { fetchMcpOAuth } from "@/lib/mcp/oauth-fetch";
 import { getExternalOrigin, isExternalHttps } from "@/lib/mcp/oauth-request";
 import { parseMcpSourceUrl } from "@/lib/mcp/oauth-url";
 import {
@@ -12,6 +13,9 @@ import {
   McpPopupOAuthProvider,
   type McpOAuthPopupResult,
 } from "@/lib/mcp/oauth-provider";
+
+const MCP_OAUTH_CALLBACK_FLOW_TIMEOUT_MS = 75_000;
+const MCP_OAUTH_CALLBACK_REQUEST_TIMEOUT_MS = 20_000;
 
 function popupResultRedirect(
   request: NextRequest,
@@ -46,6 +50,25 @@ function resultErrorMessage(error: unknown, fallback: string): string {
     return cause;
   }
   return fallback;
+}
+
+async function withTimeout<T>(factory: () => Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    factory().then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -92,10 +115,20 @@ export async function GET(request: NextRequest) {
     clientInformation: pending.clientInformation,
   });
 
-  const authResult = await Result.tryPromise(() => auth(provider, {
-      serverUrl: sourceUrl,
-      authorizationCode: code,
-    }));
+  const authResult = await Result.tryPromise(() =>
+    withTimeout(
+      () => auth(provider, {
+        serverUrl: sourceUrl,
+        authorizationCode: code,
+        fetchFn: (input, init) => fetchMcpOAuth(input, init ?? {}, {
+          timeoutMs: MCP_OAUTH_CALLBACK_REQUEST_TIMEOUT_MS,
+          label: "OAuth callback request",
+        }),
+      }),
+      MCP_OAUTH_CALLBACK_FLOW_TIMEOUT_MS,
+      "OAuth callback",
+    )
+  );
   if (!authResult.isOk()) {
     return popupResultRedirect(request, cookieName, {
       ok: false,

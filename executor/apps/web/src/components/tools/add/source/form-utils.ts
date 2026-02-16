@@ -3,8 +3,8 @@ import { readSourceAuth } from "@/lib/tools/source-helpers";
 import type {
   CredentialRecord,
   CredentialScope,
-  OwnerScopeType,
   SourceAuthType,
+  ToolSourceScopeType,
   ToolSourceRecord,
 } from "@/lib/types";
 import type { SourceCatalogSort, SourceType } from "./dialog-helpers";
@@ -13,7 +13,7 @@ export type SourceDialogView = "catalog" | "custom";
 
 export type SourceFormValues = {
   type: SourceType;
-  ownerScopeType: OwnerScopeType;
+  scopeType: ToolSourceScopeType;
   name: string;
   endpoint: string;
   baseUrl: string;
@@ -30,7 +30,7 @@ export type SourceFormValues = {
 export function createDefaultFormValues(): SourceFormValues {
   return {
     type: "mcp",
-    ownerScopeType: "workspace",
+    scopeType: "workspace",
     name: "",
     endpoint: "",
     baseUrl: "",
@@ -158,7 +158,7 @@ export function sourceToFormValues(source: ToolSourceRecord): SourceFormValues {
 
   return {
     type: sourceType,
-    ownerScopeType: source.ownerScopeType ?? "workspace",
+    scopeType: source.scopeType ?? "workspace",
     name: source.name,
     endpoint: endpointFromSource(source),
     baseUrl: typeof source.config.baseUrl === "string" ? source.config.baseUrl : "",

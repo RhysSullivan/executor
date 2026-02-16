@@ -20,15 +20,15 @@ test("pending cookie round-trips with versioned envelope", () => {
   expect(decodePendingCookieValue(encoded)).toEqual(pending);
 });
 
-test("pending cookie decoder supports legacy payload shape", () => {
-  const legacyPayload = {
+test("pending cookie decoder rejects unversioned payloads", () => {
+  const unversionedPayload = {
     state: "legacy-state",
     sourceUrl: "https://legacy.example.com/mcp",
     redirectUrl: "https://legacy.example.com/callback",
   };
-  const raw = Buffer.from(JSON.stringify(legacyPayload), "utf8").toString("base64url");
+  const raw = Buffer.from(JSON.stringify(unversionedPayload), "utf8").toString("base64url");
 
-  expect(decodePendingCookieValue(raw)).toEqual(legacyPayload);
+  expect(decodePendingCookieValue(raw)).toBeNull();
 });
 
 test("popup cookie round-trips with versioned envelope", () => {

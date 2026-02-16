@@ -15,7 +15,6 @@ import {
   deriveBaseUrlFromEndpoint,
   deriveBaseUrlOptionsFromSpec,
   deriveServerBaseUrlOptionsFromSpec,
-  endpointFromSource,
   existingCredentialMatchesAuthType,
   hasCredentialInput,
   inferAuthPatch,
@@ -30,11 +29,13 @@ export { existingCredentialMatchesAuthType } from "../../../add/source/form-util
 
 type SharingScope = "only_me" | "workspace" | "organization";
 
-function sharingScopeFromValues(values: Pick<SourceFormValues, "ownerScopeType" | "authScope">): SharingScope {
+const MCP_OAUTH_DETECT_REQUEST_TIMEOUT_MS = 12_000;
+
+function sharingScopeFromValues(values: Pick<SourceFormValues, "scopeType" | "authScope">): SharingScope {
   if (values.authScope === "account") {
     return "only_me";
   }
-  return values.ownerScopeType === "organization" ? "organization" : "workspace";
+  return values.scopeType === "organization" ? "organization" : "workspace";
 }
 
 function applySharingScope(
@@ -42,18 +43,18 @@ function applySharingScope(
   value: SharingScope,
 ): void {
   if (value === "only_me") {
-    form.setValue("ownerScopeType", "workspace", { shouldDirty: true, shouldTouch: true });
+    form.setValue("scopeType", "workspace", { shouldDirty: true, shouldTouch: true });
     form.setValue("authScope", "account", { shouldDirty: true, shouldTouch: true });
     return;
   }
 
   if (value === "organization") {
-    form.setValue("ownerScopeType", "organization", { shouldDirty: true, shouldTouch: true });
+    form.setValue("scopeType", "organization", { shouldDirty: true, shouldTouch: true });
     form.setValue("authScope", "workspace", { shouldDirty: true, shouldTouch: true });
     return;
   }
 
-  form.setValue("ownerScopeType", "workspace", { shouldDirty: true, shouldTouch: true });
+  form.setValue("scopeType", "workspace", { shouldDirty: true, shouldTouch: true });
   form.setValue("authScope", "workspace", { shouldDirty: true, shouldTouch: true });
 }
 
@@ -67,6 +68,13 @@ function normalizeEndpointForOAuth(value: string): string {
   } catch {
     return trimmed;
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "name" in error
+    && (error as { name?: unknown }).name === "AbortError";
 }
 
 function patchUi(
@@ -120,7 +128,10 @@ export function useAddSourceFormState({
 
     return credentialItems
       .filter((credential) => credential.sourceKey === editingSourceKey)
-      .filter((credential) => (credential.ownerScopeType ?? "workspace") === values.ownerScopeType)
+      .filter((credential) => {
+        const credentialOwnerScope = credential.scopeType === "organization" ? "organization" : "workspace";
+        return credentialOwnerScope === values.scopeType;
+      })
       .filter((credential) => {
         if (credential.scopeType !== values.authScope) {
           return false;
@@ -131,7 +142,7 @@ export function useAddSourceFormState({
         return true;
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
-  }, [accountId, credentialItems, editingSourceKey, values.authScope, values.ownerScopeType]);
+  }, [accountId, credentialItems, editingSourceKey, values.authScope, values.scopeType]);
 
   const hasPersistedMcpBearerToken = useMemo(() => {
     if (values.type !== "mcp" || values.authType !== "bearer") {
@@ -392,19 +403,39 @@ export function useAddSourceFormState({
   const mcpOAuthQuery = useTanstackQuery({
     queryKey: ["mcp-oauth-detect", mcpDetectionEndpoint],
     queryFn: async () => {
-      const response = await fetch(`/mcp/oauth/detect?sourceUrl=${encodeURIComponent(mcpDetectionEndpoint)}`);
-      const json = await response.json() as {
-        oauth?: boolean;
-        authorizationServers?: unknown[];
-        detail?: string;
-      };
-      return {
-        oauth: Boolean(json.oauth),
-        authorizationServers: Array.isArray(json.authorizationServers)
-          ? json.authorizationServers.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-          : [],
-        detail: typeof json.detail === "string" ? json.detail : "",
-      };
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), MCP_OAUTH_DETECT_REQUEST_TIMEOUT_MS);
+      try {
+        const response = await fetch(`/mcp/oauth/detect?sourceUrl=${encodeURIComponent(mcpDetectionEndpoint)}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const json = await response.json() as {
+          oauth?: boolean;
+          authorizationServers?: unknown[];
+          detail?: string;
+        };
+        const detail = typeof json.detail === "string" ? json.detail : "";
+
+        if (!response.ok) {
+          throw new Error(detail || `OAuth detection failed (${response.status})`);
+        }
+
+        return {
+          oauth: Boolean(json.oauth),
+          authorizationServers: Array.isArray(json.authorizationServers)
+            ? json.authorizationServers.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+            : [],
+          detail,
+        };
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw new Error("OAuth detection timed out. You can still select Bearer token and connect OAuth manually.");
+        }
+        throw error;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     },
     enabled: mcpDetectionEnabled,
     retry: false,
@@ -500,15 +531,13 @@ export function useAddSourceFormState({
     if (mcpOAuthStatus !== "oauth") {
       return;
     }
-    if (ui.authManuallyEdited) {
-      return;
+    if (values.authType !== "bearer") {
+      form.setValue("authType", "bearer", { shouldDirty: false, shouldTouch: false });
     }
-    if (values.authType !== "none") {
-      return;
+    if (values.authScope !== "workspace") {
+      form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
     }
-    form.setValue("authType", "bearer", { shouldDirty: false, shouldTouch: false });
-    form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
-  }, [form, mcpOAuthStatus, ui.authManuallyEdited, values.authType, values.type]);
+  }, [form, mcpOAuthStatus, values.authScope, values.authType, values.type]);
 
   const isNameTaken = (candidate: string) => {
     const taken = [...getTakenSourceNames()].map((entry) => entry.toLowerCase());
@@ -528,7 +557,7 @@ export function useAddSourceFormState({
     view: ui.view,
     setView: (view: SourceDialogView) => patchUi(setUi, { view }),
     type: values.type,
-    ownerScopeType: values.ownerScopeType,
+    scopeType: values.scopeType,
     name: values.name,
     endpoint: values.endpoint,
     baseUrl: values.baseUrl,
@@ -560,8 +589,8 @@ export function useAddSourceFormState({
     handleNameChange,
     handleCatalogAdd,
     handleTypeChange,
-    handleOwnerScopeTypeChange: (ownerScopeType: "organization" | "workspace") =>
-      form.setValue("ownerScopeType", ownerScopeType, { shouldDirty: true, shouldTouch: true }),
+    handleScopeTypeChange: (scopeType: "organization" | "workspace") =>
+      form.setValue("scopeType", scopeType, { shouldDirty: true, shouldTouch: true }),
     handleAuthTypeChange,
     handleAuthScopeChange,
     handleScopePresetChange: (scopePreset: SharingScope) => applySharingScope(form, scopePreset),

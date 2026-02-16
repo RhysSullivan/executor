@@ -2,21 +2,20 @@ import { displaySourceName } from "@/lib/tool/source-utils";
 import {
   readSourceAuth,
   sourceForCredentialKey,
-  toolSourceLabelForSource,
   type SourceAuthMode,
   type SourceAuthType,
 } from "@/lib/tools/source-helpers";
 import type {
   CredentialScope,
-  OwnerScopeType,
   SourceAuthProfile,
+  ToolSourceScopeType,
   ToolSourceRecord,
 } from "@/lib/types";
 
 export type SourceOption = { source: ToolSourceRecord; key: string; label: string };
 
-export function ownerScopeLabel(ownerScopeType: OwnerScopeType | undefined): string {
-  return ownerScopeType === "organization" ? "organization" : "workspace";
+export function ownerScopeLabel(scopeType: ToolSourceScopeType | undefined): string {
+  return scopeType === "organization" ? "organization" : "workspace";
 }
 
 export function sourceAuthForKey(
@@ -33,12 +32,12 @@ export function sourceAuthForKey(
   if (!match) {
     return { type: "bearer" };
   }
-  const inferredProfile = inferredProfiles[key] ?? inferredProfiles[toolSourceLabelForSource(match.source)];
+  const inferredProfile = inferredProfiles[key];
   return readSourceAuth(match.source, inferredProfile);
 }
 
 export function sourceOptionLabel(source: ToolSourceRecord): string {
-  return `${source.name} (${source.type}, ${ownerScopeLabel(source.ownerScopeType)})`;
+  return `${source.name} (${source.type}, ${ownerScopeLabel(source.scopeType)})`;
 }
 
 export function providerLabel(provider: "local-convex" | "workos-vault"): string {
@@ -49,7 +48,7 @@ export function connectionDisplayName(
   sources: ToolSourceRecord[],
   connection: {
     scope: CredentialScope;
-    ownerScopeType?: OwnerScopeType;
+    scopeType?: ToolSourceScopeType;
     sourceKeys: Set<string>;
     accountId?: string;
   },
@@ -70,7 +69,7 @@ export function connectionDisplayName(
     return `${base} personal`;
   }
 
-  return `${base} ${ownerScopeLabel(connection.ownerScopeType)}`;
+  return `${base} ${ownerScopeLabel(connection.scopeType)}`;
 }
 
 export function parseHeaderOverrides(text: string): { value?: Record<string, string>; error?: string } {

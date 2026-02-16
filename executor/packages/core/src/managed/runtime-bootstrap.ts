@@ -99,12 +99,6 @@ async function hasConvexProjectConfig(candidate: string): Promise<boolean> {
     return false;
   }
 
-  const legacyDir = path.join(candidate, "convex");
-  const legacyMatches = await hasAnyPath(getConfigCandidates(legacyDir));
-  if (legacyMatches) {
-    return true;
-  }
-
   if (await hasAnyPath(getConfigCandidates(candidate))) {
     return true;
   }

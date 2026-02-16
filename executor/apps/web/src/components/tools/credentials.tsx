@@ -9,8 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "@/lib/session-context";
 import type {
   CredentialRecord,
-  CredentialScope,
-  OwnerScopeType,
+  ToolSourceScopeType,
   ToolSourceRecord,
 } from "@/lib/types";
 import {
@@ -22,6 +21,8 @@ import {
   sourceForCredentialKey,
 } from "@/lib/tools/source-helpers";
 import { SourceFavicon } from "./source-favicon";
+
+type ConnectionScope = "account" | "workspace";
 
 export function CredentialsPanel({
   sources,
@@ -46,8 +47,8 @@ export function CredentialsPanel({
       const grouped = new Map<string, {
       key: string;
       id: string;
-      ownerScopeType: OwnerScopeType;
-      scope: CredentialScope;
+      scopeType: ToolSourceScopeType;
+      scope: ConnectionScope;
       accountId?: string;
       provider: "local-convex" | "workos-vault";
       sourceKeys: Set<string>;
@@ -55,8 +56,9 @@ export function CredentialsPanel({
     }>();
 
     for (const credential of credentials) {
-      const ownerScopeType = credential.ownerScopeType ?? "workspace";
-      const groupKey = `${ownerScopeType}:${credential.id}`;
+      const scopeType: ToolSourceScopeType = credential.scopeType === "organization" ? "organization" : "workspace";
+      const scope: ConnectionScope = credential.scopeType === "account" ? "account" : "workspace";
+      const groupKey = `${scopeType}:${credential.id}`;
       const existing = grouped.get(groupKey);
       if (existing) {
         existing.sourceKeys.add(credential.sourceKey);
@@ -65,8 +67,8 @@ export function CredentialsPanel({
         grouped.set(groupKey, {
           key: groupKey,
           id: credential.id,
-          ownerScopeType,
-          scope: credential.scopeType,
+          scopeType,
+          scope,
           accountId: credential.accountId,
           provider: credential.provider,
           sourceKeys: new Set([credential.sourceKey]),
@@ -81,7 +83,8 @@ export function CredentialsPanel({
   const representativeCredentialByConnection = useMemo(() => {
     const map = new Map<string, CredentialRecord>();
     for (const credential of credentials) {
-      const key = `${credential.ownerScopeType ?? "workspace"}:${credential.id}`;
+      const scopeType = credential.scopeType === "organization" ? "organization" : "workspace";
+      const key = `${scopeType}:${credential.id}`;
       if (!map.has(key)) {
         map.set(key, credential);
       }
@@ -151,7 +154,7 @@ export function CredentialsPanel({
                           {connection.scope}
                         </Badge>
                         <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                          {ownerScopeLabel(connection.ownerScopeType)}
+                          {ownerScopeLabel(connection.scopeType)}
                         </Badge>
                         <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                           {providerLabel(connection.provider)}

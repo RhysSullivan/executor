@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 import {
   Select,
   SelectContent,
@@ -24,7 +25,7 @@ import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 
 type FormState = {
   scopeType: "workspace" | "organization";
-  toolPathPattern: string;
+  resourcePattern: string;
   matchType: "glob" | "exact";
   decision: "allow" | "require_approval" | "deny";
   accountId: string;
@@ -35,13 +36,36 @@ type FormState = {
 function defaultFormState(): FormState {
   return {
     scopeType: "workspace",
-    toolPathPattern: "*",
+    resourcePattern: "*",
     matchType: "glob",
     decision: "require_approval",
     accountId: "",
     clientId: "",
     priority: "100",
   };
+}
+
+function getDecisionLabel(policy: AccessPolicyRecord): "allow" | "require_approval" | "deny" {
+  if (policy.effect === "deny") {
+    return "deny";
+  }
+
+  return policy.approvalMode === "required" ? "require_approval" : "allow";
+}
+
+function getDecisionPayload(decision: "allow" | "require_approval" | "deny"): {
+  effect: "allow" | "deny";
+  approvalMode: "inherit" | "auto" | "required";
+} {
+  if (decision === "deny") {
+    return { effect: "deny", approvalMode: "required" };
+  }
+
+  if (decision === "require_approval") {
+    return { effect: "allow", approvalMode: "required" };
+  }
+
+  return { effect: "allow", approvalMode: "auto" };
 }
 
 function scopeLabel(policy: AccessPolicyRecord): string {
@@ -66,7 +90,7 @@ export function PoliciesPanel() {
       return;
     }
 
-    const pattern = form.toolPathPattern.trim();
+    const pattern = form.resourcePattern.trim();
     if (!pattern) {
       toast.error("Tool path pattern is required");
       return;
@@ -78,16 +102,24 @@ export function PoliciesPanel() {
       return;
     }
 
+    const targetAccountIdInput = form.accountId.trim();
+    const targetAccountId = targetAccountIdInput.length > 0
+      ? (targetAccountIdInput as Id<"accounts">)
+      : undefined;
+
     setSubmitting(true);
     try {
+      const { effect, approvalMode } = getDecisionPayload(form.decision);
+
       await upsertAccessPolicy({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         scopeType: form.scopeType,
-        toolPathPattern: pattern,
+        resourcePattern: pattern,
+        effect,
+        approvalMode,
         matchType: form.matchType,
-        decision: form.decision,
-        accountId: form.accountId.trim() || undefined,
+        targetAccountId,
         clientId: form.clientId.trim() || undefined,
         priority,
       });
@@ -148,14 +180,14 @@ export function PoliciesPanel() {
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Tool Path Pattern</Label>
-            <Input
-              value={form.toolPathPattern}
-              onChange={(event) => setForm((current) => ({ ...current, toolPathPattern: event.target.value }))}
-              placeholder="github.repos.*"
-              className="h-8 text-xs font-mono bg-background"
-            />
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Tool Path Pattern</Label>
+              <Input
+                value={form.resourcePattern}
+                onChange={(event) => setForm((current) => ({ ...current, resourcePattern: event.target.value }))}
+                placeholder="github.repos.*"
+                className="h-8 text-xs font-mono bg-background"
+              />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -237,14 +269,14 @@ export function PoliciesPanel() {
                   <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                     {policy.matchType ?? "glob"}
                   </Badge>
-                  <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                    {policy.decision}
+                    <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                    {getDecisionLabel(policy)}
                   </Badge>
                   <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                     p{policy.priority}
                   </Badge>
                 </div>
-                <p className="text-[11px] font-mono mt-1 break-all">{policy.toolPathPattern}</p>
+                <p className="text-[11px] font-mono mt-1 break-all">{policy.resourcePattern}</p>
                 {(policy.targetAccountId || policy.clientId) ? (
                   <p className="text-[10px] text-muted-foreground mt-1">
                     {policy.targetAccountId ? `account=${policy.targetAccountId}` : ""}

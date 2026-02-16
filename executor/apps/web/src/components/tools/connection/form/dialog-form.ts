@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useReducer } from "react";
 import type {
   CredentialRecord,
-  CredentialScope,
-  OwnerScopeType,
   SourceAuthProfile,
+  ToolSourceScopeType,
   ToolSourceRecord,
 } from "@/lib/types";
 import {
@@ -28,10 +27,12 @@ type UseConnectionFormDialogFormParams = {
   accountIdFallback?: string;
 };
 
+type FormScope = "account" | "workspace";
+
 type FormState = {
   sourceKey: string;
-  ownerScopeType: OwnerScopeType;
-  scope: CredentialScope;
+  scopeType: ToolSourceScopeType;
+  scope: FormScope;
   accountId: string;
   connectionMode: ConnectionMode;
   existingConnectionKey: string;
@@ -44,21 +45,21 @@ type FormState = {
 
 type SharingScope = "only_me" | "workspace" | "organization";
 
-function sharingScopeFromValues(values: Pick<FormState, "ownerScopeType" | "scope">): SharingScope {
+function sharingScopeFromValues(values: Pick<FormState, "scopeType" | "scope">): SharingScope {
   if (values.scope === "account") {
     return "only_me";
   }
-  return values.ownerScopeType === "organization" ? "organization" : "workspace";
+  return values.scopeType === "organization" ? "organization" : "workspace";
 }
 
-function applySharingScope(scope: SharingScope): Pick<FormState, "ownerScopeType" | "scope"> {
+function applySharingScope(scope: SharingScope): Pick<FormState, "scopeType" | "scope"> {
   if (scope === "only_me") {
-    return { ownerScopeType: "workspace", scope: "account" };
+    return { scopeType: "workspace", scope: "account" };
   }
   if (scope === "organization") {
-    return { ownerScopeType: "organization", scope: "workspace" };
+    return { scopeType: "organization", scope: "workspace" };
   }
-  return { ownerScopeType: "workspace", scope: "workspace" };
+  return { scopeType: "workspace", scope: "workspace" };
 }
 
 type FormAction =
@@ -86,13 +87,17 @@ function initialFormState({
   accountIdFallback?: string;
 }): FormState {
   if (editing) {
+    const credentialScopeType = editing.scopeType ?? "workspace";
+    const scopeType: ToolSourceScopeType = credentialScopeType === "organization" ? "organization" : "workspace";
+    const scope: FormScope = credentialScopeType === "account" ? "account" : "workspace";
+
     return {
       sourceKey: editing.sourceKey,
-      ownerScopeType: editing.ownerScopeType ?? "workspace",
-      scope: editing.scopeType,
+      scopeType,
+      scope,
       accountId: editing.accountId ?? accountIdFallback ?? "",
       connectionMode: "new",
-      existingConnectionKey: `${editing.ownerScopeType ?? "workspace"}:${editing.id}`,
+      existingConnectionKey: `${scopeType}:${editing.id}`,
       tokenValue: "",
       apiKeyValue: "",
       basicUsername: "",
@@ -106,7 +111,7 @@ function initialFormState({
   void auth;
   return {
     sourceKey: resolvedSourceKey,
-    ownerScopeType: "workspace",
+    scopeType: "workspace",
     scope: "account",
     accountId: accountIdFallback ?? "",
     connectionMode: "new",
@@ -143,7 +148,7 @@ export function useConnectionFormDialogForm({
 
   const {
     sourceKey,
-    ownerScopeType,
+    scopeType,
     scope,
     accountId,
     connectionMode,
@@ -155,8 +160,8 @@ export function useConnectionFormDialogForm({
     customHeadersText,
   } = form;
   const compatibleConnectionOptions = useMemo(
-    () => compatibleConnections(connectionOptions, ownerScopeType, scope, accountId),
-    [accountId, connectionOptions, ownerScopeType, scope],
+    () => compatibleConnections(connectionOptions, scopeType, scope, accountId),
+    [accountId, connectionOptions, scopeType, scope],
   );
   const existingConnectionKey = useMemo(() => {
     if (!rawExistingConnectionKey) {
@@ -175,7 +180,7 @@ export function useConnectionFormDialogForm({
     () => selectedAuthBadge(selectedAuth.type, selectedAuth.mode),
     [selectedAuth.mode, selectedAuth.type],
   );
-  const scopePreset = sharingScopeFromValues({ ownerScopeType, scope });
+  const scopePreset = sharingScopeFromValues({ scopeType, scope });
 
   useEffect(() => {
     if (!open) {
@@ -254,7 +259,7 @@ export function useConnectionFormDialogForm({
 
   return {
     sourceKey,
-    ownerScopeType,
+    scopeType,
     scopePreset,
     scope,
     accountId,

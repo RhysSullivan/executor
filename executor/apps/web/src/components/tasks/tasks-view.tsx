@@ -15,6 +15,7 @@ import { useSession } from "@/lib/session-context";
 import { useQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
+import { listRuntimeTargets } from "@/lib/runtime-targets";
 import type {
   TaskRecord,
   PendingApprovalRecord,
@@ -36,12 +37,7 @@ export function TasksView() {
   const tasksLoading = !!context && tasks === undefined;
   const taskItems = tasks ?? [];
 
-  const runtimeTargets = useQuery(
-    convexApi.workspace.listRuntimeTargets,
-    context ? {} : "skip",
-  );
-
-  const runtimeItems = runtimeTargets ?? [];
+  const runtimeItems = listRuntimeTargets();
 
   const approvals = useQuery(
     convexApi.workspace.listPendingApprovals,

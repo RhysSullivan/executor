@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -23,11 +24,11 @@ export type SourceAuthPanelEditableField =
 
 type SharingScope = "only_me" | "workspace" | "organization";
 
-function sharingScopeFromModel(model: Pick<SourceAuthPanelModel, "ownerScopeType" | "authScope">): SharingScope {
+function sharingScopeFromModel(model: Pick<SourceAuthPanelModel, "scopeType" | "authScope">): SharingScope {
   if (model.authScope === "account") {
     return "only_me";
   }
-  return model.ownerScopeType === "organization" ? "organization" : "workspace";
+  return model.scopeType === "organization" ? "organization" : "workspace";
 }
 
 export type SourceAuthPanelModel = {
@@ -40,7 +41,7 @@ export type SourceAuthPanelModel = {
   mcpOAuthAuthorizationServers: string[];
   mcpOAuthConnected: boolean;
   authType: Exclude<SourceAuthType, "mixed">;
-  ownerScopeType: "organization" | "workspace";
+  scopeType: "organization" | "workspace";
   authScope: CredentialScope;
   apiKeyHeader: string;
   tokenValue: string;
@@ -109,6 +110,9 @@ export function SourceAuthPanel({
 
   const badge = inferredAuthBadge(inferredSpecAuth);
   const mcpBearerConnected = sourceType === "mcp" && authType === "bearer" && mcpOAuthConnected;
+  const mcpOAuthLoading = sourceType === "mcp" && mcpOAuthStatus === "checking";
+  const mcpOAuthDetected = sourceType === "mcp" && mcpOAuthStatus === "oauth";
+  const useMcpOAuthFlow = mcpOAuthLoading || mcpOAuthDetected;
   return (
     <div className="space-y-3">
 
@@ -152,21 +156,23 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Auth Type</Label>
-          <Select value={authType} onValueChange={(value) => onAuthTypeChange(value as Exclude<SourceAuthType, "mixed">)}>
-            <SelectTrigger className="h-8 text-xs bg-background">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none" className="text-xs">None</SelectItem>
-              <SelectItem value="bearer" className="text-xs">Bearer token</SelectItem>
-              <SelectItem value="apiKey" className="text-xs">API key header</SelectItem>
-              <SelectItem value="basic" className="text-xs">Basic auth</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      <div className={`grid ${useMcpOAuthFlow ? "grid-cols-1" : "grid-cols-2"} gap-3`}>
+        {!useMcpOAuthFlow ? (
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Auth Type</Label>
+            <Select value={authType} onValueChange={(value) => onAuthTypeChange(value as Exclude<SourceAuthType, "mixed">)}>
+              <SelectTrigger className="h-8 text-xs bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" className="text-xs">None</SelectItem>
+                <SelectItem value="bearer" className="text-xs">Bearer token</SelectItem>
+                <SelectItem value="apiKey" className="text-xs">API key header</SelectItem>
+                <SelectItem value="basic" className="text-xs">Basic auth</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
 
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Scope</Label>
@@ -187,7 +193,7 @@ export function SourceAuthPanel({
         </div>
       </div>
 
-      {sourceType === "mcp" && authType === "bearer" && onMcpOAuthConnect ? (
+      {sourceType === "mcp" && useMcpOAuthFlow && onMcpOAuthConnect ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <Label className="text-xs text-muted-foreground">OAuth</Label>
@@ -197,16 +203,20 @@ export function SourceAuthPanel({
               </Badge>
             ) : null}
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            disabled={mcpOAuthBusy}
-            onClick={onMcpOAuthConnect}
-          >
-            {mcpOAuthBusy ? "Connecting..." : mcpBearerConnected ? "Reconnect OAuth" : "Connect OAuth in popup"}
-          </Button>
+          {mcpOAuthLoading ? (
+            <Skeleton className="h-8 w-full" />
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              disabled={mcpOAuthBusy}
+              onClick={onMcpOAuthConnect}
+            >
+              {mcpOAuthBusy ? "Connecting..." : mcpBearerConnected ? "Reconnect OAuth" : "Connect OAuth in popup"}
+            </Button>
+          )}
           {mcpBearerConnected ? (
             <p className="text-[11px] text-muted-foreground">OAuth linked successfully.</p>
           ) : null}
@@ -225,7 +235,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "bearer" && !mcpBearerConnected ? (
+      {authType === "bearer" && sourceType !== "mcp" && !mcpBearerConnected ? (
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <LockKeyhole className="h-3 w-3" />
@@ -241,7 +251,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "apiKey" ? (
+      {authType === "apiKey" && !useMcpOAuthFlow ? (
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <KeyRound className="h-3 w-3" />
@@ -257,7 +267,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "basic" ? (
+      {authType === "basic" && !useMcpOAuthFlow ? (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
