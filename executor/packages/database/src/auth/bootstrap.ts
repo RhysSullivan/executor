@@ -67,7 +67,7 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
   const subject = identity.subject;
   const authKitProfile = await getAuthKitUserProfile(ctx, subject);
   const identityProfile = resolveIdentityProfile({
-    identity: identity as Record<string, unknown> & { subject: string },
+    identity: { ...identity, subject },
     authKitProfile,
   });
 
