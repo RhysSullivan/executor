@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { fetchAndInspectOpenApiSpec, type InferredSpecAuth } from "@/lib/openapi/spec-inspector";
@@ -117,6 +117,11 @@ export function useAddSourceFormState({
   const values: SourceFormValues = { ...createDefaultFormValues(), ...watched };
   const [ui, setUi] = useState<AddSourceUiState>(() => createDefaultUiState(sourceToEdit ? "custom" : "catalog"));
 
+  // Refs to let effects read current values without adding reactive deps that cause loops.
+  const authManuallyEditedRef = useRef(ui.authManuallyEdited);
+  authManuallyEditedRef.current = ui.authManuallyEdited;
+  const appliedDetectionRef = useRef<{ endpoint: string; type: SourceType } | null>(null);
+
   const visibleCatalogItems = useMemo(
     () => getVisibleCatalogItems(ui.catalogQuery, ui.catalogSort),
     [ui.catalogQuery, ui.catalogSort],
@@ -159,6 +164,9 @@ export function useAddSourceFormState({
     if (!open) {
       return;
     }
+
+    // Clear applied detection tracking when dialog opens/resets
+    appliedDetectionRef.current = null;
 
     if (sourceToEdit) {
       const editValues = sourceToFormValues(sourceToEdit);
@@ -396,60 +404,60 @@ export function useAddSourceFormState({
             ? "error"
             : "idle";
 
-  // Auto-set the type when detection succeeds
+  // Auto-set the type when detection succeeds.
+  // Uses a ref to track what we last applied, avoiding deps on values the effect itself mutates.
   useEffect(() => {
     if (!typeDetectionEnabled || !typeDetectionQuery.data) {
       return;
     }
     const detected = typeDetectionQuery.data.type;
-    if (values.type !== detected) {
-      form.setValue("type", detected, { shouldDirty: false, shouldTouch: false });
 
-      // Trigger the same side-effects as handleTypeChange but without marking as explicitly set
-      if (detected === "openapi") {
-        const inferredBaseUrl = deriveBaseUrlFromEndpoint(values.endpoint);
-        patchUi(setUi, {
-          openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
-          authManuallyEdited: false,
-          mcpOAuthLinkedEndpoint: null,
-        });
-        if (!baseUrlManuallyEdited) {
-          form.setValue("baseUrl", inferredBaseUrl, { shouldDirty: false, shouldTouch: false });
-        }
-      } else {
-        patchUi(setUi, {
-          openApiBaseUrlOptions: [],
-          mcpOAuthLinkedEndpoint: null,
-          // Preserve authManuallyEdited — user may have set credentials before detection
-        });
-        // Only reset auth fields if the user hasn't manually edited them
-        if (!ui.authManuallyEdited) {
-          patchUi(setUi, { authManuallyEdited: false });
-          form.setValue("authType", "none", { shouldDirty: false, shouldTouch: false });
-          form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
-        }
+    // Skip if we already applied this exact detection result for this endpoint
+    if (
+      appliedDetectionRef.current
+      && appliedDetectionRef.current.endpoint === detectionEndpoint
+      && appliedDetectionRef.current.type === detected
+    ) {
+      return;
+    }
+
+    appliedDetectionRef.current = { endpoint: detectionEndpoint, type: detected };
+    form.setValue("type", detected, { shouldDirty: false, shouldTouch: false });
+
+    // Trigger the same side-effects as handleTypeChange but without marking as explicitly set.
+    // Uses functional setUi to read current state without depending on it reactively.
+    if (detected === "openapi") {
+      const inferredBaseUrl = deriveBaseUrlFromEndpoint(detectionEndpoint);
+      setUi((current) => ({
+        ...current,
+        openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
+        mcpOAuthLinkedEndpoint: null,
+      }));
+      if (!baseUrlManuallyEdited) {
+        form.setValue("baseUrl", inferredBaseUrl, { shouldDirty: false, shouldTouch: false });
+      }
+    } else {
+      setUi((current) => ({
+        ...current,
+        openApiBaseUrlOptions: [],
+        mcpOAuthLinkedEndpoint: null,
+      }));
+      // Only reset auth form values if the user hasn't manually set credentials.
+      // Read from ref to avoid adding a reactive dep that causes render loops.
+      if (!authManuallyEditedRef.current) {
+        form.setValue("authType", "none", { shouldDirty: false, shouldTouch: false });
+        form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
       }
     }
 
     // Also infer name from URL if not already set
     if (!nameManuallyEdited) {
       const inferredName = inferNameFromUrl(detectionEndpoint);
-      if (inferredName && values.name !== inferredName) {
+      if (inferredName) {
         form.setValue("name", inferredName, { shouldDirty: false, shouldTouch: false });
       }
     }
-  }, [
-    typeDetectionEnabled,
-    typeDetectionQuery.data,
-    baseUrlManuallyEdited,
-    detectionEndpoint,
-    form,
-    nameManuallyEdited,
-    ui.authManuallyEdited,
-    values.endpoint,
-    values.name,
-    values.type,
-  ]);
+  }, [typeDetectionEnabled, typeDetectionQuery.data, detectionEndpoint, form, baseUrlManuallyEdited, nameManuallyEdited]);
 
   // Type is "resolved" when explicitly set by the user/catalog, or auto-detected from the URL.
   // Type-specific queries (spec inspection, MCP OAuth) should only fire after resolution,

@@ -17,9 +17,9 @@ type OpenApiInspectionResult = {
   inferredAuth: InferredSpecAuth;
 };
 
-const recordSchema = z.record(z.unknown());
+const recordSchema = z.record(z.string(), z.unknown());
 
-const securityRequirementSchema = z.record(z.array(z.unknown()).optional());
+const securityRequirementSchema = z.record(z.string(), z.array(z.unknown()).optional());
 
 const securitySchemeSchema = z.object({
   type: z.string().optional(),
