@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { mapTask } from "../../src/database/mappers";
 import { getTaskDoc } from "../../src/database/readers";
-import { completedTaskStatusValidator } from "../../src/database/validators";
+import { completedTaskStatusValidator, jsonObjectValidator } from "../../src/database/validators";
 import { asRecord } from "../../src/lib/object";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../../src/task/constants";
 import { isTerminalTaskStatus } from "../../src/task/status";
@@ -13,7 +13,7 @@ export const createTask = internalMutation({
     code: v.string(),
     runtimeId: v.string(),
     timeoutMs: v.optional(v.number()),
-    metadata: v.optional(v.any()),
+    metadata: v.optional(jsonObjectValidator),
     workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.optional(v.string()),

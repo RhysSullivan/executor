@@ -6,7 +6,7 @@ import {
   normalizeSourceAuthFingerprint,
 } from "../../src/database/mappers";
 import { normalizeToolSourceConfig } from "../../src/database/tool_source_config";
-import { toolSourceTypeValidator } from "../../src/database/validators";
+import { jsonObjectValidator, toolSourceTypeValidator } from "../../src/database/validators";
 
 export const upsertToolSource = internalMutation({
   args: {
@@ -14,7 +14,7 @@ export const upsertToolSource = internalMutation({
     workspaceId: v.id("workspaces"),
     name: v.string(),
     type: toolSourceTypeValidator,
-    config: v.any(),
+    config: jsonObjectValidator,
     enabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -102,7 +102,7 @@ export const deleteToolSource = internalMutation({
     const sourceKey = `source:${args.sourceId}`;
     const bindings = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_actor", (q) =>
+      .withIndex("by_workspace_source_scope_key", (q) =>
         q.eq("workspaceId", args.workspaceId).eq("sourceKey", sourceKey),
       )
       .collect();

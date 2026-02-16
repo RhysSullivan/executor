@@ -96,24 +96,13 @@ export async function ensureAnonymousIdentity(
   let user = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspace._id).eq("accountId", account._id))
-    .first();
+    .unique();
 
   if (!user) {
-    const userId = await ctx.db.insert("workspaceMembers", {
-      workspaceId: workspace._id,
-      accountId: account._id,
-      role: "owner",
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    });
-    user = await ctx.db.get(userId);
-    if (!user) {
-      throw new Error("Failed to create anonymous user membership");
-    }
-  } else {
-    await ctx.db.patch(user._id, { updatedAt: now });
+    throw new Error("Failed to project anonymous workspace membership");
   }
+
+  await ctx.db.patch(user._id, { updatedAt: now });
 
   return {
     accountId: account._id,

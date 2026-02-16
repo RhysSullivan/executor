@@ -9,13 +9,14 @@ import {
   resolveApprovalHandler,
   resolveApprovalInternalHandler,
 } from "../src/executor/handlers";
+import { jsonObjectValidator } from "../src/database/validators";
 
 export const createTask = action({
   args: {
     code: v.string(),
     timeoutMs: v.optional(v.number()),
     runtimeId: v.optional(v.string()),
-    metadata: v.optional(v.any()),
+    metadata: v.optional(jsonObjectValidator),
     workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
     actorId: v.optional(v.string()),
@@ -32,7 +33,7 @@ export const createTaskInternal = internalMutation({
     code: v.string(),
     timeoutMs: v.optional(v.number()),
     runtimeId: v.optional(v.string()),
-    metadata: v.optional(v.any()),
+    metadata: v.optional(jsonObjectValidator),
     workspaceId: v.id("workspaces"),
     actorId: v.string(),
     clientId: v.optional(v.string()),

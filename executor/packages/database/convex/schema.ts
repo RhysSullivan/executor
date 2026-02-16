@@ -63,6 +63,7 @@ const credentialProvider = v.union(
   v.literal("workos-vault"),
 );
 const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+const jsonObject = v.record(v.string(), v.any());
 
 export default defineSchema({
   // User identities (WorkOS-backed or anonymous).
@@ -248,7 +249,8 @@ export default defineSchema({
     clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
     status: taskStatus,
     timeoutMs: v.number(),
-    metadata: v.any(),
+    metadata: jsonObject,
+    nextEventSequence: v.optional(v.number()),
     error: v.optional(v.string()),
     stdout: v.optional(v.string()),
     stderr: v.optional(v.string()),
@@ -273,7 +275,7 @@ export default defineSchema({
     taskId: v.string(), // references tasks.taskId (not tasks._id)
     workspaceId: v.id("workspaces"),
     toolPath: v.string(),
-    input: v.any(),
+    input: jsonObject,
     status: approvalStatus,
     reason: v.optional(v.string()),
     reviewerId: v.optional(v.string()), // account._id or anon_<uuid>
@@ -312,7 +314,7 @@ export default defineSchema({
     taskId: v.string(), // references tasks.taskId (not tasks._id)
     eventName: v.string(),
     type: v.string(),
-    payload: v.any(),
+    payload: jsonObject,
     createdAt: v.number(),
   })
     .index("by_task_sequence", ["taskId", "sequence"]),
@@ -341,7 +343,7 @@ export default defineSchema({
   // for UI/API operations that need an id before the connection id is known.
   //
   // Primary access patterns:
-  // - Resolve by (workspaceId, sourceKey, scope, actorId) - actorId is "" for workspace scope.
+  // - Resolve by (workspaceId, sourceKey, scopeKey).
   // - List all credentials in workspace by createdAt.
   sourceCredentials: defineTable({
     bindingId: v.string(), // domain ID: bind_<uuid>
@@ -349,16 +351,17 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     sourceKey: v.string(),
     scope: credentialScope,
-    actorId: v.string(), // account._id or anon_<uuid> (required for composite index)
+    scopeKey: v.string(), // "workspace" or actor:<actorId>
+    actorId: v.optional(v.string()), // account._id or anon_<uuid> when scope === "actor"
     provider: credentialProvider,
-    secretJson: v.any(),
-    overridesJson: v.optional(v.any()),
+    secretJson: jsonObject,
+    overridesJson: v.optional(jsonObject),
     boundAuthFingerprint: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_workspace_created", ["workspaceId", "createdAt"])
-    .index("by_workspace_source_scope_actor", ["workspaceId", "sourceKey", "scope", "actorId"])
+    .index("by_workspace_source_scope_key", ["workspaceId", "sourceKey", "scopeKey"])
     .index("by_workspace_credential", ["workspaceId", "credentialId"])
     .index("by_binding_id", ["bindingId"]),
 
@@ -375,7 +378,7 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     name: v.string(),
     type: toolSourceType,
-    config: v.any(),
+    config: jsonObject,
     specHash: v.optional(v.string()),
     authFingerprint: v.optional(v.string()),
     enabled: v.boolean(),

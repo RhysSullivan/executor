@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 
+export const jsonObjectValidator = v.record(v.string(), v.any());
+
 export const completedTaskStatusValidator = v.union(
   v.literal("completed"),
   v.literal("failed"),

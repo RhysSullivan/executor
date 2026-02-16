@@ -6,6 +6,7 @@ import {
   getApprovalStatusHandler,
   handleToolCallHandler,
 } from "../src/runtime-callbacks/handlers";
+import { jsonObjectValidator } from "../src/database/validators";
 
 export const handleToolCall = action({
   args: {
@@ -13,7 +14,7 @@ export const handleToolCall = action({
     runId: v.string(),
     callId: v.string(),
     toolPath: v.string(),
-    input: v.optional(v.any()),
+    input: v.optional(jsonObjectValidator),
   },
   handler: async (ctx, args) => {
     return await handleToolCallHandler(ctx, internal, args);

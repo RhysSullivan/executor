@@ -115,7 +115,7 @@ export const ensureAnonymousMcpSession = internalMutation({
     const membership = await ctx.db
       .query("workspaceMembers")
       .withIndex("by_workspace_account", (q) => q.eq("workspaceId", args.workspaceId).eq("accountId", account._id))
-      .first();
+      .unique();
     if (!membership || membership.status !== "active") {
       throw new Error("Anonymous actor does not have workspace access");
     }

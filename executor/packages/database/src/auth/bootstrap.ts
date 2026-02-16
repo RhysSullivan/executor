@@ -3,12 +3,10 @@ import { upsertWorkosAccount } from "./accounts";
 import { getOrganizationByWorkosOrgId } from "./db_queries";
 import { getAuthKitUserProfile, resolveIdentityProfile } from "./identity";
 import {
-  mapOrganizationRoleToWorkspaceRole,
   markPendingInvitesAcceptedByEmail,
   upsertOrganizationMembership,
 } from "./memberships";
 import { ensurePersonalWorkspace, refreshGeneratedPersonalWorkspaceNames } from "./personal_workspace";
-import { projectAccountOrganizationMembershipsToWorkspaceMembers } from "./workspace_membership_projection";
 import type { AccountId } from "./types";
 
 async function seedHintedOrganizationMembership(
@@ -61,18 +59,6 @@ async function ensureAtLeastOneWorkspaceMembership(ctx: MutationCtx, args: { acc
   return Boolean(activeWorkspaceMembership);
 }
 
-async function backfillWorkspaceMembershipsIfMissing(ctx: MutationCtx, args: { accountId: AccountId; now: number }) {
-  await projectAccountOrganizationMembershipsToWorkspaceMembers(ctx, {
-    accountId: args.accountId,
-    now: args.now,
-    mapRole: mapOrganizationRoleToWorkspaceRole,
-  });
-
-  return await ensureAtLeastOneWorkspaceMembership(ctx, {
-    accountId: args.accountId,
-  });
-}
-
 export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return null;
@@ -117,13 +103,6 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
   });
 
   if (!hasActiveWorkspaceMembership) {
-    hasActiveWorkspaceMembership = await backfillWorkspaceMembershipsIfMissing(ctx, {
-      accountId: account._id,
-      now,
-    });
-  }
-
-  if (!hasActiveWorkspaceMembership) {
     await ensurePersonalWorkspace(ctx, account._id, {
       email: identityProfile.email,
       firstName: identityProfile.firstName,
@@ -131,6 +110,14 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
       workosUserId: subject,
       now,
     });
+
+    hasActiveWorkspaceMembership = await ensureAtLeastOneWorkspaceMembership(ctx, {
+      accountId: account._id,
+    });
+
+    if (!hasActiveWorkspaceMembership) {
+      throw new Error("Account bootstrap did not produce an active workspace membership");
+    }
   }
 
   return account;

@@ -68,22 +68,10 @@ export async function getOrganizationMembership(
   organizationId: Id<"organizations">,
   accountId: Id<"accounts">,
 ) {
-  const memberships = await ctx.db
+  return await ctx.db
     .query("organizationMembers")
     .withIndex("by_org_account", (q) => q.eq("organizationId", organizationId).eq("accountId", accountId))
-    .collect();
-
-  if (memberships.length === 0) {
-    return null;
-  }
-
-  memberships.sort((a, b) => {
-    const statusRankA = a.status === "active" ? 2 : a.status === "pending" ? 1 : 0;
-    const statusRankB = b.status === "active" ? 2 : b.status === "pending" ? 1 : 0;
-    return statusRankB - statusRankA || b.updatedAt - a.updatedAt;
-  });
-
-  return memberships[0]!;
+    .unique();
 }
 
 export async function getWorkspaceMembership(
@@ -91,22 +79,10 @@ export async function getWorkspaceMembership(
   workspaceId: Id<"workspaces">,
   accountId: Id<"accounts">,
 ) {
-  const memberships = await ctx.db
+  return await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
-    .collect();
-
-  if (memberships.length === 0) {
-    return null;
-  }
-
-  memberships.sort((a, b) => {
-    const statusRankA = a.status === "active" ? 2 : a.status === "pending" ? 1 : 0;
-    const statusRankB = b.status === "active" ? 2 : b.status === "pending" ? 1 : 0;
-    return statusRankB - statusRankA || b.updatedAt - a.updatedAt;
-  });
-
-  return memberships[0]!;
+    .unique();
 }
 
 export async function requireWorkspaceAccessForAccount(

@@ -129,18 +129,17 @@ export async function ensurePersonalWorkspace(ctx: DbCtx, accountId: AccountId, 
     now: opts.now,
   });
 
-  const membershipId = await ctx.db.insert("workspaceMembers", {
-    workspaceId,
-    accountId,
-    role: "owner",
-    status: "active",
-    createdAt: opts.now,
-    updatedAt: opts.now,
-  });
+  const membership = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId).eq("accountId", accountId))
+    .unique();
+  if (!membership || membership.status !== "active") {
+    throw new Error("Failed to project personal workspace membership");
+  }
 
   return {
     workspace: await ctx.db.get(workspaceId),
-    membership: await ctx.db.get(membershipId),
+    membership,
   };
 }
 

@@ -116,16 +116,31 @@ async function addOrgMember(
 ) {
   const now = Date.now();
   return await t.run(async (ctx) => {
-    const membershipId = await ctx.db.insert("organizationMembers", {
-      organizationId: opts.organizationId,
-      accountId: opts.accountId,
-      role: opts.role,
-      status: opts.status ?? "active",
-      billable: true,
-      joinedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const existingOrgMembership = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_org_account", (q) => q.eq("organizationId", opts.organizationId).eq("accountId", opts.accountId))
+      .first();
+
+    let membershipId = existingOrgMembership?._id;
+    if (existingOrgMembership) {
+      await ctx.db.patch(existingOrgMembership._id, {
+        role: opts.role,
+        status: opts.status ?? "active",
+        billable: true,
+        updatedAt: now,
+      });
+    } else {
+      membershipId = await ctx.db.insert("organizationMembers", {
+        organizationId: opts.organizationId,
+        accountId: opts.accountId,
+        role: opts.role,
+        status: opts.status ?? "active",
+        billable: true,
+        joinedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
     const role = opts.role === "owner" || opts.role === "admin" ? opts.role : "member";
     const workspaces = await ctx.db
@@ -157,7 +172,7 @@ async function addOrgMember(
       }
     }
 
-    return membershipId;
+    return membershipId!;
   });
 }
 
