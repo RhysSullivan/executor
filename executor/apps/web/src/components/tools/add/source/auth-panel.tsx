@@ -1,4 +1,4 @@
-import { KeyRound, LockKeyhole, UserRound } from "lucide-react";
+import { KeyRound, Loader2, LockKeyhole, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +77,7 @@ export function SourceAuthPanel({
   onFieldChange,
   onMcpOAuthConnect,
   mcpOAuthBusy = false,
+  sourceInfoLoading = false,
 }: {
   model: SourceAuthPanelModel;
   onAuthTypeChange: (value: Exclude<SourceAuthType, "mixed">) => void;
@@ -84,6 +85,8 @@ export function SourceAuthPanel({
   onFieldChange: (field: SourceAuthPanelEditableField, value: string) => void;
   onMcpOAuthConnect?: () => void;
   mcpOAuthBusy?: boolean;
+  /** True while spec/OAuth detection is in progress */
+  sourceInfoLoading?: boolean;
 }) {
   const {
     sourceType,
@@ -92,7 +95,6 @@ export function SourceAuthPanel({
     specError,
     mcpOAuthStatus,
     mcpOAuthDetail,
-    mcpOAuthAuthorizationServers,
     mcpOAuthConnected,
     authType,
     apiKeyHeader,
@@ -116,82 +118,83 @@ export function SourceAuthPanel({
   return (
     <div className="space-y-3">
 
-      {sourceType === "openapi" ? (
-        <div className="flex items-center gap-2 flex-wrap">
-          {specStatus !== "ready" && specStatus !== "detecting" ? (
-            <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
-              {specStatus === "error" ? "Schema error" : "Awaiting URL"}
-            </Badge>
-          ) : null}
-          {badge ? (
-            <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
-              {badge}
-            </Badge>
-          ) : null}
-          {specError ? <span className="text-[10px] text-terminal-amber">{specError}</span> : null}
+      {sourceType === "openapi" && specStatus === "detecting" ? (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Detecting auth from spec…
         </div>
       ) : null}
 
-      {sourceType === "mcp" ? (
-        <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
-            {mcpOAuthStatus === "idle"
-              ? "Awaiting URL"
-              : mcpOAuthStatus === "checking"
-              ? "Checking OAuth"
-              : mcpOAuthStatus === "oauth"
-                ? "OAuth detected"
-                : mcpOAuthStatus === "error"
-                  ? "OAuth unknown"
-                  : "No OAuth metadata"}
-          </Badge>
-          {mcpOAuthAuthorizationServers.length > 0 ? (
-            <span className="text-[10px] text-muted-foreground">
-              {mcpOAuthAuthorizationServers[0]}
-            </span>
-          ) : null}
-          {mcpOAuthStatus === "error" && mcpOAuthDetail ? (
-            <span className="text-[10px] text-terminal-amber">{mcpOAuthDetail}</span>
-          ) : null}
+      {sourceType === "openapi" && specStatus === "ready" && badge ? (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          Detected: <span className="font-medium text-foreground/80">{badge}</span>
         </div>
       ) : null}
 
-      <div className={`grid ${useMcpOAuthFlow ? "grid-cols-1" : "grid-cols-2"} gap-3`}>
-        {!useMcpOAuthFlow ? (
+      {sourceType === "openapi" && specError ? (
+        <p className="text-[10px] text-terminal-amber">{specError}</p>
+      ) : null}
+
+      {sourceType === "mcp" && mcpOAuthStatus === "checking" ? (
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Checking for OAuth…
+        </div>
+      ) : null}
+
+      {sourceType === "mcp" && mcpOAuthStatus === "error" && mcpOAuthDetail ? (
+        <p className="text-[10px] text-terminal-amber">{mcpOAuthDetail}</p>
+      ) : null}
+
+      {sourceInfoLoading ? (
+        <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Auth Type</Label>
-            <Select value={authType} onValueChange={(value) => onAuthTypeChange(value as Exclude<SourceAuthType, "mixed">)}>
+            <Skeleton className="h-8 w-full rounded-md" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Scope</Label>
+            <Skeleton className="h-8 w-full rounded-md" />
+          </div>
+        </div>
+      ) : (
+        <div className={`grid ${useMcpOAuthFlow ? "grid-cols-1" : "grid-cols-2"} gap-3`}>
+          {!useMcpOAuthFlow ? (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Auth Type</Label>
+              <Select value={authType} onValueChange={(value) => onAuthTypeChange(value as Exclude<SourceAuthType, "mixed">)}>
+                <SelectTrigger className="h-8 text-xs bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-xs">None</SelectItem>
+                  <SelectItem value="bearer" className="text-xs">Bearer token</SelectItem>
+                  <SelectItem value="apiKey" className="text-xs">API key header</SelectItem>
+                  <SelectItem value="basic" className="text-xs">Basic auth</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Scope</Label>
+            <Select
+              value={sharingScope}
+              onValueChange={(value) => onScopeChange(value as SharingScope)}
+              disabled={authType === "none"}
+            >
               <SelectTrigger className="h-8 text-xs bg-background">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none" className="text-xs">None</SelectItem>
-                <SelectItem value="bearer" className="text-xs">Bearer token</SelectItem>
-                <SelectItem value="apiKey" className="text-xs">API key header</SelectItem>
-                <SelectItem value="basic" className="text-xs">Basic auth</SelectItem>
+                <SelectItem value="only_me" className="text-xs">Only me</SelectItem>
+                <SelectItem value="workspace" className="text-xs">Workspace</SelectItem>
+                <SelectItem value="organization" className="text-xs">Organization</SelectItem>
               </SelectContent>
             </Select>
           </div>
-        ) : null}
-
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Scope</Label>
-          <Select
-            value={sharingScope}
-            onValueChange={(value) => onScopeChange(value as SharingScope)}
-            disabled={authType === "none"}
-          >
-            <SelectTrigger className="h-8 text-xs bg-background">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="only_me" className="text-xs">Only me</SelectItem>
-              <SelectItem value="workspace" className="text-xs">Workspace</SelectItem>
-              <SelectItem value="organization" className="text-xs">Organization</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
-      </div>
+      )}
 
       {sourceType === "mcp" && useMcpOAuthFlow && onMcpOAuthConnect ? (
         <div className="space-y-1.5">

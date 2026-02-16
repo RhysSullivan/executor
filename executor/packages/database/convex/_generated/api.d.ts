@@ -1208,7 +1208,7 @@ export declare const internal: {
       any
     >;
     pruneBuilds: FunctionReference<
-      "mutation",
+      "action",
       "internal",
       { maxRetainedBuilds?: number; workspaceId: Id<"workspaces"> },
       any
@@ -1258,7 +1258,7 @@ export declare const internal: {
       any
     >;
     scanNamespaceBuildsForPrune: FunctionReference<
-      "mutation",
+      "query",
       "internal",
       { cursor?: string; workspaceId: Id<"workspaces"> },
       any

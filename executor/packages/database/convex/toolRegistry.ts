@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery } from "./_generated/server";
 
 export const getState = internalQuery({
   args: {
@@ -177,10 +177,10 @@ export const finishBuild = internalMutation({
   },
 });
 
-const PRUNE_DELETE_PAGE_SIZE = 100;
+const PRUNE_DELETE_PAGE_SIZE = 10;
 const PRUNE_NAMESPACE_SCAN_PAGE_SIZE = 250;
 
-export const scanNamespaceBuildsForPrune = internalMutation({
+export const scanNamespaceBuildsForPrune = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
     cursor: v.optional(v.string()),
@@ -241,17 +241,16 @@ export const deleteToolRegistryNamespacesPage = internalMutation({
   },
 });
 
-export const pruneBuilds = internalMutation({
+export const pruneBuilds = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     maxRetainedBuilds: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const maxRetainedBuilds = Math.max(1, Math.min(10, Math.floor(args.maxRetainedBuilds ?? 2)));
-    const state = await ctx.db
-      .query("workspaceToolRegistryState")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
+    const state = await ctx.runQuery(internal.toolRegistry.getState, {
+      workspaceId: args.workspaceId,
+    });
 
     const protectedBuildIds = new Set<string>();
     if (state?.readyBuildId) protectedBuildIds.add(state.readyBuildId);
@@ -264,7 +263,7 @@ export const pruneBuilds = internalMutation({
       const namespacePage: {
         continueCursor: string | null;
         items: Array<{ buildId: string; createdAt: number }>;
-      } = await ctx.runMutation(internal.toolRegistry.scanNamespaceBuildsForPrune, {
+      } = await ctx.runQuery(internal.toolRegistry.scanNamespaceBuildsForPrune, {
         workspaceId: args.workspaceId,
         cursor: namespaceCursor,
       });

@@ -551,7 +551,7 @@ async function buildWorkspaceToolRegistry(
     buildId,
   });
 
-  await ctx.runMutation(internal.toolRegistry.pruneBuilds, {
+  await ctx.runAction(internal.toolRegistry.pruneBuilds, {
     workspaceId: args.workspaceId,
     maxRetainedBuilds: 2,
   });

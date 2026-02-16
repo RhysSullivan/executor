@@ -26,7 +26,6 @@ import type {
 import {
   compactEndpointLabel,
   formatSourceAuthBadge,
-  readSourceAuth,
   sourceAuthProfileForSource,
   sourceEndpointLabel,
 } from "@/lib/tools/source-helpers";
@@ -41,7 +40,6 @@ import {
 } from "./source/dialog-sections";
 import { SourceAuthPanel } from "./source/auth-panel";
 import {
-  OpenApiQualityDetails,
   SourceQualitySummary,
 } from "../source/quality-details";
 import {
@@ -129,7 +127,7 @@ export function AddSourceDialog({
     ? sourceAuthProfileForSource(sourceToEdit, sourceAuthProfiles)
     : undefined;
   const editAuthBadge = sourceToEdit ? formatSourceAuthBadge(sourceToEdit, editAuthProfile) : null;
-  const editAuth = sourceToEdit ? readSourceAuth(sourceToEdit, editAuthProfile) : null;
+
   const form = useAddSourceFormState({
     open,
     sourceToEdit,
@@ -262,9 +260,14 @@ export function AddSourceDialog({
   const dialogDescription = sourceDialogDescription;
   const submitLabel = form.editing
     ? "Save Source"
-    : form.type === "openapi" || form.type === "graphql"
-      ? "Add Source + Save Credentials"
-      : "Add Source";
+    : "Add Source";
+
+  // Auth panel shows skeletons only during type-specific detection (spec inspection,
+  // MCP OAuth), NOT during source type detection — auth fields must remain editable
+  // during type detection so users can set credentials for auth-gated URLs.
+  const sourceInfoLoading =
+    (form.type === "openapi" && form.specStatus === "detecting")
+    || (form.type === "mcp" && form.mcpOAuthStatus === "checking");
 
   const handleDeleteSource = async () => {
     if (!sourceToEdit || !context) {
@@ -346,13 +349,8 @@ export function AddSourceDialog({
                         {editAuthBadge}
                       </Badge>
                     ) : null}
-                    {editAuth && editAuth.type !== "none" ? (
-                      <Badge
-                        variant="outline"
-                        className="h-5 px-2 text-[9px] uppercase tracking-wide text-amber-500 border-amber-500/30"
-                      >
-                        auth
-                      </Badge>
+                    {sourceToEdit.type === "openapi" && editSourceQuality ? (
+                      <SourceQualitySummary quality={editSourceQuality} qualityLoading={editSourceQualityLoading} />
                     ) : null}
                     {editSourceWarnings.length > 0 ? (
                       <Badge
@@ -366,18 +364,6 @@ export function AddSourceDialog({
                   </div>
                 </div>
               </div>
-              {sourceToEdit.type === "openapi" ? (
-                <div className="mt-2 flex flex-col gap-1">
-                  <SourceQualitySummary
-                    quality={editSourceQuality}
-                    qualityLoading={editSourceQualityLoading}
-                  />
-                  <OpenApiQualityDetails
-                    quality={editSourceQuality}
-                    qualityLoading={editSourceQualityLoading}
-                  />
-                </div>
-              ) : null}
 
               {editSourceWarnings.length > 0 ? (
                 <div className="mt-2 rounded-sm border border-terminal-amber/30 bg-terminal-amber/5 px-2 py-1.5">
@@ -422,6 +408,8 @@ export function AddSourceDialog({
               type={form.type}
               onTypeChange={form.handleTypeChange}
               typeDisabled={form.editing}
+              typeDetectionStatus={form.typeDetectionStatus}
+              typeExplicitlySet={form.typeExplicitlySet}
               endpoint={form.endpoint}
               onEndpointChange={form.handleEndpointChange}
               name={form.name}
@@ -438,6 +426,7 @@ export function AddSourceDialog({
               showBackToCatalog={!form.editing}
               onBackToCatalog={!form.editing ? () => form.setView("catalog") : undefined}
               onSubmit={handleCustomSubmit}
+              sourceInfoLoading={sourceInfoLoading}
             >
               <SourceAuthPanel
                 model={{
@@ -464,6 +453,7 @@ export function AddSourceDialog({
                 onFieldChange={form.handleAuthFieldChange}
                 onMcpOAuthConnect={form.type === "mcp" ? handleMcpOAuthConnect : undefined}
                 mcpOAuthBusy={mcpOAuthBusy}
+                sourceInfoLoading={sourceInfoLoading}
               />
             </CustomViewSection>
           )}

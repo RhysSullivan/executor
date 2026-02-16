@@ -30,6 +30,49 @@ import { sourceLabel } from "@/lib/tool/source-utils";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
 
+// ── Optimistic source helpers ──
+
+type OptimisticAdd = { kind: "add"; source: ToolSourceRecord; addedAt: number };
+type OptimisticRemove = { kind: "remove"; sourceName: string; removedAt: number };
+type OptimisticOp = OptimisticAdd | OptimisticRemove;
+
+/** Merge server sources with pending optimistic operations. */
+function applyOptimisticOps(
+  serverSources: ToolSourceRecord[],
+  ops: OptimisticOp[],
+): ToolSourceRecord[] {
+  const serverNames = new Set(serverSources.map((s) => s.name));
+  let result = [...serverSources];
+
+  for (const op of ops) {
+    if (op.kind === "add" && !serverNames.has(op.source.name)) {
+      result.push(op.source);
+    }
+    if (op.kind === "remove") {
+      result = result.filter((s) => s.name !== op.sourceName);
+    }
+  }
+
+  return result;
+}
+
+/** Remove ops that the server has already reflected. */
+function pruneStaleOps(
+  ops: OptimisticOp[],
+  serverSources: ToolSourceRecord[],
+): OptimisticOp[] {
+  const serverNames = new Set(serverSources.map((s) => s.name));
+  return ops.filter((op) => {
+    if (op.kind === "add") {
+      return !serverNames.has(op.source.name);
+    }
+    if (op.kind === "remove") {
+      return serverNames.has(op.sourceName);
+    }
+    return false;
+  });
+}
+
 type ToolsTab = "catalog" | "credentials" | "policies" | "editor";
 
 function parseInitialTab(tab?: string | null): ToolsTab {
@@ -65,8 +108,34 @@ export function ToolsView({
     convexApi.workspace.listToolSources,
     workspaceQueryArgs(context),
   );
-  const sourceItems: ToolSourceRecord[] = sources ?? [];
+  const serverSourceItems = useMemo<ToolSourceRecord[]>(
+    () => sources ?? [],
+    [sources],
+  );
   const sourcesLoading = !!context && sources === undefined;
+
+  // ── Optimistic source state ──
+  const [rawOptimisticOps, setOptimisticOps] = useState<OptimisticOp[]>([]);
+
+  // Prune stale ops: if the server already reflects an add/remove, drop it.
+  // This is a pure derivation — no side effects, no refs.
+  const optimisticOps = useMemo(
+    () => pruneStaleOps(rawOptimisticOps, serverSourceItems),
+    [rawOptimisticOps, serverSourceItems],
+  );
+
+  const sourceItems = useMemo(
+    () => applyOptimisticOps(serverSourceItems, optimisticOps),
+    [serverSourceItems, optimisticOps],
+  );
+
+  // Source names that are optimistically loading (just added, tools not fetched yet)
+  const optimisticallyLoadingNames = useMemo(
+    () => optimisticOps
+      .filter((op): op is OptimisticAdd => op.kind === "add")
+      .map((op) => op.source.name),
+    [optimisticOps],
+  );
 
   const credentials = useQuery(
     convexApi.workspace.listCredentials,
@@ -85,6 +154,18 @@ export function ToolsView({
     refreshingTools,
     loadToolDetails,
   } = useWorkspaceTools(context ?? null, { includeDetails: false });
+
+  // Merge optimistic loading with real loading sources
+  const mergedLoadingSources = useMemo(() => {
+    const combined = [...loadingSources];
+    for (const name of optimisticallyLoadingNames) {
+      if (!combined.includes(name)) {
+        combined.push(name);
+      }
+    }
+    return combined;
+  }, [loadingSources, optimisticallyLoadingNames]);
+
   const existingSourceNames = useMemo(() => new Set(sourceItems.map((source) => source.name)), [sourceItems]);
   const toolSourceNames = useMemo(
     () => new Set(tools.map((tool) => sourceLabel(tool.source))),
@@ -108,7 +189,19 @@ export function ToolsView({
     ? selectedSource
     : null;
 
+  const handleSourceAdded = useCallback((source: ToolSourceRecord) => {
+    setOptimisticOps((ops) => [
+      ...ops,
+      { kind: "add", source, addedAt: Date.now() },
+    ]);
+    setSelectedSource(source.name);
+  }, []);
+
   const handleSourceDeleted = useCallback((sourceName: string) => {
+    setOptimisticOps((ops) => [
+      ...ops,
+      { kind: "remove", sourceName, removedAt: Date.now() },
+    ]);
     setSelectedSource((current) => (current === sourceName ? null : current));
   }, []);
   const openConnectionCreate = (sourceKey?: string) => {
@@ -133,9 +226,34 @@ export function ToolsView({
 
   if (sessionLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64" />
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="space-y-1 mb-4">
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <Skeleton className="h-9 w-80 mb-4" />
+        <div className="rounded-lg border border-border/50 p-4 flex-1">
+          <div className="flex">
+            {/* Sidebar skeleton */}
+            <div className="w-52 shrink-0 border-r border-border/30 pr-3 space-y-2 hidden lg:block">
+              <Skeleton className="h-3 w-16 mb-3" />
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-8 w-full rounded-md" />
+              ))}
+            </div>
+            {/* Main content skeleton */}
+            <div className="flex-1 pl-3 space-y-1">
+              <Skeleton className="h-8 w-full rounded-md mb-2" />
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+                  <Skeleton className="h-4 w-4 rounded" />
+                  <Skeleton className="h-3 w-3" />
+                  <Skeleton className="h-3.5" style={{ width: `${100 + i * 25}px` }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -182,27 +300,11 @@ export function ToolsView({
         <TabsContent value="catalog" className="mt-4 min-h-0">
           <Card className="bg-card border-border min-h-0 flex flex-col pt-4 gap-3">
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
-              {sourcesLoading ? (
-                <div className="space-y-2">
-                  {Array.from({ length: 2 }).map((_, i) => (
-                    <Skeleton key={i} className="h-16" />
-                  ))}
-                </div>
-              ) : null}
-
-              {!sourcesLoading && sourceItems.length === 0 ? (
-                <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-2.5">
-                  <p className="text-[11px] text-muted-foreground">
-                    No external sources yet. Add MCP, OpenAPI, or GraphQL to expand available tools.
-                  </p>
-                </div>
-              ) : null}
-
               <div className="min-h-0 flex-1">
                 <ToolExplorer
                   tools={tools}
                   sources={sourceItems}
-                  loadingSources={loadingSources}
+                  loadingSources={mergedLoadingSources}
                   loading={loadingTools}
                   sourceDialogMeta={sourceDialogMeta}
                   sourceAuthProfiles={sourceAuthProfiles}
@@ -216,6 +318,7 @@ export function ToolsView({
                   addSourceAction={
                     <AddSourceDialog
                         existingSourceNames={existingSourceNames}
+                        onSourceAdded={handleSourceAdded}
                         trigger={
                           <Button
                             variant="default"
