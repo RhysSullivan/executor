@@ -6,9 +6,18 @@ import {
   type SourceAuthMode,
   type SourceAuthType,
 } from "@/lib/tools/source-helpers";
-import type { CredentialScope, SourceAuthProfile, ToolSourceRecord } from "@/lib/types";
+import type {
+  CredentialScope,
+  OwnerScopeType,
+  SourceAuthProfile,
+  ToolSourceRecord,
+} from "@/lib/types";
 
 export type SourceOption = { source: ToolSourceRecord; key: string; label: string };
+
+export function ownerScopeLabel(ownerScopeType: OwnerScopeType | undefined): string {
+  return ownerScopeType === "organization" ? "organization" : "workspace";
+}
 
 export function sourceAuthForKey(
   sourceOptions: SourceOption[],
@@ -29,7 +38,7 @@ export function sourceAuthForKey(
 }
 
 export function sourceOptionLabel(source: ToolSourceRecord): string {
-  return `${source.name} (${source.type})`;
+  return `${source.name} (${source.type}, ${ownerScopeLabel(source.ownerScopeType)})`;
 }
 
 export function providerLabel(provider: "local-convex" | "workos-vault"): string {
@@ -40,6 +49,7 @@ export function connectionDisplayName(
   sources: ToolSourceRecord[],
   connection: {
     scope: CredentialScope;
+    ownerScopeType?: OwnerScopeType;
     sourceKeys: Set<string>;
     actorId?: string;
   },
@@ -60,7 +70,7 @@ export function connectionDisplayName(
     return `${base} personal`;
   }
 
-  return `${base} workspace`;
+  return `${base} ${ownerScopeLabel(connection.ownerScopeType)}`;
 }
 
 export function parseHeaderOverrides(text: string): { value?: Record<string, string>; error?: string } {

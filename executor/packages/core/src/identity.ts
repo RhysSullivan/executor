@@ -23,8 +23,23 @@ export function slugify(input: string, fallback = "team"): string {
 
 export async function resolveAccountForRequest(
   ctx: IdentityCtx,
-  _sessionId?: string,
+  sessionId?: string,
 ): Promise<Doc<"accounts"> | null> {
+  const normalizedSessionId = sessionId?.trim() || "";
+
+  if (normalizedSessionId.startsWith("anon_session_") || normalizedSessionId.startsWith("mcp_")) {
+    const anonymousSession = await ctx.db
+      .query("anonymousSessions")
+      .withIndex("by_session_id", (q) => q.eq("sessionId", normalizedSessionId))
+      .unique();
+    if (anonymousSession) {
+      const anonymousAccount = await ctx.db.get(anonymousSession.accountId);
+      if (anonymousAccount) {
+        return anonymousAccount;
+      }
+    }
+  }
+
   const identity = await ctx.auth.getUserIdentity();
   if (identity) {
     if (isAnonymousIdentity(identity)) {

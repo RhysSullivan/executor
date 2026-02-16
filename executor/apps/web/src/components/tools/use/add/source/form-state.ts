@@ -28,6 +28,35 @@ import {
 
 export { existingCredentialMatchesAuthType } from "../../../add/source/form-utils";
 
+type SharingScope = "only_me" | "workspace" | "organization";
+
+function sharingScopeFromValues(values: Pick<SourceFormValues, "ownerScopeType" | "authScope">): SharingScope {
+  if (values.authScope === "actor") {
+    return "only_me";
+  }
+  return values.ownerScopeType === "organization" ? "organization" : "workspace";
+}
+
+function applySharingScope(
+  form: ReturnType<typeof useForm<SourceFormValues>>,
+  value: SharingScope,
+): void {
+  if (value === "only_me") {
+    form.setValue("ownerScopeType", "workspace", { shouldDirty: true, shouldTouch: true });
+    form.setValue("authScope", "actor", { shouldDirty: true, shouldTouch: true });
+    return;
+  }
+
+  if (value === "organization") {
+    form.setValue("ownerScopeType", "organization", { shouldDirty: true, shouldTouch: true });
+    form.setValue("authScope", "workspace", { shouldDirty: true, shouldTouch: true });
+    return;
+  }
+
+  form.setValue("ownerScopeType", "workspace", { shouldDirty: true, shouldTouch: true });
+  form.setValue("authScope", "workspace", { shouldDirty: true, shouldTouch: true });
+}
+
 function normalizeEndpointForOAuth(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -91,6 +120,7 @@ export function useAddSourceFormState({
 
     return credentialItems
       .filter((credential) => credential.sourceKey === editingSourceKey)
+      .filter((credential) => (credential.ownerScopeType ?? "workspace") === values.ownerScopeType)
       .filter((credential) => {
         if (credential.scope !== values.authScope) {
           return false;
@@ -101,7 +131,7 @@ export function useAddSourceFormState({
         return true;
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
-  }, [actorId, credentialItems, editingSourceKey, values.authScope]);
+  }, [actorId, credentialItems, editingSourceKey, values.authScope, values.ownerScopeType]);
 
   const hasPersistedMcpBearerToken = useMemo(() => {
     if (values.type !== "mcp" || values.authType !== "bearer") {
@@ -435,7 +465,6 @@ export function useAddSourceFormState({
     if (!ui.authManuallyEdited) {
       const patch = inferAuthPatch(result.inferredAuth);
       form.setValue("authType", patch.authType, { shouldDirty: false, shouldTouch: false });
-      form.setValue("authScope", patch.authScope, { shouldDirty: false, shouldTouch: false });
       if (result.inferredAuth.type === "apiKey") {
         form.setValue("apiKeyHeader", patch.apiKeyHeader, { shouldDirty: false, shouldTouch: false });
       }
@@ -499,6 +528,7 @@ export function useAddSourceFormState({
     view: ui.view,
     setView: (view: SourceDialogView) => patchUi(setUi, { view }),
     type: values.type,
+    ownerScopeType: values.ownerScopeType,
     name: values.name,
     endpoint: values.endpoint,
     baseUrl: values.baseUrl,
@@ -519,6 +549,7 @@ export function useAddSourceFormState({
     inferredSpecAuth,
     authType: values.authType,
     authScope: values.authScope,
+    scopePreset: sharingScopeFromValues(values),
     apiKeyHeader: values.apiKeyHeader,
     tokenValue: values.tokenValue,
     apiKeyValue: values.apiKeyValue,
@@ -529,8 +560,11 @@ export function useAddSourceFormState({
     handleNameChange,
     handleCatalogAdd,
     handleTypeChange,
+    handleOwnerScopeTypeChange: (ownerScopeType: "organization" | "workspace") =>
+      form.setValue("ownerScopeType", ownerScopeType, { shouldDirty: true, shouldTouch: true }),
     handleAuthTypeChange,
     handleAuthScopeChange,
+    handleScopePresetChange: (scopePreset: SharingScope) => applySharingScope(form, scopePreset),
     handleAuthFieldChange,
     markMcpOAuthLinked: (endpoint: string) =>
       patchUi(setUi, {

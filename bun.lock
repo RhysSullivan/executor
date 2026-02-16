@@ -70,7 +70,7 @@
       "dependencies": {
         "@assistant/core": "workspace:*",
         "@elysiajs/eden": "latest",
-        "@executor/convex": "workspace:*",
+        "@executor/database": "workspace:*",
         "convex": "^1.31.7",
         "elysia": "latest",
       },
@@ -85,8 +85,8 @@
       "name": "@executor/web",
       "version": "0.1.0",
       "dependencies": {
-        "@executor/convex": "workspace:*",
         "@executor/core": "workspace:*",
+        "@executor/database": "workspace:*",
         "@executor/ui": "workspace:*",
         "@monaco-editor/react": "^4.7.0",
         "@streamdown/code": "^1.0.1",
@@ -140,10 +140,6 @@
         "typescript": "^5.9.3",
       },
     },
-    "executor/packages/convex": {
-      "name": "@executor/convex",
-      "version": "0.0.1",
-    },
     "executor/packages/core": {
       "name": "@executor/core",
       "version": "0.1.0",
@@ -154,6 +150,10 @@
       "devDependencies": {
         "typescript": "^5.9.3",
       },
+    },
+    "executor/packages/database": {
+      "name": "@executor/database",
+      "version": "0.0.1",
     },
     "executor/packages/runner-node": {
       "name": "@executor/runner-node",
@@ -166,7 +166,7 @@
       "name": "@executor/runner-sandbox-host",
       "version": "0.1.0",
       "dependencies": {
-        "@executor/convex": "workspace:*",
+        "@executor/database": "workspace:*",
         "better-result": "^2.7.0",
         "convex": "^1.31.7",
       },
@@ -180,7 +180,7 @@
       "name": "@executor/ui",
       "version": "0.1.0",
       "dependencies": {
-        "@executor/convex": "workspace:*",
+        "@executor/database": "workspace:*",
         "convex": "^1.31.7",
         "react": "19.2.3",
       },
@@ -490,9 +490,9 @@
 
     "@eslint/plugin-kit": ["@eslint/plugin-kit@0.4.1", "", { "dependencies": { "@eslint/core": "^0.17.0", "levn": "^0.4.1" } }, "sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA=="],
 
-    "@executor/convex": ["@executor/convex@workspace:executor/packages/convex"],
-
     "@executor/core": ["@executor/core@workspace:executor/packages/core"],
+
+    "@executor/database": ["@executor/database@workspace:executor/packages/database"],
 
     "@executor/menubar": ["@executor/menubar@workspace:executor/apps/menubar"],
 

@@ -10,10 +10,12 @@ import { useSession } from "@/lib/session-context";
 import type {
   CredentialRecord,
   CredentialScope,
+  OwnerScopeType,
   ToolSourceRecord,
 } from "@/lib/types";
 import {
   connectionDisplayName,
+  ownerScopeLabel,
   providerLabel,
 } from "@/lib/credentials/source-helpers";
 import {
@@ -42,7 +44,9 @@ export function CredentialsPanel({
 
   const connectionOptions = useMemo(() => {
     const grouped = new Map<string, {
+      key: string;
       id: string;
+      ownerScopeType: OwnerScopeType;
       scope: CredentialScope;
       actorId?: string;
       provider: "local-convex" | "workos-vault";
@@ -51,13 +55,17 @@ export function CredentialsPanel({
     }>();
 
     for (const credential of credentials) {
-      const existing = grouped.get(credential.id);
+      const ownerScopeType = credential.ownerScopeType ?? "workspace";
+      const groupKey = `${ownerScopeType}:${credential.id}`;
+      const existing = grouped.get(groupKey);
       if (existing) {
         existing.sourceKeys.add(credential.sourceKey);
         existing.updatedAt = Math.max(existing.updatedAt, credential.updatedAt);
       } else {
-        grouped.set(credential.id, {
+        grouped.set(groupKey, {
+          key: groupKey,
           id: credential.id,
+          ownerScopeType,
           scope: credential.scope,
           actorId: credential.actorId,
           provider: credential.provider,
@@ -73,8 +81,9 @@ export function CredentialsPanel({
   const representativeCredentialByConnection = useMemo(() => {
     const map = new Map<string, CredentialRecord>();
     for (const credential of credentials) {
-      if (!map.has(credential.id)) {
-        map.set(credential.id, credential);
+      const key = `${credential.ownerScopeType ?? "workspace"}:${credential.id}`;
+      if (!map.has(key)) {
+        map.set(key, credential);
       }
     }
     return map;
@@ -114,14 +123,14 @@ export function CredentialsPanel({
         ) : (
           <div className="space-y-2">
             {connectionOptions.map((connection) => {
-              const representative = representativeCredentialByConnection.get(connection.id);
+              const representative = representativeCredentialByConnection.get(connection.key);
               if (!representative) {
                 return null;
               }
               const firstSource = sourceForCredentialKey(sources, representative.sourceKey);
               return (
                 <div
-                  key={connection.id}
+                  key={connection.key}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40"
                 >
                     <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
@@ -140,6 +149,9 @@ export function CredentialsPanel({
                         <span className="text-sm font-medium">{connectionDisplayName(sources, connection)}</span>
                         <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                           {connection.scope}
+                        </Badge>
+                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                          {ownerScopeLabel(connection.ownerScopeType)}
                         </Badge>
                         <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
                           {providerLabel(connection.provider)}

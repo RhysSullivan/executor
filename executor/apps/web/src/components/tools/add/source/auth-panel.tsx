@@ -21,6 +21,15 @@ export type SourceAuthPanelEditableField =
   | "basicUsername"
   | "basicPassword";
 
+type SharingScope = "only_me" | "workspace" | "organization";
+
+function sharingScopeFromModel(model: Pick<SourceAuthPanelModel, "ownerScopeType" | "authScope">): SharingScope {
+  if (model.authScope === "actor") {
+    return "only_me";
+  }
+  return model.ownerScopeType === "organization" ? "organization" : "workspace";
+}
+
 export type SourceAuthPanelModel = {
   sourceType: SourceType;
   specStatus: "idle" | "detecting" | "ready" | "error";
@@ -31,6 +40,7 @@ export type SourceAuthPanelModel = {
   mcpOAuthAuthorizationServers: string[];
   mcpOAuthConnected: boolean;
   authType: Exclude<SourceAuthType, "mixed">;
+  ownerScopeType: "organization" | "workspace";
   authScope: CredentialScope;
   apiKeyHeader: string;
   tokenValue: string;
@@ -62,14 +72,14 @@ function inferredAuthBadge(inferredSpecAuth: InferredSpecAuth | null): string | 
 export function SourceAuthPanel({
   model,
   onAuthTypeChange,
-  onAuthScopeChange,
+  onScopeChange,
   onFieldChange,
   onMcpOAuthConnect,
   mcpOAuthBusy = false,
 }: {
   model: SourceAuthPanelModel;
   onAuthTypeChange: (value: Exclude<SourceAuthType, "mixed">) => void;
-  onAuthScopeChange: (value: CredentialScope) => void;
+  onScopeChange: (value: SharingScope) => void;
   onFieldChange: (field: SourceAuthPanelEditableField, value: string) => void;
   onMcpOAuthConnect?: () => void;
   mcpOAuthBusy?: boolean;
@@ -84,7 +94,6 @@ export function SourceAuthPanel({
     mcpOAuthAuthorizationServers,
     mcpOAuthConnected,
     authType,
-    authScope,
     apiKeyHeader,
     tokenValue,
     apiKeyValue,
@@ -92,6 +101,7 @@ export function SourceAuthPanel({
     basicPassword,
     hasExistingCredential,
   } = model;
+  const sharingScope = sharingScopeFromModel(model);
 
   if (sourceType !== "openapi" && sourceType !== "graphql" && sourceType !== "mcp") {
     return null;
@@ -161,16 +171,17 @@ export function SourceAuthPanel({
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Scope</Label>
           <Select
-            value={authScope}
-            onValueChange={(value) => onAuthScopeChange(value as CredentialScope)}
+            value={sharingScope}
+            onValueChange={(value) => onScopeChange(value as SharingScope)}
             disabled={authType === "none"}
           >
             <SelectTrigger className="h-8 text-xs bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="only_me" className="text-xs">Only me</SelectItem>
               <SelectItem value="workspace" className="text-xs">Workspace</SelectItem>
-              <SelectItem value="actor" className="text-xs">Only me</SelectItem>
+              <SelectItem value="organization" className="text-xs">Organization</SelectItem>
             </SelectContent>
           </Select>
         </div>

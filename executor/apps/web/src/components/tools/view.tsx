@@ -14,6 +14,7 @@ import { TaskComposer } from "@/components/tasks/task-composer";
 import { AddSourceDialog } from "@/components/tools/sources";
 import { CredentialsPanel } from "@/components/tools/credentials";
 import { ConnectionFormDialog } from "@/components/tools/connection/form-dialog";
+import { PoliciesPanel } from "@/components/tools/policies";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
 import { useQuery } from "convex/react";
@@ -29,7 +30,7 @@ import { sourceLabel } from "@/lib/tool/source-utils";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
 import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
 
-type ToolsTab = "catalog" | "credentials" | "editor";
+type ToolsTab = "catalog" | "credentials" | "policies" | "editor";
 
 function parseInitialTab(tab?: string | null): ToolsTab {
   if (tab === "runner" || tab === "editor") {
@@ -37,6 +38,9 @@ function parseInitialTab(tab?: string | null): ToolsTab {
   }
   if (tab === "catalog" || tab === "credentials") {
     return tab;
+  }
+  if (tab === "policies") {
+    return "policies";
   }
   return "catalog";
 }
@@ -163,6 +167,9 @@ export function ToolsView({
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="policies" className="text-xs data-[state=active]:bg-background">
+            Policies
+          </TabsTrigger>
           <TabsTrigger value="editor" className="text-xs data-[state=active]:bg-background">
             Editor
           </TabsTrigger>
@@ -235,6 +242,10 @@ export function ToolsView({
             onCreateConnection={openConnectionCreate}
             onEditConnection={openConnectionEdit}
           />
+        </TabsContent>
+
+        <TabsContent value="policies" className="mt-4">
+          <PoliciesPanel />
         </TabsContent>
 
       </Tabs>

@@ -1,12 +1,19 @@
 import type { InferredSpecAuth } from "@/lib/openapi/spec-inspector";
 import { readSourceAuth } from "@/lib/tools/source-helpers";
-import type { CredentialRecord, CredentialScope, SourceAuthType, ToolSourceRecord } from "@/lib/types";
+import type {
+  CredentialRecord,
+  CredentialScope,
+  OwnerScopeType,
+  SourceAuthType,
+  ToolSourceRecord,
+} from "@/lib/types";
 import type { SourceCatalogSort, SourceType } from "./dialog-helpers";
 
 export type SourceDialogView = "catalog" | "custom";
 
 export type SourceFormValues = {
   type: SourceType;
+  ownerScopeType: OwnerScopeType;
   name: string;
   endpoint: string;
   baseUrl: string;
@@ -23,12 +30,13 @@ export type SourceFormValues = {
 export function createDefaultFormValues(): SourceFormValues {
   return {
     type: "mcp",
+    ownerScopeType: "workspace",
     name: "",
     endpoint: "",
     baseUrl: "",
     mcpTransport: "auto",
     authType: "none",
-    authScope: "workspace",
+    authScope: "actor",
     apiKeyHeader: "x-api-key",
     tokenValue: "",
     apiKeyValue: "",
@@ -150,6 +158,7 @@ export function sourceToFormValues(source: ToolSourceRecord): SourceFormValues {
 
   return {
     type: sourceType,
+    ownerScopeType: source.ownerScopeType ?? "workspace",
     name: source.name,
     endpoint: endpointFromSource(source),
     baseUrl: typeof source.config.baseUrl === "string" ? source.config.baseUrl : "",

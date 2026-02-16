@@ -3,6 +3,7 @@ import type {
   AnonymousContext,
   CredentialRecord,
   CredentialScope,
+  OwnerScopeType,
   SourceAuthType,
   ToolSourceRecord,
 } from "@/lib/types";
@@ -13,6 +14,7 @@ type UpsertToolSourceFn = (args: {
   id?: ToolSourceRecord["id"];
   workspaceId: AnonymousContext["workspaceId"];
   sessionId: AnonymousContext["sessionId"];
+  ownerScopeType?: OwnerScopeType;
   name: string;
   type: SourceType;
   config: Record<string, unknown>;
@@ -22,6 +24,7 @@ type UpsertCredentialFn = (args: {
   id?: CredentialRecord["id"];
   workspaceId: AnonymousContext["workspaceId"];
   sessionId: AnonymousContext["sessionId"];
+  ownerScopeType?: OwnerScopeType;
   sourceKey: string;
   scope: CredentialScope;
   actorId?: AnonymousContext["actorId"];
@@ -32,6 +35,7 @@ type SaveFormSnapshot = {
   name: string;
   endpoint: string;
   type: SourceType;
+  ownerScopeType: OwnerScopeType;
   baseUrl: string;
   mcpTransport: "auto" | "streamable-http" | "sse";
   authType: Exclude<SourceAuthType, "mixed">;
@@ -107,6 +111,7 @@ export async function saveSourceWithCredentials({
     ...(sourceToEdit ? { id: sourceToEdit.id } : {}),
     workspaceId: context.workspaceId,
     sessionId: context.sessionId,
+    ownerScopeType: form.ownerScopeType,
     name: form.name.trim(),
     type: form.type,
     config,
@@ -139,6 +144,7 @@ export async function saveSourceWithCredentials({
         ...(form.existingScopedCredential ? { id: form.existingScopedCredential.id } : {}),
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
+        ownerScopeType: form.ownerScopeType,
         sourceKey,
         scope: form.authScope,
         ...(form.authScope === "actor" ? { actorId: context.actorId } : {}),
@@ -159,6 +165,7 @@ export async function saveSourceWithCredentials({
       await upsertCredential({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
+        ownerScopeType: form.ownerScopeType,
         sourceKey,
         scope: form.authScope,
         ...(form.authScope === "actor" ? { actorId: context.actorId } : {}),

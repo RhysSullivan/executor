@@ -1,6 +1,7 @@
 import type {
   CredentialRecord,
   CredentialScope,
+  OwnerScopeType,
   SourceAuthType,
   ToolSourceRecord,
 } from "@/lib/types";
@@ -13,7 +14,9 @@ import { sourceKeyForSource } from "@/lib/tools/source-helpers";
 export type ConnectionMode = "new" | "existing";
 
 export type ConnectionOption = {
+  key: string;
   id: string;
+  ownerScopeType: OwnerScopeType;
   scope: CredentialScope;
   actorId?: string;
   sourceKeys: Set<string>;
@@ -37,13 +40,17 @@ export function buildConnectionOptions(credentials: CredentialRecord[]): Connect
   const grouped = new Map<string, ConnectionOption>();
 
   for (const credential of credentials) {
-    const existing = grouped.get(credential.id);
+    const ownerScopeType = credential.ownerScopeType ?? "workspace";
+    const groupKey = `${ownerScopeType}:${credential.id}`;
+    const existing = grouped.get(groupKey);
     if (existing) {
       existing.sourceKeys.add(credential.sourceKey);
       existing.updatedAt = Math.max(existing.updatedAt, credential.updatedAt);
     } else {
-      grouped.set(credential.id, {
+      grouped.set(groupKey, {
+        key: groupKey,
         id: credential.id,
+        ownerScopeType,
         scope: credential.scope,
         actorId: credential.actorId,
         sourceKeys: new Set([credential.sourceKey]),
@@ -57,10 +64,14 @@ export function buildConnectionOptions(credentials: CredentialRecord[]): Connect
 
 export function compatibleConnections(
   options: ConnectionOption[],
+  ownerScopeType: OwnerScopeType,
   scope: CredentialScope,
   actorId: string,
 ): ConnectionOption[] {
   return options.filter((connection) => {
+    if (connection.ownerScopeType !== ownerScopeType) {
+      return false;
+    }
     if (connection.scope !== scope) {
       return false;
     }

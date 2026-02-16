@@ -1260,6 +1260,18 @@ export declare const internal: {
       { buildId: string; signature: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    deleteToolRegistryNamespacesPage: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; cursor?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    deleteToolRegistryToolsPage: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; cursor?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     finishBuild: FunctionReference<
       "mutation",
       "internal",
@@ -1354,6 +1366,12 @@ export declare const internal: {
         }>;
         workspaceId: Id<"workspaces">;
       },
+      any
+    >;
+    scanNamespaceBuildsForPrune: FunctionReference<
+      "mutation",
+      "internal",
+      { cursor?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     searchTools: FunctionReference<

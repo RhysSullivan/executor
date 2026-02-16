@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer } from "react";
 import type {
   CredentialRecord,
   CredentialScope,
+  OwnerScopeType,
   SourceAuthProfile,
   ToolSourceRecord,
 } from "@/lib/types";
@@ -29,16 +30,36 @@ type UseConnectionFormDialogFormParams = {
 
 type FormState = {
   sourceKey: string;
+  ownerScopeType: OwnerScopeType;
   scope: CredentialScope;
   actorId: string;
   connectionMode: ConnectionMode;
-  existingConnectionId: string;
+  existingConnectionKey: string;
   tokenValue: string;
   apiKeyValue: string;
   basicUsername: string;
   basicPassword: string;
   customHeadersText: string;
 };
+
+type SharingScope = "only_me" | "workspace" | "organization";
+
+function sharingScopeFromValues(values: Pick<FormState, "ownerScopeType" | "scope">): SharingScope {
+  if (values.scope === "actor") {
+    return "only_me";
+  }
+  return values.ownerScopeType === "organization" ? "organization" : "workspace";
+}
+
+function applySharingScope(scope: SharingScope): Pick<FormState, "ownerScopeType" | "scope"> {
+  if (scope === "only_me") {
+    return { ownerScopeType: "workspace", scope: "actor" };
+  }
+  if (scope === "organization") {
+    return { ownerScopeType: "organization", scope: "workspace" };
+  }
+  return { ownerScopeType: "workspace", scope: "workspace" };
+}
 
 type FormAction =
   | { type: "patch"; patch: Partial<FormState> }
@@ -67,10 +88,11 @@ function initialFormState({
   if (editing) {
     return {
       sourceKey: editing.sourceKey,
+      ownerScopeType: editing.ownerScopeType ?? "workspace",
       scope: editing.scope,
       actorId: editing.actorId ?? actorIdFallback ?? "",
       connectionMode: "new",
-      existingConnectionId: editing.id,
+      existingConnectionKey: `${editing.ownerScopeType ?? "workspace"}:${editing.id}`,
       tokenValue: "",
       apiKeyValue: "",
       basicUsername: "",
@@ -81,12 +103,14 @@ function initialFormState({
 
   const resolvedSourceKey = initialSourceKey ?? sourceOptions[0]?.key ?? "";
   const auth = sourceAuthForKey(sourceOptions, resolvedSourceKey, sourceAuthProfiles);
+  void auth;
   return {
     sourceKey: resolvedSourceKey,
-    scope: auth.mode ?? "workspace",
+    ownerScopeType: "workspace",
+    scope: "actor",
     actorId: actorIdFallback ?? "",
     connectionMode: "new",
-    existingConnectionId: "",
+    existingConnectionKey: "",
     tokenValue: "",
     apiKeyValue: "",
     basicUsername: "",
@@ -119,10 +143,11 @@ export function useConnectionFormDialogForm({
 
   const {
     sourceKey,
+    ownerScopeType,
     scope,
     actorId,
     connectionMode,
-    existingConnectionId: rawExistingConnectionId,
+    existingConnectionKey: rawExistingConnectionKey,
     tokenValue,
     apiKeyValue,
     basicUsername,
@@ -130,18 +155,18 @@ export function useConnectionFormDialogForm({
     customHeadersText,
   } = form;
   const compatibleConnectionOptions = useMemo(
-    () => compatibleConnections(connectionOptions, scope, actorId),
-    [actorId, connectionOptions, scope],
+    () => compatibleConnections(connectionOptions, ownerScopeType, scope, actorId),
+    [actorId, connectionOptions, ownerScopeType, scope],
   );
-  const existingConnectionId = useMemo(() => {
-    if (!rawExistingConnectionId) {
+  const existingConnectionKey = useMemo(() => {
+    if (!rawExistingConnectionKey) {
       return "";
     }
 
-    return compatibleConnectionOptions.some((connection) => connection.id === rawExistingConnectionId)
-      ? rawExistingConnectionId
+    return compatibleConnectionOptions.some((connection) => connection.key === rawExistingConnectionKey)
+      ? rawExistingConnectionKey
       : "";
-  }, [compatibleConnectionOptions, rawExistingConnectionId]);
+  }, [compatibleConnectionOptions, rawExistingConnectionKey]);
   const selectedAuth = useMemo(
     () => sourceAuthForKey(sourceOptions, sourceKey, sourceAuthProfiles),
     [sourceAuthProfiles, sourceKey, sourceOptions],
@@ -150,6 +175,7 @@ export function useConnectionFormDialogForm({
     () => selectedAuthBadge(selectedAuth.type, selectedAuth.mode),
     [selectedAuth.mode, selectedAuth.type],
   );
+  const scopePreset = sharingScopeFromValues({ ownerScopeType, scope });
 
   useEffect(() => {
     if (!open) {
@@ -184,15 +210,14 @@ export function useConnectionFormDialogForm({
 
   const handleSourceKeyChange = (nextSourceKey: string) => {
     const patch: Partial<FormState> = { sourceKey: nextSourceKey };
-    const auth = sourceAuthForKey(sourceOptions, nextSourceKey, sourceAuthProfiles);
-    if (!editing) {
-      patch.scope = auth.mode ?? "workspace";
-    }
     dispatch({ type: "patch", patch });
   };
 
-  const setScope = (nextScope: CredentialScope) => {
-    dispatch({ type: "patch", patch: { scope: nextScope } });
+  const setScopePreset = (nextScopePreset: SharingScope) => {
+    dispatch({
+      type: "patch",
+      patch: applySharingScope(nextScopePreset),
+    });
   };
 
   const setActorId = (nextActorId: string) => {
@@ -203,8 +228,8 @@ export function useConnectionFormDialogForm({
     dispatch({ type: "patch", patch: { connectionMode: nextMode } });
   };
 
-  const setExistingConnectionId = (nextConnectionId: string) => {
-    dispatch({ type: "patch", patch: { existingConnectionId: nextConnectionId } });
+  const setExistingConnectionKey = (nextConnectionId: string) => {
+    dispatch({ type: "patch", patch: { existingConnectionKey: nextConnectionId } });
   };
 
   const setTokenValue = (nextToken: string) => {
@@ -229,10 +254,12 @@ export function useConnectionFormDialogForm({
 
   return {
     sourceKey,
+    ownerScopeType,
+    scopePreset,
     scope,
     actorId,
     connectionMode,
-    existingConnectionId,
+    existingConnectionKey,
     tokenValue,
     apiKeyValue,
     basicUsername,
@@ -243,10 +270,10 @@ export function useConnectionFormDialogForm({
     compatibleConnectionOptions,
     selectedAuth,
     authBadge,
-    setScope,
+    setScopePreset,
     setActorId,
     setConnectionMode,
-    setExistingConnectionId,
+    setExistingConnectionKey,
     setTokenValue,
     setApiKeyValue,
     setBasicUsername,

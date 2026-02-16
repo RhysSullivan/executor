@@ -220,6 +220,19 @@ async function addWorkspaceMember(
 // ---------------------------------------------------------------------------
 
 describe("authentication", () => {
+  test("anonymous session can access workspace query without auth identity", async () => {
+    const t = setup();
+
+    const session = await t.mutation(api.workspace.bootstrapAnonymousSession, {});
+
+    const approvals = await t.query(api.workspace.listPendingApprovals, {
+      workspaceId: session.workspaceId,
+      sessionId: session.sessionId,
+    });
+
+    expect(approvals).toEqual([]);
+  });
+
   test("unauthenticated user cannot access workspace queries", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "owner-1" });

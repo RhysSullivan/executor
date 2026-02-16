@@ -18,6 +18,7 @@ import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type {
   CredentialRecord,
+  OwnerScopeType,
   OpenApiSourceQuality,
   SourceAuthProfile,
   ToolSourceRecord,
@@ -77,6 +78,10 @@ function normalizeEndpoint(value: string): string {
   } catch {
     return trimmed;
   }
+}
+
+function ownerScopeBadge(ownerScopeType: OwnerScopeType | undefined): string {
+  return ownerScopeType === "organization" ? "org shared" : "workspace only";
 }
 
 export function AddSourceDialog({
@@ -172,6 +177,7 @@ export function AddSourceDialog({
           name: form.name,
           endpoint: form.endpoint,
           type: form.type,
+          ownerScopeType: form.ownerScopeType,
           baseUrl: form.baseUrl,
           mcpTransport: form.mcpTransport,
           authType: form.authType,
@@ -265,7 +271,10 @@ export function AddSourceDialog({
       return;
     }
 
-    const confirmed = window.confirm(`Remove source "${sourceToEdit.name}" and all related tools from this workspace?`);
+    const scopeLabel = sourceToEdit.ownerScopeType === "organization"
+      ? "your organization"
+      : "this workspace";
+    const confirmed = window.confirm(`Remove source "${sourceToEdit.name}" and all related tools from ${scopeLabel}?`);
     if (!confirmed) {
       return;
     }
@@ -325,6 +334,9 @@ export function AddSourceDialog({
                   <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
                     <Badge variant="outline" className="h-5 px-2 text-[9px] uppercase tracking-wide">
                       {sourceToEdit.type}
+                    </Badge>
+                    <Badge variant="outline" className="h-5 px-2 text-[9px] uppercase tracking-wide">
+                      {ownerScopeBadge(sourceToEdit.ownerScopeType)}
                     </Badge>
                     {editAuthBadge ? (
                       <Badge
@@ -438,6 +450,7 @@ export function AddSourceDialog({
                   mcpOAuthAuthorizationServers: form.mcpOAuthAuthorizationServers,
                   mcpOAuthConnected: form.mcpOAuthConnected,
                   authType: form.authType,
+                  ownerScopeType: form.ownerScopeType,
                   authScope: form.authScope,
                   apiKeyHeader: form.apiKeyHeader,
                   tokenValue: form.tokenValue,
@@ -447,7 +460,7 @@ export function AddSourceDialog({
                   hasExistingCredential: Boolean(form.existingScopedCredential),
                 }}
                 onAuthTypeChange={form.handleAuthTypeChange}
-                onAuthScopeChange={form.handleAuthScopeChange}
+                onScopeChange={form.handleScopePresetChange}
                 onFieldChange={form.handleAuthFieldChange}
                 onMcpOAuthConnect={form.type === "mcp" ? handleMcpOAuthConnect : undefined}
                 mcpOAuthBusy={mcpOAuthBusy}

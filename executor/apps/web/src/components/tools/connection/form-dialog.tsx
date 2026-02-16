@@ -25,7 +25,7 @@ import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type {
   CredentialRecord,
-  CredentialScope,
+  OwnerScopeType,
   SourceAuthProfile,
   ToolSourceRecord,
 } from "@/lib/types";
@@ -67,10 +67,12 @@ export function ConnectionFormDialog({
   const [saving, setSaving] = useState(false);
   const {
     sourceKey,
+    ownerScopeType,
+    scopePreset,
     scope,
     actorId,
     connectionMode,
-    existingConnectionId,
+    existingConnectionKey,
     tokenValue,
     apiKeyValue,
     basicUsername,
@@ -81,10 +83,10 @@ export function ConnectionFormDialog({
     compatibleConnectionOptions,
     selectedAuth,
     authBadge,
-    setScope,
+    setScopePreset,
     setActorId,
     setConnectionMode,
-    setExistingConnectionId,
+    setExistingConnectionKey,
     setTokenValue,
     setApiKeyValue,
     setBasicUsername,
@@ -135,14 +137,17 @@ export function ConnectionFormDialog({
     }
 
     const linkExisting = !editing && connectionMode === "existing";
-    if (linkExisting && !existingConnectionId) {
+    if (linkExisting && !existingConnectionKey) {
       toast.error("Select saved credentials");
       return;
     }
-    if (linkExisting && !compatibleConnectionOptions.some((connection) => connection.id === existingConnectionId)) {
+    if (linkExisting && !compatibleConnectionOptions.some((connection) => connection.key === existingConnectionKey)) {
       toast.error("Selected credentials do not match this scope");
       return;
     }
+    const selectedExistingConnection = linkExisting
+      ? compatibleConnectionOptions.find((connection) => connection.key === existingConnectionKey) ?? null
+      : null;
 
     if (selectedAuth.type === "none") {
       if (authDetectionPending) {
@@ -177,7 +182,11 @@ export function ConnectionFormDialog({
     setSaving(true);
     try {
       await upsertCredential({
-        ...(editing ? { id: editing.id } : linkExisting ? { id: existingConnectionId } : {}),
+        ...(editing
+          ? { id: editing.id, ownerScopeType: (editing.ownerScopeType ?? "workspace") as OwnerScopeType }
+          : selectedExistingConnection
+            ? { id: selectedExistingConnection.id, ownerScopeType: selectedExistingConnection.ownerScopeType }
+            : { ownerScopeType }),
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
         sourceKey: sourceKey.trim(),
@@ -253,16 +262,17 @@ export function ConnectionFormDialog({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Who this is for</Label>
-              <Select value={scope} onValueChange={(value) => setScope(value as CredentialScope)}>
+              <Label className="text-xs text-muted-foreground">Scope</Label>
+              <Select value={scopePreset} onValueChange={(value) => setScopePreset(value as "only_me" | "workspace" | "organization") }>
                 <SelectTrigger className="h-8 text-xs bg-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="workspace" className="text-xs">Workspace-wide</SelectItem>
-                  <SelectItem value="actor" className="text-xs">Only me (current user)</SelectItem>
+                  <SelectItem value="only_me" className="text-xs">Only me</SelectItem>
+                  <SelectItem value="workspace" className="text-xs">Workspace</SelectItem>
+                  <SelectItem value="organization" className="text-xs">Organization</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -272,7 +282,7 @@ export function ConnectionFormDialog({
             </div>
           </div>
 
-          {scope === "actor" && (
+          {scopePreset === "only_me" && (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">User ID</Label>
               <Input
@@ -302,13 +312,13 @@ export function ConnectionFormDialog({
           {!editing && connectionMode === "existing" && (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Saved Credentials</Label>
-              <Select value={existingConnectionId} onValueChange={setExistingConnectionId}>
+              <Select value={existingConnectionKey} onValueChange={setExistingConnectionKey}>
                 <SelectTrigger className="h-8 text-xs bg-background">
                   <SelectValue placeholder="Select saved credentials" />
                 </SelectTrigger>
                 <SelectContent>
                   {compatibleConnectionOptions.map((connection) => (
-                    <SelectItem key={connection.id} value={connection.id} className="text-xs">
+                    <SelectItem key={connection.key} value={connection.key} className="text-xs">
                       {connectionDisplayName(sources, connection)} ({connection.sourceKeys.size} API{connection.sourceKeys.size === 1 ? "" : "s"})
                     </SelectItem>
                   ))}

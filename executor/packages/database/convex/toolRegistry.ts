@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { internalMutation, internalQuery } from "./_generated/server";
 
 export const getState = internalQuery({
@@ -176,6 +177,70 @@ export const finishBuild = internalMutation({
   },
 });
 
+const PRUNE_DELETE_PAGE_SIZE = 100;
+const PRUNE_NAMESPACE_SCAN_PAGE_SIZE = 250;
+
+export const scanNamespaceBuildsForPrune = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("workspaceToolNamespaces")
+      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId))
+      .paginate({ numItems: PRUNE_NAMESPACE_SCAN_PAGE_SIZE, cursor: args.cursor ?? null });
+
+    return {
+      items: page.page.map((entry) => ({
+        buildId: entry.buildId,
+        createdAt: entry.createdAt,
+      })),
+      continueCursor: page.isDone ? null : page.continueCursor,
+    };
+  },
+});
+
+export const deleteToolRegistryToolsPage = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("workspaceToolRegistry")
+      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId))
+      .paginate({ numItems: PRUNE_DELETE_PAGE_SIZE, cursor: args.cursor ?? null });
+
+    for (const entry of page.page) {
+      await ctx.db.delete(entry._id);
+    }
+
+    return { continueCursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
+export const deleteToolRegistryNamespacesPage = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("workspaceToolNamespaces")
+      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId))
+      .paginate({ numItems: PRUNE_DELETE_PAGE_SIZE, cursor: args.cursor ?? null });
+
+    for (const entry of page.page) {
+      await ctx.db.delete(entry._id);
+    }
+
+    return { continueCursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
 export const pruneBuilds = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -192,28 +257,30 @@ export const pruneBuilds = internalMutation({
     if (state?.readyBuildId) protectedBuildIds.add(state.readyBuildId);
     if (state?.buildingBuildId) protectedBuildIds.add(state.buildingBuildId);
 
-    const toolEntries = await ctx.db
-      .query("workspaceToolRegistry")
-      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-
-    const namespaceEntries = await ctx.db
-      .query("workspaceToolNamespaces")
-      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId))
-      .collect();
-
     const latestCreatedAtByBuild = new Map<string, number>();
-    for (const entry of toolEntries) {
-      const current = latestCreatedAtByBuild.get(entry.buildId) ?? 0;
-      if (entry.createdAt > current) {
-        latestCreatedAtByBuild.set(entry.buildId, entry.createdAt);
+    let namespaceCursor: string | undefined = undefined;
+
+    while (true) {
+      const namespacePage: {
+        continueCursor: string | null;
+        items: Array<{ buildId: string; createdAt: number }>;
+      } = await ctx.runMutation(internal.toolRegistry.scanNamespaceBuildsForPrune, {
+        workspaceId: args.workspaceId,
+        cursor: namespaceCursor,
+      });
+
+      for (const item of namespacePage.items) {
+        const current = latestCreatedAtByBuild.get(item.buildId) ?? 0;
+        if (item.createdAt > current) {
+          latestCreatedAtByBuild.set(item.buildId, item.createdAt);
+        }
       }
-    }
-    for (const entry of namespaceEntries) {
-      const current = latestCreatedAtByBuild.get(entry.buildId) ?? 0;
-      if (entry.createdAt > current) {
-        latestCreatedAtByBuild.set(entry.buildId, entry.createdAt);
+
+      if (namespacePage.continueCursor === null) {
+        break;
       }
+
+      namespaceCursor = namespacePage.continueCursor;
     }
 
     const buildIdsByRecency = [...latestCreatedAtByBuild.entries()]
@@ -225,14 +292,45 @@ export const pruneBuilds = internalMutation({
       retained.add(protectedBuildId);
     }
 
-    for (const entry of toolEntries) {
-      if (!retained.has(entry.buildId)) {
-        await ctx.db.delete(entry._id);
+    for (const buildId of buildIdsByRecency) {
+      if (retained.has(buildId)) {
+        continue;
       }
-    }
-    for (const entry of namespaceEntries) {
-      if (!retained.has(entry.buildId)) {
-        await ctx.db.delete(entry._id);
+
+      let cursor: string | undefined = undefined;
+      while (true) {
+        const page: { continueCursor: string | null } = await ctx.runMutation(
+          internal.toolRegistry.deleteToolRegistryToolsPage,
+          {
+            workspaceId: args.workspaceId,
+            buildId,
+            cursor,
+          },
+        );
+
+        if (page.continueCursor === null) {
+          break;
+        }
+
+        cursor = page.continueCursor;
+      }
+
+      let namespacePageCursor: string | undefined = undefined;
+      while (true) {
+        const namespaceDeletePage: { continueCursor: string | null } = await ctx.runMutation(
+          internal.toolRegistry.deleteToolRegistryNamespacesPage,
+          {
+            workspaceId: args.workspaceId,
+            buildId,
+            cursor: namespacePageCursor,
+          },
+        );
+
+        if (namespaceDeletePage.continueCursor === null) {
+          break;
+        }
+
+        namespacePageCursor = namespaceDeletePage.continueCursor;
       }
     }
   },

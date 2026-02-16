@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type {
+  OwnerScopeType,
   OpenApiSourceQuality,
   SourceAuthProfile,
   ToolSourceRecord,
@@ -28,6 +29,10 @@ import {
   OpenApiQualityDetails,
   SourceQualitySummary,
 } from "./source/quality-details";
+
+function ownerScopeBadge(ownerScopeType: OwnerScopeType | undefined): string {
+  return ownerScopeType === "organization" ? "org shared" : "workspace";
+}
 
 export function SourceCard({
   source,
@@ -98,6 +103,9 @@ export function SourceCard({
           </span>
           <Badge variant="outline" className="text-[9px] uppercase tracking-wide">
             {source.type}
+          </Badge>
+          <Badge variant="outline" className="text-[9px] uppercase tracking-wide">
+            {ownerScopeBadge(source.ownerScopeType)}
           </Badge>
           {!source.enabled && (
             <Badge
