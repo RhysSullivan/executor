@@ -25,7 +25,6 @@ export const createTaskEvent = internalMutation({
 
     await ctx.db.patch(task._id, {
       nextEventSequence: sequence,
-      updatedAt: createdAt,
     });
 
     await ctx.db.insert("taskEvents", {

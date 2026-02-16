@@ -5,6 +5,7 @@ import { prepareOpenApiSpec, buildOpenApiToolsFromPrepared } from "../tool-sourc
 import { connectMcp } from "../mcp-runtime";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { z } from "zod";
 
 type ToolApproval = "auto" | "required";
 
@@ -297,40 +298,22 @@ async function startLocalMcpServer(): Promise<{ url: string; stop: () => Promise
         { capabilities: { tools: {} } },
       );
 
-      const registerToolImpl = mcp.registerTool as unknown as (
-        name: string,
-        config: { description: string; inputSchema: unknown },
-        handler: () => Promise<{ content: Array<{ type: "text"; text: string }> }>,
-      ) => void;
+      const fixtureInputSchema = z.object({
+        owner: z.string(),
+        repo: z.string(),
+        title: z.string(),
+        body: z.string().optional(),
+        labels: z.array(z.string()).optional(),
+        state: z.enum(["open", "closed"]).optional(),
+      });
 
-      const registerTool = (
-        name: string,
-        config: { description: string; inputSchema: unknown },
-        handler: () => Promise<{ content: Array<{ type: "text"; text: string }> }>,
-      ) => registerToolImpl.call(mcp, name, config, handler);
-
-      registerTool(
-        "create_issue",
-        {
-          description: "Create an issue in a repository (fixture).",
-          // MCP SDK typing expects a Zod-ish schema type; runtime accepts JSON Schema.
-          inputSchema: {
-            type: "object",
-            properties: {
-              owner: { type: "string" },
-              repo: { type: "string" },
-              title: { type: "string" },
-              body: { type: "string" },
-              labels: { type: "array", items: { type: "string" } },
-              state: { type: "string", enum: ["open", "closed"] },
-            },
-            required: ["owner", "repo", "title"],
-          },
-        },
-        async () => {
-          return { content: [{ type: "text" as const, text: "ok" }] };
-        },
-      );
+      mcp.registerTool("create_issue", {
+        description: "Create an issue in a repository (fixture).",
+        // MCP SDK typing expects a Zod-ish schema type; runtime accepts JSON Schema.
+        inputSchema: fixtureInputSchema,
+      }, async () => {
+        return { content: [{ type: "text" as const, text: "ok" }] };
+      });
 
       try {
         await mcp.connect(transport);

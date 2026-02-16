@@ -1,3 +1,4 @@
+import { Result } from "better-result";
 import type { OpenApiAuth } from "../../../core/src/tool/source-types";
 import type { ToolApprovalMode } from "../../../core/src/types";
 import { asRecord } from "../lib/object";
@@ -10,19 +11,26 @@ function optionalTrimmedString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function requiredTrimmedString(value: unknown, fieldName: string): string {
+function requiredTrimmedString(
+  value: unknown,
+  fieldName: string,
+): Result<string, Error> {
   const trimmed = optionalTrimmedString(value);
   if (!trimmed) {
-    throw new Error(`Tool source ${fieldName} is required`);
+    return Result.err(new Error(`Tool source ${fieldName} is required`));
   }
-  return trimmed;
+  return Result.ok(trimmed);
 }
 
-function normalizeStringMap(value: unknown, fieldName: string): Record<string, string> | undefined {
-  if (value === undefined) return undefined;
+function normalizeStringMap(
+  value: unknown,
+  fieldName: string,
+): Result<Record<string, string> | undefined, Error> {
+  if (value === undefined) return Result.ok(undefined);
+
   const record = asRecord(value);
   if (Object.keys(record).length === 0) {
-    return undefined;
+    return Result.ok(undefined);
   }
 
   const normalized: Record<string, string> = {};
@@ -30,27 +38,34 @@ function normalizeStringMap(value: unknown, fieldName: string): Record<string, s
     const normalizedKey = key.trim();
     if (!normalizedKey) continue;
     if (typeof rawValue !== "string") {
-      throw new Error(`Tool source ${fieldName}.${normalizedKey} must be a string`);
+      return Result.err(new Error(`Tool source ${fieldName}.${normalizedKey} must be a string`));
     }
     normalized[normalizedKey] = rawValue;
   }
 
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
+  return Result.ok(Object.keys(normalized).length > 0 ? normalized : undefined);
 }
 
-function normalizeApprovalMode(value: unknown, fieldName: string): ToolApprovalMode | undefined {
-  if (value === undefined) return undefined;
+function normalizeApprovalMode(
+  value: unknown,
+  fieldName: string,
+): Result<ToolApprovalMode | undefined, Error> {
+  if (value === undefined) return Result.ok(undefined);
   if (value === "auto" || value === "required") {
-    return value;
+    return Result.ok(value);
   }
-  throw new Error(`Tool source ${fieldName} must be 'auto' or 'required'`);
+  return Result.err(new Error(`Tool source ${fieldName} must be 'auto' or 'required'`));
 }
 
-function normalizeOverrides(value: unknown, fieldName: string): Record<string, { approval?: ToolApprovalMode }> | undefined {
-  if (value === undefined) return undefined;
+function normalizeOverrides(
+  value: unknown,
+  fieldName: string,
+): Result<Record<string, { approval?: ToolApprovalMode }> | undefined, Error> {
+  if (value === undefined) return Result.ok(undefined);
+
   const raw = asRecord(value);
   if (Object.keys(raw).length === 0) {
-    return undefined;
+    return Result.ok(undefined);
   }
 
   const normalized: Record<string, { approval?: ToolApprovalMode }> = {};
@@ -58,122 +73,233 @@ function normalizeOverrides(value: unknown, fieldName: string): Record<string, {
     const key = rawKey.trim();
     if (!key) continue;
     const entry = asRecord(rawValue);
-    const approval = normalizeApprovalMode(entry.approval, `${fieldName}.${key}.approval`);
-    normalized[key] = approval ? { approval } : {};
+    const approvalResult = normalizeApprovalMode(entry.approval, `${fieldName}.${key}.approval`);
+    if (approvalResult.isErr()) {
+      return approvalResult;
+    }
+    normalized[key] = approvalResult.value ? { approval: approvalResult.value } : {};
   }
 
-  return Object.keys(normalized).length > 0 ? normalized : undefined;
+  return Result.ok(Object.keys(normalized).length > 0 ? normalized : undefined);
 }
 
-function normalizeAuthMode(value: unknown): "static" | "workspace" | "actor" | undefined {
-  if (value === undefined) return undefined;
+function normalizeAuthMode(
+  value: unknown,
+): Result<"static" | "workspace" | "actor" | undefined, Error> {
+  if (value === undefined) return Result.ok(undefined);
   if (value === "static" || value === "workspace" || value === "actor") {
-    return value;
+    return Result.ok(value);
   }
-  throw new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'");
+  return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
 }
 
-function normalizeAuth(value: unknown): OpenApiAuth | undefined {
-  if (value === undefined) return undefined;
+function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
+  if (value === undefined) return Result.ok(undefined);
 
   const auth = asRecord(value);
   const authType = optionalTrimmedString(auth.type);
   if (!authType) {
-    throw new Error("Tool source auth.type is required when auth is provided");
+    return Result.err(new Error("Tool source auth.type is required when auth is provided"));
   }
 
   if (authType === "none") {
-    return { type: "none" };
+    return Result.ok({ type: "none" });
   }
 
+  const modeResult = normalizeAuthMode(auth.mode);
+  if (modeResult.isErr()) {
+    return modeResult;
+  }
+  const mode = modeResult.value;
+
   if (authType === "basic") {
-    return {
+    return Result.ok({
       type: "basic",
-      mode: normalizeAuthMode(auth.mode),
+      mode,
       username: optionalTrimmedString(auth.username),
       password: optionalTrimmedString(auth.password),
-    };
+    });
   }
 
   if (authType === "bearer") {
-    return {
+    return Result.ok({
       type: "bearer",
-      mode: normalizeAuthMode(auth.mode),
+      mode,
       token: optionalTrimmedString(auth.token),
-    };
+    });
   }
 
   if (authType === "apiKey") {
-    const header = requiredTrimmedString(auth.header, "auth.header");
-    return {
+    const headerResult = requiredTrimmedString(auth.header, "auth.header");
+    if (headerResult.isErr()) {
+      return headerResult;
+    }
+    return Result.ok({
       type: "apiKey",
-      mode: normalizeAuthMode(auth.mode),
-      header,
+      mode,
+      header: headerResult.value,
       value: optionalTrimmedString(auth.value),
-    };
+    });
   }
 
-  throw new Error(`Unsupported tool source auth.type '${authType}'`);
+  return Result.err(new Error(`Unsupported tool source auth.type '${authType}'`));
 }
 
-function normalizeSpec(value: unknown): string | Record<string, unknown> {
+function normalizeSpec(
+  value: unknown,
+): Result<string | Record<string, unknown>, Error> {
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) {
-      throw new Error("Tool source spec is required");
+      return Result.err(new Error("Tool source spec is required"));
     }
-    return trimmed;
+    return Result.ok(trimmed);
   }
 
   const specObject = asRecord(value);
   if (Object.keys(specObject).length === 0) {
-    throw new Error("Tool source spec must be a non-empty string or object");
+    return Result.err(new Error("Tool source spec must be a non-empty string or object"));
   }
-  return specObject;
+
+  return Result.ok(specObject);
 }
 
-export function normalizeToolSourceConfig(type: ToolSourceType, rawConfig: unknown): Record<string, unknown> {
+export function normalizeToolSourceConfig(
+  type: ToolSourceType,
+  rawConfig: unknown,
+): Result<Record<string, unknown>, Error> {
   const config = asRecord(rawConfig);
 
   if (type === "mcp") {
-    const url = requiredTrimmedString(config.url, "url");
-    const transport = config.transport;
-    if (transport !== undefined && transport !== "sse" && transport !== "streamable-http") {
-      throw new Error("Tool source transport must be 'sse' or 'streamable-http'");
+    const urlResult = requiredTrimmedString(config.url, "url");
+    if (urlResult.isErr()) {
+      return urlResult;
     }
 
-    return {
-      url,
+    const transport = config.transport;
+    if (transport !== undefined && transport !== "sse" && transport !== "streamable-http") {
+      return Result.err(new Error("Tool source transport must be 'sse' or 'streamable-http'"));
+    }
+
+    const authResult = normalizeAuth(config.auth);
+    if (authResult.isErr()) {
+      return authResult;
+    }
+
+    const queryParamsResult = normalizeStringMap(config.queryParams, "queryParams");
+    if (queryParamsResult.isErr()) {
+      return queryParamsResult;
+    }
+
+    const discoveryHeadersResult = normalizeStringMap(config.discoveryHeaders, "discoveryHeaders");
+    if (discoveryHeadersResult.isErr()) {
+      return discoveryHeadersResult;
+    }
+
+    const defaultApprovalResult = normalizeApprovalMode(config.defaultApproval, "defaultApproval");
+    if (defaultApprovalResult.isErr()) {
+      return defaultApprovalResult;
+    }
+
+    const overridesResult = normalizeOverrides(config.overrides, "overrides");
+    if (overridesResult.isErr()) {
+      return overridesResult;
+    }
+
+    return Result.ok({
+      url: urlResult.value,
       transport,
-      auth: normalizeAuth(config.auth),
-      queryParams: normalizeStringMap(config.queryParams, "queryParams"),
-      discoveryHeaders: normalizeStringMap(config.discoveryHeaders, "discoveryHeaders"),
-      defaultApproval: normalizeApprovalMode(config.defaultApproval, "defaultApproval"),
-      overrides: normalizeOverrides(config.overrides, "overrides"),
-    };
+      auth: authResult.value,
+      queryParams: queryParamsResult.value,
+      discoveryHeaders: discoveryHeadersResult.value,
+      defaultApproval: defaultApprovalResult.value,
+      overrides: overridesResult.value,
+    });
   }
 
   if (type === "graphql") {
-    const endpoint = requiredTrimmedString(config.endpoint, "endpoint");
+    const endpointResult = requiredTrimmedString(config.endpoint, "endpoint");
+    if (endpointResult.isErr()) {
+      return endpointResult;
+    }
 
-    return {
-      endpoint,
-      schema: Object.keys(asRecord(config.schema)).length > 0 ? asRecord(config.schema) : undefined,
-      auth: normalizeAuth(config.auth),
-      defaultQueryApproval: normalizeApprovalMode(config.defaultQueryApproval, "defaultQueryApproval"),
-      defaultMutationApproval: normalizeApprovalMode(config.defaultMutationApproval, "defaultMutationApproval"),
-      overrides: normalizeOverrides(config.overrides, "overrides"),
-    };
+    const authResult = normalizeAuth(config.auth);
+    if (authResult.isErr()) {
+      return authResult;
+    }
+
+    const defaultQueryApprovalResult = normalizeApprovalMode(
+      config.defaultQueryApproval,
+      "defaultQueryApproval",
+    );
+    if (defaultQueryApprovalResult.isErr()) {
+      return defaultQueryApprovalResult;
+    }
+
+    const defaultMutationApprovalResult = normalizeApprovalMode(
+      config.defaultMutationApproval,
+      "defaultMutationApproval",
+    );
+    if (defaultMutationApprovalResult.isErr()) {
+      return defaultMutationApprovalResult;
+    }
+
+    const overridesResult = normalizeOverrides(config.overrides, "overrides");
+    if (overridesResult.isErr()) {
+      return overridesResult;
+    }
+
+    const schema = asRecord(config.schema);
+
+    return Result.ok({
+      endpoint: endpointResult.value,
+      schema: Object.keys(schema).length > 0 ? schema : undefined,
+      auth: authResult.value,
+      defaultQueryApproval: defaultQueryApprovalResult.value,
+      defaultMutationApproval: defaultMutationApprovalResult.value,
+      overrides: overridesResult.value,
+    });
   }
 
-  return {
-    spec: normalizeSpec(config.spec),
+  const specResult = normalizeSpec(config.spec);
+  if (specResult.isErr()) {
+    return specResult;
+  }
+
+  const authResult = normalizeAuth(config.auth);
+  if (authResult.isErr()) {
+    return authResult;
+  }
+
+  const defaultReadApprovalResult = normalizeApprovalMode(
+    config.defaultReadApproval,
+    "defaultReadApproval",
+  );
+  if (defaultReadApprovalResult.isErr()) {
+    return defaultReadApprovalResult;
+  }
+
+  const defaultWriteApprovalResult = normalizeApprovalMode(
+    config.defaultWriteApproval,
+    "defaultWriteApproval",
+  );
+  if (defaultWriteApprovalResult.isErr()) {
+    return defaultWriteApprovalResult;
+  }
+
+  const overridesResult = normalizeOverrides(config.overrides, "overrides");
+  if (overridesResult.isErr()) {
+    return overridesResult;
+  }
+
+  return Result.ok({
+    spec: specResult.value,
     collectionUrl: optionalTrimmedString(config.collectionUrl),
     postmanProxyUrl: optionalTrimmedString(config.postmanProxyUrl),
     baseUrl: optionalTrimmedString(config.baseUrl),
-    auth: normalizeAuth(config.auth),
-    defaultReadApproval: normalizeApprovalMode(config.defaultReadApproval, "defaultReadApproval"),
-    defaultWriteApproval: normalizeApprovalMode(config.defaultWriteApproval, "defaultWriteApproval"),
-    overrides: normalizeOverrides(config.overrides, "overrides"),
-  };
+    auth: authResult.value,
+    defaultReadApproval: defaultReadApprovalResult.value,
+    defaultWriteApproval: defaultWriteApprovalResult.value,
+    overrides: overridesResult.value,
+  });
 }

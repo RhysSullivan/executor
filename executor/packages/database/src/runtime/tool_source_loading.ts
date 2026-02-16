@@ -41,7 +41,11 @@ export function normalizeExternalToolSource(raw: {
   name: string;
   config: Record<string, unknown>;
 }): ExternalToolSourceConfig {
-  const config = normalizeToolSourceConfig(raw.type, raw.config);
+  const configResult = normalizeToolSourceConfig(raw.type, raw.config);
+  if (configResult.isErr()) {
+    throw new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`);
+  }
+  const config = configResult.value;
 
   if (raw.type === "mcp") {
     const result: McpToolSourceConfig = {

@@ -20,7 +20,11 @@ export const upsertToolSource = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
-    const config = normalizeToolSourceConfig(args.type, args.config);
+    const configResult = normalizeToolSourceConfig(args.type, args.config);
+    if (configResult.isErr()) {
+      throw new Error(configResult.error.message);
+    }
+    const config = configResult.value;
     const specHash = computeSourceSpecHash(args.type, config);
     const authFingerprint = normalizeSourceAuthFingerprint(config.auth);
     const [existing, conflict] = await Promise.all([

@@ -164,7 +164,7 @@ function createRunCodeTool(
 // ---------------------------------------------------------------------------
 
 function toAnySchema(schema: unknown): AnySchema {
-  return schema as unknown as AnySchema;
+  return schema as AnySchema;
 }
 
 const FULL_INPUT = toAnySchema(z.object({
