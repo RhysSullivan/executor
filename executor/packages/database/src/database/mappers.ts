@@ -7,7 +7,7 @@ function stableStringify(value: unknown): string {
     return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
   }
   if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
+    const record = asRecord(value);
     const keys = Object.keys(record).sort();
     return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
   }
