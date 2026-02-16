@@ -14,7 +14,7 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@executor/convex/*": ["../convex/*"]
+      "@executor/database/*": ["../database/*"]
     }
   },
   "include": ["src/**/*.ts"]

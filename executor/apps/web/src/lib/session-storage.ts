@@ -1,4 +1,4 @@
-import type { Id } from "@executor/convex/_generated/dataModel";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 
 const SESSION_KEY = "executor_session_id";
 const ACTIVE_WORKSPACE_KEY = "executor_active_workspace_id";

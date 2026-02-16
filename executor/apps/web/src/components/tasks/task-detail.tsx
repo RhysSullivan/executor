@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { X, ShieldX, CheckCircle2 } from "lucide-react";
 import { useMutation, useQuery } from "convex/react";
-import type { Id } from "@executor/convex/_generated/dataModel";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

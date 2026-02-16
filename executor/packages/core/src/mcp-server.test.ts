@@ -3,7 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { handleMcpRequest } from "./mcp-server";
 import type { LiveTaskEvent } from "./events";
-import type { Id } from "../../convex/_generated/dataModel.d.ts";
+import type { Id } from "../../database/convex/_generated/dataModel.d.ts";
 import type { AnonymousContext, CreateTaskInput, TaskRecord, ToolDescriptor } from "./types";
 
 class FakeMcpService {

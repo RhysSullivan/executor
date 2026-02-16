@@ -6,7 +6,7 @@
     ]
   },
   "workspaces": {
-    "executor/packages/convex": {
+    "executor/packages/database": {
       "entry": [
         "*.ts"
       ],
@@ -23,7 +23,7 @@
         "src/tool-sources.ts",
         "src/managed-runtime.ts",
         "src/slug.ts",
-        "../convex/**/*.ts",
+        "../database/**/*.ts",
         "../../executor.ts"
       ]
     }

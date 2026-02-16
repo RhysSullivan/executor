@@ -1,4 +1,4 @@
-import type { Id } from "@executor/convex/_generated/dataModel";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 
 // ── Shared types (inlined from @executor/contracts) ──────────────────────────
 

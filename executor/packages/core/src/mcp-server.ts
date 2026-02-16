@@ -3,7 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import type { AnySchema } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { z } from "zod";
 import type { McpExecutorService, ApprovalPrompt } from "./mcp/server-contracts";
-import type { Id } from "../../convex/_generated/dataModel.d.ts";
+import type { Id } from "../../database/convex/_generated/dataModel.d.ts";
 import { waitForTerminalTask, createMcpApprovalPrompt } from "./mcp/server-approval";
 import { buildRunCodeDescription, summarizeTask } from "./mcp/server-formatting";
 import { getTaskTerminalState, textContent } from "./mcp/server-utils";

@@ -5,7 +5,7 @@ import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useAction, useQuery as useConvexQuery } from "convex/react";
 import { convexApi } from "@/lib/convex-api";
 import type { OpenApiSourceQuality, SourceAuthProfile, ToolDescriptor } from "@/lib/types";
-import type { Id } from "@executor/convex/_generated/dataModel";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 
 interface WorkspaceContext {
   workspaceId: Id<"workspaces">;

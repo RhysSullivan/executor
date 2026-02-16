@@ -16,7 +16,7 @@
     "baseUrl": "."
   },
   "include": [
-    "packages/convex/**/*.ts",
+    "packages/database/**/*.ts",
     "packages/runner-node/**/*.ts",
     "packages/core/src/**/*.ts",
     "scripts/**/*.ts",

@@ -1,5 +1,5 @@
 {
-  "functions": "packages/convex",
+  "functions": "packages/database/convex",
   "codegen": {
     "staticApi": true
   }

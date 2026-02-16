@@ -26,7 +26,7 @@ const appShellRewriteExclusions = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  transpilePackages: ["@executor/core", "@executor/convex", "@executor/ui"],
+  transpilePackages: ["@executor/core", "@executor/database", "@executor/ui"],
   env: {
     // Map canonical env vars to NEXT_PUBLIC_ so they're available client-side.
     // This lets us keep a single root .env without NEXT_PUBLIC_ prefixes.

@@ -10,7 +10,7 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@executor/convex": "workspace:*",
+    "@executor/database": "workspace:*",
     "@executor/core": "workspace:*",
     "@executor/ui": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
