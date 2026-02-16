@@ -22,7 +22,7 @@ import { getToolDecision, getDecisionForContext } from "./policy";
 import { baseTools } from "./workspace_tools";
 import { publishTaskEvent } from "./events";
 import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecycle";
-import { assertPersistedCallRunnable, resolveCredentialHeaders } from "./tool_call_credentials";
+import { resolveCredentialHeaders, validatePersistedCallRunnable } from "./tool_call_credentials";
 import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
 import { getReadyRegistryBuildId } from "./tool_registry_state";
 
@@ -106,7 +106,10 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     workspaceId: task.workspaceId,
     toolPath,
   });
-  assertPersistedCallRunnable(persistedCall, callId);
+  const runnable = validatePersistedCallRunnable(persistedCall, callId);
+  if (runnable.isErr()) {
+    throw runnable.error;
+  }
 
   let effectiveToolPath = toolPath;
   try {

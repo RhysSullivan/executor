@@ -1,5 +1,6 @@
 "use node";
 
+import { Result } from "better-result";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { resolveCredentialPayload } from "../../../core/src/credential-providers";
@@ -62,19 +63,26 @@ export async function resolveCredentialHeaders(
   };
 }
 
-export function assertPersistedCallRunnable(persistedCall: ToolCallRecord, callId: string): void {
+export function validatePersistedCallRunnable(
+  persistedCall: ToolCallRecord,
+  callId: string,
+): Result<void, Error> {
   if (persistedCall.status === "completed") {
-    throw new Error(`Tool call ${callId} already completed; output is not retained`);
+    return Result.err(new Error(`Tool call ${callId} already completed; output is not retained`));
   }
 
   if (persistedCall.status === "failed") {
-    throw new Error(persistedCall.error ?? `Tool call failed: ${callId}`);
+    return Result.err(new Error(persistedCall.error ?? `Tool call failed: ${callId}`));
   }
 
   if (persistedCall.status === "denied") {
-    throw new ToolCallControlError({
-      kind: "approval_denied",
-      reason: persistedCall.error ?? persistedCall.toolPath,
-    });
+    return Result.err(
+      new ToolCallControlError({
+        kind: "approval_denied",
+        reason: persistedCall.error ?? persistedCall.toolPath,
+      }),
+    );
   }
+
+  return Result.ok(undefined);
 }
