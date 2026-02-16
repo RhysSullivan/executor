@@ -2,8 +2,8 @@
 
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
-import { APPROVAL_DENIED_PREFIX } from "../../../core/src/execution-constants";
 import type { TaskRecord } from "../../../core/src/types";
+import { ToolCallControlError } from "../../../core/src/tool-call-control";
 import { publishTaskEvent } from "./events";
 
 async function finishToolCall(
@@ -42,7 +42,10 @@ export async function denyToolCall(
     ...(args.approvalId ? { approvalId: args.approvalId } : {}),
     ...(args.reason ? { reason: args.reason } : {}),
   });
-  throw new Error(`${APPROVAL_DENIED_PREFIX}${args.deniedMessage}`);
+  throw new ToolCallControlError({
+    kind: "approval_denied",
+    reason: args.deniedMessage,
+  });
 }
 
 export async function completeToolCall(

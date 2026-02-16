@@ -3,8 +3,8 @@
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { InProcessExecutionAdapter } from "../../../core/src/adapters/in/process/execution-adapter";
-import { APPROVAL_DENIED_PREFIX } from "../../../core/src/execution-constants";
 import { dispatchCodeWithCloudflareWorkerLoader } from "../../../core/src/runtimes/cloudflare/worker/loader-runtime";
+import { decodeToolCallControlSignal } from "../../../core/src/tool-call-control";
 import {
   CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
   isCloudflareWorkerLoaderConfigured,
@@ -18,6 +18,19 @@ import { publishTaskEvent } from "./events";
 import { taskTerminalEventType } from "../task/status";
 import { markTaskFinished } from "../task/finish";
 import { invokeTool } from "./tool_invocation";
+
+async function getTaskById(ctx: ActionCtx, taskId: string): Promise<TaskRecord | null> {
+  return await ctx.runQuery(internal.database.getTask, { taskId }) as TaskRecord | null;
+}
+
+async function markTaskRunning(
+  ctx: ActionCtx,
+  taskId: string,
+): Promise<TaskRecord | null> {
+  return await ctx.runMutation(internal.database.markTaskRunning, {
+    taskId,
+  }) as TaskRecord | null;
+}
 
 async function markTaskFailedAndPublish(
   ctx: ActionCtx,
@@ -66,7 +79,7 @@ export async function runQueuedTask(
   ctx: ActionCtx,
   args: { taskId: string },
 ): Promise<TaskExecutionOutcome | null> {
-  const task = (await ctx.runQuery(internal.database.getTask, { taskId: args.taskId })) as TaskRecord | null;
+  const task = await getTaskById(ctx, args.taskId);
   if (!task || task.status !== "queued") {
     return null;
   }
@@ -93,9 +106,7 @@ export async function runQueuedTask(
   }
 
   try {
-    const running = (await ctx.runMutation(internal.database.markTaskRunning, {
-      taskId: args.taskId,
-    })) as TaskRecord | null;
+    const running = await markTaskRunning(ctx, args.taskId);
     if (!running) {
       return null;
     }
@@ -182,11 +193,12 @@ export async function runQueuedTask(
     };
   } catch (error) {
     const message = describeError(error);
-    const denied = message.startsWith(APPROVAL_DENIED_PREFIX);
+    const controlSignal = decodeToolCallControlSignal(error);
+    const denied = controlSignal?.kind === "approval_denied";
     const finished = await markTaskFinished(ctx, {
       taskId: args.taskId,
       status: denied ? "denied" : "failed",
-      error: denied ? message.replace(APPROVAL_DENIED_PREFIX, "") : message,
+      error: denied ? controlSignal.reason : message,
     });
 
     if (finished) {

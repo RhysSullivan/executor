@@ -12,6 +12,37 @@ import { getReadyRegistryBuildId } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
 import { baseTools } from "./workspace_tools";
 
+type RegistrySerializedToolEntry = {
+  path: string;
+  serializedToolJson: string;
+};
+
+async function searchRegistryEntries(
+  ctx: ActionCtx,
+  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
+): Promise<Array<{ preferredPath: string }>> {
+  return await ctx.runQuery(internal.toolRegistry.searchTools, args) as Array<{ preferredPath: string }>;
+}
+
+async function getRegistryToolByPath(
+  ctx: ActionCtx,
+  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; path: string },
+): Promise<RegistrySerializedToolEntry | null> {
+  return await ctx.runQuery(internal.toolRegistry.getToolByPath, args) as RegistrySerializedToolEntry | null;
+}
+
+async function getRegistryToolsByNormalizedPath(
+  ctx: ActionCtx,
+  args: {
+    workspaceId: TaskRecord["workspaceId"];
+    buildId: string;
+    normalizedPath: string;
+    limit: number;
+  },
+): Promise<RegistrySerializedToolEntry[]> {
+  return await ctx.runQuery(internal.toolRegistry.getToolsByNormalizedPath, args) as RegistrySerializedToolEntry[];
+}
+
 export function getGraphqlDecision(
   task: TaskRecord,
   tool: ToolDefinition,
@@ -75,12 +106,12 @@ async function suggestFromRegistry(
   toolPath: string,
 ): Promise<string[]> {
   const term = toolPath.split(".").filter(Boolean).join(" ");
-  const hits = await ctx.runQuery(internal.toolRegistry.searchTools, {
+  const hits = await searchRegistryEntries(ctx, {
     workspaceId,
     buildId,
     query: term,
     limit: 3,
-  }) as Array<{ preferredPath: string }>;
+  });
   return hits.map((hit) => hit.preferredPath);
 }
 
@@ -114,20 +145,20 @@ export async function resolveToolForCall(
   });
 
   let resolvedToolPath = toolPath;
-  let entry = await ctx.runQuery(internal.toolRegistry.getToolByPath, {
+  let entry = await getRegistryToolByPath(ctx, {
     workspaceId: task.workspaceId,
     buildId,
     path: toolPath,
-  }) as null | { path: string; serializedToolJson: string };
+  });
 
   if (!entry) {
     const normalized = normalizeToolPathForLookup(toolPath);
-    const hits = await ctx.runQuery(internal.toolRegistry.getToolsByNormalizedPath, {
+    const hits = await getRegistryToolsByNormalizedPath(ctx, {
       workspaceId: task.workspaceId,
       buildId,
       normalizedPath: normalized,
       limit: 5,
-    }) as Array<{ path: string; serializedToolJson: string }>;
+    });
 
     if (hits.length > 0) {
       // Prefer exact match on preferred path formatting, otherwise shortest canonical path.

@@ -3,8 +3,8 @@
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { resolveCredentialPayload } from "../../../core/src/credential-providers";
-import { APPROVAL_DENIED_PREFIX } from "../../../core/src/execution-constants";
 import type { ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../../core/src/types";
+import { ToolCallControlError } from "../../../core/src/tool-call-control";
 import { asPayload } from "../lib/object";
 
 export async function resolveCredentialHeaders(
@@ -72,6 +72,9 @@ export function assertPersistedCallRunnable(persistedCall: ToolCallRecord, callI
   }
 
   if (persistedCall.status === "denied") {
-    throw new Error(`${APPROVAL_DENIED_PREFIX}${persistedCall.error ?? persistedCall.toolPath}`);
+    throw new ToolCallControlError({
+      kind: "approval_denied",
+      reason: persistedCall.error ?? persistedCall.toolPath,
+    });
   }
 }

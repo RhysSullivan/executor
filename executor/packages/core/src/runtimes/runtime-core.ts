@@ -4,9 +4,10 @@
 // string version of similar logic, built from sandbox-fragments.ts. Changes to
 // the core helpers here (createToolsProxy, console proxy, execution
 // loop, result mapping) should be mirrored there.
-import { APPROVAL_DENIED_PREFIX, TASK_TIMEOUT_MARKER } from "../execution-constants";
+import { TASK_TIMEOUT_MARKER } from "../execution-constants";
 import { Result } from "better-result";
 import { Script, createContext } from "node:vm";
+import { decodeToolCallControlSignal, ToolCallControlError } from "../tool-call-control";
 import type {
   ExecutionAdapter,
   SandboxExecutionRequest,
@@ -91,7 +92,10 @@ function createToolsProxy(
             retryDelayMs = clampRetryDelayMs(retryDelayMs * RETRY_BACKOFF_MULTIPLIER);
             continue;
           case "denied":
-            throw new Error(`${APPROVAL_DENIED_PREFIX}${result.error}`);
+            throw new ToolCallControlError({
+              kind: "approval_denied",
+              reason: result.error,
+            });
           case "failed":
           default:
             throw new Error(result.error);
@@ -115,10 +119,11 @@ function classifyExecutionError(
     };
   }
 
-  if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
+  const controlSignal = decodeToolCallControlSignal(error);
+  if (controlSignal?.kind === "approval_denied") {
     return {
       status: "denied",
-      message: message.replace(APPROVAL_DENIED_PREFIX, "").trim(),
+      message: controlSignal.reason,
     };
   }
 

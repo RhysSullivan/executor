@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { APPROVAL_DENIED_PREFIX } from "../../../execution-constants";
+import { ToolCallControlError } from "../../../tool-call-control";
 import { InProcessExecutionAdapter } from "./execution-adapter";
 
 test("returns run mismatch without invoking tool", async () => {
@@ -30,7 +30,10 @@ test("maps approval denied errors to denied result", async () => {
   const adapter = new InProcessExecutionAdapter({
     runId: "run_1",
     invokeTool: async () => {
-      throw new Error(`${APPROVAL_DENIED_PREFIX}approval required`);
+      throw new ToolCallControlError({
+        kind: "approval_denied",
+        reason: "approval required",
+      });
     },
   });
 

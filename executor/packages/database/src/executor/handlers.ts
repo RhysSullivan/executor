@@ -19,6 +19,61 @@ type TaskCreateContext = Pick<MutationCtx, "runMutation"> & {
   scheduler?: Pick<MutationCtx, "scheduler">["scheduler"];
 };
 
+async function createTaskDocument(
+  ctx: TaskCreateContext,
+  internal: Internal,
+  args: {
+    id: string;
+    code: string;
+    runtimeId: string;
+    timeoutMs: number;
+    metadata?: unknown;
+    workspaceId: Id<"workspaces">;
+    actorId: string;
+    clientId?: string;
+  },
+): Promise<TaskRecord> {
+  return await ctx.runMutation(internal.database.createTask, args) as TaskRecord;
+}
+
+async function resolveApprovalDocument(
+  ctx: MutationCtx,
+  internal: Internal,
+  args: {
+    approvalId: string;
+    decision: "approved" | "denied";
+    reviewerId?: string;
+    reason?: string;
+  },
+): Promise<ApprovalRecord | null> {
+  return await ctx.runMutation(internal.database.resolveApproval, args) as ApprovalRecord | null;
+}
+
+async function getTaskById(
+  ctx: Pick<MutationCtx, "runQuery">,
+  internal: Internal,
+  taskId: string,
+): Promise<TaskRecord | null> {
+  return await ctx.runQuery(internal.database.getTask, { taskId }) as TaskRecord | null;
+}
+
+async function createTaskInternal(
+  ctx: Pick<ActionCtx, "runMutation">,
+  internal: Internal,
+  args: {
+    code: string;
+    timeoutMs?: number;
+    runtimeId?: string;
+    metadata?: unknown;
+    workspaceId: Id<"workspaces">;
+    actorId: string;
+    clientId?: string;
+    scheduleAfterCreate?: boolean;
+  },
+): Promise<{ task: TaskRecord }> {
+  return await ctx.runMutation(internal.executor.createTaskInternal, args) as { task: TaskRecord };
+}
+
 async function createTaskRecord(
   ctx: TaskCreateContext,
   internal: Internal,
@@ -46,7 +101,7 @@ async function createTaskRecord(
   }
 
   const taskId = `task_${crypto.randomUUID()}`;
-  const task = (await ctx.runMutation(internal.database.createTask, {
+  const task = await createTaskDocument(ctx, internal, {
     id: taskId,
     code: args.code,
     runtimeId,
@@ -55,7 +110,7 @@ async function createTaskRecord(
     workspaceId: args.workspaceId,
     actorId: args.actorId,
     clientId: args.clientId,
-  })) as TaskRecord;
+  });
 
   await createTaskEvent(ctx, {
     taskId,
@@ -113,12 +168,12 @@ async function resolveApprovalRecord(
     return null;
   }
 
-  const approval = (await ctx.runMutation(internal.database.resolveApproval, {
+  const approval = await resolveApprovalDocument(ctx, internal, {
     approvalId: args.approvalId,
     decision: args.decision,
     reviewerId: args.reviewerId,
     reason: args.reason,
-  })) as ApprovalRecord | null;
+  });
   if (!approval) {
     return null;
   }
@@ -138,9 +193,7 @@ async function resolveApprovalRecord(
     },
   });
 
-  const task = (await ctx.runQuery(internal.database.getTask, {
-    taskId: approval.taskId,
-  })) as TaskRecord | null;
+  const task = await getTaskById(ctx, internal, approval.taskId);
   if (!task) {
     throw new Error(`Task ${approval.taskId} missing while resolving approval`);
   }
@@ -172,7 +225,7 @@ export async function createTaskHandler(
   assertMatchesCanonicalActorId(args.actorId, canonicalActorId);
 
   const waitForResult = args.waitForResult ?? false;
-  const created = await ctx.runMutation(internal.executor.createTaskInternal, {
+  const created = await createTaskInternal(ctx, internal, {
     code: args.code,
     timeoutMs: args.timeoutMs,
     runtimeId: args.runtimeId,
@@ -184,7 +237,7 @@ export async function createTaskHandler(
   });
 
   if (!waitForResult) {
-    return { task: created.task as TaskRecord };
+    return { task: created.task };
   }
 
   const runOutcome = await ctx.runAction(internal.executorNode.runTask, {
@@ -225,7 +278,10 @@ export async function createTaskInternalHandler(
 }
 
 export async function resolveApprovalHandler(
-  ctx: unknown,
+  ctx: MutationCtx & {
+    account: { _id: string; provider: string; providerAccountId: string };
+    workspaceId: Id<"workspaces">;
+  },
   internal: Internal,
   args: {
     approvalId: string;
@@ -234,17 +290,12 @@ export async function resolveApprovalHandler(
     reason?: string;
   },
 ): Promise<{ approval: ApprovalRecord; task: TaskRecord } | null> {
-  const typedCtx = ctx as MutationCtx & {
-    account: { _id: string; provider: string; providerAccountId: string };
-    workspaceId: Id<"workspaces">;
-  };
-
-  const canonicalActorId = actorIdForAccount(typedCtx.account);
+  const canonicalActorId = actorIdForAccount(ctx.account);
   assertMatchesCanonicalActorId(args.reviewerId, canonicalActorId, "reviewerId");
 
-  return await resolveApprovalRecord(typedCtx, internal, {
+  return await resolveApprovalRecord(ctx, internal, {
     ...args,
-    workspaceId: typedCtx.workspaceId,
+    workspaceId: ctx.workspaceId,
     reviewerId: canonicalActorId,
   });
 }
@@ -274,7 +325,7 @@ export async function completeRuntimeRunHandler(
     durationMs?: number;
   },
 ) {
-  const task = (await ctx.runQuery(internal.database.getTask, { taskId: args.runId })) as TaskRecord | null;
+  const task = await getTaskById(ctx, internal, args.runId);
   if (!task) {
     return { ok: false as const, error: `Run not found: ${args.runId}` };
   }

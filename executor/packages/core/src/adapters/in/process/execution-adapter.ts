@@ -1,4 +1,4 @@
-import { APPROVAL_DENIED_PREFIX, APPROVAL_PENDING_PREFIX } from "../../../execution-constants";
+import { decodeToolCallControlSignal } from "../../../tool-call-control";
 import type {
   ExecutionAdapter,
   ToolCallRequest,
@@ -27,24 +27,26 @@ export class InProcessExecutionAdapter implements ExecutionAdapter {
       const value = await this.options.invokeTool(call);
       return { ok: true, value };
     } catch (error) {
-      const message = describeError(error);
-      if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
+      const controlSignal = decodeToolCallControlSignal(error);
+      if (controlSignal?.kind === "approval_denied") {
         return {
           ok: false,
           kind: "denied",
-          error: message.replace(APPROVAL_DENIED_PREFIX, "").trim(),
+          error: controlSignal.reason,
         };
       }
 
-      if (message.startsWith(APPROVAL_PENDING_PREFIX)) {
+      if (controlSignal?.kind === "approval_pending") {
         return {
           ok: false,
           kind: "pending",
-          approvalId: message.replace(APPROVAL_PENDING_PREFIX, "").trim(),
+          approvalId: controlSignal.approvalId,
           retryAfterMs: 500,
           error: "Approval pending",
         };
       }
+
+      const message = describeError(error);
 
       return {
         ok: false,

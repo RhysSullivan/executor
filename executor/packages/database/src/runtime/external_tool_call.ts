@@ -2,10 +2,14 @@
 
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
-import { APPROVAL_DENIED_PREFIX, APPROVAL_PENDING_PREFIX } from "../../../core/src/execution-constants";
 import type { TaskRecord, ToolCallResult } from "../../../core/src/types";
+import { decodeToolCallControlSignal } from "../../../core/src/tool-call-control";
 import { describeError } from "../../../core/src/utils";
 import { invokeTool } from "./tool_invocation";
+
+async function getTaskById(ctx: ActionCtx, taskId: string): Promise<TaskRecord | null> {
+  return await ctx.runQuery(internal.database.getTask, { taskId }) as TaskRecord | null;
+}
 
 export async function handleExternalToolCallRequest(
   ctx: ActionCtx,
@@ -16,9 +20,7 @@ export async function handleExternalToolCallRequest(
     input?: unknown;
   },
 ): Promise<ToolCallResult> {
-  const task = (await ctx.runQuery(internal.database.getTask, {
-    taskId: args.runId,
-  })) as TaskRecord | null;
+  const task = await getTaskById(ctx, args.runId);
   if (!task) {
     return {
       ok: false,
@@ -36,24 +38,25 @@ export async function handleExternalToolCallRequest(
     });
     return { ok: true, value };
   } catch (error) {
-    const message = describeError(error);
-    if (message.startsWith(APPROVAL_PENDING_PREFIX)) {
-      const approvalId = message.replace(APPROVAL_PENDING_PREFIX, "").trim();
+    const controlSignal = decodeToolCallControlSignal(error);
+    if (controlSignal?.kind === "approval_pending") {
       return {
         ok: false,
         kind: "pending",
-        approvalId,
+        approvalId: controlSignal.approvalId,
         retryAfterMs: 0,
         error: "Approval pending",
       };
     }
-    if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
+    if (controlSignal?.kind === "approval_denied") {
       return {
         ok: false,
         kind: "denied",
-        error: message.replace(APPROVAL_DENIED_PREFIX, "").trim(),
+        error: controlSignal.reason,
       };
     }
+
+    const message = describeError(error);
 
     return {
       ok: false,

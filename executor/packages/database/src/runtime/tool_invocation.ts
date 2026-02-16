@@ -2,10 +2,6 @@
 
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
-import {
-  APPROVAL_DENIED_PREFIX,
-  APPROVAL_PENDING_PREFIX,
-} from "../../../core/src/execution-constants";
 import type {
   AccessPolicyRecord,
   PolicyDecision,
@@ -17,6 +13,10 @@ import type {
   ToolRunContext,
 } from "../../../core/src/types";
 import { describeError } from "../../../core/src/utils";
+import {
+  decodeToolCallControlSignal,
+  ToolCallControlError,
+} from "../../../core/src/tool-call-control";
 import { asPayload } from "../lib/object";
 import { getToolDecision, getDecisionForContext } from "./policy";
 import { baseTools } from "./workspace_tools";
@@ -40,6 +40,45 @@ type RegistryToolEntry = {
   displayOutput?: string;
 };
 
+async function upsertRequestedToolCall(
+  ctx: ActionCtx,
+  args: { taskId: string; callId: string; workspaceId: TaskRecord["workspaceId"]; toolPath: string },
+): Promise<ToolCallRecord> {
+  return await ctx.runMutation(internal.database.upsertToolCallRequested, args) as ToolCallRecord;
+}
+
+async function listWorkspaceAccessPolicies(
+  ctx: ActionCtx,
+  workspaceId: TaskRecord["workspaceId"],
+): Promise<AccessPolicyRecord[]> {
+  return await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId }) as AccessPolicyRecord[];
+}
+
+async function listRegistryNamespaces(
+  ctx: ActionCtx,
+  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; limit: number },
+): Promise<Array<{ namespace: string; toolCount: number; samplePaths: string[] }>> {
+  return await ctx.runQuery(internal.toolRegistry.listNamespaces, args) as Array<{
+    namespace: string;
+    toolCount: number;
+    samplePaths: string[];
+  }>;
+}
+
+async function searchRegistryTools(
+  ctx: ActionCtx,
+  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
+): Promise<RegistryToolEntry[]> {
+  return await ctx.runQuery(internal.toolRegistry.searchTools, args) as RegistryToolEntry[];
+}
+
+async function listRegistryToolsByNamespace(
+  ctx: ActionCtx,
+  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; namespace: string; limit: number },
+): Promise<RegistryToolEntry[]> {
+  return await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, args) as RegistryToolEntry[];
+}
+
 async function denyToolCallForApproval(
   ctx: ActionCtx,
   args: {
@@ -61,18 +100,17 @@ async function denyToolCallForApproval(
 
 export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
   const { toolPath, input, callId } = call;
-  const persistedCall = (await ctx.runMutation(internal.database.upsertToolCallRequested, {
+  const persistedCall = await upsertRequestedToolCall(ctx, {
     taskId: task.id,
     callId,
     workspaceId: task.workspaceId,
     toolPath,
-  })) as ToolCallRecord;
+  });
   assertPersistedCallRunnable(persistedCall, callId);
 
   let effectiveToolPath = toolPath;
   try {
-    const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId: task.workspaceId });
-    const typedPolicies = policies as AccessPolicyRecord[];
+    const typedPolicies = await listWorkspaceAccessPolicies(ctx, task.workspaceId);
     const finalizeImmediateTool = async (value: unknown): Promise<unknown> => {
       if (persistedCall.status === "requested") {
         await publishTaskEvent(ctx, task.id, "task", "tool.call.started", {
@@ -92,7 +130,6 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
     // Fast system tools are handled server-side from the registry.
     if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
-      const toolRegistry = internal.toolRegistry;
       const buildId = await getReadyRegistryBuildId(ctx, {
         workspaceId: task.workspaceId,
         actorId: task.actorId,
@@ -124,11 +161,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
       if (toolPath === "catalog.namespaces") {
         const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 200)));
-        const namespaces = await ctx.runQuery(toolRegistry.listNamespaces, {
+        const namespaces = await listRegistryNamespaces(ctx, {
           workspaceId: task.workspaceId,
           buildId,
           limit,
-        }) as Array<{ namespace: string; toolCount: number; samplePaths: string[] }>;
+        });
         return await finalizeImmediateTool({ namespaces, total: namespaces.length });
       }
 
@@ -138,14 +175,14 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         const limit = Math.max(1, Math.min(200, Number(payload.limit ?? 50)));
 
         const raw = query
-          ? await ctx.runQuery(toolRegistry.searchTools, {
+          ? await searchRegistryTools(ctx, {
               workspaceId: task.workspaceId,
               buildId,
               query,
               limit,
             })
           : namespace
-            ? await ctx.runQuery(toolRegistry.listToolsByNamespace, {
+            ? await listRegistryToolsByNamespace(ctx, {
                 workspaceId: task.workspaceId,
                 buildId,
                 namespace,
@@ -153,7 +190,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
               })
             : [];
 
-        const results = (raw as RegistryToolEntry[])
+        const results = raw
           .filter((entry) => !namespace || String(entry.preferredPath ?? entry.path ?? "").toLowerCase().startsWith(`${namespace}.`))
           .filter((entry) => isAllowed(entry.path, entry.approval))
           .slice(0, limit)
@@ -177,12 +214,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       const query = String(payload.query ?? "").trim();
       const limit = Math.max(1, Math.min(50, Number(payload.limit ?? 8)));
       const compact = payload.compact === false ? false : true;
-      const hits = await ctx.runQuery(toolRegistry.searchTools, {
+      const hits = await searchRegistryTools(ctx, {
         workspaceId: task.workspaceId,
         buildId,
         query,
         limit: Math.max(limit * 2, limit),
-      }) as RegistryToolEntry[];
+      });
 
       const filtered = hits
         .filter((entry) => isAllowed(entry.path, entry.approval))
@@ -269,7 +306,10 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       }
 
       if (existingApproval.status === "pending") {
-        throw new Error(`${APPROVAL_PENDING_PREFIX}${existingApproval.id}`);
+        throw new ToolCallControlError({
+          kind: "approval_pending",
+          approvalId: existingApproval.id,
+        });
       }
 
       if (existingApproval.status === "denied") {
@@ -315,7 +355,10 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       });
 
       if (approval.status === "pending") {
-        throw new Error(`${APPROVAL_PENDING_PREFIX}${approval.id}`);
+        throw new ToolCallControlError({
+          kind: "approval_pending",
+          approvalId: approval.id,
+        });
       }
 
       if (approval.status === "denied") {
@@ -346,11 +389,9 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     return value;
   } catch (error) {
     const message = describeError(error);
-    const isApprovalControlSignal =
-      message.startsWith(APPROVAL_PENDING_PREFIX) ||
-      message.startsWith(APPROVAL_DENIED_PREFIX);
+    const controlSignal = decodeToolCallControlSignal(error);
 
-    if (!isApprovalControlSignal) {
+    if (!controlSignal) {
       await failToolCall(ctx, {
         taskId: task.id,
         callId,
