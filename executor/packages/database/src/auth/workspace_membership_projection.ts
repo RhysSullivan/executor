@@ -26,7 +26,7 @@ async function upsertWorkspaceMembership(
   const existing = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_workspace_account", (q) => q.eq("workspaceId", args.workspaceId).eq("accountId", args.accountId))
-    .first();
+    .unique();
 
   if (existing) {
     await ctx.db.patch(existing._id, {

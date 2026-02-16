@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { mapApproval } from "../../src/database/mappers";
 import { getApprovalDoc, getTaskDoc } from "../../src/database/readers";
-import { approvalStatusValidator } from "../../src/database/validators";
+import { approvalStatusValidator, jsonObjectValidator } from "../../src/database/validators";
 import type { TaskStatus } from "../../../core/src/types";
 
 export const createApproval = internalMutation({
@@ -10,7 +10,7 @@ export const createApproval = internalMutation({
     id: v.string(),
     taskId: v.string(),
     toolPath: v.string(),
-    input: v.optional(v.any()),
+    input: v.optional(jsonObjectValidator),
   },
   handler: async (ctx, args) => {
     const existing = await getApprovalDoc(ctx, args.id);

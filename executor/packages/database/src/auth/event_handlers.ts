@@ -319,7 +319,7 @@ export const workosEventHandlers = {
     const existingOrgMembership = await ctx.db
       .query("organizationMembers")
       .withIndex("by_org_account", (q) => q.eq("organizationId", organization._id).eq("accountId", account._id))
-      .first();
+      .unique();
 
     await upsertOrganizationMembership(ctx, {
       organizationId: organization._id,

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { getTaskDoc, mapTaskEvent } from "../../src/database/readers";
+import { jsonObjectValidator } from "../../src/database/validators";
 import { asRecord } from "../../src/lib/object";
 
 export const createTaskEvent = internalMutation({
@@ -8,7 +9,7 @@ export const createTaskEvent = internalMutation({
     taskId: v.string(),
     eventName: v.string(),
     type: v.string(),
-    payload: v.any(),
+    payload: jsonObjectValidator,
   },
   handler: async (ctx, args) => {
     const task = await getTaskDoc(ctx, args.taskId);
@@ -16,14 +17,16 @@ export const createTaskEvent = internalMutation({
       throw new Error(`Task not found for event: ${args.taskId}`);
     }
 
-    const latest = await ctx.db
-      .query("taskEvents")
-      .withIndex("by_task_sequence", (q) => q.eq("taskId", args.taskId))
-      .order("desc")
-      .first();
-
-    const sequence = latest ? latest.sequence + 1 : 1;
+    const currentSequence = typeof (task as { nextEventSequence?: unknown }).nextEventSequence === "number"
+      ? (task as { nextEventSequence: number }).nextEventSequence
+      : 0;
+    const sequence = currentSequence + 1;
     const createdAt = Date.now();
+
+    await ctx.db.patch(task._id, {
+      nextEventSequence: sequence,
+      updatedAt: createdAt,
+    } as any);
 
     await ctx.db.insert("taskEvents", {
       sequence,

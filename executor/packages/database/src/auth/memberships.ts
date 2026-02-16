@@ -34,7 +34,7 @@ export async function upsertOrganizationMembership(
   const existing = await ctx.db
     .query("organizationMembers")
     .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
-    .first();
+    .unique();
 
   if (existing) {
     await ctx.db.patch(existing._id, {

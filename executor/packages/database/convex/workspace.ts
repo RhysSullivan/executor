@@ -5,6 +5,7 @@ import { workspaceMutation, workspaceQuery } from "../../core/src/function-build
 import {
   credentialProviderValidator,
   credentialScopeValidator,
+  jsonObjectValidator,
   policyDecisionValidator,
   toolSourceTypeValidator,
 } from "../src/database/validators";
@@ -73,8 +74,8 @@ export const upsertCredential = workspaceMutation({
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
     provider: v.optional(credentialProviderValidator),
-    secretJson: v.any(),
-    overridesJson: v.optional(v.any()),
+    secretJson: jsonObjectValidator,
+    overridesJson: v.optional(jsonObjectValidator),
   },
   handler: async (ctx, args) => {
     return await ctx.runMutation(internal.database.upsertCredential, {
@@ -123,7 +124,7 @@ export const upsertToolSource = workspaceMutation({
     id: v.optional(v.string()),
     name: v.string(),
     type: toolSourceTypeValidator,
-    config: v.any(),
+    config: jsonObjectValidator,
     enabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {

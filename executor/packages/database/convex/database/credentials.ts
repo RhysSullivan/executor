@@ -5,8 +5,22 @@ import { computeBoundAuthFingerprint } from "../../src/database/readers";
 import {
   credentialProviderValidator,
   credentialScopeValidator,
+  jsonObjectValidator,
 } from "../../src/database/validators";
 import { asRecord } from "../../src/lib/object";
+
+function scopeKeyForCredential(scope: "workspace" | "actor", actorId?: string): string {
+  if (scope === "workspace") {
+    return "workspace";
+  }
+
+  const normalizedActorId = actorId?.trim();
+  if (!normalizedActorId) {
+    throw new Error("actorId is required for actor-scoped credentials");
+  }
+
+  return `actor:${normalizedActorId}`;
+}
 
 export const upsertCredential = internalMutation({
   args: {
@@ -16,23 +30,23 @@ export const upsertCredential = internalMutation({
     scope: credentialScopeValidator,
     actorId: v.optional(v.string()),
     provider: v.optional(credentialProviderValidator),
-    secretJson: v.any(),
-    overridesJson: v.optional(v.any()),
+    secretJson: jsonObjectValidator,
+    overridesJson: v.optional(jsonObjectValidator),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const actorId = args.scope === "actor" ? (args.actorId?.trim() || "") : "";
+    const actorId = args.scope === "actor" ? args.actorId?.trim() : undefined;
+    const scopeKey = scopeKeyForCredential(args.scope, actorId);
     const submittedSecret = asRecord(args.secretJson);
     const hasSubmittedSecret = Object.keys(submittedSecret).length > 0;
 
     const existing = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_actor", (q) =>
+      .withIndex("by_workspace_source_scope_key", (q) =>
         q
           .eq("workspaceId", args.workspaceId)
           .eq("sourceKey", args.sourceKey)
-          .eq("scope", args.scope)
-          .eq("actorId", actorId),
+          .eq("scopeKey", scopeKey),
       )
       .unique();
 
@@ -90,6 +104,8 @@ export const upsertCredential = internalMutation({
         provider,
         secretJson: finalSecret,
         overridesJson,
+        scopeKey,
+        actorId,
         boundAuthFingerprint,
         updatedAt: now,
       });
@@ -100,6 +116,7 @@ export const upsertCredential = internalMutation({
         workspaceId: args.workspaceId,
         sourceKey: args.sourceKey,
         scope: args.scope,
+        scopeKey,
         actorId,
         provider,
         secretJson: finalSecret,
@@ -112,12 +129,11 @@ export const upsertCredential = internalMutation({
 
     const updated = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_actor", (q) =>
+      .withIndex("by_workspace_source_scope_key", (q) =>
         q
           .eq("workspaceId", args.workspaceId)
           .eq("sourceKey", args.sourceKey)
-          .eq("scope", args.scope)
-          .eq("actorId", actorId),
+          .eq("scopeKey", scopeKey),
       )
       .unique();
 
@@ -173,12 +189,11 @@ export const resolveCredential = internalQuery({
 
       const actorDoc = await ctx.db
         .query("sourceCredentials")
-        .withIndex("by_workspace_source_scope_actor", (q) =>
+        .withIndex("by_workspace_source_scope_key", (q) =>
           q
             .eq("workspaceId", args.workspaceId)
             .eq("sourceKey", args.sourceKey)
-            .eq("scope", "actor")
-            .eq("actorId", actorId),
+            .eq("scopeKey", scopeKeyForCredential("actor", actorId)),
         )
         .unique();
 
@@ -187,12 +202,11 @@ export const resolveCredential = internalQuery({
 
     const workspaceDoc = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_workspace_source_scope_actor", (q) =>
+      .withIndex("by_workspace_source_scope_key", (q) =>
         q
           .eq("workspaceId", args.workspaceId)
           .eq("sourceKey", args.sourceKey)
-          .eq("scope", "workspace")
-          .eq("actorId", ""),
+          .eq("scopeKey", scopeKeyForCredential("workspace")),
       )
       .unique();
 

@@ -18,6 +18,7 @@ import {
 } from "../src/runtime/workspace_tools";
 import { runQueuedTask } from "../src/runtime/task_runner";
 import { handleExternalToolCallRequest } from "../src/runtime/external_tool_call";
+import { jsonObjectValidator } from "../src/database/validators";
 
 export const listToolsWithWarnings = action({
   args: {
@@ -111,7 +112,7 @@ export const handleExternalToolCall = internalAction({
     runId: v.string(),
     callId: v.string(),
     toolPath: v.string(),
-    input: v.optional(v.any()),
+    input: v.optional(jsonObjectValidator),
   },
   handler: async (ctx, args): Promise<ToolCallResult> => await handleExternalToolCallRequest(ctx, args),
 });
