@@ -176,7 +176,10 @@ export async function resolveToolForCall(
     return Result.err(new Error(unknownToolErrorMessage(toolPath, suggestions)));
   }
 
-  const serializedResult = Result.try(() => JSON.parse(entry.serializedToolJson) as SerializedTool);
+  const serializedResult = Result.try(() => {
+    const serialized: SerializedTool = JSON.parse(entry.serializedToolJson);
+    return serialized;
+  });
   if (serializedResult.isErr()) {
     return Result.err(
       new Error(`Failed to parse tool registry entry '${resolvedToolPath}': ${serializedResult.error.message}`),
