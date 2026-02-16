@@ -1,9 +1,10 @@
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Loader2, Plus } from "lucide-react";
 import { Streamdown } from "streamdown";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -14,8 +15,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
 import {
-  endpointLabelForType,
-  endpointPlaceholderForType,
   type SourceCatalogSort,
   type SourceType,
 } from "./dialog-helpers";
@@ -138,10 +137,18 @@ export function CatalogViewSection({
   );
 }
 
+const TYPE_LABELS: Record<SourceType, string> = {
+  mcp: "MCP Server",
+  openapi: "OpenAPI",
+  graphql: "GraphQL",
+};
+
 export function CustomViewSection({
   type,
   onTypeChange,
   typeDisabled = false,
+  typeDetectionStatus = "idle",
+  typeExplicitlySet = true,
   endpoint,
   onEndpointChange,
   name,
@@ -159,10 +166,13 @@ export function CustomViewSection({
   onBackToCatalog,
   onSubmit,
   children,
+  sourceInfoLoading = false,
 }: {
   type: SourceType;
   onTypeChange: (value: SourceType) => void;
   typeDisabled?: boolean;
+  typeDetectionStatus?: "idle" | "detecting" | "detected" | "error";
+  typeExplicitlySet?: boolean;
   endpoint: string;
   onEndpointChange: (value: string) => void;
   name: string;
@@ -180,7 +190,15 @@ export function CustomViewSection({
   onBackToCatalog?: () => void;
   onSubmit: () => void;
   children?: ReactNode;
+  /** True while spec/OAuth detection is in progress */
+  sourceInfoLoading?: boolean;
 }) {
+  // The type has been resolved (either explicitly set or auto-detected)
+  const typeResolved = typeExplicitlySet || typeDetectionStatus === "detected";
+  const detectingType = typeDetectionStatus === "detecting";
+  const showRestOfForm = typeResolved || typeDisabled;
+  const hasEndpoint = endpoint.trim().length > 0;
+
   return (
     <div className="space-y-3">
       {showBackToCatalog && onBackToCatalog ? (
@@ -190,84 +208,155 @@ export function CustomViewSection({
         </Button>
       ) : null}
 
+      {/* URL is always the first field */}
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Type</Label>
-        <Select value={type} onValueChange={(value) => onTypeChange(value as SourceType)} disabled={typeDisabled}>
-          <SelectTrigger className="h-8 text-xs bg-background">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="mcp" className="text-xs">MCP Server</SelectItem>
-            <SelectItem value="openapi" className="text-xs">OpenAPI Spec</SelectItem>
-            <SelectItem value="graphql" className="text-xs">GraphQL</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">{endpointLabelForType(type)}</Label>
+        <Label className="text-xs text-muted-foreground">Endpoint URL</Label>
         <Input
           value={endpoint}
           onChange={(event) => onEndpointChange(event.target.value)}
-          placeholder={endpointPlaceholderForType(type)}
+          placeholder="https://api.example.com/openapi.json"
           className="h-8 text-xs font-mono bg-background"
+          autoFocus={!typeDisabled}
         />
       </div>
 
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Name</Label>
-        <Input
-          value={name}
-          onChange={(event) => onNameChange(event.target.value)}
-          placeholder="e.g. my-service"
-          className="h-8 text-xs font-mono bg-background"
-        />
-      </div>
+      {/* Type detection feedback — inline after URL */}
+      {endpoint.trim().length > 0 && !typeExplicitlySet && !typeDisabled ? (
+        detectingType ? (
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Detecting source type…
+          </div>
+        ) : typeResolved ? (
+          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            Detected as <span className="font-medium text-foreground/80">{TYPE_LABELS[type]}</span>
+            <button
+              type="button"
+              onClick={() => onTypeChange(type)}
+              className="text-primary/70 hover:text-primary underline underline-offset-2 cursor-pointer"
+            >
+              change
+            </button>
+          </div>
+        ) : null
+      ) : null}
 
-      {type === "openapi" && (
+      {/* Type selector: shown as primary for editing, or as override when auto-detected */}
+      {typeDisabled ? (
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Base URL (optional)</Label>
-          <Input
-            value={baseUrl}
-            onChange={(event) => onBaseUrlChange(event.target.value)}
-            list={baseUrlOptions.length > 0 ? "openapi-base-url-options" : undefined}
-            placeholder="https://api.example.com"
-            className="h-8 text-xs font-mono bg-background"
-          />
-          {baseUrlOptions.length > 0 ? (
-            <datalist id="openapi-base-url-options">
-              {baseUrlOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-          ) : null}
-        </div>
-      )}
-
-      {type === "mcp" && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Transport</Label>
-          <Select
-            value={mcpTransport}
-            onValueChange={(value) => onMcpTransportChange(value as "auto" | "streamable-http" | "sse")}
-          >
+          <Label className="text-xs text-muted-foreground">Type</Label>
+          <Select value={type} disabled>
             <SelectTrigger className="h-8 text-xs bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto" className="text-xs">Auto (streamable, then SSE)</SelectItem>
-              <SelectItem value="streamable-http" className="text-xs">Streamable HTTP</SelectItem>
-              <SelectItem value="sse" className="text-xs">SSE</SelectItem>
+              <SelectItem value="mcp" className="text-xs">MCP Server</SelectItem>
+              <SelectItem value="openapi" className="text-xs">OpenAPI Spec</SelectItem>
+              <SelectItem value="graphql" className="text-xs">GraphQL</SelectItem>
             </SelectContent>
           </Select>
         </div>
-      )}
+      ) : typeExplicitlySet || (!endpoint.trim() && !typeDisabled) ? (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Type</Label>
+          <Select value={type} onValueChange={(value) => onTypeChange(value as SourceType)}>
+            <SelectTrigger className="h-8 text-xs bg-background">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="mcp" className="text-xs">MCP Server</SelectItem>
+              <SelectItem value="openapi" className="text-xs">OpenAPI Spec</SelectItem>
+              <SelectItem value="graphql" className="text-xs">GraphQL</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
 
-      {children}
+      {/* Auth fields — always available once URL is entered, even before type detection.
+          This lets users set credentials for auth-gated URLs so the type probe can retry. */}
+      {hasEndpoint ? children : null}
 
-      <Button onClick={onSubmit} disabled={submitDisabled} className="w-full h-9" size="sm">
-        {submitting ? submittingLabel ?? "Adding..." : submitLabel ?? "Add Source"}
-      </Button>
+      {/* Detecting type skeleton for remaining fields */}
+      {detectingType && !typeResolved ? (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Skeleton className="h-3 w-12 rounded" />
+            <Skeleton className="h-8 w-full rounded-md" />
+          </div>
+          <Skeleton className="h-9 w-full rounded-md" />
+        </div>
+      ) : null}
+
+      {/* Rest of the form — only shown after type is resolved */}
+      {showRestOfForm ? (
+        <>
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Name</Label>
+            <Input
+              value={name}
+              onChange={(event) => onNameChange(event.target.value)}
+              placeholder="e.g. my-service"
+              className="h-8 text-xs font-mono bg-background"
+            />
+          </div>
+
+          {type === "openapi" && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Base URL (optional)</Label>
+              {sourceInfoLoading ? (
+                <Skeleton className="h-8 w-full rounded-md" />
+              ) : (
+                <Input
+                  value={baseUrl}
+                  onChange={(event) => onBaseUrlChange(event.target.value)}
+                  list={baseUrlOptions.length > 0 ? "openapi-base-url-options" : undefined}
+                  placeholder="https://api.example.com"
+                  className="h-8 text-xs font-mono bg-background"
+                />
+              )}
+              {baseUrlOptions.length > 0 ? (
+                <datalist id="openapi-base-url-options">
+                  {baseUrlOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
+              ) : null}
+            </div>
+          )}
+
+          {type === "mcp" && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Transport</Label>
+              <Select
+                value={mcpTransport}
+                onValueChange={(value) => onMcpTransportChange(value as "auto" | "streamable-http" | "sse")}
+              >
+                <SelectTrigger className="h-8 text-xs bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto" className="text-xs">Auto (streamable, then SSE)</SelectItem>
+                  <SelectItem value="streamable-http" className="text-xs">Streamable HTTP</SelectItem>
+                  <SelectItem value="sse" className="text-xs">SSE</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <Button onClick={onSubmit} disabled={submitDisabled || sourceInfoLoading} className="w-full h-9" size="sm">
+            {submitting ? (
+              submittingLabel ?? "Adding..."
+            ) : sourceInfoLoading ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Detecting source info…
+              </span>
+            ) : (
+              submitLabel ?? "Add Source"
+            )}
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 }

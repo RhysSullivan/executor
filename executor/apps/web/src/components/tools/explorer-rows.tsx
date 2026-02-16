@@ -226,14 +226,42 @@ export function EmptyState({
   );
 }
 
+const SKELETON_TOOL_WIDTHS = [
+  [180, 140, 200, 120],
+  [160, 190, 130],
+  [170, 150],
+];
+
 export function LoadingState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full py-12 gap-2">
-      <div className="h-10 w-10 rounded-full bg-muted/50 flex items-center justify-center">
-        <Skeleton className="h-5 w-5 rounded-full" />
-      </div>
-      <p className="text-sm text-muted-foreground/70">Loading tools...</p>
-      <p className="text-[11px] text-muted-foreground/55">Fetching source inventories and tool names</p>
+    <div className="p-1 space-y-0.5">
+      {SKELETON_TOOL_WIDTHS.map((rowWidths, groupIdx) => (
+        <div key={groupIdx}>
+          {/* Source group header skeleton */}
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <Skeleton className="h-4 w-4 rounded" />
+            <Skeleton className="h-3 w-3" />
+            <Skeleton className="h-5 w-5 rounded" />
+            <Skeleton className="h-3.5 w-28" />
+            <div className="ml-auto">
+              <Skeleton className="h-3 w-8" />
+            </div>
+          </div>
+          {/* Tool row skeletons */}
+          {rowWidths.map((width, rowIdx) => (
+            <div
+              key={rowIdx}
+              className="flex items-center gap-2 px-2 py-1.5"
+              style={{ paddingLeft: "28px" }}
+            >
+              <Skeleton className="h-4 w-4 rounded" />
+              <Skeleton className="h-3 w-3" />
+              <Skeleton className="h-3 w-3" />
+              <Skeleton className="h-3.5" style={{ width: `${width}px` }} />
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

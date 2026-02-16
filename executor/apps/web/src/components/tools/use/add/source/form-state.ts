@@ -2,6 +2,7 @@ import { useDeferredValue, useEffect, useMemo, useState, type Dispatch, type Set
 import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { fetchAndInspectOpenApiSpec, type InferredSpecAuth } from "@/lib/openapi/spec-inspector";
+import { detectSourceType } from "@/lib/tools/detect-source-type";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
 import { catalogSourceName, inferNameFromUrl, sourceKeyForSource, withUniqueSourceName } from "@/lib/tools/source-helpers";
 import type { CredentialRecord, CredentialScope, SourceAuthType, ToolSourceRecord } from "@/lib/types";
@@ -194,6 +195,12 @@ export function useAddSourceFormState({
     form.setValue("endpoint", endpoint, { shouldDirty: true, shouldTouch: true });
     patchUi(setUi, { mcpOAuthLinkedEndpoint: null });
 
+    // If type was auto-detected, allow re-detection on URL change
+    if (!ui.typeExplicitlySet) {
+      // Name inference will happen in the type detection effect
+      return;
+    }
+
     if (values.type === "openapi") {
       const inferredBaseUrl = deriveBaseUrlFromEndpoint(endpoint);
       patchUi(setUi, {
@@ -233,6 +240,7 @@ export function useAddSourceFormState({
     });
     patchUiWithAuthRevision(setUi, {
       view: "custom",
+      typeExplicitlySet: true,
       openApiBaseUrlOptions: sourceType === "openapi" && defaultBaseUrl ? [defaultBaseUrl] : [],
       authManuallyEdited: false,
     });
@@ -240,10 +248,12 @@ export function useAddSourceFormState({
 
   const handleTypeChange = (type: SourceType) => {
     form.setValue("type", type, { shouldDirty: true, shouldTouch: true });
+    patchUi(setUi, { typeExplicitlySet: true });
 
     if (type === "openapi") {
       const inferredBaseUrl = deriveBaseUrlFromEndpoint(values.endpoint);
       patchUi(setUi, {
+        typeExplicitlySet: true,
         openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
         authManuallyEdited: false,
         mcpOAuthLinkedEndpoint: null,
@@ -255,6 +265,7 @@ export function useAddSourceFormState({
     }
 
     patchUiWithAuthRevision(setUi, {
+      typeExplicitlySet: true,
       openApiBaseUrlOptions: [],
       authManuallyEdited: false,
       mcpOAuthLinkedEndpoint: null,
@@ -356,9 +367,99 @@ export function useAddSourceFormState({
     return {};
   };
 
+  // ── Source type auto-detection ──
+
+  const detectionEndpoint = useDeferredValue(values.endpoint.trim());
+
+  const typeDetectionEnabled = open
+    && ui.view === "custom"
+    && !ui.typeExplicitlySet
+    && !editing
+    && detectionEndpoint.length > 0;
+
+  const typeDetectionQuery = useTanstackQuery({
+    queryKey: ["source-type-detect", detectionEndpoint, ui.authRevision],
+    queryFn: () => detectSourceType(detectionEndpoint, { headers: buildSpecFetchHeaders() }),
+    enabled: typeDetectionEnabled,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const typeDetectionStatus: "idle" | "detecting" | "detected" | "error" =
+    !typeDetectionEnabled
+      ? "idle"
+      : typeDetectionQuery.isFetching
+        ? "detecting"
+        : typeDetectionQuery.data
+          ? "detected"
+          : typeDetectionQuery.isError
+            ? "error"
+            : "idle";
+
+  // Auto-set the type when detection succeeds
+  useEffect(() => {
+    if (!typeDetectionEnabled || !typeDetectionQuery.data) {
+      return;
+    }
+    const detected = typeDetectionQuery.data.type;
+    if (values.type !== detected) {
+      form.setValue("type", detected, { shouldDirty: false, shouldTouch: false });
+
+      // Trigger the same side-effects as handleTypeChange but without marking as explicitly set
+      if (detected === "openapi") {
+        const inferredBaseUrl = deriveBaseUrlFromEndpoint(values.endpoint);
+        patchUi(setUi, {
+          openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
+          authManuallyEdited: false,
+          mcpOAuthLinkedEndpoint: null,
+        });
+        if (!baseUrlManuallyEdited) {
+          form.setValue("baseUrl", inferredBaseUrl, { shouldDirty: false, shouldTouch: false });
+        }
+      } else {
+        patchUi(setUi, {
+          openApiBaseUrlOptions: [],
+          mcpOAuthLinkedEndpoint: null,
+          // Preserve authManuallyEdited — user may have set credentials before detection
+        });
+        // Only reset auth fields if the user hasn't manually edited them
+        if (!ui.authManuallyEdited) {
+          patchUi(setUi, { authManuallyEdited: false });
+          form.setValue("authType", "none", { shouldDirty: false, shouldTouch: false });
+          form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
+        }
+      }
+    }
+
+    // Also infer name from URL if not already set
+    if (!nameManuallyEdited) {
+      const inferredName = inferNameFromUrl(detectionEndpoint);
+      if (inferredName && values.name !== inferredName) {
+        form.setValue("name", inferredName, { shouldDirty: false, shouldTouch: false });
+      }
+    }
+  }, [
+    typeDetectionEnabled,
+    typeDetectionQuery.data,
+    baseUrlManuallyEdited,
+    detectionEndpoint,
+    form,
+    nameManuallyEdited,
+    ui.authManuallyEdited,
+    values.endpoint,
+    values.name,
+    values.type,
+  ]);
+
+  // Type is "resolved" when explicitly set by the user/catalog, or auto-detected from the URL.
+  // Type-specific queries (spec inspection, MCP OAuth) should only fire after resolution,
+  // not when the type is merely the default "mcp" during detection.
+  const typeIsResolved = ui.typeExplicitlySet || typeDetectionStatus === "detected" || editing;
+
   const inspectionEndpoint = useDeferredValue(values.endpoint.trim());
   const inspectionEnabled = open
     && ui.view === "custom"
+    && typeIsResolved
     && values.type === "openapi"
     && inspectionEndpoint.length > 0;
 
@@ -397,6 +498,7 @@ export function useAddSourceFormState({
   const mcpDetectionEndpoint = useDeferredValue(values.endpoint.trim());
   const mcpDetectionEnabled = open
     && ui.view === "custom"
+    && typeIsResolved
     && values.type === "mcp"
     && mcpDetectionEndpoint.length > 0;
 
@@ -557,6 +659,8 @@ export function useAddSourceFormState({
     view: ui.view,
     setView: (view: SourceDialogView) => patchUi(setUi, { view }),
     type: values.type,
+    typeExplicitlySet: ui.typeExplicitlySet,
+    typeDetectionStatus,
     scopeType: values.scopeType,
     name: values.name,
     endpoint: values.endpoint,

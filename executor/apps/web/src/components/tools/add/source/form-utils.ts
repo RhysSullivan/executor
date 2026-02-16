@@ -54,6 +54,8 @@ export type AddSourceUiState = {
   authManuallyEdited: boolean;
   authRevision: number;
   mcpOAuthLinkedEndpoint: string | null;
+  /** True when the type was explicitly chosen by the user or from a catalog item. */
+  typeExplicitlySet: boolean;
 };
 
 export function createDefaultUiState(view: SourceDialogView = "catalog"): AddSourceUiState {
@@ -66,6 +68,7 @@ export function createDefaultUiState(view: SourceDialogView = "catalog"): AddSou
     authManuallyEdited: false,
     authRevision: 0,
     mcpOAuthLinkedEndpoint: null,
+    typeExplicitlySet: false,
   };
 }
 
