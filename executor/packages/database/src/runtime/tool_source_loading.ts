@@ -1,5 +1,6 @@
 "use node";
 
+import { Result } from "better-result";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
@@ -40,58 +41,77 @@ export function normalizeExternalToolSource(raw: {
   type: ToolSourceRecord["type"];
   name: string;
   config: Record<string, unknown>;
-}): ExternalToolSourceConfig {
-  const configResult = normalizeToolSourceConfig(raw.type, raw.config);
-  if (configResult.isErr()) {
-    throw new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`);
-  }
-  const config = configResult.value;
+}): Result<ExternalToolSourceConfig, Error> {
 
   if (raw.type === "mcp") {
+    const configResult = normalizeToolSourceConfig("mcp", raw.config);
+    if (configResult.isErr()) {
+      return Result.err(
+        new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`),
+      );
+    }
+    const config = configResult.value;
     const result: McpToolSourceConfig = {
       type: "mcp",
       name: raw.name,
       sourceId: raw.id,
       sourceKey: `source:${raw.id}`,
-      url: String(config.url),
-      auth: config.auth as McpToolSourceConfig["auth"],
-      transport: config.transport as McpToolSourceConfig["transport"],
-      queryParams: config.queryParams as McpToolSourceConfig["queryParams"],
-      defaultApproval: config.defaultApproval as McpToolSourceConfig["defaultApproval"],
-      overrides: config.overrides as McpToolSourceConfig["overrides"],
+      url: config.url,
+      auth: config.auth,
+      transport: config.transport,
+      queryParams: config.queryParams,
+      defaultApproval: config.defaultApproval,
+      overrides: config.overrides,
     };
-    return result;
+    return Result.ok(result);
   }
 
   if (raw.type === "graphql") {
+    const configResult = normalizeToolSourceConfig("graphql", raw.config);
+    if (configResult.isErr()) {
+      return Result.err(
+        new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`),
+      );
+    }
+    const config = configResult.value;
     const result: GraphqlToolSourceConfig = {
       type: "graphql",
       name: raw.name,
       sourceId: raw.id,
       sourceKey: `source:${raw.id}`,
-      endpoint: String(config.endpoint),
-      schema: config.schema as GraphqlToolSourceConfig["schema"],
-      auth: config.auth as GraphqlToolSourceConfig["auth"],
-      defaultQueryApproval: config.defaultQueryApproval as GraphqlToolSourceConfig["defaultQueryApproval"],
-      defaultMutationApproval: config.defaultMutationApproval as GraphqlToolSourceConfig["defaultMutationApproval"],
-      overrides: config.overrides as GraphqlToolSourceConfig["overrides"],
+      endpoint: config.endpoint,
+      schema: config.schema,
+      auth: config.auth,
+      defaultQueryApproval: config.defaultQueryApproval,
+      defaultMutationApproval: config.defaultMutationApproval,
+      overrides: config.overrides,
     };
-    return result;
+    return Result.ok(result);
   }
+
+  const configResult = normalizeToolSourceConfig("openapi", raw.config);
+  if (configResult.isErr()) {
+    return Result.err(
+      new Error(`Failed to normalize '${raw.name}' source config: ${configResult.error.message}`),
+    );
+  }
+  const config = configResult.value;
 
   const result: OpenApiToolSourceConfig = {
     type: "openapi",
     name: raw.name,
     sourceId: raw.id,
     sourceKey: `source:${raw.id}`,
-    spec: config.spec as OpenApiToolSourceConfig["spec"],
-    baseUrl: config.baseUrl as OpenApiToolSourceConfig["baseUrl"],
-    auth: config.auth as OpenApiToolSourceConfig["auth"],
-    defaultReadApproval: config.defaultReadApproval as OpenApiToolSourceConfig["defaultReadApproval"],
-    defaultWriteApproval: config.defaultWriteApproval as OpenApiToolSourceConfig["defaultWriteApproval"],
-    overrides: config.overrides as OpenApiToolSourceConfig["overrides"],
+    spec: config.spec,
+    collectionUrl: config.collectionUrl,
+    postmanProxyUrl: config.postmanProxyUrl,
+    baseUrl: config.baseUrl,
+    auth: config.auth,
+    defaultReadApproval: config.defaultReadApproval,
+    defaultWriteApproval: config.defaultWriteApproval,
+    overrides: config.overrides,
   };
-  return result;
+  return Result.ok(result);
 }
 
 function buildHeadersFromCredentialSecret(

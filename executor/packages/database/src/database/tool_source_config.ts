@@ -1,9 +1,34 @@
 import { Result } from "better-result";
-import type { OpenApiAuth } from "../../../core/src/tool/source-types";
+import type {
+  GraphqlToolSourceConfig,
+  McpToolSourceConfig,
+  OpenApiAuth,
+  OpenApiToolSourceConfig,
+} from "../../../core/src/tool/source-types";
 import type { ToolApprovalMode } from "../../../core/src/types";
 import { asRecord } from "../lib/object";
 
-type ToolSourceType = "mcp" | "openapi" | "graphql";
+export type ToolSourceType = "mcp" | "openapi" | "graphql";
+
+export type NormalizedMcpToolSourceConfig = Pick<
+  McpToolSourceConfig,
+  "url" | "auth" | "discoveryHeaders" | "transport" | "queryParams" | "defaultApproval" | "overrides"
+>;
+
+export type NormalizedGraphqlToolSourceConfig = Pick<
+  GraphqlToolSourceConfig,
+  "endpoint" | "schema" | "auth" | "defaultQueryApproval" | "defaultMutationApproval" | "overrides"
+>;
+
+export type NormalizedOpenApiToolSourceConfig = Pick<
+  OpenApiToolSourceConfig,
+  "spec" | "collectionUrl" | "postmanProxyUrl" | "baseUrl" | "auth" | "defaultReadApproval" | "defaultWriteApproval" | "overrides"
+>;
+
+export type NormalizedToolSourceConfig =
+  | NormalizedMcpToolSourceConfig
+  | NormalizedGraphqlToolSourceConfig
+  | NormalizedOpenApiToolSourceConfig;
 
 function optionalTrimmedString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -165,9 +190,25 @@ function normalizeSpec(
 }
 
 export function normalizeToolSourceConfig(
+  type: "mcp",
+  rawConfig: unknown,
+): Result<NormalizedMcpToolSourceConfig, Error>;
+export function normalizeToolSourceConfig(
+  type: "graphql",
+  rawConfig: unknown,
+): Result<NormalizedGraphqlToolSourceConfig, Error>;
+export function normalizeToolSourceConfig(
+  type: "openapi",
+  rawConfig: unknown,
+): Result<NormalizedOpenApiToolSourceConfig, Error>;
+export function normalizeToolSourceConfig(
   type: ToolSourceType,
   rawConfig: unknown,
-): Result<Record<string, unknown>, Error> {
+): Result<NormalizedToolSourceConfig, Error>;
+export function normalizeToolSourceConfig(
+  type: ToolSourceType,
+  rawConfig: unknown,
+): Result<NormalizedToolSourceConfig, Error> {
   const config = asRecord(rawConfig);
 
   if (type === "mcp") {

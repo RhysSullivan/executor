@@ -1,10 +1,12 @@
 "use node";
 
+import { Result } from "better-result";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { parseGraphqlOperationPaths } from "../../../core/src/graphql/operation-paths";
 import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
 import { rehydrateTools, type SerializedTool } from "../../../core/src/tool/source-serialization";
+import { asPayload } from "../lib/object";
 import { getDecisionForContext, getToolDecision } from "./policy";
 import { getReadyRegistryBuildId } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
@@ -18,7 +20,7 @@ export function getGraphqlDecision(
   policies: AccessPolicyRecord[],
 ): { decision: PolicyDecision; effectivePaths: string[] } {
   const sourceName = tool._graphqlSource!;
-  const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+  const payload = asPayload(input);
   const queryString = typeof payload.query === "string" ? payload.query : "";
 
   if (!queryString.trim()) {
@@ -95,13 +97,13 @@ export async function resolveToolForCall(
   ctx: ActionCtx,
   task: TaskRecord,
   toolPath: string,
-): Promise<{
+): Promise<Result<{
   tool: ToolDefinition;
   resolvedToolPath: string;
-}> {
+}, Error>> {
   const builtin = baseTools.get(toolPath);
   if (builtin) {
-    return { tool: builtin, resolvedToolPath: toolPath };
+    return Result.ok({ tool: builtin, resolvedToolPath: toolPath });
   }
 
   const buildId = await getReadyRegistryBuildId(ctx, {
@@ -137,14 +139,20 @@ export async function resolveToolForCall(
 
   if (!entry) {
     const suggestions = await suggestFromRegistry(ctx, task.workspaceId, buildId, toolPath);
-    throw new Error(unknownToolErrorMessage(toolPath, suggestions));
+    return Result.err(new Error(unknownToolErrorMessage(toolPath, suggestions)));
   }
 
-  const serialized = JSON.parse(entry.serializedToolJson) as SerializedTool;
+  const serializedResult = Result.try(() => JSON.parse(entry.serializedToolJson) as SerializedTool);
+  if (serializedResult.isErr()) {
+    return Result.err(
+      new Error(`Failed to parse tool registry entry '${resolvedToolPath}': ${serializedResult.error.message}`),
+    );
+  }
+  const serialized = serializedResult.value;
   const [tool] = rehydrateTools([serialized], baseTools);
   if (!tool) {
-    throw new Error(`Failed to rehydrate tool: ${resolvedToolPath}`);
+    return Result.err(new Error(`Failed to rehydrate tool: ${resolvedToolPath}`));
   }
 
-  return { tool, resolvedToolPath };
+  return Result.ok({ tool, resolvedToolPath });
 }

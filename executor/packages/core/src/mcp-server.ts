@@ -163,11 +163,7 @@ function createRunCodeTool(
 // Input schema — when context is bound, workspace fields aren't needed
 // ---------------------------------------------------------------------------
 
-function toAnySchema(schema: unknown): AnySchema {
-  return schema as AnySchema;
-}
-
-const FULL_INPUT = toAnySchema(z.object({
+const FULL_INPUT: AnySchema = z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
@@ -176,14 +172,14 @@ const FULL_INPUT = toAnySchema(z.object({
   sessionId: z.string().optional(),
   waitForResult: z.boolean().optional(),
   resultTimeoutMs: z.number().int().min(100).max(900_000).optional(),
-}));
+});
 
-const BOUND_INPUT = toAnySchema(z.object({
+const BOUND_INPUT: AnySchema = z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
   metadata: z.record(z.string(), z.any()).optional(),
-}));
+});
 
 // ---------------------------------------------------------------------------
 // MCP server factory
@@ -207,13 +203,7 @@ async function createMcpServer(
     },
   );
   const onApprovalPrompt = createMcpApprovalPrompt(mcp);
-  const registerTool = (mcp.registerTool as (
-    name: string,
-    config: { description: string; inputSchema: AnySchema },
-    cb: ReturnType<typeof createRunCodeTool>,
-  ) => void).bind(mcp);
-
-  registerTool(
+  mcp.registerTool(
     "run_code",
     {
       description: buildRunCodeDescription(),

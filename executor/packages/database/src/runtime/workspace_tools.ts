@@ -26,6 +26,7 @@ import { computeOpenApiSourceQuality, listVisibleToolDescriptors } from "./tool_
 import { loadSourceArtifact, normalizeExternalToolSource, sourceSignature } from "./tool_source_loading";
 import { registrySignatureForWorkspace } from "./tool_registry_state";
 import { normalizeToolPathForLookup } from "./tool_paths";
+import { asPayload } from "../lib/object";
 
 const baseTools = new Map<string, ToolDefinition>();
 
@@ -58,7 +59,7 @@ baseTools.set("admin.send_announcement", {
     },
   },
   run: async (input: unknown) => {
-    const payload = input && typeof input === "object" ? (input as Record<string, unknown>) : {};
+    const payload = asPayload(input);
     const channel = typeof payload.channel === "string" ? payload.channel : "";
     const message = typeof payload.message === "string" ? payload.message : "";
     return { ok: true, channel, message };
@@ -365,7 +366,7 @@ function asJsonSchema(value: unknown): JsonSchema {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
-  return value as JsonSchema;
+  return asPayload(value);
 }
 
 async function buildWorkspaceToolRegistry(
@@ -513,7 +514,7 @@ export async function getWorkspaceTools(
     if (source.type !== "mcp") {
       return false;
     }
-    const auth = source.config.auth as Record<string, unknown> | undefined;
+    const auth = asPayload(source.config.auth);
     return auth?.mode === "actor";
   });
   const skipCacheRead = (options.skipCacheRead ?? false) || hasActorScopedMcpSource;
@@ -598,12 +599,12 @@ export async function getWorkspaceTools(
   const warnings: string[] = [];
   const normalizeSourcesStartedAt = Date.now();
   for (const source of sources) {
-    try {
-      configs.push(normalizeExternalToolSource(source));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`Source '${source.name}': ${message}`);
+    const normalizedResult = normalizeExternalToolSource(source);
+    if (normalizedResult.isErr()) {
+      warnings.push(`Source '${source.name}': ${normalizedResult.error.message}`);
+      continue;
     }
+    configs.push(normalizedResult.value);
   }
   traceStep("normalizeSources", normalizeSourcesStartedAt);
 

@@ -17,9 +17,7 @@ export const createTaskEvent = internalMutation({
       throw new Error(`Task not found for event: ${args.taskId}`);
     }
 
-    const currentSequence = typeof (task as { nextEventSequence?: unknown }).nextEventSequence === "number"
-      ? (task as { nextEventSequence: number }).nextEventSequence
-      : 0;
+    const currentSequence = task.nextEventSequence ?? 0;
     const sequence = currentSequence + 1;
     const createdAt = Date.now();
 

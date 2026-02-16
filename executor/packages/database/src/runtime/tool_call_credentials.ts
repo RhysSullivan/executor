@@ -4,7 +4,7 @@ import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { resolveCredentialPayload } from "../../../core/src/credential-providers";
 import { APPROVAL_DENIED_PREFIX } from "../../../core/src/execution-constants";
-import type { CredentialScope, ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../../core/src/types";
+import type { ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../../core/src/types";
 import { asPayload } from "../lib/object";
 
 export async function resolveCredentialHeaders(
@@ -15,7 +15,7 @@ export async function resolveCredentialHeaders(
   const record = await ctx.runQuery(internal.database.resolveCredential, {
     workspaceId: task.workspaceId,
     sourceKey: spec.sourceKey,
-    scope: spec.mode as CredentialScope,
+    scope: spec.mode,
     actorId: task.actorId,
   });
 
@@ -25,25 +25,26 @@ export async function resolveCredentialHeaders(
   if (!source) {
     return null;
   }
+  const sourcePayload = asPayload(source);
 
   const headers: Record<string, string> = {};
   if (spec.authType === "bearer") {
-    const token = String((source as Record<string, unknown>).token ?? "").trim();
+    const token = String(sourcePayload.token ?? "").trim();
     if (token) headers.authorization = `Bearer ${token}`;
   } else if (spec.authType === "apiKey") {
-    const headerName = spec.headerName ?? String((source as Record<string, unknown>).headerName ?? "x-api-key");
-    const value = String((source as Record<string, unknown>).value ?? (source as Record<string, unknown>).token ?? "").trim();
+    const headerName = spec.headerName ?? String(sourcePayload.headerName ?? "x-api-key");
+    const value = String(sourcePayload.value ?? sourcePayload.token ?? "").trim();
     if (value) headers[headerName] = value;
   } else if (spec.authType === "basic") {
-    const username = String((source as Record<string, unknown>).username ?? "");
-    const password = String((source as Record<string, unknown>).password ?? "");
+    const username = String(sourcePayload.username ?? "");
+    const password = String(sourcePayload.password ?? "");
     if (username || password) {
       const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
       headers.authorization = `Basic ${encoded}`;
     }
   }
 
-  const bindingOverrides = asPayload((record?.overridesJson as unknown) ?? {});
+  const bindingOverrides = asPayload(record?.overridesJson ?? {});
   const overrideHeaders = asPayload(bindingOverrides.headers);
   for (const [key, value] of Object.entries(overrideHeaders)) {
     if (!key) continue;

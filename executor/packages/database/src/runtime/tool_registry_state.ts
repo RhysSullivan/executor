@@ -3,6 +3,7 @@
 import type { ActionCtx } from "../../convex/_generated/server";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { internal } from "../../convex/_generated/api";
+import { asPayload } from "../lib/object";
 import { sourceSignature } from "./tool_source_loading";
 
 export const TOOL_REGISTRY_SIGNATURE_PREFIX = "toolreg_v2|";
@@ -26,14 +27,52 @@ type ToolSourceState = {
   enabled: boolean;
 };
 
+function toRegistryState(value: unknown): RegistryState {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const state = asPayload(value);
+  if (typeof state.signature !== "string") {
+    return null;
+  }
+
+  return {
+    signature: state.signature,
+    readyBuildId: typeof state.readyBuildId === "string" ? state.readyBuildId : undefined,
+  };
+}
+
+function toToolSourceStateList(value: unknown): ToolSourceState[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized: ToolSourceState[] = [];
+  for (const entry of value) {
+    const record = asPayload(entry);
+    if (typeof record.id !== "string") continue;
+    if (typeof record.updatedAt !== "number") continue;
+    normalized.push({
+      id: record.id,
+      updatedAt: record.updatedAt,
+      enabled: record.enabled !== false,
+    });
+  }
+
+  return normalized;
+}
+
 async function readRegistryState(
   ctx: Pick<ActionCtx, "runQuery">,
   workspaceId: Id<"workspaces">,
 ): Promise<{ buildId?: string; isReady: boolean }> {
-  const [state, sources] = await Promise.all([
-    ctx.runQuery(internal.toolRegistry.getState, { workspaceId }) as Promise<RegistryState>,
-    ctx.runQuery(internal.database.listToolSources, { workspaceId }) as Promise<ToolSourceState[]>,
+  const [rawState, rawSources] = await Promise.all([
+    ctx.runQuery(internal.toolRegistry.getState, { workspaceId }),
+    ctx.runQuery(internal.database.listToolSources, { workspaceId }),
   ]);
+  const state = toRegistryState(rawState);
+  const sources = toToolSourceStateList(rawSources);
 
   const expectedSignature = registrySignatureForWorkspace(workspaceId, sources);
   const buildId = state?.readyBuildId;
