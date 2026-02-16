@@ -2,6 +2,7 @@ import { Result } from "better-result";
 import { api } from "@executor/database/convex/_generated/api";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import type {
+  BridgeEntrypointContext,
   BridgeProps,
   ToolCallResult,
   WorkerEntrypointExports,
@@ -38,7 +39,9 @@ function isToolCallResult(value: unknown): value is ToolCallResult {
   return false;
 }
 
-export function getBridgePropsFromContext(ctx: unknown): BridgeProps {
+export function getBridgePropsFromContext(
+  ctx: BridgeEntrypointContext | ExecutionContext | null | undefined,
+): BridgeProps {
   const context = asObject(ctx);
   if (Object.keys(context).length === 0) {
     throw new Error("WorkerEntrypoint context is unavailable");
