@@ -154,7 +154,7 @@ export async function executeOpenApiRequest(
 function hasGraphqlData(data: unknown): boolean {
   if (data === null || data === undefined) return false;
   if (Array.isArray(data)) return data.length > 0;
-  if (typeof data === "object") return Object.keys(data as Record<string, unknown>).length > 0;
+  if (typeof data === "object") return Object.keys(asRecord(data)).length > 0;
   return true;
 }
 
