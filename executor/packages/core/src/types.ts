@@ -1,6 +1,6 @@
 // ── Shared types (inlined from @executor/contracts) ──────────────────────────
 
-import type { Id } from "../../convex/_generated/dataModel.d.ts";
+import type { Id } from "../../database/convex/_generated/dataModel.d.ts";
 
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
 export type ApprovalStatus = "pending" | "approved" | "denied";

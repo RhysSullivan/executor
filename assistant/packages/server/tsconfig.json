@@ -7,7 +7,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "paths": {
-      "@executor/convex/*": ["../../../executor/packages/convex/*"]
+      "@executor/database/*": ["../../../executor/packages/database/*"]
     }
   },
   "include": ["src"]

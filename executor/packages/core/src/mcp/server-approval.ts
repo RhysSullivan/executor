@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PendingApprovalRecord, TaskRecord } from "../types";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../database/convex/_generated/dataModel";
 import type {
   ApprovalPrompt,
   ApprovalPromptContext,

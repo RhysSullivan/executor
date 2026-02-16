@@ -1,6 +1,6 @@
-import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
-import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
-import { isAnonymousIdentity } from "../../convex/auth/anonymous";
+import type { Doc, Id } from "../../database/convex/_generated/dataModel.d.ts";
+import type { MutationCtx, QueryCtx } from "../../database/convex/_generated/server";
+import { isAnonymousIdentity } from "../../database/src/auth/anonymous";
 
 type IdentityCtx = Pick<QueryCtx, "auth" | "db"> | Pick<MutationCtx, "auth" | "db">;
 type MembershipCtx = Pick<QueryCtx, "db"> | Pick<MutationCtx, "db">;

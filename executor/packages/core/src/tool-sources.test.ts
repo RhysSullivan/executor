@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Id } from "../../convex/_generated/dataModel.d.ts";
+import type { Id } from "../../database/convex/_generated/dataModel.d.ts";
 import {
   compileExternalToolSource,
   loadExternalTools,

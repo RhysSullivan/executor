@@ -32,7 +32,7 @@ import {
 } from "@/lib/session-storage";
 import { clearAnonymousAuth } from "@/lib/anonymous-auth";
 import type { AnonymousContext } from "./types";
-import type { Id } from "@executor/convex/_generated/dataModel";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 
 interface SessionState {
   context: AnonymousContext | null;

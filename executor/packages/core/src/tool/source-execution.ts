@@ -126,9 +126,8 @@ export async function executeOpenApiRequest(
   const response = responseResult.value;
 
   if (!response.ok) {
-    const text = await Result.tryPromise(() => response.text())
-      .map((value) => value.slice(0, 500))
-      .unwrapOr("");
+    const textResult = await Result.tryPromise(() => response.text());
+    const text = textResult.isOk() ? textResult.value.slice(0, 500) : "";
     return Result.err(new OpenApiRequestError({
       status: response.status,
       message: `HTTP ${response.status} ${response.statusText}: ${text}`,
@@ -193,7 +192,8 @@ export async function executeGraphqlRequest(
   const response = responseResult.value;
 
   if (!response.ok) {
-    const text = await Result.tryPromise(() => response.text()).unwrapOr("");
+    const textResult = await Result.tryPromise(() => response.text());
+    const text = textResult.isOk() ? textResult.value : "";
     return Result.err(new GraphqlRequestError({
       message: `HTTP ${response.status} ${response.statusText}: ${text.slice(0, 500)}`,
     }));
@@ -211,9 +211,9 @@ export async function executeGraphqlRequest(
   }
 
   const decoded = result.value;
-  if (result.errors && !hasGraphqlData(result.data)) {
+  if (decoded.errors && !hasGraphqlData(decoded.data)) {
     return Result.err(new GraphqlRequestError({
-      message: `GraphQL errors: ${JSON.stringify(result.errors).slice(0, 1000)}`,
+      message: `GraphQL errors: ${JSON.stringify(decoded.errors).slice(0, 1000)}`,
     }));
   }
 

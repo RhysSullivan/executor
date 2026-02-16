@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
-import type { Id } from "@executor/convex/_generated/dataModel";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 
 type Role = "owner" | "admin" | "member" | "billing_admin";
 type MemberStatus = "active" | "pending" | "removed";

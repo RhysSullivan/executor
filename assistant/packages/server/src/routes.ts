@@ -1,8 +1,8 @@
 import { Elysia, t } from "elysia";
 import { createAgent } from "@assistant/core";
 import { ConvexHttpClient } from "convex/browser";
-import { api } from "@executor/convex/_generated/api";
-import type { Id } from "@executor/convex/_generated/dataModel";
+import { api } from "@executor/database/convex/_generated/api";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 import { createFileLinkStore, type LinkedMcpContext } from "./link-store";
 
 interface ServerOptions {

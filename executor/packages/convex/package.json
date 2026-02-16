@@ -1,7 +1,0 @@
-{
-  "name": "@executor/convex",
-  "version": "0.0.1",
-  "private": true,
-  "main": "./_generated/api.js",
-  "types": "./_generated/api.d.ts"
-}

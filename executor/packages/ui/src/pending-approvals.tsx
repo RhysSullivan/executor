@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { GenericId } from "convex/values";
-import { api } from "@executor/convex";
+import { api } from "@executor/database";
 
 export type WorkspaceRequestContext = {
   workspaceId: GenericId<"workspaces">;

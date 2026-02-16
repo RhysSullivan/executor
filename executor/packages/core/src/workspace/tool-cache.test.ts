@@ -5,7 +5,7 @@
  * round-trip with functional `run` methods.
  */
 import { test, expect, describe } from "bun:test";
-import type { Id } from "../../../convex/_generated/dataModel";
+import type { Id } from "../../../database/convex/_generated/dataModel";
 import {
   prepareOpenApiSpec,
   buildOpenApiToolsFromPrepared,
@@ -487,12 +487,12 @@ describe("serializeTools + rehydrateTools round-trip", () => {
 describe("workspace tool cache table", () => {
   async function setupCacheTest() {
     const { convexTest } = await import("convex-test");
-    const { internal } = await import("../../../convex/_generated/api");
-    const schema = (await import("../../../convex/schema")).default;
+    const { internal } = await import("../../../database/convex/_generated/api");
+    const schema = (await import("../../../database/convex/schema")).default;
 
     const t = convexTest(schema, {
-      "./workspaceToolCache.ts": () => import("../../../convex/workspaceToolCache"),
-      "./_generated/api.js": () => import("../../../convex/_generated/api.js"),
+      "./workspaceToolCache.ts": () => import("../../../database/convex/workspaceToolCache"),
+      "./_generated/api.js": () => import("../../../database/convex/_generated/api.js"),
     });
 
     const wsId = await t.run(async (ctx) => {

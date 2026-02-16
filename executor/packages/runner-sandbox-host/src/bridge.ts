@@ -1,5 +1,5 @@
 import { Result } from "better-result";
-import { api } from "@executor/convex/_generated/api";
+import { api } from "@executor/database/convex/_generated/api";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import type {
   BridgeEntrypointContext,

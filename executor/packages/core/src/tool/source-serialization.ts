@@ -1,3 +1,4 @@
+import { Result } from "better-result";
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
 import { executePostmanRequest, type PostmanSerializedRunSpec } from "../postman-runtime";
 import { normalizeGraphqlFieldVariables, selectGraphqlFieldEnvelope } from "../graphql/field-tools";
@@ -211,8 +212,18 @@ export function rehydrateTools(
             variables = normalizeGraphqlFieldVariables(argNames ?? [], payload);
           }
 
-          const envelope = await executeGraphqlRequest(endpoint, authHeaders, query, variables, context.credential?.headers);
-          return selectGraphqlFieldEnvelope(envelope, operationName);
+          const envelopeResult = await executeGraphqlRequest(
+            endpoint,
+            authHeaders,
+            query,
+            variables,
+            context.credential?.headers,
+          );
+          if (envelopeResult.isErr()) {
+            return envelopeResult;
+          }
+
+          return Result.ok(selectGraphqlFieldEnvelope(envelopeResult.value, operationName));
         },
       };
     }

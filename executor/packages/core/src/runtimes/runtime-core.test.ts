@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { runCodeWithAdapter } from "./runtime-core";
 import { loadExternalTools } from "../tool-sources";
-import type { Id } from "../../../convex/_generated/dataModel.d.ts";
+import type { Id } from "../../../database/convex/_generated/dataModel.d.ts";
 import type {
   ExecutionAdapter,
   SandboxExecutionRequest,
