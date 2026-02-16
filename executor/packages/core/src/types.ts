@@ -170,7 +170,6 @@ export interface AnonymousContext {
   workspaceId: Id<"workspaces">;
   clientId: string;
   accountId: Id<"accounts">;
-  userId: Id<"workspaceMembers">;
   createdAt: number;
   lastSeenAt: number;
 }

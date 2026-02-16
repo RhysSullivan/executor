@@ -479,12 +479,6 @@ export declare const internal: {
         { accountId?: string; clientId?: string; sessionId?: string },
         any
       >;
-      ensureAnonymousMcpSession: FunctionReference<
-        "mutation",
-        "internal",
-        { accountId: string; workspaceId: Id<"workspaces"> },
-        any
-      >;
     };
     approvals: {
       createApproval: FunctionReference<
@@ -619,12 +613,6 @@ export declare const internal: {
       "mutation",
       "internal",
       { sourceId: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    ensureAnonymousMcpSession: FunctionReference<
-      "mutation",
-      "internal",
-      { accountId: string; workspaceId: Id<"workspaces"> },
       any
     >;
     finishToolCall: FunctionReference<
@@ -1122,54 +1110,6 @@ export declare const internal: {
     >;
   };
   migrations: {
-    cleanupAccessPolicyEmptyStringSentinels: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
-    cleanupTaskEmptyStringSentinels: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
-    deleteAnonymousSessionsMissingAccountId: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
-    deleteSourceCredentialsMissingProvider: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        batchSize?: number;
-        cursor?: string | null;
-        dryRun?: boolean;
-        fn?: string;
-        next?: Array<string>;
-      },
-      any
-    >;
     run: FunctionReference<
       "mutation",
       "internal",

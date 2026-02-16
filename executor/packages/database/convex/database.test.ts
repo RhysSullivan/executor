@@ -126,7 +126,6 @@ test("anonymous bootstrap links guest account membership", async () => {
   expect(first.sessionId).toContain("anon_session_");
   expect(first.workspaceId.length).toBeGreaterThan(0);
   expect(first.accountId).toBeDefined();
-  expect(first.userId).toBeDefined();
 
   const again = await t.mutation(internal.database.bootstrapAnonymousSession, {
     sessionId: first.sessionId,
@@ -134,7 +133,6 @@ test("anonymous bootstrap links guest account membership", async () => {
 
   expect(again.sessionId).toBe(first.sessionId);
   expect(again.accountId).toBe(first.accountId);
-  expect(again.userId).toBe(first.userId);
 });
 
 test("bootstrap ignores non-MCP caller-provided session id", async () => {

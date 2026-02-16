@@ -89,12 +89,19 @@ async function probeOAuthChallenge(sourceUrl: URL): Promise<boolean> {
     },
   );
 
-  const hasBearerChallenge = /^Bearer\s/i.test(response.headers.get("WWW-Authenticate") ?? "");
-  const challenge = extractWWWAuthenticateParams(response);
+  const challengeHeader = response.headers.get("WWW-Authenticate") ?? "";
+  const hasBearerChallenge = /^Bearer\s/i.test(challengeHeader);
   await response.body?.cancel();
 
   if ((response.status === 401 || response.status === 403) && hasBearerChallenge) {
     return true;
+  }
+
+  let challenge: ReturnType<typeof extractWWWAuthenticateParams>;
+  try {
+    challenge = extractWWWAuthenticateParams(response);
+  } catch {
+    return false;
   }
 
   return Boolean(challenge.resourceMetadataUrl);
@@ -146,11 +153,12 @@ export async function GET(request: NextRequest) {
     const probeDetail = challengeProbeResult.isOk()
       ? ""
       : `; challenge probe: ${resultErrorMessage(challengeProbeResult.error, "failed")}`;
+
     return noStoreJson({
       oauth: false,
       authorizationServers: [],
       detail: `${resultErrorMessage(metadataResult.error, "OAuth metadata lookup failed")}${probeDetail}`,
-    }, 502);
+    });
   }
 
   const metadata = metadataResult.value;

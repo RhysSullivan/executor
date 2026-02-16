@@ -36,10 +36,10 @@ export type SourceAuthPanelModel = {
   specStatus: "idle" | "detecting" | "ready" | "error";
   inferredSpecAuth: InferredSpecAuth | null;
   specError: string;
-  mcpOAuthStatus: "idle" | "checking" | "oauth" | "none" | "error";
-  mcpOAuthDetail: string;
-  mcpOAuthAuthorizationServers: string[];
-  mcpOAuthConnected: boolean;
+  sourceOAuthStatus: "idle" | "checking" | "oauth" | "none" | "error";
+  sourceOAuthDetail: string;
+  sourceOAuthAuthorizationServers: string[];
+  sourceOAuthConnected: boolean;
   authType: Exclude<SourceAuthType, "mixed">;
   scopeType: "organization" | "workspace";
   authScope: CredentialScope;
@@ -75,25 +75,25 @@ export function SourceAuthPanel({
   onAuthTypeChange,
   onScopeChange,
   onFieldChange,
-  onMcpOAuthConnect,
-  mcpOAuthBusy = false,
+  onSourceOAuthConnect,
+  sourceOAuthBusy = false,
 }: {
   model: SourceAuthPanelModel;
   onAuthTypeChange: (value: Exclude<SourceAuthType, "mixed">) => void;
   onScopeChange: (value: SharingScope) => void;
   onFieldChange: (field: SourceAuthPanelEditableField, value: string) => void;
-  onMcpOAuthConnect?: () => void;
-  mcpOAuthBusy?: boolean;
+  onSourceOAuthConnect?: () => void;
+  sourceOAuthBusy?: boolean;
 }) {
   const {
     sourceType,
     specStatus,
     inferredSpecAuth,
     specError,
-    mcpOAuthStatus,
-    mcpOAuthDetail,
-    mcpOAuthAuthorizationServers,
-    mcpOAuthConnected,
+    sourceOAuthStatus,
+    sourceOAuthDetail,
+    sourceOAuthAuthorizationServers,
+    sourceOAuthConnected,
     authType,
     apiKeyHeader,
     tokenValue,
@@ -109,10 +109,11 @@ export function SourceAuthPanel({
   }
 
   const badge = inferredAuthBadge(inferredSpecAuth);
-  const mcpBearerConnected = sourceType === "mcp" && authType === "bearer" && mcpOAuthConnected;
-  const mcpOAuthLoading = sourceType === "mcp" && mcpOAuthStatus === "checking";
-  const mcpOAuthDetected = sourceType === "mcp" && mcpOAuthStatus === "oauth";
-  const useMcpOAuthFlow = mcpOAuthLoading || mcpOAuthDetected;
+  const usesSourceOAuthFlow = sourceType === "mcp" || sourceType === "openapi";
+  const bearerOAuthConnected = usesSourceOAuthFlow && authType === "bearer" && sourceOAuthConnected;
+  const sourceOAuthLoading = usesSourceOAuthFlow && sourceOAuthStatus === "checking";
+  const sourceOAuthDetected = usesSourceOAuthFlow && sourceOAuthStatus === "oauth";
+  const useSourceOAuthFlow = sourceOAuthLoading || sourceOAuthDetected;
   return (
     <div className="space-y-3">
 
@@ -132,32 +133,32 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {sourceType === "mcp" ? (
+      {usesSourceOAuthFlow ? (
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
-            {mcpOAuthStatus === "idle"
+            {sourceOAuthStatus === "idle"
               ? "Awaiting URL"
-              : mcpOAuthStatus === "checking"
-              ? "Checking OAuth"
-              : mcpOAuthStatus === "oauth"
-                ? "OAuth detected"
-                : mcpOAuthStatus === "error"
-                  ? "OAuth unknown"
-                  : "No OAuth metadata"}
+              : sourceOAuthStatus === "checking"
+                ? "Checking OAuth"
+                : sourceOAuthStatus === "oauth"
+                  ? "OAuth detected"
+                  : sourceOAuthStatus === "error"
+                    ? "OAuth unknown"
+                    : "No OAuth metadata"}
           </Badge>
-          {mcpOAuthAuthorizationServers.length > 0 ? (
+          {sourceOAuthAuthorizationServers.length > 0 ? (
             <span className="text-[10px] text-muted-foreground">
-              {mcpOAuthAuthorizationServers[0]}
+              {sourceOAuthAuthorizationServers[0]}
             </span>
           ) : null}
-          {mcpOAuthStatus === "error" && mcpOAuthDetail ? (
-            <span className="text-[10px] text-terminal-amber">{mcpOAuthDetail}</span>
+          {sourceOAuthStatus === "error" && sourceOAuthDetail ? (
+            <span className="text-[10px] text-terminal-amber">{sourceOAuthDetail}</span>
           ) : null}
         </div>
       ) : null}
 
-      <div className={`grid ${useMcpOAuthFlow ? "grid-cols-1" : "grid-cols-2"} gap-3`}>
-        {!useMcpOAuthFlow ? (
+      <div className={`grid ${useSourceOAuthFlow ? "grid-cols-1" : "grid-cols-2"} gap-3`}>
+        {!useSourceOAuthFlow ? (
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Auth Type</Label>
             <Select value={authType} onValueChange={(value) => onAuthTypeChange(value as Exclude<SourceAuthType, "mixed">)}>
@@ -193,17 +194,17 @@ export function SourceAuthPanel({
         </div>
       </div>
 
-      {sourceType === "mcp" && useMcpOAuthFlow && onMcpOAuthConnect ? (
+      {usesSourceOAuthFlow && useSourceOAuthFlow && onSourceOAuthConnect ? (
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <Label className="text-xs text-muted-foreground">OAuth</Label>
-            {mcpBearerConnected ? (
+            {bearerOAuthConnected ? (
               <Badge variant="outline" className="text-[10px] uppercase tracking-wider text-terminal-green">
                 Connected
               </Badge>
             ) : null}
           </div>
-          {mcpOAuthLoading ? (
+          {sourceOAuthLoading ? (
             <Skeleton className="h-8 w-full" />
           ) : (
             <Button
@@ -211,13 +212,13 @@ export function SourceAuthPanel({
               variant="outline"
               size="sm"
               className="h-8 text-xs"
-              disabled={mcpOAuthBusy}
-              onClick={onMcpOAuthConnect}
+              disabled={sourceOAuthBusy}
+              onClick={onSourceOAuthConnect}
             >
-              {mcpOAuthBusy ? "Connecting..." : mcpBearerConnected ? "Reconnect OAuth" : "Connect OAuth in popup"}
+              {sourceOAuthBusy ? "Connecting..." : bearerOAuthConnected ? "Reconnect OAuth" : "Connect OAuth in popup"}
             </Button>
           )}
-          {mcpBearerConnected ? (
+          {bearerOAuthConnected ? (
             <p className="text-[11px] text-muted-foreground">OAuth linked successfully.</p>
           ) : null}
         </div>
@@ -235,7 +236,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "bearer" && sourceType !== "mcp" && !mcpBearerConnected ? (
+      {authType === "bearer" && !usesSourceOAuthFlow ? (
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <LockKeyhole className="h-3 w-3" />
@@ -251,7 +252,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "apiKey" && !useMcpOAuthFlow ? (
+      {authType === "apiKey" && !useSourceOAuthFlow ? (
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <KeyRound className="h-3 w-3" />
@@ -267,7 +268,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "basic" && !useMcpOAuthFlow ? (
+      {authType === "basic" && !useSourceOAuthFlow ? (
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground flex items-center gap-1.5">

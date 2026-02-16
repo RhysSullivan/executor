@@ -508,7 +508,7 @@ export default defineSchema({
 
   // Anonymous session linkage.
   // Used to map an unauthenticated/anonymous account to a backing `accounts` row and a
-  // `workspaceMembers` user entry.
+  // workspace.
   //
   // Primary access patterns:
   // - Resolve by session id.
@@ -519,7 +519,6 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     clientId: v.string(), // client label: "web", "mcp", etc.
     accountId: v.id("accounts"),
-    userId: v.id("workspaceMembers"),
     createdAt: v.number(),
     lastSeenAt: v.number(),
   })

@@ -2,6 +2,7 @@ import { Result } from "better-result";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { CredentialScope, SourceAuthType } from "@/lib/types";
+import { HARD_CODED_CATALOG_ITEMS } from "@/lib/catalog-collections";
 
 type SupportedAuthType = Exclude<SourceAuthType, "none" | "mixed">;
 
@@ -16,6 +17,147 @@ type OpenApiInspectionResult = {
   spec: Record<string, unknown>;
   inferredAuth: InferredSpecAuth;
 };
+
+export type OpenApiSpecDiscoveryResult = OpenApiInspectionResult & {
+  specUrl: string;
+  discovered: boolean;
+  attemptedSpecUrls: string[];
+};
+
+const OPENAPI_SPEC_PATH_HINTS = [
+  "/openapi.json",
+  "/openapi.yaml",
+  "/openapi.yml",
+  "/swagger.json",
+  "/swagger.yaml",
+  "/swagger.yml",
+  "/api-docs",
+  "/api-docs.json",
+  "/api-docs.yaml",
+  "/api-docs.yml",
+  "/v3/api-docs",
+  "/v2/api-docs",
+  "/docs/openapi.json",
+  "/docs/openapi.yaml",
+  "/docs/openapi.yml",
+  "/.well-known/openapi.json",
+  "/.well-known/openapi.yaml",
+  "/.well-known/openapi.yml",
+  "/.well-known/openapi",
+];
+
+const OPENAPI_SPEC_RELATIVE_HINTS = [
+  "openapi.json",
+  "openapi.yaml",
+  "openapi.yml",
+  "swagger.json",
+  "swagger.yaml",
+  "swagger.yml",
+  "api-docs",
+  "api-docs.json",
+  "api-docs.yaml",
+  "api-docs.yml",
+  "v3/api-docs",
+  "v2/api-docs",
+  "docs/openapi.json",
+  "docs/openapi.yaml",
+  "docs/openapi.yml",
+  ".well-known/openapi.json",
+  ".well-known/openapi.yaml",
+  ".well-known/openapi.yml",
+  "openapi",
+  "swagger.json",
+];
+
+function isLikelySpecCandidateUrl(text: string): boolean {
+  const lowered = text.toLowerCase();
+  return lowered.endsWith(".json") || lowered.endsWith(".yaml") || lowered.endsWith(".yml")
+    || lowered.endsWith("/openapi") || lowered.includes("openapi") || lowered.includes("swagger");
+}
+
+function dedupeUrls(values: string[]): string[] {
+  const seen = new Set<string>();
+  const next: string[] = [];
+
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized) {
+      continue;
+    }
+
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    next.push(normalized);
+  }
+
+  return next;
+}
+
+function buildOpenApiSpecCandidateUrls(sourceUrl: string): string[] {
+  const parsedSource = new URL(sourceUrl);
+  const sourceOrigin = parsedSource.origin;
+  const cleanedSource = (() => {
+    const cleaned = new URL(sourceUrl);
+    cleaned.hash = "";
+    cleaned.search = "";
+    return cleaned.toString();
+  })();
+
+  const candidates: string[] = [cleanedSource];
+
+  if (isLikelySpecCandidateUrl(cleanedSource)) {
+    candidates.unshift(cleanedSource);
+  }
+
+  const sourceHost = parsedSource.hostname.toLowerCase();
+  const catalogHints = HARD_CODED_CATALOG_ITEMS
+    .filter((item) => item.sourceType === "openapi" && item.specUrl)
+    .map((item): string | null => {
+      if (!item.originUrl) {
+        return null;
+      }
+
+      try {
+        const origin = new URL(item.originUrl);
+        return origin.hostname.toLowerCase() === sourceHost ? item.specUrl : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter((entry): entry is string => Boolean(entry));
+
+  candidates.push(...catalogHints);
+
+  const pathBase = parsedSource.pathname.endsWith("/")
+    ? parsedSource.pathname
+    : parsedSource.pathname.replace(/[^/]*$/, "");
+  const baseWithSlash = pathBase.length === 0 ? "/" : pathBase;
+
+  const absoluteRoots = [
+    `${sourceOrigin}/`,
+    `${sourceOrigin}${baseWithSlash}`,
+  ];
+
+  for (const root of absoluteRoots) {
+    for (const pathHint of OPENAPI_SPEC_PATH_HINTS) {
+      candidates.push(new URL(pathHint, root).toString());
+    }
+  }
+
+  const relativeRoots = [
+    `${sourceOrigin}/`,
+    `${sourceOrigin}${baseWithSlash}`,
+  ];
+  for (const root of relativeRoots) {
+    for (const pathHint of OPENAPI_SPEC_RELATIVE_HINTS) {
+      candidates.push(new URL(pathHint, `${root}/`).toString());
+    }
+  }
+
+  return dedupeUrls(candidates);
+}
 
 const recordSchema = z.record(z.unknown());
 
@@ -182,4 +324,43 @@ export async function fetchAndInspectOpenApiSpec(input: {
   const spec = parseOpenApiPayload(raw, input.specUrl, contentType);
   const inferredAuth = inferSecuritySchemaAuth(spec);
   return { spec, inferredAuth };
+}
+
+export async function discoverOpenApiSpecFromUrl(input: {
+  sourceUrl: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}): Promise<OpenApiSpecDiscoveryResult> {
+  const sourceUrl = input.sourceUrl.trim();
+  if (!sourceUrl) {
+    throw new Error("Spec URL is required");
+  }
+
+  const candidates = buildOpenApiSpecCandidateUrls(sourceUrl);
+
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      const result = await fetchAndInspectOpenApiSpec({
+        specUrl: candidate,
+        headers: input.headers,
+        signal: input.signal,
+      });
+
+      return {
+        ...result,
+        specUrl: candidate,
+        discovered: candidate !== sourceUrl,
+        attemptedSpecUrls: candidates,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error("No OpenAPI spec URL found");
 }

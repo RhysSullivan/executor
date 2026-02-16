@@ -22,7 +22,7 @@ export {
   finishToolCall,
   listToolCalls,
 } from "./database/tool_calls";
-export { bootstrapAnonymousSession, ensureAnonymousMcpSession } from "./database/anonymous_session";
+export { bootstrapAnonymousSession } from "./database/anonymous_session";
 export {
   listRuntimeTargets,
   upsertAccessPolicy,

@@ -144,8 +144,8 @@ export function useAddSourceFormState({
       .sort((a, b) => b.updatedAt - a.updatedAt)[0] ?? null;
   }, [accountId, credentialItems, editingSourceKey, values.authScope, values.scopeType]);
 
-  const hasPersistedMcpBearerToken = useMemo(() => {
-    if (values.type !== "mcp" || values.authType !== "bearer") {
+  const hasPersistedSourceBearerToken = useMemo(() => {
+    if ((values.type !== "mcp" && values.type !== "openapi") || values.authType !== "bearer") {
       return false;
     }
     if (!existingScopedCredential) {
@@ -192,7 +192,7 @@ export function useAddSourceFormState({
 
   const handleEndpointChange = (endpoint: string) => {
     form.setValue("endpoint", endpoint, { shouldDirty: true, shouldTouch: true });
-    patchUi(setUi, { mcpOAuthLinkedEndpoint: null });
+    patchUi(setUi, { sourceOAuthLinkedEndpoint: null });
 
     if (values.type === "openapi") {
       const inferredBaseUrl = deriveBaseUrlFromEndpoint(endpoint);
@@ -246,7 +246,7 @@ export function useAddSourceFormState({
       patchUi(setUi, {
         openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
         authManuallyEdited: false,
-        mcpOAuthLinkedEndpoint: null,
+        sourceOAuthLinkedEndpoint: null,
       });
       if (!baseUrlManuallyEdited) {
         form.setValue("baseUrl", inferredBaseUrl, { shouldDirty: false, shouldTouch: false });
@@ -257,7 +257,7 @@ export function useAddSourceFormState({
     patchUiWithAuthRevision(setUi, {
       openApiBaseUrlOptions: [],
       authManuallyEdited: false,
-      mcpOAuthLinkedEndpoint: null,
+      sourceOAuthLinkedEndpoint: null,
     });
     form.setValue("authType", "none", { shouldDirty: false, shouldTouch: false });
     form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
@@ -274,7 +274,7 @@ export function useAddSourceFormState({
     form.setValue("authType", authType, { shouldDirty: true, shouldTouch: true });
     patchUiWithAuthRevision(setUi, {
       authManuallyEdited: true,
-      ...(authType === "bearer" ? {} : { mcpOAuthLinkedEndpoint: null }),
+      ...(authType === "bearer" ? {} : { sourceOAuthLinkedEndpoint: null }),
     });
   };
 
@@ -282,7 +282,7 @@ export function useAddSourceFormState({
     form.setValue("authScope", authScope, { shouldDirty: true, shouldTouch: true });
     patchUiWithAuthRevision(setUi, {
       authManuallyEdited: true,
-      mcpOAuthLinkedEndpoint: null,
+      sourceOAuthLinkedEndpoint: null,
     });
   };
 
@@ -295,7 +295,7 @@ export function useAddSourceFormState({
 
     if (field === "tokenValue") {
       form.setValue("tokenValue", value, { shouldDirty: true, shouldTouch: true });
-      patchUiWithAuthRevision(setUi, { mcpOAuthLinkedEndpoint: null });
+      patchUiWithAuthRevision(setUi, { sourceOAuthLinkedEndpoint: null });
       return;
     }
     if (field === "apiKeyValue") {
@@ -394,19 +394,21 @@ export function useAddSourceFormState({
       : "Failed to fetch spec"
     : "";
 
-  const mcpDetectionEndpoint = useDeferredValue(values.endpoint.trim());
-  const mcpDetectionEnabled = open
+  const sourceOAuthDetectionEndpoint = useDeferredValue(values.type === "openapi"
+    ? (values.baseUrl.trim() || values.endpoint).trim()
+    : values.endpoint.trim());
+  const sourceOAuthDetectionEnabled = open
     && ui.view === "custom"
-    && values.type === "mcp"
-    && mcpDetectionEndpoint.length > 0;
+    && (values.type === "mcp" || values.type === "openapi")
+    && sourceOAuthDetectionEndpoint.length > 0;
 
-  const mcpOAuthQuery = useTanstackQuery({
-    queryKey: ["mcp-oauth-detect", mcpDetectionEndpoint],
+  const sourceOAuthQuery = useTanstackQuery({
+    queryKey: ["mcp-oauth-detect", sourceOAuthDetectionEndpoint],
     queryFn: async () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), MCP_OAUTH_DETECT_REQUEST_TIMEOUT_MS);
       try {
-        const response = await fetch(`/mcp/oauth/detect?sourceUrl=${encodeURIComponent(mcpDetectionEndpoint)}`, {
+        const response = await fetch(`/mcp/oauth/detect?sourceUrl=${encodeURIComponent(sourceOAuthDetectionEndpoint)}`, {
           signal: controller.signal,
           cache: "no-store",
         });
@@ -437,34 +439,37 @@ export function useAddSourceFormState({
         clearTimeout(timeoutId);
       }
     },
-    enabled: mcpDetectionEnabled,
+    enabled: sourceOAuthDetectionEnabled,
     retry: false,
     staleTime: 60_000,
   });
 
-  const mcpOAuthStatus: "idle" | "checking" | "oauth" | "none" | "error" = !mcpDetectionEnabled
+  const sourceOAuthStatus: "idle" | "checking" | "oauth" | "none" | "error" = !sourceOAuthDetectionEnabled
     ? "idle"
-    : mcpOAuthQuery.isFetching
+    : sourceOAuthQuery.isFetching
       ? "checking"
-      : mcpOAuthQuery.isError
+      : sourceOAuthQuery.isError
         ? "error"
-        : mcpOAuthQuery.data?.oauth
+        : sourceOAuthQuery.data?.oauth
           ? "oauth"
           : "none";
 
-  const mcpOAuthDetail = mcpDetectionEnabled
-    ? mcpOAuthQuery.isError
-      ? mcpOAuthQuery.error instanceof Error
-        ? mcpOAuthQuery.error.message
+  const sourceOAuthDetail = sourceOAuthDetectionEnabled
+    ? sourceOAuthQuery.isError
+      ? sourceOAuthQuery.error instanceof Error
+        ? sourceOAuthQuery.error.message
         : "OAuth detection failed"
-      : mcpOAuthQuery.data?.detail ?? ""
+      : sourceOAuthQuery.data?.detail ?? ""
     : "";
 
-  const mcpOAuthAuthorizationServers = mcpOAuthQuery.data?.authorizationServers ?? [];
-  const mcpOAuthConnected = values.type === "mcp"
+  const sourceOAuthAuthorizationServers = sourceOAuthQuery.data?.authorizationServers ?? [];
+  const sourceOAuthConnectedEndpoint = values.type === "openapi"
+    ? values.baseUrl.trim() || values.endpoint
+    : values.endpoint;
+  const sourceOAuthConnected = (values.type === "mcp" || values.type === "openapi")
     && values.authType === "bearer"
-    && normalizeEndpointForOAuth(values.endpoint) !== ""
-    && normalizeEndpointForOAuth(values.endpoint) === ui.mcpOAuthLinkedEndpoint
+    && normalizeEndpointForOAuth(sourceOAuthConnectedEndpoint) !== ""
+    && normalizeEndpointForOAuth(sourceOAuthConnectedEndpoint) === ui.sourceOAuthLinkedEndpoint
     && values.tokenValue.trim().length > 0;
 
   useEffect(() => {
@@ -525,10 +530,10 @@ export function useAddSourceFormState({
   }, [inspectionEnabled, inspectionEndpoint, specInspectionQuery.isError, ui.openApiBaseUrlOptions]);
 
   useEffect(() => {
-    if (values.type !== "mcp") {
+    if (values.type !== "mcp" && values.type !== "openapi") {
       return;
     }
-    if (mcpOAuthStatus !== "oauth") {
+    if (sourceOAuthStatus !== "oauth") {
       return;
     }
     if (values.authType !== "bearer") {
@@ -537,7 +542,7 @@ export function useAddSourceFormState({
     if (values.authScope !== "workspace") {
       form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
     }
-  }, [form, mcpOAuthStatus, values.authScope, values.authType, values.type]);
+  }, [form, sourceOAuthStatus, values.authScope, values.authType, values.type]);
 
   const isNameTaken = (candidate: string) => {
     const taken = [...getTakenSourceNames()].map((entry) => entry.toLowerCase());
@@ -570,11 +575,11 @@ export function useAddSourceFormState({
     visibleCatalogItems,
     specStatus,
     specError,
-    mcpOAuthStatus,
-    mcpOAuthDetail,
-    mcpOAuthAuthorizationServers,
-    mcpOAuthConnected,
-    hasPersistedMcpBearerToken,
+    sourceOAuthStatus,
+    sourceOAuthDetail,
+    sourceOAuthAuthorizationServers,
+    sourceOAuthConnected,
+    hasPersistedSourceBearerToken,
     inferredSpecAuth,
     authType: values.authType,
     authScope: values.authScope,
@@ -595,9 +600,9 @@ export function useAddSourceFormState({
     handleAuthScopeChange,
     handleScopePresetChange: (scopePreset: SharingScope) => applySharingScope(form, scopePreset),
     handleAuthFieldChange,
-    markMcpOAuthLinked: (endpoint: string) =>
+    markSourceOAuthLinked: (endpoint: string) =>
       patchUi(setUi, {
-        mcpOAuthLinkedEndpoint: normalizeEndpointForOAuth(endpoint),
+        sourceOAuthLinkedEndpoint: normalizeEndpointForOAuth(endpoint),
       }),
     setBaseUrl: (baseUrl: string) => form.setValue("baseUrl", baseUrl, { shouldDirty: true, shouldTouch: true }),
     setMcpTransport: (mcpTransport: "auto" | "streamable-http" | "sse") =>
