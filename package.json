@@ -36,6 +36,7 @@
     "typecheck:executor:slow": "bunx tsc --noEmit -p executor/tsconfig.json",
     "typecheck:assistant": "bunx --package @typescript/native-preview tsgo --noEmit -p assistant/packages/server/tsconfig.json && bunx --package @typescript/native-preview tsgo --noEmit -p assistant/packages/bot/tsconfig.json",
     "typecheck:assistant:slow": "bunx tsc --noEmit -p assistant/packages/server/tsconfig.json && bunx tsc --noEmit -p assistant/packages/bot/tsconfig.json",
+    "clean": "bun run --filter '*' --if-present clean && rm -rf node_modules .turbo",
     "knip": "bunx knip --config knip.json",
     "db:clear:executor": "bun with-env bun run executor/scripts/dev/wipe/convex-db.ts",
     "convex:codegen": "bunx --cwd executor convex codegen"

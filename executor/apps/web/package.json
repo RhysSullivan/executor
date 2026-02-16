@@ -9,7 +9,8 @@
     "start": "bun with-env next start -p 5312",
     "lint": "eslint",
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
-    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json",
+    "clean": "rm -rf node_modules .next .turbo"
   },
   "dependencies": {
     "@executor/database": "workspace:*",

@@ -9,7 +9,8 @@
     "diff": "sst diff",
     "refresh": "sst refresh",
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
-    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json",
+    "clean": "rm -rf node_modules .turbo"
   },
   "dependencies": {
     "@pulumi/command": "^1.1.3",

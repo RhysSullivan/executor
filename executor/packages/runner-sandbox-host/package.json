@@ -7,7 +7,8 @@
     "dev": "wrangler dev --port 8787",
     "deploy": "wrangler deploy",
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit",
-    "typecheck:slow": "bunx tsc --noEmit"
+    "typecheck:slow": "bunx tsc --noEmit",
+    "clean": "rm -rf node_modules .turbo"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250214.0",

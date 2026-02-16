@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
-    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json",
+    "clean": "rm -rf node_modules .turbo"
   },
   "main": "./convex/_generated/api.js",
   "types": "./convex/_generated/api.d.ts"

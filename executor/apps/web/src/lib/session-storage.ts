@@ -5,7 +5,7 @@ const SESSION_KEY = "executor_session_id";
 const ACTIVE_WORKSPACE_KEY = "executor_active_workspace_id";
 const ACTIVE_WORKSPACE_BY_ACCOUNT_KEY = "executor_active_workspace_by_account";
 
-const workspaceByAccountSchema = z.record(z.string());
+const workspaceByAccountSchema = z.record(z.string(), z.string());
 
 function isWorkspaceId(value: string): value is Id<"workspaces"> {
   return value.trim().length > 0;
