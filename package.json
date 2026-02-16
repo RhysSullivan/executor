@@ -30,8 +30,11 @@
     "test:executor:all": "bun run --cwd executor test:all",
     "test:assistant": "bun run --cwd assistant test",
     "typecheck": "bun run typecheck:executor && bun run typecheck:assistant",
-    "typecheck:executor": "bunx tsc --noEmit -p executor/tsconfig.json",
-    "typecheck:assistant": "bunx tsc --noEmit -p assistant/packages/server/tsconfig.json && bunx tsc --noEmit -p assistant/packages/bot/tsconfig.json",
+    "typecheck:slow": "bun run typecheck:executor:slow && bun run typecheck:assistant:slow",
+    "typecheck:executor": "bunx --package @typescript/native-preview tsgo --noEmit -p executor/tsconfig.json",
+    "typecheck:executor:slow": "bunx tsc --noEmit -p executor/tsconfig.json",
+    "typecheck:assistant": "bunx --package @typescript/native-preview tsgo --noEmit -p assistant/packages/server/tsconfig.json && bunx --package @typescript/native-preview tsgo --noEmit -p assistant/packages/bot/tsconfig.json",
+    "typecheck:assistant:slow": "bunx tsc --noEmit -p assistant/packages/server/tsconfig.json && bunx tsc --noEmit -p assistant/packages/bot/tsconfig.json",
     "knip": "bunx knip --config knip.json",
     "db:clear:executor": "bun with-env bun run executor/scripts/dev/wipe/convex-db.ts",
     "convex:codegen": "bunx --cwd executor convex codegen"
@@ -52,6 +55,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/bun": "latest",
     "convex-test": "^0.0.41",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@typescript/native-preview": "7.0.0-dev.20260216.1"
   }
 }

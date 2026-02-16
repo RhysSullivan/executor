@@ -4,24 +4,10 @@ import { listRuntimeTargets as listAvailableRuntimeTargets } from "../../../core
 import { mapPolicy } from "../../src/database/mappers";
 import {
   policyApprovalModeValidator,
-  policyDecisionValidator,
   policyEffectValidator,
   policyMatchTypeValidator,
   policyScopeTypeValidator,
 } from "../../src/database/validators";
-
-function parseDecision(value: "allow" | "require_approval" | "deny" | undefined): {
-  effect: "allow" | "deny";
-  approvalMode: "inherit" | "auto" | "required";
-} {
-  if (value === "deny") {
-    return { effect: "deny", approvalMode: "inherit" };
-  }
-  if (value === "require_approval") {
-    return { effect: "allow", approvalMode: "required" };
-  }
-  return { effect: "allow", approvalMode: "auto" };
-}
 
 export const listRuntimeTargets = internalQuery({
   args: {},
@@ -35,13 +21,10 @@ export const upsertAccessPolicy = internalMutation({
     id: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
     scopeType: v.optional(policyScopeTypeValidator),
-    actorId: v.optional(v.string()),
-    targetActorId: v.optional(v.string()),
+    targetAccountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
-    toolPathPattern: v.optional(v.string()),
-    resourcePattern: v.optional(v.string()),
+    resourcePattern: v.string(),
     matchType: v.optional(policyMatchTypeValidator),
-    decision: v.optional(policyDecisionValidator),
     effect: v.optional(policyEffectValidator),
     approvalMode: v.optional(policyApprovalModeValidator),
     priority: v.optional(v.number()),
@@ -55,12 +38,19 @@ export const upsertAccessPolicy = internalMutation({
     }
 
     const scopeType = args.scopeType ?? "workspace";
-    const targetActorId = (args.targetActorId ?? args.actorId)?.trim() || undefined;
-    const resourcePattern = (args.resourcePattern ?? args.toolPathPattern ?? "*").trim() || "*";
+    const resourcePattern = args.resourcePattern.trim() || "*";
     const matchType = args.matchType ?? "glob";
-    const decisionFields = parseDecision(args.decision);
-    const effect = args.effect ?? decisionFields.effect;
-    const approvalMode = args.approvalMode ?? decisionFields.approvalMode;
+    const effect = args.effect ?? "allow";
+    const approvalMode = args.approvalMode ?? "required";
+
+    if (scopeType === "account" && !args.targetAccountId) {
+      throw new Error("targetAccountId is required for account-scoped policies");
+    }
+
+    const organizationId = scopeType === "organization" || scopeType === "workspace"
+      ? workspace.organizationId
+      : undefined;
+    const workspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
 
     const existing = await ctx.db
       .query("accessPolicies")
@@ -70,9 +60,9 @@ export const upsertAccessPolicy = internalMutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         scopeType,
-        organizationId: workspace.organizationId,
-        workspaceId: scopeType === "workspace" ? args.workspaceId : undefined,
-        targetActorId,
+        organizationId,
+        workspaceId,
+        targetAccountId: args.targetAccountId,
         clientId: args.clientId?.trim() || undefined,
         resourceType: "tool_path",
         resourcePattern,
@@ -86,9 +76,9 @@ export const upsertAccessPolicy = internalMutation({
       await ctx.db.insert("accessPolicies", {
         policyId,
         scopeType,
-        organizationId: workspace.organizationId,
-        workspaceId: scopeType === "workspace" ? args.workspaceId : undefined,
-        targetActorId,
+        organizationId,
+        workspaceId,
+        targetAccountId: args.targetAccountId,
         clientId: args.clientId?.trim() || undefined,
         resourceType: "tool_path",
         resourcePattern,
@@ -113,7 +103,10 @@ export const upsertAccessPolicy = internalMutation({
 });
 
 export const listAccessPolicies = internalQuery({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    accountId: v.optional(v.id("accounts")),
+  },
   handler: async (ctx, args) => {
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
@@ -130,7 +123,14 @@ export const listAccessPolicies = internalQuery({
       .withIndex("by_organization_created", (q) => q.eq("organizationId", workspace.organizationId))
       .collect();
 
-    const all = [...workspaceDocs, ...organizationDocs.filter((doc) => doc.scopeType === "organization")].filter((doc, index, entries) => {
+    const accountDocs = args.accountId
+      ? await ctx.db
+        .query("accessPolicies")
+        .withIndex("by_target_account_created", (q) => q.eq("targetAccountId", args.accountId))
+        .collect()
+      : [];
+
+    const all = [...workspaceDocs, ...organizationDocs, ...accountDocs].filter((doc, index, entries) => {
       return entries.findIndex((candidate) => candidate.policyId === doc.policyId) === index;
     });
 

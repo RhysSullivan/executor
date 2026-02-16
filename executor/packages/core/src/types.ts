@@ -6,12 +6,13 @@ export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_
 export type ApprovalStatus = "pending" | "approved" | "denied";
 export type ToolCallStatus = "requested" | "pending_approval" | "completed" | "failed" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
-export type PolicyScopeType = "organization" | "workspace";
+export type PolicyScopeType = "account" | "organization" | "workspace";
 export type PolicyMatchType = "glob" | "exact";
 export type PolicyEffect = "allow" | "deny";
 export type PolicyApprovalMode = "inherit" | "auto" | "required";
-export type OwnerScopeType = "organization" | "workspace";
-export type CredentialScope = "workspace" | "actor";
+export type ToolSourceScopeType = "organization" | "workspace";
+export type CredentialScopeType = "account" | "organization" | "workspace";
+export type CredentialScope = CredentialScopeType;
 export type CredentialProvider = "local-convex" | "workos-vault";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
@@ -35,6 +36,7 @@ export interface TaskRecord {
   timeoutMs: number;
   metadata: Record<string, unknown>;
   workspaceId: Id<"workspaces">;
+  accountId?: Id<"accounts">;
   actorId?: string;
   clientId?: string;
   createdAt: number;
@@ -92,34 +94,29 @@ export interface ToolCallRecord {
 
 export interface AccessPolicyRecord {
   id: string;
-  scopeType?: PolicyScopeType;
+  scopeType: PolicyScopeType;
   organizationId?: Id<"organizations">;
   workspaceId?: Id<"workspaces">;
-  targetActorId?: string;
+  targetAccountId?: Id<"accounts">;
   clientId?: string;
-  resourceType?: "tool_path";
-  resourcePattern?: string;
-  matchType?: PolicyMatchType;
-  effect?: PolicyEffect;
-  approvalMode?: PolicyApprovalMode;
+  resourceType: "tool_path";
+  resourcePattern: string;
+  matchType: PolicyMatchType;
+  effect: PolicyEffect;
+  approvalMode: PolicyApprovalMode;
   priority: number;
   createdAt: number;
   updatedAt: number;
-  // Legacy aliases retained for callers that still expect v1 fields.
-  actorId?: string;
-  toolPathPattern: string;
-  decision: PolicyDecision;
 }
 
 export interface CredentialRecord {
   id: string;
   bindingId?: string;
-  ownerScopeType?: OwnerScopeType;
+  scopeType: CredentialScopeType;
+  accountId?: Id<"accounts">;
   organizationId?: Id<"organizations">;
   workspaceId?: Id<"workspaces">;
   sourceKey: string;
-  scope: CredentialScope;
-  actorId?: string;
   overridesJson?: Record<string, unknown>;
   boundAuthFingerprint?: string;
   provider: CredentialProvider;
@@ -130,7 +127,7 @@ export interface CredentialRecord {
 
 export interface ToolSourceRecord {
   id: string;
-  ownerScopeType?: OwnerScopeType;
+  scopeType: ToolSourceScopeType;
   organizationId?: Id<"organizations">;
   workspaceId?: Id<"workspaces">;
   name: string;

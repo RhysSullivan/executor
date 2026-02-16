@@ -93,9 +93,12 @@ async function upsertRequestedToolCall(
 
 async function listWorkspaceAccessPolicies(
   ctx: ActionCtx,
-  workspaceId: TaskRecord["workspaceId"],
+  task: Pick<TaskRecord, "workspaceId" | "accountId">,
 ): Promise<AccessPolicyRecord[]> {
-  const policies = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId });
+  const policies = await ctx.runQuery(internal.database.listAccessPolicies, {
+    workspaceId: task.workspaceId,
+    accountId: task.accountId,
+  });
   return policies as AccessPolicyRecord[];
 }
 
@@ -160,7 +163,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
   let effectiveToolPath = toolPath;
   try {
-    const typedPolicies = await listWorkspaceAccessPolicies(ctx, task.workspaceId);
+    const typedPolicies = await listWorkspaceAccessPolicies(ctx, task);
     const finalizeImmediateTool = async (value: unknown): Promise<unknown> => {
       if (persistedCall.status === "requested") {
         await publishTaskEvent(ctx, task.id, "task", "tool.call.started", {
@@ -203,7 +206,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         };
         return getDecisionForContext(
           policyProbeTool,
-          { workspaceId: task.workspaceId, actorId: task.actorId, clientId: task.clientId },
+          { workspaceId: task.workspaceId, accountId: task.accountId, clientId: task.clientId },
           typedPolicies,
         ) !== "deny";
       };
@@ -400,7 +403,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           id: approvalId,
           taskId: task.id,
           toolPath: effectiveToolPath,
-          input,
+          input: toInputPayload(input),
         });
 
         await publishTaskEvent(ctx, task.id, "approval", "approval.requested", {

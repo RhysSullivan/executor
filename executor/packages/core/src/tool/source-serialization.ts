@@ -130,7 +130,7 @@ const toolTypingSchema: z.ZodType<ToolTyping> = z.object({
 
 const toolCredentialSpecSchema: z.ZodType<ToolCredentialSpec> = z.object({
   sourceKey: z.string(),
-  mode: z.enum(["workspace", "actor"]),
+  mode: z.enum(["workspace", "account", "organization"]),
   authType: z.enum(["bearer", "apiKey", "basic"]),
   headerName: z.string().optional(),
   staticSecretJson: z.record(z.unknown()).optional(),

@@ -23,14 +23,18 @@ export async function safeRunAfter(
   scheduler: SchedulerLike | undefined,
   delayMs: number,
   functionReference: Parameters<SchedulerLike["runAfter"]>[1],
-  ...args: unknown[]
+  args?: unknown,
 ): Promise<boolean> {
   if (!scheduler || isSchedulerDisabled()) {
     return false;
   }
 
   try {
-    await scheduler.runAfter(delayMs, functionReference, ...args);
+    if (args === undefined) {
+      await scheduler.runAfter(delayMs, functionReference);
+    } else {
+      await scheduler.runAfter(delayMs, functionReference, args as any);
+    }
     return true;
   } catch {
     // Best effort only.

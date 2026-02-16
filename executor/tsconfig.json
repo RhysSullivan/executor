@@ -13,7 +13,11 @@
       "ESNext",
       "DOM"
     ],
-    "baseUrl": "."
+    "paths": {
+      "*": [
+        "./*"
+      ]
+    }
   },
   "include": [
     "packages/database/**/*.ts",

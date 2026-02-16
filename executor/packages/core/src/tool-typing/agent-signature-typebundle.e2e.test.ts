@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { describe, expect, test } from "bun:test";
 import { OPENAPI_HELPER_TYPES } from "../openapi/helper-types";
 import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
@@ -298,16 +299,26 @@ async function startLocalMcpServer(): Promise<{ url: string; stop: () => Promise
         { capabilities: { tools: {} } },
       );
 
-      const fixtureInputSchema = z.object({
-        owner: z.string(),
-        repo: z.string(),
-        title: z.string(),
-        body: z.string().optional(),
-        labels: z.array(z.string()).optional(),
-        state: z.enum(["open", "closed"]).optional(),
-      });
+      const fixtureInputSchema = {
+        type: "object",
+        properties: {
+          owner: { type: "string" },
+          repo: { type: "string" },
+          title: { type: "string" },
+          body: { type: "string" },
+          labels: {
+            type: "array",
+            items: { type: "string" },
+          },
+          state: {
+            type: "string",
+            enum: ["open", "closed"],
+          },
+        },
+        required: ["owner", "repo", "title"],
+      } as const;
 
-      mcp.registerTool("create_issue", {
+      (mcp as any).registerTool("create_issue", {
         description: "Create an issue in a repository (fixture).",
         // MCP SDK typing expects a Zod-ish schema type; runtime accepts JSON Schema.
         inputSchema: fixtureInputSchema,

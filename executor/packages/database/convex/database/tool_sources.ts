@@ -6,13 +6,13 @@ import {
   normalizeSourceAuthFingerprint,
 } from "../../src/database/mappers";
 import { normalizeToolSourceConfig } from "../../src/database/tool_source_config";
-import { jsonObjectValidator, ownerScopeTypeValidator, toolSourceTypeValidator } from "../../src/database/validators";
+import { jsonObjectValidator, toolSourceScopeTypeValidator, toolSourceTypeValidator } from "../../src/database/validators";
 
 export const upsertToolSource = internalMutation({
   args: {
     id: v.optional(v.string()),
     workspaceId: v.id("workspaces"),
-    ownerScopeType: v.optional(ownerScopeTypeValidator),
+    scopeType: v.optional(toolSourceScopeTypeValidator),
     name: v.string(),
     type: toolSourceTypeValidator,
     config: jsonObjectValidator,
@@ -21,13 +21,13 @@ export const upsertToolSource = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
-    const ownerScopeType = args.ownerScopeType ?? "workspace";
+    const scopeType = args.scopeType ?? "workspace";
     const workspace = await ctx.db.get(args.workspaceId);
     if (!workspace) {
       throw new Error(`Workspace not found: ${args.workspaceId}`);
     }
     const organizationId = workspace.organizationId;
-    const ownerWorkspaceId = ownerScopeType === "workspace" ? args.workspaceId : undefined;
+    const scopedWorkspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
 
     const configResult = normalizeToolSourceConfig(args.type, args.config);
     if (configResult.isErr()) {
@@ -41,15 +41,15 @@ export const upsertToolSource = internalMutation({
         .query("toolSources")
         .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
         .unique(),
-      ownerScopeType === "workspace"
+      scopeType === "workspace"
         ? ctx.db
           .query("toolSources")
           .withIndex("by_workspace_name", (q) => q.eq("workspaceId", args.workspaceId).eq("name", args.name))
           .unique()
         : ctx.db
           .query("toolSources")
-          .withIndex("by_organization_owner_name", (q) =>
-            q.eq("organizationId", organizationId).eq("ownerScopeType", "organization").eq("name", args.name),
+          .withIndex("by_organization_scope_name", (q) =>
+            q.eq("organizationId", organizationId).eq("scopeType", "organization").eq("name", args.name),
           )
           .unique(),
     ]);
@@ -60,9 +60,9 @@ export const upsertToolSource = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        ownerScopeType,
+        scopeType,
         organizationId,
-        workspaceId: ownerWorkspaceId,
+        workspaceId: scopedWorkspaceId,
         name: args.name,
         type: args.type,
         config,
@@ -74,9 +74,9 @@ export const upsertToolSource = internalMutation({
     } else {
       await ctx.db.insert("toolSources", {
         sourceId,
-        ownerScopeType,
+        scopeType,
         organizationId,
-        workspaceId: ownerWorkspaceId,
+        workspaceId: scopedWorkspaceId,
         name: args.name,
         type: args.type,
         config,
@@ -115,8 +115,8 @@ export const listToolSources = internalQuery({
         .collect(),
       ctx.db
         .query("toolSources")
-        .withIndex("by_organization_owner_updated", (q) =>
-          q.eq("organizationId", workspace.organizationId).eq("ownerScopeType", "organization"),
+        .withIndex("by_organization_scope_updated", (q) =>
+          q.eq("organizationId", workspace.organizationId).eq("scopeType", "organization"),
         )
         .order("desc")
         .collect(),
@@ -147,16 +147,14 @@ export const deleteToolSource = internalMutation({
       return false;
     }
 
-    if (doc.ownerScopeType === "workspace" && doc.workspaceId !== args.workspaceId) {
+    if (doc.scopeType === "workspace" && doc.workspaceId !== args.workspaceId) {
       return false;
     }
 
     const sourceKey = `source:${args.sourceId}`;
     const bindings = await ctx.db
       .query("sourceCredentials")
-      .withIndex("by_organization_source", (q) =>
-        q.eq("organizationId", workspace.organizationId).eq("sourceKey", sourceKey),
-      )
+      .withIndex("by_source", (q) => q.eq("sourceKey", sourceKey))
       .collect();
 
     for (const binding of bindings) {

@@ -86,11 +86,10 @@ export declare const api: {
       "action",
       "public",
       {
-        actorId?: string;
+        accountId?: Id<"accounts">;
         id?: string;
-        ownerScopeType?: "organization" | "workspace";
         provider?: "local-convex" | "workos-vault";
-        scope: "workspace" | "actor";
+        scopeType?: "account" | "organization" | "workspace";
         secretJson: Record<string, any>;
         sessionId?: string;
         sourceKey: string;
@@ -324,8 +323,8 @@ export declare const api: {
       "query",
       "public",
       {
-        actorId?: string;
-        scope: "workspace" | "actor";
+        accountId?: Id<"accounts">;
+        scopeType: "account" | "organization" | "workspace";
         sessionId?: string;
         sourceKey: string;
         workspaceId: Id<"workspaces">;
@@ -336,17 +335,16 @@ export declare const api: {
       "mutation",
       "public",
       {
-        actorId?: string;
         approvalMode?: "inherit" | "auto" | "required";
         clientId?: string;
-        decision?: "allow" | "require_approval" | "deny";
         effect?: "allow" | "deny";
         id?: string;
         matchType?: "glob" | "exact";
         priority?: number;
-        scopeType?: "organization" | "workspace";
+        resourcePattern: string;
+        scopeType?: "account" | "organization" | "workspace";
         sessionId?: string;
-        toolPathPattern: string;
+        targetAccountId?: Id<"accounts">;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -355,12 +353,11 @@ export declare const api: {
       "mutation",
       "public",
       {
-        actorId?: string;
+        accountId?: Id<"accounts">;
         id?: string;
         overridesJson?: Record<string, any>;
-        ownerScopeType?: "organization" | "workspace";
         provider?: "local-convex" | "workos-vault";
-        scope: "workspace" | "actor";
+        scopeType?: "account" | "organization" | "workspace";
         secretJson: Record<string, any>;
         sessionId?: string;
         sourceKey: string;
@@ -376,7 +373,7 @@ export declare const api: {
         enabled?: boolean;
         id?: string;
         name: string;
-        ownerScopeType?: "organization" | "workspace";
+        scopeType?: "organization" | "workspace";
         sessionId?: string;
         type: "mcp" | "openapi" | "graphql";
         workspaceId: Id<"workspaces">;
@@ -561,6 +558,7 @@ export declare const internal: {
       "mutation",
       "internal",
       {
+        accountId?: Id<"accounts">;
         actorId: string;
         clientId?: string;
         code: string;
@@ -588,15 +586,15 @@ export declare const internal: {
       listCredentials: FunctionReference<
         "query",
         "internal",
-        { workspaceId: Id<"workspaces"> },
+        { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
         any
       >;
       resolveCredential: FunctionReference<
         "query",
         "internal",
         {
-          actorId?: string;
-          scope: "workspace" | "actor";
+          accountId?: Id<"accounts">;
+          scopeType: "account" | "organization" | "workspace";
           sourceKey: string;
           workspaceId: Id<"workspaces">;
         },
@@ -606,12 +604,11 @@ export declare const internal: {
         "mutation",
         "internal",
         {
-          actorId?: string;
+          accountId?: Id<"accounts">;
           id?: string;
           overridesJson?: Record<string, any>;
-          ownerScopeType?: "organization" | "workspace";
           provider?: "local-convex" | "workos-vault";
-          scope: "workspace" | "actor";
+          scopeType?: "account" | "organization" | "workspace";
           secretJson: Record<string, any>;
           sourceKey: string;
           workspaceId: Id<"workspaces">;
@@ -670,7 +667,7 @@ export declare const internal: {
     listAccessPolicies: FunctionReference<
       "query",
       "internal",
-      { workspaceId: Id<"workspaces"> },
+      { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
       any
     >;
     listApprovals: FunctionReference<
@@ -686,7 +683,7 @@ export declare const internal: {
     listCredentials: FunctionReference<
       "query",
       "internal",
-      { workspaceId: Id<"workspaces"> },
+      { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
       any
     >;
     listPendingApprovals: FunctionReference<
@@ -747,7 +744,7 @@ export declare const internal: {
       listAccessPolicies: FunctionReference<
         "query",
         "internal",
-        { workspaceId: Id<"workspaces"> },
+        { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
         any
       >;
       listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
@@ -755,18 +752,15 @@ export declare const internal: {
         "mutation",
         "internal",
         {
-          actorId?: string;
           approvalMode?: "inherit" | "auto" | "required";
           clientId?: string;
-          decision?: "allow" | "require_approval" | "deny";
           effect?: "allow" | "deny";
           id?: string;
           matchType?: "glob" | "exact";
           priority?: number;
-          resourcePattern?: string;
-          scopeType?: "organization" | "workspace";
-          targetActorId?: string;
-          toolPathPattern?: string;
+          resourcePattern: string;
+          scopeType?: "account" | "organization" | "workspace";
+          targetAccountId?: Id<"accounts">;
           workspaceId: Id<"workspaces">;
         },
         any
@@ -787,8 +781,8 @@ export declare const internal: {
       "query",
       "internal",
       {
-        actorId?: string;
-        scope: "workspace" | "actor";
+        accountId?: Id<"accounts">;
+        scopeType: "account" | "organization" | "workspace";
         sourceKey: string;
         workspaceId: Id<"workspaces">;
       },
@@ -824,6 +818,7 @@ export declare const internal: {
         "mutation",
         "internal",
         {
+          accountId?: Id<"accounts">;
           actorId: string;
           clientId?: string;
           code: string;
@@ -935,7 +930,7 @@ export declare const internal: {
           enabled?: boolean;
           id?: string;
           name: string;
-          ownerScopeType?: "organization" | "workspace";
+          scopeType?: "organization" | "workspace";
           type: "mcp" | "openapi" | "graphql";
           workspaceId: Id<"workspaces">;
         },
@@ -946,18 +941,15 @@ export declare const internal: {
       "mutation",
       "internal",
       {
-        actorId?: string;
         approvalMode?: "inherit" | "auto" | "required";
         clientId?: string;
-        decision?: "allow" | "require_approval" | "deny";
         effect?: "allow" | "deny";
         id?: string;
         matchType?: "glob" | "exact";
         priority?: number;
-        resourcePattern?: string;
-        scopeType?: "organization" | "workspace";
-        targetActorId?: string;
-        toolPathPattern?: string;
+        resourcePattern: string;
+        scopeType?: "account" | "organization" | "workspace";
+        targetAccountId?: Id<"accounts">;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -966,12 +958,11 @@ export declare const internal: {
       "mutation",
       "internal",
       {
-        actorId?: string;
+        accountId?: Id<"accounts">;
         id?: string;
         overridesJson?: Record<string, any>;
-        ownerScopeType?: "organization" | "workspace";
         provider?: "local-convex" | "workos-vault";
-        scope: "workspace" | "actor";
+        scopeType?: "account" | "organization" | "workspace";
         secretJson: Record<string, any>;
         sourceKey: string;
         workspaceId: Id<"workspaces">;
@@ -997,7 +988,7 @@ export declare const internal: {
         enabled?: boolean;
         id?: string;
         name: string;
-        ownerScopeType?: "organization" | "workspace";
+        scopeType?: "organization" | "workspace";
         type: "mcp" | "openapi" | "graphql";
         workspaceId: Id<"workspaces">;
       },
@@ -1021,6 +1012,7 @@ export declare const internal: {
       "mutation",
       "internal",
       {
+        accountId?: Id<"accounts">;
         actorId: string;
         clientId?: string;
         code: string;

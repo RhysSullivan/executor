@@ -108,7 +108,7 @@ export function getGraphqlDecision(
           pseudoTool,
           {
             workspaceId: task.workspaceId,
-            actorId: task.actorId,
+            accountId: task.accountId,
             clientId: task.clientId,
           },
           policies,
@@ -117,7 +117,7 @@ export function getGraphqlDecision(
           { ...tool, path: fieldPath, approval: fieldPath.includes(".mutation.") ? "required" : "auto" },
           {
             workspaceId: task.workspaceId,
-            actorId: task.actorId,
+            accountId: task.accountId,
             clientId: task.clientId,
           },
           policies,

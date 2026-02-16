@@ -30,7 +30,7 @@ const registryStateSchema = z.object({
 const toolSourceStateSchema = z.object({
   id: z.string(),
   type: z.string().optional(),
-  ownerScopeType: z.string().optional(),
+  scopeType: z.string().optional(),
   organizationId: z.string().optional(),
   workspaceId: z.string().optional(),
   specHash: z.string().optional(),
@@ -40,7 +40,7 @@ const toolSourceStateSchema = z.object({
 }).transform((source) => ({
   id: source.id,
   type: source.type,
-  ownerScopeType: source.ownerScopeType,
+  scopeType: source.scopeType,
   organizationId: source.organizationId,
   workspaceId: source.workspaceId,
   specHash: source.specHash,

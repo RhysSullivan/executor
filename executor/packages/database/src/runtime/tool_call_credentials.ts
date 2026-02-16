@@ -19,8 +19,8 @@ export async function resolveCredentialHeadersResult(
   const record = await ctx.runQuery(internal.database.resolveCredential, {
     workspaceId: task.workspaceId,
     sourceKey: spec.sourceKey,
-    scope: spec.mode,
-    actorId: task.actorId,
+    scopeType: spec.mode,
+    accountId: task.accountId,
   });
 
   const sourceResult = record

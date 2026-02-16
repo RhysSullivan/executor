@@ -15,12 +15,15 @@ export async function requireCanonicalActor(
     sessionId?: string;
     actorId?: string;
   },
-): Promise<string> {
+): Promise<{ accountId: Id<"accounts">; actorId: string }> {
   const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
     workspaceId: args.workspaceId,
     sessionId: args.sessionId,
   });
   const canonicalActorId = canonicalActorIdForWorkspaceAccess(access);
   assertMatchesCanonicalActorId(args.actorId, canonicalActorId);
-  return canonicalActorId;
+  return {
+    accountId: access.accountId,
+    actorId: canonicalActorId,
+  };
 }

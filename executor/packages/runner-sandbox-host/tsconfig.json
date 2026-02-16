@@ -12,8 +12,10 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
+      "*": [
+        "./*"
+      ],
       "@executor/database/*": ["../database/*"]
     }
   },

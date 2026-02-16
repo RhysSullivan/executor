@@ -18,13 +18,12 @@ export const terminalToolCallStatusValidator = v.union(
 );
 
 export const policyDecisionValidator = v.union(v.literal("allow"), v.literal("require_approval"), v.literal("deny"));
-export const policyScopeTypeValidator = v.union(v.literal("organization"), v.literal("workspace"));
+export const policyScopeTypeValidator = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
 export const policyMatchTypeValidator = v.union(v.literal("glob"), v.literal("exact"));
 export const policyEffectValidator = v.union(v.literal("allow"), v.literal("deny"));
 export const policyApprovalModeValidator = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
-export const ownerScopeTypeValidator = v.union(v.literal("organization"), v.literal("workspace"));
-
-export const credentialScopeValidator = v.union(v.literal("workspace"), v.literal("actor"));
+export const toolSourceScopeTypeValidator = v.union(v.literal("organization"), v.literal("workspace"));
+export const credentialScopeTypeValidator = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
 
 export const credentialProviderValidator = v.union(
   v.literal("local-convex"),

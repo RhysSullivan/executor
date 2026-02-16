@@ -19,6 +19,18 @@ type TaskCreateContext = Pick<MutationCtx, "runMutation"> & {
   scheduler?: Pick<MutationCtx, "scheduler">["scheduler"];
 };
 
+function toMetadata(value: unknown): Record<string, any> | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, any>;
+  }
+
+  return {};
+}
+
 async function createTaskDocument(
   ctx: TaskCreateContext,
   internal: Internal,
@@ -27,8 +39,9 @@ async function createTaskDocument(
     code: string;
     runtimeId: string;
     timeoutMs: number;
-    metadata?: unknown;
+    metadata?: Record<string, any>;
     workspaceId: Id<"workspaces">;
+    accountId?: Id<"accounts">;
     actorId: string;
     clientId?: string;
   },
@@ -67,8 +80,9 @@ async function createTaskInternal(
     code: string;
     timeoutMs?: number;
     runtimeId?: string;
-    metadata?: unknown;
+    metadata?: Record<string, any>;
     workspaceId: Id<"workspaces">;
+    accountId?: Id<"accounts">;
     actorId: string;
     clientId?: string;
     scheduleAfterCreate?: boolean;
@@ -87,6 +101,7 @@ async function createTaskRecord(
     runtimeId?: string;
     metadata?: unknown;
     workspaceId: Id<"workspaces">;
+    accountId?: Id<"accounts">;
     actorId: string;
     clientId?: string;
     scheduleAfterCreate?: boolean;
@@ -110,8 +125,9 @@ async function createTaskRecord(
     code: args.code,
     runtimeId,
     timeoutMs: args.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS,
-    metadata: args.metadata,
+    metadata: toMetadata(args.metadata),
     workspaceId: args.workspaceId,
+    accountId: args.accountId,
     actorId: args.actorId,
     clientId: args.clientId,
   });
@@ -126,6 +142,7 @@ async function createTaskRecord(
       runtimeId: task.runtimeId,
       timeoutMs: task.timeoutMs,
       workspaceId: task.workspaceId,
+      accountId: task.accountId,
       actorId: task.actorId,
       clientId: task.clientId,
       createdAt: task.createdAt,
@@ -233,8 +250,9 @@ export async function createTaskHandler(
     code: args.code,
     timeoutMs: args.timeoutMs,
     runtimeId: args.runtimeId,
-    metadata: args.metadata,
+    metadata: toMetadata(args.metadata),
     workspaceId: args.workspaceId,
+    accountId: access.accountId,
     actorId: canonicalActorId,
     clientId: args.clientId,
     scheduleAfterCreate: !waitForResult,
@@ -273,6 +291,7 @@ export async function createTaskInternalHandler(
     runtimeId?: string;
     metadata?: unknown;
     workspaceId: Id<"workspaces">;
+    accountId?: Id<"accounts">;
     actorId: string;
     clientId?: string;
     scheduleAfterCreate?: boolean;

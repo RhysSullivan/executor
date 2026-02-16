@@ -82,8 +82,7 @@ export async function computeBoundAuthFingerprint(
     return normalizeSourceAuthFingerprint({ type: "none" });
   }
 
-  const workspaceOwned = source.ownerScopeType === "workspace" || (!source.ownerScopeType && Boolean(source.workspaceId));
-  if (workspaceOwned && source.workspaceId !== workspaceId) {
+  if (source.scopeType === "workspace" && source.workspaceId !== workspaceId) {
     return normalizeSourceAuthFingerprint({ type: "none" });
   }
 

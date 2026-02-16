@@ -19,16 +19,17 @@ function matchesToolPath(pattern: string, toolPath: string, matchType: "glob" | 
 
 function policySpecificity(
   policy: AccessPolicyRecord,
-  context: { workspaceId: string; actorId?: string; clientId?: string },
+  context: { workspaceId: string; accountId?: string; clientId?: string },
 ): number {
-  const scopeType = policy.scopeType ?? (policy.workspaceId ? "workspace" : "organization");
-  const targetActorId = policy.targetActorId ?? policy.actorId;
-  const resourcePattern = policy.resourcePattern ?? policy.toolPathPattern ?? "*";
-  const matchType = policy.matchType ?? "glob";
+  const scopeType = policy.scopeType;
+  const targetAccountId = policy.targetAccountId;
+  const resourcePattern = policy.resourcePattern;
+  const matchType = policy.matchType;
 
   let score = 0;
   if (scopeType === "workspace" && policy.workspaceId === context.workspaceId) score += 16;
-  if (targetActorId && context.actorId && targetActorId === context.actorId) score += 64;
+  if (scopeType === "organization") score += 8;
+  if (targetAccountId && context.accountId && targetAccountId === context.accountId) score += 64;
   if (policy.clientId && context.clientId && policy.clientId === context.clientId) score += 4;
   if (matchType === "exact") score += 3;
   score += Math.max(1, resourcePattern.replace(/\*/g, "").length);
@@ -37,9 +38,8 @@ function policySpecificity(
 }
 
 function resolvePolicyDecision(policy: AccessPolicyRecord, defaultDecision: PolicyDecision): PolicyDecision {
-  const effect = policy.effect ?? (policy.decision === "deny" ? "deny" : "allow");
-  const approvalMode = policy.approvalMode
-    ?? (policy.decision === "require_approval" ? "required" : policy.decision === "allow" ? "auto" : "inherit");
+  const effect = policy.effect;
+  const approvalMode = policy.approvalMode;
 
   if (effect === "deny") {
     return "deny";
@@ -58,7 +58,7 @@ function resolvePolicyDecision(policy: AccessPolicyRecord, defaultDecision: Poli
 
 export function getDecisionForContext(
   tool: ToolDefinition,
-  context: { workspaceId: string; actorId?: string; clientId?: string },
+  context: { workspaceId: string; accountId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
 ): PolicyDecision {
   if (tool.path === "discover") {
@@ -68,14 +68,14 @@ export function getDecisionForContext(
   const defaultDecision: PolicyDecision = tool.approval === "required" ? "require_approval" : "allow";
   const candidates = policies
     .filter((policy) => {
-      const scopeType = policy.scopeType ?? (policy.workspaceId ? "workspace" : "organization");
-      const targetActorId = policy.targetActorId ?? policy.actorId;
-      const resourcePattern = policy.resourcePattern ?? policy.toolPathPattern;
-      const matchType = policy.matchType ?? "glob";
+      const scopeType = policy.scopeType;
+      const targetAccountId = policy.targetAccountId;
+      const resourcePattern = policy.resourcePattern;
+      const matchType = policy.matchType;
 
-      if (!resourcePattern) return false;
       if (scopeType === "workspace" && policy.workspaceId !== context.workspaceId) return false;
-      if (targetActorId && targetActorId !== context.actorId) return false;
+      if (scopeType === "organization" && !policy.organizationId) return false;
+      if (targetAccountId && targetAccountId !== context.accountId) return false;
       if (policy.clientId && policy.clientId !== context.clientId) return false;
       return matchesToolPath(resourcePattern, tool.path, matchType);
     })
@@ -97,7 +97,7 @@ export function getToolDecision(
     tool,
     {
       workspaceId: task.workspaceId,
-      actorId: task.actorId,
+      accountId: task.accountId,
       clientId: task.clientId,
     },
     policies,

@@ -7,10 +7,6 @@ import {
   extractWorkosVaultObjectId,
   withWorkosVaultRetryResult,
 } from "../../../core/src/credentials/workos-vault";
-import {
-  assertMatchesCanonicalActorId,
-  canonicalActorIdForWorkspaceAccess,
-} from "../auth/actor_identity";
 
 type Internal = typeof import("../../convex/_generated/api").internal;
 
@@ -25,9 +21,8 @@ const secretPayloadSchema = z.object({
 const listedCredentialSchema = z.object({
   id: z.string().optional(),
   bindingId: z.string().optional(),
-  ownerScopeType: z.enum(["organization", "workspace"]).optional(),
-  scope: z.enum(["workspace", "actor"]).optional(),
-  actorId: z.string().optional(),
+  scopeType: z.enum(["account", "organization", "workspace"]).optional(),
+  accountId: z.string().optional(),
   secretJson: z.record(z.unknown()).optional(),
 });
 
@@ -38,10 +33,10 @@ function toRecordValue(value: unknown): Record<string, unknown> {
   return parsed.success ? parsed.data : {};
 }
 
-function normalizedActorId(scope: "workspace" | "actor", actorId?: string): string {
-  if (scope !== "actor") return "";
-  if (typeof actorId !== "string") return "";
-  return actorId.trim();
+function normalizedAccountId(scopeType: "account" | "organization" | "workspace", accountId?: string): string {
+  if (scopeType !== "account") return "";
+  if (typeof accountId !== "string") return "";
+  return accountId.trim();
 }
 
 function configuredSecretBackend(): SecretBackend {
@@ -92,23 +87,25 @@ function parseListedCredentials(value: unknown): ListedCredential[] {
 function buildVaultObjectName(args: {
   workspaceId: string;
   sourceKey: string;
-  scope: "workspace" | "actor";
-  actorId: string;
+  scopeType: "account" | "organization" | "workspace";
+  accountId: string;
 }): string {
-  const actorSegment = args.scope === "actor" ? args.actorId || "actor" : "workspace";
+  const scopeSegment = args.scopeType === "account"
+    ? args.accountId || "account"
+    : args.scopeType;
   const sourceSegment = args.sourceKey
     .replace(/[^a-zA-Z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 64);
 
-  return `executor-conn-${args.workspaceId.slice(0, 24)}-${sourceSegment}-${actorSegment.slice(0, 24)}-${crypto.randomUUID().slice(0, 8)}`;
+  return `executor-conn-${args.workspaceId.slice(0, 24)}-${sourceSegment}-${scopeSegment.slice(0, 24)}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 async function upsertVaultObject(args: {
   workspaceId: string;
   sourceKey: string;
-  scope: "workspace" | "actor";
-  actorId: string;
+  scopeType: "account" | "organization" | "workspace";
+  accountId: string;
   existingObjectId: string | null;
   payload: Record<string, unknown>;
 }): Promise<Result<string, Error>> {
@@ -168,10 +165,9 @@ export async function upsertCredentialHandler(
     id?: string;
     workspaceId: Id<"workspaces">;
     sessionId?: string;
-    ownerScopeType?: "organization" | "workspace";
+    scopeType?: "account" | "organization" | "workspace";
     sourceKey: string;
-    scope: "workspace" | "actor";
-    actorId?: string;
+    accountId?: Id<"accounts">;
     provider?: "local-convex" | "workos-vault";
     secretJson: unknown;
   },
@@ -180,25 +176,24 @@ export async function upsertCredentialHandler(
     workspaceId: args.workspaceId,
     sessionId: args.sessionId,
   });
-  const canonicalActorId = canonicalActorIdForWorkspaceAccess(access);
-  if (args.scope === "actor") {
-    assertMatchesCanonicalActorId(args.actorId, canonicalActorId);
+  const scopeType = args.scopeType ?? "workspace";
+  if (scopeType === "account" && args.accountId && args.accountId !== access.accountId) {
+    throw new Error("accountId must match the authenticated account for account-scoped credentials");
   }
-
-  const actorId = normalizedActorId(args.scope, args.actorId ?? canonicalActorId);
-  const ownerScopeType = args.ownerScopeType ?? "workspace";
+  const accountId = normalizedAccountId(scopeType, args.accountId ?? access.accountId);
   const rawSubmittedSecret = toRecordValue(args.secretJson);
   const { cleanSecret: submittedSecret, overridesJson } = extractHeaderOverrides(rawSubmittedSecret);
 
   const existingBinding = await ctx.runQuery(internal.database.resolveCredential, {
     workspaceId: args.workspaceId,
     sourceKey: args.sourceKey,
-    scope: args.scope,
-    ...(args.scope === "actor" ? { actorId } : {}),
+    scopeType,
+    accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
   });
 
   const allCredentialsRaw = await ctx.runQuery(internal.database.listCredentials, {
     workspaceId: args.workspaceId,
+    accountId: access.accountId,
   });
   const allCredentials = parseListedCredentials(allCredentialsRaw);
   const requestedId = args.id?.trim();
@@ -207,10 +202,9 @@ export async function upsertCredentialHandler(
       const id = (credential.id ?? "").trim();
       const bindingId = (credential.bindingId ?? "").trim();
       if (id !== requestedId && bindingId !== requestedId) return false;
-      if ((credential.ownerScopeType ?? "workspace") !== ownerScopeType) return false;
-      if (credential.scope !== args.scope) return false;
-      if (args.scope === "actor") {
-        return (credential.actorId ?? "").trim() === actorId;
+      if ((credential.scopeType ?? "workspace") !== scopeType) return false;
+      if (scopeType === "account") {
+        return (credential.accountId ?? "").trim() === accountId;
       }
       return true;
     }) ?? allCredentials.find((credential) => {
@@ -234,10 +228,9 @@ export async function upsertCredentialHandler(
     return await ctx.runMutation(internal.database.upsertCredential, {
       id: connectionId,
       workspaceId: args.workspaceId,
-      ownerScopeType,
+      scopeType,
       sourceKey: args.sourceKey,
-      scope: args.scope,
-      ...(args.scope === "actor" ? { actorId } : {}),
+      accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
       provider: "local-convex",
       secretJson: finalSecret,
       overridesJson,
@@ -258,8 +251,8 @@ export async function upsertCredentialHandler(
     const upsertResult = await upsertVaultObject({
       workspaceId: args.workspaceId,
       sourceKey: args.sourceKey,
-      scope: args.scope,
-      actorId,
+      scopeType,
+      accountId,
       existingObjectId,
       payload: submittedSecret,
     });
@@ -280,10 +273,9 @@ export async function upsertCredentialHandler(
   return await ctx.runMutation(internal.database.upsertCredential, {
     id: connectionId,
     workspaceId: args.workspaceId,
-    ownerScopeType,
+    scopeType,
     sourceKey: args.sourceKey,
-    scope: args.scope,
-    ...(args.scope === "actor" ? { actorId } : {}),
+    accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
     provider: "workos-vault",
     secretJson: { objectId: finalObjectId },
     overridesJson,

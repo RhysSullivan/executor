@@ -5,13 +5,14 @@ import type { Id } from "@executor/database/convex/_generated/dataModel";
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
 export type ApprovalStatus = "pending" | "approved" | "denied";
 export type PolicyDecision = "allow" | "require_approval" | "deny";
-export type PolicyScopeType = "organization" | "workspace";
+export type PolicyScopeType = "account" | "organization" | "workspace";
 export type PolicyMatchType = "glob" | "exact";
 export type PolicyEffect = "allow" | "deny";
 export type PolicyApprovalMode = "inherit" | "auto" | "required";
-export type CredentialScope = "workspace" | "actor";
+export type CredentialScope = "account" | "organization" | "workspace";
 export type CredentialProvider = "local-convex" | "workos-vault";
-export type OwnerScopeType = "organization" | "workspace";
+export type ToolSourceScopeType = "organization" | "workspace";
+export type CredentialScopeType = "account" | "organization" | "workspace";
 export type ToolApprovalMode = "auto" | "required";
 export type ToolSourceType = "mcp" | "openapi" | "graphql";
 
@@ -70,19 +71,16 @@ export interface TaskEventRecord {
 
 export interface AccessPolicyRecord {
   id: string;
-  scopeType?: PolicyScopeType;
+  scopeType: PolicyScopeType;
   organizationId?: string;
   workspaceId?: string;
-  targetActorId?: string;
-  actorId?: string;
+  targetAccountId?: string;
   clientId?: string;
-  resourceType?: "tool_path";
-  resourcePattern?: string;
-  matchType?: PolicyMatchType;
-  effect?: PolicyEffect;
-  approvalMode?: PolicyApprovalMode;
-  toolPathPattern: string;
-  decision: PolicyDecision;
+  resourceType: "tool_path";
+  resourcePattern: string;
+  matchType: PolicyMatchType;
+  effect: PolicyEffect;
+  approvalMode: PolicyApprovalMode;
   priority: number;
   createdAt: number;
   updatedAt: number;
@@ -91,12 +89,11 @@ export interface AccessPolicyRecord {
 export interface CredentialRecord {
   id: string;
   bindingId?: string;
-  ownerScopeType?: OwnerScopeType;
+  scopeType: CredentialScopeType;
+  accountId?: string;
   organizationId?: string;
   workspaceId?: string;
   sourceKey: string;
-  scope: CredentialScope;
-  actorId?: string;
   overridesJson?: Record<string, unknown>;
   boundAuthFingerprint?: string;
   provider: CredentialProvider;
@@ -107,7 +104,7 @@ export interface CredentialRecord {
 
 export interface ToolSourceRecord {
   id: string;
-  ownerScopeType?: OwnerScopeType;
+  scopeType: ToolSourceScopeType;
   organizationId?: string;
   workspaceId?: string;
   name: string;
@@ -199,7 +196,6 @@ export interface CredentialDescriptor {
   id: string;
   workspaceId: string;
   sourceKey: string;
-  scope: CredentialScope;
-  actorId?: string;
+  scope: CredentialScopeType;
   hasSecret: boolean;
 }

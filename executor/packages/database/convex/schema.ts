@@ -56,13 +56,13 @@ const toolCallStatus = v.union(
   v.literal("denied"),
 );
 const toolApprovalMode = v.union(v.literal("auto"), v.literal("required"));
-const policyScopeType = v.union(v.literal("organization"), v.literal("workspace"));
+const policyScopeType = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
 const policyResourceType = v.literal("tool_path");
 const policyMatchType = v.union(v.literal("glob"), v.literal("exact"));
 const policyEffect = v.union(v.literal("allow"), v.literal("deny"));
 const policyApprovalMode = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
-const ownerScopeType = v.union(v.literal("organization"), v.literal("workspace"));
-const credentialScope = v.union(v.literal("workspace"), v.literal("actor"));
+const toolSourceScopeType = v.union(v.literal("organization"), v.literal("workspace"));
+const credentialScopeType = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
 const credentialProvider = v.union(
   v.literal("local-convex"),
   v.literal("workos-vault"),
@@ -250,6 +250,7 @@ export default defineSchema({
     code: v.string(),
     runtimeId: v.string(),
     workspaceId: v.id("workspaces"),
+    accountId: v.optional(v.id("accounts")),
     actorId: v.optional(v.string()), // account._id or anon_<uuid>
     clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
     status: taskStatus,
@@ -330,9 +331,9 @@ export default defineSchema({
   accessPolicies: defineTable({
     policyId: v.string(), // domain ID: policy_<uuid>
     scopeType: policyScopeType,
-    organizationId: v.id("organizations"),
+    organizationId: v.optional(v.id("organizations")),
     workspaceId: v.optional(v.id("workspaces")),
-    targetActorId: v.optional(v.string()), // account._id or anon_<uuid>
+    targetAccountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
     resourceType: policyResourceType,
     resourcePattern: v.string(),
@@ -345,7 +346,8 @@ export default defineSchema({
   })
     .index("by_policy_id", ["policyId"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
-    .index("by_organization_created", ["organizationId", "createdAt"]),
+    .index("by_organization_created", ["organizationId", "createdAt"])
+    .index("by_target_account_created", ["targetAccountId", "createdAt"]),
 
   // Stored credentials for tool sources.
   //
@@ -361,13 +363,11 @@ export default defineSchema({
   sourceCredentials: defineTable({
     bindingId: v.string(), // domain ID: bind_<uuid>
     credentialId: v.string(), // domain ID: conn_<uuid>
-    ownerScopeType: ownerScopeType,
-    organizationId: v.id("organizations"),
+    scopeType: credentialScopeType,
+    accountId: v.optional(v.id("accounts")),
+    organizationId: v.optional(v.id("organizations")),
     workspaceId: v.optional(v.id("workspaces")),
     sourceKey: v.string(),
-    scope: credentialScope,
-    scopeKey: v.string(), // "workspace" or actor:<actorId>
-    actorId: v.optional(v.string()), // account._id or anon_<uuid> when scope === "actor"
     provider: credentialProvider,
     secretJson: jsonObject,
     overridesJson: v.optional(jsonObject),
@@ -377,14 +377,14 @@ export default defineSchema({
   })
     .index("by_workspace_created", ["workspaceId", "createdAt"])
     .index("by_organization_created", ["organizationId", "createdAt"])
-    .index("by_organization_owner_created", ["organizationId", "ownerScopeType", "createdAt"])
-    .index("by_workspace_source_scope_key", ["workspaceId", "sourceKey", "scopeKey"])
-    .index("by_organization_source_scope_key", ["organizationId", "sourceKey", "scopeKey"])
-    .index("by_organization_owner_source_scope_key", ["organizationId", "ownerScopeType", "sourceKey", "scopeKey"])
+    .index("by_account_created", ["accountId", "createdAt"])
+    .index("by_workspace_source_scope", ["workspaceId", "sourceKey", "scopeType"])
+    .index("by_organization_source_scope", ["organizationId", "sourceKey", "scopeType"])
+    .index("by_account_source_scope", ["accountId", "sourceKey", "scopeType"])
     .index("by_workspace_credential", ["workspaceId", "credentialId"])
     .index("by_organization_credential", ["organizationId", "credentialId"])
-    .index("by_organization_owner_credential", ["organizationId", "ownerScopeType", "credentialId"])
-    .index("by_organization_source", ["organizationId", "sourceKey"])
+    .index("by_account_credential", ["accountId", "credentialId"])
+    .index("by_source", ["sourceKey"])
     .index("by_binding_id", ["bindingId"]),
 
   // Configured tool sources for a workspace/organization (MCP servers, OpenAPI sources, GraphQL sources).
@@ -397,7 +397,7 @@ export default defineSchema({
   // - Enforce name uniqueness per owner scope.
   toolSources: defineTable({
     sourceId: v.string(), // domain ID: src_<uuid>
-    ownerScopeType: ownerScopeType,
+    scopeType: toolSourceScopeType,
     organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
     name: v.string(),
@@ -412,10 +412,10 @@ export default defineSchema({
     .index("by_source_id", ["sourceId"])
     .index("by_workspace_updated", ["workspaceId", "updatedAt"])
     .index("by_organization_updated", ["organizationId", "updatedAt"])
-    .index("by_organization_owner_updated", ["organizationId", "ownerScopeType", "updatedAt"])
+    .index("by_organization_scope_updated", ["organizationId", "scopeType", "updatedAt"])
     .index("by_workspace_name", ["workspaceId", "name"])
     .index("by_organization_name", ["organizationId", "name"])
-    .index("by_organization_owner_name", ["organizationId", "ownerScopeType", "name"]),
+    .index("by_organization_scope_name", ["organizationId", "scopeType", "name"]),
 
   // Cached OpenAPI spec blobs stored in Convex storage.
   // (specUrl, version) uniquely identifies a stored spec payload.

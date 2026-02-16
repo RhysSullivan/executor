@@ -41,7 +41,7 @@ export const listToolsWithWarnings = action({
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
     debug: WorkspaceToolsDebug;
   }> => {
-    const canonicalActorId = await requireCanonicalActor(ctx, {
+    const access = await requireCanonicalActor(ctx, {
       workspaceId: args.workspaceId,
       sessionId: args.sessionId,
       actorId: args.actorId,
@@ -49,7 +49,8 @@ export const listToolsWithWarnings = action({
 
     const inventory = await listToolsWithWarningsForContext(ctx, {
       workspaceId: args.workspaceId,
-      actorId: canonicalActorId,
+      accountId: access.accountId,
+      actorId: access.actorId,
       clientId: args.clientId,
     }, {
       includeDetails: args.includeDetails ?? true,
@@ -63,7 +64,7 @@ export const listToolsWithWarnings = action({
       try {
         await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
           workspaceId: args.workspaceId,
-          actorId: canonicalActorId,
+          actorId: access.actorId,
           clientId: args.clientId,
         });
       } catch {

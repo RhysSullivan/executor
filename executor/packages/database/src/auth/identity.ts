@@ -60,7 +60,7 @@ export function resolveIdentityProfile(args: {
     ?? deriveFallbackUserLabel(identity.subject);
 
   const avatarUrl =
-    (authKitProfile?.profilePictureUrl ?? undefined)
+    authKitProfile?.profilePictureUrl
     ?? getIdentityString(identity, ["picture", "avatar_url", "profile_picture_url"]);
 
   const hintedWorkosOrgId = getIdentityString(identity, ["org_id", "organization_id"]);

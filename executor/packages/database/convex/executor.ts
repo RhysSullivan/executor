@@ -35,6 +35,7 @@ export const createTaskInternal = internalMutation({
     runtimeId: v.optional(v.string()),
     metadata: v.optional(jsonObjectValidator),
     workspaceId: v.id("workspaces"),
+    accountId: v.optional(v.id("accounts")),
     actorId: v.string(),
     clientId: v.optional(v.string()),
     scheduleAfterCreate: v.optional(v.boolean()),

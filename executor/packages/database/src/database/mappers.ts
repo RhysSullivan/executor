@@ -60,6 +60,7 @@ export function mapTask(doc: Doc<"tasks">) {
     timeoutMs: typeof doc.timeoutMs === "number" ? doc.timeoutMs : DEFAULT_TASK_TIMEOUT_MS,
     metadata,
     workspaceId: doc.workspaceId,
+    accountId: doc.accountId,
     actorId: doc.actorId,
     clientId: doc.clientId,
     createdAt: doc.createdAt,
@@ -101,46 +102,21 @@ export function mapToolCall(doc: Doc<"toolCalls">) {
 }
 
 export function mapPolicy(doc: Doc<"accessPolicies">) {
-  const legacyDecision = typeof Reflect.get(doc as object, "decision") === "string"
-    ? String(Reflect.get(doc as object, "decision"))
-    : undefined;
-  const resourcePattern = doc.resourcePattern
-    || (typeof Reflect.get(doc as object, "toolPathPattern") === "string"
-      ? String(Reflect.get(doc as object, "toolPathPattern"))
-      : "*");
-  const scopeType = doc.scopeType ?? (doc.workspaceId ? "workspace" : "organization");
-  const targetActorId = doc.targetActorId
-    ?? (typeof Reflect.get(doc as object, "actorId") === "string"
-      ? String(Reflect.get(doc as object, "actorId"))
-      : undefined);
-  const effect = doc.effect ?? (legacyDecision === "deny" ? "deny" : "allow");
-  const approvalMode = doc.approvalMode
-    ?? (legacyDecision === "require_approval" ? "required" : legacyDecision === "allow" ? "auto" : "inherit");
-  const decision = effect === "deny"
-    ? "deny"
-    : approvalMode === "required"
-      ? "require_approval"
-      : "allow";
-
   return {
     id: doc.policyId,
-    scopeType,
+    scopeType: doc.scopeType,
     organizationId: doc.organizationId,
     workspaceId: doc.workspaceId,
-    targetActorId,
+    targetAccountId: doc.targetAccountId,
     clientId: doc.clientId,
-    resourceType: doc.resourceType ?? "tool_path",
-    resourcePattern,
-    matchType: doc.matchType ?? "glob",
-    effect,
-    approvalMode,
+    resourceType: doc.resourceType,
+    resourcePattern: doc.resourcePattern,
+    matchType: doc.matchType,
+    effect: doc.effect,
+    approvalMode: doc.approvalMode,
     priority: doc.priority,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
-    // Legacy aliases retained during transition.
-    actorId: targetActorId,
-    toolPathPattern: resourcePattern,
-    decision,
   };
 }
 
@@ -150,12 +126,11 @@ export function mapCredential(doc: Doc<"sourceCredentials">) {
   return {
     id: doc.credentialId,
     bindingId: doc.bindingId,
-    ownerScopeType: doc.ownerScopeType ?? (doc.workspaceId ? "workspace" : "organization"),
+    scopeType: doc.scopeType,
+    accountId: doc.accountId,
     organizationId: doc.organizationId,
     workspaceId: doc.workspaceId,
     sourceKey: doc.sourceKey,
-    scope: doc.scope,
-    actorId: doc.actorId || undefined,
     provider: doc.provider,
     secretJson,
     overridesJson,
@@ -169,7 +144,7 @@ export function mapSource(doc: Doc<"toolSources">) {
   const config = isRecord(doc.config) ? doc.config : {};
   return {
     id: doc.sourceId,
-    ownerScopeType: doc.ownerScopeType ?? (doc.workspaceId ? "workspace" : "organization"),
+    scopeType: doc.scopeType,
     organizationId: doc.organizationId,
     workspaceId: doc.workspaceId,
     name: doc.name,

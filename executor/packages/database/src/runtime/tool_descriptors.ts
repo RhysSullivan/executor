@@ -105,7 +105,7 @@ export function computeOpenApiSourceQuality(
 
 export function listVisibleToolDescriptors(
   workspaceTools: Map<string, ToolDefinition>,
-  context: { workspaceId: string; actorId?: string; clientId?: string },
+  context: { workspaceId: string; accountId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
   options: { includeDetails?: boolean; toolPaths?: string[] } = {},
 ): ToolDescriptor[] {

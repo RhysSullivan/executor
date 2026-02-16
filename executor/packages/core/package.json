@@ -7,7 +7,8 @@
     "./openapi-helper-types": "./src/openapi/helper-types.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit",
+    "typecheck:slow": "bunx tsc --noEmit"
   },
   "dependencies": {
     "better-result": "^2.7.0",

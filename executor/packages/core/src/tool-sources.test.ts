@@ -945,7 +945,7 @@ test("graphql helper tools inherit credential spec from source auth", async () =
         endpoint: `http://127.0.0.1:${server.port}/graphql`,
         auth: {
           type: "bearer",
-          mode: "actor",
+          mode: "account",
         },
       },
     ]);
@@ -957,12 +957,12 @@ test("graphql helper tools inherit credential spec from source auth", async () =
 
     expect(rawTool?.credential).toEqual({
       sourceKey: "source:stable-linear-id",
-      mode: "actor",
+      mode: "account",
       authType: "bearer",
     });
     expect(helperTool?.credential).toEqual({
       sourceKey: "source:stable-linear-id",
-      mode: "actor",
+      mode: "account",
       authType: "bearer",
     });
   } finally {

@@ -251,8 +251,8 @@ describe("authentication", () => {
     await expect(
       t.mutation(api.workspace.upsertAccessPolicy, {
         workspaceId: owner.workspaceId,
-        toolPathPattern: "*",
-        decision: "allow",
+        resourcePattern: "*",
+        effect: "allow",
       }),
     ).rejects.toThrow("Must be signed in");
   });
@@ -416,8 +416,8 @@ describe("workspace access controls", () => {
     await expect(
       authedMember.mutation(api.workspace.upsertAccessPolicy, {
         workspaceId: owner.workspaceId,
-        toolPathPattern: "*",
-        decision: "allow",
+        resourcePattern: "*",
+        effect: "allow",
       }),
     ).rejects.toThrow("Only workspace admins can perform this action");
   });
@@ -442,12 +442,14 @@ describe("workspace access controls", () => {
 
     const policy = await authedAdmin.mutation(api.workspace.upsertAccessPolicy, {
       workspaceId: owner.workspaceId,
-      toolPathPattern: "*.delete",
-      decision: "require_approval",
+      resourcePattern: "*.delete",
+      effect: "allow",
+      approvalMode: "required",
     });
 
-    expect(policy.decision).toBe("require_approval");
-    expect(policy.toolPathPattern).toBe("*.delete");
+    expect(policy.effect).toBe("allow");
+    expect(policy.approvalMode).toBe("required");
+    expect(policy.resourcePattern).toBe("*.delete");
   });
 
   test("workspace owner can upsert access policies", async () => {
@@ -457,11 +459,11 @@ describe("workspace access controls", () => {
 
     const policy = await authedOwner.mutation(api.workspace.upsertAccessPolicy, {
       workspaceId: owner.workspaceId,
-      toolPathPattern: "*",
-      decision: "allow",
+      resourcePattern: "*",
+      effect: "allow",
     });
 
-    expect(policy.decision).toBe("allow");
+    expect(policy.effect).toBe("allow");
   });
 
   test("regular member cannot upsert credentials (admin-only)", async () => {
@@ -486,7 +488,7 @@ describe("workspace access controls", () => {
       authedMember.mutation(api.workspace.upsertCredential, {
         workspaceId: owner.workspaceId,
         sourceKey: "openapi:github",
-        scope: "workspace",
+        scopeType: "workspace",
         secretJson: { token: "ghp_test" },
       }),
     ).rejects.toThrow("Only workspace admins can perform this action");
@@ -796,8 +798,8 @@ describe("cross-workspace isolation", () => {
     await expect(
       authedA.mutation(api.workspace.upsertAccessPolicy, {
         workspaceId: userB.workspaceId,
-        toolPathPattern: "*",
-        decision: "allow",
+        resourcePattern: "*",
+        effect: "allow",
       }),
     ).rejects.toThrow("You are not a member of this workspace");
   });
@@ -1163,7 +1165,7 @@ describe("credential security", () => {
     await authed.mutation(api.workspace.upsertCredential, {
       workspaceId: owner.workspaceId,
       sourceKey: "openapi:stripe",
-      scope: "workspace",
+      scopeType: "workspace",
       secretJson: { token: "sk_live_super_secret" },
     });
 
@@ -1199,7 +1201,7 @@ describe("credential security", () => {
       authedMember.query(api.workspace.resolveCredential, {
         workspaceId: owner.workspaceId,
         sourceKey: "openapi:github",
-        scope: "workspace",
+        scopeType: "workspace",
       }),
     ).rejects.toThrow("Only workspace admins can perform this action");
   });
@@ -1227,10 +1229,10 @@ describe("role hierarchy validation", () => {
     // Admin can upsert access policies
     const policy = await authed.mutation(api.workspace.upsertAccessPolicy, {
       workspaceId: org.workspaceId,
-      toolPathPattern: "admin.*",
-      decision: "deny",
+      resourcePattern: "admin.*",
+      effect: "deny",
     });
-    expect(policy.decision).toBe("deny");
+    expect(policy.effect).toBe("deny");
 
     // Admin can upsert tool sources
     const source = await authed.mutation(api.workspace.upsertToolSource, {

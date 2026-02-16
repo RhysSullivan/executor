@@ -31,7 +31,7 @@ export type NormalizedToolSourceConfig =
   | NormalizedOpenApiToolSourceConfig;
 
 const approvalModeSchema = z.enum(["auto", "required"]);
-const authModeSchema = z.enum(["static", "workspace", "actor"]);
+const authModeSchema = z.enum(["static", "account", "workspace", "organization"]);
 const mcpTransportSchema = z.enum(["sse", "streamable-http"]);
 const overrideEntrySchema = z.object({
   approval: approvalModeSchema.optional(),
@@ -174,7 +174,7 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
   if (authType === "basic") {
     const parsed = basicAuthSchema.safeParse(auth);
     if (!parsed.success) {
-      return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
+      return Result.err(new Error("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'"));
     }
 
     return Result.ok({
@@ -188,7 +188,7 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
   if (authType === "bearer") {
     const parsed = bearerAuthSchema.safeParse(auth);
     if (!parsed.success) {
-      return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
+      return Result.err(new Error("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'"));
     }
 
     return Result.ok({
@@ -205,7 +205,7 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
       if (headerIssue) {
         return Result.err(new Error("Tool source auth.header is required"));
       }
-      return Result.err(new Error("Tool source auth.mode must be 'static', 'workspace', or 'actor'"));
+        return Result.err(new Error("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'"));
     }
 
     const headerResult = requiredTrimmedString(parsed.data.header, "auth.header");

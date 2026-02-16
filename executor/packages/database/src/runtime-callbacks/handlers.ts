@@ -21,7 +21,7 @@ export async function handleToolCallHandler(
     runId: string;
     callId: string;
     toolPath: string;
-    input?: unknown;
+    input?: Record<string, unknown>;
   },
 ): Promise<ToolCallResult> {
   requireInternalSecret(args.internalSecret);
@@ -29,7 +29,7 @@ export async function handleToolCallHandler(
     runId: args.runId,
     callId: args.callId,
     toolPath: args.toolPath,
-    input: args.input,
+    input: args.input as Record<string, any> | undefined,
   });
 }
 

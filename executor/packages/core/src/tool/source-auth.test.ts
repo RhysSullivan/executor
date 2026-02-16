@@ -16,17 +16,17 @@ test("buildStaticAuthHeaders returns static bearer header", () => {
   expect(headers).toEqual({ authorization: "Bearer secret-token" });
 });
 
-test("buildCredentialSpec omits static auth and preserves actor mode", () => {
+test("buildCredentialSpec omits static auth and preserves account mode", () => {
   expect(buildCredentialSpec("source:test", { type: "none" })).toBeUndefined();
   expect(
     buildCredentialSpec("source:test", {
       type: "apiKey",
-      mode: "actor",
+      mode: "account",
       header: "x-api-key",
     }),
   ).toEqual({
     sourceKey: "source:test",
-    mode: "actor",
+    mode: "account",
     authType: "apiKey",
     headerName: "x-api-key",
   });

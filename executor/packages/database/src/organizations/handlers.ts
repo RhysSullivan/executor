@@ -150,10 +150,11 @@ export async function getNavigationStateHandler(ctx: OptionalAccountCtx) {
   const workspaces: WorkspaceSummary[] = [];
 
   if (!account) {
-    if (ctx.sessionId) {
+    const sessionId = ctx.sessionId;
+    if (sessionId) {
       const anonymousSession = await ctx.db
         .query("anonymousSessions")
-        .withIndex("by_session_id", (q) => q.eq("sessionId", ctx.sessionId))
+        .withIndex("by_session_id", (q) => q.eq("sessionId", String(sessionId)))
         .unique();
       if (anonymousSession?.workspaceId) {
         const workspace = await ctx.db.get(anonymousSession.workspaceId);

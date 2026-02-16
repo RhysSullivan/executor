@@ -16,9 +16,9 @@ export interface McpToolSourceConfig {
 
 export type OpenApiAuth =
   | { type: "none" }
-  | { type: "basic"; mode?: "static" | "workspace" | "actor"; username?: string; password?: string }
-  | { type: "bearer"; mode?: "static" | "workspace" | "actor"; token?: string }
-  | { type: "apiKey"; mode?: "static" | "workspace" | "actor"; header: string; value?: string };
+  | { type: "basic"; mode?: "static" | "account" | "workspace" | "organization"; username?: string; password?: string }
+  | { type: "bearer"; mode?: "static" | "account" | "workspace" | "organization"; token?: string }
+  | { type: "apiKey"; mode?: "static" | "account" | "workspace" | "organization"; header: string; value?: string };
 
 export interface OpenApiToolSourceConfig {
   type: "openapi";

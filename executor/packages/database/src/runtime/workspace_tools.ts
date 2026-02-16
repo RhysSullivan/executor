@@ -39,7 +39,7 @@ const adminAnnouncementInputSchema = z.object({
 });
 
 const actorScopedMcpAuthSchema = z.object({
-  mode: z.literal("actor"),
+  mode: z.literal("account"),
 });
 
 const toolHintSchema = z.object({
@@ -76,8 +76,9 @@ async function listWorkspaceToolSources(
 async function listWorkspaceAccessPolicies(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
+  accountId?: Id<"accounts">,
 ): Promise<AccessPolicyRecord[]> {
-  const policies: AccessPolicyRecord[] = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId });
+  const policies: AccessPolicyRecord[] = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId, accountId });
   return policies;
 }
 
@@ -275,6 +276,7 @@ interface GetWorkspaceToolsOptions {
   sourceTimeoutMs?: number;
   allowStaleOnMismatch?: boolean;
   skipCacheRead?: boolean;
+  accountId?: Id<"accounts">;
   actorId?: string;
 }
 
@@ -576,6 +578,7 @@ export async function getWorkspaceTools(
   const includeDts = true;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const allowStaleOnMismatch = options.allowStaleOnMismatch ?? false;
+  const accountId = options.accountId;
   const actorId = options.actorId;
   const sources = (await listWorkspaceToolSources(ctx, workspaceId))
     .filter((source) => source.enabled);
@@ -688,7 +691,7 @@ export async function getWorkspaceTools(
   const loadedSources = await Promise.all(configs.map(async (config) => {
     if (!sourceTimeoutMs || sourceTimeoutMs <= 0) {
       return {
-        ...(await loadSourceArtifact(ctx, config, { includeDts, workspaceId, actorId })),
+        ...(await loadSourceArtifact(ctx, config, { includeDts, workspaceId, accountId, actorId })),
         timedOut: false,
         sourceName: config.name,
       };
@@ -715,7 +718,7 @@ export async function getWorkspaceTools(
       }, sourceTimeoutMs);
     });
 
-    const loadResult = loadSourceArtifact(ctx, config, { includeDts, workspaceId, actorId })
+    const loadResult = loadSourceArtifact(ctx, config, { includeDts, workspaceId, accountId, actorId })
       .then((result) => ({ ...result, timedOut: false, sourceName: config.name }));
 
     const result = await Promise.race([loadResult, timeoutResult]);
@@ -829,7 +832,7 @@ export async function getWorkspaceTools(
 
 async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
-  context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+  context: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; actorId?: string; clientId?: string },
   options: {
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
@@ -849,9 +852,10 @@ async function loadWorkspaceToolInventoryForContext(
       sourceTimeoutMs,
       allowStaleOnMismatch,
       skipCacheRead,
+      accountId: context.accountId,
       actorId: context.actorId,
     }),
-    listWorkspaceAccessPolicies(ctx, context.workspaceId),
+    listWorkspaceAccessPolicies(ctx, context.workspaceId, context.accountId),
   ]);
   const descriptorsStartedAt = Date.now();
   const tools = listVisibleToolDescriptors(result.tools, context, policies, {
@@ -913,7 +917,7 @@ async function loadWorkspaceToolInventoryForContext(
 
 export async function listToolsForContext(
   ctx: ActionCtx,
-  context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+  context: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; actorId?: string; clientId?: string },
   options: {
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
@@ -929,7 +933,7 @@ export async function listToolsForContext(
 
 export async function listToolsWithWarningsForContext(
   ctx: ActionCtx,
-  context: { workspaceId: Id<"workspaces">; actorId?: string; clientId?: string },
+  context: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; actorId?: string; clientId?: string },
   options: {
     includeDetails?: boolean;
     includeSourceMeta?: boolean;

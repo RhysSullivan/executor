@@ -6,7 +6,8 @@
     "dev": "bun --hot server.ts",
     "start": "bun server.ts",
     "sync": "bun server.ts --sync-only",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
+    "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {},
   "devDependencies": {

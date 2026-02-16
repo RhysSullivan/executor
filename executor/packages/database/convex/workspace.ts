@@ -5,14 +5,13 @@ import { workspaceMutation, workspaceQuery } from "../../core/src/function-build
 import { getOrganizationMembership, isAdminRole } from "../../core/src/identity";
 import {
   credentialProviderValidator,
-  credentialScopeValidator,
+  credentialScopeTypeValidator,
   jsonObjectValidator,
-  ownerScopeTypeValidator,
   policyApprovalModeValidator,
-  policyDecisionValidator,
   policyEffectValidator,
   policyMatchTypeValidator,
   policyScopeTypeValidator,
+  toolSourceScopeTypeValidator,
   toolSourceTypeValidator,
 } from "../src/database/validators";
 
@@ -50,10 +49,9 @@ export const upsertAccessPolicy = workspaceMutation({
   args: {
     id: v.optional(v.string()),
     scopeType: v.optional(policyScopeTypeValidator),
-    actorId: v.optional(v.string()),
+    targetAccountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
-    toolPathPattern: v.string(),
-    decision: v.optional(policyDecisionValidator),
+    resourcePattern: v.string(),
     matchType: v.optional(policyMatchTypeValidator),
     effect: v.optional(policyEffectValidator),
     approvalMode: v.optional(policyApprovalModeValidator),
@@ -79,6 +77,7 @@ export const listAccessPolicies = workspaceQuery({
   handler: async (ctx) => {
     return await ctx.runQuery(internal.database.listAccessPolicies, {
       workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
     });
   },
 });
@@ -87,16 +86,15 @@ export const upsertCredential = workspaceMutation({
   requireAdmin: true,
   args: {
     id: v.optional(v.string()),
-    ownerScopeType: v.optional(ownerScopeTypeValidator),
+    scopeType: v.optional(credentialScopeTypeValidator),
     sourceKey: v.string(),
-    scope: credentialScopeValidator,
-    actorId: v.optional(v.string()),
+    accountId: v.optional(v.id("accounts")),
     provider: v.optional(credentialProviderValidator),
     secretJson: jsonObjectValidator,
     overridesJson: v.optional(jsonObjectValidator),
   },
   handler: async (ctx, args) => {
-    if (args.ownerScopeType === "organization") {
+    if (args.scopeType === "organization") {
       const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
       if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
         throw new Error("Only organization admins can manage organization-level credentials");
@@ -116,6 +114,7 @@ export const listCredentials = workspaceQuery({
   handler: async (ctx) => {
     const credentials = await ctx.runQuery(internal.database.listCredentials, {
       workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
     });
     const sanitized = [] as Array<Record<string, unknown>>;
     for (const credential of credentials) {
@@ -132,8 +131,8 @@ export const resolveCredential = workspaceQuery({
   requireAdmin: true,
   args: {
     sourceKey: v.string(),
-    scope: credentialScopeValidator,
-    actorId: v.optional(v.string()),
+    scopeType: credentialScopeTypeValidator,
+    accountId: v.optional(v.id("accounts")),
   },
   handler: async (ctx, args) => {
     return await ctx.runQuery(internal.database.resolveCredential, {
@@ -147,14 +146,14 @@ export const upsertToolSource = workspaceMutation({
   requireAdmin: true,
   args: {
     id: v.optional(v.string()),
-    ownerScopeType: v.optional(ownerScopeTypeValidator),
+    scopeType: v.optional(toolSourceScopeTypeValidator),
     name: v.string(),
     type: toolSourceTypeValidator,
     config: jsonObjectValidator,
     enabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    if (args.ownerScopeType === "organization") {
+    if (args.scopeType === "organization") {
       const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
       if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
         throw new Error("Only organization admins can manage organization-level tool sources");
@@ -186,14 +185,14 @@ export const deleteToolSource = workspaceMutation({
     const sources = await ctx.runQuery(internal.database.listToolSources, {
       workspaceId: ctx.workspaceId,
     });
-    let source: { id: string; ownerScopeType?: "organization" | "workspace" } | undefined;
-    for (const entry of sources as Array<{ id: string; ownerScopeType?: "organization" | "workspace" }>) {
+    let source: { id: string; scopeType?: "organization" | "workspace" } | undefined;
+    for (const entry of sources as Array<{ id: string; scopeType?: "organization" | "workspace" }>) {
       if (entry.id === args.sourceId) {
         source = entry;
         break;
       }
     }
-    if (source?.ownerScopeType === "organization") {
+    if (source?.scopeType === "organization") {
       const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
       if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
         throw new Error("Only organization admins can delete organization-level tool sources");

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit",
+    "typecheck:slow": "bunx tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

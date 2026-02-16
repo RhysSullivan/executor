@@ -163,23 +163,23 @@ function createRunCodeTool(
 // Input schema — when context is bound, workspace fields aren't needed
 // ---------------------------------------------------------------------------
 
-const FULL_INPUT: AnySchema = z.object({
+const FULL_INPUT = z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
-  metadata: z.record(z.string(), z.any()).optional(),
+  metadata: z.record(z.unknown()).optional(),
   clientId: z.string().optional(),
   sessionId: z.string().optional(),
   waitForResult: z.boolean().optional(),
   resultTimeoutMs: z.number().int().min(100).max(900_000).optional(),
-});
+}) as unknown as AnySchema;
 
-const BOUND_INPUT: AnySchema = z.object({
+const BOUND_INPUT = z.object({
   code: z.string().min(1),
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
-  metadata: z.record(z.string(), z.any()).optional(),
-});
+  metadata: z.record(z.unknown()).optional(),
+}) as unknown as AnySchema;
 
 // ---------------------------------------------------------------------------
 // MCP server factory
