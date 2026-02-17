@@ -7,6 +7,7 @@
  * Specs are fetched live so these tests require network access and are slower (~5-60s each).
  */
 import { test, expect, describe } from "bun:test";
+import SwaggerParser from "@apidevtools/swagger-parser";
 import { prepareOpenApiSpec, buildOpenApiToolsFromPrepared } from "../tool-sources";
 
 interface SpecFixture {
@@ -16,6 +17,408 @@ interface SpecFixture {
   minPaths: number;
   /** Whether openapiTS should succeed (false for Swagger 2.x specs) */
   expectDts: boolean;
+}
+
+type PrimitiveParamType = "string" | "number" | "boolean";
+
+const HTTP_METHODS = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
+const JSON_CONTENT_TYPES = ["application/json", "application/*+json", "text/json"] as const;
+
+interface OperationTypeExpectations {
+  expectedInputFields: Array<{ name: string; type: PrimitiveParamType }>;
+  expectedOutputFields: Array<{ name: string; type: PrimitiveParamType }>;
+  expectsInput: boolean;
+  expectsKnownOutput: boolean;
+  expectsVoidOutput: boolean;
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function resolveSchemaPrimitiveType(
+  schemaValue: unknown,
+  componentSchemas: Record<string, unknown>,
+  seenRefs: Set<string> = new Set(),
+): PrimitiveParamType | null {
+  const schema = toRecord(schemaValue);
+  const type = typeof schema.type === "string" ? schema.type : "";
+  if (type === "integer" || type === "number") return "number";
+  if (type === "string" || type === "boolean") return type;
+
+  const ref = typeof schema.$ref === "string" ? schema.$ref : "";
+  const schemaRefPrefix = "#/components/schemas/";
+  if (ref.startsWith(schemaRefPrefix) && !seenRefs.has(ref)) {
+    const key = ref.slice(schemaRefPrefix.length);
+    const nextSeen = new Set(seenRefs);
+    nextSeen.add(ref);
+    return resolveSchemaPrimitiveType(componentSchemas[key], componentSchemas, nextSeen);
+  }
+
+  return null;
+}
+
+function resolveParameterEntry(
+  entry: unknown,
+  componentParameters: Record<string, unknown>,
+): Record<string, unknown> {
+  const record = toRecord(entry);
+  const ref = typeof record.$ref === "string" ? record.$ref : "";
+  const prefix = "#/components/parameters/";
+  if (!ref.startsWith(prefix)) return record;
+
+  const key = ref.slice(prefix.length);
+  const resolved = toRecord(componentParameters[key]);
+  return Object.keys(resolved).length > 0 ? resolved : record;
+}
+
+function resolveRequestBodyEntry(
+  entry: unknown,
+  componentRequestBodies: Record<string, unknown>,
+): Record<string, unknown> {
+  const record = toRecord(entry);
+  const ref = typeof record.$ref === "string" ? record.$ref : "";
+  const prefix = "#/components/requestBodies/";
+  if (!ref.startsWith(prefix)) return record;
+
+  const key = ref.slice(prefix.length);
+  const resolved = toRecord(componentRequestBodies[key]);
+  return Object.keys(resolved).length > 0 ? resolved : record;
+}
+
+function resolveResponseEntry(
+  entry: unknown,
+  componentResponses: Record<string, unknown>,
+): Record<string, unknown> {
+  const record = toRecord(entry);
+  const ref = typeof record.$ref === "string" ? record.$ref : "";
+  const prefix = "#/components/responses/";
+  if (!ref.startsWith(prefix)) return record;
+
+  const key = ref.slice(prefix.length);
+  const resolved = toRecord(componentResponses[key]);
+  return Object.keys(resolved).length > 0 ? resolved : record;
+}
+
+function preferredContentSchema(contentValue: unknown): Record<string, unknown> {
+  const content = toRecord(contentValue);
+  for (const mediaType of JSON_CONTENT_TYPES) {
+    const candidate = toRecord(content[mediaType]);
+    const schema = toRecord(candidate.schema);
+    if (Object.keys(schema).length > 0) return schema;
+  }
+
+  for (const value of Object.values(content)) {
+    const schema = toRecord(toRecord(value).schema);
+    if (Object.keys(schema).length > 0) return schema;
+  }
+
+  return {};
+}
+
+function collectOperationTypeExpectations(
+  spec: Record<string, unknown>,
+): Map<string, OperationTypeExpectations> {
+  const components = toRecord(spec.components);
+  const componentParameters = toRecord(components.parameters);
+  const componentSchemas = toRecord(components.schemas);
+  const componentResponses = toRecord(components.responses);
+  const componentRequestBodies = toRecord(components.requestBodies);
+  const paths = toRecord(spec.paths);
+
+  const byOperationId = new Map<string, OperationTypeExpectations>();
+
+  for (const [pathTemplate, pathValue] of Object.entries(paths)) {
+    const pathObject = toRecord(pathValue);
+    const sharedParameters = Array.isArray(pathObject.parameters) ? pathObject.parameters : [];
+
+    for (const method of HTTP_METHODS) {
+      const operation = toRecord(pathObject[method]);
+      if (Object.keys(operation).length === 0) continue;
+      const operationId = typeof operation.operationId === "string" && operation.operationId.length > 0
+        ? operation.operationId
+        : `${method}_${pathTemplate}`;
+
+      const operationParameters = Array.isArray(operation.parameters) ? operation.parameters : [];
+      const paramEntries = [...sharedParameters, ...operationParameters];
+      const expectedByName = new Map<string, PrimitiveParamType>();
+      const conflictedNames = new Set<string>();
+
+      const upsertExpectedField = (name: string, fieldType: PrimitiveParamType) => {
+        if (conflictedNames.has(name)) return;
+        const existing = expectedByName.get(name);
+        if (!existing) {
+          expectedByName.set(name, fieldType);
+          return;
+        }
+        if (existing !== fieldType) {
+          expectedByName.delete(name);
+          conflictedNames.add(name);
+        }
+      };
+
+      for (const paramEntry of paramEntries) {
+        const parameter = resolveParameterEntry(paramEntry, componentParameters);
+        const location = typeof parameter.in === "string" ? parameter.in : "";
+        if (location !== "path" && location !== "query" && location !== "header" && location !== "cookie") {
+          continue;
+        }
+
+        const name = typeof parameter.name === "string" ? parameter.name.trim() : "";
+        if (!name) continue;
+
+        const primitiveType = resolveSchemaPrimitiveType(parameter.schema, componentSchemas);
+        if (!primitiveType) continue;
+        upsertExpectedField(name, primitiveType);
+      }
+
+      const requestBody = resolveRequestBodyEntry(operation.requestBody, componentRequestBodies);
+      const requestBodySchema = preferredContentSchema(requestBody.content);
+      const requestBodyProperties = toRecord(requestBodySchema.properties);
+      const requiredBodyKeys = Array.isArray(requestBodySchema.required)
+        ? requestBodySchema.required.filter((value): value is string => typeof value === "string")
+        : [];
+      for (const key of requiredBodyKeys) {
+        const primitiveType = resolveSchemaPrimitiveType(requestBodyProperties[key], componentSchemas);
+        if (!primitiveType) continue;
+        upsertExpectedField(key, primitiveType);
+      }
+
+      const responses = toRecord(operation.responses);
+      let expectsKnownOutput = false;
+      let expectsVoidOutput = false;
+      let expectedOutputFields: Array<{ name: string; type: PrimitiveParamType }> = [];
+      for (const [statusCode, responseValue] of Object.entries(responses)) {
+        if (!statusCode.startsWith("2")) continue;
+
+        const response = resolveResponseEntry(responseValue, componentResponses);
+        const responseSchema = preferredContentSchema(response.content);
+        if (Object.keys(responseSchema).length > 0) {
+          expectsKnownOutput = true;
+
+          const responseProperties = toRecord(responseSchema.properties);
+          const requiredResponseKeys = Array.isArray(responseSchema.required)
+            ? responseSchema.required.filter((value): value is string => typeof value === "string")
+            : [];
+          expectedOutputFields = requiredResponseKeys
+            .map((key) => {
+              const primitiveType = resolveSchemaPrimitiveType(responseProperties[key], componentSchemas);
+              return primitiveType ? { name: key, type: primitiveType } : null;
+            })
+            .filter((value): value is { name: string; type: PrimitiveParamType } => Boolean(value));
+        } else if (statusCode === "204" || statusCode === "205") {
+          expectsVoidOutput = true;
+        }
+        break;
+      }
+
+      byOperationId.set(operationId, {
+        expectedInputFields: [...expectedByName.entries()].map(([name, type]) => ({ name, type })),
+        expectedOutputFields,
+        expectsInput: paramEntries.length > 0 || Object.keys(requestBodySchema).length > 0,
+        expectsKnownOutput,
+        expectsVoidOutput,
+      });
+    }
+  }
+
+  return byOperationId;
+}
+
+function extractHintSegment(inputHint: string, paramName: string): string | null {
+  const splitTopLevelBy = (value: string, separator: string): string[] => {
+    const parts: string[] = [];
+    let segment = "";
+    let parenDepth = 0;
+    let braceDepth = 0;
+    let bracketDepth = 0;
+    let angleDepth = 0;
+    let inSingle = false;
+    let inDouble = false;
+    let escapeNext = false;
+
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value[i]!;
+
+      if (escapeNext) {
+        segment += ch;
+        escapeNext = false;
+        continue;
+      }
+
+      if ((inSingle || inDouble) && ch === "\\") {
+        segment += ch;
+        escapeNext = true;
+        continue;
+      }
+
+      if (!inDouble && ch === "'" && !escapeNext) {
+        inSingle = !inSingle;
+        segment += ch;
+        continue;
+      }
+
+      if (!inSingle && ch === '"' && !escapeNext) {
+        inDouble = !inDouble;
+        segment += ch;
+        continue;
+      }
+
+      if (!inSingle && !inDouble) {
+        if (ch === "(") parenDepth += 1;
+        else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+        else if (ch === "{") braceDepth += 1;
+        else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
+        else if (ch === "[") bracketDepth += 1;
+        else if (ch === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+        else if (ch === "<") angleDepth += 1;
+        else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
+
+        if (ch === separator
+          && parenDepth === 0
+          && braceDepth === 0
+          && bracketDepth === 0
+          && angleDepth === 0) {
+          const trimmed = segment.trim();
+          if (trimmed) parts.push(trimmed);
+          segment = "";
+          continue;
+        }
+      }
+
+      segment += ch;
+    }
+
+    const trimmed = segment.trim();
+    if (trimmed) parts.push(trimmed);
+    return parts;
+  };
+
+  const hasBalancedWrappingParens = (value: string): boolean => {
+    if (!value.startsWith("(") || !value.endsWith(")")) return false;
+
+    let depth = 0;
+    let inSingle = false;
+    let inDouble = false;
+    let escapeNext = false;
+    for (let i = 0; i < value.length; i += 1) {
+      const ch = value[i]!;
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+      if ((inSingle || inDouble) && ch === "\\") {
+        escapeNext = true;
+        continue;
+      }
+      if (!inDouble && ch === "'") {
+        inSingle = !inSingle;
+        continue;
+      }
+      if (!inSingle && ch === '"') {
+        inDouble = !inDouble;
+        continue;
+      }
+      if (inSingle || inDouble) continue;
+
+      if (ch === "(") depth += 1;
+      else if (ch === ")") {
+        depth = Math.max(0, depth - 1);
+        if (depth === 0 && i < value.length - 1) return false;
+      }
+    }
+
+    return depth === 0;
+  };
+
+  const unwrapOuterParens = (value: string): string => {
+    let out = value.trim();
+    while (hasBalancedWrappingParens(out)) {
+      out = out.slice(1, -1).trim();
+    }
+    return out;
+  };
+
+  const queue = [inputHint];
+  const visited = new Set<string>();
+  const objectCandidates: string[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) continue;
+    const normalized = unwrapOuterParens(current);
+    if (!normalized || visited.has(normalized)) continue;
+    visited.add(normalized);
+
+    const unionParts = splitTopLevelBy(normalized, "|");
+    if (unionParts.length > 1) {
+      queue.push(...unionParts);
+      continue;
+    }
+
+    const intersectionParts = splitTopLevelBy(normalized, "&");
+    if (intersectionParts.length > 1) {
+      queue.push(...intersectionParts);
+      continue;
+    }
+
+    if (normalized.startsWith("{") && normalized.endsWith("}")) {
+      objectCandidates.push(normalized);
+    }
+  }
+
+  for (const candidate of objectCandidates) {
+    const inner = candidate.slice(1, -1);
+    const fields = splitTopLevelBy(inner, ";");
+    for (const field of fields) {
+      const idx = field.indexOf(":");
+      if (idx <= 0) continue;
+      const rawKey = field.slice(0, idx).trim();
+      const key = rawKey.endsWith("?") ? rawKey.slice(0, -1).trim() : rawKey;
+      const normalizedKey = (key.startsWith('"') && key.endsWith('"'))
+        || (key.startsWith("'") && key.endsWith("'"))
+        ? key.slice(1, -1)
+        : key;
+      if (normalizedKey !== paramName) continue;
+
+      const segment = field.slice(idx + 1).trim();
+      if (segment.length > 0) return segment;
+    }
+  }
+
+  return null;
+}
+
+function hintSegmentMatchesPrimitiveType(
+  segment: string,
+  expectedType: PrimitiveParamType,
+  componentSchemas: Record<string, unknown> = {},
+): boolean {
+  if (expectedType === "number" && (/\bnumber\b/.test(segment) || /(^|\W)-?\d+(?:\.\d+)?(\W|$)/.test(segment))) return true;
+  if (expectedType === "boolean" && (/\bboolean\b/.test(segment) || /\btrue\b|\bfalse\b/.test(segment))) return true;
+  if (expectedType === "string" && (/\bstring\b/.test(segment) || segment.includes("\"") || segment.includes("'"))) {
+    return true;
+  }
+
+  const refPattern = /components\["schemas"\]\["([^"]+)"\]/g;
+  for (const match of segment.matchAll(refPattern)) {
+    const key = match[1];
+    if (!key) continue;
+    const resolved = resolveSchemaPrimitiveType(componentSchemas[key], componentSchemas);
+    if (resolved === expectedType) return true;
+  }
+
+  return false;
+}
+
+function containsUnknownTypeToken(segment: string): boolean {
+  const withoutQuotedLiterals = segment
+    .replace(/"(?:[^"\\]|\\.)*"/g, "")
+    .replace(/'(?:[^'\\]|\\.)*'/g, "");
+  return /\bunknown\b/.test(withoutQuotedLiterals);
 }
 
 const SPECS: SpecFixture[] = [
@@ -330,5 +733,147 @@ describe("real-world OpenAPI specs", () => {
       expect(inputHint.includes("unknown")).toBe(false);
     },
     300_000,
+  );
+
+  test(
+    "openai: URL parser path matches normal parsed-spec path",
+    async () => {
+      const openAiUrl = "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml";
+
+      const viaUrl = await prepareOpenApiSpec(openAiUrl, "openai", {
+        includeDts: true,
+        profile: "full",
+      });
+
+      const parsed = await SwaggerParser.parse(openAiUrl);
+      const viaParsed = await prepareOpenApiSpec(parsed as Record<string, unknown>, "openai", {
+        includeDts: true,
+        profile: "full",
+      });
+
+      const source = {
+        type: "openapi" as const,
+        name: "openai",
+        spec: openAiUrl,
+        baseUrl: viaUrl.servers[0] || "https://api.openai.com",
+      };
+
+      const toolsViaUrl = buildOpenApiToolsFromPrepared(source, viaUrl);
+      const toolsViaParsed = buildOpenApiToolsFromPrepared(source, viaParsed);
+
+      const fingerprint = (tool: (typeof toolsViaUrl)[number]) => JSON.stringify({
+        path: tool.path,
+        operationId: tool.typing?.typedRef?.kind === "openapi_operation"
+          ? tool.typing.typedRef.operationId
+          : undefined,
+        inputHint: tool.typing?.inputHint,
+        outputHint: tool.typing?.outputHint,
+      });
+
+      const normalizedViaUrl = toolsViaUrl.map(fingerprint).sort();
+      const normalizedViaParsed = toolsViaParsed.map(fingerprint).sort();
+
+      expect(normalizedViaUrl).toEqual(normalizedViaParsed);
+    },
+    300_000,
+  );
+
+  test(
+    "inventory type hints validate every operation against parser-derived expectations across real specs",
+    async () => {
+      const fixtures = SPECS
+        .filter((fixture) => fixture.expectDts)
+        .filter((fixture) => fixture.name !== "jira")
+        .slice(0, 6);
+
+      expect(fixtures.length).toBe(6);
+
+      for (const fixture of fixtures) {
+        const parsed = await SwaggerParser.parse(fixture.url);
+        const parsedSpec = parsed as Record<string, unknown>;
+        const componentSchemas = toRecord(toRecord(parsedSpec.components).schemas);
+        const operationExpectations = collectOperationTypeExpectations(parsedSpec);
+        expect(operationExpectations.size).toBeGreaterThan(0);
+
+        const prepared = await prepareOpenApiSpec(parsedSpec, fixture.name, {
+          includeDts: false,
+          profile: "inventory",
+        });
+        const tools = buildOpenApiToolsFromPrepared(
+          {
+            type: "openapi",
+            name: fixture.name,
+            spec: fixture.url,
+            baseUrl: prepared.servers[0] || `https://${fixture.name}.example.com`,
+          },
+          prepared,
+        );
+
+        const toolsByOperationId = new Map<string, (typeof tools)[number]>();
+        for (const tool of tools) {
+          const operationId = tool.typing?.typedRef?.kind === "openapi_operation"
+            ? tool.typing.typedRef.operationId
+            : "";
+          if (!operationId || toolsByOperationId.has(operationId)) continue;
+          toolsByOperationId.set(operationId, tool);
+        }
+
+        expect(toolsByOperationId.size).toBe(operationExpectations.size);
+
+        for (const [operationId, expectations] of operationExpectations.entries()) {
+          const tool = toolsByOperationId.get(operationId);
+          expect(tool).toBeDefined();
+          if (!tool) continue;
+
+          const inputHint = tool.typing?.inputHint ?? "";
+          const outputHint = tool.typing?.outputHint ?? "";
+
+          if (expectations.expectsInput) {
+            expect(inputHint.length).toBeGreaterThan(0);
+            expect(inputHint).not.toBe("unknown");
+          }
+
+          if (expectations.expectsKnownOutput) {
+            expect(outputHint.length).toBeGreaterThan(0);
+            expect(outputHint).not.toBe("unknown");
+          }
+
+          if (expectations.expectsVoidOutput) {
+            expect(outputHint).toBe("void");
+          }
+
+          for (const expected of expectations.expectedInputFields) {
+            const segment = extractHintSegment(inputHint, expected.name);
+            if (!segment) {
+              throw new Error(`[${fixture.name}] missing input segment for ${operationId}.${expected.name}: ${inputHint}`);
+            }
+            if (containsUnknownTypeToken(segment)) {
+              throw new Error(`[${fixture.name}] unknown input segment for ${operationId}.${expected.name}: ${segment}`);
+            }
+            if (!hintSegmentMatchesPrimitiveType(segment, expected.type, componentSchemas)) {
+              throw new Error(
+                `[${fixture.name}] input type mismatch for ${operationId}.${expected.name}: expected ${expected.type}, got ${segment}`,
+              );
+            }
+          }
+
+          for (const expected of expectations.expectedOutputFields) {
+            const segment = extractHintSegment(outputHint, expected.name);
+            if (!segment) {
+              throw new Error(`[${fixture.name}] missing output segment for ${operationId}.${expected.name}: ${outputHint}`);
+            }
+            if (containsUnknownTypeToken(segment)) {
+              throw new Error(`[${fixture.name}] unknown output segment for ${operationId}.${expected.name}: ${segment}`);
+            }
+            if (!hintSegmentMatchesPrimitiveType(segment, expected.type, componentSchemas)) {
+              throw new Error(
+                `[${fixture.name}] output type mismatch for ${operationId}.${expected.name}: expected ${expected.type}, got ${segment}`,
+              );
+            }
+          }
+        }
+      }
+    },
+    1_800_000,
   );
 });

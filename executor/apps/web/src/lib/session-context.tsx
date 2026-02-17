@@ -34,6 +34,14 @@ import { clearAnonymousAuth } from "@/lib/anonymous-auth";
 import type { AnonymousContext } from "./types";
 import type { Id } from "@executor/database/convex/_generated/dataModel";
 
+function isGeneratedWorkosLabel(name: string | undefined): boolean {
+  if (!name) {
+    return false;
+  }
+
+  return /^User [A-Za-z0-9]{6}$/.test(name.trim());
+}
+
 interface SessionState {
   context: AnonymousContext | null;
   loading: boolean;
@@ -103,7 +111,11 @@ const SessionContext = createContext<SessionState>({
 });
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const { loading: workosAuthLoading, authenticated: workosAuthenticated } = useWorkosAuthState();
+  const {
+    loading: workosAuthLoading,
+    authenticated: workosAuthenticated,
+    profile: workosAuthProfile,
+  } = useWorkosAuthState();
   const bootstrapAnonymousSession = useMutation(convexApi.workspace.bootstrapAnonymousSession);
   const [storedSessionId, setStoredSessionId] = useState<string | null>(readStoredSessionId);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<Id<"workspaces"> | null>(
@@ -319,6 +331,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const workspaceOptions = useMemo(() => {
     return buildWorkspaceOptions(mode, workspaces, guestContext);
   }, [mode, workspaces, guestContext]);
+  const resolvedWorkosProfile = useMemo(() => {
+    if (!account || account.provider !== "workos") {
+      return null;
+    }
+
+    const accountName = account.name?.trim();
+    const authName = workosAuthProfile?.name?.trim();
+    const name =
+      (accountName && !isGeneratedWorkosLabel(accountName) ? accountName : undefined)
+      ?? authName
+      ?? accountName
+      ?? "User";
+
+    return {
+      name,
+      email: account.email ?? workosAuthProfile?.email,
+      avatarUrl: account.avatarUrl ?? workosAuthProfile?.avatarUrl ?? null,
+    };
+  }, [account, workosAuthProfile]);
 
   return (
     <SessionContext.Provider
@@ -337,14 +368,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         creatingAnonymousOrganization,
         createAnonymousOrganization,
         isSignedInToWorkos: Boolean(account && account.provider === "workos"),
-        workosProfile:
-          account && account.provider === "workos"
-            ? {
-                name: account.name,
-                email: account.email,
-                avatarUrl: account.avatarUrl ?? null,
-              }
-            : null,
+        workosProfile: resolvedWorkosProfile,
         resetWorkspace,
       }}
     >

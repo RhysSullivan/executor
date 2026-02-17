@@ -80,3 +80,26 @@ export const getWorkspaceAccessForAnonymousSubject = internalQuery({
     };
   },
 });
+
+export const getWorkspaceAccessForAccount = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    accountId: v.id("accounts"),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (!account) {
+      throw new Error("Account is not recognized");
+    }
+
+    const access = await requireWorkspaceAccessForAccount(ctx, args.workspaceId, account);
+
+    return {
+      workspaceId: args.workspaceId,
+      accountId: account._id,
+      provider: account.provider,
+      providerAccountId: account.providerAccountId,
+      role: access.workspaceMembership.role,
+    };
+  },
+});

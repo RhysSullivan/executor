@@ -316,6 +316,12 @@ export declare const api: {
       { sessionId?: string; sourceId: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    getMcpApiKey: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     getToolDetails: FunctionReference<
       "mutation",
       "public",
@@ -1464,6 +1470,12 @@ export declare const internal: {
     >;
   };
   workspaceAuthInternal: {
+    getWorkspaceAccessForAccount: FunctionReference<
+      "query",
+      "internal",
+      { accountId: Id<"accounts">; workspaceId: Id<"workspaces"> },
+      any
+    >;
     getWorkspaceAccessForAnonymousSubject: FunctionReference<
       "query",
       "internal",

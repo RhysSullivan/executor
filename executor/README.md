@@ -137,7 +137,8 @@ Convex HTTP routes (`packages/convex/http.ts`) expose:
 - `/internal/runs/:runId/tool-call`
 
 MCP bearer-token verification is enabled on `/mcp` when `MCP_AUTHORIZATION_SERVER` / `MCP_AUTHORIZATION_SERVER_URL` is configured.
-Anonymous bearer tokens can be minted from `/auth/anonymous/token` (and verified by `/.well-known/jwks.json`).
+`/mcp/anonymous` uses API-key auth (pass as `Authorization: Bearer <API_KEY>` or `x-api-key`).
+Anonymous bearer tokens can still be minted from `/auth/anonymous/token` for Convex anonymous auth flows.
 
 ## Configuration Reference
 
@@ -222,6 +223,6 @@ executor/
 ## Troubleshooting
 
 - `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER`.
-- `401` on `/mcp/anonymous`: pass `Authorization: Bearer <anonymous token>` from `/auth/anonymous/token`.
+- `401` on `/mcp/anonymous`: pass `API_KEY` from the setup card as `Authorization: Bearer <API_KEY>` (or `x-api-key`).
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
 - Release build missing web archive files: run `bun run build:release` and verify `executor/dist/release/` contains all expected `executor-web-*.tar.gz` assets.

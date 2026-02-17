@@ -24,10 +24,66 @@ const convexClient = new ConvexReactClient(convexUrl, {
   unsavedChangesWarning: false,
 });
 
+type WorkosAuthProfile = {
+  name?: string;
+  email?: string;
+  avatarUrl?: string | null;
+};
+
+function readNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function getRecordString(record: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = readNonEmptyString(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function buildWorkosAuthProfile(user: unknown): WorkosAuthProfile | null {
+  if (!user || typeof user !== "object") {
+    return null;
+  }
+
+  const userRecord = user as Record<string, unknown>;
+  const firstName = getRecordString(userRecord, ["firstName", "first_name", "givenName", "given_name"]);
+  const lastName = getRecordString(userRecord, ["lastName", "last_name", "familyName", "family_name"]);
+  const combinedName = [firstName, lastName].filter(Boolean).join(" ").trim();
+  const name =
+    getRecordString(userRecord, ["name", "fullName", "full_name", "displayName", "display_name"])
+    ?? (combinedName.length > 0 ? combinedName : undefined);
+
+  return {
+    name,
+    email: getRecordString(userRecord, ["email", "emailAddress", "email_address"]),
+    avatarUrl:
+      getRecordString(userRecord, [
+        "profilePictureUrl",
+        "profile_picture_url",
+        "avatarUrl",
+        "avatar_url",
+        "pictureUrl",
+        "picture_url",
+        "picture",
+      ]) ?? null,
+  };
+}
+
 /** Exposes whether the WorkOS auth token is still being resolved. */
 const WorkosAuthContext = createContext({
   loading: false,
   authenticated: false,
+  profile: null as WorkosAuthProfile | null,
 });
 
 export function useWorkosAuthState() {
@@ -110,9 +166,10 @@ function ConvexWithWorkos({ children }: { children: ReactNode }) {
   const { loading: tokenLoading } = useAccessToken();
   const authenticated = Boolean(user);
   const loading = authLoading || (authenticated && tokenLoading);
+  const profile = buildWorkosAuthProfile(user);
 
   return (
-    <WorkosAuthContext.Provider value={{ loading, authenticated }}>
+    <WorkosAuthContext.Provider value={{ loading, authenticated, profile }}>
       <ConvexProviderWithAuth client={convexClient} useAuth={useConvexAuthFromWorkosOrAnonymous}>
         {children}
       </ConvexProviderWithAuth>
@@ -130,7 +187,7 @@ export function AppConvexProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <WorkosAuthContext.Provider value={{ loading: false, authenticated: false }}>
+    <WorkosAuthContext.Provider value={{ loading: false, authenticated: false, profile: null }}>
       <ConvexProviderWithAuth client={convexClient} useAuth={useConvexAuthFromAnonymous}>
         {children}
       </ConvexProviderWithAuth>

@@ -26,6 +26,18 @@ export async function resolveAccountForRequest(
   sessionId?: string,
 ): Promise<Doc<"accounts"> | null> {
   const normalizedSessionId = sessionId?.trim() || "";
+  const identity = await ctx.auth.getUserIdentity();
+  const hasNonAnonymousIdentity = Boolean(identity && !isAnonymousIdentity(identity));
+
+  if (identity && hasNonAnonymousIdentity) {
+    const workosAccount = await ctx.db
+      .query("accounts")
+      .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", identity.subject))
+      .unique();
+    if (workosAccount) {
+      return workosAccount;
+    }
+  }
 
   if (normalizedSessionId.startsWith("anon_session_") || normalizedSessionId.startsWith("mcp_")) {
     const anonymousSession = await ctx.db
@@ -40,9 +52,8 @@ export async function resolveAccountForRequest(
     }
   }
 
-  const identity = await ctx.auth.getUserIdentity();
   if (identity) {
-    if (isAnonymousIdentity(identity)) {
+    if (!hasNonAnonymousIdentity) {
       const anonymousById = await ctx.db.get(identity.subject as Id<"accounts">);
       if (anonymousById?.provider === "anonymous") {
         return anonymousById;
@@ -55,14 +66,6 @@ export async function resolveAccountForRequest(
       if (anonymousAccount) {
         return anonymousAccount;
       }
-    }
-
-    const workosAccount = await ctx.db
-      .query("accounts")
-      .withIndex("by_provider", (q) => q.eq("provider", "workos").eq("providerAccountId", identity.subject))
-      .unique();
-    if (workosAccount) {
-      return workosAccount;
     }
   }
 

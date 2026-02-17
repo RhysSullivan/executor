@@ -1,7 +1,7 @@
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { handleMcpRequest, type McpWorkspaceContext } from "../../../core/src/mcp-server";
-import { getAnonymousAuthIssuer, isAnonymousIdentity } from "../../src/auth/anonymous";
+import { isMcpApiKeyConfigured, verifyMcpApiKey } from "../../src/auth/mcp_api_key";
 import {
   getMcpAuthConfig,
   isAnonymousSessionId,
@@ -13,10 +13,21 @@ import { createMcpExecutorService } from "./mcp_service";
 
 type McpEndpointMode = "default" | "anonymous";
 
-function isAnonymousAuthConfigured(): boolean {
-  const issuer = getAnonymousAuthIssuer();
-  const privateKeyPem = process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
-  return Boolean(issuer && privateKeyPem && privateKeyPem.trim().length > 0);
+function parseMcpApiKey(request: Request): string | null {
+  const fromHeader = request.headers.get("x-api-key")?.trim();
+  if (fromHeader) {
+    return fromHeader;
+  }
+
+  const authorization = request.headers.get("authorization") ?? "";
+  if (authorization.startsWith("Bearer ")) {
+    const bearer = authorization.slice("Bearer ".length).trim();
+    if (bearer.length > 0) {
+      return bearer;
+    }
+  }
+
+  return null;
 }
 
 function createMcpHandler(mode: McpEndpointMode) {
@@ -47,32 +58,53 @@ function createMcpHandler(mode: McpEndpointMode) {
           );
         }
 
-        const anonymousAuthConfigured = isAnonymousAuthConfigured();
-        if (!anonymousAuthConfigured) {
+        if (!isMcpApiKeyConfigured()) {
           return Response.json(
-            { error: "Anonymous auth is not configured" },
+            { error: "MCP API key signing is not configured" },
             { status: 503 },
           );
         }
 
-        const identity = await ctx.auth.getUserIdentity().catch(() => null);
-        if (identity && isAnonymousIdentity(identity)) {
-          const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAnonymousSubject, {
-            workspaceId,
-            accountId: identity.subject,
-          });
-
-          context = {
-            workspaceId,
-            accountId: access.accountId,
-            clientId: requestedContext?.clientId,
-          };
-        } else {
+        const apiKey = parseMcpApiKey(request);
+        if (!apiKey) {
           return Response.json(
-            { error: "Anonymous bearer token is required for /mcp/anonymous" },
+            { error: "API key is required for /mcp/anonymous" },
             { status: 401 },
           );
         }
+
+        const apiKeyIdentity = await verifyMcpApiKey(apiKey);
+        if (!apiKeyIdentity) {
+          return Response.json(
+            { error: "Invalid API key" },
+            { status: 401 },
+          );
+        }
+
+        if (apiKeyIdentity.workspaceId !== workspaceId) {
+          return Response.json(
+            { error: "API key does not match requested workspace" },
+            { status: 403 },
+          );
+        }
+
+        const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForAccount, {
+          workspaceId,
+          accountId: apiKeyIdentity.accountId,
+        });
+
+        if (access.provider !== "anonymous") {
+          return Response.json(
+            { error: "API key auth is currently enabled for anonymous accounts only" },
+            { status: 403 },
+          );
+        }
+
+        context = {
+          workspaceId,
+          accountId: access.accountId,
+          clientId: requestedContext?.clientId,
+        };
       } catch (error) {
         return Response.json(
           { error: error instanceof Error ? error.message : "Workspace authorization failed" },

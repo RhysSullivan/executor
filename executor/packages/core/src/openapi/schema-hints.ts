@@ -302,6 +302,62 @@ function normalizeUnionSchemaVariants(variants: JsonSchema[]): JsonSchema[] {
   return filtered.length > 0 ? filtered : variants;
 }
 
+function mergeParentObjectIntoUnionVariants(parent: JsonSchema, variants: JsonSchema[]): JsonSchema[] {
+  const baseProps = toRecordOrEmpty(parent.properties);
+  const baseRequired = (Array.isArray(parent.required) ? parent.required : [])
+    .filter((value): value is string => typeof value === "string");
+  const hasBaseObjectContext = parent.type === "object"
+    || Object.keys(baseProps).length > 0
+    || baseRequired.length > 0;
+  if (!hasBaseObjectContext) return variants;
+
+  return variants.map((variant) => {
+    const variantType = typeof variant.type === "string" ? variant.type : "";
+    const isObjectLikeVariant = isObjectSchema(variant)
+      || (variantType === ""
+        && (Array.isArray(variant.required)
+          || variant.properties !== undefined
+          || variant.additionalProperties !== undefined));
+    if (!isObjectLikeVariant) return variant;
+
+    const variantProps = toRecordOrEmpty(variant.properties);
+    const mergedProps = {
+      ...baseProps,
+      ...variantProps,
+    };
+    const mergedRequired = [...new Set([
+      ...baseRequired,
+      ...(Array.isArray(variant.required) ? variant.required.filter((value): value is string => typeof value === "string") : []),
+    ])];
+
+    return {
+      ...(parent.type === "object" ? { type: "object" } : {}),
+      ...(parent.additionalProperties !== undefined && variant.additionalProperties === undefined
+        ? { additionalProperties: parent.additionalProperties }
+        : {}),
+      ...variant,
+      ...(Object.keys(mergedProps).length > 0 ? { properties: mergedProps } : {}),
+      ...(mergedRequired.length > 0 ? { required: mergedRequired } : {}),
+    };
+  });
+}
+
+function mergeParentPrimitiveIntoUnionVariants(parent: JsonSchema, variants: JsonSchema[]): JsonSchema[] {
+  const baseType = typeof parent.type === "string" ? parent.type : "";
+  if (baseType !== "string" && baseType !== "number" && baseType !== "integer" && baseType !== "boolean" && baseType !== "null") {
+    return variants;
+  }
+
+  return variants.map((variant) => {
+    if (typeof variant.type === "string") return variant;
+    if (typeof variant.$ref === "string") return variant;
+    return {
+      type: baseType,
+      ...variant,
+    };
+  });
+}
+
 function extractStringLiteralFromSchema(schema: JsonSchema): string | null {
   // Support the two common encodings we see in OpenAPI:
   // - { type: "string", enum: ["A"] }
@@ -825,9 +881,13 @@ export function jsonSchemaTypeHintFallback(
 
   const oneOf = Array.isArray(shape.oneOf) ? shape.oneOf : undefined;
   if (oneOf && oneOf.length > 0) {
-    const variants = normalizeUnionSchemaVariants(
-      oneOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
-    );
+    const variants = normalizeUnionSchemaVariants(mergeParentObjectIntoUnionVariants(
+      shape,
+      mergeParentPrimitiveIntoUnionVariants(
+        shape,
+        oneOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+      ),
+    ));
     const objectVariantsPrepared = repairMissingRequiredProperties(
       variants.filter(isObjectSchema),
       depth,
@@ -874,9 +934,13 @@ export function jsonSchemaTypeHintFallback(
 
   const anyOf = Array.isArray(shape.anyOf) ? shape.anyOf : undefined;
   if (anyOf && anyOf.length > 0) {
-    const variants = normalizeUnionSchemaVariants(
-      anyOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
-    );
+    const variants = normalizeUnionSchemaVariants(mergeParentObjectIntoUnionVariants(
+      shape,
+      mergeParentPrimitiveIntoUnionVariants(
+        shape,
+        anyOf.filter((entry): entry is JsonSchema => Boolean(entry && typeof entry === "object")),
+      ),
+    ));
     const objectVariantsPrepared = repairMissingRequiredProperties(
       variants.filter(isObjectSchema),
       depth,
@@ -954,7 +1018,7 @@ export function jsonSchemaTypeHintFallback(
       }
       return "Record<string, unknown>";
     }
-    const maxInlineProps = 64;
+    const maxInlineProps = 1000;
     const isTruncated = propEntries.length > maxInlineProps;
     const inner = propEntries
       .slice(0, maxInlineProps)

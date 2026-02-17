@@ -18,6 +18,11 @@ import {
   getWorkspaceInventoryProgressForContext,
   listToolDetailsForContext,
 } from "../src/runtime/workspace_tools";
+import {
+  issueMcpApiKey,
+  isMcpApiKeyConfigured,
+  MCP_API_KEY_ENV_NAME,
+} from "../src/auth/mcp_api_key";
 
 export const bootstrapAnonymousSession = customMutation({
   method: "POST",
@@ -28,6 +33,50 @@ export const bootstrapAnonymousSession = customMutation({
   },
   handler: async (ctx, args) => {
     return await ctx.runMutation(internal.database.bootstrapAnonymousSession, args);
+  },
+});
+
+export const getMcpApiKey = workspaceQuery({
+  method: "GET",
+  args: {},
+  handler: async (ctx) => {
+    if (ctx.account.provider !== "anonymous") {
+      return {
+        enabled: false,
+        envVar: MCP_API_KEY_ENV_NAME,
+        apiKey: null,
+        error: "MCP API keys are currently enabled for anonymous accounts only",
+      };
+    }
+
+    if (!isMcpApiKeyConfigured()) {
+      return {
+        enabled: false,
+        envVar: MCP_API_KEY_ENV_NAME,
+        apiKey: null,
+        error: "MCP API key signing is not configured",
+      };
+    }
+
+    const apiKey = await issueMcpApiKey({
+      workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
+    });
+
+    if (!apiKey) {
+      return {
+        enabled: false,
+        envVar: MCP_API_KEY_ENV_NAME,
+        apiKey: null,
+        error: "Failed to issue MCP API key",
+      };
+    }
+
+    return {
+      enabled: true,
+      envVar: MCP_API_KEY_ENV_NAME,
+      apiKey,
+    };
   },
 });
 

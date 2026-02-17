@@ -308,6 +308,21 @@ describe("authentication", () => {
     const account = await t.query(api.app.getCurrentAccount, {});
     expect(account).toBeNull();
   });
+
+  test("getCurrentAccount prefers authenticated identity over anonymous session", async () => {
+    const t = setup();
+    const session = await t.mutation(api.workspace.bootstrapAnonymousSession, {});
+    await seedUser(t, { subject: "account-prefers-auth", name: "Signed In User" });
+
+    const authed = t.withIdentity({ subject: "account-prefers-auth" });
+    const account = await authed.query(api.app.getCurrentAccount, {
+      sessionId: session.sessionId,
+    });
+
+    expect(account).not.toBeNull();
+    expect(account!.provider).toBe("workos");
+    expect(account!.name).toBe("Signed In User");
+  });
 });
 
 describe("workspace access controls", () => {
