@@ -4,7 +4,10 @@ import type {
   ToolDefinition,
   ToolDescriptor,
 } from "../../../core/src/types";
-import { jsonSchemaTypeHintFallback } from "../../../core/src/openapi/schema-hints";
+import {
+  compactArgTypeHintFromSchema,
+  compactReturnTypeHintFromSchema,
+} from "../../../core/src/type-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../../core/src/tool-typing/schema-utils";
 import { getDecisionForContext } from "./policy";
 
@@ -14,6 +17,8 @@ function toToolDescriptor(
   options: { includeDetails?: boolean } = {},
 ): ToolDescriptor {
   const includeDetails = options.includeDetails ?? true;
+  const inputHint = tool.typing?.inputHint?.trim();
+  const outputHint = tool.typing?.outputHint?.trim();
 
   return {
     path: tool.path,
@@ -32,12 +37,12 @@ function toToolDescriptor(
               }
             : undefined,
           display: {
-            input: tool.typing?.inputSchema
-              ? (Object.keys(tool.typing.inputSchema).length === 0 ? "{}" : jsonSchemaTypeHintFallback(tool.typing.inputSchema))
-              : "{}",
-            output: tool.typing?.outputSchema
-              ? (Object.keys(tool.typing.outputSchema).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(tool.typing.outputSchema))
-              : "unknown",
+            input: inputHint && inputHint.length > 0
+              ? inputHint
+              : compactArgTypeHintFromSchema(tool.typing?.inputSchema ?? {}),
+            output: outputHint && outputHint.length > 0
+              ? outputHint
+              : compactReturnTypeHintFromSchema(tool.typing?.outputSchema ?? {}),
           },
         }
       : {}),
@@ -75,8 +80,8 @@ export function computeOpenApiSourceQuality(
       if (!hasInput) unknownArgsCount += 1;
       if (!hasOutput) unknownReturnsCount += 1;
       // Best-effort: count schema nodes that still include unknown-ish placeholders.
-      const inputHint = hasInput ? jsonSchemaTypeHintFallback(inputSchema) : "unknown";
-      const outputHint = hasOutput ? jsonSchemaTypeHintFallback(outputSchema) : "unknown";
+      const inputHint = tool.typing?.inputHint?.trim() || compactArgTypeHintFromSchema(inputSchema);
+      const outputHint = tool.typing?.outputHint?.trim() || compactReturnTypeHintFromSchema(outputSchema);
       if (inputHint.includes("unknown")) partialUnknownArgsCount += 1;
       if (outputHint.includes("unknown")) partialUnknownReturnsCount += 1;
     }

@@ -17,6 +17,13 @@ type OpenApiInspectionResult = {
   inferredAuth: InferredSpecAuth;
 };
 
+const inferredSpecAuthSchema = z.object({
+  type: z.enum(["none", "bearer", "apiKey", "basic", "mixed"]),
+  mode: z.enum(["workspace", "account", "organization"]).optional(),
+  header: z.string().optional(),
+  inferred: z.literal(true),
+});
+
 const recordSchema = z.record(z.string(), z.unknown());
 
 const securityRequirementSchema = z.record(z.string(), z.array(z.unknown()).optional());
@@ -67,6 +74,41 @@ function parseOpenApiPayload(raw: string, sourceUrl: string, contentType: string
   }
 
   return parsed;
+}
+
+function formatStatus(status?: number, statusText?: string): string {
+  if (typeof status !== "number" || status <= 0) {
+    return "request failed";
+  }
+  const normalizedStatusText = typeof statusText === "string" ? statusText.trim() : "";
+  return normalizedStatusText ? `${status} ${normalizedStatusText}` : String(status);
+}
+
+export function createSpecFetchErrorMessage(input: {
+  status?: number;
+  statusText?: string;
+  detail?: string;
+}): string {
+  const statusLabel = formatStatus(input.status, input.statusText);
+  const detail = typeof input.detail === "string" ? input.detail.trim() : "";
+  if (!detail) {
+    return `Failed to fetch spec (${statusLabel})`;
+  }
+  return `Failed to fetch spec (${statusLabel}): ${detail}`;
+}
+
+export function inspectOpenApiPayload(input: {
+  raw: string;
+  sourceUrl: string;
+  contentType?: string;
+}): OpenApiInspectionResult {
+  if (!input.raw.trim()) {
+    throw new Error("Spec response was empty");
+  }
+
+  const spec = parseOpenApiPayload(input.raw, input.sourceUrl, input.contentType ?? "");
+  const inferredAuth = inferSecuritySchemaAuth(spec);
+  return { spec, inferredAuth };
 }
 
 function normalizeAuthScheme(scheme: unknown): {
@@ -160,26 +202,53 @@ export async function fetchAndInspectOpenApiSpec(input: {
   headers?: Record<string, string>;
   signal?: AbortSignal;
 }): Promise<OpenApiInspectionResult> {
-  const response = await fetch(input.specUrl, {
-    method: "GET",
+  const response = await fetch("/api/openapi/inspect", {
+    method: "POST",
     headers: {
-      Accept: "application/json, application/yaml, text/yaml, text/plain;q=0.9, */*;q=0.8",
-      ...(input.headers ?? {}),
+      "content-type": "application/json",
+      Accept: "application/json",
     },
+    body: JSON.stringify({
+      specUrl: input.specUrl,
+      headers: input.headers ?? {},
+    }),
     signal: input.signal,
+    cache: "no-store",
   });
 
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
   if (!response.ok) {
-    throw new Error(`Failed to fetch spec (${response.status} ${response.statusText})`);
+    const payloadRecord = recordSchema.safeParse(payload);
+    const detail = payloadRecord.success && typeof payloadRecord.data.detail === "string"
+      ? payloadRecord.data.detail
+      : "";
+    const status = payloadRecord.success && typeof payloadRecord.data.status === "number"
+      ? payloadRecord.data.status
+      : response.status;
+    const statusText = payloadRecord.success && typeof payloadRecord.data.statusText === "string"
+      ? payloadRecord.data.statusText
+      : response.statusText;
+    throw new Error(createSpecFetchErrorMessage({ status, statusText, detail }));
   }
 
-  const raw = await response.text();
-  if (!raw.trim()) {
-    throw new Error("Spec response was empty");
+  const payloadRecord = recordSchema.safeParse(payload);
+  if (!payloadRecord.success) {
+    throw new Error("Spec inspection returned an invalid response");
   }
 
-  const contentType = response.headers.get("content-type") ?? "";
-  const spec = parseOpenApiPayload(raw, input.specUrl, contentType);
-  const inferredAuth = inferSecuritySchemaAuth(spec);
-  return { spec, inferredAuth };
+  const parsedSpec = recordSchema.safeParse(payloadRecord.data.spec);
+  if (!parsedSpec.success) {
+    throw new Error("Spec inspection did not return a valid OpenAPI document");
+  }
+
+  const parsedAuth = inferredSpecAuthSchema.safeParse(payloadRecord.data.inferredAuth);
+  const inferredAuth = parsedAuth.success ? parsedAuth.data : inferSecuritySchemaAuth(parsedSpec.data);
+
+  return { spec: parsedSpec.data, inferredAuth };
 }

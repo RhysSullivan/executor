@@ -90,7 +90,7 @@ test("returns denied when adapter marks tool call denied", async () => {
 
   const result = await runCodeWithAdapter(
     request(`
-      await tools.admin.delete_data({ id: "x" });
+      await tools.catalog.tools({ query: "delete" });
     `),
     adapter,
   );

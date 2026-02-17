@@ -5,14 +5,16 @@ import {
   collectComponentRefKeys,
   getPreferredContentSchema,
   getPreferredResponseSchema,
-  jsonSchemaTypeHintFallback,
   parameterSchemaFromEntry,
   resolveRequestBodyRef,
   resolveResponseRef,
   resolveSchemaRef,
-  responseTypeHintFromSchema,
   type OpenApiParameterHint,
 } from "./openapi/schema-hints";
+import {
+  compactArgTypeHintFromSchema,
+  compactReturnTypeHintFromSchema,
+} from "./type-hints";
 import { toPlainObject } from "./utils";
 
 function toRecordOrEmpty(value: unknown): Record<string, unknown> {
@@ -168,11 +170,14 @@ export function compactOpenApiPaths(
         // Keep a low-cost type hint string for optional UI usage.
         // NOTE: Not required for the schema-first agent signature.
         if (compactOperation._inputSchema) {
-          compactOperation._argsTypeHint = jsonSchemaTypeHintFallback(compactOperation._inputSchema, 0, compSchemas);
+          compactOperation._argsTypeHint = compactArgTypeHintFromSchema(
+            toRecordOrEmpty(compactOperation._inputSchema),
+            compSchemas,
+          );
         } else {
           compactOperation._argsTypeHint = "{}";
         }
-        compactOperation._returnsTypeHint = responseTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
+        compactOperation._returnsTypeHint = compactReturnTypeHintFromSchema(responseSchema, responseStatus, compSchemas);
       }
 
       compactPathObject[method] = compactOperation;

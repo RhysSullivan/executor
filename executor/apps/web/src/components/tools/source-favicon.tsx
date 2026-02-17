@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Layers, Globe, Server } from "lucide-react";
+import { Layers, Globe, Server, Terminal } from "lucide-react";
 import Image from "next/image";
 import type { ToolSourceRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -13,10 +13,13 @@ interface SourceFaviconProps {
   iconClassName?: string;
   imageClassName?: string;
   imageSize?: number;
-  fallbackType?: ToolSourceRecord["type"] | "local";
+  fallbackType?: ToolSourceRecord["type"] | "local" | "system";
 }
 
-function DefaultSourceIcon({ type, className }: { type: ToolSourceRecord["type"] | "local"; className?: string }) {
+export function DefaultSourceIcon({ type, className }: { type: ToolSourceRecord["type"] | "local" | "system"; className?: string }) {
+  if (type === "system") {
+    return <Terminal className={className} />;
+  }
   if (type === "mcp") {
     return <Server className={className} />;
   }

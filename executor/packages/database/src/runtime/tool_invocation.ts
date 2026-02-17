@@ -24,6 +24,14 @@ import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecy
 import { resolveCredentialHeadersResult, validatePersistedCallRunnable } from "./tool_call_credentials";
 import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
 import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
+import {
+  catalogNamespacesInputSchema,
+  catalogNamespacesOutputSchema,
+  catalogToolsInputSchema,
+  catalogToolsOutputSchema,
+  discoverInputSchema,
+  discoverOutputSchema,
+} from "./discovery_tool_contracts";
 
 const payloadRecordSchema = z.record(z.unknown());
 
@@ -74,6 +82,20 @@ const openApiRefHintTablesSchema = z.array(z.object({
   refs: z.array(z.object({ key: z.string(), hint: z.string() })),
 }));
 
+function toStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    out[key] = trimmed;
+  }
+
+  return out;
+}
+
 function buildOpenApiRefHintLookup(value: unknown): Record<string, Record<string, string>> {
   const parsed = openApiRefHintTablesSchema.safeParse(value);
   if (!parsed.success) return {};
@@ -99,10 +121,6 @@ function resolveEntryRefHints(
   entry: RegistryToolEntry,
   refHintLookup: Record<string, Record<string, string>>,
 ): { refHintKeys: string[]; refHints?: Record<string, string> } {
-  if (Object.keys(refHintLookup).length === 0) {
-    return { refHintKeys: [] };
-  }
-
   if (!entry.serializedToolJson) {
     return { refHintKeys: [] };
   }
@@ -120,22 +138,31 @@ function resolveEntryRefHints(
   }
 
   const refHintKeys = Array.isArray(serializedTool.value.typing?.refHintKeys)
-    ? serializedTool.value.typing!.refHintKeys!.filter((key): key is string => typeof key === "string" && key.trim().length > 0)
+    ? [...new Set(serializedTool.value.typing!.refHintKeys!
+      .filter((key): key is string => typeof key === "string" && key.trim().length > 0))]
     : [];
   if (refHintKeys.length === 0) {
     return { refHintKeys: [] };
   }
 
+  const legacyRefHints = toStringRecord(
+    (parsedJson as { typing?: { refHints?: unknown } })?.typing?.refHints,
+  );
+
   const sourceKey = serializedTool.value.typing?.typedRef?.kind === "openapi_operation"
     ? serializedTool.value.typing.typedRef.sourceKey
     : entry.typedRef?.sourceKey;
   if (!sourceKey) {
-    return { refHintKeys };
+    return Object.keys(legacyRefHints).length > 0
+      ? { refHintKeys, refHints: legacyRefHints }
+      : { refHintKeys };
   }
 
   const table = refHintLookup[sourceKey];
   if (!table) {
-    return { refHintKeys };
+    return Object.keys(legacyRefHints).length > 0
+      ? { refHintKeys, refHints: legacyRefHints }
+      : { refHintKeys };
   }
 
   const refHints: Record<string, string> = {};
@@ -146,8 +173,12 @@ function resolveEntryRefHints(
     }
   }
 
-  return Object.keys(refHints).length > 0
-    ? { refHintKeys, refHints }
+  if (Object.keys(refHints).length > 0) {
+    return { refHintKeys, refHints };
+  }
+
+  return Object.keys(legacyRefHints).length > 0
+    ? { refHintKeys, refHints: legacyRefHints }
     : { refHintKeys };
 }
 
@@ -158,22 +189,6 @@ function mergeRefHintsIntoTable(target: Record<string, string>, refHints: Record
     }
   }
 }
-
-const catalogNamespacesInputSchema = z.object({
-  limit: z.coerce.number().optional(),
-});
-
-const catalogToolsInputSchema = z.object({
-  namespace: z.string().optional(),
-  query: z.string().optional(),
-  limit: z.coerce.number().optional(),
-});
-
-const discoverInputSchema = z.object({
-  query: z.string().optional(),
-  limit: z.coerce.number().optional(),
-  compact: z.boolean().optional(),
-});
 
 function toInputPayload(value: unknown): Record<string, unknown> {
   const parsed = payloadRecordSchema.safeParse(value);
@@ -329,7 +344,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           buildId,
           limit,
         });
-        return await finalizeImmediateTool({ namespaces, total: namespaces.length });
+        const output = catalogNamespacesOutputSchema.parse({
+          namespaces,
+          total: namespaces.length,
+        });
+        return await finalizeImmediateTool(output);
       }
 
       if (toolPath === "catalog.tools") {
@@ -373,16 +392,16 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
               description: entry.description,
               input: normalizeHint(entry.displayInput, "{}"),
               output: normalizeHint(entry.displayOutput, "unknown"),
-              ...(refHints.refHintKeys.length > 0 ? { refHintKeys: refHints.refHintKeys } : {}),
               // required keys are encoded in the `input` type hint
             };
           });
 
-        return await finalizeImmediateTool({
+        const output = catalogToolsOutputSchema.parse({
+          ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
           results,
           total: results.length,
-          ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
         });
+        return await finalizeImmediateTool(output);
       }
 
       // discover
@@ -417,18 +436,18 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           description,
           input: normalizeHint(entry.displayInput, "{}"),
           output: normalizeHint(entry.displayOutput, "unknown"),
-          ...(refHints.refHintKeys.length > 0 ? { refHintKeys: refHints.refHintKeys } : {}),
           // required keys are encoded in the `input` type hint
         };
       });
 
       const bestPath = results[0]?.path ?? null;
-      return await finalizeImmediateTool({
+      const output = discoverOutputSchema.parse({
         bestPath,
+        ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
         results,
         total: results.length,
-        ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
       });
+      return await finalizeImmediateTool(output);
     }
 
     const resolvedToolResult = await resolveToolForCall(ctx, task, toolPath);
@@ -453,7 +472,10 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         effectiveToolPath = result.effectivePaths.join(", ");
       }
     } else {
-      decision = getToolDecision(task, toolForPolicy, typedPolicies);
+      const inputRecord = typeof input === "object" && input !== null && !Array.isArray(input)
+        ? input as Record<string, unknown>
+        : undefined;
+      decision = getToolDecision(task, toolForPolicy, typedPolicies, inputRecord);
     }
 
     const publishToolStarted = persistedCall.status === "requested";

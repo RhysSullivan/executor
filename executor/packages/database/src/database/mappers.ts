@@ -113,6 +113,7 @@ export function mapPolicy(doc: Doc<"accessPolicies">) {
     matchType: doc.matchType,
     effect: doc.effect,
     approvalMode: doc.approvalMode,
+    argumentConditions: doc.argumentConditions,
     priority: doc.priority,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,

@@ -195,6 +195,73 @@ describe("OpenAPI schema-first typing", () => {
     expect(prepared.refHintTable?.DeepMeta).toContain("field_0");
   });
 
+  test("OpenAPI input hints compact allOf object intersections", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Certificates API", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      paths: {
+        "/projects/{project_id}/certificates": {
+          post: {
+            operationId: "addCertificates",
+            tags: ["projects"],
+            parameters: [
+              {
+                name: "project_id",
+                in: "path",
+                required: true,
+                schema: { type: "string" },
+              },
+            ],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      certificate_ids: {
+                        type: "array",
+                        items: { type: "string" },
+                      },
+                    },
+                    required: ["certificate_ids"],
+                  },
+                },
+              },
+            },
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        ok: { type: "boolean" },
+                      },
+                      required: ["ok"],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "certs", { includeDts: false, profile: "full" });
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "certs", spec, baseUrl: "https://api.example.com" },
+      prepared,
+    );
+
+    const addCertificates = tools.find((tool) => tool.typing?.typedRef?.operationId === "addCertificates");
+    expect(addCertificates).toBeDefined();
+    expect(addCertificates!.typing?.inputHint).toBe("{ project_id: string; certificate_ids: string[] }");
+  });
+
   test("prepared spec stays reasonably small for many operations", async () => {
     const spec = makeLargeSpec(250);
     const prepared = await prepareOpenApiSpec(spec, "large", { includeDts: false, profile: "inventory" });

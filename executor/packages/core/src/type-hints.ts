@@ -1,3 +1,5 @@
+import { jsonSchemaTypeHintFallback, responseTypeHintFromSchema } from "./openapi/schema-hints";
+
 function truncateInline(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
@@ -317,6 +319,14 @@ export function compactArgTypeHint(argsType: string): string {
   return truncateInline(argsType, 120);
 }
 
+export function compactArgTypeHintFromSchema(
+  inputSchema: Record<string, unknown>,
+  componentSchemas?: Record<string, unknown>,
+): string {
+  if (Object.keys(inputSchema).length === 0) return "{}";
+  return compactArgTypeHint(jsonSchemaTypeHintFallback(inputSchema, 0, componentSchemas));
+}
+
 export function compactArgDisplayHint(argsType: string, argPreviewKeys: string[] = []): string {
   const compactFromType = compactArgTypeHint(argsType);
   if (compactFromType !== "{}" && compactFromType.includes(":")) {
@@ -358,6 +368,15 @@ export function compactReturnTypeHint(returnsType: string): string {
     return "Array<...>";
   }
   return truncateInline(normalized, 130);
+}
+
+export function compactReturnTypeHintFromSchema(
+  outputSchema: Record<string, unknown>,
+  responseStatus = "",
+  componentSchemas?: Record<string, unknown>,
+): string {
+  const rawHint = responseTypeHintFromSchema(outputSchema, responseStatus, componentSchemas);
+  return compactReturnTypeHint(rawHint);
 }
 
 export function llmExpandedArgShapeHint(argsType: string, argPreviewKeys: string[] = []): string {

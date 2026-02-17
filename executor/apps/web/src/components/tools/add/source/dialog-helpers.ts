@@ -8,6 +8,8 @@ export type SourceType = "mcp" | "openapi" | "graphql";
 
 const DEFAULT_MCP_ACCOUNT_QUERY_PARAM_KEY = "accountId";
 
+import { normalizeSourceEndpoint } from "@/lib/tools/source-url";
+
 export function getVisibleCatalogItems(
   query: string,
   sort: SourceCatalogSort,
@@ -74,9 +76,11 @@ export function createCustomSourceConfig({
   mcpTransport: "auto" | "streamable-http" | "sse";
   accountId?: string;
 }): Record<string, unknown> {
+  const normalizedEndpoint = normalizeSourceEndpoint(endpoint);
+
   if (type === "mcp") {
     return {
-      url: endpoint,
+      url: normalizedEndpoint,
       ...(auth ? { auth } : {}),
       ...(mcpTransport !== "auto" ? { transport: mcpTransport } : {}),
       ...(accountId
@@ -87,14 +91,14 @@ export function createCustomSourceConfig({
 
   if (type === "graphql") {
     return {
-      endpoint,
+      endpoint: normalizedEndpoint,
       ...(auth ? { auth } : {}),
     };
   }
 
   return {
-    spec: endpoint,
-    specUrl: endpoint,
+    spec: normalizedEndpoint,
+    specUrl: normalizedEndpoint,
     ...(baseUrl ? { baseUrl } : {}),
     ...(auth ? { auth } : {}),
   };

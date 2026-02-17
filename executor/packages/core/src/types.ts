@@ -91,6 +91,14 @@ export interface ToolCallRecord {
   completedAt?: number;
 }
 
+export type ArgumentConditionOperator = "equals" | "contains" | "starts_with" | "not_equals";
+
+export interface ArgumentCondition {
+  key: string;
+  operator: ArgumentConditionOperator;
+  value: string;
+}
+
 export interface AccessPolicyRecord {
   id: string;
   scopeType: PolicyScopeType;
@@ -103,6 +111,7 @@ export interface AccessPolicyRecord {
   matchType: PolicyMatchType;
   effect: PolicyEffect;
   approvalMode: PolicyApprovalMode;
+  argumentConditions?: ArgumentCondition[];
   priority: number;
   createdAt: number;
   updatedAt: number;

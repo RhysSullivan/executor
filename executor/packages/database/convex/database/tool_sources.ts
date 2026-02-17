@@ -131,7 +131,7 @@ export const listToolSources = internalQuery({
 
     const docs = [...workspaceDocs, ...organizationDocs]
       .filter((doc, index, entries) => entries.findIndex((candidate) => candidate.sourceId === doc.sourceId) === index)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => a.name.localeCompare(b.name));
 
     return docs.map(mapSource);
   },

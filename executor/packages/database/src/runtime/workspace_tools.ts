@@ -3,7 +3,10 @@ import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { buildWorkspaceTypeBundle } from "../../../core/src/tool-typing/typebundle";
-import { jsonSchemaTypeHintFallback } from "../../../core/src/openapi/schema-hints";
+import {
+  compactArgTypeHintFromSchema,
+  compactReturnTypeHintFromSchema,
+} from "../../../core/src/type-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../../core/src/tool-typing/schema-utils";
 import {
   materializeCompiledToolSource,
@@ -27,6 +30,8 @@ import { normalizeToolPathForLookup } from "./tool_paths";
 import { getDecisionForContext } from "./policy";
 import { baseTools } from "./base_tools";
 
+type QueryRunnerCtx = Pick<ActionCtx, "runQuery">;
+
 const toolHintSchema = z.object({
   inputHint: z.string().optional(),
   outputHint: z.string().optional(),
@@ -42,7 +47,7 @@ function toJsonSchema(value: unknown): JsonSchema {
 }
 
 async function listWorkspaceToolSources(
-  ctx: ActionCtx,
+  ctx: QueryRunnerCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<ToolSourceRecord[]> {
   const sources: ToolSourceRecord[] = await ctx.runQuery(internal.database.listToolSources, { workspaceId });
@@ -50,7 +55,7 @@ async function listWorkspaceToolSources(
 }
 
 async function listWorkspaceAccessPolicies(
-  ctx: ActionCtx,
+  ctx: QueryRunnerCtx,
   workspaceId: Id<"workspaces">,
   accountId?: Id<"accounts">,
 ): Promise<AccessPolicyRecord[]> {
@@ -367,10 +372,10 @@ function computeOpenApiSourceQualityFromSerializedTools(
         display: {
           input: inputHint && inputHint.length > 0
             ? inputHint
-            : (Object.keys(inputSchema).length === 0 ? "{}" : normalizeHint(jsonSchemaTypeHintFallback(inputSchema))),
+            : compactArgTypeHintFromSchema(inputSchema),
           output: outputHint && outputHint.length > 0
             ? outputHint
-            : (Object.keys(outputSchema).length === 0 ? "unknown" : normalizeHint(jsonSchemaTypeHintFallback(outputSchema))),
+            : compactReturnTypeHintFromSchema(outputSchema),
         },
       };
     });
@@ -500,10 +505,6 @@ function getPathAliases(path: string): string[] {
 }
 
 
-function normalizeHint(type?: string): string {
-  return type && type.trim().length > 0 ? type : "unknown";
-}
-
 async function buildWorkspaceToolRegistry(
   ctx: ActionCtx,
   args: {
@@ -542,15 +543,11 @@ async function buildWorkspaceToolRegistry(
 
       const displayInput = inputHint && inputHint.length > 0
         ? inputHint
-        : (Object.keys(inputSchema).length === 0
-          ? "{}"
-          : normalizeHint(jsonSchemaTypeHintFallback(inputSchema)));
+        : compactArgTypeHintFromSchema(inputSchema);
 
       const displayOutput = outputHint && outputHint.length > 0
         ? outputHint
-        : (Object.keys(outputSchema).length === 0
-          ? "unknown"
-          : normalizeHint(jsonSchemaTypeHintFallback(outputSchema)));
+        : compactReturnTypeHintFromSchema(outputSchema);
 
       const typedRef = st.typing?.typedRef && st.typing.typedRef.kind === "openapi_operation"
         ? {
@@ -752,7 +749,7 @@ export async function getWorkspaceTools(
     for (const source of sources) {
       sourceToolCountsByName.set(source.name, 0);
     }
-    for (const tool of externalArtifacts.flatMap((artifact) => artifact.tools)) {
+    for (const tool of allTools) {
       const sourceName = toSourceName(tool.source);
       if (!sourceName) continue;
       sourceToolCountsByName.set(sourceName, (sourceToolCountsByName.get(sourceName) ?? 0) + 1);
@@ -819,6 +816,21 @@ interface WorkspaceRegistryReadResult {
   openApiRefHintLookup: Record<string, Record<string, string>>;
 }
 
+export type ToolSourceGenerationState = "ready" | "loading" | "refreshing" | "failed";
+
+export interface ToolSourceGenerationStatus {
+  state: ToolSourceGenerationState;
+  toolCount: number;
+  changed: boolean;
+}
+
+export interface WorkspaceInventoryProgress {
+  inventoryStatus: ToolInventoryStatus;
+  warnings: string[];
+  sourceStates: Record<string, ToolSourceGenerationStatus>;
+  reactiveKey: string;
+}
+
 function toSourceToolCountRecord(items: Array<{ sourceName: string; toolCount: number }>): Record<string, number> {
   const result: Record<string, number> = {};
   for (const item of items) {
@@ -873,62 +885,45 @@ function changedSourceNames(
   return [...changed].sort((a, b) => a.localeCompare(b));
 }
 
-async function getWorkspaceToolsFromRegistry(
-  ctx: ActionCtx,
+type WorkspaceRegistryStateRecord = {
+  signature?: string;
+  readyBuildId?: string;
+  buildingBuildId?: string;
+  buildingSignature?: string;
+  buildingStartedAt?: number;
+  lastBuildCompletedAt?: number;
+  lastBuildFailedAt?: number;
+  lastBuildError?: string;
+  typesStorageId?: Id<"_storage">;
+  warnings?: string[];
+  toolCount?: number;
+  sourceToolCounts?: Array<{ sourceName: string; toolCount: number }>;
+  sourceVersions?: Array<{ sourceId: string; sourceName: string; updatedAt: number }>;
+  sourceQuality?: OpenApiSourceQuality[];
+  sourceAuthProfiles?: Array<{
+    sourceKey: string;
+    type: SourceAuthProfile["type"];
+    mode?: SourceAuthProfile["mode"];
+    header?: string;
+    inferred: boolean;
+  }>;
+  openApiRefHintTables?: Array<{
+    sourceKey: string;
+    refs: Array<{ key: string; hint: string }>;
+  }>;
+  updatedAt?: number;
+} | null;
+
+function computeWorkspaceInventoryProgress(
   workspaceId: Id<"workspaces">,
-  options: {
-    toolPaths?: string[];
-    source?: string;
-    sourceName?: string;
-    cursor?: string;
-    limit?: number;
-    buildId?: string;
-    fetchAll?: boolean;
-  } = {},
-): Promise<WorkspaceRegistryReadResult> {
-  const sources = (await listWorkspaceToolSources(ctx, workspaceId))
-    .filter((source) => source.enabled);
+  sources: ToolSourceRecord[],
+  registryState: WorkspaceRegistryStateRecord,
+): WorkspaceInventoryProgress {
   const expectedRegistrySignature = registrySignatureForWorkspace(workspaceId, sources);
-
-  const registryState: {
-    signature?: string;
-    readyBuildId?: string;
-    buildingBuildId?: string;
-    buildingSignature?: string;
-    buildingStartedAt?: number;
-    lastBuildCompletedAt?: number;
-    lastBuildFailedAt?: number;
-    lastBuildError?: string;
-    typesStorageId?: Id<"_storage">;
-    warnings?: string[];
-    toolCount?: number;
-    sourceToolCounts?: Array<{ sourceName: string; toolCount: number }>;
-    sourceVersions?: Array<{ sourceId: string; sourceName: string; updatedAt: number }>;
-    sourceQuality?: OpenApiSourceQuality[];
-    sourceAuthProfiles?: Array<{
-      sourceKey: string;
-      type: SourceAuthProfile["type"];
-      mode?: SourceAuthProfile["mode"];
-      header?: string;
-      inferred: boolean;
-    }>;
-    openApiRefHintTables?: Array<{
-      sourceKey: string;
-      refs: Array<{ key: string; hint: string }>;
-    }>;
-    updatedAt?: number;
-  } | null = await ctx.runQuery(internal.toolRegistry.getState, {
-    workspaceId,
-  });
-
   const readyBuildId = registryState?.readyBuildId;
-  const activeBuildId = options.buildId ?? readyBuildId;
   const building = Boolean(registryState?.buildingBuildId);
   const isFresh = Boolean(registryState?.signature && registryState.signature === expectedRegistrySignature && !building);
   const sourceCounts = toSourceToolCountRecord(registryState?.sourceToolCounts ?? []);
-  const sourceQuality = toSourceQualityRecord(registryState?.sourceQuality ?? []);
-  const sourceAuthProfiles = toSourceAuthProfileRecord(registryState?.sourceAuthProfiles ?? []);
-  const openApiRefHintLookup = toOpenApiRefHintLookup(registryState?.openApiRefHintTables ?? []);
   const changedSources = changedSourceNames(sources, registryState?.sourceVersions ?? []);
 
   let state: ToolInventoryState;
@@ -949,22 +944,16 @@ async function getWorkspaceToolsFromRegistry(
   }
 
   const warnings: string[] = [...(registryState?.warnings ?? [])];
-  const scopedSourceName = options.sourceName ?? toSourceName(options.source) ?? undefined;
-  let loadingSourceNames: string[] = [];
   const allSourceNames = sources.map((source) => source.name);
-  const relevantSourceNames = scopedSourceName
-    ? allSourceNames.filter((name) => name === scopedSourceName)
-    : allSourceNames;
+  let loadingSourceNames: string[] = [];
 
   if (state === "initializing") {
-    loadingSourceNames = [...relevantSourceNames];
-    if (relevantSourceNames.length > 0) {
+    loadingSourceNames = [...allSourceNames];
+    if (allSourceNames.length > 0) {
       warnings.push("Tool inventory is still loading; showing partial results.");
     }
   } else if (state === "rebuilding" || state === "stale" || state === "failed") {
-    loadingSourceNames = scopedSourceName
-      ? changedSources.filter((name) => name === scopedSourceName)
-      : changedSources;
+    loadingSourceNames = changedSources;
   }
 
   if (state === "stale" || state === "rebuilding") {
@@ -977,18 +966,149 @@ async function getWorkspaceToolsFromRegistry(
     warnings.push(`Source '${sourceName}' is still loading; showing partial results.`);
   }
 
+  const loadingSourceSet = new Set(loadingSourceNames);
+  const changedSourceSet = new Set(changedSources);
+  const sourceStates: Record<string, ToolSourceGenerationStatus> = {};
+  for (const source of sources) {
+    const changed = changedSourceSet.has(source.name);
+    const loading = loadingSourceSet.has(source.name);
+
+    let sourceState: ToolSourceGenerationState;
+    if (state === "failed" && loading) {
+      sourceState = "failed";
+    } else if (state === "stale" && loading) {
+      sourceState = "refreshing";
+    } else if (loading) {
+      sourceState = "loading";
+    } else {
+      sourceState = "ready";
+    }
+
+    sourceStates[source.name] = {
+      state: sourceState,
+      toolCount: sourceCounts[source.name] ?? 0,
+      changed,
+    };
+  }
+
   const inventoryStatus: ToolInventoryStatus = {
     state,
     readyBuildId,
     buildingBuildId: registryState?.buildingBuildId,
     readyToolCount: registryState?.toolCount ?? 0,
     loadingSourceNames,
-    sourceToolCounts: sourceCounts,
+    sourceToolCounts: {
+      ...sourceCounts,
+      // Ensure system tools are always visible even for pre-existing registry states.
+      system: sourceCounts["system"] ?? baseTools.size,
+    },
     lastBuildStartedAt: registryState?.buildingStartedAt,
     lastBuildCompletedAt: registryState?.lastBuildCompletedAt,
     lastBuildFailedAt: registryState?.lastBuildFailedAt,
     ...(registryState?.lastBuildError ? { error: registryState.lastBuildError } : {}),
     updatedAt: registryState?.updatedAt,
+  };
+
+  const sourceTokens = Object.entries(sourceStates)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, item]) => `${name}:${item.state}:${item.toolCount}:${item.changed ? 1 : 0}`)
+    .join(",");
+
+  const reactiveKey = [
+    inventoryStatus.state,
+    inventoryStatus.readyBuildId ?? "",
+    inventoryStatus.buildingBuildId ?? "",
+    String(inventoryStatus.updatedAt ?? 0),
+    sourceTokens,
+  ].join("|");
+
+  return {
+    inventoryStatus,
+    warnings,
+    sourceStates,
+    reactiveKey,
+  };
+}
+
+export async function getWorkspaceInventoryProgressForContext(
+  ctx: QueryRunnerCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<WorkspaceInventoryProgress> {
+  const [sources, registryState, policies] = await Promise.all([
+    listWorkspaceToolSources(ctx, workspaceId),
+    ctx.runQuery(internal.toolRegistry.getState, { workspaceId }),
+    // Read policies so Convex tracks this reactive dependency — any policy
+    // change will invalidate the query and produce a new reactiveKey, which
+    // in turn causes the client-side TanStack query to re-fetch tool data.
+    listWorkspaceAccessPolicies(ctx, workspaceId),
+  ]);
+
+  const progress = computeWorkspaceInventoryProgress(
+    workspaceId,
+    sources.filter((source) => source.enabled),
+    registryState,
+  );
+
+  // Append a lightweight policy fingerprint so the reactive key changes
+  // whenever any policy is created, updated, or deleted.
+  const policyToken = policies
+    .map((p) => `${p.id}:${p.effect}:${p.approvalMode}:${p.resourcePattern}:${p.priority}`)
+    .sort()
+    .join(",");
+
+  return {
+    ...progress,
+    reactiveKey: `${progress.reactiveKey}|p:${policyToken}`,
+  };
+}
+
+async function getWorkspaceToolsFromRegistry(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  options: {
+    toolPaths?: string[];
+    source?: string;
+    sourceName?: string;
+    cursor?: string;
+    limit?: number;
+    buildId?: string;
+    fetchAll?: boolean;
+  } = {},
+): Promise<WorkspaceRegistryReadResult> {
+  const sources = (await listWorkspaceToolSources(ctx, workspaceId))
+    .filter((source) => source.enabled);
+
+  const registryState: WorkspaceRegistryStateRecord = await ctx.runQuery(internal.toolRegistry.getState, {
+    workspaceId,
+  });
+
+  const progress = computeWorkspaceInventoryProgress(workspaceId, sources, registryState);
+  const readyBuildId = progress.inventoryStatus.readyBuildId;
+  const activeBuildId = options.buildId ?? readyBuildId;
+  const sourceCounts = progress.inventoryStatus.sourceToolCounts;
+  const sourceQuality = toSourceQualityRecord(registryState?.sourceQuality ?? []);
+  const sourceAuthProfiles = toSourceAuthProfileRecord(registryState?.sourceAuthProfiles ?? []);
+  const openApiRefHintLookup = toOpenApiRefHintLookup(registryState?.openApiRefHintTables ?? []);
+  const warnings: string[] = [...progress.warnings];
+  const scopedSourceName = options.sourceName ?? toSourceName(options.source) ?? undefined;
+  let loadingSourceNames: string[] = [];
+  const allSourceNames = sources.map((source) => source.name);
+  const relevantSourceNames = scopedSourceName
+    ? allSourceNames.filter((name) => name === scopedSourceName)
+    : allSourceNames;
+  const baseLoadingSourceSet = new Set(progress.inventoryStatus.loadingSourceNames);
+
+  if (scopedSourceName) {
+    loadingSourceNames = baseLoadingSourceSet.has(scopedSourceName)
+      ? [scopedSourceName]
+      : [];
+  } else {
+    loadingSourceNames = progress.inventoryStatus.loadingSourceNames;
+  }
+
+  const inventoryStatus: ToolInventoryStatus = {
+    ...progress.inventoryStatus,
+    loadingSourceNames,
   };
 
   const totalTools = scopedSourceName

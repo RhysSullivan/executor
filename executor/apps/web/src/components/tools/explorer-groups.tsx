@@ -6,10 +6,8 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Globe,
-  Layers,
   Loader2,
-  Server,
+  RefreshCcw,
   ShieldCheck,
   Settings2,
 } from "lucide-react";
@@ -30,7 +28,7 @@ import {
 } from "@/lib/tool/explorer-grouping";
 import type { SourceAuthProfile, ToolDescriptor, ToolSourceRecord } from "@/lib/types";
 import { SelectableToolRow, ToolLoadingRows } from "./explorer-rows";
-import { SourceFavicon } from "./source-favicon";
+import { DefaultSourceIcon, SourceFavicon } from "./source-favicon";
 
 export function GroupNode({
   group,
@@ -64,13 +62,11 @@ export function GroupNode({
     typeof group.loadingPlaceholderCount === "number" &&
     group.loadingPlaceholderCount > 0;
   const isGroupSelected = selectedKeys.has(group.key);
-  const sourceTypeFallback: ToolSourceRecord["type"] = source
+  const sourceTypeFallback: ToolSourceRecord["type"] | "local" | "system" = source
     ? source.type
-    : group.sourceType === "mcp"
-      ? "mcp"
-      : group.sourceType === "graphql"
-        ? "graphql"
-        : "openapi";
+    : group.label === "system"
+      ? "system"
+      : (group.sourceType as ToolSourceRecord["type"] | "local") ?? "openapi";
 
   const hasNestedGroups = group.children.some((child): child is ToolGroup => "key" in child);
   const displayLabel = toolDisplaySegment(group.label);
@@ -122,11 +118,7 @@ export function GroupNode({
                     imageClassName="w-full h-full"
                   />
                 ) : (
-                sourceTypeFallback === "mcp"
-                  ? <Server className="h-3 w-3 text-muted-foreground" />
-                  : sourceTypeFallback === "graphql"
-                    ? <Layers className="h-3 w-3 text-muted-foreground" />
-                    : <Globe className="h-3 w-3 text-muted-foreground" />
+                  <DefaultSourceIcon type={sourceTypeFallback} className="h-3 w-3 text-muted-foreground" />
               )}
             </div>
           )}
@@ -231,6 +223,10 @@ export function SourceSidebar({
   existingSourceNames,
   sourceAuthProfiles,
   onSourceDeleted,
+  onRegenerate,
+  isRebuilding = false,
+  inventoryState,
+  inventoryError,
 }: {
   sources: ToolSourceRecord[];
   sourceCounts: Record<string, number>;
@@ -242,6 +238,10 @@ export function SourceSidebar({
   existingSourceNames: Set<string>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   onSourceDeleted?: (sourceName: string) => void;
+  onRegenerate?: () => void;
+  isRebuilding?: boolean;
+  inventoryState?: "initializing" | "ready" | "rebuilding" | "stale" | "failed";
+  inventoryError?: string;
 }) {
   const warningCountsBySource = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -257,26 +257,144 @@ export function SourceSidebar({
     () => (activeSource ? warningMessagesBySource[activeSource] ?? [] : []),
     [activeSource, warningMessagesBySource],
   );
+  const loadingSourceCount = loadingSources.size;
+  const regenerationInProgress = isRebuilding;
+  const inventoryStale = inventoryState === "stale";
+
+  const inventoryStatus = useMemo(() => {
+    if (!inventoryState) {
+      return {
+        label: "Checking inventory",
+        tone: "muted" as const,
+      };
+    }
+
+    if (inventoryState === "initializing") {
+      const sourceWord = loadingSourceCount === 1 ? "source" : "sources";
+      return {
+        label: loadingSourceCount > 0
+          ? `Building inventory (${loadingSourceCount} ${sourceWord})`
+          : "Building inventory",
+        tone: "loading" as const,
+      };
+    }
+
+    if (inventoryState === "rebuilding") {
+      const sourceWord = loadingSourceCount === 1 ? "source" : "sources";
+      return {
+        label: loadingSourceCount > 0
+          ? `Refreshing inventory (${loadingSourceCount} ${sourceWord})`
+          : "Refreshing inventory",
+        tone: "loading" as const,
+      };
+    }
+
+    if (inventoryState === "stale") {
+      return {
+        label: "Inventory out of date",
+        tone: "muted" as const,
+      };
+    }
+
+    if (inventoryState === "failed") {
+      return {
+        label: inventoryError ? `Refresh failed: ${inventoryError}` : "Refresh failed",
+        tone: "error" as const,
+      };
+    }
+
+    return {
+      label: "Inventory up to date",
+      tone: "muted" as const,
+    };
+  }, [inventoryError, inventoryState, loadingSourceCount]);
+
+  const sourceByName = useMemo(() => {
+    const map = new Map<string, ToolSourceRecord>();
+    for (const source of sources) {
+      if (source.enabled) {
+        map.set(source.name, source);
+      }
+    }
+    return map;
+  }, [sources]);
 
   const groups = useMemo(() => {
-    return sources
-      .filter((source) => source.enabled)
-      .map((source) => ({
-        name: source.name,
-        type: source.type,
-        count: sourceCounts[source.name] ?? 0,
-        isLoading: loadingSources.has(source.name),
-        warningCount: warningCountsBySource[source.name] ?? 0,
-        source,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [loadingSources, sourceCounts, sources, warningCountsBySource]);
+    // Collect all source names: DB records + any that appear in sourceCounts (e.g. "system").
+    const allNames = new Set([
+      ...Array.from(sourceByName.keys()),
+      ...Object.keys(sourceCounts),
+    ]);
+    // Also include currently loading sources that may not have counts yet.
+    for (const name of loadingSources) {
+      allNames.add(name);
+    }
+
+    return Array.from(allNames)
+      .sort((a, b) => {
+        // "system" always sorts last.
+        if (a === "system") return 1;
+        if (b === "system") return -1;
+        return a.localeCompare(b);
+      })
+      .map((name) => ({
+        name,
+        type: sourceByName.get(name)?.type ?? null,
+        count: sourceCounts[name] ?? 0,
+        isLoading: loadingSources.has(name),
+        warningCount: warningCountsBySource[name] ?? 0,
+        source: sourceByName.get(name) ?? null,
+      }));
+  }, [loadingSources, sourceCounts, sourceByName, warningCountsBySource]);
 
   return (
     <div className="w-52 shrink-0 border-r border-border/50 pr-0 hidden lg:block">
       <div className="px-3 pb-2 pt-1">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/50">
-          Sources
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/50">
+            Sources
+          </p>
+          {onRegenerate ? (
+            <button
+              onClick={onRegenerate}
+              disabled={regenerationInProgress}
+              title={
+                regenerationInProgress
+                  ? "Rebuilding..."
+                  : inventoryStale
+                    ? "Inventory is out of date"
+                    : "Regenerate inventory"
+              }
+              className={cn(
+                "p-0.5 rounded transition-colors",
+                regenerationInProgress
+                  ? "text-terminal-amber cursor-not-allowed"
+                  : inventoryStale
+                    ? "text-muted-foreground/70 hover:text-muted-foreground"
+                    : "text-muted-foreground/40 hover:text-muted-foreground/70",
+              )}
+            >
+              <RefreshCcw className={cn("h-3 w-3", regenerationInProgress && "animate-spin")} />
+            </button>
+          ) : null}
+        </div>
+        <p
+          className={cn(
+            "mt-1 flex items-center gap-1 text-[10px] font-mono",
+            inventoryStatus.tone === "loading"
+              ? "text-terminal-amber/90"
+              : inventoryStatus.tone === "error"
+                ? "text-terminal-red/90"
+                : "text-muted-foreground/60",
+          )}
+          title={inventoryStatus.label}
+        >
+          {inventoryStatus.tone === "loading" ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : inventoryStatus.tone === "error" ? (
+            <AlertTriangle className="h-3 w-3" />
+          ) : null}
+          <span className="truncate">{inventoryStatus.label}</span>
         </p>
       </div>
 
@@ -304,7 +422,10 @@ export function SourceSidebar({
                     imageClassName="w-3 h-3"
                   />
                 ) : (
-                  <Layers className="h-3 w-3 shrink-0" />
+                  <DefaultSourceIcon
+                    type={g.name === "system" ? "system" : "openapi"}
+                    className="h-3 w-3 shrink-0 text-muted-foreground"
+                  />
                 )}
                 <span className="font-mono font-medium truncate">{g.name}</span>
                 <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">

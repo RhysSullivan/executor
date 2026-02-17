@@ -142,6 +142,7 @@ export declare const api: {
         includeDetails?: boolean;
         includeSourceMeta?: boolean;
         limit?: number;
+        rebuildInventory?: boolean;
         sessionId?: string;
         source?: string;
         sourceName?: string;
@@ -303,10 +304,22 @@ export declare const api: {
       { accountId?: string; clientId?: string; sessionId?: string },
       any
     >;
+    deleteAccessPolicy: FunctionReference<
+      "mutation",
+      "public",
+      { policyId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     deleteToolSource: FunctionReference<
       "mutation",
       "public",
       { sessionId?: string; sourceId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getToolInventoryProgress: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     listAccessPolicies: FunctionReference<
@@ -362,6 +375,11 @@ export declare const api: {
       "public",
       {
         approvalMode?: "inherit" | "auto" | "required";
+        argumentConditions?: Array<{
+          key: string;
+          operator: "equals" | "contains" | "starts_with" | "not_equals";
+          value: string;
+        }>;
         clientId?: string;
         effect?: "allow" | "deny";
         id?: string;
@@ -643,6 +661,12 @@ export declare const internal: {
         any
       >;
     };
+    deleteAccessPolicy: FunctionReference<
+      "mutation",
+      "internal",
+      { policyId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     deleteToolSource: FunctionReference<
       "mutation",
       "internal",
@@ -762,6 +786,12 @@ export declare const internal: {
       any
     >;
     policies: {
+      deleteAccessPolicy: FunctionReference<
+        "mutation",
+        "internal",
+        { policyId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
       listAccessPolicies: FunctionReference<
         "query",
         "internal",
@@ -774,6 +804,11 @@ export declare const internal: {
         "internal",
         {
           approvalMode?: "inherit" | "auto" | "required";
+          argumentConditions?: Array<{
+            key: string;
+            operator: "equals" | "contains" | "starts_with" | "not_equals";
+            value: string;
+          }>;
           clientId?: string;
           effect?: "allow" | "deny";
           id?: string;
@@ -962,6 +997,11 @@ export declare const internal: {
       "internal",
       {
         approvalMode?: "inherit" | "auto" | "required";
+        argumentConditions?: Array<{
+          key: string;
+          operator: "equals" | "contains" | "starts_with" | "not_equals";
+          value: string;
+        }>;
         clientId?: string;
         effect?: "allow" | "deny";
         id?: string;

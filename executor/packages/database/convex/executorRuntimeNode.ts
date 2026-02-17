@@ -1,8 +1,6 @@
-"use node";
-
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
-import { dispatchCloudflareWorkerRun } from "../src/runtime-node/runtime-dispatch";
+import { dispatchCodeWithCloudflareWorkerLoader } from "../../core/src/runtimes/cloudflare/worker/loader-runtime";
 
 export const dispatchCloudflareWorker = internalAction({
   args: {
@@ -11,6 +9,6 @@ export const dispatchCloudflareWorker = internalAction({
     timeoutMs: v.number(),
   },
   handler: async (_ctx, args) => {
-    return await dispatchCloudflareWorkerRun(args);
+    return await dispatchCodeWithCloudflareWorkerLoader(args);
   },
 });

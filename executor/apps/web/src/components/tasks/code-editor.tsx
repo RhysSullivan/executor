@@ -22,6 +22,7 @@ interface CodeEditorProps {
   tools: ToolDescriptor[];
   /** Workspace-wide Monaco `.d.ts` bundle URL. */
   typesUrl?: string;
+  stateStorageKey?: string;
   className?: string;
   height?: string;
 }
@@ -31,6 +32,7 @@ export function CodeEditor({
   onChange,
   tools,
   typesUrl,
+  stateStorageKey,
   className,
   height = "400px",
 }: CodeEditorProps) {
@@ -40,6 +42,81 @@ export function CodeEditor({
   const envLibDisposable = useRef<{ dispose: () => void } | null>(null);
   const toolsLibDisposable = useRef<{ dispose: () => void } | null>(null);
   const toolsLibVersion = useRef(0);
+  const stateStorageTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateStorageDisposablesRef = useRef<Array<{ dispose: () => void }>>([]);
+  const stateStorageKeyRef = useRef<string | undefined>(stateStorageKey);
+
+  useEffect(() => {
+    stateStorageKeyRef.current = stateStorageKey;
+  }, [stateStorageKey]);
+
+  const saveEditorState = () => {
+    const editor = editorRef.current;
+    const currentStateStorageKey = stateStorageKeyRef.current;
+    if (!editor || !currentStateStorageKey) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        currentStateStorageKey,
+        JSON.stringify(editor.saveViewState()),
+      );
+    } catch {
+      return;
+    }
+  };
+
+  const scheduleSaveEditorState = () => {
+    if (stateStorageTimeoutRef.current !== null) {
+      clearTimeout(stateStorageTimeoutRef.current);
+    }
+
+    stateStorageTimeoutRef.current = setTimeout(saveEditorState, 400);
+  };
+
+  const restoreEditorState = (editor: Parameters<OnMount>[0]) => {
+    const currentStateStorageKey = stateStorageKeyRef.current;
+    if (!currentStateStorageKey) {
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(currentStateStorageKey);
+      if (!raw) {
+        return;
+      }
+
+      const parsedState = JSON.parse(raw);
+      editor.restoreViewState(parsedState);
+    } catch {
+      return;
+    }
+  };
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    restoreEditorState(editor);
+  }, [stateStorageKey]);
+
+  useEffect(() => {
+    return () => {
+      if (stateStorageTimeoutRef.current !== null) {
+        clearTimeout(stateStorageTimeoutRef.current);
+      }
+
+      for (const disposable of stateStorageDisposablesRef.current) {
+        disposable.dispose();
+      }
+      stateStorageDisposablesRef.current = [];
+
+      saveEditorState();
+    };
+  }, []);
 
   const typesBundleQuery = useTanstackQuery<string>({
     queryKey: ["executor-tool-types", typesUrl],
@@ -147,6 +224,15 @@ export function CodeEditor({
 
   const handleMount: OnMount = (editor) => {
     editorRef.current = editor;
+
+    restoreEditorState(editor);
+
+    stateStorageDisposablesRef.current = [
+      editor.onDidChangeModelContent(scheduleSaveEditorState),
+      editor.onDidChangeCursorPosition(scheduleSaveEditorState),
+      editor.onDidScrollChange(scheduleSaveEditorState),
+      editor.onDidBlurEditorText(scheduleSaveEditorState),
+    ];
 
     // Set up code completions for tools.* trigger
     editor.addAction({

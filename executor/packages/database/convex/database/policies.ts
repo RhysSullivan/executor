@@ -3,6 +3,7 @@ import { internalMutation, internalQuery } from "../_generated/server";
 import { listRuntimeTargets as listAvailableRuntimeTargets } from "../../../core/src/runtimes/runtime-catalog";
 import { mapPolicy } from "../../src/database/mappers";
 import {
+  argumentConditionValidator,
   policyApprovalModeValidator,
   policyEffectValidator,
   policyMatchTypeValidator,
@@ -27,6 +28,7 @@ export const upsertAccessPolicy = internalMutation({
     matchType: v.optional(policyMatchTypeValidator),
     effect: v.optional(policyEffectValidator),
     approvalMode: v.optional(policyApprovalModeValidator),
+    argumentConditions: v.optional(v.array(argumentConditionValidator)),
     priority: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -52,6 +54,11 @@ export const upsertAccessPolicy = internalMutation({
       : undefined;
     const workspaceId = scopeType === "workspace" ? args.workspaceId : undefined;
 
+    // Normalize argument conditions: drop empty entries, store undefined if empty array.
+    const argumentConditions = args.argumentConditions && args.argumentConditions.length > 0
+      ? args.argumentConditions.filter((c) => c.key.trim().length > 0)
+      : undefined;
+
     const existing = await ctx.db
       .query("accessPolicies")
       .withIndex("by_policy_id", (q) => q.eq("policyId", policyId))
@@ -69,6 +76,7 @@ export const upsertAccessPolicy = internalMutation({
         matchType,
         effect,
         approvalMode,
+        argumentConditions,
         priority: args.priority ?? 100,
         updatedAt: now,
       });
@@ -85,6 +93,7 @@ export const upsertAccessPolicy = internalMutation({
         matchType,
         effect,
         approvalMode,
+        argumentConditions,
         priority: args.priority ?? 100,
         createdAt: now,
         updatedAt: now,
@@ -99,6 +108,33 @@ export const upsertAccessPolicy = internalMutation({
       throw new Error(`Failed to read policy ${policyId}`);
     }
     return mapPolicy(updated);
+  },
+});
+
+export const deleteAccessPolicy = internalMutation({
+  args: {
+    policyId: v.string(),
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("accessPolicies")
+      .withIndex("by_policy_id", (q) => q.eq("policyId", args.policyId))
+      .unique();
+    if (!existing) {
+      throw new Error(`Policy not found: ${args.policyId}`);
+    }
+    // Verify the policy belongs to this workspace or its organization.
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (!workspace) {
+      throw new Error(`Workspace not found: ${args.workspaceId}`);
+    }
+    const belongsToWorkspace = existing.workspaceId === args.workspaceId;
+    const belongsToOrg = existing.organizationId === workspace.organizationId;
+    if (!belongsToWorkspace && !belongsToOrg) {
+      throw new Error("Policy does not belong to this workspace or organization");
+    }
+    await ctx.db.delete(existing._id);
   },
 });
 

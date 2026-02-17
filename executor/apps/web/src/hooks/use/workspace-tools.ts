@@ -56,6 +56,7 @@ type ListToolsWithWarningsAction = (args: {
   limit?: number;
   buildId?: string;
   fetchAll?: boolean;
+  rebuildInventory?: boolean;
 }) => Promise<WorkspaceToolsQueryResult>;
 
 /**
@@ -73,9 +74,9 @@ export function useWorkspaceTools(
   const listToolsWithWarnings = listToolsWithWarningsRaw as ListToolsWithWarningsAction;
   const detailsCacheRef = useRef<Map<string, ToolDescriptor>>(new Map());
 
-  // Watch tool sources reactively so we invalidate when sources change
-  const toolSources = useConvexQuery(
-    convexApi.workspace.listToolSources,
+  // Watch inventory progress reactively so we invalidate when generation state changes.
+  const inventoryProgress = useConvexQuery(
+    convexApi.workspace.getToolInventoryProgress,
     context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
   );
 
@@ -86,7 +87,7 @@ export function useWorkspaceTools(
       context?.accountId,
       context?.clientId,
       includeDetails,
-      toolSources,
+      inventoryProgress?.reactiveKey,
     ],
     queryFn: async (): Promise<WorkspaceToolsQueryResult> => {
       if (!context) {
@@ -117,17 +118,11 @@ export function useWorkspaceTools(
       });
     },
     enabled: !!context,
-    refetchInterval: (query) => {
-      const state = query.state.data?.inventoryStatus.state;
-      if (state === "initializing" || state === "rebuilding") {
-        return 2_000;
-      }
-      return false;
-    },
     placeholderData: (previousData) => previousData,
   });
 
   const inventoryData = inventoryQuery.data;
+  const inventoryStatus = inventoryProgress?.inventoryStatus ?? inventoryData?.inventoryStatus;
   const tools = inventoryData?.tools ?? [];
 
   const loadToolDetails = useCallback(async (toolPaths: string[]): Promise<Record<string, ToolDescriptor>> => {
@@ -190,6 +185,23 @@ export function useWorkspaceTools(
     return;
   }, []);
 
+  const rebuildInventoryNow = useCallback(async () => {
+    if (!context) {
+      return;
+    }
+
+    await listToolsWithWarnings({
+      workspaceId: context.workspaceId,
+      ...(context.accountId && { accountId: context.accountId }),
+      ...(context.clientId && { clientId: context.clientId }),
+      ...(context.sessionId && { sessionId: context.sessionId }),
+      includeDetails: false,
+      includeSourceMeta: false,
+      limit: 1,
+      rebuildInventory: true,
+    });
+  }, [context, listToolsWithWarnings]);
+
   return {
     tools,
     warnings: inventoryData?.warnings ?? [],
@@ -198,8 +210,9 @@ export function useWorkspaceTools(
     /** Per-source OpenAPI quality metrics (unknown/fallback type rates). */
     sourceQuality: inventoryData?.sourceQuality ?? {},
     sourceAuthProfiles: inventoryData?.sourceAuthProfiles ?? {},
-    inventoryStatus: inventoryData?.inventoryStatus,
-    loadingSources: inventoryData?.inventoryStatus.loadingSourceNames ?? [],
+    inventoryStatus,
+    inventorySourceStates: inventoryProgress?.sourceStates ?? {},
+    loadingSources: inventoryStatus?.loadingSourceNames ?? [],
     loadingTools: !!context && inventoryQuery.isLoading,
     refreshingTools: !!context && inventoryQuery.isFetching,
     loadingMoreTools: false,
@@ -208,6 +221,7 @@ export function useWorkspaceTools(
     sourceHasMoreTools: {} as Record<string, boolean>,
     sourceLoadingMoreTools: {} as Record<string, boolean>,
     loadMoreToolsForSource,
+    rebuildInventoryNow,
     totalTools: inventoryData?.totalTools ?? tools.length,
     loadedTools: tools.length,
     loadToolDetails,

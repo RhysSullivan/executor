@@ -9,6 +9,13 @@ export type PolicyScopeType = "account" | "organization" | "workspace";
 export type PolicyMatchType = "glob" | "exact";
 export type PolicyEffect = "allow" | "deny";
 export type PolicyApprovalMode = "inherit" | "auto" | "required";
+export type ArgumentConditionOperator = "equals" | "contains" | "starts_with" | "not_equals";
+
+export interface ArgumentCondition {
+  key: string;
+  operator: ArgumentConditionOperator;
+  value: string;
+}
 export type CredentialScope = "account" | "organization" | "workspace";
 export type CredentialProvider = "local-convex" | "workos-vault";
 export type ToolSourceScopeType = "organization" | "workspace";
@@ -81,6 +88,7 @@ export interface AccessPolicyRecord {
   matchType: PolicyMatchType;
   effect: PolicyEffect;
   approvalMode: PolicyApprovalMode;
+  argumentConditions?: ArgumentCondition[];
   priority: number;
   createdAt: number;
   updatedAt: number;

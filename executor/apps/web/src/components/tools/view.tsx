@@ -1,10 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import {
-  Plus,
-  RefreshCcw,
-} from "lucide-react";
+import { Plus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +16,6 @@ import { PoliciesPanel } from "@/components/tools/policies";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
 import { useQuery } from "convex/react";
-import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import { convexApi } from "@/lib/convex-api";
 import type {
@@ -87,6 +83,7 @@ function pruneStaleOps(
 }
 
 type ToolsTab = "catalog" | "credentials" | "policies" | "editor";
+const INVENTORY_REGENERATION_TOAST_ID = "tool-inventory-regeneration";
 
 function parseInitialTab(tab?: string | null): ToolsTab {
   if (tab === "runner" || tab === "editor") {
@@ -116,6 +113,8 @@ export function ToolsView({
   const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
   const [connectionDialogEditing, setConnectionDialogEditing] = useState<CredentialRecord | null>(null);
   const [connectionDialogSourceKey, setConnectionDialogSourceKey] = useState<string | null>(null);
+  const [regenerationInFlight, setRegenerationInFlight] = useState(false);
+  const lastRegenerationToastMessageRef = useRef<string | null>(null);
 
   const sources = useQuery(
     convexApi.workspace.listToolSources,
@@ -159,13 +158,35 @@ export function ToolsView({
     sourceHasMoreTools,
     sourceLoadingMoreTools,
     loadMoreToolsForSource,
+    rebuildInventoryNow,
     totalTools,
-    loadedTools,
     loadToolDetails,
   } = useWorkspaceTools(context ?? null, {
     includeDetails: false,
   });
-  const regenerateToolInventory = useMutation(convexApi.workspace.regenerateToolInventory);
+
+  const showRegenerationToast = useCallback((kind: "loading" | "success" | "error", message: string) => {
+    const dedupeKey = `${kind}:${message}`;
+    if (lastRegenerationToastMessageRef.current === dedupeKey) {
+      return;
+    }
+    lastRegenerationToastMessageRef.current = dedupeKey;
+
+    if (kind === "loading") {
+      toast.loading(message, {
+        id: INVENTORY_REGENERATION_TOAST_ID,
+        duration: Number.POSITIVE_INFINITY,
+      });
+      return;
+    }
+
+    if (kind === "success") {
+      toast.success(message, { id: INVENTORY_REGENERATION_TOAST_ID });
+      return;
+    }
+
+    toast.error(message, { id: INVENTORY_REGENERATION_TOAST_ID });
+  }, []);
 
   const toolSourceNames = useMemo(
     () => new Set(tools.map((tool) => sourceLabel(tool.source))),
@@ -257,7 +278,6 @@ export function ToolsView({
       ...ops,
       { kind: "add", source, addedAt: Date.now() },
     ]);
-    setSelectedSource(source.name);
   }, []);
 
   const handleSourceDeleted = useCallback((sourceName: string) => {
@@ -269,15 +289,26 @@ export function ToolsView({
   }, []);
 
   const handleRegenerateInventory = useCallback(async () => {
-    if (!context) {
+    if (!context || regenerationInFlight) {
       return;
     }
-    await regenerateToolInventory({
-      workspaceId: context.workspaceId,
-      sessionId: context.sessionId,
-    });
-    toast.success("Tool inventory regeneration queued");
-  }, [context, regenerateToolInventory]);
+
+    lastRegenerationToastMessageRef.current = null;
+    setRegenerationInFlight(true);
+    showRegenerationToast("loading", "Refreshing inventory...");
+
+    try {
+      await rebuildInventoryNow();
+      showRegenerationToast("success", "Tool inventory refreshed");
+    } catch (error) {
+      showRegenerationToast(
+        "error",
+        error instanceof Error ? error.message : "Failed to refresh tool inventory",
+      );
+    } finally {
+      setRegenerationInFlight(false);
+    }
+  }, [context, rebuildInventoryNow, regenerationInFlight, showRegenerationToast]);
   const openConnectionCreate = (sourceKey?: string) => {
     setConnectionDialogEditing(null);
     setConnectionDialogSourceKey(sourceKey ?? null);
@@ -374,52 +405,6 @@ export function ToolsView({
         <TabsContent value="catalog" className="mt-4 min-h-0">
           <Card className="bg-card border-border min-h-0 flex flex-col pt-4 gap-3">
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
-              {globalWarnings.length > 0 ? (
-                <div className="rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[11px] font-mono text-terminal-amber/90">Inventory status</p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[10px]"
-                      onClick={() => void handleRegenerateInventory()}
-                    >
-                      <RefreshCcw className="h-3 w-3 mr-1" />
-                      Regenerate
-                    </Button>
-                  </div>
-                  <div className="mt-1 space-y-1">
-                    {globalWarnings.map((warning, index) => (
-                      <p key={`global-warning-${index}`} className="text-[11px] leading-4 text-muted-foreground">
-                        {warning}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {inventoryStatus ? (
-                <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono uppercase tracking-wide">{inventoryStatus.state}</span>
-                    <div className="flex items-center gap-2">
-                      <span>{loadedTools} loaded / {totalTools} total</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[10px]"
-                        onClick={() => void handleRegenerateInventory()}
-                      >
-                        <RefreshCcw className="h-3 w-3 mr-1" />
-                        Regenerate
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
               <div className="min-h-0 flex-1">
                 <ToolExplorer
                   tools={tools}
@@ -443,20 +428,28 @@ export function ToolsView({
                   initialSource={initialSource}
                   activeSource={activeSource}
                   onActiveSourceChange={setSelectedSource}
+                  onRegenerate={handleRegenerateInventory}
+                  inventoryState={inventoryStatus?.state}
+                  inventoryError={inventoryStatus?.error}
+                  isRebuilding={
+                    regenerationInFlight
+                    || inventoryStatus?.state === "rebuilding"
+                    || inventoryStatus?.state === "initializing"
+                  }
                   addSourceAction={
                     <AddSourceDialog
-                        existingSourceNames={existingSourceNames}
-                        onSourceAdded={handleSourceAdded}
-                        trigger={
-                          <Button
-                            variant="default"
-                            size="sm"
-                            className="h-8 text-[11px]"
-                          >
-                            <Plus className="h-3.5 w-3.5 mr-1.5" />
-                            Add Source
-                          </Button>
-                        }
+                      existingSourceNames={existingSourceNames}
+                      onSourceAdded={handleSourceAdded}
+                      trigger={
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="h-8 text-[11px]"
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1.5" />
+                          Add Source
+                        </Button>
+                      }
                     />
                   }
                 />
@@ -476,7 +469,10 @@ export function ToolsView({
         </TabsContent>
 
         <TabsContent value="policies" className="mt-4">
-          <PoliciesPanel />
+          <PoliciesPanel
+            tools={tools}
+            loadingTools={loadingTools}
+          />
         </TabsContent>
 
       </Tabs>

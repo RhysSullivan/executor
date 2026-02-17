@@ -1,5 +1,6 @@
 import type {
   AccessPolicyRecord,
+  ArgumentCondition,
   PolicyDecision,
   TaskRecord,
 } from "../../../core/src/types";
@@ -19,6 +20,31 @@ function matchesToolPath(pattern: string, toolPath: string, matchType: "glob" | 
   return regex.test(toolPath);
 }
 
+function matchesArgumentCondition(condition: ArgumentCondition, value: unknown): boolean {
+  const strValue = value == null ? "" : String(value);
+  switch (condition.operator) {
+    case "equals":
+      return strValue === condition.value;
+    case "not_equals":
+      return strValue !== condition.value;
+    case "contains":
+      return strValue.includes(condition.value);
+    case "starts_with":
+      return strValue.startsWith(condition.value);
+    default:
+      return false;
+  }
+}
+
+function matchesArgumentConditions(
+  conditions: ArgumentCondition[] | undefined,
+  input: Record<string, unknown> | undefined,
+): boolean {
+  if (!conditions || conditions.length === 0) return true;
+  if (!input) return false;
+  return conditions.every((condition) => matchesArgumentCondition(condition, input[condition.key]));
+}
+
 function policySpecificity(
   policy: AccessPolicyRecord,
   context: { workspaceId: string; accountId?: string; clientId?: string },
@@ -34,6 +60,8 @@ function policySpecificity(
   if (targetAccountId && context.accountId && targetAccountId === context.accountId) score += 64;
   if (policy.clientId && context.clientId && policy.clientId === context.clientId) score += 4;
   if (matchType === "exact") score += 3;
+  // Policies with argument conditions are more specific.
+  if (policy.argumentConditions && policy.argumentConditions.length > 0) score += 32;
   score += Math.max(1, resourcePattern.replace(/\*/g, "").length);
   score += policy.priority;
   return score;
@@ -62,6 +90,7 @@ export function getDecisionForContext(
   tool: PolicyTool,
   context: { workspaceId: string; accountId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
+  input?: Record<string, unknown>,
 ): PolicyDecision {
   if (tool.path === "discover") {
     return "allow";
@@ -79,7 +108,15 @@ export function getDecisionForContext(
       if (scopeType === "organization" && !policy.organizationId) return false;
       if (targetAccountId && targetAccountId !== context.accountId) return false;
       if (policy.clientId && policy.clientId !== context.clientId) return false;
-      return matchesToolPath(resourcePattern, tool.path, matchType);
+      if (!matchesToolPath(resourcePattern, tool.path, matchType)) return false;
+      // If the policy has argument conditions and we have input, check them.
+      // If we don't have input and the policy has conditions, skip the policy
+      // (it can only match at invocation time when input is known).
+      if (policy.argumentConditions && policy.argumentConditions.length > 0) {
+        if (!input) return false;
+        if (!matchesArgumentConditions(policy.argumentConditions, input)) return false;
+      }
+      return true;
     })
     .sort(
       (a, b) =>
@@ -94,6 +131,7 @@ export function getToolDecision(
   task: TaskRecord,
   tool: PolicyTool,
   policies: AccessPolicyRecord[],
+  input?: Record<string, unknown>,
 ): PolicyDecision {
   return getDecisionForContext(
     tool,
@@ -103,6 +141,7 @@ export function getToolDecision(
       clientId: task.clientId,
     },
     policies,
+    input,
   );
 }
 

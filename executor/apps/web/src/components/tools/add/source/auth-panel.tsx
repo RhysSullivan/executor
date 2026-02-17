@@ -1,4 +1,4 @@
-import { KeyRound, Loader2, LockKeyhole, UserRound } from "lucide-react";
+import { AlertTriangle, KeyRound, Loader2, LockKeyhole, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,6 +76,8 @@ export function SourceAuthPanel({
   onScopeChange,
   onFieldChange,
   onMcpOAuthConnect,
+  onOpenApiSpecRetry,
+  openApiSpecRetrying = false,
   mcpOAuthBusy = false,
   sourceInfoLoading = false,
 }: {
@@ -84,6 +86,8 @@ export function SourceAuthPanel({
   onScopeChange: (value: SharingScope) => void;
   onFieldChange: (field: SourceAuthPanelEditableField, value: string) => void;
   onMcpOAuthConnect?: () => void;
+  onOpenApiSpecRetry?: () => void;
+  openApiSpecRetrying?: boolean;
   mcpOAuthBusy?: boolean;
   /** True while spec/OAuth detection is in progress */
   sourceInfoLoading?: boolean;
@@ -104,6 +108,15 @@ export function SourceAuthPanel({
     basicPassword,
     hasExistingCredential,
   } = model;
+
+  // Check whether the user has entered any credential values for the current auth type.
+  const credentialsFilled = authType === "bearer"
+    ? tokenValue.trim().length > 0
+    : authType === "apiKey"
+      ? apiKeyValue.trim().length > 0
+      : authType === "basic"
+        ? basicUsername.trim().length > 0 || basicPassword.trim().length > 0
+        : false;
   const sharingScope = sharingScopeFromModel(model);
 
   if (sourceType !== "openapi" && sourceType !== "graphql" && sourceType !== "mcp") {
@@ -132,7 +145,27 @@ export function SourceAuthPanel({
       ) : null}
 
       {sourceType === "openapi" && specError ? (
-        <p className="text-[10px] text-terminal-amber">{specError}</p>
+        <div className="flex items-start justify-between gap-2 rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-2.5 py-2">
+          <p className="text-[10px] text-terminal-amber/95 leading-relaxed">{specError}</p>
+          {onOpenApiSpecRetry ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[10px] shrink-0"
+              disabled={openApiSpecRetrying}
+              onClick={onOpenApiSpecRetry}
+            >
+              {openApiSpecRetrying ? "Retrying..." : "Retry"}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {sourceType === "openapi" && specStatus !== "idle" && !sourceInfoLoading ? (
+        <p className="text-[10px] text-muted-foreground">
+          Spec check reruns automatically when auth values change. You can also retry manually.
+        </p>
       ) : null}
 
       {sourceType === "mcp" && mcpOAuthStatus === "checking" ? (
@@ -238,7 +271,7 @@ export function SourceAuthPanel({
         </div>
       ) : null}
 
-      {authType === "bearer" && sourceType !== "mcp" && !mcpBearerConnected ? (
+      {authType === "bearer" && !useMcpOAuthFlow && !mcpBearerConnected ? (
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
             <LockKeyhole className="h-3 w-3" />
@@ -294,6 +327,15 @@ export function SourceAuthPanel({
               className="h-8 text-xs font-mono bg-background"
             />
           </div>
+        </div>
+      ) : null}
+
+      {authType !== "none" && !hasExistingCredential && !credentialsFilled && !sourceInfoLoading ? (
+        <div className="flex items-start gap-1.5 rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-2.5 py-2">
+          <AlertTriangle className="h-3.5 w-3.5 text-terminal-amber shrink-0 mt-0.5" />
+          <p className="text-[11px] text-terminal-amber/90">
+            This source requires credentials to connect. You can still add it and configure credentials later.
+          </p>
         </div>
       ) : null}
     </div>

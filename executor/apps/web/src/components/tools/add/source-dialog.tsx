@@ -39,6 +39,7 @@ import {
   CustomViewSection,
 } from "./source/dialog-sections";
 import { createCustomSourceConfig } from "./source/dialog-helpers";
+import { normalizeSourceEndpoint } from "@/lib/tools/source-url";
 import { SourceAuthPanel } from "./source/auth-panel";
 import {
   SourceQualitySummary,
@@ -65,18 +66,6 @@ function resultErrorMessage(error: unknown, fallback: string): string {
     return cause;
   }
   return fallback;
-}
-
-function normalizeEndpoint(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  try {
-    return new URL(trimmed).toString();
-  } catch {
-    return trimmed;
-  }
 }
 
 function ownerScopeBadge(scopeType: ToolSourceScopeType | undefined): string {
@@ -217,8 +206,13 @@ export function AddSourceDialog({
       return;
     }
 
-    if (form.type === "openapi" && form.specStatus === "detecting") {
-      toast.error("Spec fetch is still in progress");
+    if (form.type === "openapi" && form.specStatus !== "ready") {
+      if (form.specStatus === "detecting") {
+        toast.error("Spec fetch is still in progress");
+        return;
+      }
+
+      toast.error(form.specError || "OpenAPI spec is invalid or could not be fetched");
       return;
     }
 
@@ -258,16 +252,25 @@ export function AddSourceDialog({
     }
 
     const result = saveResult.value;
+    const needsCredentials = form.authType !== "none" && !result.connected;
     onSourceAdded?.(result.source, { connected: result.connected });
-    toast.success(
-      sourceToEdit
-        ? result.connected
-          ? `Source "${form.name.trim()}" updated with credentials`
-          : `Source "${form.name.trim()}" updated`
-        : result.connected
-          ? `Source "${form.name.trim()}" added with credentials — loading tools…`
-          : `Source "${form.name.trim()}" added — loading tools…`,
-    );
+    if (needsCredentials) {
+      toast.warning(
+        sourceToEdit
+          ? `Source "${form.name.trim()}" updated — credentials still needed`
+          : `Source "${form.name.trim()}" added without credentials — edit to add them`,
+      );
+    } else {
+      toast.success(
+        sourceToEdit
+          ? result.connected
+            ? `Source "${form.name.trim()}" updated with credentials`
+            : `Source "${form.name.trim()}" updated`
+          : result.connected
+            ? `Source "${form.name.trim()}" added with credentials — loading tools…`
+            : `Source "${form.name.trim()}" added — loading tools…`,
+      );
+    }
     if (!sourceToEdit) {
       form.reserveSourceName(form.name.trim());
     }
@@ -284,7 +287,7 @@ export function AddSourceDialog({
       toast.error("Enter an MCP endpoint URL first");
       return;
     }
-    const initiatedEndpoint = normalizeEndpoint(endpoint);
+    const initiatedEndpoint = normalizeSourceEndpoint(endpoint);
 
     setMcpOAuthBusy(true);
     const oauthResult = await Result.tryPromise(() => startMcpOAuthPopup(endpoint));
@@ -295,13 +298,13 @@ export function AddSourceDialog({
       return;
     }
 
-    const returnedEndpoint = normalizeEndpoint(oauthResult.value.sourceUrl);
+    const returnedEndpoint = normalizeSourceEndpoint(oauthResult.value.sourceUrl);
     if (returnedEndpoint && initiatedEndpoint && returnedEndpoint !== initiatedEndpoint) {
       toast.error("OAuth finished for a different endpoint. Try again.");
       return;
     }
 
-    const currentEndpoint = normalizeEndpoint(form.endpoint);
+    const currentEndpoint = normalizeSourceEndpoint(form.endpoint);
     if (currentEndpoint !== initiatedEndpoint) {
       toast.error("Endpoint changed while OAuth was running. Please reconnect OAuth.");
       return;
@@ -480,7 +483,12 @@ export function AddSourceDialog({
               onMcpTransportChange={form.setMcpTransport}
               submitting={submitting}
               submittingLabel={form.editing ? "Saving..." : "Adding..."}
-              submitDisabled={submitting || !form.name.trim() || !form.endpoint.trim()}
+              submitDisabled={
+                submitting
+                || !form.name.trim()
+                || !form.endpoint.trim()
+                || (form.type === "openapi" && form.specStatus !== "ready")
+              }
               submitLabel={submitLabel}
               showBackToCatalog={!form.editing}
               onBackToCatalog={!form.editing ? () => form.setView("catalog") : undefined}
@@ -511,6 +519,8 @@ export function AddSourceDialog({
                 onScopeChange={form.handleScopePresetChange}
                 onFieldChange={form.handleAuthFieldChange}
                 onMcpOAuthConnect={form.type === "mcp" ? handleMcpOAuthConnect : undefined}
+                onOpenApiSpecRetry={form.type === "openapi" ? form.retryOpenApiSpec : undefined}
+                openApiSpecRetrying={form.type === "openapi" && form.specStatus === "detecting"}
                 mcpOAuthBusy={mcpOAuthBusy}
                 sourceInfoLoading={sourceInfoLoading}
               />

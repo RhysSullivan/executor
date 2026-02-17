@@ -14,6 +14,7 @@ import {
   toolSourceTypeValidator,
 } from "../src/database/validators";
 import { safeRunAfter } from "../src/lib/scheduler";
+import { getWorkspaceInventoryProgressForContext } from "../src/runtime/workspace_tools";
 
 export const bootstrapAnonymousSession = customMutation({
   method: "POST",
@@ -59,6 +60,11 @@ export const upsertAccessPolicy = workspaceMutation({
     matchType: v.optional(policyMatchTypeValidator),
     effect: v.optional(policyEffectValidator),
     approvalMode: v.optional(policyApprovalModeValidator),
+    argumentConditions: v.optional(v.array(v.object({
+      key: v.string(),
+      operator: v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals")),
+      value: v.string(),
+    }))),
     priority: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -71,6 +77,20 @@ export const upsertAccessPolicy = workspaceMutation({
 
     return await ctx.runMutation(internal.database.upsertAccessPolicy, {
       ...args,
+      workspaceId: ctx.workspaceId,
+    });
+  },
+});
+
+export const deleteAccessPolicy = workspaceMutation({
+  method: "POST",
+  requireAdmin: true,
+  args: {
+    policyId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.runMutation(internal.database.deleteAccessPolicy, {
+      policyId: args.policyId,
       workspaceId: ctx.workspaceId,
     });
   },
@@ -186,6 +206,14 @@ export const listToolSources = workspaceQuery({
   },
 });
 
+export const getToolInventoryProgress = workspaceQuery({
+  method: "GET",
+  args: {},
+  handler: async (ctx) => {
+    return await getWorkspaceInventoryProgressForContext(ctx, ctx.workspaceId);
+  },
+});
+
 export const deleteToolSource = workspaceMutation({
   method: "POST",
   requireAdmin: true,
@@ -222,13 +250,14 @@ export const regenerateToolInventory = workspaceMutation({
   requireAdmin: true,
   args: {},
   handler: async (ctx) => {
-    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
+    const scheduled = await safeRunAfter(ctx.scheduler, 0, internal.executorNode.rebuildToolInventoryInternal, {
       workspaceId: ctx.workspaceId,
       accountId: ctx.account._id,
     });
 
     return {
       queued: true as const,
+      scheduled,
       workspaceId: ctx.workspaceId,
     };
   },

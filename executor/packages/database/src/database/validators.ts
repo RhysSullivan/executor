@@ -21,6 +21,12 @@ export const policyScopeTypeValidator = v.union(v.literal("account"), v.literal(
 export const policyMatchTypeValidator = v.union(v.literal("glob"), v.literal("exact"));
 export const policyEffectValidator = v.union(v.literal("allow"), v.literal("deny"));
 export const policyApprovalModeValidator = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
+export const argumentConditionOperatorValidator = v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals"));
+export const argumentConditionValidator = v.object({
+  key: v.string(),
+  operator: argumentConditionOperatorValidator,
+  value: v.string(),
+});
 export const toolSourceScopeTypeValidator = v.union(v.literal("organization"), v.literal("workspace"));
 export const credentialScopeTypeValidator = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
 

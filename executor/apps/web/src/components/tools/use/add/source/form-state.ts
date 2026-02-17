@@ -3,6 +3,7 @@ import { useQuery as useTanstackQuery } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { fetchAndInspectOpenApiSpec, type InferredSpecAuth } from "@/lib/openapi/spec-inspector";
 import { detectSourceType } from "@/lib/tools/detect-source-type";
+import { normalizeSourceEndpoint } from "@/lib/tools/source-url";
 import type { CatalogCollectionItem } from "@/lib/catalog-collections";
 import { catalogSourceName, inferNameFromUrl, sourceKeyForSource, withUniqueSourceName } from "@/lib/tools/source-helpers";
 import type { CredentialRecord, CredentialScope, SourceAuthType, ToolSourceRecord } from "@/lib/types";
@@ -57,18 +58,6 @@ function applySharingScope(
 
   form.setValue("scopeType", "workspace", { shouldDirty: true, shouldTouch: true });
   form.setValue("authScope", "workspace", { shouldDirty: true, shouldTouch: true });
-}
-
-function normalizeEndpointForOAuth(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return "";
-  }
-  try {
-    return new URL(trimmed).toString();
-  } catch {
-    return trimmed;
-  }
 }
 
 function isAbortError(error: unknown): boolean {
@@ -202,6 +191,7 @@ export function useAddSourceFormState({
   const handleEndpointChange = (endpoint: string) => {
     form.setValue("endpoint", endpoint, { shouldDirty: true, shouldTouch: true });
     patchUi(setUi, { mcpOAuthLinkedEndpoint: null });
+    const normalizedEndpoint = normalizeSourceEndpoint(endpoint);
 
     // If type was auto-detected, allow re-detection on URL change
     if (!ui.typeExplicitlySet) {
@@ -210,7 +200,7 @@ export function useAddSourceFormState({
     }
 
     if (values.type === "openapi") {
-      const inferredBaseUrl = deriveBaseUrlFromEndpoint(endpoint);
+      const inferredBaseUrl = deriveBaseUrlFromEndpoint(normalizedEndpoint);
       patchUi(setUi, {
         openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
         authManuallyEdited: false,
@@ -222,7 +212,7 @@ export function useAddSourceFormState({
     }
 
     if (!nameManuallyEdited) {
-      const inferredName = inferNameFromUrl(endpoint);
+      const inferredName = inferNameFromUrl(normalizedEndpoint);
       if (inferredName) {
         form.setValue("name", inferredName, { shouldDirty: false, shouldTouch: false });
       }
@@ -259,7 +249,8 @@ export function useAddSourceFormState({
     patchUi(setUi, { typeExplicitlySet: true });
 
     if (type === "openapi") {
-      const inferredBaseUrl = deriveBaseUrlFromEndpoint(values.endpoint);
+      const normalizedEndpoint = normalizeSourceEndpoint(values.endpoint);
+      const inferredBaseUrl = deriveBaseUrlFromEndpoint(normalizedEndpoint);
       patchUi(setUi, {
         typeExplicitlySet: true,
         openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
@@ -377,7 +368,7 @@ export function useAddSourceFormState({
 
   // ── Source type auto-detection ──
 
-  const detectionEndpoint = useDeferredValue(values.endpoint.trim());
+  const detectionEndpoint = useDeferredValue(normalizeSourceEndpoint(values.endpoint));
 
   const typeDetectionEnabled = open
     && ui.view === "custom"
@@ -427,7 +418,7 @@ export function useAddSourceFormState({
     // Trigger the same side-effects as handleTypeChange but without marking as explicitly set.
     // Uses functional setUi to read current state without depending on it reactively.
     if (detected === "openapi") {
-      const inferredBaseUrl = deriveBaseUrlFromEndpoint(detectionEndpoint);
+        const inferredBaseUrl = deriveBaseUrlFromEndpoint(detectionEndpoint);
       setUi((current) => ({
         ...current,
         openApiBaseUrlOptions: inferredBaseUrl ? [inferredBaseUrl] : [],
@@ -452,7 +443,7 @@ export function useAddSourceFormState({
 
     // Also infer name from URL if not already set
     if (!nameManuallyEdited) {
-      const inferredName = inferNameFromUrl(detectionEndpoint);
+        const inferredName = inferNameFromUrl(detectionEndpoint);
       if (inferredName) {
         form.setValue("name", inferredName, { shouldDirty: false, shouldTouch: false });
       }
@@ -464,7 +455,7 @@ export function useAddSourceFormState({
   // not when the type is merely the default "mcp" during detection.
   const typeIsResolved = ui.typeExplicitlySet || typeDetectionStatus === "detected" || editing;
 
-  const inspectionEndpoint = useDeferredValue(values.endpoint.trim());
+  const inspectionEndpoint = useDeferredValue(normalizeSourceEndpoint(values.endpoint));
   const inspectionEnabled = open
     && ui.view === "custom"
     && typeIsResolved
@@ -503,7 +494,14 @@ export function useAddSourceFormState({
       : "Failed to fetch spec"
     : "";
 
-  const mcpDetectionEndpoint = useDeferredValue(values.endpoint.trim());
+  const retryOpenApiSpec = () => {
+    if (!inspectionEnabled) {
+      return;
+    }
+    void specInspectionQuery.refetch();
+  };
+
+  const mcpDetectionEndpoint = useDeferredValue(normalizeSourceEndpoint(values.endpoint));
   const mcpDetectionEnabled = open
     && ui.view === "custom"
     && typeIsResolved
@@ -573,8 +571,8 @@ export function useAddSourceFormState({
   const mcpOAuthAuthorizationServers = mcpOAuthQuery.data?.authorizationServers ?? [];
   const mcpOAuthConnected = values.type === "mcp"
     && values.authType === "bearer"
-    && normalizeEndpointForOAuth(values.endpoint) !== ""
-    && normalizeEndpointForOAuth(values.endpoint) === ui.mcpOAuthLinkedEndpoint
+    && normalizeSourceEndpoint(values.endpoint) !== ""
+    && normalizeSourceEndpoint(values.endpoint) === ui.mcpOAuthLinkedEndpoint
     && values.tokenValue.trim().length > 0;
 
   useEffect(() => {
@@ -638,14 +636,24 @@ export function useAddSourceFormState({
     if (values.type !== "mcp") {
       return;
     }
-    if (mcpOAuthStatus !== "oauth") {
+
+    if (mcpOAuthStatus === "oauth") {
+      // OAuth detected — force bearer auth.
+      if (values.authType !== "bearer") {
+        form.setValue("authType", "bearer", { shouldDirty: false, shouldTouch: false });
+      }
+      if (values.authScope !== "workspace") {
+        form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
+      }
       return;
     }
-    if (values.authType !== "bearer") {
-      form.setValue("authType", "bearer", { shouldDirty: false, shouldTouch: false });
-    }
-    if (values.authScope !== "workspace") {
-      form.setValue("authScope", "workspace", { shouldDirty: false, shouldTouch: false });
+
+    if (mcpOAuthStatus === "error" && !authManuallyEditedRef.current) {
+      // OAuth detection failed (e.g. 502 from server requiring auth but not OAuth).
+      // Default to bearer so the auth type dropdown reflects the likely requirement.
+      if (values.authType === "none") {
+        form.setValue("authType", "bearer", { shouldDirty: false, shouldTouch: false });
+      }
     }
   }, [form, mcpOAuthStatus, values.authScope, values.authType, values.type]);
 
@@ -682,6 +690,7 @@ export function useAddSourceFormState({
     visibleCatalogItems,
     specStatus,
     specError,
+    retryOpenApiSpec,
     mcpOAuthStatus,
     mcpOAuthDetail,
     mcpOAuthAuthorizationServers,
@@ -709,7 +718,7 @@ export function useAddSourceFormState({
     handleAuthFieldChange,
     markMcpOAuthLinked: (endpoint: string) =>
       patchUi(setUi, {
-        mcpOAuthLinkedEndpoint: normalizeEndpointForOAuth(endpoint),
+        mcpOAuthLinkedEndpoint: normalizeSourceEndpoint(endpoint),
       }),
     setBaseUrl: (baseUrl: string) => form.setValue("baseUrl", baseUrl, { shouldDirty: true, shouldTouch: true }),
     setMcpTransport: (mcpTransport: "auto" | "streamable-http" | "sse") =>

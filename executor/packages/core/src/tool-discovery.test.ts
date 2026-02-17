@@ -159,7 +159,6 @@ test("discover resolves ref hints from source-level tables", async () => {
       signatureInfo: {
         input: string;
         output: string;
-        refHintKeys?: string[];
       };
     }>;
   };
@@ -167,7 +166,6 @@ test("discover resolves ref hints from source-level tables", async () => {
   expect(result.bestPath).toBe("crm.contacts.create");
   expect(result.results[0]?.signatureInfo.input).toContain("components[\"schemas\"][\"CreateContactPayload\"]");
   expect(result.results[0]?.signatureInfo.output).toContain("components[\"schemas\"][\"Contact\"]");
-  expect(result.results[0]?.signatureInfo.refHintKeys).toEqual(["CreateContactPayload", "Contact"]);
   expect(result.refHintTable).toEqual({
     CreateContactPayload: "{ email: string; name?: string }",
     Contact: "{ id: string; email: string; name?: string }",
@@ -229,15 +227,12 @@ test("discover returns a shared top-level refHintTable for repeated refs", async
     refHintTable?: Record<string, string>;
     results: Array<{
       signatureInfo: {
-        refHintKeys?: string[];
         refHints?: Record<string, string>;
       };
     }>;
   };
 
   expect(result.refHintTable).toEqual({ SharedPayload: "{ email: string; name?: string }" });
-  expect(result.results[0]?.signatureInfo.refHintKeys).toContain("SharedPayload");
-  expect(result.results[1]?.signatureInfo.refHintKeys).toContain("SharedPayload");
   expect(result.results[0]?.signatureInfo.refHints).toBeUndefined();
   expect(result.results[1]?.signatureInfo.refHints).toBeUndefined();
 });
@@ -311,6 +306,63 @@ test("discover uses compact signatures by default and allows full mode", async (
 
   expect(fullResult.results[0]?.signature).toContain("Promise<");
   expect(fullResult.results[0]?.description).toContain("TRAILING_MARKER_TEXT");
+});
+
+test("discover compacts fallback intersection input hints", async () => {
+  const tool = createDiscoverTool([
+    {
+      path: "certs.projects.add_certificates",
+      description: "Add certificates to project",
+      approval: "required",
+      source: "openapi:certs",
+      typing: {
+        inputSchema: {
+          allOf: [
+            {
+              type: "object",
+              properties: {
+                project_id: { type: "string" },
+              },
+              required: ["project_id"],
+            },
+            {
+              type: "object",
+              properties: {
+                certificate_ids: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+              },
+              required: ["certificate_ids"],
+            },
+          ],
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            ok: { type: "boolean" },
+          },
+          required: ["ok"],
+        },
+      },
+      run: async () => ({ ok: true }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "add certificates", depth: 2, compact: false },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as {
+    bestPath: string | null;
+    results: Array<{
+      signatureInfo: {
+        input: string;
+      };
+    }>;
+  };
+
+  expect(result.bestPath).toBe("certs.projects.add_certificates");
+  expect(result.results[0]?.signatureInfo.input).toBe("{ project_id: string; certificate_ids: string[] }");
 });
 
 test("discover returns null bestPath when there are no matches", async () => {

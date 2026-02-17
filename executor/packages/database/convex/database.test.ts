@@ -89,7 +89,7 @@ test("approval lifecycle tracks pending and resolution", async () => {
 
   await t.mutation(internal.database.createTask, {
     id: "task_2",
-    code: "await tools.admin.delete_data({ id: 'x' })",
+    code: "await tools.catalog.tools({ query: 'delete' })",
     runtimeId: "local-bun",
     workspaceId: wsId,
     accountId,
@@ -99,8 +99,8 @@ test("approval lifecycle tracks pending and resolution", async () => {
   const createdApproval = await t.mutation(internal.database.createApproval, {
     id: "approval_1",
     taskId: "task_2",
-    toolPath: "admin.delete_data",
-    input: { id: "x" },
+    toolPath: "catalog.tools",
+    input: { query: "delete" },
   });
   expect(createdApproval.status).toBe("pending");
 

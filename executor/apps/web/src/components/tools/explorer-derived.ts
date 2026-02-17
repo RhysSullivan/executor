@@ -225,7 +225,8 @@ function buildSourceTreeWithLoading(
   }
 
   return [...groupsBySource.values()].sort((a, b) => {
-    if (a.childCount !== b.childCount) return b.childCount - a.childCount;
+    if (a.label === "system") return 1;
+    if (b.label === "system") return -1;
     return a.label.localeCompare(b.label);
   });
 }

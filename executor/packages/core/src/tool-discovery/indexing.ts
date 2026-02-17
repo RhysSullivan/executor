@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { ToolDefinition } from "../types";
-import { jsonSchemaTypeHintFallback } from "../openapi/schema-hints";
+import {
+  compactArgTypeHintFromSchema,
+  compactReturnTypeHintFromSchema,
+} from "../type-hints";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
 import { sanitizeJsonSchemaForConvex } from "../tool-typing/convex-sanitize";
 import type { DiscoverIndexEntry } from "./types";
@@ -54,12 +57,11 @@ function resolveSourceRefHintTable(
   return {};
 }
 
-function normalizeHint(type?: string): string {
-  return type && type.trim().length > 0 ? type : "unknown";
-}
-
 function isEmptyObjectSchema(schema: Record<string, unknown>): boolean {
   if (Object.keys(schema).length === 0) return true;
+  if (Array.isArray(schema.allOf) || Array.isArray(schema.oneOf) || Array.isArray(schema.anyOf)) {
+    return false;
+  }
   const props = coerceRecord(schema.properties);
   const required = Array.isArray(schema.required) ? schema.required : [];
   return Object.keys(props).length === 0 && required.length === 0;
@@ -179,12 +181,12 @@ export function buildIndex(
       const typedInputHint = typeof typing?.inputHint === "string" ? typing.inputHint.trim() : "";
       const typedOutputHint = typeof typing?.outputHint === "string" ? typing.outputHint.trim() : "";
 
-      const displayInputHint = normalizeHint(typedInputHint || (
-        isEmptyObjectSchema(inputSchema) ? "{}" : jsonSchemaTypeHintFallback(inputSchema)
-      ));
-      const displayOutputHint = normalizeHint(typedOutputHint || (
-        Object.keys(outputSchema).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(outputSchema)
-      ));
+      const displayInputHint = typedInputHint || (
+        isEmptyObjectSchema(inputSchema)
+          ? "{}"
+          : compactArgTypeHintFromSchema(inputSchema)
+      );
+      const displayOutputHint = typedOutputHint || compactReturnTypeHintFromSchema(outputSchema);
 
       return {
         path: tool.path,

@@ -2,12 +2,14 @@
 
 import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type {
   ToolCallResult,
   ToolDescriptor,
   OpenApiSourceQuality,
   SourceAuthProfile,
 } from "../../core/src/types";
+import { isAdminRole } from "../../core/src/identity";
 import { requireCanonicalAccount } from "../src/runtime/account_auth";
 import {
   listToolsForContext,
@@ -37,6 +39,7 @@ export const listToolsWithWarnings = customAction({
     limit: v.optional(v.number()),
     buildId: v.optional(v.string()),
     fetchAll: v.optional(v.boolean()),
+    rebuildInventory: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
@@ -56,6 +59,23 @@ export const listToolsWithWarnings = customAction({
       sessionId: args.sessionId,
       accountId: args.accountId,
     });
+
+    if (args.rebuildInventory) {
+      const workspaceAccess = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
+        workspaceId: args.workspaceId,
+        sessionId: args.sessionId,
+      });
+
+      if (!isAdminRole(workspaceAccess.role)) {
+        throw new Error("Only workspace admins can regenerate tool inventory");
+      }
+
+      await rebuildWorkspaceToolInventoryForContext(ctx, {
+        workspaceId: args.workspaceId,
+        accountId: access.accountId,
+        clientId: args.clientId,
+      });
+    }
 
     const inventory = await listToolsWithWarningsForContext(ctx, {
       workspaceId: args.workspaceId,

@@ -330,7 +330,8 @@ export default defineSchema({
 
   // Workspace + organization access policy rules used by the approval / tool firewall.
   // Rules can target specific accounts and clients, and can match tool paths either exactly
-  // or with a glob pattern.
+  // or with a glob pattern. Argument conditions allow policies to match based on tool input
+  // arguments (e.g. always approve reads to a specific repo).
   accessPolicies: defineTable({
     policyId: v.string(), // domain ID: policy_<uuid>
     scopeType: policyScopeType,
@@ -343,6 +344,13 @@ export default defineSchema({
     matchType: policyMatchType,
     effect: policyEffect,
     approvalMode: policyApprovalMode,
+    // Optional argument conditions: array of {key, operator, value} that must all match
+    // for the policy to apply. When absent, the policy applies regardless of arguments.
+    argumentConditions: v.optional(v.array(v.object({
+      key: v.string(),
+      operator: v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals")),
+      value: v.string(),
+    }))),
     priority: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),

@@ -97,7 +97,6 @@ function compileOpenApiArtifactFromPrepared(
 ): CompiledToolSourceArtifact {
   const tools = buildOpenApiToolsFromPrepared(source, prepared);
   const includeSchemaPayload = prepared.dtsStatus === "ready";
-  const includeRefHints = includeSchemaPayload;
   const serializedTools = serializeTools(tools).map((tool) =>
     compactSerializedToolForRegistry(tool, { includeSchemaPayload })
   );
@@ -107,7 +106,7 @@ function compileOpenApiArtifactFromPrepared(
     sourceType: source.type,
     sourceName: source.name,
     openApiSourceKey: source.sourceKey ?? `openapi:${source.name}`,
-    ...(includeRefHints && prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
+    ...(prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
       ? { openApiRefHintTable: prepared.refHintTable }
       : {}),
     tools: serializedTools,

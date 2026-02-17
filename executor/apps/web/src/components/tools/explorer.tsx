@@ -60,6 +60,10 @@ interface ToolExplorerProps {
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   existingSourceNames?: Set<string>;
   onSourceDeleted?: (sourceName: string) => void;
+  onRegenerate?: () => void;
+  isRebuilding?: boolean;
+  inventoryState?: "initializing" | "ready" | "rebuilding" | "stale" | "failed";
+  inventoryError?: string;
 }
 
 export function ToolExplorer({
@@ -86,6 +90,10 @@ export function ToolExplorer({
   sourceAuthProfiles,
   existingSourceNames,
   onSourceDeleted,
+  onRegenerate,
+  isRebuilding = false,
+  inventoryState,
+  inventoryError,
 }: ToolExplorerProps) {
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput);
@@ -181,7 +189,7 @@ export function ToolExplorer({
       }
     }
 
-    return Array.from(enabledByName.values()).sort((a, b) => a.name.localeCompare(b.name));
+    return Array.from(enabledByName.values());
   }, [sources]);
 
   const searchedTools = useMemo(() => {
@@ -456,6 +464,10 @@ export function ToolExplorer({
           sourceAuthProfiles={sourceAuthProfiles}
           existingSourceNames={sidebarExistingSourceNames}
           onSourceDeleted={onSourceDeleted}
+          onRegenerate={onRegenerate}
+          isRebuilding={isRebuilding}
+          inventoryState={inventoryState}
+          inventoryError={inventoryError}
         />
       ) : null}
 

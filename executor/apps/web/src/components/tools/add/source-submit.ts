@@ -131,11 +131,15 @@ export async function saveSourceWithCredentials({
       linkedCredential = true;
     } else if (form.existingScopedCredential) {
       if (!existingCredentialMatchesAuthType(form.existingScopedCredential, form.authType)) {
-        throw new Error("Enter credentials for the selected auth type");
+        // Existing credential doesn't match — save source without credentials.
+        linkedCredential = false;
+      } else {
+        linkedCredential = true;
       }
-      linkedCredential = true;
     } else {
-      throw new Error("Enter credentials to finish setup");
+      // No credentials entered and none saved — save source without credentials.
+      // The caller will show a warning toast.
+      linkedCredential = false;
     }
   }
 

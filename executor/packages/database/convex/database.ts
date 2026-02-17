@@ -26,6 +26,7 @@ export { bootstrapAnonymousSession } from "./database/anonymous_session";
 export {
   listRuntimeTargets,
   upsertAccessPolicy,
+  deleteAccessPolicy,
   listAccessPolicies,
 } from "./database/policies";
 export {
