@@ -14,6 +14,29 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function isGeneratedIdentityLabel(value: string, workosUserId: string): boolean {
+  const normalizedValue = value.trim();
+  const normalizedWorkosUserId = workosUserId.trim();
+  if (!normalizedValue) {
+    return false;
+  }
+
+  const fallbackSuffix = normalizedWorkosUserId.slice(-6);
+  if (fallbackSuffix && new RegExp(`^user\\s+${escapeRegex(fallbackSuffix)}$`, "i").test(normalizedValue)) {
+    return true;
+  }
+
+  if (/^user\s+[a-z0-9]{6,}$/i.test(normalizedValue)) {
+    return true;
+  }
+
+  if (/^(?:workos\|)?user_[a-z0-9]+$/i.test(normalizedValue)) {
+    return true;
+  }
+
+  return normalizedValue.toLowerCase() === normalizedWorkosUserId.toLowerCase();
+}
+
 export function isGeneratedPersonalOrganizationName(name: string, workosUserId: string): boolean {
   if (/workspace$/i.test(name)) {
     return true;
@@ -40,12 +63,12 @@ export function isGeneratedPersonalWorkspaceName(name: string, workosUserId: str
 
 function deriveOwnerLabel(args: { firstName?: string; fullName?: string; email?: string; workosUserId: string }): string {
   const firstName = args.firstName?.trim();
-  if (firstName && !/^my$/i.test(firstName)) {
+  if (firstName && !/^my$/i.test(firstName) && !/^user$/i.test(firstName)) {
     return firstName;
   }
 
   const fullName = args.fullName?.trim();
-  if (fullName && !fullName.includes("@")) {
+  if (fullName && !fullName.includes("@") && !isGeneratedIdentityLabel(fullName, args.workosUserId)) {
     return fullName;
   }
 
