@@ -3,6 +3,7 @@ import { z } from "zod";
 import { loadGraphqlTools } from "./tool-source-loaders/graphql-loader";
 import { loadMcpTools } from "./tool-source-loaders/mcp-loader";
 import { loadOpenApiTools } from "./tool-source-loaders/openapi-loader";
+import { prepareOpenApiSpec } from "./openapi-prepare";
 import { buildOpenApiToolsFromPrepared } from "./openapi/tool-builder";
 import { parseSerializedTool, rehydrateTools, serializeTools, type SerializedTool } from "./tool/source-serialization";
 import type {
@@ -29,6 +30,8 @@ export interface CompiledToolSourceArtifact {
   version: "v1";
   sourceType: ExternalToolSourceConfig["type"];
   sourceName: string;
+  openApiSourceKey?: string;
+  openApiRefHintTable?: Record<string, string>;
   tools: SerializedTool[];
 }
 
@@ -36,6 +39,8 @@ const compiledToolSourceArtifactSchema = z.object({
   version: z.literal("v1"),
   sourceType: z.enum(["mcp", "openapi", "graphql"]),
   sourceName: z.string(),
+  openApiSourceKey: z.string().optional(),
+  openApiRefHintTable: z.record(z.string()).optional(),
   tools: z.array(z.unknown()),
 });
 
@@ -58,6 +63,8 @@ export function parseCompiledToolSourceArtifact(value: unknown): Result<Compiled
     version: parsedArtifact.data.version,
     sourceType: parsedArtifact.data.sourceType,
     sourceName: parsedArtifact.data.sourceName,
+    openApiSourceKey: parsedArtifact.data.openApiSourceKey,
+    openApiRefHintTable: parsedArtifact.data.openApiRefHintTable,
     tools,
   });
 }
@@ -76,6 +83,24 @@ async function loadSourceToolDefinitions(source: ExternalToolSourceConfig): Prom
 }
 
 export async function compileExternalToolSource(source: ExternalToolSourceConfig): Promise<CompiledToolSourceArtifact> {
+  if (source.type === "openapi") {
+    const isPostmanSource = typeof source.spec === "string" && source.spec.trim().toLowerCase().startsWith("postman:");
+    if (!isPostmanSource) {
+      const prepared = await prepareOpenApiSpec(source.spec, source.name);
+      const tools = buildOpenApiToolsFromPrepared(source, prepared);
+      return {
+        version: "v1",
+        sourceType: source.type,
+        sourceName: source.name,
+        openApiSourceKey: source.sourceKey ?? `openapi:${source.name}`,
+        ...(prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
+          ? { openApiRefHintTable: prepared.refHintTable }
+          : {}),
+        tools: serializeTools(tools),
+      };
+    }
+  }
+
   const tools = await loadSourceToolDefinitions(source);
   return {
     version: "v1",
@@ -94,6 +119,10 @@ export function compileOpenApiToolSourceFromPrepared(
     version: "v1",
     sourceType: source.type,
     sourceName: source.name,
+    openApiSourceKey: source.sourceKey ?? `openapi:${source.name}`,
+    ...(prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
+      ? { openApiRefHintTable: prepared.refHintTable }
+      : {}),
     tools: serializeTools(tools),
   };
 }

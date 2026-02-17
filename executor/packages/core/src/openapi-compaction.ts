@@ -1,6 +1,8 @@
 import {
+  buildComponentRefHintTable,
   buildOpenApiArgPreviewKeys,
   buildOpenApiInputSchema,
+  collectComponentRefKeys,
   getPreferredContentSchema,
   getPreferredResponseSchema,
   jsonSchemaTypeHintFallback,
@@ -31,7 +33,7 @@ export function compactOpenApiPaths(
   componentResponses?: Record<string, unknown>,
   componentRequestBodies?: Record<string, unknown>,
   options: CompactOpenApiPathsOptions = {},
-): Record<string, unknown> {
+): { paths: Record<string, unknown>; refHintTable: Record<string, string> } {
   const paths = toRecordOrEmpty(pathsValue);
   const methods = ["get", "post", "put", "delete", "patch", "head", "options"] as const;
   const compactPaths: Record<string, unknown> = {};
@@ -42,6 +44,7 @@ export function compactOpenApiPaths(
   const includeSchemas = options.includeSchemas ?? true;
   const includeTypeHints = options.includeTypeHints ?? true;
   const includeParameterSchemas = options.includeParameterSchemas ?? true;
+  const referencedComponentRefKeys = new Set<string>();
 
   const resolveParam = (entry: Record<string, unknown>): Record<string, unknown> => {
     if (typeof entry.$ref === "string") {
@@ -140,6 +143,17 @@ export function compactOpenApiPaths(
         }
       }
 
+      const componentRefKeys = collectComponentRefKeys(
+        [compactOperation._inputSchema, compactOperation._outputSchema],
+        compSchemas,
+      );
+      if (componentRefKeys.length > 0) {
+        compactOperation._refHintKeys = componentRefKeys;
+        for (const key of componentRefKeys) {
+          referencedComponentRefKeys.add(key);
+        }
+      }
+
       const previewKeys = buildOpenApiArgPreviewKeys(mergedParameters, requestBodySchema, compSchemas);
       if (previewKeys.length > 0) {
         compactOperation._previewInputKeys = [...new Set(previewKeys)];
@@ -164,5 +178,8 @@ export function compactOpenApiPaths(
     }
   }
 
-  return compactPaths;
+  return {
+    paths: compactPaths,
+    refHintTable: buildComponentRefHintTable(referencedComponentRefKeys, compSchemas),
+  };
 }

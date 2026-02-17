@@ -1069,3 +1069,75 @@ export function buildOpenApiArgPreviewKeys(
 
   return keys;
 }
+
+function collectComponentRefKeysDeep(
+  schema: unknown,
+  componentSchemas: Record<string, unknown>,
+  seenRefs: Set<string>,
+  seenObjects: WeakSet<object>,
+  refKeys: Set<string>,
+): void {
+  if (!schema || typeof schema !== "object") return;
+
+  if (Array.isArray(schema)) {
+    for (const entry of schema) {
+      collectComponentRefKeysDeep(entry, componentSchemas, seenRefs, seenObjects, refKeys);
+    }
+    return;
+  }
+
+  const obj = schema as object;
+  if (seenObjects.has(obj)) return;
+  seenObjects.add(obj);
+
+  const record = toRecordOrEmpty(schema);
+  const ref = typeof record.$ref === "string" ? record.$ref : "";
+  const prefix = "#/components/schemas/";
+  if (ref.startsWith(prefix)) {
+    if (seenRefs.has(ref)) return;
+    seenRefs.add(ref);
+
+    const key = ref.slice(prefix.length);
+    if (key) refKeys.add(key);
+
+    const resolved = toRecordOrEmpty(componentSchemas[key]);
+    if (Object.keys(resolved).length > 0) {
+      collectComponentRefKeysDeep(resolved, componentSchemas, seenRefs, seenObjects, refKeys);
+    }
+    return;
+  }
+
+  for (const value of Object.values(record)) {
+    collectComponentRefKeysDeep(value, componentSchemas, seenRefs, seenObjects, refKeys);
+  }
+}
+
+export function collectComponentRefKeys(
+  schemas: unknown[],
+  componentSchemas: Record<string, unknown>,
+): string[] {
+  const refKeys = new Set<string>();
+  const seenRefs = new Set<string>();
+  const seenObjects = new WeakSet<object>();
+
+  for (const schema of schemas) {
+    collectComponentRefKeysDeep(schema, componentSchemas, seenRefs, seenObjects, refKeys);
+  }
+
+  return [...refKeys].sort((left, right) => left.localeCompare(right));
+}
+
+export function buildComponentRefHintTable(
+  refKeys: Iterable<string>,
+  componentSchemas: Record<string, unknown>,
+): Record<string, string> {
+  const hints: Record<string, string> = {};
+  const sorted = [...refKeys].sort((left, right) => left.localeCompare(right));
+  for (const key of sorted) {
+    const resolved = toRecordOrEmpty(componentSchemas[key]);
+    if (Object.keys(resolved).length === 0) continue;
+    hints[key] = jsonSchemaTypeHintFallback(resolved, 0, componentSchemas);
+  }
+
+  return hints;
+}

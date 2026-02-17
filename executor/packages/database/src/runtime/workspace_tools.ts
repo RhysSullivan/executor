@@ -9,7 +9,7 @@ import {
   materializeCompiledToolSource,
   type CompiledToolSourceArtifact,
 } from "./tool_source_artifact";
-import type { SerializedTool } from "../../../core/src/tool/source-serialization";
+import { parseSerializedTool, type SerializedTool } from "../../../core/src/tool/source-serialization";
 import type { ExternalToolSourceConfig } from "../../../core/src/tool/source-types";
 import type {
   AccessPolicyRecord,
@@ -127,11 +127,93 @@ interface RegistryToolEntry {
   displayOutput?: string;
   requiredInputKeys?: string[];
   previewInputKeys?: string[];
+  serializedToolJson?: string;
   typedRef?: {
     kind: "openapi_operation";
     sourceKey: string;
     operationId: string;
   };
+}
+
+function toOpenApiRefHintLookup(
+  items: Array<{
+    sourceKey: string;
+    refs: Array<{ key: string; hint: string }>;
+  }>,
+): Record<string, Record<string, string>> {
+  const result: Record<string, Record<string, string>> = {};
+
+  for (const item of items) {
+    const sourceKey = item.sourceKey.trim();
+    if (!sourceKey) continue;
+
+    const refs: Record<string, string> = {};
+    for (const ref of item.refs) {
+      const key = ref.key.trim();
+      const hint = ref.hint.trim();
+      if (!key || !hint) continue;
+      refs[key] = hint;
+    }
+
+    if (Object.keys(refs).length > 0) {
+      result[sourceKey] = refs;
+    }
+  }
+
+  return result;
+}
+
+function resolveDescriptorRefHints(
+  entry: RegistryToolEntry,
+  openApiRefHintLookup: Record<string, Record<string, string>>,
+): { refHintKeys: string[]; refHints: Record<string, string> } {
+  if (!entry.serializedToolJson || Object.keys(openApiRefHintLookup).length === 0) {
+    return { refHintKeys: [], refHints: {} };
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(entry.serializedToolJson);
+  } catch {
+    return { refHintKeys: [], refHints: {} };
+  }
+
+  const parsedSerializedTool = parseSerializedTool(parsedJson);
+  if (parsedSerializedTool.isErr()) {
+    return { refHintKeys: [], refHints: {} };
+  }
+
+  const serializedTool = parsedSerializedTool.value;
+  const refHintKeys = Array.isArray(serializedTool.typing?.refHintKeys)
+    ? [...new Set(serializedTool.typing.refHintKeys
+      .map((key) => key.trim())
+      .filter((key) => key.length > 0))]
+    : [];
+  if (refHintKeys.length === 0) {
+    return { refHintKeys: [], refHints: {} };
+  }
+
+  const sourceKey = serializedTool.typing?.typedRef?.kind === "openapi_operation"
+    ? serializedTool.typing.typedRef.sourceKey
+    : entry.typedRef?.sourceKey;
+  if (!sourceKey) {
+    return { refHintKeys, refHints: {} };
+  }
+
+  const table = openApiRefHintLookup[sourceKey];
+  if (!table) {
+    return { refHintKeys, refHints: {} };
+  }
+
+  const refHints: Record<string, string> = {};
+  for (const key of refHintKeys) {
+    const hint = table[key];
+    if (typeof hint === "string" && hint.length > 0) {
+      refHints[key] = hint;
+    }
+  }
+
+  return { refHintKeys, refHints };
 }
 
 function toSourceName(source?: string): string | null {
@@ -144,9 +226,13 @@ function toSourceName(source?: string): string | null {
 
 function toDescriptorFromRegistryEntry(
   entry: RegistryToolEntry,
-  options: { includeDetails?: boolean } = {},
+  options: { includeDetails?: boolean; openApiRefHintLookup?: Record<string, Record<string, string>> } = {},
 ): ToolDescriptor {
   const includeDetails = options.includeDetails ?? true;
+  const openApiRefHintLookup = options.openApiRefHintLookup ?? {};
+  const refHintResolution = includeDetails
+    ? resolveDescriptorRefHints(entry, openApiRefHintLookup)
+    : { refHintKeys: [], refHints: {} };
 
   return {
     path: entry.path,
@@ -158,6 +244,8 @@ function toDescriptorFromRegistryEntry(
           typing: {
             requiredInputKeys: entry.requiredInputKeys,
             previewInputKeys: entry.previewInputKeys,
+            ...(refHintResolution.refHintKeys.length > 0 ? { refHintKeys: refHintResolution.refHintKeys } : {}),
+            ...(Object.keys(refHintResolution.refHints).length > 0 ? { refHints: refHintResolution.refHints } : {}),
             typedRef: entry.typedRef,
           },
           display: {
@@ -173,7 +261,11 @@ function listVisibleRegistryToolDescriptors(
   entries: RegistryToolEntry[],
   context: { workspaceId: string; accountId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
-  options: { includeDetails?: boolean; toolPaths?: string[] } = {},
+  options: {
+    includeDetails?: boolean;
+    toolPaths?: string[];
+    openApiRefHintLookup?: Record<string, Record<string, string>>;
+  } = {},
 ): ToolDescriptor[] {
   const requestedPaths = options.toolPaths ?? [];
   const includeDetails = options.includeDetails ?? true;
@@ -196,7 +288,10 @@ function listVisibleRegistryToolDescriptors(
           ...entry,
           approval: decision === "require_approval" ? "required" : "auto",
         },
-        { includeDetails },
+        {
+          includeDetails,
+          openApiRefHintLookup: options.openApiRefHintLookup,
+        },
       );
     });
 }
@@ -686,7 +781,16 @@ export async function getWorkspaceTools(
         header: profile.header,
         inferred: profile.inferred,
       })),
-    });
+      openApiRefHintTables: externalArtifacts
+        .filter((artifact) => typeof artifact.openApiSourceKey === "string" && typeof artifact.openApiRefHintTable === "object")
+        .map((artifact) => ({
+          sourceKey: artifact.openApiSourceKey!,
+          refs: Object.entries(artifact.openApiRefHintTable ?? {})
+            .filter((entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string")
+            .map(([key, hint]) => ({ key, hint })),
+        }))
+        .filter((entry) => entry.refs.length > 0),
+    } as never);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.warn(`[executor] workspace tool registry metadata write failed for '${workspaceId}': ${msg}`);
@@ -710,6 +814,7 @@ interface WorkspaceRegistryReadResult {
   totalTools: number;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
+  openApiRefHintLookup: Record<string, Record<string, string>>;
 }
 
 function toSourceToolCountRecord(items: Array<{ sourceName: string; toolCount: number }>): Record<string, number> {
@@ -805,6 +910,10 @@ async function getWorkspaceToolsFromRegistry(
       header?: string;
       inferred: boolean;
     }>;
+    openApiRefHintTables?: Array<{
+      sourceKey: string;
+      refs: Array<{ key: string; hint: string }>;
+    }>;
     updatedAt?: number;
   } | null = await ctx.runQuery(internal.toolRegistry.getState, {
     workspaceId,
@@ -817,6 +926,7 @@ async function getWorkspaceToolsFromRegistry(
   const sourceCounts = toSourceToolCountRecord(registryState?.sourceToolCounts ?? []);
   const sourceQuality = toSourceQualityRecord(registryState?.sourceQuality ?? []);
   const sourceAuthProfiles = toSourceAuthProfileRecord(registryState?.sourceAuthProfiles ?? []);
+  const openApiRefHintLookup = toOpenApiRefHintLookup(registryState?.openApiRefHintTables ?? []);
   const changedSources = changedSourceNames(sources, registryState?.sourceVersions ?? []);
 
   let state: ToolInventoryState;
@@ -894,6 +1004,7 @@ async function getWorkspaceToolsFromRegistry(
       totalTools,
       sourceQuality,
       sourceAuthProfiles,
+      openApiRefHintLookup,
     };
   }
 
@@ -920,6 +1031,7 @@ async function getWorkspaceToolsFromRegistry(
         displayOutput: entry.displayOutput,
         requiredInputKeys: entry.requiredInputKeys,
         previewInputKeys: entry.previewInputKeys,
+        serializedToolJson: entry.serializedToolJson,
         typedRef: entry.typedRef,
       } as RegistryToolEntry;
     }));
@@ -987,6 +1099,7 @@ async function getWorkspaceToolsFromRegistry(
     totalTools,
     sourceQuality,
     sourceAuthProfiles,
+    openApiRefHintLookup,
   };
 }
 
@@ -1034,6 +1147,7 @@ async function loadWorkspaceToolInventoryForContext(
   const registryDescriptors = listVisibleRegistryToolDescriptors(result.registryTools, context, policies, {
     includeDetails,
     toolPaths: options.toolPaths,
+    openApiRefHintLookup: result.openApiRefHintLookup,
   });
   const toolsByPath = new Map<string, ToolDescriptor>();
   for (const tool of baseDescriptors) toolsByPath.set(tool.path, tool);

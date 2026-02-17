@@ -29,7 +29,7 @@ import {
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v2";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v3";
 
 const openApiAuthModeSchema = z.enum(["static", "account", "workspace", "organization"]);
 
@@ -57,6 +57,7 @@ const openApiAuthSchema = z.union([
 const preparedOpenApiSpecSchema = z.object({
   servers: z.array(z.string()),
   paths: z.record(z.unknown()),
+  refHintTable: z.record(z.string()).optional(),
   warnings: z.array(z.string()).optional(),
   dts: z.string().optional(),
   dtsStatus: z.enum(["ready", "failed", "skipped"]).optional(),
@@ -81,6 +82,7 @@ function toPreparedOpenApiSpec(value: unknown): PreparedOpenApiSpec | null {
   return {
     servers: valueRecord.servers,
     paths: valueRecord.paths,
+    refHintTable: valueRecord.refHintTable,
     warnings: valueRecord.warnings ?? [],
     dts: valueRecord.dts,
     dtsStatus: valueRecord.dtsStatus,
@@ -97,6 +99,10 @@ function compileOpenApiArtifactFromPrepared(
     version: "v1",
     sourceType: source.type,
     sourceName: source.name,
+    openApiSourceKey: source.sourceKey ?? `openapi:${source.name}`,
+    ...(prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
+      ? { openApiRefHintTable: prepared.refHintTable }
+      : {}),
     tools: serializeTools(tools),
   };
 }
