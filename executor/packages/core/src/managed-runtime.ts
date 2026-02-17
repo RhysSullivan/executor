@@ -1,10 +1,123 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { generateKeyPairSync } from "node:crypto";
 
 import { ensureProjectBootstrapped, waitForBackendReady } from "./managed/runtime-bootstrap";
 import { backendArgs, ensureConfig, runtimeInfo } from "./managed/runtime-info";
 import { ensureBackendBinary, ensureNodeRuntime, ensureWebBundle } from "./managed/runtime-installation";
 import { runProcess } from "./managed/runtime-process";
+
+const managedAnonymousAuthEnvFileName = "managed-anonymous-auth.json";
+
+type ManagedAnonymousAuthEnv = {
+  ANONYMOUS_AUTH_PRIVATE_KEY_PEM: string;
+  ANONYMOUS_AUTH_PUBLIC_KEY_PEM: string;
+  MCP_API_KEY_SECRET: string;
+};
+
+function trimEnv(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value && value.length > 0 ? value : null;
+}
+
+function normalizePemForEnv(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\n/g, "\\n").trim();
+}
+
+function resolveAnonymousAuthFromProcessEnv(): ManagedAnonymousAuthEnv | null {
+  const privateKeyPem = trimEnv("ANONYMOUS_AUTH_PRIVATE_KEY_PEM");
+  const publicKeyPem = trimEnv("ANONYMOUS_AUTH_PUBLIC_KEY_PEM");
+  if (!privateKeyPem || !publicKeyPem) {
+    return null;
+  }
+
+  const apiKeySecret = trimEnv("MCP_API_KEY_SECRET") ?? privateKeyPem;
+  return {
+    ANONYMOUS_AUTH_PRIVATE_KEY_PEM: normalizePemForEnv(privateKeyPem),
+    ANONYMOUS_AUTH_PUBLIC_KEY_PEM: normalizePemForEnv(publicKeyPem),
+    MCP_API_KEY_SECRET: normalizePemForEnv(apiKeySecret),
+  };
+}
+
+async function readManagedAnonymousAuthEnv(info: ManagedRuntimeInfo): Promise<ManagedAnonymousAuthEnv | null> {
+  const filePath = path.join(info.rootDir, managedAnonymousAuthEnvFileName);
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as Partial<ManagedAnonymousAuthEnv>;
+    if (
+      typeof parsed.ANONYMOUS_AUTH_PRIVATE_KEY_PEM !== "string"
+      || typeof parsed.ANONYMOUS_AUTH_PUBLIC_KEY_PEM !== "string"
+      || typeof parsed.MCP_API_KEY_SECRET !== "string"
+    ) {
+      return null;
+    }
+
+    if (
+      parsed.ANONYMOUS_AUTH_PRIVATE_KEY_PEM.trim().length === 0
+      || parsed.ANONYMOUS_AUTH_PUBLIC_KEY_PEM.trim().length === 0
+      || parsed.MCP_API_KEY_SECRET.trim().length === 0
+    ) {
+      return null;
+    }
+
+    return {
+      ANONYMOUS_AUTH_PRIVATE_KEY_PEM: parsed.ANONYMOUS_AUTH_PRIVATE_KEY_PEM.trim(),
+      ANONYMOUS_AUTH_PUBLIC_KEY_PEM: parsed.ANONYMOUS_AUTH_PUBLIC_KEY_PEM.trim(),
+      MCP_API_KEY_SECRET: parsed.MCP_API_KEY_SECRET.trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function generateManagedAnonymousAuthEnv(): ManagedAnonymousAuthEnv {
+  const keyPair = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+    privateKeyEncoding: {
+      type: "pkcs8",
+      format: "pem",
+    },
+    publicKeyEncoding: {
+      type: "spki",
+      format: "pem",
+    },
+  });
+
+  const privateKeyPem = normalizePemForEnv(keyPair.privateKey);
+  return {
+    ANONYMOUS_AUTH_PRIVATE_KEY_PEM: privateKeyPem,
+    ANONYMOUS_AUTH_PUBLIC_KEY_PEM: normalizePemForEnv(keyPair.publicKey),
+    MCP_API_KEY_SECRET: normalizePemForEnv(trimEnv("MCP_API_KEY_SECRET") ?? privateKeyPem),
+  };
+}
+
+async function writeManagedAnonymousAuthEnv(info: ManagedRuntimeInfo, env: ManagedAnonymousAuthEnv): Promise<void> {
+  const filePath = path.join(info.rootDir, managedAnonymousAuthEnvFileName);
+  await fs.mkdir(info.rootDir, { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(env, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+}
+
+async function resolveManagedAnonymousAuthEnv(info: ManagedRuntimeInfo): Promise<ManagedAnonymousAuthEnv> {
+  const fromProcess = resolveAnonymousAuthFromProcessEnv();
+  if (fromProcess) {
+    return fromProcess;
+  }
+
+  const fromDisk = await readManagedAnonymousAuthEnv(info);
+  if (fromDisk) {
+    if (trimEnv("MCP_API_KEY_SECRET")) {
+      return {
+        ...fromDisk,
+        MCP_API_KEY_SECRET: normalizePemForEnv(trimEnv("MCP_API_KEY_SECRET") ?? fromDisk.MCP_API_KEY_SECRET),
+      };
+    }
+    return fromDisk;
+  }
+
+  const generated = generateManagedAnonymousAuthEnv();
+  await writeManagedAnonymousAuthEnv(info, generated);
+  return generated;
+}
 
 export interface ManagedRuntimeConfig {
   instanceName: string;
@@ -49,6 +162,7 @@ export async function ensureManagedRuntime(options: { quiet?: boolean } = {}): P
 
 export async function runManagedBackend(args: string[]): Promise<number> {
   const info = await ensureManagedRuntime();
+  const anonymousAuthEnv = await resolveManagedAnonymousAuthEnv(info);
 
   if (args.length === 0) {
     try {
@@ -68,6 +182,7 @@ export async function runManagedBackend(args: string[]): Promise<number> {
 
   const env = {
     ...process.env,
+    ...anonymousAuthEnv,
     PATH: `${path.dirname(info.nodeBin)}:${process.env.PATH ?? ""}`,
   };
 
@@ -93,6 +208,7 @@ export async function runManagedBackend(args: string[]): Promise<number> {
 
 export async function runManagedWeb(options: { port?: number } = {}): Promise<number> {
   const info = await ensureManagedRuntime();
+  const anonymousAuthEnv = await resolveManagedAnonymousAuthEnv(info);
   try {
     await waitForBackendReady(info, 1_000);
   } catch {
@@ -106,6 +222,7 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
 
   const env = {
     ...process.env,
+    ...anonymousAuthEnv,
     NODE_ENV: "production",
     PORT: String(webPort),
     HOSTNAME: host,
