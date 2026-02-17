@@ -3,7 +3,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { checkBootstrapHealth } from "./packages/core/src/managed/runtime-bootstrap";
+import { ConvexHttpClient } from "convex/browser";
 import { managedRuntimeDiagnostics, runManagedBackend, runManagedWeb } from "./packages/core/src/managed-runtime";
 
 interface InstallPaths {
@@ -45,7 +45,7 @@ Usage:
 Commands:
   doctor        Show install health and quick status
   upgrade       Re-run installer to update executor
-  up            Run managed backend and auto-bootstrap Convex functions
+  up            Run managed backend
   down          Stop background backend/web services started by installer
   backend       Pass through arguments to managed convex-local-backend binary
   web           Run packaged web UI (expects backend already running)
@@ -350,6 +350,25 @@ Stops background backend/web services started by the install script.`);
   return 0;
 }
 
+type FunctionsHealth = {
+  state: "ready" | "missing_functions";
+  detail?: string;
+};
+
+async function checkFunctionsHealth(convexUrl: string): Promise<FunctionsHealth> {
+  try {
+    const client = new ConvexHttpClient(convexUrl);
+    await client.query("app:getClientConfig" as never, {});
+    return { state: "ready" };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      state: "missing_functions",
+      detail,
+    };
+  }
+}
+
 async function runDoctor(args: string[]): Promise<number> {
   const verbose = args.includes("-v") || args.includes("--verbose");
   const runtimeOnly = args.includes("--runtime-only");
@@ -366,12 +385,12 @@ async function runDoctor(args: string[]): Promise<number> {
   const backendRunning = await checkHttp(`${info.convexUrl}/version`);
   const webRunning = await checkHttp(`http://127.0.0.1:${webPort}/`);
 
-  let bootstrapState: Awaited<ReturnType<typeof checkBootstrapHealth>> | null = null;
+  let functionsHealth: FunctionsHealth | null = null;
   if (backendRunning && !runtimeOnly) {
-    bootstrapState = await checkBootstrapHealth(info);
+    functionsHealth = await checkFunctionsHealth(info.convexUrl);
   }
 
-  const functionsReady = runtimeOnly ? true : bootstrapState?.state === "ready";
+  const functionsReady = runtimeOnly ? true : functionsHealth?.state === "ready";
   const healthy = nodeInstalled && webInstalled && backendRunning && webRunning && functionsReady;
 
   console.log(`Executor status: ${healthy ? "ready" : "needs attention"}`);
@@ -381,12 +400,10 @@ async function runDoctor(args: string[]): Promise<number> {
     console.log("Functions: skipped (runtime-only check)");
   } else if (!backendRunning) {
     console.log("Functions: unavailable (backend is not running)");
-  } else if (bootstrapState?.state === "ready") {
-    console.log("Functions: bootstrapped");
-  } else if (bootstrapState?.state === "no_project") {
-    console.log("Functions: not bootstrapped (no local Convex project found)");
-  } else if (bootstrapState?.state === "missing_functions") {
-    console.log("Functions: not bootstrapped (missing deployed functions)");
+  } else if (functionsHealth?.state === "ready") {
+    console.log("Functions: available");
+  } else if (functionsHealth?.state === "missing_functions") {
+    console.log("Functions: unavailable (missing deployed functions)");
   } else {
     console.log("Functions: check failed");
   }
@@ -398,13 +415,7 @@ async function runDoctor(args: string[]): Promise<number> {
   if (!webRunning) {
     console.log("Next step: run `executor web`");
   }
-  if (!runtimeOnly && backendRunning && bootstrapState?.state === "no_project") {
-    console.log("Next step: run from your repo root or set `EXECUTOR_PROJECT_DIR` to a Convex project.");
-  }
-  if (!runtimeOnly && backendRunning && bootstrapState?.state === "missing_functions") {
-    console.log("Next step: run `executor up` from your project root to bootstrap functions.");
-  }
-  if (!runtimeOnly && backendRunning && bootstrapState?.state === "check_failed") {
+  if (!runtimeOnly && backendRunning && functionsHealth?.state === "missing_functions") {
     console.log("Next step: run `executor up` and inspect ~/.executor/runtime/logs/backend.log");
   }
   if (!webInstalled || !nodeInstalled) {
@@ -420,9 +431,9 @@ async function runDoctor(args: string[]): Promise<number> {
     console.log(`  convex site: ${info.convexSiteUrl}`);
     console.log(`  node runtime: ${nodeInstalled ? info.nodeBin : "missing"}`);
     console.log(`  web bundle: ${webInstalled ? info.webServerEntry : "missing"}`);
-    console.log(`  functions: ${runtimeOnly ? "skipped" : (bootstrapState?.state ?? "unavailable")}`);
-    if (bootstrapState?.detail) {
-      console.log(`  functions detail: ${bootstrapState.detail}`);
+    console.log(`  functions: ${runtimeOnly ? "skipped" : (functionsHealth?.state ?? "unavailable")}`);
+    if (functionsHealth?.detail) {
+      console.log(`  functions detail: ${functionsHealth.detail}`);
     }
     console.log(`  running: backend=${backendRunning ? "yes" : "no"} web=${webRunning ? "yes" : "no"}`);
     console.log(`  config: ${info.configPath}`);

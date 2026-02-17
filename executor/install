@@ -6,7 +6,6 @@ REPO="${EXECUTOR_REPO:-RhysSullivan/executor}"
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
 WEB_INSTALL_DIR="${EXECUTOR_WEB_INSTALL_DIR:-$HOME/.executor/runtime/web}"
 RUNTIME_DIR="${EXECUTOR_RUNTIME_DIR:-$HOME/.executor/runtime}"
-BOOTSTRAP_ARCHIVE_FILENAME="executor-bootstrap-project.tar.gz"
 REQUESTED_VERSION="${VERSION:-}"
 RESOLVED_VERSION=""
 BINARY_PATH=""
@@ -15,8 +14,7 @@ STAR_PROMPT="1"
 SCRIPT_FILE="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${SCRIPT_FILE}")" >/dev/null 2>&1 && pwd)"
 LOCAL_BINARY_CANDIDATE="$SCRIPT_DIR/dist/executor"
-LOCAL_WEB_CANDIDATE="$SCRIPT_DIR/dist/release"
-LOCAL_BOOTSTRAP_CANDIDATE="$LOCAL_WEB_CANDIDATE/$BOOTSTRAP_ARCHIVE_FILENAME"
+LOCAL_RELEASE_CANDIDATE="$SCRIPT_DIR/dist/release"
 CHECKSUMS_FILE=""
 CHECKSUMS_FETCHED="0"
 
@@ -42,7 +40,6 @@ Environment:
   EXECUTOR_REPO            GitHub repository to install from (default: RhysSullivan/executor)
   EXECUTOR_INSTALL_DIR     Install directory (default: ~/.executor/bin)
   EXECUTOR_WEB_INSTALL_DIR Web bundle directory (default: ~/.executor/runtime/web)
-  EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE Optional local bootstrap archive override
 EOF
 }
 
@@ -110,7 +107,8 @@ esac
 archive_ext="tar.gz"
 
 filename="${APP}-${os}-${arch}.${archive_ext}"
-web_filename="executor-web-${os}-${arch}.tar.gz"
+runtime_filename="executor-runtime-${os}-${arch}.tar.gz"
+LOCAL_RUNTIME_CANDIDATE="$LOCAL_RELEASE_CANDIDATE/$runtime_filename"
 BACKEND_PORT="${EXECUTOR_BACKEND_PORT:-5410}"
 WEB_PORT="${EXECUTOR_WEB_PORT:-5312}"
 SERVICE_DIR="$RUNTIME_DIR/services"
@@ -221,56 +219,119 @@ install_local_binary() {
   mv -f "$tmp_target" "$INSTALL_DIR/$APP"
 }
 
-install_web_bundle_from_archive() {
+install_runtime_bundle_from_archive() {
   local archive_path="$1"
-  local tmp_web_dir
-  tmp_web_dir="$(mktemp -d)"
-  if ! tar -xzf "$archive_path" -C "$tmp_web_dir"; then
-    rm -rf "$tmp_web_dir"
-    echo -e "${RED}Failed extracting web archive${NC}"
-    exit 1
-  fi
-  if [[ ! -f "$tmp_web_dir/server.js" ]]; then
-    rm -rf "$tmp_web_dir"
-    echo -e "${RED}Web archive missing expected server.js entry${NC}"
+  local tmp_runtime_dir
+  tmp_runtime_dir="$(mktemp -d)"
+
+  if ! tar -xzf "$archive_path" -C "$tmp_runtime_dir"; then
+    rm -rf "$tmp_runtime_dir"
+    echo -e "${RED}Failed extracting runtime archive${NC}"
     exit 1
   fi
 
-  rm -rf "$WEB_INSTALL_DIR"
-  mkdir -p "$WEB_INSTALL_DIR"
-  cp -R "$tmp_web_dir"/. "$WEB_INSTALL_DIR"
-  rm -rf "$tmp_web_dir"
+  if [[ ! -f "$tmp_runtime_dir/convex-backend/convex-local-backend" ]]; then
+    rm -rf "$tmp_runtime_dir"
+    echo -e "${RED}Runtime archive missing managed backend binary${NC}"
+    exit 1
+  fi
+
+  if [[ ! -f "$tmp_runtime_dir/web/server.js" ]]; then
+    rm -rf "$tmp_runtime_dir"
+    echo -e "${RED}Runtime archive missing web server entry${NC}"
+    exit 1
+  fi
+
+  mkdir -p "$RUNTIME_DIR"
+
+  rm -rf "$RUNTIME_DIR/convex-backend"
+  cp -R "$tmp_runtime_dir/convex-backend" "$RUNTIME_DIR/convex-backend"
+
+  rm -rf "$RUNTIME_DIR/web"
+  cp -R "$tmp_runtime_dir/web" "$RUNTIME_DIR/web"
+
+  if [[ -d "$tmp_runtime_dir/npm" ]]; then
+    rm -rf "$RUNTIME_DIR/npm"
+    cp -R "$tmp_runtime_dir/npm" "$RUNTIME_DIR/npm"
+  fi
+
+  shopt -s nullglob
+  local extracted_node_dirs=("$tmp_runtime_dir"/node-v*)
+  shopt -u nullglob
+  if [[ ${#extracted_node_dirs[@]} -eq 0 ]]; then
+    rm -rf "$tmp_runtime_dir"
+    echo -e "${RED}Runtime archive missing managed node runtime${NC}"
+    exit 1
+  fi
+
+  rm -rf "$RUNTIME_DIR"/node-v*
+  local node_dir
+  for node_dir in "${extracted_node_dirs[@]}"; do
+    cp -R "$node_dir" "$RUNTIME_DIR/"
+  done
+
+  local keep_existing_data="0"
+  if [[ -d "$RUNTIME_DIR/convex-data" ]]; then
+    shopt -s nullglob dotglob
+    local existing_data=("$RUNTIME_DIR/convex-data"/*)
+    shopt -u nullglob dotglob
+    if [[ ${#existing_data[@]} -gt 0 ]]; then
+      keep_existing_data="1"
+    fi
+  fi
+
+  if [[ "$keep_existing_data" == "1" ]]; then
+    echo -e "${MUTED}Preserving existing local database and storage${NC}"
+  else
+    rm -rf "$RUNTIME_DIR/convex-data"
+    cp -R "$tmp_runtime_dir/convex-data" "$RUNTIME_DIR/convex-data"
+  fi
+
+  if [[ "$keep_existing_data" == "1" && -f "$RUNTIME_DIR/managed-anonymous-auth.json" ]]; then
+    :
+  elif [[ -f "$tmp_runtime_dir/managed-anonymous-auth.json" ]]; then
+    cp "$tmp_runtime_dir/managed-anonymous-auth.json" "$RUNTIME_DIR/managed-anonymous-auth.json"
+    chmod 600 "$RUNTIME_DIR/managed-anonymous-auth.json" || true
+  fi
+
+  if [[ "$WEB_INSTALL_DIR" != "$RUNTIME_DIR/web" ]]; then
+    mkdir -p "$(dirname "$WEB_INSTALL_DIR")"
+    rm -rf "$WEB_INSTALL_DIR"
+    cp -R "$RUNTIME_DIR/web" "$WEB_INSTALL_DIR"
+  fi
+
+  rm -rf "$tmp_runtime_dir"
 }
 
-install_web_bundle() {
-  local web_url
-  local temp_archive="$WORK_DIR/$web_filename"
+install_runtime_bundle() {
+  local runtime_url
+  local temp_archive="$WORK_DIR/$runtime_filename"
 
   if [[ -z "$REQUESTED_VERSION" ]]; then
-    web_url="https://github.com/${REPO}/releases/latest/download/${web_filename}"
+    runtime_url="https://github.com/${REPO}/releases/latest/download/${runtime_filename}"
   else
-    web_url="https://github.com/${REPO}/releases/download/v${RESOLVED_VERSION}/${web_filename}"
+    runtime_url="https://github.com/${REPO}/releases/download/v${RESOLVED_VERSION}/${runtime_filename}"
   fi
 
-  if curl -fsSL "$web_url" -o "$temp_archive"; then
-    verify_release_checksum_if_available "$temp_archive" "$web_filename"
-    echo -e "${MUTED}Installing web bundle${NC} ${web_filename}"
-    install_web_bundle_from_archive "$temp_archive"
+  if curl -fsSL "$runtime_url" -o "$temp_archive"; then
+    verify_release_checksum_if_available "$temp_archive" "$runtime_filename"
+    echo -e "${MUTED}Installing runtime bundle${NC} ${runtime_filename}"
+    install_runtime_bundle_from_archive "$temp_archive"
     return
   fi
 
-  local local_web_archive="$LOCAL_WEB_CANDIDATE/${web_filename}"
-  if [[ -f "$local_web_archive" ]]; then
-    echo -e "${MUTED}Web bundle release asset not found; using local archive at ${local_web_archive}${NC}"
-    install_web_bundle_from_archive "$local_web_archive"
+  if [[ -f "$LOCAL_RUNTIME_CANDIDATE" ]]; then
+    echo -e "${MUTED}Runtime bundle release asset not found; using local archive at ${LOCAL_RUNTIME_CANDIDATE}${NC}"
+    install_runtime_bundle_from_archive "$LOCAL_RUNTIME_CANDIDATE"
     return
   fi
 
-  echo -e "${RED}Web bundle was not installed (missing release asset ${web_filename})${NC}"
+  echo -e "${RED}Runtime bundle was not installed (missing release asset ${runtime_filename})${NC}"
   echo ""
   echo "To build and install it locally:"
   echo "  bun run --cwd executor build:release"
   echo "  bash executor/install --no-modify-path"
+  exit 1
 }
 
 if [[ -n "$BINARY_PATH" ]]; then
@@ -417,130 +478,6 @@ stop_existing_services() {
   stop_pid_file "$BACKEND_PID_FILE"
 }
 
-is_convex_project_dir() {
-  local candidate="$1"
-  if [[ -z "$candidate" ]]; then
-    return 1
-  fi
-  [[ -f "$candidate/convex.json" ]]
-}
-
-download_bootstrap_project_archive() {
-  local destination="$1"
-  local requested_archive="${EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE:-}"
-
-  if [[ -n "$requested_archive" ]]; then
-    if [[ -f "$requested_archive" ]]; then
-      cp "$requested_archive" "$destination"
-      return 0
-    fi
-    echo -e "${RED}Configured EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE was not found: ${requested_archive}${NC}"
-    return 1
-  fi
-
-  if [[ -z "$REQUESTED_VERSION" ]]; then
-    local latest_url="https://github.com/${REPO}/releases/latest/download/${BOOTSTRAP_ARCHIVE_FILENAME}"
-    if curl -fsSL "$latest_url" -o "$destination"; then
-      verify_release_checksum_if_available "$destination" "$BOOTSTRAP_ARCHIVE_FILENAME"
-      return 0
-    fi
-  else
-    local versioned_url="https://github.com/${REPO}/releases/download/v${RESOLVED_VERSION}/${BOOTSTRAP_ARCHIVE_FILENAME}"
-    if curl -fsSL "$versioned_url" -o "$destination"; then
-      verify_release_checksum_if_available "$destination" "$BOOTSTRAP_ARCHIVE_FILENAME"
-      return 0
-    fi
-  fi
-
-  if [[ -f "$LOCAL_BOOTSTRAP_CANDIDATE" ]]; then
-    cp "$LOCAL_BOOTSTRAP_CANDIDATE" "$destination"
-    return 0
-  fi
-
-  return 1
-}
-
-prepare_release_bootstrap_project() {
-  local bootstrap_root="$RUNTIME_DIR/bootstrap-project"
-  local version_file="$bootstrap_root/.executor-bootstrap-version"
-  local cache_key="${RESOLVED_VERSION:-latest}"
-
-  if [[ -f "$version_file" ]] && [[ "$(cat "$version_file" 2>/dev/null || true)" == "$cache_key" ]]; then
-    if is_convex_project_dir "$bootstrap_root"; then
-      printf "%s" "$bootstrap_root"
-      return
-    fi
-    if is_convex_project_dir "$bootstrap_root/executor"; then
-      printf "%s" "$bootstrap_root/executor"
-      return
-    fi
-  fi
-
-  local archive_file="$WORK_DIR/$BOOTSTRAP_ARCHIVE_FILENAME"
-  if ! download_bootstrap_project_archive "$archive_file"; then
-    printf ""
-    return
-  fi
-
-  rm -rf "$bootstrap_root"
-  mkdir -p "$bootstrap_root"
-  if ! tar -xzf "$archive_file" -C "$bootstrap_root" --strip-components=1; then
-    rm -rf "$bootstrap_root"
-    printf ""
-    return
-  fi
-
-  local project_dir="$bootstrap_root"
-  if is_convex_project_dir "$bootstrap_root"; then
-    project_dir="$bootstrap_root"
-  elif is_convex_project_dir "$bootstrap_root/executor"; then
-    project_dir="$bootstrap_root/executor"
-  else
-    rm -rf "$bootstrap_root"
-    printf ""
-    return
-  fi
-
-  printf "%s\n" "$cache_key" > "$version_file"
-  printf "%s" "$project_dir"
-}
-
-resolve_project_dir() {
-  if [[ -n "${EXECUTOR_PROJECT_DIR:-}" ]] && is_convex_project_dir "$EXECUTOR_PROJECT_DIR"; then
-    printf "%s" "$EXECUTOR_PROJECT_DIR"
-    return
-  fi
-
-  local candidates=()
-  candidates+=("$PWD" "$PWD/executor")
-
-  if command -v git >/dev/null 2>&1; then
-    local git_root
-    git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-    if [[ -n "$git_root" ]]; then
-      candidates+=("$git_root" "$git_root/executor")
-    fi
-  fi
-
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if is_convex_project_dir "$candidate"; then
-      printf "%s" "$candidate"
-      return
-    fi
-  done
-
-  printf ""
-}
-
-run_executor() {
-  if [[ -n "${PROJECT_DIR:-}" ]]; then
-    EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" "$@"
-  else
-    "$INSTALL_DIR/$APP" "$@"
-  fi
-}
-
 start_background_services() {
   mkdir -p "$SERVICE_DIR"
   mkdir -p "$LOG_DIR"
@@ -553,11 +490,7 @@ start_background_services() {
   elif [[ -f "$BACKEND_PID_FILE" ]]; then
     echo -e "${MUTED}Managed backend already tracked${NC} (pid $(cat "$BACKEND_PID_FILE"))"
   else
-    if [[ -n "$PROJECT_DIR" ]]; then
-      nohup env EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" up --disable-beacon >"$LOG_DIR/backend.log" 2>&1 &
-    else
-      nohup "$INSTALL_DIR/$APP" up --disable-beacon >"$LOG_DIR/backend.log" 2>&1 &
-    fi
+    nohup "$INSTALL_DIR/$APP" up --disable-beacon >"$LOG_DIR/backend.log" 2>&1 &
     echo "$!" > "$BACKEND_PID_FILE"
     if wait_for_http "http://127.0.0.1:${BACKEND_PORT}/version"; then
       echo -e "${MUTED}Started managed backend${NC} http://127.0.0.1:${BACKEND_PORT}"
@@ -571,11 +504,7 @@ start_background_services() {
   elif [[ -f "$WEB_PID_FILE" ]]; then
     echo -e "${MUTED}Web UI already tracked${NC} (pid $(cat "$WEB_PID_FILE"))"
   else
-    if [[ -n "$PROJECT_DIR" ]]; then
-      nohup env EXECUTOR_PROJECT_DIR="$PROJECT_DIR" "$INSTALL_DIR/$APP" web >"$LOG_DIR/web.log" 2>&1 &
-    else
-      nohup "$INSTALL_DIR/$APP" web >"$LOG_DIR/web.log" 2>&1 &
-    fi
+    nohup "$INSTALL_DIR/$APP" web >"$LOG_DIR/web.log" 2>&1 &
     echo "$!" > "$WEB_PID_FILE"
     if wait_for_http "http://127.0.0.1:${WEB_PORT}/"; then
       echo -e "${MUTED}Started web UI${NC} http://127.0.0.1:${WEB_PORT}"
@@ -583,39 +512,6 @@ start_background_services() {
       echo -e "${MUTED}Web UI is still initializing${NC} (continuing readiness checks)"
     fi
   fi
-}
-
-ensure_project_bootstrapped() {
-  if [[ -z "$PROJECT_DIR" ]]; then
-    echo -e "${MUTED}No local Convex project detected; skipping function bootstrap verification${NC}"
-    return 0
-  fi
-
-  if run_executor doctor >/dev/null 2>&1; then
-    echo -e "${MUTED}Convex functions bootstrapped${NC}"
-    return 0
-  fi
-
-  echo -e "${MUTED}Ensuring Convex functions are bootstrapped${NC}"
-
-  local attempt
-  for attempt in 1 2 3; do
-    run_executor up >>"$LOG_DIR/backend.log" 2>&1 || true
-
-    if run_executor doctor >/dev/null 2>&1; then
-      echo -e "${MUTED}Convex functions bootstrapped${NC}"
-      return 0
-    fi
-
-    if (( attempt < 3 )); then
-      sleep 2
-    fi
-  done
-
-  echo -e "${RED}Convex functions are not fully bootstrapped yet.${NC}"
-  echo "  Run: EXECUTOR_PROJECT_DIR=$PROJECT_DIR executor up"
-  echo "  Check: $INSTALL_DIR/$APP doctor --verbose"
-  return 1
 }
 
 wait_for_executor_ready() {
@@ -693,18 +589,7 @@ wait_for_executor_ready() {
 }
 
 stop_existing_services
-install_web_bundle
-PROJECT_DIR="$(resolve_project_dir)"
-
-if [[ -z "$PROJECT_DIR" ]]; then
-  PROJECT_DIR="$(prepare_release_bootstrap_project)"
-fi
-
-if [[ -n "$PROJECT_DIR" ]]; then
-  echo -e "${MUTED}Detected Convex project${NC} $PROJECT_DIR"
-else
-  echo -e "${MUTED}No local Convex project detected from current directory${NC}"
-fi
+install_runtime_bundle
 
 if [[ "$NO_MODIFY_PATH" != "1" ]]; then
   shell_name="$(basename "${SHELL:-}")"
@@ -728,10 +613,8 @@ if wait_for_executor_ready; then
   runtime_ready=1
 fi
 
-if (( runtime_ready == 1 )); then
-  ensure_project_bootstrapped || true
-else
-  echo -e "${RED}Skipping function bootstrap because services are not healthy yet.${NC}"
+if (( runtime_ready == 0 )); then
+  echo -e "${RED}Skipping final runtime confirmation because services are not healthy yet.${NC}"
 fi
 
 echo ""
@@ -746,7 +629,7 @@ elif [[ -n "$BINARY_PATH" || -f "$LOCAL_BINARY_CANDIDATE" ]]; then
   echo "Version: local build"
 fi
 if [[ -f "$WEB_INSTALL_DIR/server.js" ]]; then
-  echo "Web bundle installed to: $WEB_INSTALL_DIR"
+  echo "Runtime bundle installed to: $RUNTIME_DIR"
 fi
 echo "Dashboard: http://localhost:${WEB_PORT}"
 echo "Use:"

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { Sandbox } from "@vercel/sandbox";
+import { anonymousBootstrapCheckScript, runtimeDoctorScript } from "./install-checks";
 
 type CommandResult = {
   exitCode: number;
@@ -98,7 +99,7 @@ test("installer works in fresh Vercel sandbox", async () => {
       "curl -fsSL https://executor.sh/install | bash",
       "end=$(date +%s)",
       "echo INSTALL_SECONDS=$((end-start))",
-      "~/.executor/bin/executor doctor --verbose",
+      runtimeDoctorScript(),
     ].join("; ");
 
     let install: CommandResult;
@@ -121,7 +122,12 @@ test("installer works in fresh Vercel sandbox", async () => {
 
     const output = `${install.stdout}\n${install.stderr}`;
     expect(output).toContain("Executor status: ready");
-    expect(output).toContain("Functions: bootstrapped");
+    const anonymousCheck = await runSandboxBash(
+      sandbox,
+      anonymousBootstrapCheckScript({ backendPort: 5410, webPort: 5312 }),
+      300_000,
+    );
+    assertSuccess(anonymousCheck, "sandbox anonymous bootstrap check");
 
     const uninstallScript = [
       "set -euo pipefail",

@@ -2,9 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { generateKeyPairSync } from "node:crypto";
 
-import { ensureProjectBootstrapped, waitForBackendReady } from "./managed/runtime-bootstrap";
+import { waitForBackendReady } from "./managed/runtime-bootstrap";
 import { backendArgs, ensureConfig, runtimeInfo } from "./managed/runtime-info";
-import { ensureBackendBinary, ensureNodeRuntime, ensureWebBundle } from "./managed/runtime-installation";
+import { ensureBackendBinary, ensureNodeRuntime, ensureRuntimeImage, ensureWebBundle } from "./managed/runtime-installation";
 import { runProcess } from "./managed/runtime-process";
 
 const managedAnonymousAuthEnvFileName = "managed-anonymous-auth.json";
@@ -98,20 +98,14 @@ async function writeManagedAnonymousAuthEnv(info: ManagedRuntimeInfo, env: Manag
 }
 
 async function resolveManagedAnonymousAuthEnv(info: ManagedRuntimeInfo): Promise<ManagedAnonymousAuthEnv> {
+  const fromDisk = await readManagedAnonymousAuthEnv(info);
+  if (fromDisk) {
+    return fromDisk;
+  }
+
   const fromProcess = resolveAnonymousAuthFromProcessEnv();
   if (fromProcess) {
     return fromProcess;
-  }
-
-  const fromDisk = await readManagedAnonymousAuthEnv(info);
-  if (fromDisk) {
-    if (trimEnv("MCP_API_KEY_SECRET")) {
-      return {
-        ...fromDisk,
-        MCP_API_KEY_SECRET: normalizePemForEnv(trimEnv("MCP_API_KEY_SECRET") ?? fromDisk.MCP_API_KEY_SECRET),
-      };
-    }
-    return fromDisk;
   }
 
   const generated = generateManagedAnonymousAuthEnv();
@@ -146,6 +140,8 @@ export interface ManagedRuntimeInfo {
   webServerEntry: string;
   webArtifactName: string;
   webDownloadUrl: string;
+  runtimeArtifactName: string;
+  runtimeDownloadUrl: string;
 }
 
 export async function ensureManagedRuntime(options: { quiet?: boolean } = {}): Promise<ManagedRuntimeInfo> {
@@ -153,6 +149,9 @@ export async function ensureManagedRuntime(options: { quiet?: boolean } = {}): P
   await fs.mkdir(path.dirname(info.dbPath), { recursive: true });
   await fs.mkdir(info.storageDir, { recursive: true });
   info.config = await ensureConfig(info);
+  if (process.env.EXECUTOR_SKIP_RUNTIME_IMAGE !== "1") {
+    await ensureRuntimeImage(info);
+  }
   await ensureBackendBinary(info);
   if (!options.quiet) {
     console.log("[executor] managed Convex backend runtime ready");
@@ -163,17 +162,13 @@ export async function ensureManagedRuntime(options: { quiet?: boolean } = {}): P
 export async function runManagedBackend(args: string[]): Promise<number> {
   const info = await ensureManagedRuntime();
   const anonymousAuthEnv = await resolveManagedAnonymousAuthEnv(info);
+  const managedConvexUrl = `http://${info.config.hostInterface}:${info.config.backendPort}`;
+  const managedConvexSiteUrl = `http://${info.config.hostInterface}:${info.config.siteProxyPort}`;
 
   if (args.length === 0) {
     try {
       await waitForBackendReady(info, 1_000);
       console.log("[executor] managed backend is already running");
-      try {
-        await ensureProjectBootstrapped(info);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.warn(`[executor] bootstrap skipped: ${message}`);
-      }
       return 0;
     } catch {
       // not running yet, continue and start it now
@@ -184,6 +179,9 @@ export async function runManagedBackend(args: string[]): Promise<number> {
     ...process.env,
     ...anonymousAuthEnv,
     PATH: `${path.dirname(info.nodeBin)}:${process.env.PATH ?? ""}`,
+    CONVEX_URL: managedConvexUrl,
+    CONVEX_SITE_URL: managedConvexSiteUrl,
+    ANONYMOUS_AUTH_ISSUER: managedConvexSiteUrl,
   };
 
   const proc = Bun.spawn([info.backendBinary, ...backendArgs(info, args)], {
@@ -194,13 +192,7 @@ export async function runManagedBackend(args: string[]): Promise<number> {
   });
 
   if (args.length === 0) {
-    try {
-      await waitForBackendReady(info);
-      await ensureProjectBootstrapped(info);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[executor] bootstrap skipped: ${message}`);
-    }
+    await waitForBackendReady(info);
   }
 
   return await proc.exited;
@@ -219,6 +211,8 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
 
   const webPort = options.port ?? Number(Bun.env.EXECUTOR_WEB_PORT ?? 5312);
   const host = Bun.env.EXECUTOR_WEB_INTERFACE ?? "127.0.0.1";
+  const managedConvexUrl = `http://${info.config.hostInterface}:${info.config.backendPort}`;
+  const managedConvexSiteUrl = `http://${info.config.hostInterface}:${info.config.siteProxyPort}`;
 
   const env = {
     ...process.env,
@@ -226,8 +220,11 @@ export async function runManagedWeb(options: { port?: number } = {}): Promise<nu
     NODE_ENV: "production",
     PORT: String(webPort),
     HOSTNAME: host,
-    CONVEX_URL: process.env.CONVEX_URL ?? `http://${info.config.hostInterface}:${info.config.backendPort}`,
-    CONVEX_SITE_URL: process.env.CONVEX_SITE_URL ?? `http://${info.config.hostInterface}:${info.config.siteProxyPort}`,
+    CONVEX_URL: managedConvexUrl,
+    CONVEX_SITE_URL: managedConvexSiteUrl,
+    EXECUTOR_WEB_CONVEX_URL: managedConvexUrl,
+    EXECUTOR_WEB_CONVEX_SITE_URL: managedConvexSiteUrl,
+    ANONYMOUS_AUTH_ISSUER: managedConvexSiteUrl,
   };
 
   const proc = await runProcess(info.nodeBin, [info.webServerEntry], {

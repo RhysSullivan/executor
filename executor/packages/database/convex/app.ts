@@ -9,6 +9,7 @@ export const getClientConfig = customQuery({
     return {
       authProviderMode: workosEnabled ? "workos" : "local",
       invitesProvider: workosEnabled ? "workos" : "disabled",
+      anonymousAuthIssuer: process.env.ANONYMOUS_AUTH_ISSUER ?? null,
       features: {
         organizations: true,
         billing: true,

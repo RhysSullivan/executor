@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { anonymousBootstrapCheckScript, runtimeDoctorScript } from "./install-checks";
 
 type CommandResult = {
   exitCode: number;
@@ -83,10 +84,6 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
 
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "executor-install-e2e-"));
   const installCwd = path.join(tempRoot, "workdir");
-  const bootstrapArchive = path.join(tempRoot, "bootstrap-project.tar.gz");
-  const archiveRoot = path.dirname(repoRoot);
-  const archiveParent = path.dirname(archiveRoot);
-  const archiveFolder = path.basename(archiveRoot);
   const homeDir = path.join(tempRoot, "home");
   const executorHome = path.join(homeDir, ".executor");
   const installDir = path.join(executorHome, "bin");
@@ -94,13 +91,13 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
   const webDir = path.join(runtimeDir, "web");
   const installedBinary = path.join(installDir, "executor");
 
-  const basePort = 45000 + Math.floor(Math.random() * 1000) * 3;
-  const backendPort = String(basePort);
-  const sitePort = String(basePort + 1);
-  const webPort = String(basePort + 2);
+  const backendPort = "5410";
+  const sitePort = "5411";
+  const webPort = "5312";
 
   const env: Record<string, string | undefined> = {
     ...process.env,
+    EXECUTOR_REPO: "invalid/invalid",
     HOME: homeDir,
     EXECUTOR_HOME_DIR: executorHome,
     EXECUTOR_INSTALL_DIR: installDir,
@@ -109,7 +106,6 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
     EXECUTOR_BACKEND_PORT: backendPort,
     EXECUTOR_BACKEND_SITE_PORT: sitePort,
     EXECUTOR_WEB_PORT: webPort,
-    EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE: bootstrapArchive,
   };
 
   try {
@@ -120,26 +116,14 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
     });
     assertSuccess(buildBinary, "build binary");
 
-    await fs.mkdir(installCwd, { recursive: true });
-
-    const archiveSource = await runCommand([
-      "tar",
-      "--exclude=.git",
-      "--exclude=node_modules",
-      "--exclude=dist",
-      "--exclude=.next",
-      "--exclude=.turbo",
-      "-czf",
-      bootstrapArchive,
-      "-C",
-      archiveParent,
-      archiveFolder,
-    ], {
+    const buildRelease = await runCommand(["bun", "run", "build:release"], {
       cwd: repoRoot,
-      env,
-      timeoutMs: 300_000,
+      env: process.env,
+      timeoutMs: 1_200_000,
     });
-    assertSuccess(archiveSource, "create bootstrap project archive");
+    assertSuccess(buildRelease, "build release");
+
+    await fs.mkdir(installCwd, { recursive: true });
 
     const preUninstall = await runCommand(["bash", path.join(repoRoot, "uninstall"), "--yes"], {
       cwd: repoRoot,
@@ -167,7 +151,7 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
     expect(await pathExists(installedBinary)).toBe(true);
     expect(await pathExists(path.join(webDir, "server.js"))).toBe(true);
 
-    const doctor = await runCommand([installedBinary, "doctor", "--verbose"], {
+    const doctor = await runCommand(["bash", "-lc", runtimeDoctorScript()], {
       cwd: repoRoot,
       env,
       timeoutMs: 180_000,
@@ -177,7 +161,16 @@ test("installer e2e: uninstall, install, deploy, and cleanup", async () => {
     expect(doctor.stdout).toContain("Executor status: ready");
     expect(doctor.stdout).toContain("Backend: running");
     expect(doctor.stdout).toContain(`Dashboard: http://127.0.0.1:${webPort} (running)`);
-    expect(doctor.stdout).toContain("Functions: bootstrapped");
+
+    const anonymousCheck = await runCommand(["bash", "-lc", anonymousBootstrapCheckScript({
+      backendPort: Number(backendPort),
+      webPort: Number(webPort),
+    })], {
+      cwd: repoRoot,
+      env,
+      timeoutMs: 180_000,
+    });
+    assertSuccess(anonymousCheck, "anonymous bootstrap check");
 
     const uninstall = await runCommand([installedBinary, "uninstall", "--yes"], {
       cwd: repoRoot,
