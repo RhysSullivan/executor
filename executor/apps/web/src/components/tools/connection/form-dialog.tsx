@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { type ChangeEvent, useEffect, useState } from "react";
 import { useAction } from "convex/react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Plus, Trash2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -30,7 +30,10 @@ import type {
 } from "@/lib/types";
 import {
   connectionDisplayName,
-  parseHeaderOverrides,
+  parseHeaderOverrideEntries,
+  parseHeaderOverrideRows,
+  serializeHeaderOverrideRows,
+  type HeaderOverrideEntry,
 } from "@/lib/credentials/source-helpers";
 import { sourceForCredentialKey } from "@/lib/tools/source-helpers";
 import { ConnectionAuthFields } from "./auth-fields";
@@ -64,6 +67,7 @@ export function ConnectionFormDialog({
   const { context, clientConfig } = useSession();
   const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
   const [saving, setSaving] = useState(false);
+  const [headerRows, setHeaderRows] = useState<HeaderOverrideEntry[]>(() => parseHeaderOverrideEntries(""));
   const {
     sourceKey,
     scopeType,
@@ -116,6 +120,14 @@ export function ConnectionFormDialog({
     && (selectedSourceName ? loadingSourceNames.includes(selectedSourceName) : false);
   const detectedAuthLabel = authDetectionPending ? "Detecting..." : authBadge;
 
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setHeaderRows(parseHeaderOverrideEntries(customHeadersText));
+  }, [open, customHeadersText]);
+
   const handleSave = async () => {
     if (!context) {
       return;
@@ -129,11 +141,14 @@ export function ConnectionFormDialog({
       return;
     }
 
-    const parsedHeaders = parseHeaderOverrides(customHeadersText);
+    const parsedHeaders = parseHeaderOverrideRows(headerRows);
     if (!parsedHeaders.value) {
       toast.error(parsedHeaders.error ?? "Invalid header overrides");
       return;
     }
+
+    const serializedHeaders = serializeHeaderOverrideRows(headerRows);
+    setCustomHeadersText(serializedHeaders);
 
     const linkExisting = !editing && connectionMode === "existing";
     if (linkExisting && !existingConnectionKey) {
@@ -203,6 +218,31 @@ export function ConnectionFormDialog({
     } finally {
       setSaving(false);
     }
+  };
+
+  const addHeaderRow = () => {
+    setHeaderRows((current) => [...current, { key: "", value: "" }]);
+  };
+
+  const removeHeaderRow = (index: number) => {
+    setHeaderRows((current) => {
+      const next = current.filter((_, rowIndex) => rowIndex !== index);
+      return next.length === 0 ? [{ key: "", value: "" }] : next;
+    });
+  };
+
+  const updateHeaderRow = (index: number, patch: Partial<HeaderOverrideEntry>) => {
+    setHeaderRows((current) =>
+      current.map((entry, rowIndex) => {
+        if (rowIndex !== index) {
+          return entry;
+        }
+        return {
+          ...entry,
+          ...patch,
+        };
+      }),
+    );
   };
 
   return (
@@ -345,15 +385,49 @@ export function ConnectionFormDialog({
             onBasicPasswordChange={setBasicPassword}
           />
 
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Extra Headers (optional)</Label>
-            <Textarea
-              value={customHeadersText}
-              onChange={(e) => setCustomHeadersText(e.target.value)}
-              rows={4}
-              placeholder="x-tenant-id: acme\nx-env: staging"
-              className="text-xs font-mono bg-background"
-            />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs text-muted-foreground">Extra Headers (optional)</Label>
+              <Button type="button" variant="outline" size="sm" onClick={addHeaderRow} className="h-7 px-2 text-[11px]">
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Add header
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {headerRows.map((headerRow, index) => (
+                <div key={`${headerRow.key || "header"}-${index}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2 items-start">
+                  <Input
+                    value={headerRow.key}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      updateHeaderRow(index, { key: event.target.value })
+                    }
+                    placeholder="Header"
+                    className="h-8 text-xs font-mono bg-background"
+                  />
+                  <Input
+                    value={headerRow.value}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      updateHeaderRow(index, { value: event.target.value })
+                    }
+                    placeholder="Value"
+                    className="h-8 text-xs font-mono bg-background"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2"
+                    disabled={headerRows.length === 1}
+                    onClick={() => void removeHeaderRow(index)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Add one `Header` and `Value` pair per line.
+            </p>
           </div>
 
           <Button onClick={handleSave} disabled={saving || authDetectionPending} className="w-full h-9" size="sm">

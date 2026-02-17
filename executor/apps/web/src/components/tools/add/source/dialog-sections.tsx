@@ -89,14 +89,14 @@ export function CatalogViewSection({
               <img
                 src={item.logoUrl}
                 alt=""
-                className="w-5 h-5 rounded shrink-0 mt-0.5 object-contain"
+                className="w-5 h-5 rounded-full shrink-0 mt-0.5 object-cover"
               />
             ) : (
               <SourceFavicon
                 sourceUrl={item.originUrl || item.specUrl}
                 fallbackType={item.sourceType ?? "openapi"}
                 iconClassName="h-5 w-5 text-muted-foreground"
-                imageClassName="w-5 h-5 rounded object-contain"
+                imageClassName="w-5 h-5"
               />
             )}
             <div className="flex-1 min-w-0 w-0 overflow-hidden">

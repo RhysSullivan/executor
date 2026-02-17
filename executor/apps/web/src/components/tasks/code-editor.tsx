@@ -178,8 +178,10 @@ export function CodeEditor({
         onMount={handleMount}
         options={CODE_EDITOR_OPTIONS}
         loading={
-          <div className="flex h-full items-center justify-center bg-background text-xs font-mono text-muted-foreground">
-            Loading editor...
+          <div className="flex h-full w-full items-center justify-center bg-background text-xs font-mono text-muted-foreground">
+            <span className="w-full max-w-xs rounded-md border border-border/80 bg-muted/70 px-3 py-1 text-center">
+              Loading editor...
+            </span>
           </div>
         }
       />

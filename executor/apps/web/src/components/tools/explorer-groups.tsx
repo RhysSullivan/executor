@@ -115,13 +115,13 @@ export function GroupNode({
 
           {isSource && (
             <div className="h-5 w-5 rounded bg-muted/60 flex items-center justify-center shrink-0">
-              {source ? (
-                <SourceFavicon
-                  source={source}
-                  iconClassName="h-3 w-3 text-muted-foreground"
-                  imageClassName="w-full h-full object-contain"
-                />
-              ) : (
+                {source ? (
+                  <SourceFavicon
+                    source={source}
+                    iconClassName="h-3 w-3 text-muted-foreground"
+                    imageClassName="w-full h-full"
+                  />
+                ) : (
                 sourceTypeFallback === "mcp"
                   ? <Server className="h-3 w-3 text-muted-foreground" />
                   : sourceTypeFallback === "graphql"
@@ -259,39 +259,18 @@ export function SourceSidebar({
   );
 
   const groups = useMemo(() => {
-    const map = new Map<
-      string,
-      { name: string; type: string; count: number; isLoading: boolean; warningCount: number; source?: ToolSourceRecord }
-    >();
-
-    for (const source of sources) {
-      if (!source.enabled) {
-        continue;
-      }
-
-      const count = sourceCounts[source.name] ?? 0;
-      const isLoading = loadingSources.has(source.name);
-      const warningCount = warningCountsBySource[source.name] ?? 0;
-
-      if (count === 0 && !isLoading && warningCount === 0) {
-        continue;
-      }
-
-      map.set(source.name, {
+    return sources
+      .filter((source) => source.enabled)
+      .map((source) => ({
         name: source.name,
         type: source.type,
-        count,
-        isLoading,
-        warningCount,
+        count: sourceCounts[source.name] ?? 0,
+        isLoading: loadingSources.has(source.name),
+        warningCount: warningCountsBySource[source.name] ?? 0,
         source,
-      });
-    }
-
-    return Array.from(map.values()).sort((a, b) => {
-      if (a.count !== b.count) return b.count - a.count;
-      return a.name.localeCompare(b.name);
-    });
-  }, [sourceCounts, sources, loadingSources, warningCountsBySource]);
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [loadingSources, sourceCounts, sources, warningCountsBySource]);
 
   return (
     <div className="w-52 shrink-0 border-r border-border/50 pr-0 hidden lg:block">
@@ -302,6 +281,9 @@ export function SourceSidebar({
       </div>
 
       <div className="space-y-0.5 px-1">
+        {groups.length === 0 ? (
+          <p className="px-2 py-2 text-[11px] text-muted-foreground/60">No sources configured yet.</p>
+        ) : null}
         {groups.map((g) => {
           const editMeta = g.source ? sourceDialogMeta?.[g.name] : undefined;
           return (

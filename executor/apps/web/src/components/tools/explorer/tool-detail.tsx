@@ -56,17 +56,6 @@ export function ToolDetail({
 
       {inputHint && <TypeSignature raw={inputHint} label="Arguments" />}
       {outputHint && <TypeSignature raw={outputHint} label="Returns" />}
-
-      {required.length > 0 ? (
-        <div className="space-y-1">
-          <p className="text-[9px] font-mono uppercase tracking-wider text-muted-foreground/50">
-            Required Keys
-          </p>
-          <p className="text-[11px] font-mono text-muted-foreground break-words">
-            {required.join(", ")}
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 }

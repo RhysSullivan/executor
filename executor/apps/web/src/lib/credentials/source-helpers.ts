@@ -98,6 +98,68 @@ export function parseHeaderOverrides(text: string): { value?: Record<string, str
   return { value: headers };
 }
 
+export type HeaderOverrideEntry = {
+  key: string;
+  value: string;
+};
+
+export function parseHeaderOverrideEntries(text: string): HeaderOverrideEntry[] {
+  const rows = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (rows.length === 0) {
+    return [{ key: "", value: "" }];
+  }
+
+  return rows.map((row) => {
+    const separator = row.indexOf(":");
+    if (separator <= 0) {
+      return { key: row.trim(), value: "" };
+    }
+
+    return {
+      key: row.slice(0, separator).trim(),
+      value: row.slice(separator + 1).trim(),
+    };
+  });
+}
+
+export function parseHeaderOverrideRows(entries: HeaderOverrideEntry[]): { value?: Record<string, string>; error?: string } {
+  const headers: Record<string, string> = {};
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const rawKey = entries[index]?.key ?? "";
+    const rawValue = entries[index]?.value ?? "";
+    const key = rawKey.trim();
+    const value = rawValue.trim();
+
+    if (!key && !value) {
+      continue;
+    }
+
+    if (!key || !value) {
+      return { error: `Invalid header row ${index + 1}` };
+    }
+
+    headers[key] = value;
+  }
+
+  return { value: headers };
+}
+
+export function serializeHeaderOverrideRows(entries: HeaderOverrideEntry[]): string {
+  return entries
+    .map((entry) => ({
+      key: entry.key.trim(),
+      value: entry.value.trim(),
+    }))
+    .filter((entry) => entry.key.length > 0 && entry.value.length > 0)
+    .map((entry) => `${entry.key}: ${entry.value}`)
+    .join("\n");
+}
+
 export function formatHeaderOverrides(overrides: Record<string, unknown> | undefined): string {
   const headers = overrides && typeof overrides.headers === "object" ? (overrides.headers as Record<string, unknown>) : {};
   return Object.entries(headers)

@@ -53,8 +53,6 @@ interface ToolExplorerToolbarProps {
 export function ToolExplorerToolbar({
   search,
   filteredToolCount,
-  hasSearch,
-  resultCount,
   loadingInventory = false,
   viewMode,
   groupBy,
@@ -72,8 +70,6 @@ export function ToolExplorerToolbar({
   addSourceAction,
   onSelectAll,
   onClearSelection,
-  onExpandAll,
-  onCollapseAll,
 }: ToolExplorerToolbarProps) {
   return (
     <div className="shrink-0">
@@ -286,34 +282,6 @@ export function ToolExplorerToolbar({
           </Button>
         </div>
       )}
-
-      <div className="flex items-center justify-end pb-1.5">
-        {hasSearch ? (
-          <span className="text-[10px] font-mono text-muted-foreground/50">
-            {resultCount} results
-            {activeSource && ` in ${activeSource}`}
-          </span>
-        ) : loadingInventory ? (
-          <span className="text-[10px] font-mono text-muted-foreground/50">Loading tool inventory...</span>
-        ) : null}
-        {viewMode === "tree" && (
-          <div className="flex gap-1">
-            <button
-              onClick={onExpandAll}
-              className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-            >
-              Expand all
-            </button>
-            <span className="text-[10px] text-muted-foreground/30">·</span>
-            <button
-              onClick={onCollapseAll}
-              className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-            >
-              Collapse all
-            </button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Plus,
 } from "lucide-react";
@@ -24,6 +24,7 @@ import type {
   CredentialRecord,
 } from "@/lib/types";
 import {
+  parseWarningSourceName,
   warningsBySourceName,
 } from "@/lib/tools/source-helpers";
 import { sourceLabel } from "@/lib/tool/source-utils";
@@ -35,6 +36,7 @@ import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
 type OptimisticAdd = { kind: "add"; source: ToolSourceRecord; addedAt: number };
 type OptimisticRemove = { kind: "remove"; sourceName: string; removedAt: number };
 type OptimisticOp = OptimisticAdd | OptimisticRemove;
+const OPTIMISTIC_ADD_TTL_MS = 45_000;
 
 /** Merge server sources with pending optimistic operations. */
 function applyOptimisticOps(
@@ -60,11 +62,19 @@ function applyOptimisticOps(
 function pruneStaleOps(
   ops: OptimisticOp[],
   serverSources: ToolSourceRecord[],
+  toolSourceNames: Set<string>,
 ): OptimisticOp[] {
   const serverNames = new Set(serverSources.map((s) => s.name));
+  const now = Date.now();
   return ops.filter((op) => {
     if (op.kind === "add") {
-      return !serverNames.has(op.source.name);
+      if (toolSourceNames.has(op.source.name)) {
+        return false;
+      }
+      if (serverNames.has(op.source.name) && (now - op.addedAt) > OPTIMISTIC_ADD_TTL_MS) {
+        return false;
+      }
+      return true;
     }
     if (op.kind === "remove") {
       return serverNames.has(op.sourceName);
@@ -108,20 +118,49 @@ export function ToolsView({
     convexApi.workspace.listToolSources,
     workspaceQueryArgs(context),
   );
+  const sourceCacheRef = useRef<{ workspaceId: string | null; items: ToolSourceRecord[] }>({
+    workspaceId: null,
+    items: [],
+  });
+  const workspaceId = context?.workspaceId ?? null;
+  if (sourceCacheRef.current.workspaceId !== workspaceId) {
+    sourceCacheRef.current = {
+      workspaceId,
+      items: [],
+    };
+  }
+  if (sources !== undefined) {
+    sourceCacheRef.current.items = sources;
+  }
   const serverSourceItems = useMemo<ToolSourceRecord[]>(
-    () => sources ?? [],
+    () => sources ?? sourceCacheRef.current.items,
     [sources],
   );
-  const sourcesLoading = !!context && sources === undefined;
+  const sourcesLoading = !!context && sources === undefined && serverSourceItems.length === 0;
+
+  const {
+    tools,
+    warnings,
+    sourceQuality,
+    sourceAuthProfiles,
+    loadingSources,
+    loadingTools,
+    refreshingTools,
+    loadToolDetails,
+  } = useWorkspaceTools(context ?? null, { includeDetails: false });
+
+  const toolSourceNames = useMemo(
+    () => new Set(tools.map((tool) => sourceLabel(tool.source))),
+    [tools],
+  );
 
   // ── Optimistic source state ──
   const [rawOptimisticOps, setOptimisticOps] = useState<OptimisticOp[]>([]);
 
   // Prune stale ops: if the server already reflects an add/remove, drop it.
-  // This is a pure derivation — no side effects, no refs.
   const optimisticOps = useMemo(
-    () => pruneStaleOps(rawOptimisticOps, serverSourceItems),
-    [rawOptimisticOps, serverSourceItems],
+    () => pruneStaleOps(rawOptimisticOps, serverSourceItems, toolSourceNames),
+    [rawOptimisticOps, serverSourceItems, toolSourceNames],
   );
 
   const sourceItems = useMemo(
@@ -144,33 +183,42 @@ export function ToolsView({
   const credentialItems: CredentialRecord[] = credentials ?? [];
   const credentialsLoading = !!context && credentials === undefined;
 
-  const {
-    tools,
-    warnings,
-    sourceQuality,
-    sourceAuthProfiles,
-    loadingSources,
-    loadingTools,
-    refreshingTools,
-    loadToolDetails,
-  } = useWorkspaceTools(context ?? null, { includeDetails: false });
+  const globalWarnings = useMemo(
+    () => warnings.filter((warning) => !parseWarningSourceName(warning)),
+    [warnings],
+  );
+  const hasGlobalInventoryWarning = useMemo(
+    () => globalWarnings.some((warning) =>
+      warning.includes("Tool inventory is still loading")
+      || warning.includes("showing previous results while refreshing"),
+    ),
+    [globalWarnings],
+  );
 
   // Merge optimistic loading with real loading sources
   const mergedLoadingSources = useMemo(() => {
     const combined = [...loadingSources];
+
+    if (hasGlobalInventoryWarning) {
+      for (const source of sourceItems) {
+        if (toolSourceNames.has(source.name)) {
+          continue;
+        }
+        if (!combined.includes(source.name)) {
+          combined.push(source.name);
+        }
+      }
+    }
+
     for (const name of optimisticallyLoadingNames) {
       if (!combined.includes(name)) {
         combined.push(name);
       }
     }
     return combined;
-  }, [loadingSources, optimisticallyLoadingNames]);
+  }, [hasGlobalInventoryWarning, loadingSources, optimisticallyLoadingNames, sourceItems, toolSourceNames]);
 
   const existingSourceNames = useMemo(() => new Set(sourceItems.map((source) => source.name)), [sourceItems]);
-  const toolSourceNames = useMemo(
-    () => new Set(tools.map((tool) => sourceLabel(tool.source))),
-    [tools],
-  );
   const warningsBySource = useMemo(() => warningsBySourceName(warnings), [warnings]);
   const sourceDialogMeta = useMemo(() => {
     const bySource: Record<string, SourceDialogMeta> = {};
@@ -300,6 +348,19 @@ export function ToolsView({
         <TabsContent value="catalog" className="mt-4 min-h-0">
           <Card className="bg-card border-border min-h-0 flex flex-col pt-4 gap-3">
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
+              {globalWarnings.length > 0 ? (
+                <div className="rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-3 py-2">
+                  <p className="text-[11px] font-mono text-terminal-amber/90">Inventory status</p>
+                  <div className="mt-1 space-y-1">
+                    {globalWarnings.map((warning, index) => (
+                      <p key={`global-warning-${index}`} className="text-[11px] leading-4 text-muted-foreground">
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="min-h-0 flex-1">
                 <ToolExplorer
                   tools={tools}

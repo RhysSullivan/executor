@@ -2,7 +2,17 @@
 
 import { Suspense, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router";
-import { ExternalLink, Github, LayoutDashboard, ListTodo, ShieldCheck, Wrench, Menu, X } from "lucide-react";
+import {
+  ExternalLink,
+  Github,
+  LayoutDashboard,
+  ListTodo,
+  MessageCircle,
+  Menu,
+  ShieldCheck,
+  Wrench,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useSession } from "@/lib/session-context";
@@ -21,6 +31,8 @@ const NAV_ITEMS = [
 ];
 
 const EXECUTOR_REPO_URL = "https://github.com/RhysSullivan/executor";
+const TWITTER_FEEDBACK_URL =
+  "https://twitter.com/intent/tweet?text=%40rhyssullivan%20Executor%20feedback:%20";
 
 function NavLinks({ onClick }: { onClick?: () => void }) {
   const location = useLocation();
@@ -66,7 +78,24 @@ function RepoStarLink() {
         <Github className="h-3.5 w-3.5" />
         Star Executor
       </span>
-      <ExternalLink className="h-3.5 w-3.5 opacity-70 transition-opacity group-hover:opacity-100" />
+      <ExternalLink className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+    </a>
+  );
+}
+
+function FeedbackLink() {
+  return (
+    <a
+      href={TWITTER_FEEDBACK_URL}
+      target="_blank"
+      rel="noreferrer"
+      className="group flex items-center justify-between px-1 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+    >
+      <span className="flex items-center gap-1.5">
+        <MessageCircle className="h-3.5 w-3.5" />
+        Feedback
+      </span>
+      <ExternalLink className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
     </a>
   );
 }
@@ -84,6 +113,9 @@ function Sidebar() {
         <Suspense>
           <SessionInfo />
         </Suspense>
+      </div>
+      <div className="px-3 pb-1">
+        <FeedbackLink />
       </div>
       <div className="px-3 pb-1">
         <RepoStarLink />
@@ -121,6 +153,9 @@ function MobileHeader() {
             <Suspense>
               <SessionInfo />
             </Suspense>
+          </div>
+          <div className="px-3 pb-1">
+            <FeedbackLink />
           </div>
           <div className="px-3 pb-1">
             <RepoStarLink />

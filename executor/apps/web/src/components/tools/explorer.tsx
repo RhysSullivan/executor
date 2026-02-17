@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } from "react";
+import { type ReactNode, useState, useMemo, useCallback, useRef, useDeferredValue } from "react";
 import { cn } from "@/lib/utils";
 import {
   collectGroupKeys,
@@ -142,50 +142,16 @@ export function ToolExplorer({
     return counts;
   }, [hydratedTools]);
 
-  const [stableSources, setStableSources] = useState<ToolSourceRecord[]>(sources);
-
-  useEffect(() => {
-    setStableSources((previous) => {
-      const nextByName = new Map<string, ToolSourceRecord>();
-
-      for (const source of previous) {
-        if (source.enabled) {
-          nextByName.set(source.name, source);
-        }
+  const visibleSources = useMemo(() => {
+    const enabledByName = new Map<string, ToolSourceRecord>();
+    for (const source of sources) {
+      if (source.enabled) {
+        enabledByName.set(source.name, source);
       }
+    }
 
-      const enabledSourceNames = new Set<string>();
-      for (const source of sources) {
-        if (!source.enabled) {
-          continue;
-        }
-        enabledSourceNames.add(source.name);
-        nextByName.set(source.name, source);
-      }
-
-      for (const [name] of nextByName) {
-        const hasTools = (sourceCounts[name] ?? 0) > 0;
-        const isLoading = loadingSourceSet.has(name);
-        const stillEnabled = enabledSourceNames.has(name);
-        if (!stillEnabled && !hasTools && !isLoading) {
-          nextByName.delete(name);
-        }
-      }
-
-      const next = Array.from(nextByName.values()).sort((a, b) => a.name.localeCompare(b.name));
-      const unchanged =
-        next.length === previous.length
-        && next.every((source, index) => {
-          const prior = previous[index];
-          return prior
-            && prior.id === source.id
-            && prior.name === source.name
-            && prior.type === source.type
-            && prior.enabled === source.enabled;
-        });
-      return unchanged ? previous : next;
-    });
-  }, [loadingSourceSet, sourceCounts, sources]);
+    return Array.from(enabledByName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [sources]);
 
   const searchedTools = useMemo(() => {
     return filterToolsBySearch(filteredTools, search);
@@ -194,16 +160,16 @@ export function ToolExplorer({
   const warningsBySource = useMemo(() => warningsBySourceName(warnings), [warnings]);
 
   const sidebarExistingSourceNames = useMemo(() => {
-    return existingSourceNames ?? new Set(stableSources.map((source) => source.name));
-  }, [existingSourceNames, stableSources]);
+    return existingSourceNames ?? new Set(visibleSources.map((source) => source.name));
+  }, [existingSourceNames, visibleSources]);
 
   const treeGroups = useMemo(() => {
     return treeGroupsForView(searchedTools, viewMode, groupBy, {
       loadingSources: visibleLoadingSources,
-      sourceRecords: stableSources,
+      sourceRecords: visibleSources,
       activeSource: resolvedActiveSource,
     });
-  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, stableSources, resolvedActiveSource]);
+  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, visibleSources, resolvedActiveSource]);
 
   const flatTools = useMemo(() => {
     return flatToolsForView(searchedTools, viewMode);
@@ -211,11 +177,11 @@ export function ToolExplorer({
 
   const sourceByName = useMemo(() => {
     const map = new Map<string, ToolSourceRecord>();
-    for (const source of stableSources) {
+    for (const source of visibleSources) {
       map.set(source.name, source);
     }
     return map;
-  }, [stableSources]);
+  }, [visibleSources]);
 
   const autoExpandedKeys = useMemo(() => {
     return autoExpandedKeysForSearch(search, filteredTools, viewMode);
@@ -289,8 +255,14 @@ export function ToolExplorer({
   }, [selectedKeys, filteredTools]);
 
   const sourceOptions = useMemo(
-    () => sourceOptionsFromTools(hydratedTools, loadingSources),
-    [hydratedTools, loadingSources],
+    () => {
+      const optionSet = new Set(sourceOptionsFromTools(hydratedTools, loadingSources));
+      for (const source of visibleSources) {
+        optionSet.add(source.name);
+      }
+      return Array.from(optionSet).sort((a, b) => a.localeCompare(b));
+    },
+    [hydratedTools, loadingSources, visibleSources],
   );
 
   const maybeLoadToolDetails = useCallback(async (tool: ToolDescriptor, expanded: boolean) => {
@@ -383,7 +355,7 @@ export function ToolExplorer({
     <div className="flex" onWheelCapture={handleExplorerWheel}>
       {showSourceSidebar ? (
         <SourceSidebar
-          sources={stableSources}
+          sources={visibleSources}
           sourceCounts={sourceCounts}
           loadingSources={loadingSourceSet}
           warningsBySource={warningsBySource}

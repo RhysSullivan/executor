@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Layers, Globe, Server } from "lucide-react";
 import Image from "next/image";
 import type { ToolSourceRecord } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { getSourceFavicon, getSourceFaviconUrl } from "@/lib/tools/source-helpers";
 
 interface SourceFaviconProps {
@@ -53,7 +54,7 @@ export function SourceFavicon({
       alt=""
       width={imageSize}
       height={imageSize}
-      className={imageClassName ?? "w-full h-full object-contain"}
+      className={cn("w-full h-full object-cover rounded-full", imageClassName)}
       loading="lazy"
       unoptimized
       onError={() => setFailedSrc(sourceFavicon)}
