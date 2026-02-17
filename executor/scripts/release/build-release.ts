@@ -22,6 +22,7 @@ const targets: ReleaseTarget[] = [
 ];
 
 const convexBackendRepo = "get-convex/convex-backend";
+const defaultManagedSitePort = 5411;
 
 function hostPlatformArch(): { platform: "linux" | "darwin"; arch: "x64" | "arm64" } {
   if (process.platform !== "linux" && process.platform !== "darwin") {
@@ -264,7 +265,7 @@ async function seedManagedRuntimeState(
 
   const envEntries: Array<{ name: string; value: string }> = [
     { name: "WORKOS_CLIENT_ID", value: "disabled" },
-    { name: "ANONYMOUS_AUTH_ISSUER", value: `http://${config.hostInterface}:${config.siteProxyPort}` },
+    { name: "ANONYMOUS_AUTH_ISSUER", value: `http://${config.hostInterface}:${defaultManagedSitePort}` },
     { name: "ANONYMOUS_AUTH_PRIVATE_KEY_PEM", value: anonymousAuth.privateKeyPem },
     { name: "ANONYMOUS_AUTH_PUBLIC_KEY_PEM", value: anonymousAuth.publicKeyPem },
     { name: "MCP_API_KEY_SECRET", value: anonymousAuth.apiKeySecret },
