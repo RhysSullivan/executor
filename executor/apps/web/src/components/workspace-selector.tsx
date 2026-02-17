@@ -268,7 +268,7 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
             )
             : (
               <DropdownMenuItem disabled className="text-xs">
-                Guest workspace
+                Anonymous workspace
               </DropdownMenuItem>
             )}
           {supportsOrganizationManagement ? (

@@ -227,7 +227,7 @@ export function SessionInfo() {
                 </Button>
               </Link>
             ) : (
-              <p className="text-[11px] text-muted-foreground text-center">Guest mode</p>
+              <p className="text-[11px] text-muted-foreground text-center">Anonymous mode</p>
             )}
           </div>
         )}

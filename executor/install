@@ -736,6 +736,15 @@ fi
 
 echo ""
 echo "Installed to: $INSTALL_DIR/$APP"
+if [[ -n "$RESOLVED_VERSION" ]]; then
+  if [[ "$RESOLVED_VERSION" == "latest" ]]; then
+    echo "Version: latest"
+  else
+    echo "Version: v$RESOLVED_VERSION"
+  fi
+elif [[ -n "$BINARY_PATH" || -f "$LOCAL_BINARY_CANDIDATE" ]]; then
+  echo "Version: local build"
+fi
 if [[ -f "$WEB_INSTALL_DIR/server.js" ]]; then
   echo "Web bundle installed to: $WEB_INSTALL_DIR"
 fi

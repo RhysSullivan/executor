@@ -139,7 +139,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async () => {
       if (!storedSessionId) {
-        throw new Error("No guest session id available");
+        throw new Error("No anonymous session id available");
       }
 
       const context = await bootstrapAnonymousSession({ sessionId: storedSessionId });

@@ -205,6 +205,13 @@ try {
   );
   assertSuccess(install, "sandbox install");
 
+  const installedVersion = extractSemver(install) ?? extractInstalledVersion(install);
+  if (installedVersion) {
+    console.log(`[sandbox] installed executor version: v${installedVersion}`);
+  } else {
+    console.warn("[sandbox] could not determine installed executor version from installer output");
+  }
+
   const runtimeDoctor = await runSandboxBash(
     sandbox,
     "~/.executor/bin/executor doctor --runtime-only --verbose",
@@ -228,7 +235,6 @@ try {
     if (isNoProjectDoctorResult(doctor)) {
       console.warn("[sandbox] doctor reported no local project context; attempting bootstrap recovery from release tag source");
 
-      const installedVersion = extractSemver(install) ?? extractInstalledVersion(install);
       if (!installedVersion) {
         throw new Error("Could not determine installed executor version for bootstrap recovery");
       }

@@ -45,8 +45,8 @@ export async function ensureAnonymousIdentity(
     const accountId = await ctx.db.insert("accounts", {
       provider: "anonymous",
       providerAccountId,
-      email: `${providerAccountId}@guest.executor.local`,
-      name: "Guest User",
+      email: `${providerAccountId}@anonymous.executor.local`,
+      name: "Anonymous User",
       status: "active",
       createdAt: now,
       updatedAt: now,
