@@ -11,7 +11,7 @@ import type {
   ToolCallRequest,
   ToolRunContext,
 } from "../../../core/src/types";
-import { executeSerializedTool } from "../../../core/src/tool/source-serialization";
+import { executeSerializedTool, parseSerializedTool } from "../../../core/src/tool/source-serialization";
 import { describeError } from "../../../core/src/utils";
 import {
   decodeToolCallControlSignal,
@@ -39,6 +39,12 @@ type RegistryToolEntry = {
   description?: string;
   displayInput?: string;
   displayOutput?: string;
+  typedRef?: {
+    kind: "openapi_operation";
+    sourceKey: string;
+    operationId: string;
+  };
+  serializedToolJson?: string;
 };
 
 const registryNamespaceSchema = z.object({
@@ -55,7 +61,103 @@ const registryToolEntrySchema: z.ZodType<RegistryToolEntry> = z.object({
   description: z.string().optional(),
   displayInput: z.string().optional(),
   displayOutput: z.string().optional(),
+  typedRef: z.object({
+    kind: z.literal("openapi_operation"),
+    sourceKey: z.string(),
+    operationId: z.string(),
+  }).optional(),
+  serializedToolJson: z.string().optional(),
 });
+
+const openApiRefHintTablesSchema = z.array(z.object({
+  sourceKey: z.string(),
+  refs: z.array(z.object({ key: z.string(), hint: z.string() })),
+}));
+
+function buildOpenApiRefHintLookup(value: unknown): Record<string, Record<string, string>> {
+  const parsed = openApiRefHintTablesSchema.safeParse(value);
+  if (!parsed.success) return {};
+
+  const lookup: Record<string, Record<string, string>> = {};
+  for (const table of parsed.data) {
+    const refs: Record<string, string> = {};
+    for (const entry of table.refs) {
+      const key = entry.key.trim();
+      const hint = entry.hint.trim();
+      if (!key || !hint) continue;
+      refs[key] = hint;
+    }
+    if (Object.keys(refs).length > 0) {
+      lookup[table.sourceKey] = refs;
+    }
+  }
+
+  return lookup;
+}
+
+function resolveEntryRefHints(
+  entry: RegistryToolEntry,
+  refHintLookup: Record<string, Record<string, string>>,
+): { refHintKeys: string[]; refHints?: Record<string, string> } {
+  if (Object.keys(refHintLookup).length === 0) {
+    return { refHintKeys: [] };
+  }
+
+  if (!entry.serializedToolJson) {
+    return { refHintKeys: [] };
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(entry.serializedToolJson);
+  } catch {
+    return { refHintKeys: [] };
+  }
+
+  const serializedTool = parseSerializedTool(parsedJson);
+  if (serializedTool.isErr()) {
+    return { refHintKeys: [] };
+  }
+
+  const refHintKeys = Array.isArray(serializedTool.value.typing?.refHintKeys)
+    ? serializedTool.value.typing!.refHintKeys!.filter((key): key is string => typeof key === "string" && key.trim().length > 0)
+    : [];
+  if (refHintKeys.length === 0) {
+    return { refHintKeys: [] };
+  }
+
+  const sourceKey = serializedTool.value.typing?.typedRef?.kind === "openapi_operation"
+    ? serializedTool.value.typing.typedRef.sourceKey
+    : entry.typedRef?.sourceKey;
+  if (!sourceKey) {
+    return { refHintKeys };
+  }
+
+  const table = refHintLookup[sourceKey];
+  if (!table) {
+    return { refHintKeys };
+  }
+
+  const refHints: Record<string, string> = {};
+  for (const key of refHintKeys) {
+    const hint = table[key];
+    if (typeof hint === "string" && hint.length > 0) {
+      refHints[key] = hint;
+    }
+  }
+
+  return Object.keys(refHints).length > 0
+    ? { refHintKeys, refHints }
+    : { refHintKeys };
+}
+
+function mergeRefHintsIntoTable(target: Record<string, string>, refHints: Record<string, string>): void {
+  for (const [key, value] of Object.entries(refHints)) {
+    if (!target[key]) {
+      target[key] = value;
+    }
+  }
+}
 
 const catalogNamespacesInputSchema = z.object({
   limit: z.coerce.number().optional(),
@@ -191,6 +293,10 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         throw buildIdResult.error;
       }
       const buildId = buildIdResult.value;
+      const state = await ctx.runQuery(internal.toolRegistry.getState, {
+        workspaceId: task.workspaceId,
+      }) as unknown as { openApiRefHintTables?: unknown } | null;
+      const refHintLookup = buildOpenApiRefHintLookup(state?.openApiRefHintTables);
 
       const payload = typeof input === "string"
         ? { query: input }
@@ -249,12 +355,17 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
               })
             : [];
 
+        const refHintTable: Record<string, string> = {};
         const results = raw
           .filter((entry) => !namespace || String(entry.preferredPath ?? entry.path ?? "").toLowerCase().startsWith(`${namespace}.`))
           .filter((entry) => isAllowed(entry.path, entry.approval))
           .slice(0, limit)
           .map((entry) => {
             const preferredPath = entry.preferredPath ?? entry.path;
+            const refHints = resolveEntryRefHints(entry, refHintLookup);
+            if (refHints.refHints) {
+              mergeRefHintsIntoTable(refHintTable, refHints.refHints);
+            }
             return {
               path: preferredPath,
               source: entry.source,
@@ -262,11 +373,16 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
               description: entry.description,
               input: normalizeHint(entry.displayInput, "{}"),
               output: normalizeHint(entry.displayOutput, "unknown"),
+              ...(refHints.refHintKeys.length > 0 ? { refHintKeys: refHints.refHintKeys } : {}),
               // required keys are encoded in the `input` type hint
             };
           });
 
-        return await finalizeImmediateTool({ results, total: results.length });
+        return await finalizeImmediateTool({
+          results,
+          total: results.length,
+          ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
+        });
       }
 
       // discover
@@ -286,9 +402,14 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         .filter((entry) => isAllowed(entry.path, entry.approval))
         .slice(0, limit);
 
+      const refHintTable: Record<string, string> = {};
       const results = filtered.map((entry) => {
         const preferredPath = entry.preferredPath ?? entry.path;
         const description = compact ? String(entry.description ?? "").split("\n")[0] : entry.description;
+        const refHints = resolveEntryRefHints(entry, refHintLookup);
+        if (refHints.refHints) {
+          mergeRefHintsIntoTable(refHintTable, refHints.refHints);
+        }
         return {
           path: preferredPath,
           source: entry.source,
@@ -296,6 +417,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           description,
           input: normalizeHint(entry.displayInput, "{}"),
           output: normalizeHint(entry.displayOutput, "unknown"),
+          ...(refHints.refHintKeys.length > 0 ? { refHintKeys: refHints.refHintKeys } : {}),
           // required keys are encoded in the `input` type hint
         };
       });
@@ -305,6 +427,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         bestPath,
         results,
         total: results.length,
+        ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
       });
     }
 

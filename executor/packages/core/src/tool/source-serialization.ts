@@ -125,6 +125,7 @@ const toolTypingSchema: z.ZodType<ToolTyping> = z.object({
   outputHint: z.string().optional(),
   requiredInputKeys: z.array(z.string()).optional(),
   previewInputKeys: z.array(z.string()).optional(),
+  refHintKeys: z.array(z.string()).optional(),
   typedRef: toolTypedRefSchema.optional(),
 });
 

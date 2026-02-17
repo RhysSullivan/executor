@@ -473,6 +473,13 @@ export default defineSchema({
       header: v.optional(v.string()),
       inferred: v.boolean(),
     }))),
+    openApiRefHintTables: v.optional(v.array(v.object({
+      sourceKey: v.string(),
+      refs: v.array(v.object({
+        key: v.string(),
+        hint: v.string(),
+      })),
+    }))),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

@@ -29,8 +29,20 @@ const discoverInputSchema = z.object({
   includeSchemas: z.boolean().optional(),
 });
 
-export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
-  const index = buildIndex(tools);
+interface DiscoveryBuildOptions {
+  sourceRefHintTables?: Record<string, Record<string, string>>;
+}
+
+function mergeRefHintsIntoTable(target: Record<string, string>, refHints: Record<string, string>): void {
+  for (const [key, value] of Object.entries(refHints)) {
+    if (!target[key]) {
+      target[key] = value;
+    }
+  }
+}
+
+export function createCatalogTools(tools: ToolDefinition[], options: DiscoveryBuildOptions = {}): ToolDefinition[] {
+  const index = buildIndex(tools, options);
 
   const namespacesTool: ToolDefinition = {
     path: "catalog.namespaces",
@@ -118,27 +130,34 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
         : [...namespaceScoped].sort((a, b) => a.preferredPath.localeCompare(b.preferredPath)))
         .slice(0, limit);
 
-      const results = ranked.map((entry) => ({
-        path: entry.preferredPath,
-        aliases: entry.aliases,
-        source: entry.source,
-        approval: entry.approval,
-        description: compact ? compactDescriptionLine(entry.description) : entry.description,
-        signatureInfo: {
-          input: entry.displayInputHint,
-          output: entry.displayOutputHint,
-          requiredKeys: entry.requiredInputKeys,
-          previewKeys: entry.previewInputKeys,
-          ...(includeSchemas && !compact ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
-        },
-        signatureText: formatSignature(entry, depth, compact),
-        canonicalSignature: formatCanonicalSignature(entry),
-        exampleCall: buildExampleCall(entry),
-      }));
+      const refHintTable: Record<string, string> = {};
+      const results = ranked.map((entry) => {
+        mergeRefHintsIntoTable(refHintTable, entry.refHints);
+
+        return {
+          path: entry.preferredPath,
+          aliases: entry.aliases,
+          source: entry.source,
+          approval: entry.approval,
+          description: compact ? compactDescriptionLine(entry.description) : entry.description,
+          signatureInfo: {
+            input: entry.displayInputHint,
+            output: entry.displayOutputHint,
+            requiredKeys: entry.requiredInputKeys,
+            previewKeys: entry.previewInputKeys,
+            ...(entry.refHintKeys.length > 0 ? { refHintKeys: entry.refHintKeys } : {}),
+            ...(includeSchemas && !compact ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
+          },
+          signatureText: formatSignature(entry, depth, compact),
+          canonicalSignature: formatCanonicalSignature(entry),
+          exampleCall: buildExampleCall(entry),
+        };
+      });
 
       return {
         results,
         total: results.length,
+        ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
       };
     },
   };
@@ -146,8 +165,8 @@ export function createCatalogTools(tools: ToolDefinition[]): ToolDefinition[] {
   return [namespacesTool, toolsTool];
 }
 
-export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
-  const index = buildIndex(tools);
+export function createDiscoverTool(tools: ToolDefinition[], options: DiscoveryBuildOptions = {}): ToolDefinition {
+  const index = buildIndex(tools, options);
 
   return {
     path: "discover",
@@ -205,28 +224,35 @@ export function createDiscoverTool(tools: ToolDefinition[]): ToolDefinition {
         .sort((a, b) => b.score - a.score)
         .slice(0, limit);
 
-      const results = ranked.map(({ entry }) => ({
-        path: entry.preferredPath,
-        aliases: entry.aliases,
-        source: entry.source,
-        approval: entry.approval,
-        description: compact ? compactDescriptionLine(entry.description) : entry.description,
-        signature: formatSignature(entry, depth, compact),
-        canonicalSignature: formatCanonicalSignature(entry),
-        signatureInfo: {
-          input: entry.displayInputHint,
-          output: entry.displayOutputHint,
-          requiredKeys: entry.requiredInputKeys,
-          previewKeys: entry.previewInputKeys,
-          ...(includeSchemas && !compact ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
-        },
-        exampleCall: buildExampleCall(entry),
-      }));
+      const refHintTable: Record<string, string> = {};
+      const results = ranked.map(({ entry }) => {
+        mergeRefHintsIntoTable(refHintTable, entry.refHints);
+
+        return {
+          path: entry.preferredPath,
+          aliases: entry.aliases,
+          source: entry.source,
+          approval: entry.approval,
+          description: compact ? compactDescriptionLine(entry.description) : entry.description,
+          signature: formatSignature(entry, depth, compact),
+          canonicalSignature: formatCanonicalSignature(entry),
+          signatureInfo: {
+            input: entry.displayInputHint,
+            output: entry.displayOutputHint,
+            requiredKeys: entry.requiredInputKeys,
+            previewKeys: entry.previewInputKeys,
+            ...(entry.refHintKeys.length > 0 ? { refHintKeys: entry.refHintKeys } : {}),
+            ...(includeSchemas && !compact ? { inputSchema: entry.inputSchema, outputSchema: entry.outputSchema } : {}),
+          },
+          exampleCall: buildExampleCall(entry),
+        };
+      });
 
       return {
         bestPath: chooseBestPath(ranked, terms.length),
         results,
         total: results.length,
+        ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
       };
     },
   };

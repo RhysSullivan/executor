@@ -56,6 +56,7 @@ export type ExternalToolSourceConfig =
 export interface PreparedOpenApiSpec {
   servers: string[];
   paths: Record<string, unknown>;
+  refHintTable?: Record<string, string>;
   dts?: string;
   dtsStatus?: "ready" | "failed" | "skipped";
   inferredAuth?: OpenApiAuth;

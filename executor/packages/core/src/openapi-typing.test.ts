@@ -118,6 +118,83 @@ describe("OpenAPI schema-first typing", () => {
     expect(anyTyped!.typing!.typedRef!.sourceKey).toBe("openapi:large");
   });
 
+  test("OpenAPI tools include ref hints for unresolved component refs", async () => {
+    const wideMeta = Object.fromEntries(
+      Array.from({ length: 10 }, (_, i) => [`field_${i}`, { type: "string" }]),
+    );
+
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Refs API", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          DeepMeta: {
+            type: "object",
+            properties: wideMeta,
+            required: ["field_0"],
+          },
+        },
+      },
+      paths: {
+        "/contacts": {
+          post: {
+            operationId: "createContact",
+            tags: ["contacts"],
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      payload: {
+                        type: "object",
+                        properties: {
+                          meta: { $ref: "#/components/schemas/DeepMeta" },
+                        },
+                        required: ["meta"],
+                      },
+                    },
+                    required: ["payload"],
+                  },
+                },
+              },
+            },
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        ok: { type: "boolean" },
+                      },
+                      required: ["ok"],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "refs", { includeDts: false, profile: "inventory" });
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "refs", spec, baseUrl: "https://api.example.com" },
+      prepared,
+    );
+
+    const createContact = tools.find((tool) => tool.path === "refs.contacts.create_contact");
+    expect(createContact).toBeDefined();
+    expect(createContact!.typing?.inputHint).toContain('components["schemas"]["DeepMeta"]');
+    expect(createContact!.typing?.refHintKeys).toContain("DeepMeta");
+    expect(prepared.refHintTable?.DeepMeta).toContain("field_0");
+  });
+
   test("prepared spec stays reasonably small for many operations", async () => {
     const spec = makeLargeSpec(250);
     const prepared = await prepareOpenApiSpec(spec, "large", { includeDts: false, profile: "inventory" });

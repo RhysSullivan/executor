@@ -22,6 +22,38 @@ function coerceRecord(value: unknown): Record<string, unknown> {
   return parsed.success ? parsed.data : {};
 }
 
+function coerceStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+
+  return out;
+}
+
+function resolveSourceRefHintTable(
+  tool: ToolDefinition,
+  sourceRefHintTables: Record<string, Record<string, string>>,
+): Record<string, string> {
+  const sourceKey = tool.typing?.typedRef?.kind === "openapi_operation"
+    ? tool.typing.typedRef.sourceKey
+    : "";
+  const bySourceKey = sourceKey ? sourceRefHintTables[sourceKey] : undefined;
+  if (bySourceKey) return bySourceKey;
+
+  const bySource = tool.source ? sourceRefHintTables[tool.source] : undefined;
+  if (bySource) return bySource;
+
+  return {};
+}
+
 function normalizeHint(type?: string): string {
   return type && type.trim().length > 0 ? type : "unknown";
 }
@@ -105,7 +137,12 @@ function getPathAliases(path: string): string[] {
   return [...aliases].slice(0, 4);
 }
 
-export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
+export function buildIndex(
+  tools: ToolDefinition[],
+  options: { sourceRefHintTables?: Record<string, Record<string, string>> } = {},
+): DiscoverIndexEntry[] {
+  const sourceRefHintTables = options.sourceRefHintTables ?? {};
+
   return tools
     .filter((tool) => tool.path !== "discover" && !tool.path.startsWith("catalog."))
     .map((tool) => {
@@ -129,12 +166,25 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
         ? parsedPreviewInputKeys.data
         : buildPreviewKeys(inputSchema);
 
-      const displayInputHint = normalizeHint(
-        isEmptyObjectSchema(inputSchema) ? "{}" : jsonSchemaTypeHintFallback(inputSchema),
-      );
-      const displayOutputHint = normalizeHint(
-        Object.keys(outputSchema).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(outputSchema),
-      );
+      const refHintKeys = coerceStringArray(typing?.refHintKeys);
+      const sourceRefHintTable = resolveSourceRefHintTable(tool, sourceRefHintTables);
+      const refHints = Object.keys(sourceRefHintTable).length > 0
+        ? Object.fromEntries(
+          refHintKeys
+            .map((key) => [key, sourceRefHintTable[key]])
+            .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0),
+        )
+        : {};
+
+      const typedInputHint = typeof typing?.inputHint === "string" ? typing.inputHint.trim() : "";
+      const typedOutputHint = typeof typing?.outputHint === "string" ? typing.outputHint.trim() : "";
+
+      const displayInputHint = normalizeHint(typedInputHint || (
+        isEmptyObjectSchema(inputSchema) ? "{}" : jsonSchemaTypeHintFallback(inputSchema)
+      ));
+      const displayOutputHint = normalizeHint(typedOutputHint || (
+        Object.keys(outputSchema).length === 0 ? "unknown" : jsonSchemaTypeHintFallback(outputSchema)
+      ));
 
       return {
         path: tool.path,
@@ -147,6 +197,8 @@ export function buildIndex(tools: ToolDefinition[]): DiscoverIndexEntry[] {
         outputSchema: safeOutputSchema,
         requiredInputKeys,
         previewInputKeys,
+        refHintKeys,
+        refHints,
         displayInputHint,
         displayOutputHint,
         searchText,

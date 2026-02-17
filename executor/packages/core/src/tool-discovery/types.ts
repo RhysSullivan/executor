@@ -11,6 +11,8 @@ export interface DiscoverIndexEntry {
   outputSchema: JsonSchema;
   requiredInputKeys: string[];
   previewInputKeys: string[];
+  refHintKeys: string[];
+  refHints: Record<string, string>;
   displayInputHint: string;
   displayOutputHint: string;
   searchText: string;

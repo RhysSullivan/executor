@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { jsonSchemaTypeHintFallback } from "./schema-hints";
+import { buildComponentRefHintTable, collectComponentRefKeys, jsonSchemaTypeHintFallback } from "./schema-hints";
 
 test("jsonSchemaTypeHintFallback collapses simple oneOf object union", () => {
   const schema = {
@@ -360,4 +360,35 @@ test("jsonSchemaTypeHintFallback repairs missing required properties for strict 
   expect(hint).toContain("name: string");
   expect(hint).toContain("value: string");
   expect(hint).toContain("type: \"A\" | \"TXT\"");
+});
+
+test("collectComponentRefKeys + buildComponentRefHintTable build stable ref lookup hints", () => {
+  const componentSchemas = {
+    CreateContactPayload: {
+      type: "object",
+      properties: {
+        email: { type: "string" },
+        profile: { $ref: "#/components/schemas/Profile" },
+      },
+      required: ["email", "profile"],
+    },
+    Profile: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+      },
+      required: ["name"],
+    },
+  };
+
+  const refKeys = collectComponentRefKeys(
+    [{ $ref: "#/components/schemas/CreateContactPayload" }],
+    componentSchemas,
+  );
+  const hints = buildComponentRefHintTable(refKeys, componentSchemas);
+
+  expect(refKeys).toEqual(["CreateContactPayload", "Profile"]);
+  expect(hints.CreateContactPayload).toContain("email: string");
+  expect(hints.CreateContactPayload).toContain("profile");
+  expect(hints.Profile).toContain("name: string");
 });

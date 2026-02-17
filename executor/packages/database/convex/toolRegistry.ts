@@ -14,6 +14,8 @@ export const getState = internalQuery({
 
     if (!entry) return null;
 
+    const stateEntry = entry as Record<string, unknown>;
+
     return {
       signature: entry.signature,
       readyBuildId: entry.readyBuildId,
@@ -30,6 +32,7 @@ export const getState = internalQuery({
       sourceVersions: entry.sourceVersions ?? [],
       sourceQuality: entry.sourceQuality ?? [],
       sourceAuthProfiles: entry.sourceAuthProfiles ?? [],
+      openApiRefHintTables: Array.isArray(stateEntry.openApiRefHintTables) ? stateEntry.openApiRefHintTables : [],
       updatedAt: entry.updatedAt,
     };
   },
@@ -76,9 +79,10 @@ export const beginBuild = internalMutation({
       sourceVersions: [],
       sourceQuality: [],
       sourceAuthProfiles: [],
+      openApiRefHintTables: [],
       createdAt: now,
       updatedAt: now,
-    });
+    } as never);
   },
 });
 
@@ -197,9 +201,10 @@ export const finishBuild = internalMutation({
         sourceVersions: [],
         sourceQuality: [],
         sourceAuthProfiles: [],
+        openApiRefHintTables: [],
         createdAt: now,
         updatedAt: now,
-      });
+      } as never);
       return;
     }
 
@@ -255,6 +260,13 @@ export const updateBuildMetadata = internalMutation({
       header: v.optional(v.string()),
       inferred: v.boolean(),
     })),
+    openApiRefHintTables: v.optional(v.array(v.object({
+      sourceKey: v.string(),
+      refs: v.array(v.object({
+        key: v.string(),
+        hint: v.string(),
+      })),
+    }))),
   },
   handler: async (ctx, args) => {
     const state = await ctx.db
@@ -276,8 +288,9 @@ export const updateBuildMetadata = internalMutation({
       sourceVersions: args.sourceVersions,
       sourceQuality: args.sourceQuality,
       sourceAuthProfiles: args.sourceAuthProfiles,
+      openApiRefHintTables: args.openApiRefHintTables,
       updatedAt: Date.now(),
-    });
+    } as never);
   },
 });
 
@@ -533,6 +546,7 @@ export const listToolsByNamespace = internalQuery({
       requiredInputKeys: entry.requiredInputKeys,
       previewInputKeys: entry.previewInputKeys,
       typedRef: entry.typedRef,
+      serializedToolJson: entry.serializedToolJson,
     }));
   },
 });
@@ -701,6 +715,7 @@ export const searchTools = internalQuery({
       displayOutput: entry.displayOutput,
       requiredInputKeys: entry.requiredInputKeys,
       previewInputKeys: entry.previewInputKeys,
+      serializedToolJson: entry.serializedToolJson,
     }));
   },
 });

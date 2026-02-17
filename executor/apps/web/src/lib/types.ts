@@ -125,6 +125,8 @@ export interface ToolDescriptor {
   typing?: {
     requiredInputKeys?: string[];
     previewInputKeys?: string[];
+    refHintKeys?: string[];
+    refHints?: Record<string, string>;
     typedRef?: {
       kind: "openapi_operation";
       sourceKey: string;
