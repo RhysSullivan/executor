@@ -451,9 +451,11 @@ export default defineSchema({
   // Stores the currently "ready" build id for search + invocation.
   workspaceToolRegistryState: defineTable({
     workspaceId: v.id("workspaces"),
-    signature: v.string(),
+    signature: v.optional(v.string()),
     readyBuildId: v.optional(v.string()),
     buildingBuildId: v.optional(v.string()),
+    typesStorageId: v.optional(v.id("_storage")),
+    warnings: v.optional(v.array(v.string())),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

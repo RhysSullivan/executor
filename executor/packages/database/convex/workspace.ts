@@ -1,7 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { mutation } from "./_generated/server";
-import { workspaceMutation, workspaceQuery } from "../../core/src/function-builders";
+import { customMutation, workspaceMutation, workspaceQuery } from "../../core/src/function-builders";
 import { getOrganizationMembership, isAdminRole } from "../../core/src/identity";
 import {
   credentialProviderValidator,
@@ -15,7 +14,8 @@ import {
   toolSourceTypeValidator,
 } from "../src/database/validators";
 
-export const bootstrapAnonymousSession = mutation({
+export const bootstrapAnonymousSession = customMutation({
+  method: "POST",
   args: {
     sessionId: v.optional(v.string()),
     accountId: v.optional(v.string()),
@@ -27,6 +27,7 @@ export const bootstrapAnonymousSession = mutation({
 });
 
 export const listTasks = workspaceQuery({
+  method: "GET",
   args: {},
   handler: async (ctx) => {
     return await ctx.runQuery(internal.database.listTasks, {
@@ -36,6 +37,7 @@ export const listTasks = workspaceQuery({
 });
 
 export const listPendingApprovals = workspaceQuery({
+  method: "GET",
   args: {},
   handler: async (ctx) => {
     return await ctx.runQuery(internal.database.listPendingApprovals, {
@@ -45,6 +47,7 @@ export const listPendingApprovals = workspaceQuery({
 });
 
 export const upsertAccessPolicy = workspaceMutation({
+  method: "POST",
   requireAdmin: true,
   args: {
     id: v.optional(v.string()),
@@ -73,6 +76,7 @@ export const upsertAccessPolicy = workspaceMutation({
 });
 
 export const listAccessPolicies = workspaceQuery({
+  method: "GET",
   args: {},
   handler: async (ctx) => {
     return await ctx.runQuery(internal.database.listAccessPolicies, {
@@ -83,6 +87,7 @@ export const listAccessPolicies = workspaceQuery({
 });
 
 export const upsertCredential = workspaceMutation({
+  method: "POST",
   requireAdmin: true,
   args: {
     id: v.optional(v.string()),
@@ -109,6 +114,7 @@ export const upsertCredential = workspaceMutation({
 });
 
 export const listCredentials = workspaceQuery({
+  method: "GET",
   requireAdmin: true,
   args: {},
   handler: async (ctx) => {
@@ -128,6 +134,7 @@ export const listCredentials = workspaceQuery({
 });
 
 export const resolveCredential = workspaceQuery({
+  method: "GET",
   requireAdmin: true,
   args: {
     sourceKey: v.string(),
@@ -143,6 +150,7 @@ export const resolveCredential = workspaceQuery({
 });
 
 export const upsertToolSource = workspaceMutation({
+  method: "POST",
   requireAdmin: true,
   args: {
     id: v.optional(v.string()),
@@ -168,6 +176,7 @@ export const upsertToolSource = workspaceMutation({
 });
 
 export const listToolSources = workspaceQuery({
+  method: "GET",
   args: {},
   handler: async (ctx) => {
     return await ctx.runQuery(internal.database.listToolSources, {
@@ -177,6 +186,7 @@ export const listToolSources = workspaceQuery({
 });
 
 export const deleteToolSource = workspaceMutation({
+  method: "POST",
   requireAdmin: true,
   args: {
     sourceId: v.string(),

@@ -7,6 +7,7 @@ import {
 } from "../src/workspaces/handlers";
 
 export const create = authedMutation({
+  method: "POST",
   args: {
     name: v.string(),
     organizationId: v.optional(v.id("organizations")),
@@ -18,6 +19,7 @@ export const create = authedMutation({
 });
 
 export const list = optionalAccountQuery({
+  method: "GET",
   args: {
     organizationId: v.optional(v.id("organizations")),
   },
@@ -27,6 +29,7 @@ export const list = optionalAccountQuery({
 });
 
 export const generateWorkspaceIconUploadUrl = authedMutation({
+  method: "POST",
   args: {},
   handler: async (ctx) => {
     return await generateWorkspaceIconUploadUrlHandler(ctx);

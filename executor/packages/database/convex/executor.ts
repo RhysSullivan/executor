@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, internalMutation } from "./_generated/server";
-import { workspaceMutation } from "../../core/src/function-builders";
+import { internalMutation } from "./_generated/server";
+import { customAction, workspaceMutation } from "../../core/src/function-builders";
 import {
   completeRuntimeRunHandler,
   createTaskHandler,
@@ -11,7 +11,8 @@ import {
 } from "../src/executor/handlers";
 import { jsonObjectValidator } from "../src/database/validators";
 
-export const createTask = action({
+export const createTask = customAction({
+  method: "POST",
   args: {
     code: v.string(),
     timeoutMs: v.optional(v.number()),
@@ -45,6 +46,7 @@ export const createTaskInternal = internalMutation({
 });
 
 export const resolveApproval = workspaceMutation({
+  method: "POST",
   args: {
     approvalId: v.string(),
     decision: v.union(v.literal("approved"), v.literal("denied")),

@@ -23,6 +23,7 @@ const organizationRoleValidator = v.union(
 );
 
 export const list = organizationQuery({
+  method: "GET",
   requireAdmin: true,
   args: {},
   handler: async (ctx) => {
@@ -47,6 +48,7 @@ export const list = organizationQuery({
 });
 
 export const create = organizationMutation({
+  method: "POST",
   requireAdmin: true,
   args: {
     email: v.string(),
@@ -197,6 +199,7 @@ export const deliverWorkosInvite = internalAction({
 });
 
 export const revoke = organizationMutation({
+  method: "POST",
   requireAdmin: true,
   args: {
     inviteId: v.id("invites"),

@@ -1,7 +1,8 @@
 import { AuthKit, type AuthFunctions } from "@convex-dev/workos-authkit";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel.d.ts";
-import { internalMutation, mutation } from "./_generated/server";
+import { internalMutation } from "./_generated/server";
+import { customMutation } from "../../core/src/function-builders";
 import { bootstrapCurrentWorkosAccountImpl } from "../src/auth/bootstrap";
 import { workosEventHandlers } from "../src/auth/event_handlers";
 
@@ -39,7 +40,8 @@ export const authKitEvent = authKitEvents?.authKitEvent ?? internalMutation({
   handler: async () => null,
 });
 
-export const bootstrapCurrentWorkosAccount = mutation({
+export const bootstrapCurrentWorkosAccount = customMutation({
+  method: "POST",
   args: {},
   handler: bootstrapCurrentWorkosAccountImpl,
 });

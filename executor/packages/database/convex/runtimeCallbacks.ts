@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, mutation, query } from "./_generated/server";
+import { customAction, customMutation, customQuery } from "../../core/src/function-builders";
 import {
   completeRunHandler,
   getApprovalStatusHandler,
@@ -8,7 +8,8 @@ import {
 } from "../src/runtime-callbacks/handlers";
 import { jsonObjectValidator } from "../src/database/validators";
 
-export const handleToolCall = action({
+export const handleToolCall = customAction({
+  method: "POST",
   args: {
     internalSecret: v.string(),
     runId: v.string(),
@@ -21,7 +22,8 @@ export const handleToolCall = action({
   },
 });
 
-export const completeRun = mutation({
+export const completeRun = customMutation({
+  method: "POST",
   args: {
     internalSecret: v.string(),
     runId: v.string(),
@@ -35,7 +37,8 @@ export const completeRun = mutation({
   },
 });
 
-export const getApprovalStatus = query({
+export const getApprovalStatus = customQuery({
+  method: "GET",
   args: {
     internalSecret: v.string(),
     runId: v.string(),

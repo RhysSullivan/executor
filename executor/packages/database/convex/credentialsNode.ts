@@ -2,7 +2,7 @@
 
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action } from "./_generated/server";
+import { customAction } from "../../core/src/function-builders";
 import { upsertCredentialHandler } from "../src/credentials-node/upsert-credential";
 import {
   credentialProviderValidator,
@@ -10,7 +10,8 @@ import {
   jsonObjectValidator,
 } from "../src/database/validators";
 
-export const upsertCredential = action({
+export const upsertCredential = customAction({
+  method: "POST",
   args: {
     id: v.optional(v.string()),
     workspaceId: v.id("workspaces"),

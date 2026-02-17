@@ -18,6 +18,8 @@ export const getState = internalQuery({
       signature: entry.signature,
       readyBuildId: entry.readyBuildId,
       buildingBuildId: entry.buildingBuildId,
+      typesStorageId: entry.typesStorageId,
+      warnings: entry.warnings ?? [],
       updatedAt: entry.updatedAt,
     };
   },
@@ -38,7 +40,6 @@ export const beginBuild = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        signature: args.signature,
         buildingBuildId: args.buildId,
         updatedAt: now,
       });
@@ -50,6 +51,8 @@ export const beginBuild = internalMutation({
       signature: args.signature,
       readyBuildId: undefined,
       buildingBuildId: args.buildId,
+      typesStorageId: undefined,
+      warnings: [],
       createdAt: now,
       updatedAt: now,
     });
@@ -144,6 +147,7 @@ export const finishBuild = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     buildId: v.string(),
+    signature: v.string(),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -155,9 +159,11 @@ export const finishBuild = internalMutation({
     if (!state) {
       await ctx.db.insert("workspaceToolRegistryState", {
         workspaceId: args.workspaceId,
-        signature: "",
+        signature: args.signature,
         readyBuildId: args.buildId,
         buildingBuildId: undefined,
+        typesStorageId: undefined,
+        warnings: [],
         createdAt: now,
         updatedAt: now,
       });
@@ -171,8 +177,60 @@ export const finishBuild = internalMutation({
 
     await ctx.db.patch(state._id, {
       readyBuildId: args.buildId,
+      signature: args.signature,
       buildingBuildId: undefined,
       updatedAt: now,
+    });
+  },
+});
+
+export const updateBuildMetadata = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    typesStorageId: v.optional(v.id("_storage")),
+    warnings: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("workspaceToolRegistryState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (!state) {
+      return;
+    }
+    if (state.readyBuildId !== args.buildId) {
+      return;
+    }
+
+    await ctx.db.patch(state._id, {
+      typesStorageId: args.typesStorageId,
+      warnings: args.warnings,
+      updatedAt: Date.now(),
+    });
+  },
+});
+
+export const failBuild = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db
+      .query("workspaceToolRegistryState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (!state) {
+      return;
+    }
+    if (state.buildingBuildId !== args.buildId) {
+      return;
+    }
+
+    await ctx.db.patch(state._id, {
+      buildingBuildId: undefined,
+      updatedAt: Date.now(),
     });
   },
 });
@@ -363,6 +421,7 @@ export const getToolByPath = internalQuery({
       displayOutput: entry.displayOutput,
       requiredInputKeys: entry.requiredInputKeys,
       previewInputKeys: entry.previewInputKeys,
+      typedRef: entry.typedRef,
       serializedToolJson: entry.serializedToolJson,
     };
   },
@@ -377,7 +436,7 @@ export const listToolsByNamespace = internalQuery({
   },
   handler: async (ctx, args) => {
     const namespace = args.namespace.trim().toLowerCase();
-    const limit = Math.max(1, Math.min(200, Math.floor(args.limit)));
+    const limit = Math.max(1, Math.min(20_000, Math.floor(args.limit)));
     if (!namespace) return [];
 
     const entries = await ctx.db
@@ -398,6 +457,7 @@ export const listToolsByNamespace = internalQuery({
       displayOutput: entry.displayOutput,
       requiredInputKeys: entry.requiredInputKeys,
       previewInputKeys: entry.previewInputKeys,
+      typedRef: entry.typedRef,
     }));
   },
 });

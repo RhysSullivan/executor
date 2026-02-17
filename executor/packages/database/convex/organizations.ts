@@ -9,6 +9,7 @@ import {
 } from "../src/organizations/handlers";
 
 export const create = authedMutation({
+  method: "POST",
   args: {
     name: v.string(),
   },
@@ -18,6 +19,7 @@ export const create = authedMutation({
 });
 
 export const listMine = optionalAccountQuery({
+  method: "GET",
   args: {},
   handler: async (ctx) => {
     return await listOrganizationsMineHandler(ctx);
@@ -25,6 +27,7 @@ export const listMine = optionalAccountQuery({
 });
 
 export const getNavigationState = optionalAccountQuery({
+  method: "GET",
   args: {},
   handler: async (ctx) => {
     return await getNavigationStateHandler(ctx);
@@ -32,6 +35,7 @@ export const getNavigationState = optionalAccountQuery({
 });
 
 export const getOrganizationAccess = optionalAccountQuery({
+  method: "GET",
   args: {
     organizationId: v.id("organizations"),
   },
@@ -41,6 +45,7 @@ export const getOrganizationAccess = optionalAccountQuery({
 });
 
 export const resolveWorkosOrganizationId = optionalAccountQuery({
+  method: "GET",
   args: {
     organizationId: v.id("organizations"),
   },

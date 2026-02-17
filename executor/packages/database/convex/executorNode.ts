@@ -1,7 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
-import { action, internalAction } from "./_generated/server";
+import { internalAction } from "./_generated/server";
 import type {
   ToolCallResult,
   ToolDescriptor,
@@ -18,8 +18,10 @@ import {
 import { runQueuedTask } from "../src/runtime/task_runner";
 import { handleExternalToolCallRequest } from "../src/runtime/external_tool_call";
 import { jsonObjectValidator } from "../src/database/validators";
+import { customAction } from "../../core/src/function-builders";
 
-export const listToolsWithWarnings = action({
+export const listToolsWithWarnings = customAction({
+  method: "POST",
   args: {
     workspaceId: v.id("workspaces"),
     accountId: v.optional(v.id("accounts")),

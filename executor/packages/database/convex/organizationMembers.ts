@@ -13,6 +13,7 @@ const organizationRoleValidator = v.union(
 );
 
 export const list = organizationQuery({
+  method: "GET",
   args: {},
   handler: async (ctx) => {
     const members = await ctx.db
@@ -43,6 +44,7 @@ export const list = organizationQuery({
 });
 
 export const updateRole = organizationMutation({
+  method: "POST",
   args: {
     accountId: v.id("accounts"),
     role: organizationRoleValidator,
@@ -70,6 +72,7 @@ export const updateRole = organizationMutation({
 });
 
 export const updateBillable = organizationMutation({
+  method: "POST",
   args: {
     accountId: v.id("accounts"),
     billable: v.boolean(),
@@ -99,6 +102,7 @@ export const updateBillable = organizationMutation({
 });
 
 export const remove = organizationMutation({
+  method: "POST",
   args: {
     accountId: v.id("accounts"),
   },

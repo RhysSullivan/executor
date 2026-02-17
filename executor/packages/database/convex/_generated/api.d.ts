@@ -1161,10 +1161,16 @@ export declare const internal: {
       { buildId: string; cursor?: string; workspaceId: Id<"workspaces"> },
       any
     >;
-    finishBuild: FunctionReference<
+    failBuild: FunctionReference<
       "mutation",
       "internal",
       { buildId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    finishBuild: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; signature: string; workspaceId: Id<"workspaces"> },
       any
     >;
     getState: FunctionReference<
@@ -1270,6 +1276,17 @@ export declare const internal: {
         buildId: string;
         limit: number;
         query: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    updateBuildMetadata: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        buildId: string;
+        typesStorageId?: Id<"_storage">;
+        warnings: Array<string>;
         workspaceId: Id<"workspaces">;
       },
       any
