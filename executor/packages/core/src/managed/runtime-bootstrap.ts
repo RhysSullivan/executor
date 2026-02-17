@@ -168,7 +168,7 @@ async function seedManagedRuntimeEnvVars(
     const seeded = await runManagedConvexCli(
       info,
       projectDir,
-      ["env", "set", entry.name, entry.value],
+      ["env", "set", `${entry.name}=${entry.value}`],
       envFilePath,
       {
         stdout: "pipe",
@@ -319,7 +319,7 @@ async function hasBootstrapDependencies(projectDir: string): Promise<boolean> {
 
 async function ensureProjectDependencies(info: ManagedRuntimeInfo, projectDir: string): Promise<void> {
   const bootstrapRelative = path.relative(path.join(info.rootDir, "bootstrap-project"), projectDir);
-  const isRuntimeBootstrapProject = bootstrapRelative.length > 0 && !bootstrapRelative.startsWith("..") && !path.isAbsolute(bootstrapRelative);
+  const isRuntimeBootstrapProject = !bootstrapRelative.startsWith("..") && !path.isAbsolute(bootstrapRelative);
 
   if (!isRuntimeBootstrapProject) {
     return;

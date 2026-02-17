@@ -35,6 +35,10 @@ function webArchiveName(platform: ReleaseTarget["platform"], arch: ReleaseTarget
   return `executor-web-${platform}-${arch}.tar.gz`;
 }
 
+function bootstrapArchiveName(): string {
+  return "executor-bootstrap-project.tar.gz";
+}
+
 async function sha256(filePath: string): Promise<string> {
   const bytes = await Bun.file(filePath).arrayBuffer();
   return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
@@ -142,6 +146,27 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
   }
 }
 
+async function buildBootstrapProjectArtifact(rootDir: string, releaseDir: string, checksums: string[]): Promise<void> {
+  const monorepoRoot = path.resolve(rootDir, "..");
+  const archivePath = path.join(releaseDir, bootstrapArchiveName());
+
+  await runCommand(
+    [
+      "git",
+      "archive",
+      "--format=tar.gz",
+      "--prefix=executor/",
+      `--output=${archivePath}`,
+      "HEAD:executor",
+    ],
+    { cwd: monorepoRoot },
+  );
+
+  const digest = await sha256(archivePath);
+  checksums.push(`${digest}  ${path.basename(archivePath)}`);
+  console.log(`built ${path.basename(archivePath)}`);
+}
+
 async function main(): Promise<void> {
   const rootDir = path.resolve(import.meta.dir, "..", "..");
   const releaseDir = path.join(rootDir, "dist", "release");
@@ -182,6 +207,7 @@ async function main(): Promise<void> {
   }
 
   await buildWebArtifact(rootDir, releaseDir, checksums);
+  await buildBootstrapProjectArtifact(rootDir, releaseDir, checksums);
 
   await Bun.write(path.join(releaseDir, "checksums.txt"), `${checksums.join("\n")}\n`);
   console.log(`wrote ${path.join("dist", "release", "checksums.txt")}`);

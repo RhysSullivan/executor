@@ -6,6 +6,7 @@ REPO="${EXECUTOR_REPO:-RhysSullivan/executor}"
 INSTALL_DIR="${EXECUTOR_INSTALL_DIR:-$HOME/.executor/bin}"
 WEB_INSTALL_DIR="${EXECUTOR_WEB_INSTALL_DIR:-$HOME/.executor/runtime/web}"
 RUNTIME_DIR="${EXECUTOR_RUNTIME_DIR:-$HOME/.executor/runtime}"
+BOOTSTRAP_ARCHIVE_FILENAME="executor-bootstrap-project.tar.gz"
 REQUESTED_VERSION="${VERSION:-}"
 RESOLVED_VERSION=""
 BINARY_PATH=""
@@ -15,6 +16,9 @@ SCRIPT_FILE="${BASH_SOURCE[0]:-$0}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${SCRIPT_FILE}")" >/dev/null 2>&1 && pwd)"
 LOCAL_BINARY_CANDIDATE="$SCRIPT_DIR/dist/executor"
 LOCAL_WEB_CANDIDATE="$SCRIPT_DIR/dist/release"
+LOCAL_BOOTSTRAP_CANDIDATE="$LOCAL_WEB_CANDIDATE/$BOOTSTRAP_ARCHIVE_FILENAME"
+CHECKSUMS_FILE=""
+CHECKSUMS_FETCHED="0"
 
 RED='\033[0;31m'
 MUTED='\033[0;2m'
@@ -38,6 +42,7 @@ Environment:
   EXECUTOR_REPO            GitHub repository to install from (default: RhysSullivan/executor)
   EXECUTOR_INSTALL_DIR     Install directory (default: ~/.executor/bin)
   EXECUTOR_WEB_INSTALL_DIR Web bundle directory (default: ~/.executor/runtime/web)
+  EXECUTOR_BOOTSTRAP_PROJECT_ARCHIVE Optional local bootstrap archive override
 EOF
 }
 
@@ -112,8 +117,96 @@ SERVICE_DIR="$RUNTIME_DIR/services"
 LOG_DIR="$RUNTIME_DIR/logs"
 BACKEND_PID_FILE="$SERVICE_DIR/backend.pid"
 WEB_PID_FILE="$SERVICE_DIR/web.pid"
+WORK_DIR="$(mktemp -d)"
+trap 'rm -rf "$WORK_DIR"' EXIT
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$WEB_INSTALL_DIR"
+
+require_command() {
+  local command_name="$1"
+  local install_hint="$2"
+  if command -v "$command_name" >/dev/null 2>&1; then
+    return
+  fi
+
+  echo -e "${RED}Missing required dependency: ${command_name}${NC}"
+  echo "Install hint: ${install_hint}"
+  exit 1
+}
+
+sha256_of_file() {
+  local target="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$target" | awk '{print $1}'
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$target" | awk '{print $1}'
+    return
+  fi
+
+  echo -e "${RED}Missing checksum utility (sha256sum or shasum)${NC}"
+  exit 1
+}
+
+ensure_install_prerequisites() {
+  require_command "curl" "Install curl from your OS package manager."
+  require_command "tar" "Install tar from your OS package manager."
+  if command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1; then
+    return
+  fi
+
+  echo -e "${RED}Missing required dependency: sha256sum or shasum${NC}"
+  echo "Install hint: coreutils (sha256sum) or perl-Digest-SHA tools (shasum)."
+  exit 1
+}
+
+download_release_checksums() {
+  if [[ "$CHECKSUMS_FETCHED" == "1" ]]; then
+    return
+  fi
+
+  CHECKSUMS_FETCHED="1"
+  local checksums_url
+  if [[ -z "$REQUESTED_VERSION" ]]; then
+    checksums_url="https://github.com/${REPO}/releases/latest/download/checksums.txt"
+  else
+    checksums_url="https://github.com/${REPO}/releases/download/v${RESOLVED_VERSION}/checksums.txt"
+  fi
+
+  local destination="$WORK_DIR/checksums.txt"
+  if curl -fsSL "$checksums_url" -o "$destination"; then
+    CHECKSUMS_FILE="$destination"
+  fi
+}
+
+verify_release_checksum_if_available() {
+  local downloaded_file="$1"
+  local artifact_name="$2"
+  download_release_checksums
+
+  if [[ -z "$CHECKSUMS_FILE" || ! -f "$CHECKSUMS_FILE" ]]; then
+    return
+  fi
+
+  local expected
+  expected="$(grep -E "[[:xdigit:]]+[[:space:]]+${artifact_name}$" "$CHECKSUMS_FILE" | awk '{print $1}' | head -n1)"
+  if [[ -z "$expected" ]]; then
+    return
+  fi
+
+  local actual
+  actual="$(sha256_of_file "$downloaded_file")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo -e "${RED}Checksum mismatch for ${artifact_name}${NC}"
+    echo "  expected: ${expected}"
+    echo "  actual:   ${actual}"
+    exit 1
+  fi
+}
+
+ensure_install_prerequisites
 
 install_local_binary() {
   local src="$1"
@@ -151,8 +244,7 @@ install_web_bundle_from_archive() {
 
 install_web_bundle() {
   local web_url
-  local temp_archive
-  temp_archive="$(mktemp)"
+  local temp_archive="$WORK_DIR/$web_filename"
 
   if [[ -z "$REQUESTED_VERSION" ]]; then
     web_url="https://github.com/${REPO}/releases/latest/download/${web_filename}"
@@ -161,12 +253,11 @@ install_web_bundle() {
   fi
 
   if curl -fsSL "$web_url" -o "$temp_archive"; then
+    verify_release_checksum_if_available "$temp_archive" "$web_filename"
     echo -e "${MUTED}Installing web bundle${NC} ${web_filename}"
     install_web_bundle_from_archive "$temp_archive"
-    rm -f "$temp_archive"
     return
   fi
-  rm -f "$temp_archive"
 
   local local_web_archive="$LOCAL_WEB_CANDIDATE/${web_filename}"
   if [[ -f "$local_web_archive" ]]; then
@@ -200,8 +291,7 @@ else
     url="https://github.com/${REPO}/releases/download/v${version}/${filename}"
   fi
 
-  tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
+  tmp_dir="$WORK_DIR"
 
   echo -e "${MUTED}Installing ${APP}${NC} ${version:-latest}"
   if ! curl -fsSL "$url" -o "$tmp_dir/$filename"; then
@@ -217,6 +307,7 @@ else
       exit 1
     fi
   else
+    verify_release_checksum_if_available "$tmp_dir/$filename" "$filename"
     tar -xzf "$tmp_dir/$filename" -C "$tmp_dir"
 
     if [[ ! -f "$tmp_dir/$APP" ]]; then
@@ -347,19 +438,24 @@ download_bootstrap_project_archive() {
     return 1
   fi
 
-  local urls=()
-  if [[ -n "$RESOLVED_VERSION" ]]; then
-    urls+=("https://github.com/${REPO}/archive/refs/tags/v${RESOLVED_VERSION}.tar.gz")
-    urls+=("https://github.com/${REPO}/archive/refs/tags/${RESOLVED_VERSION}.tar.gz")
-  fi
-  urls+=("https://github.com/${REPO}/archive/refs/heads/main.tar.gz")
-
-  local url
-  for url in "${urls[@]}"; do
-    if curl -fsSL "$url" -o "$destination"; then
+  if [[ -z "$REQUESTED_VERSION" ]]; then
+    local latest_url="https://github.com/${REPO}/releases/latest/download/${BOOTSTRAP_ARCHIVE_FILENAME}"
+    if curl -fsSL "$latest_url" -o "$destination"; then
+      verify_release_checksum_if_available "$destination" "$BOOTSTRAP_ARCHIVE_FILENAME"
       return 0
     fi
-  done
+  else
+    local versioned_url="https://github.com/${REPO}/releases/download/v${RESOLVED_VERSION}/${BOOTSTRAP_ARCHIVE_FILENAME}"
+    if curl -fsSL "$versioned_url" -o "$destination"; then
+      verify_release_checksum_if_available "$destination" "$BOOTSTRAP_ARCHIVE_FILENAME"
+      return 0
+    fi
+  fi
+
+  if [[ -f "$LOCAL_BOOTSTRAP_CANDIDATE" ]]; then
+    cp "$LOCAL_BOOTSTRAP_CANDIDATE" "$destination"
+    return 0
+  fi
 
   return 1
 }
@@ -367,7 +463,7 @@ download_bootstrap_project_archive() {
 prepare_release_bootstrap_project() {
   local bootstrap_root="$RUNTIME_DIR/bootstrap-project"
   local version_file="$bootstrap_root/.executor-bootstrap-version"
-  local cache_key="${RESOLVED_VERSION:-main}"
+  local cache_key="${RESOLVED_VERSION:-latest}"
 
   if [[ -f "$version_file" ]] && [[ "$(cat "$version_file" 2>/dev/null || true)" == "$cache_key" ]]; then
     if is_convex_project_dir "$bootstrap_root"; then
@@ -380,10 +476,8 @@ prepare_release_bootstrap_project() {
     fi
   fi
 
-  local archive_file
-  archive_file="$(mktemp)"
+  local archive_file="$WORK_DIR/$BOOTSTRAP_ARCHIVE_FILENAME"
   if ! download_bootstrap_project_archive "$archive_file"; then
-    rm -f "$archive_file"
     printf ""
     return
   fi
@@ -391,12 +485,10 @@ prepare_release_bootstrap_project() {
   rm -rf "$bootstrap_root"
   mkdir -p "$bootstrap_root"
   if ! tar -xzf "$archive_file" -C "$bootstrap_root" --strip-components=1; then
-    rm -f "$archive_file"
     rm -rf "$bootstrap_root"
     printf ""
     return
   fi
-  rm -f "$archive_file"
 
   local project_dir="$bootstrap_root"
   if is_convex_project_dir "$bootstrap_root"; then

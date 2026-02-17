@@ -225,4 +225,4 @@ executor/
 - `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER`.
 - `401` on `/mcp/anonymous`: pass `API_KEY` from the setup card as `Authorization: Bearer <API_KEY>` (or `x-api-key`).
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
-- Release build missing web archive files: run `bun run build:release` and verify `executor/dist/release/` contains all expected `executor-web-*.tar.gz` assets.
+- Release build missing managed artifacts: run `bun run build:release` and verify `executor/dist/release/` contains `executor-*.tar.gz`, `executor-web-*.tar.gz`, and `executor-bootstrap-project.tar.gz`.
