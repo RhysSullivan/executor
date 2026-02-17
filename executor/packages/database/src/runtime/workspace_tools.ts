@@ -1279,6 +1279,7 @@ export async function listToolsWithWarningsForContext(
     cursor?: string;
     limit?: number;
     buildId?: string;
+    fetchAll?: boolean;
   } = {},
 ): Promise<{
   tools: ToolDescriptor[];

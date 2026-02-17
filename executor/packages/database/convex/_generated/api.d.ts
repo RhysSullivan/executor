@@ -138,6 +138,7 @@ export declare const api: {
         buildId?: string;
         clientId?: string;
         cursor?: string;
+        fetchAll?: boolean;
         includeDetails?: boolean;
         includeSourceMeta?: boolean;
         limit?: number;

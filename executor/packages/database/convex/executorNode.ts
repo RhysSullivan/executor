@@ -36,6 +36,7 @@ export const listToolsWithWarnings = customAction({
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
     buildId: v.optional(v.string()),
+    fetchAll: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
@@ -69,6 +70,7 @@ export const listToolsWithWarnings = customAction({
       cursor: args.cursor,
       limit: args.limit,
       buildId: args.buildId,
+      fetchAll: args.fetchAll,
     });
 
     return inventory;
