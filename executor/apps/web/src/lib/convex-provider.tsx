@@ -16,11 +16,31 @@ import {
 } from "@/lib/anonymous-auth";
 import { workosEnabled } from "@/lib/auth-capabilities";
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-if (!convexUrl) {
+declare global {
+  interface Window {
+    __EXECUTOR_RUNTIME_CONFIG__?: {
+      convexUrl?: string;
+    };
+  }
+}
+
+function resolveConvexUrl(): string {
+  if (typeof window !== "undefined") {
+    const runtimeUrl = window.__EXECUTOR_RUNTIME_CONFIG__?.convexUrl?.trim();
+    if (runtimeUrl) {
+      return runtimeUrl;
+    }
+  }
+
+  const envUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (envUrl?.trim()) {
+    return envUrl;
+  }
+
   throw new Error("CONVEX_URL is not set. Add it to the root .env file.");
 }
-const convexClient = new ConvexReactClient(convexUrl, {
+
+const convexClient = new ConvexReactClient(resolveConvexUrl(), {
   unsavedChangesWarning: false,
 });
 

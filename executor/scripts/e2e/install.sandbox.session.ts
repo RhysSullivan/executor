@@ -176,6 +176,17 @@ try {
 }
 
 try {
+  const webUrl = sandbox.domain(webPort);
+  const convexUrl = sandbox.domain(backendPort);
+  const convexSiteUrl = sandbox.domain(sitePort);
+  const sandboxEnv = {
+    ...sandboxRuntimeEnv(backendPort, sitePort, webPort),
+    CONVEX_URL: convexUrl,
+    CONVEX_SITE_URL: convexSiteUrl,
+    EXECUTOR_WEB_CONVEX_URL: convexUrl,
+    EXECUTOR_WEB_CONVEX_SITE_URL: convexSiteUrl,
+  };
+
   console.log(`[sandbox] created: ${sandbox.sandboxId}`);
   console.log("[sandbox] running executor.sh install flow...");
 
@@ -196,7 +207,7 @@ try {
     {
       timeoutMs: installTimeoutMs,
       env: {
-        ...sandboxRuntimeEnv(backendPort, sitePort, webPort),
+        ...sandboxEnv,
         ANONYMOUS_AUTH_PRIVATE_KEY_PEM: anonymousAuthEnv.privateKeyPem,
         ANONYMOUS_AUTH_PUBLIC_KEY_PEM: anonymousAuthEnv.publicKeyPem,
         MCP_API_KEY_SECRET: anonymousAuthEnv.apiKeySecret,
@@ -217,7 +228,7 @@ try {
     "~/.executor/bin/executor doctor --runtime-only --verbose",
     {
       timeoutMs: installTimeoutMs,
-      env: sandboxRuntimeEnv(backendPort, sitePort, webPort),
+      env: sandboxEnv,
     },
   );
   assertSuccess(runtimeDoctor, "sandbox doctor --runtime-only");
@@ -227,7 +238,7 @@ try {
     "if [ -f ~/.executor/runtime/bootstrap-project/convex.json ]; then EXECUTOR_PROJECT_DIR=~/.executor/runtime/bootstrap-project ~/.executor/bin/executor doctor --verbose; else ~/.executor/bin/executor doctor --verbose; fi",
     {
       timeoutMs: installTimeoutMs,
-      env: sandboxRuntimeEnv(backendPort, sitePort, webPort),
+      env: sandboxEnv,
     },
   );
 
@@ -257,7 +268,7 @@ try {
         {
           timeoutMs: installTimeoutMs,
           env: {
-            ...sandboxRuntimeEnv(backendPort, sitePort, webPort),
+            ...sandboxEnv,
             ANONYMOUS_AUTH_PRIVATE_KEY_PEM: anonymousAuthEnv.privateKeyPem,
             ANONYMOUS_AUTH_PUBLIC_KEY_PEM: anonymousAuthEnv.publicKeyPem,
             MCP_API_KEY_SECRET: anonymousAuthEnv.apiKeySecret,
@@ -287,15 +298,11 @@ try {
     ].join("; "),
     {
       timeoutMs: installTimeoutMs,
-      env: sandboxRuntimeEnv(backendPort, sitePort, webPort),
+      env: sandboxEnv,
     },
   );
   assertSuccess(anonymousCheck, "sandbox anonymous account flow");
   console.log("[sandbox] anonymous token + bootstrap session flow verified");
-
-  const webUrl = sandbox.domain(webPort);
-  const convexUrl = sandbox.domain(backendPort);
-  const convexSiteUrl = sandbox.domain(sitePort);
 
   console.log("");
   console.log("Sandbox is ready for manual testing.");

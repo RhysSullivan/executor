@@ -8,6 +8,17 @@ import { SessionProvider } from "@/lib/session-context";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import "./globals.css";
 
+function runtimeConvexUrl(): string | null {
+  const candidate =
+    process.env.EXECUTOR_WEB_CONVEX_URL
+    ?? process.env.CONVEX_URL
+    ?? process.env.NEXT_PUBLIC_CONVEX_URL
+    ?? null;
+
+  const trimmed = candidate?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
 const inter = Inter({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -28,11 +39,19 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const convexUrl = runtimeConvexUrl();
+  const runtimeConfig = JSON.stringify({ convexUrl });
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
       >
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__EXECUTOR_RUNTIME_CONFIG__ = ${runtimeConfig};`,
+          }}
+        />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
