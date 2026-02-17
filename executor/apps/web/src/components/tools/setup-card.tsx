@@ -1,105 +1,104 @@
-"use client";
+"use client"
 
-import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
-import { Check, Copy } from "lucide-react";
-import type { Id } from "@executor/database/convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { getAddMcpInstallConfig } from "@/components/tools/install-configs";
-import { convexApi } from "@/lib/convex-api";
+import { useMemo, useState } from "react"
+import { useQuery } from "convex/react"
+import { Check, Copy, Eye, EyeOff } from "lucide-react"
+import type { Id } from "@executor/database/convex/_generated/dataModel"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { getAddMcpInstallConfig } from "@/components/tools/install-configs"
+import { convexApi } from "@/lib/convex-api"
 
 function inferServerName(workspaceId?: string): string {
-  if (!workspaceId) return "executor";
-  return `executor-${workspaceId.slice(0, 8).toLowerCase()}`;
+  if (!workspaceId) return "executor"
+  return `executor-${workspaceId.slice(0, 8).toLowerCase()}`
 }
 
 function isAnonymousSessionId(sessionId?: string): boolean {
-  if (!sessionId) return false;
-  return sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_");
+  if (!sessionId) return false
+  return sessionId.startsWith("anon_session_") || sessionId.startsWith("mcp_")
 }
 
 function isWorkosSessionId(sessionId?: string): boolean {
-  if (!sessionId) return false;
-  return sessionId.startsWith("workos_");
+  if (!sessionId) return false
+  return sessionId.startsWith("workos_")
 }
 
 function resolveMcpOrigin(windowOrigin: string): string {
-  const explicit = process.env.NEXT_PUBLIC_EXECUTOR_HTTP_URL ?? process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
+  const explicit = process.env.NEXT_PUBLIC_EXECUTOR_HTTP_URL ?? process.env.NEXT_PUBLIC_CONVEX_SITE_URL
   if (explicit && explicit.trim().length > 0) {
-    return explicit.trim().replace(/\/$/, "");
+    return explicit.trim().replace(/\/$/, "")
   }
 
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
   if (convexUrl) {
     try {
-      const parsed = new URL(convexUrl);
+      const parsed = new URL(convexUrl)
       if (parsed.hostname.endsWith(".convex.cloud")) {
-        parsed.hostname = parsed.hostname.replace(/\.convex\.cloud$/, ".convex.site");
+        parsed.hostname = parsed.hostname.replace(/\.convex\.cloud$/, ".convex.site")
       }
-      return parsed.origin;
+      return parsed.origin
     } catch {
       // Fallback to web origin below.
     }
   }
 
-  return windowOrigin;
+  return windowOrigin
 }
 
 export function McpSetupCard({
   workspaceId,
   sessionId,
 }: {
-  workspaceId?: Id<"workspaces">;
-  sessionId?: string;
+  workspaceId?: Id<"workspaces">
+  sessionId?: string
 }) {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [showApiKey, setShowApiKey] = useState(false)
+  const [showInstallApiKey, setShowInstallApiKey] = useState(false)
 
   const origin = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return resolveMcpOrigin(window.location.origin);
-  }, []);
+    if (typeof window === "undefined") return ""
+    return resolveMcpOrigin(window.location.origin)
+  }, [])
 
   const mcpUrl = useMemo(() => {
-    const isAnonymousSession = isAnonymousSessionId(sessionId);
-    const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp";
-    const base = origin ? new URL(mcpPath, origin) : new URL(`http://localhost${mcpPath}`);
-    if (workspaceId) base.searchParams.set("workspaceId", workspaceId);
+    const isAnonymousSession = isAnonymousSessionId(sessionId)
+    const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp"
+    const base = origin ? new URL(mcpPath, origin) : new URL(`http://localhost${mcpPath}`)
+    if (workspaceId) base.searchParams.set("workspaceId", workspaceId)
     if (!isAnonymousSession && sessionId && !isWorkosSessionId(sessionId)) {
-      base.searchParams.set("sessionId", sessionId);
+      base.searchParams.set("sessionId", sessionId)
     }
     if (!origin) {
-      return `${base.pathname}${base.search}`;
+      return `${base.pathname}${base.search}`
     }
-    return base.toString();
-  }, [origin, workspaceId, sessionId]);
+    return base.toString()
+  }, [origin, workspaceId, sessionId])
 
-  const isAnonymousSession = isAnonymousSessionId(sessionId);
+  const isAnonymousSession = isAnonymousSessionId(sessionId)
 
   const anonymousMcpApiKey = useQuery(
     convexApi.workspace.getMcpApiKey,
     isAnonymousSession && workspaceId
       ? {
           workspaceId,
-          sessionId
+          sessionId,
         }
       : "skip",
-  );
+  )
 
-
-  const apiKeyValue = anonymousMcpApiKey?.enabled
-    ? anonymousMcpApiKey.apiKey
-    : null;
+  const apiKeyValue = anonymousMcpApiKey?.enabled ? anonymousMcpApiKey.apiKey : null
   const apiKeyError = isAnonymousSession
     ? anonymousMcpApiKey?.enabled === false
       ? anonymousMcpApiKey.error
       : workspaceId
         ? null
         : "Workspace is required to issue an MCP API key"
-    : null;
+    : null
 
-  const serverName = inferServerName(workspaceId);
+  const serverName = inferServerName(workspaceId)
   const installConfig = getAddMcpInstallConfig(
     mcpUrl,
     serverName,
@@ -108,17 +107,29 @@ export function McpSetupCard({
           apiKey: apiKeyValue ?? "your-api-key-here",
         }
       : undefined,
-  );
+  )
+
+  const installCommand = useMemo(() => {
+    if (!isAnonymousSession || showInstallApiKey) {
+      return installConfig.content
+    }
+
+    return installConfig.content.replace(
+      / --header "x-api-key: [^"]+"/g,
+      ' --header "x-api-key: ********"',
+    )
+  }, [installConfig.content, isAnonymousSession, showInstallApiKey])
+
+  const apiKeyInputValue = apiKeyValue ?? "Loading API key..."
+  const apiKeyInputType = apiKeyValue ? (showApiKey ? "text" : "password") : "text"
 
   const copyText = async (key: string, text: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500);
-  };
+    await navigator.clipboard.writeText(text)
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500)
+  }
 
-  const codeLanguage = installConfig.type === "command"
-    ? "bash"
-    : installConfig.type;
+  const codeLanguage = installConfig.type === "command" ? "bash" : installConfig.type
 
   return (
     <div className="space-y-5">
@@ -140,18 +151,34 @@ export function McpSetupCard({
         {isAnonymousSession && (
           <div className="mt-2 space-y-1.5">
             <div className="flex items-center gap-2">
-              <Input
-                value={apiKeyValue ?? "Loading API key..."}
-                readOnly
-                className="h-8 text-xs font-mono bg-background"
-              />
+              <div className="relative flex-1">
+                <Input
+                  value={apiKeyInputValue}
+                  type={apiKeyInputType}
+                  readOnly
+                  className="h-8 text-xs font-mono bg-background pr-8"
+                  autoComplete="off"
+                  inputMode="text"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => void setShowApiKey((next) => !next)}
+                  disabled={!apiKeyValue}
+                  aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                >
+                  {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
               <Button
                 type="button"
                 size="icon"
                 variant="outline"
                 className="h-8 w-8"
                 disabled={!apiKeyValue}
-                onClick={() => apiKeyValue ? void copyText("api-key", apiKeyValue) : undefined}
+                onClick={() => void (apiKeyValue ? copyText("api-key", apiKeyValue) : undefined)}
               >
                 {copiedKey === "api-key" ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
@@ -164,8 +191,26 @@ export function McpSetupCard({
       <div className="space-y-2">
         <p className="text-[11px] text-muted-foreground">{installConfig.description}</p>
         <div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+          {isAnonymousSession && apiKeyValue ? (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="h-7 w-7"
+                onClick={() => void setShowInstallApiKey((next) => !next)}
+                aria-label={
+                  showInstallApiKey
+                    ? "Hide API key in install command"
+                    : "Reveal API key in install command"
+                }
+              >
+                {showInstallApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </Button>
+            </div>
+          ) : null}
           <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-foreground">
-            <code className={`language-${codeLanguage}`}>{installConfig.content}</code>
+            <code className={`language-${codeLanguage}`}>{installCommand}</code>
           </pre>
           <Button
             type="button"
@@ -178,7 +223,6 @@ export function McpSetupCard({
           </Button>
         </div>
       </div>
-
     </div>
-  );
+  )
 }
