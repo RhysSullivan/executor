@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
 import { Check, Copy } from "lucide-react";
+import type { Id } from "@executor/database/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,7 +51,7 @@ export function McpSetupCard({
   workspaceId,
   sessionId,
 }: {
-  workspaceId?: string;
+  workspaceId?: Id<"workspaces">;
   sessionId?: string;
 }) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -81,12 +82,12 @@ export function McpSetupCard({
     isAnonymousSession && workspaceId
       ? {
           workspaceId,
-          sessionId,
+          sessionId
         }
       : "skip",
   );
 
-  const apiKeyEnvName = anonymousMcpApiKey?.envVar ?? "API_KEY";
+
   const apiKeyValue = anonymousMcpApiKey?.enabled
     ? anonymousMcpApiKey.apiKey
     : null;
@@ -104,7 +105,6 @@ export function McpSetupCard({
     serverName,
     isAnonymousSession
       ? {
-          apiKeyEnvName,
           apiKey: apiKeyValue ?? "your-api-key-here",
         }
       : undefined,
@@ -139,7 +139,6 @@ export function McpSetupCard({
 
         {isAnonymousSession && (
           <div className="mt-2 space-y-1.5">
-            <Label className="text-xs text-muted-foreground">API Key ({apiKeyEnvName})</Label>
             <div className="flex items-center gap-2">
               <Input
                 value={apiKeyValue ?? "Loading API key..."}

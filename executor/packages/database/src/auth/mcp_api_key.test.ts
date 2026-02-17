@@ -20,10 +20,9 @@ test("issueMcpApiKey + verifyMcpApiKey round trip", async () => {
 
   expect(apiKey).toBeTruthy();
   const verified = await verifyMcpApiKey(apiKey);
-  expect(verified).toEqual({
-    workspaceId: "workspace_123",
-    accountId: "account_456",
-  });
+  expect(verified).not.toBeNull();
+  expect(verified?.workspaceId).toBe("workspace_123" as Id<"workspaces">);
+  expect(verified?.accountId).toBe("account_456" as Id<"accounts">);
 });
 
 test("verifyMcpApiKey rejects tampered token", async () => {

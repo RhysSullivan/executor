@@ -130,8 +130,7 @@ test("getAuthKitUserProfile retries with normalized user id", async () => {
     "workos|user_01KH1TVHS4WJCPQG2XQJGMMJMJ",
     "user_01KH1TVHS4WJCPQG2XQJGMMJMJ",
   ]);
-  expect(result).toEqual({
-    id: "user_01KH1TVHS4WJCPQG2XQJGMMJMJ",
-    email: "alex@example.com",
-  });
+  expect(result).not.toBeNull();
+  expect(result?.id).toBe("user_01KH1TVHS4WJCPQG2XQJGMMJMJ");
+  expect(result?.email).toBe("alex@example.com");
 });
