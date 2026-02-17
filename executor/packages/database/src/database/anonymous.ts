@@ -1,8 +1,10 @@
 import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx } from "../../convex/_generated/server";
+import { internal } from "../../convex/_generated/api";
 import { slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
 import { upsertOrganizationMembership } from "../auth/memberships";
+import { safeRunAfter } from "../lib/scheduler";
 
 async function ensureUniqueOrganizationSlug(ctx: Pick<MutationCtx, "db">, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName, "workspace");
@@ -59,6 +61,7 @@ export async function ensureAnonymousIdentity(
   }
 
   let workspace = params.workspaceId ? await ctx.db.get(params.workspaceId) : null;
+  let createdWorkspaceId: Doc<"workspaces">["_id"] | undefined;
 
   let organizationId: Doc<"organizations">["_id"];
 
@@ -85,6 +88,7 @@ export async function ensureAnonymousIdentity(
     if (!workspace) {
       throw new Error("Failed to create anonymous workspace");
     }
+    createdWorkspaceId = workspaceId;
   } else {
     organizationId = workspace.organizationId;
   }
@@ -97,6 +101,13 @@ export async function ensureAnonymousIdentity(
     billable: true,
     now,
   });
+
+  if (createdWorkspaceId) {
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+      workspaceId: createdWorkspaceId,
+      accountId: account._id,
+    });
+  }
 
   return {
     accountId: account._id,

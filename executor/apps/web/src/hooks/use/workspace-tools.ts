@@ -22,7 +22,7 @@ interface WorkspaceToolsQueryResult {
   /** URL to a workspace-wide Monaco `.d.ts` bundle (may be undefined). */
   typesUrl?: string;
   debug?: {
-    mode: "cache-fresh" | "cache-stale" | "rebuild";
+    mode: "cache-fresh" | "cache-stale" | "rebuild" | "registry";
     includeDts: boolean;
     sourceTimeoutMs: number | null;
     skipCacheRead: boolean;

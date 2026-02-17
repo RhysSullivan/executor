@@ -2,7 +2,6 @@
 
 import { v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
 import type {
   ToolCallResult,
   ToolDescriptor,
@@ -10,10 +9,10 @@ import type {
   SourceAuthProfile,
 } from "../../core/src/types";
 import { requireCanonicalAccount } from "../src/runtime/account_auth";
-import { safeRunAfter } from "../src/lib/scheduler";
 import {
   listToolsForContext,
   listToolsWithWarningsForContext,
+  rebuildWorkspaceToolInventoryForContext,
   type WorkspaceToolsDebug,
 } from "../src/runtime/workspace_tools";
 import { runQueuedTask } from "../src/runtime/task_runner";
@@ -55,21 +54,7 @@ export const listToolsWithWarnings = action({
       includeDetails: args.includeDetails ?? true,
       includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
       toolPaths: args.toolPaths,
-      sourceTimeoutMs: 2_500,
-      allowStaleOnMismatch: true,
     });
-
-    if (inventory.warnings.some((warning) => warning.includes("showing previous results while refreshing"))) {
-      try {
-        await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
-          workspaceId: args.workspaceId,
-          accountId: access.accountId,
-          clientId: args.clientId,
-        });
-      } catch {
-        // Best effort refresh only.
-      }
-    }
 
     return inventory;
   },
@@ -103,6 +88,7 @@ export const listToolsWithWarningsInternal = internalAction({
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
     debug: WorkspaceToolsDebug;
   }> => {
+    await rebuildWorkspaceToolInventoryForContext(ctx, args);
     return await listToolsWithWarningsForContext(ctx, args);
   },
 });

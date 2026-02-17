@@ -2,8 +2,10 @@ import { v } from "convex/values";
 import { z } from "zod";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { mapCredential } from "../../src/database/mappers";
 import { computeBoundAuthFingerprint } from "../../src/database/readers";
+import { safeRunAfter } from "../../src/lib/scheduler";
 import {
   credentialProviderValidator,
   credentialScopeTypeValidator,
@@ -30,6 +32,16 @@ function requireAccountId(
   }
 
   return accountId;
+}
+
+function sourceIdFromSourceKey(sourceKey: string): string | null {
+  const prefix = "source:";
+  if (!sourceKey.startsWith(prefix)) {
+    return null;
+  }
+
+  const sourceId = sourceKey.slice(prefix.length).trim();
+  return sourceId.length > 0 ? sourceId : null;
 }
 
 export const upsertCredential = internalMutation({
@@ -213,6 +225,24 @@ export const upsertCredential = internalMutation({
     if (!updated) {
       throw new Error("Failed to read upserted credential");
     }
+
+    const sourceId = sourceIdFromSourceKey(args.sourceKey);
+    if (sourceId) {
+      const linkedSource = await ctx.db
+        .query("toolSources")
+        .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
+        .unique();
+      if (linkedSource && linkedSource.organizationId === organizationId) {
+        await ctx.db.patch(linkedSource._id, {
+          updatedAt: now,
+        });
+      }
+    }
+
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+      workspaceId: args.workspaceId,
+      ...(scopeType === "account" && scopedAccountId ? { accountId: scopedAccountId } : {}),
+    });
 
     return mapCredential(updated);
   },

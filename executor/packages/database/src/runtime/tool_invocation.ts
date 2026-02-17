@@ -187,7 +187,6 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         workspaceId: task.workspaceId,
         accountId: task.accountId,
         clientId: task.clientId,
-        refreshOnStale: true,
       });
       if (buildIdResult.isErr()) {
         throw buildIdResult.error;

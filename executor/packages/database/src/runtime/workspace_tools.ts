@@ -38,10 +38,6 @@ const adminAnnouncementInputSchema = z.object({
   message: z.string().optional(),
 });
 
-const accountScopedMcpAuthSchema = z.object({
-  mode: z.literal("account"),
-});
-
 const toolHintSchema = z.object({
   inputHint: z.string().optional(),
   outputHint: z.string().optional(),
@@ -259,7 +255,7 @@ interface WorkspaceToolsResult {
 }
 
 export interface WorkspaceToolsDebug {
-  mode: "cache-fresh" | "cache-stale" | "rebuild";
+  mode: "cache-fresh" | "cache-stale" | "rebuild" | "registry";
   includeDts: boolean;
   sourceTimeoutMs: number | null;
   skipCacheRead: boolean;
@@ -580,18 +576,8 @@ export async function getWorkspaceTools(
   const accountId = options.accountId;
   const sources = (await listWorkspaceToolSources(ctx, workspaceId))
     .filter((source) => source.enabled);
-  const hasAccountScopedMcpSource = sources.some((source) => {
-    if (source.type !== "mcp") {
-      return false;
-    }
-
-    const auth = accountScopedMcpAuthSchema.safeParse(source.config.auth);
-    return auth.success;
-  });
-  const skipCacheRead = (options.skipCacheRead ?? false) || hasAccountScopedMcpSource;
-  const skipCacheWrite = hasAccountScopedMcpSource;
+  const skipCacheRead = options.skipCacheRead ?? false;
   traceStep("listToolSources", listSourcesStartedAt);
-  const hasOpenApiSource = sources.some((source) => source.type === "openapi");
   const signature = sourceSignature(workspaceId, sources);
   const registrySignature = registrySignatureForWorkspace(workspaceId, sources);
   const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
@@ -790,22 +776,18 @@ export async function getWorkspaceTools(
       warnings,
     };
 
-    if (!skipCacheWrite) {
-      const json = JSON.stringify(snapshot);
-      const blob = new Blob([json], { type: "application/json" });
-      const storageId = await ctx.storage.store(blob);
-      await ctx.runMutation(internal.workspaceToolCache.putEntry, {
-        workspaceId,
-        signature,
-        storageId,
-        typesStorageId,
-        toolCount: allTools.length,
-        sizeBytes: json.length,
-      });
-      traceStep("snapshotWrite", snapshotWriteStartedAt);
-    } else {
-      trace.push("snapshotWrite=skipped(account-scoped-mcp)");
-    }
+    const json = JSON.stringify(snapshot);
+    const blob = new Blob([json], { type: "application/json" });
+    const storageId = await ctx.storage.store(blob);
+    await ctx.runMutation(internal.workspaceToolCache.putEntry, {
+      workspaceId,
+      signature,
+      storageId,
+      typesStorageId,
+      toolCount: allTools.length,
+      sizeBytes: json.length,
+    });
+    traceStep("snapshotWrite", snapshotWriteStartedAt);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.warn(`[executor] workspace tool cache write failed for '${workspaceId}': ${msg}`);
@@ -828,6 +810,137 @@ export async function getWorkspaceTools(
   };
 }
 
+async function getWorkspaceToolsFromCache(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+): Promise<WorkspaceToolsResult> {
+  const startedAt = Date.now();
+  const trace: string[] = [];
+  const traceStep = (label: string, stepStartedAt: number) => {
+    trace.push(`${label}=${Date.now() - stepStartedAt}ms`);
+  };
+
+  const sourcesStartedAt = Date.now();
+  const includeDts = true;
+  const sources = (await listWorkspaceToolSources(ctx, workspaceId))
+    .filter((source) => source.enabled);
+  traceStep("listToolSources", sourcesStartedAt);
+
+  const signature = sourceSignature(workspaceId, sources);
+
+  const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
+    includeDts,
+    sourceTimeoutMs: null,
+    skipCacheRead: false,
+    sourceCount: sources.length,
+  };
+
+  const cacheLookupStartedAt = Date.now();
+  let cacheEntry:
+    | {
+      isFresh: boolean;
+      storageId: Id<"_storage">;
+      typesStorageId?: Id<"_storage">;
+    }
+    | null = null;
+  try {
+    cacheEntry = await ctx.runQuery(internal.workspaceToolCache.getEntry, {
+      workspaceId,
+      signature,
+    });
+  } catch {
+    cacheEntry = null;
+  }
+  traceStep("cacheEntryLookup", cacheLookupStartedAt);
+
+  if (!cacheEntry) {
+    const warnings = sources.length > 0
+      ? ["Tool inventory is still loading; showing partial results."]
+      : [];
+    return {
+      tools: mergeTools([]),
+      warnings,
+      typesStorageId: undefined,
+      debug: {
+        ...debugBase,
+        mode: "registry",
+        normalizedSourceCount: sources.length,
+        cacheHit: false,
+        cacheFresh: null,
+        timedOutSources: [],
+        durationMs: Date.now() - startedAt,
+        trace,
+      },
+    };
+  }
+
+  const hydrateStartedAt = Date.now();
+  const blob = await ctx.storage.get(cacheEntry.storageId);
+  if (!blob) {
+    trace.push("cacheHydrate=missingBlob");
+    return {
+      tools: mergeTools([]),
+      warnings: ["Tool inventory cache is unavailable. Rebuild the tool registry to refresh results."],
+      typesStorageId: cacheEntry.typesStorageId,
+      debug: {
+        ...debugBase,
+        mode: "registry",
+        normalizedSourceCount: sources.length,
+        cacheHit: true,
+        cacheFresh: cacheEntry.isFresh,
+        timedOutSources: [],
+        durationMs: Date.now() - startedAt,
+        trace,
+      },
+    };
+  }
+
+  const parsedSnapshot = await parseWorkspaceToolSnapshotFromBlob(blob);
+  if (parsedSnapshot.isErr()) {
+    trace.push("cacheHydrate=invalidSnapshot");
+    return {
+      tools: mergeTools([]),
+      warnings: [`Tool inventory cache is invalid: ${parsedSnapshot.error.message}`],
+      typesStorageId: cacheEntry.typesStorageId,
+      debug: {
+        ...debugBase,
+        mode: "registry",
+        normalizedSourceCount: sources.length,
+        cacheHit: true,
+        cacheFresh: cacheEntry.isFresh,
+        timedOutSources: [],
+        durationMs: Date.now() - startedAt,
+        trace,
+      },
+    };
+  }
+
+  const snapshot = parsedSnapshot.value;
+  const restored = materializeWorkspaceSnapshot(snapshot);
+  const merged = mergeTools(restored);
+  traceStep("cacheHydrate", hydrateStartedAt);
+
+  const warnings = cacheEntry.isFresh
+    ? snapshot.warnings
+    : [...snapshot.warnings, "Tool sources changed; showing previous results while refreshing."];
+
+  return {
+    tools: merged,
+    warnings,
+    typesStorageId: cacheEntry.typesStorageId,
+    debug: {
+      ...debugBase,
+      mode: "registry",
+      normalizedSourceCount: sources.length,
+      cacheHit: true,
+      cacheFresh: cacheEntry.isFresh,
+      timedOutSources: [],
+      durationMs: Date.now() - startedAt,
+      trace,
+    },
+  };
+}
+
 async function loadWorkspaceToolInventoryForContext(
   ctx: ActionCtx,
   context: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string },
@@ -842,16 +955,8 @@ async function loadWorkspaceToolInventoryForContext(
 ): Promise<WorkspaceToolInventory> {
   const includeDetails = options.includeDetails ?? true;
   const includeSourceMeta = options.includeSourceMeta ?? true;
-  const sourceTimeoutMs = options.sourceTimeoutMs;
-  const allowStaleOnMismatch = options.allowStaleOnMismatch;
-  const skipCacheRead = options.skipCacheRead;
   const [result, policies] = await Promise.all([
-    getWorkspaceTools(ctx, context.workspaceId, {
-      sourceTimeoutMs,
-      allowStaleOnMismatch,
-      skipCacheRead,
-      accountId: context.accountId,
-    }),
+    getWorkspaceToolsFromCache(ctx, context.workspaceId),
     listWorkspaceAccessPolicies(ctx, context.workspaceId, context.accountId),
   ]);
   const descriptorsStartedAt = Date.now();
@@ -926,6 +1031,18 @@ export async function listToolsForContext(
 ): Promise<ToolDescriptor[]> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   return inventory.tools;
+}
+
+export async function rebuildWorkspaceToolInventoryForContext(
+  ctx: ActionCtx,
+  context: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string },
+): Promise<WorkspaceToolsResult> {
+  return await getWorkspaceTools(ctx, context.workspaceId, {
+    accountId: context.accountId,
+    sourceTimeoutMs: 20_000,
+    allowStaleOnMismatch: false,
+    skipCacheRead: false,
+  });
 }
 
 export async function listToolsWithWarningsForContext(

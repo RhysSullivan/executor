@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
+import { internal } from "../../convex/_generated/api";
 import { getOrganizationMembership, slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
 import {
@@ -7,6 +8,7 @@ import {
   upsertOrganizationMembership,
 } from "../auth/memberships";
 import { seedWorkspaceMembersFromOrganization } from "../auth/workspace_membership_projection";
+import { safeRunAfter } from "../lib/scheduler";
 
 type WorkspaceResult = {
   id: Id<"workspaces">;
@@ -219,6 +221,11 @@ export async function createWorkspaceHandler(
   });
 
   await cleanupEmptyStarterWorkspace(ctx, organizationId, workspaceId);
+
+  await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+    workspaceId,
+    accountId: account._id,
+  });
 
   return await toWorkspaceResult(ctx, workspace);
 }

@@ -1,11 +1,13 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { internal } from "../_generated/api";
 import {
   computeSourceSpecHash,
   mapSource,
   normalizeSourceAuthFingerprint,
 } from "../../src/database/mappers";
 import { normalizeToolSourceConfig } from "../../src/database/tool_source_config";
+import { safeRunAfter } from "../../src/lib/scheduler";
 import { jsonObjectValidator, toolSourceScopeTypeValidator, toolSourceTypeValidator } from "../../src/database/validators";
 
 export const upsertToolSource = internalMutation({
@@ -95,6 +97,11 @@ export const upsertToolSource = internalMutation({
     if (!updated) {
       throw new Error(`Failed to read tool source ${sourceId}`);
     }
+
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+      workspaceId: args.workspaceId,
+    });
+
     return mapSource(updated);
   },
 });
@@ -162,6 +169,11 @@ export const deleteToolSource = internalMutation({
     }
 
     await ctx.db.delete(doc._id);
+
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+      workspaceId: args.workspaceId,
+    });
+
     return true;
   },
 });

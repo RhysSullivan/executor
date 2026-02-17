@@ -100,7 +100,6 @@ export async function getReadyRegistryBuildIdResult(
     workspaceId: Id<"workspaces">;
     accountId?: Id<"accounts">;
     clientId?: string;
-    refreshOnStale?: boolean;
   },
 ): Promise<Result<string, Error>> {
   const initial = await readRegistryState(ctx, args.workspaceId);
@@ -108,21 +107,8 @@ export async function getReadyRegistryBuildIdResult(
     return Result.ok(initial.buildId);
   }
 
-  if (args.refreshOnStale) {
-    await ctx.runAction(internal.executorNode.listToolsWithWarningsInternal, {
-      workspaceId: args.workspaceId,
-      accountId: args.accountId,
-      clientId: args.clientId,
-    });
-
-    const refreshed = await readRegistryState(ctx, args.workspaceId);
-    if (refreshed.isReady && refreshed.buildId) {
-      return Result.ok(refreshed.buildId);
-    }
-  }
-
   return Result.err(
-    new Error("Tool registry is not ready (or is stale). Open Tools to refresh, or call listToolsWithWarnings to rebuild."),
+    new Error("Tool registry is not ready (or is stale). Rebuild after changing sources or credentials."),
   );
 }
 
@@ -132,7 +118,6 @@ export async function getReadyRegistryBuildId(
     workspaceId: Id<"workspaces">;
     accountId?: Id<"accounts">;
     clientId?: string;
-    refreshOnStale?: boolean;
   },
 ): Promise<string> {
   const buildIdResult = await getReadyRegistryBuildIdResult(ctx, args);

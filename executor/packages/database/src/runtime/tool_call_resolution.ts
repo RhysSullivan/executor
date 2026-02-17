@@ -177,7 +177,6 @@ export async function resolveToolForCall(
     workspaceId: task.workspaceId,
     accountId: task.accountId,
     clientId: task.clientId,
-    refreshOnStale: true,
   });
   if (buildIdResult.isErr()) {
     return Result.err(buildIdResult.error);
