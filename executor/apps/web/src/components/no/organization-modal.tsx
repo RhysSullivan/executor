@@ -24,8 +24,6 @@ const localSetupCommands = [
 export function NoOrganizationModal({ enabled }: { enabled: boolean }) {
   const {
     loading,
-    organizations,
-    organizationsLoading,
     context,
     isSignedInToWorkos,
     createAnonymousOrganization,
@@ -36,10 +34,8 @@ export function NoOrganizationModal({ enabled }: { enabled: boolean }) {
 
   const shouldShow = enabled
     && !loading
-    && !organizationsLoading
     && !context
-    && !isSignedInToWorkos
-    && organizations.length === 0;
+    && !isSignedInToWorkos;
 
   const handleCreateAnonymousOrganization = async () => {
     setError(null);
