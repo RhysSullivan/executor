@@ -63,6 +63,11 @@ function webAssetName(): string {
   return `executor-web-${target.platform}-${target.arch}.tar.gz`;
 }
 
+function runtimeAssetName(): string {
+  const target = hostTarget();
+  return `executor-runtime-${target.platform}-${target.arch}.tar.gz`;
+}
+
 function nodeDirectoryName(): string {
   const target = hostTarget();
   return `node-v${NODE_VERSION}-${target.platform}-${target.arch}`;
@@ -124,6 +129,7 @@ export function runtimeInfo(): ManagedRuntimeInfo {
   const convexCliEntry = path.join(npmPrefix, "node_modules", "convex", "bin", "main.js");
   const webDir = path.join(rootDir, "web");
   const webArtifact = webAssetName();
+  const runtimeArtifact = runtimeAssetName();
 
   return {
     rootDir,
@@ -144,6 +150,8 @@ export function runtimeInfo(): ManagedRuntimeInfo {
     webServerEntry: path.join(webDir, "server.js"),
     webArtifactName: webArtifact,
     webDownloadUrl: `https://github.com/${EXECUTOR_RELEASE_REPO}/releases/latest/download/${webArtifact}`,
+    runtimeArtifactName: runtimeArtifact,
+    runtimeDownloadUrl: `https://github.com/${EXECUTOR_RELEASE_REPO}/releases/latest/download/${runtimeArtifact}`,
   };
 }
 

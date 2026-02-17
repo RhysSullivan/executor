@@ -1,5 +1,6 @@
 import { Sandbox } from "@vercel/sandbox";
 import { generateKeyPairSync } from "node:crypto";
+import { anonymousBootstrapCheckScript, runtimeDoctorScript } from "./install-checks";
 
 type CommandResult = {
   exitCode: number;
@@ -125,12 +126,6 @@ function assertSuccess(result: CommandResult, label: string): void {
   );
 }
 
-function isNoProjectDoctorResult(result: CommandResult): boolean {
-  const output = `${result.stdout}\n${result.stderr}`;
-  return output.includes("Functions: not bootstrapped (no local Convex project found)")
-    || output.includes("functions: no_project");
-}
-
 function extractInstalledVersion(result: CommandResult): string | null {
   const output = `${result.stdout}\n${result.stderr}`;
   const match = output.match(/Installing executor v([^\s]+)/);
@@ -225,7 +220,7 @@ try {
 
   const runtimeDoctor = await runSandboxBash(
     sandbox,
-    "~/.executor/bin/executor doctor --runtime-only --verbose",
+    runtimeDoctorScript(),
     {
       timeoutMs: installTimeoutMs,
       env: sandboxEnv,
@@ -235,67 +230,17 @@ try {
 
   const doctor = await runSandboxBash(
     sandbox,
-    "if [ -f ~/.executor/runtime/bootstrap-project/convex.json ]; then EXECUTOR_PROJECT_DIR=~/.executor/runtime/bootstrap-project ~/.executor/bin/executor doctor --verbose; else ~/.executor/bin/executor doctor --verbose; fi",
+    "~/.executor/bin/executor doctor --verbose",
     {
       timeoutMs: installTimeoutMs,
       env: sandboxEnv,
     },
   );
-
-  if (doctor.exitCode !== 0) {
-    if (isNoProjectDoctorResult(doctor)) {
-      console.warn("[sandbox] doctor reported no local project context; attempting bootstrap recovery from release tag source");
-
-      if (!installedVersion) {
-        throw new Error("Could not determine installed executor version for bootstrap recovery");
-      }
-
-      const recovered = await runSandboxBash(
-        sandbox,
-        [
-          "set -euo pipefail",
-          `version='${installedVersion}'`,
-          "bootstrap_dir=~/.executor/runtime/bootstrap-project",
-          "archive=$(mktemp)",
-          "rm -rf \"$bootstrap_dir\"",
-          "mkdir -p \"$bootstrap_dir\"",
-          "curl -fsSL \"https://github.com/RhysSullivan/executor/archive/refs/tags/v${version}.tar.gz\" -o \"$archive\"",
-          "tar -xzf \"$archive\" -C \"$bootstrap_dir\" --strip-components=1",
-          "if [ -d \"$bootstrap_dir/executor\" ]; then project_dir=\"$bootstrap_dir/executor\"; else project_dir=\"$bootstrap_dir\"; fi",
-          "EXECUTOR_PROJECT_DIR=\"$project_dir\" ~/.executor/bin/executor up",
-          "EXECUTOR_PROJECT_DIR=\"$project_dir\" ~/.executor/bin/executor doctor --verbose",
-        ].join("; "),
-        {
-          timeoutMs: installTimeoutMs,
-          env: {
-            ...sandboxEnv,
-            ANONYMOUS_AUTH_PRIVATE_KEY_PEM: anonymousAuthEnv.privateKeyPem,
-            ANONYMOUS_AUTH_PUBLIC_KEY_PEM: anonymousAuthEnv.publicKeyPem,
-            MCP_API_KEY_SECRET: anonymousAuthEnv.apiKeySecret,
-          },
-        },
-      );
-      assertSuccess(recovered, "sandbox bootstrap recovery");
-
-      console.log("[sandbox] bootstrap recovery succeeded");
-    } else {
-      assertSuccess(doctor, "sandbox doctor --verbose");
-    }
-  }
+  assertSuccess(doctor, "sandbox doctor --verbose");
 
   const anonymousCheck = await runSandboxBash(
     sandbox,
-    [
-      "set -euo pipefail",
-      "for candidate in ~/.executor/runtime/node-*/bin/node; do node_bin=\"$candidate\"; break; done",
-      "if [ -z \"${node_bin:-}\" ]; then echo 'node runtime missing' >&2; exit 1; fi",
-      "if [ -d ~/.executor/runtime/bootstrap-project/executor ]; then project_dir=~/.executor/runtime/bootstrap-project/executor; else project_dir=~/.executor/runtime/bootstrap-project; fi",
-      "if [ ! -f \"$project_dir/convex.json\" ]; then echo 'bootstrap project missing for anonymous check' >&2; exit 1; fi",
-      `token_json=$(curl -fsS -X POST http://127.0.0.1:${sitePort}/auth/anonymous/token -H 'content-type: application/json' -d '{}')`,
-      "access_token=$(printf '%s' \"$token_json\" | \"$node_bin\" -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);if(typeof j.accessToken!=='string'||j.accessToken.length===0){console.error(d);process.exit(2)}process.stdout.write(j.accessToken)})\")",
-      "cd \"$project_dir\"",
-      `TOKEN=\"$access_token\" \"$node_bin\" -e \"const { ConvexHttpClient } = require('convex/browser'); (async()=>{const c=new ConvexHttpClient('http://127.0.0.1:${backendPort}'); c.setAuth(process.env.TOKEN); const r=await c.mutation('workspace:bootstrapAnonymousSession', {}); if(!r||!r.workspaceId||!r.sessionId){throw new Error('missing anonymous session context')} console.log(JSON.stringify(r)); })().catch((e)=>{console.error(e);process.exit(1);});\"`,
-    ].join("; "),
+    anonymousBootstrapCheckScript({ backendPort, webPort }),
     {
       timeoutMs: installTimeoutMs,
       env: sandboxEnv,

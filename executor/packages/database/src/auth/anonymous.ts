@@ -28,7 +28,9 @@ function toSiteUrl(raw: string | undefined): string | null {
 }
 
 export function getAnonymousAuthIssuer(): string | null {
-  return toSiteUrl(process.env.CONVEX_SITE_URL) ?? toSiteUrl(process.env.CONVEX_URL);
+  return toSiteUrl(process.env.ANONYMOUS_AUTH_ISSUER)
+    ?? toSiteUrl(process.env.CONVEX_SITE_URL)
+    ?? toSiteUrl(process.env.CONVEX_URL);
 }
 
 export function getAnonymousAuthJwksUrl(): string | null {
