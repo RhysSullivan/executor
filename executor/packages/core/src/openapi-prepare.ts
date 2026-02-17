@@ -223,6 +223,20 @@ export async function prepareOpenApiSpec(
   const servers = Array.isArray(bundled.servers) ? bundled.servers : [];
   const inferredAuth = inferOpenApiAuth(bundled);
 
+  const compacted = compactOpenApiPaths(
+    bundled.paths,
+    operationTypeIds,
+    toPlainObject(toPlainObject(bundled.components)?.parameters) ?? {},
+    toPlainObject(toPlainObject(bundled.components)?.schemas) ?? {},
+    toPlainObject(toPlainObject(bundled.components)?.responses) ?? {},
+    toPlainObject(toPlainObject(bundled.components)?.requestBodies) ?? {},
+    {
+      includeSchemas: profile === "full",
+      includeTypeHints: true,
+      includeParameterSchemas: true,
+    },
+  );
+
   return {
     servers: servers
       .map((server) => {
@@ -230,19 +244,8 @@ export async function prepareOpenApiSpec(
         return typeof value === "string" ? value : "";
       })
       .filter((url) => url.length > 0),
-    paths: compactOpenApiPaths(
-      bundled.paths,
-      operationTypeIds,
-      toPlainObject(toPlainObject(bundled.components)?.parameters) ?? {},
-      toPlainObject(toPlainObject(bundled.components)?.schemas) ?? {},
-      toPlainObject(toPlainObject(bundled.components)?.responses) ?? {},
-      toPlainObject(toPlainObject(bundled.components)?.requestBodies) ?? {},
-      {
-        includeSchemas: profile === "full",
-        includeTypeHints: true,
-        includeParameterSchemas: true,
-      },
-    ),
+    paths: compacted.paths,
+    ...(Object.keys(compacted.refHintTable).length > 0 ? { refHintTable: compacted.refHintTable } : {}),
     dts: dts ?? undefined,
     dtsStatus: shouldGenerateDts ? (dts ? "ready" : "failed") : "skipped",
     ...(inferredAuth ? { inferredAuth } : {}),

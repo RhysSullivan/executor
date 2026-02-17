@@ -11,6 +11,8 @@ export interface CompiledToolSourceArtifact {
   version: "v1";
   sourceType: "mcp" | "openapi" | "graphql";
   sourceName: string;
+  openApiSourceKey?: string;
+  openApiRefHintTable?: Record<string, string>;
   tools: SerializedTool[];
 }
 
@@ -18,6 +20,8 @@ const compiledToolSourceArtifactSchema = z.object({
   version: z.literal("v1"),
   sourceType: z.enum(["mcp", "openapi", "graphql"]),
   sourceName: z.string(),
+  openApiSourceKey: z.string().optional(),
+  openApiRefHintTable: z.record(z.string()).optional(),
   tools: z.array(z.unknown()),
 });
 
@@ -42,6 +46,8 @@ export function parseCompiledToolSourceArtifact(value: unknown): Result<Compiled
     version: parsedArtifact.data.version,
     sourceType: parsedArtifact.data.sourceType,
     sourceName: parsedArtifact.data.sourceName,
+    openApiSourceKey: parsedArtifact.data.openApiSourceKey,
+    openApiRefHintTable: parsedArtifact.data.openApiRefHintTable,
     tools,
   });
 }

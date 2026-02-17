@@ -36,6 +36,15 @@ function parseNonEmptyTrimmedString(value: unknown): string | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
+function parseHintKeys(value: unknown): string[] {
+  const parsed = stringArraySchema.safeParse(value);
+  if (!parsed.success) return [];
+
+  return [...new Set(parsed.data
+    .map((key) => key.trim())
+    .filter((key) => key.length > 0))];
+}
+
 function toRecordArray(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return [];
 
@@ -78,6 +87,7 @@ export function buildOpenApiToolsFromPrepared(
   const sourceLabel = `openapi:${config.name}`;
   const credentialSourceKey = getCredentialSourceKey(config);
   const credentialSpec = buildCredentialSpec(credentialSourceKey, effectiveAuth);
+  const sourceRefHintTable = toRecordOrEmpty(prepared.refHintTable);
   const paths = toRecordOrEmpty(prepared.paths);
   const tools: ToolDefinition[] = [];
 
@@ -102,6 +112,8 @@ export function buildOpenApiToolsFromPrepared(
       const outputSchema = toRecordOrEmpty(operation._outputSchema);
       const inputHint = parseNonEmptyTrimmedString(operation._argsTypeHint);
       const outputHint = parseNonEmptyTrimmedString(operation._returnsTypeHint);
+      const refHintKeys = parseHintKeys(operation._refHintKeys)
+        .filter((key) => typeof sourceRefHintTable[key] === "string");
       const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
       const parsedPreviewInputKeys = stringArraySchema.safeParse(operation._previewInputKeys);
       const previewInputKeys = parsedPreviewInputKeys.success
@@ -140,6 +152,7 @@ export function buildOpenApiToolsFromPrepared(
           ...(outputHint ? { outputHint } : {}),
           ...(requiredInputKeys.length > 0 ? { requiredInputKeys } : {}),
           ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
+          ...(refHintKeys.length > 0 ? { refHintKeys } : {}),
           typedRef,
         },
         credential: credentialSpec,

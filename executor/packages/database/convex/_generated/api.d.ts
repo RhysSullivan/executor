@@ -1385,6 +1385,10 @@ export declare const internal: {
       "internal",
       {
         buildId: string;
+        openApiRefHintTables?: Array<{
+          refs: Array<{ hint: string; key: string }>;
+          sourceKey: string;
+        }>;
         sourceAuthProfiles: Array<{
           header?: string;
           inferred: boolean;

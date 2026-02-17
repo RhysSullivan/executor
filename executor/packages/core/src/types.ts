@@ -282,6 +282,8 @@ export interface ToolTyping {
   requiredInputKeys?: string[];
   /** Preview keys for UI/examples (required keys first, then common keys). */
   previewInputKeys?: string[];
+  /** Optional referenced OpenAPI component keys for source-level ref hint lookup. */
+  refHintKeys?: string[];
   /** Optional high-fidelity typed reference for sources with native type maps (e.g. OpenAPI). */
   typedRef?: ToolTypedRef;
 }
@@ -293,6 +295,8 @@ export interface ToolTyping {
 export interface ToolDescriptorTyping {
   requiredInputKeys?: string[];
   previewInputKeys?: string[];
+  refHintKeys?: string[];
+  refHints?: Record<string, string>;
   typedRef?: ToolTypedRef;
 }
 
