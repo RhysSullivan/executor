@@ -309,6 +309,29 @@ describe("authentication", () => {
     expect(account).toBeNull();
   });
 
+  test("getCurrentAccount resolves anonymous identity by provider account id", async () => {
+    const t = setup();
+    const session = await t.mutation(api.workspace.bootstrapAnonymousSession, {});
+
+    const providerAccountId = await t.run(async (ctx) => {
+      const account = await ctx.db.get(session.accountId as Id<"accounts">);
+      if (!account) {
+        throw new Error("Expected anonymous account to exist");
+      }
+      return account.providerAccountId;
+    });
+
+    const anonymousIdentity = t.withIdentity({
+      subject: providerAccountId,
+      provider: "anonymous",
+    });
+
+    const account = await anonymousIdentity.query(api.app.getCurrentAccount, {});
+    expect(account).not.toBeNull();
+    expect(account!.provider).toBe("anonymous");
+    expect(account!.providerAccountId).toBe(providerAccountId);
+  });
+
   test("getCurrentAccount prefers authenticated identity over anonymous session", async () => {
     const t = setup();
     const session = await t.mutation(api.workspace.bootstrapAnonymousSession, {});

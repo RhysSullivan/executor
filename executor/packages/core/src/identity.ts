@@ -54,7 +54,12 @@ export async function resolveAccountForRequest(
 
   if (identity) {
     if (!hasNonAnonymousIdentity) {
-      const anonymousById = await ctx.db.get(identity.subject as Id<"accounts">);
+      let anonymousById: Doc<"accounts"> | null = null;
+      try {
+        anonymousById = await ctx.db.get(identity.subject as Id<"accounts">);
+      } catch {
+        anonymousById = null;
+      }
       if (anonymousById?.provider === "anonymous") {
         return anonymousById;
       }
