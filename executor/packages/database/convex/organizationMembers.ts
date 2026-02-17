@@ -63,7 +63,6 @@ export const updateRole = organizationMutation({
       status: membership.status,
       billable: membership.billable,
       invitedByAccountId: membership.invitedByAccountId,
-      workosOrgMembershipId: membership.workosOrgMembershipId,
       now: Date.now(),
     });
 
@@ -120,7 +119,6 @@ export const remove = organizationMutation({
       status: "removed",
       billable: false,
       invitedByAccountId: membership.invitedByAccountId,
-      workosOrgMembershipId: membership.workosOrgMembershipId,
       now: Date.now(),
     });
 

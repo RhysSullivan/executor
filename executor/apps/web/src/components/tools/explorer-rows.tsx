@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, memo } from "react";
+import InfiniteScroll from "react-infinite-scroll-component";
 import { Button } from "@/components/ui/button";
 import {
   Check,
@@ -155,6 +156,10 @@ export function VirtualFlatList({
   onExpandedChange,
   detailLoadingPaths,
   loadingRows,
+  hasMoreTools = false,
+  loadingMoreTools = false,
+  onLoadMoreTools,
+  scrollContainerId,
   scrollContainerRef,
 }: {
   tools: ToolDescriptor[];
@@ -163,36 +168,56 @@ export function VirtualFlatList({
   onExpandedChange?: (tool: ToolDescriptor, expanded: boolean) => void;
   detailLoadingPaths?: Set<string>;
   loadingRows?: { source: string; count: number }[];
+  hasMoreTools?: boolean;
+  loadingMoreTools?: boolean;
+  onLoadMoreTools?: () => Promise<void>;
+  scrollContainerId: string;
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
     <div
       ref={scrollContainerRef}
+      id={scrollContainerId}
       className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
     >
-      <div className="p-1">
-        {tools.map((tool) => (
-          <SelectableToolRow
-            key={tool.path}
-            tool={tool}
-            label={toolDisplayPath(tool.path)}
-            depth={0}
-            selectedKeys={selectedKeys}
-            onSelectTool={onSelectTool}
-            onExpandedChange={onExpandedChange}
-            detailLoading={detailLoadingPaths?.has(tool.path)}
-          />
-        ))}
+      <InfiniteScroll
+        dataLength={tools.length}
+        next={() => {
+          void onLoadMoreTools?.();
+        }}
+        hasMore={hasMoreTools}
+        scrollableTarget={scrollContainerId}
+        style={{ overflow: "visible" }}
+        loader={
+          <div className="px-2 py-2 text-[11px] text-muted-foreground">
+            {loadingMoreTools ? "Loading more tools..." : ""}
+          </div>
+        }
+      >
+        <div className="p-1">
+          {tools.map((tool) => (
+            <SelectableToolRow
+              key={tool.path}
+              tool={tool}
+              label={toolDisplayPath(tool.path)}
+              depth={0}
+              selectedKeys={selectedKeys}
+              onSelectTool={onSelectTool}
+              onExpandedChange={onExpandedChange}
+              detailLoading={detailLoadingPaths?.has(tool.path)}
+            />
+          ))}
 
-        {loadingRows?.map((loadingRow) => (
-          <ToolLoadingRows
-            key={loadingRow.source}
-            source={loadingRow.source}
-            count={loadingRow.count}
-            depth={0}
-          />
-        ))}
-      </div>
+          {loadingRows?.map((loadingRow) => (
+            <ToolLoadingRows
+              key={loadingRow.source}
+              source={loadingRow.source}
+              count={loadingRow.count}
+              depth={0}
+            />
+          ))}
+        </div>
+      </InfiniteScroll>
     </div>
   );
 }

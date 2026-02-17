@@ -13,12 +13,13 @@ import {
   listToolsForContext,
   listToolsWithWarningsForContext,
   rebuildWorkspaceToolInventoryForContext,
-  type WorkspaceToolsDebug,
+  type ToolInventoryStatus,
 } from "../src/runtime/workspace_tools";
 import { runQueuedTask } from "../src/runtime/task_runner";
 import { handleExternalToolCallRequest } from "../src/runtime/external_tool_call";
 import { jsonObjectValidator } from "../src/database/validators";
 import { customAction } from "../../core/src/function-builders";
+import { previewOpenApiSourceUpgradeForContext, type OpenApiUpgradeDiffPreview } from "../src/runtime/tool_upgrade";
 
 export const listToolsWithWarnings = customAction({
   method: "POST",
@@ -30,6 +31,11 @@ export const listToolsWithWarnings = customAction({
     includeDetails: v.optional(v.boolean()),
     includeSourceMeta: v.optional(v.boolean()),
     toolPaths: v.optional(v.array(v.string())),
+    source: v.optional(v.string()),
+    sourceName: v.optional(v.string()),
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    buildId: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -40,7 +46,9 @@ export const listToolsWithWarnings = customAction({
     typesUrl?: string;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
-    debug: WorkspaceToolsDebug;
+    inventoryStatus: ToolInventoryStatus;
+    nextCursor?: string | null;
+    totalTools: number;
   }> => {
     const access = await requireCanonicalAccount(ctx, {
       workspaceId: args.workspaceId,
@@ -56,6 +64,11 @@ export const listToolsWithWarnings = customAction({
       includeDetails: args.includeDetails ?? true,
       includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
       toolPaths: args.toolPaths,
+      source: args.source,
+      sourceName: args.sourceName,
+      cursor: args.cursor,
+      limit: args.limit,
+      buildId: args.buildId,
     });
 
     return inventory;
@@ -88,10 +101,46 @@ export const listToolsWithWarningsInternal = internalAction({
     typesUrl?: string;
     sourceQuality: Record<string, OpenApiSourceQuality>;
     sourceAuthProfiles: Record<string, SourceAuthProfile>;
-    debug: WorkspaceToolsDebug;
+    inventoryStatus: ToolInventoryStatus;
+    nextCursor?: string | null;
+    totalTools: number;
   }> => {
     await rebuildWorkspaceToolInventoryForContext(ctx, args);
     return await listToolsWithWarningsForContext(ctx, args);
+  },
+});
+
+export const previewOpenApiSourceUpgrade = customAction({
+  method: "POST",
+  args: {
+    workspaceId: v.id("workspaces"),
+    accountId: v.optional(v.id("accounts")),
+    clientId: v.optional(v.string()),
+    sessionId: v.optional(v.string()),
+    sourceId: v.string(),
+    name: v.string(),
+    config: jsonObjectValidator,
+  },
+  handler: async (ctx, args): Promise<OpenApiUpgradeDiffPreview> => {
+    const access = await requireCanonicalAccount(ctx, {
+      workspaceId: args.workspaceId,
+      sessionId: args.sessionId,
+      accountId: args.accountId,
+    });
+
+    return await previewOpenApiSourceUpgradeForContext(
+      ctx,
+      {
+        workspaceId: args.workspaceId,
+        accountId: access.accountId,
+        clientId: args.clientId,
+      },
+      {
+        sourceId: args.sourceId,
+        name: args.name,
+        config: args.config,
+      },
+    );
   },
 });
 

@@ -9,7 +9,6 @@ type ProjectOrganizationMembershipArgs = {
   role: WorkspaceMemberRole;
   status: WorkspaceMemberStatus;
   now: number;
-  workosOrgMembershipId?: string;
 };
 
 async function upsertWorkspaceMembership(
@@ -20,7 +19,6 @@ async function upsertWorkspaceMembership(
     role: WorkspaceMemberRole;
     status: WorkspaceMemberStatus;
     now: number;
-    workosOrgMembershipId?: string;
   },
 ): Promise<void> {
   const existing = await ctx.db
@@ -32,7 +30,6 @@ async function upsertWorkspaceMembership(
     await ctx.db.patch(existing._id, {
       role: args.role,
       status: args.status,
-      workosOrgMembershipId: args.workosOrgMembershipId,
       updatedAt: args.now,
     });
     return;
@@ -43,7 +40,6 @@ async function upsertWorkspaceMembership(
     accountId: args.accountId,
     role: args.role,
     status: args.status,
-    workosOrgMembershipId: args.workosOrgMembershipId,
     createdAt: args.now,
     updatedAt: args.now,
   });
@@ -65,7 +61,6 @@ export async function projectOrganizationMembershipToWorkspaceMembers(
       role: args.role,
       status: args.status,
       now: args.now,
-      workosOrgMembershipId: args.workosOrgMembershipId,
     });
   }
 }
@@ -90,7 +85,6 @@ export async function projectAccountOrganizationMembershipsToWorkspaceMembers(
       role: args.mapRole(membership.role),
       status: membership.status,
       now: args.now,
-      workosOrgMembershipId: membership.workosOrgMembershipId,
     });
   }
 }
@@ -120,7 +114,6 @@ export async function seedWorkspaceMembersFromOrganization(
       role: args.mapRole(membership.role),
       status: membership.status,
       now: args.now,
-      workosOrgMembershipId: membership.workosOrgMembershipId,
     });
   }
 }

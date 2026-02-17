@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Plus,
+  RefreshCcw,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,8 @@ import { PoliciesPanel } from "@/components/tools/policies";
 import { useSession } from "@/lib/session-context";
 import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
 import { useQuery } from "convex/react";
+import { useMutation } from "convex/react";
+import { toast } from "sonner";
 import { convexApi } from "@/lib/convex-api";
 import type {
   ToolSourceRecord,
@@ -138,24 +141,36 @@ export function ToolsView({
   );
   const sourcesLoading = !!context && sources === undefined && serverSourceItems.length === 0;
 
+  // ── Optimistic source state ──
+  const [rawOptimisticOps, setOptimisticOps] = useState<OptimisticOp[]>([]);
+
   const {
     tools,
     warnings,
     sourceQuality,
     sourceAuthProfiles,
+    inventoryStatus,
     loadingSources,
     loadingTools,
     refreshingTools,
+    hasMoreTools,
+    loadingMoreTools,
+    loadMoreTools,
+    sourceHasMoreTools,
+    sourceLoadingMoreTools,
+    loadMoreToolsForSource,
+    totalTools,
+    loadedTools,
     loadToolDetails,
-  } = useWorkspaceTools(context ?? null, { includeDetails: false });
+  } = useWorkspaceTools(context ?? null, {
+    includeDetails: false,
+  });
+  const regenerateToolInventory = useMutation(convexApi.workspace.regenerateToolInventory);
 
   const toolSourceNames = useMemo(
     () => new Set(tools.map((tool) => sourceLabel(tool.source))),
     [tools],
   );
-
-  // ── Optimistic source state ──
-  const [rawOptimisticOps, setOptimisticOps] = useState<OptimisticOp[]>([]);
 
   // Prune stale ops: if the server already reflects an add/remove, drop it.
   const optimisticOps = useMemo(
@@ -252,6 +267,17 @@ export function ToolsView({
     ]);
     setSelectedSource((current) => (current === sourceName ? null : current));
   }, []);
+
+  const handleRegenerateInventory = useCallback(async () => {
+    if (!context) {
+      return;
+    }
+    await regenerateToolInventory({
+      workspaceId: context.workspaceId,
+      sessionId: context.sessionId,
+    });
+    toast.success("Tool inventory regeneration queued");
+  }, [context, regenerateToolInventory]);
   const openConnectionCreate = (sourceKey?: string) => {
     setConnectionDialogEditing(null);
     setConnectionDialogSourceKey(sourceKey ?? null);
@@ -322,7 +348,7 @@ export function ToolsView({
           <TabsTrigger value="catalog" className="text-xs data-[state=active]:bg-background">
             Catalog
             <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-              {loadingTools ? "..." : tools.length}
+              {loadingTools ? "..." : totalTools}
             </span>
           </TabsTrigger>
           <TabsTrigger value="credentials" className="text-xs data-[state=active]:bg-background">
@@ -350,7 +376,19 @@ export function ToolsView({
             <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
               {globalWarnings.length > 0 ? (
                 <div className="rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-3 py-2">
-                  <p className="text-[11px] font-mono text-terminal-amber/90">Inventory status</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-mono text-terminal-amber/90">Inventory status</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[10px]"
+                      onClick={() => void handleRegenerateInventory()}
+                    >
+                      <RefreshCcw className="h-3 w-3 mr-1" />
+                      Regenerate
+                    </Button>
+                  </div>
                   <div className="mt-1 space-y-1">
                     {globalWarnings.map((warning, index) => (
                       <p key={`global-warning-${index}`} className="text-[11px] leading-4 text-muted-foreground">
@@ -361,11 +399,40 @@ export function ToolsView({
                 </div>
               ) : null}
 
+              {inventoryStatus ? (
+                <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono uppercase tracking-wide">{inventoryStatus.state}</span>
+                    <div className="flex items-center gap-2">
+                      <span>{loadedTools} loaded / {totalTools} total</span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px]"
+                        onClick={() => void handleRegenerateInventory()}
+                      >
+                        <RefreshCcw className="h-3 w-3 mr-1" />
+                        Regenerate
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="min-h-0 flex-1">
                 <ToolExplorer
                   tools={tools}
                   sources={sourceItems}
                   loadingSources={mergedLoadingSources}
+                  sourceCountsOverride={inventoryStatus?.sourceToolCounts}
+                  totalTools={totalTools}
+                  hasMoreTools={hasMoreTools}
+                  loadingMoreTools={loadingMoreTools}
+                  onLoadMoreTools={loadMoreTools}
+                  sourceHasMoreTools={sourceHasMoreTools}
+                  sourceLoadingMoreTools={sourceLoadingMoreTools}
+                  onLoadMoreToolsForSource={loadMoreToolsForSource}
                   loading={loadingTools}
                   sourceDialogMeta={sourceDialogMeta}
                   sourceAuthProfiles={sourceAuthProfiles}

@@ -13,6 +13,7 @@ import {
   toolSourceScopeTypeValidator,
   toolSourceTypeValidator,
 } from "../src/database/validators";
+import { safeRunAfter } from "../src/lib/scheduler";
 
 export const bootstrapAnonymousSession = customMutation({
   method: "POST",
@@ -213,5 +214,22 @@ export const deleteToolSource = workspaceMutation({
       ...args,
       workspaceId: ctx.workspaceId,
     });
+  },
+});
+
+export const regenerateToolInventory = workspaceMutation({
+  method: "POST",
+  requireAdmin: true,
+  args: {},
+  handler: async (ctx) => {
+    await safeRunAfter(ctx.scheduler, 0, internal.executorNode.listToolsWithWarningsInternal, {
+      workspaceId: ctx.workspaceId,
+      accountId: ctx.account._id,
+    });
+
+    return {
+      queued: true as const,
+      workspaceId: ctx.workspaceId,
+    };
   },
 });

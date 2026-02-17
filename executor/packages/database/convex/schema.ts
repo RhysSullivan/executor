@@ -96,7 +96,6 @@ export default defineSchema({
   // - Resolve by slug (global) or by (organizationId, slug).
   // - List workspaces in an org by creation time.
   workspaces: defineTable({
-    workosOrgId: v.optional(v.string()), // external WorkOS org ID
     organizationId: v.id("organizations"),
     slug: v.string(),
     name: v.string(),
@@ -105,13 +104,12 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_workos_org_id", ["workosOrgId"])
     .index("by_organization_created", ["organizationId", "createdAt"])
     .index("by_organization_slug", ["organizationId", "slug"])
     .index("by_slug", ["slug"]),
 
   // Billing / membership umbrella entity.
-  // Note: WorkOS organization id is stored here and mirrored onto `workspaces` for convenience.
+  // WorkOS organization id is stored here only as an external-link reference.
   //
   // Primary access patterns:
   // - Resolve by slug.
@@ -139,7 +137,6 @@ export default defineSchema({
   organizationMembers: defineTable({
     organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
-    workosOrgMembershipId: v.optional(v.string()), // external WorkOS membership ID
     role: orgRole,
     status: orgMemberStatus,
     billable: v.boolean(),
@@ -158,11 +155,9 @@ export default defineSchema({
   // Primary access patterns:
   // - List members in workspace.
   // - Get membership for (workspace, account).
-  // - Lookup by WorkOS membership id during auth event handlers.
   workspaceMembers: defineTable({
     workspaceId: v.id("workspaces"),
     accountId: v.id("accounts"),
-    workosOrgMembershipId: v.optional(v.string()), // external WorkOS membership ID
     role: workspaceMemberRole,
     status: workspaceMemberStatus,
     createdAt: v.number(),
@@ -170,8 +165,7 @@ export default defineSchema({
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_account", ["workspaceId", "accountId"])
-    .index("by_account", ["accountId"])
-    .index("by_workos_membership_id", ["workosOrgMembershipId"]),
+    .index("by_account", ["accountId"]),
 
   // Organization (and optionally workspace-specific) email invites.
   // Provider-specific invite id is stored once WorkOS invite delivery succeeds.
@@ -194,6 +188,17 @@ export default defineSchema({
   })
     .index("by_org", ["organizationId"])
     .index("by_org_email_status", ["organizationId", "email", "status"]),
+
+  // Idempotency receipts for incoming provider webhooks.
+  // We treat provider events as hints and suppress duplicate payload processing.
+  authWebhookReceipts: defineTable({
+    provider: v.literal("workos"),
+    eventType: v.string(),
+    fingerprint: v.string(),
+    receivedAt: v.number(),
+  })
+    .index("by_provider_fingerprint", ["provider", "fingerprint"])
+    .index("by_provider_received", ["provider", "receivedAt"]),
 
   // Stripe customer linkage for an organization.
   //
@@ -433,8 +438,41 @@ export default defineSchema({
     signature: v.optional(v.string()),
     readyBuildId: v.optional(v.string()),
     buildingBuildId: v.optional(v.string()),
+    buildingSignature: v.optional(v.string()),
+    buildingStartedAt: v.optional(v.number()),
+    lastBuildCompletedAt: v.optional(v.number()),
+    lastBuildFailedAt: v.optional(v.number()),
+    lastBuildError: v.optional(v.string()),
     typesStorageId: v.optional(v.id("_storage")),
     warnings: v.optional(v.array(v.string())),
+    toolCount: v.optional(v.number()),
+    sourceToolCounts: v.optional(v.array(v.object({
+      sourceName: v.string(),
+      toolCount: v.number(),
+    }))),
+    sourceVersions: v.optional(v.array(v.object({
+      sourceId: v.string(),
+      sourceName: v.string(),
+      updatedAt: v.number(),
+    }))),
+    sourceQuality: v.optional(v.array(v.object({
+      sourceKey: v.string(),
+      toolCount: v.number(),
+      unknownArgsCount: v.number(),
+      unknownReturnsCount: v.number(),
+      partialUnknownArgsCount: v.number(),
+      partialUnknownReturnsCount: v.number(),
+      argsQuality: v.number(),
+      returnsQuality: v.number(),
+      overallQuality: v.number(),
+    }))),
+    sourceAuthProfiles: v.optional(v.array(v.object({
+      sourceKey: v.string(),
+      type: v.union(v.literal("none"), v.literal("bearer"), v.literal("apiKey"), v.literal("basic"), v.literal("mixed")),
+      mode: v.optional(v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"))),
+      header: v.optional(v.string()),
+      inferred: v.boolean(),
+    }))),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -469,6 +507,7 @@ export default defineSchema({
   })
     .index("by_workspace_build_path", ["workspaceId", "buildId", "path"])
     .index("by_workspace_build_normalized", ["workspaceId", "buildId", "normalizedPath"])
+    .index("by_workspace_build_source", ["workspaceId", "buildId", "source"])
     .index("by_workspace_build_namespace", ["workspaceId", "buildId", "namespace"])
     .index("by_workspace_build", ["workspaceId", "buildId"])
     .searchIndex("search_text", {

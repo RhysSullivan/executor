@@ -228,20 +228,23 @@ interface WorkspaceToolsResult {
   tools: Map<string, ToolDefinition>;
   warnings: string[];
   typesStorageId?: Id<"_storage">;
-  debug: WorkspaceToolsDebug;
+  timedOutSources: string[];
 }
 
-export interface WorkspaceToolsDebug {
-  mode: "rebuild" | "registry";
-  includeDts: boolean;
-  sourceTimeoutMs: number | null;
-  sourceCount: number;
-  normalizedSourceCount: number;
-  cacheHit: boolean;
-  cacheFresh: boolean | null;
-  timedOutSources: string[];
-  durationMs: number;
-  trace: string[];
+export type ToolInventoryState = "initializing" | "ready" | "rebuilding" | "stale" | "failed";
+
+export interface ToolInventoryStatus {
+  state: ToolInventoryState;
+  readyBuildId?: string;
+  buildingBuildId?: string;
+  readyToolCount: number;
+  loadingSourceNames: string[];
+  sourceToolCounts: Record<string, number>;
+  lastBuildStartedAt?: number;
+  lastBuildCompletedAt?: number;
+  lastBuildFailedAt?: number;
+  error?: string;
+  updatedAt?: number;
 }
 
 interface GetWorkspaceToolsOptions {
@@ -255,7 +258,9 @@ interface WorkspaceToolInventory {
   typesUrl?: string;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  debug: WorkspaceToolsDebug;
+  inventoryStatus: ToolInventoryStatus;
+  nextCursor?: string | null;
+  totalTools: number;
 }
 
 const MAX_TOOLS_IN_ACTION_RESULT = 8_000;
@@ -409,6 +414,37 @@ function computeOpenApiSourceQualityFromDescriptors(
   }
 
   return qualityBySource;
+}
+
+function computeOpenApiSourceQualityFromSerializedTools(
+  serializedTools: SerializedTool[],
+): Record<string, OpenApiSourceQuality> {
+  const descriptors: ToolDescriptor[] = serializedTools
+    .filter((tool) => typeof tool.source === "string" && tool.source.startsWith("openapi:"))
+    .map((tool) => {
+      const typing = tool.typing;
+      const inputHint = typing?.inputHint?.trim();
+      const outputHint = typing?.outputHint?.trim();
+      const inputSchema = toJsonSchema(typing?.inputSchema);
+      const outputSchema = toJsonSchema(typing?.outputSchema);
+
+      return {
+        path: tool.path,
+        description: tool.description,
+        approval: tool.approval,
+        source: tool.source,
+        display: {
+          input: inputHint && inputHint.length > 0
+            ? inputHint
+            : (Object.keys(inputSchema).length === 0 ? "{}" : normalizeHint(jsonSchemaTypeHintFallback(inputSchema))),
+          output: outputHint && outputHint.length > 0
+            ? outputHint
+            : (Object.keys(outputSchema).length === 0 ? "unknown" : normalizeHint(jsonSchemaTypeHintFallback(outputSchema))),
+        },
+      };
+    });
+
+  return computeOpenApiSourceQualityFromDescriptors(descriptors);
 }
 
 function computeSourceAuthProfilesFromSources(sources: ToolSourceRecord[]): Record<string, SourceAuthProfile> {
@@ -678,29 +714,15 @@ export async function getWorkspaceTools(
   workspaceId: Id<"workspaces">,
   options: GetWorkspaceToolsOptions = {},
 ): Promise<WorkspaceToolsResult> {
-  const startedAt = Date.now();
-  const trace: string[] = [];
-  const traceStep = (label: string, stepStartedAt: number) => {
-    trace.push(`${label}=${Date.now() - stepStartedAt}ms`);
-  };
-
-  const listSourcesStartedAt = Date.now();
   const includeDts = true;
   const sourceTimeoutMs = options.sourceTimeoutMs;
   const accountId = options.accountId;
   const sources = (await listWorkspaceToolSources(ctx, workspaceId))
     .filter((source) => source.enabled);
-  traceStep("listToolSources", listSourcesStartedAt);
   const registrySignature = registrySignatureForWorkspace(workspaceId, sources);
-  const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
-    includeDts,
-    sourceTimeoutMs: sourceTimeoutMs ?? null,
-    sourceCount: sources.length,
-  };
 
   const configs: ExternalToolSourceConfig[] = [];
   const warnings: string[] = [];
-  const normalizeSourcesStartedAt = Date.now();
   for (const source of sources) {
     const normalizedResult = normalizeExternalToolSource(source);
     if (normalizedResult.isErr()) {
@@ -709,9 +731,7 @@ export async function getWorkspaceTools(
     }
     configs.push(normalizedResult.value);
   }
-  traceStep("normalizeSources", normalizeSourcesStartedAt);
 
-  const loadSourcesStartedAt = Date.now();
   const loadedSources = await Promise.all(configs.map(async (config) => {
     if (!sourceTimeoutMs || sourceTimeoutMs <= 0) {
       return {
@@ -751,7 +771,6 @@ export async function getWorkspaceTools(
     }
     return result;
   }));
-  traceStep("loadSources", loadSourcesStartedAt);
   const externalArtifacts = loadedSources
     .map((loaded) => loaded.artifact)
     .filter((artifact): artifact is CompiledToolSourceArtifact => Boolean(artifact));
@@ -770,29 +789,18 @@ export async function getWorkspaceTools(
         tools: merged,
         warnings,
         typesStorageId,
-        debug: {
-          ...debugBase,
-          mode: "rebuild",
-          normalizedSourceCount: configs.length,
-          cacheHit: false,
-          cacheFresh: null,
-          timedOutSources,
-          durationMs: Date.now() - startedAt,
-          trace,
-        },
+        timedOutSources,
       };
     }
 
     const allTools = [...merged.values()];
 
     // Build a per-tool registry for fast discover + invocation.
-    const registryStartedAt = Date.now();
     const { buildId } = await buildWorkspaceToolRegistry(ctx, {
       workspaceId,
       registrySignature,
       serializedTools: externalArtifacts.flatMap((artifact) => artifact.tools),
     });
-    traceStep("toolRegistryWrite", registryStartedAt);
 
     // Build and store a workspace-wide Monaco type bundle.
     const openApiDtsBySource: Record<string, string> = {};
@@ -809,11 +817,41 @@ export async function getWorkspaceTools(
     const typesBlob = new Blob([typeBundle], { type: "text/plain" });
     typesStorageId = await ctx.storage.store(typesBlob);
 
+    const sourceToolCountsByName = new Map<string, number>();
+    for (const source of sources) {
+      sourceToolCountsByName.set(source.name, 0);
+    }
+    for (const tool of externalArtifacts.flatMap((artifact) => artifact.tools)) {
+      const sourceName = toSourceName(tool.source);
+      if (!sourceName) continue;
+      sourceToolCountsByName.set(sourceName, (sourceToolCountsByName.get(sourceName) ?? 0) + 1);
+    }
+
     await ctx.runMutation(internal.toolRegistry.updateBuildMetadata, {
       workspaceId,
       buildId,
       typesStorageId,
       warnings,
+      toolCount: allTools.length,
+      sourceToolCounts: [...sourceToolCountsByName.entries()].map(([sourceName, toolCount]) => ({
+        sourceName,
+        toolCount,
+      })),
+      sourceVersions: sources.map((source) => ({
+        sourceId: source.id,
+        sourceName: source.name,
+        updatedAt: source.updatedAt,
+      })),
+      sourceQuality: Object.values(computeOpenApiSourceQualityFromSerializedTools(
+        externalArtifacts.flatMap((artifact) => artifact.tools),
+      )),
+      sourceAuthProfiles: Object.entries(computeSourceAuthProfilesFromSources(sources)).map(([sourceKey, profile]) => ({
+        sourceKey,
+        type: profile.type,
+        mode: profile.mode,
+        header: profile.header,
+        inferred: profile.inferred,
+      })),
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -824,16 +862,7 @@ export async function getWorkspaceTools(
     tools: merged,
     warnings,
     typesStorageId,
-    debug: {
-      ...debugBase,
-      mode: "rebuild",
-      normalizedSourceCount: configs.length,
-      cacheHit: false,
-      cacheFresh: null,
-      timedOutSources,
-      durationMs: Date.now() - startedAt,
-      trace,
-    },
+    timedOutSources,
   };
 }
 
@@ -842,86 +871,207 @@ interface WorkspaceRegistryReadResult {
   registryTools: RegistryToolEntry[];
   warnings: string[];
   typesStorageId?: Id<"_storage">;
-  debug: WorkspaceToolsDebug;
+  inventoryStatus: ToolInventoryStatus;
+  nextCursor?: string | null;
+  totalTools: number;
+  sourceQuality: Record<string, OpenApiSourceQuality>;
+  sourceAuthProfiles: Record<string, SourceAuthProfile>;
+}
+
+function toSourceToolCountRecord(items: Array<{ sourceName: string; toolCount: number }>): Record<string, number> {
+  const result: Record<string, number> = {};
+  for (const item of items) {
+    result[item.sourceName] = item.toolCount;
+  }
+  return result;
+}
+
+function toSourceQualityRecord(items: OpenApiSourceQuality[]): Record<string, OpenApiSourceQuality> {
+  const result: Record<string, OpenApiSourceQuality> = {};
+  for (const item of items) {
+    result[item.sourceKey] = item;
+  }
+  return result;
+}
+
+function toSourceAuthProfileRecord(
+  items: Array<{
+    sourceKey: string;
+    type: SourceAuthProfile["type"];
+    mode?: SourceAuthProfile["mode"];
+    header?: string;
+    inferred: boolean;
+  }>,
+): Record<string, SourceAuthProfile> {
+  const result: Record<string, SourceAuthProfile> = {};
+  for (const item of items) {
+    result[item.sourceKey] = {
+      type: item.type,
+      ...(item.mode ? { mode: item.mode } : {}),
+      ...(item.header ? { header: item.header } : {}),
+      inferred: item.inferred,
+    };
+  }
+  return result;
+}
+
+function changedSourceNames(
+  currentSources: ToolSourceRecord[],
+  previousVersions: Array<{ sourceId: string; sourceName: string; updatedAt: number }>,
+): string[] {
+  const previousById = new Map(previousVersions.map((source) => [source.sourceId, source]));
+  const changed = new Set<string>();
+
+  for (const source of currentSources) {
+    const previous = previousById.get(source.id);
+    if (!previous || previous.updatedAt !== source.updatedAt || previous.sourceName !== source.name) {
+      changed.add(source.name);
+    }
+  }
+
+  return [...changed].sort((a, b) => a.localeCompare(b));
 }
 
 async function getWorkspaceToolsFromRegistry(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
-  options: { toolPaths?: string[] } = {},
+  options: {
+    toolPaths?: string[];
+    source?: string;
+    sourceName?: string;
+    cursor?: string;
+    limit?: number;
+    buildId?: string;
+    fetchAll?: boolean;
+  } = {},
 ): Promise<WorkspaceRegistryReadResult> {
-  const startedAt = Date.now();
-  const trace: string[] = [];
-  const traceStep = (label: string, stepStartedAt: number) => {
-    trace.push(`${label}=${Date.now() - stepStartedAt}ms`);
-  };
-
-  const sourcesStartedAt = Date.now();
-  const includeDts = true;
   const sources = (await listWorkspaceToolSources(ctx, workspaceId))
     .filter((source) => source.enabled);
-  traceStep("listToolSources", sourcesStartedAt);
-
   const expectedRegistrySignature = registrySignatureForWorkspace(workspaceId, sources);
 
-  const debugBase: Omit<WorkspaceToolsDebug, "mode" | "normalizedSourceCount" | "cacheHit" | "cacheFresh" | "timedOutSources" | "durationMs" | "trace"> = {
-    includeDts,
-    sourceTimeoutMs: null,
-    sourceCount: sources.length,
-  };
-
-  const stateLookupStartedAt = Date.now();
   const registryState: {
     signature?: string;
     readyBuildId?: string;
     buildingBuildId?: string;
+    buildingSignature?: string;
+    buildingStartedAt?: number;
+    lastBuildCompletedAt?: number;
+    lastBuildFailedAt?: number;
+    lastBuildError?: string;
     typesStorageId?: Id<"_storage">;
     warnings?: string[];
+    toolCount?: number;
+    sourceToolCounts?: Array<{ sourceName: string; toolCount: number }>;
+    sourceVersions?: Array<{ sourceId: string; sourceName: string; updatedAt: number }>;
+    sourceQuality?: OpenApiSourceQuality[];
+    sourceAuthProfiles?: Array<{
+      sourceKey: string;
+      type: SourceAuthProfile["type"];
+      mode?: SourceAuthProfile["mode"];
+      header?: string;
+      inferred: boolean;
+    }>;
+    updatedAt?: number;
   } | null = await ctx.runQuery(internal.toolRegistry.getState, {
     workspaceId,
   });
-  traceStep("registryStateLookup", stateLookupStartedAt);
 
   const readyBuildId = registryState?.readyBuildId;
+  const activeBuildId = options.buildId ?? readyBuildId;
   const building = Boolean(registryState?.buildingBuildId);
   const isFresh = Boolean(registryState?.signature && registryState.signature === expectedRegistrySignature && !building);
+  const sourceCounts = toSourceToolCountRecord(registryState?.sourceToolCounts ?? []);
+  const sourceQuality = toSourceQualityRecord(registryState?.sourceQuality ?? []);
+  const sourceAuthProfiles = toSourceAuthProfileRecord(registryState?.sourceAuthProfiles ?? []);
+  const changedSources = changedSourceNames(sources, registryState?.sourceVersions ?? []);
+
+  let state: ToolInventoryState;
+  if (building && readyBuildId) {
+    state = "rebuilding";
+  } else if (building && !readyBuildId) {
+    state = "initializing";
+  } else if (!readyBuildId && registryState?.lastBuildError) {
+    state = "failed";
+  } else if (!readyBuildId) {
+    state = "initializing";
+  } else if (isFresh) {
+    state = "ready";
+  } else if (registryState?.lastBuildError) {
+    state = "failed";
+  } else {
+    state = "stale";
+  }
+
   const warnings: string[] = [...(registryState?.warnings ?? [])];
-  const loadingSources: string[] = [];
-  const sourceNames = sources.map((source) => source.name);
+  const scopedSourceName = options.sourceName ?? toSourceName(options.source) ?? undefined;
+  let loadingSourceNames: string[] = [];
+  const allSourceNames = sources.map((source) => source.name);
+  const relevantSourceNames = scopedSourceName
+    ? allSourceNames.filter((name) => name === scopedSourceName)
+    : allSourceNames;
 
-  if (!readyBuildId) {
-    if (sourceNames.length > 0) {
+  if (state === "initializing") {
+    loadingSourceNames = [...relevantSourceNames];
+    if (relevantSourceNames.length > 0) {
       warnings.push("Tool inventory is still loading; showing partial results.");
-      loadingSources.push(...sourceNames);
     }
+  } else if (state === "rebuilding" || state === "stale" || state === "failed") {
+    loadingSourceNames = scopedSourceName
+      ? changedSources.filter((name) => name === scopedSourceName)
+      : changedSources;
+  }
 
+  if (state === "stale" || state === "rebuilding") {
+    warnings.push("Tool sources changed; showing previous results while refreshing.");
+  }
+  if (state === "failed" && registryState?.lastBuildError) {
+    warnings.push(`Tool inventory build failed: ${registryState.lastBuildError}`);
+  }
+  for (const sourceName of loadingSourceNames) {
+    warnings.push(`Source '${sourceName}' is still loading; showing partial results.`);
+  }
+
+  const inventoryStatus: ToolInventoryStatus = {
+    state,
+    readyBuildId,
+    buildingBuildId: registryState?.buildingBuildId,
+    readyToolCount: registryState?.toolCount ?? 0,
+    loadingSourceNames,
+    sourceToolCounts: sourceCounts,
+    lastBuildStartedAt: registryState?.buildingStartedAt,
+    lastBuildCompletedAt: registryState?.lastBuildCompletedAt,
+    lastBuildFailedAt: registryState?.lastBuildFailedAt,
+    ...(registryState?.lastBuildError ? { error: registryState.lastBuildError } : {}),
+    updatedAt: registryState?.updatedAt,
+  };
+
+  const totalTools = scopedSourceName
+    ? (sourceCounts[scopedSourceName] ?? 0)
+    : inventoryStatus.readyToolCount;
+
+  if (!activeBuildId) {
     return {
       sources,
       registryTools: [],
       warnings,
       typesStorageId: registryState?.typesStorageId,
-      debug: {
-        ...debugBase,
-        mode: "registry",
-        normalizedSourceCount: sources.length,
-        cacheHit: false,
-        cacheFresh: isFresh,
-        timedOutSources: loadingSources,
-        durationMs: Date.now() - startedAt,
-        trace,
-      },
+      inventoryStatus,
+      nextCursor: null,
+      totalTools,
+      sourceQuality,
+      sourceAuthProfiles,
     };
   }
 
   const registryTools: RegistryToolEntry[] = [];
   const requestedPaths = [...new Set((options.toolPaths ?? []).map((path) => path.trim()).filter((path) => path.length > 0))];
+  let nextCursor: string | null | undefined;
 
   if (requestedPaths.length > 0) {
-    const readStartedAt = Date.now();
     const entries = await Promise.all(requestedPaths.map(async (path) => {
       const entry = await ctx.runQuery(internal.toolRegistry.getToolByPath, {
         workspaceId,
-        buildId: readyBuildId,
+        buildId: activeBuildId,
         path,
       });
       if (!entry) return null;
@@ -940,60 +1090,56 @@ async function getWorkspaceToolsFromRegistry(
       } as RegistryToolEntry;
     }));
     registryTools.push(...entries.filter((entry): entry is RegistryToolEntry => Boolean(entry)));
-    traceStep("registryToolsByPath", readStartedAt);
   } else {
-    const namespacesStartedAt = Date.now();
-    const namespaces: Array<{ namespace: string; toolCount: number }> = await ctx.runQuery(internal.toolRegistry.listNamespaces, {
-      workspaceId,
-      buildId: readyBuildId,
-      limit: 2_000,
-    });
-    traceStep("registryNamespaces", namespacesStartedAt);
-
-    const toolsByNamespaceStartedAt = Date.now();
-    const pages = await Promise.all(namespaces.map(async (namespace) => {
-      return await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, {
-        workspaceId,
-        buildId: readyBuildId,
-        namespace: namespace.namespace,
-        limit: Math.max(1, namespace.toolCount + 5),
-      });
-    }));
-    for (const page of pages) {
-      for (const entry of page) {
-        registryTools.push({
-          path: entry.path,
-          preferredPath: entry.preferredPath,
-          aliases: entry.aliases,
-          description: entry.description,
-          approval: entry.approval,
-          source: entry.source,
-          displayInput: entry.displayInput,
-          displayOutput: entry.displayOutput,
-          requiredInputKeys: entry.requiredInputKeys,
-          previewInputKeys: entry.previewInputKeys,
-          typedRef: entry.typedRef,
-        });
+    if (options.fetchAll) {
+      let cursor: string | undefined;
+      while (true) {
+        const page: {
+          continueCursor: string | null;
+          items: RegistryToolEntry[];
+        } = options.source
+          ? await ctx.runQuery(internal.toolRegistry.listToolsBySourcePage, {
+            workspaceId,
+            buildId: activeBuildId,
+            source: options.source,
+            cursor,
+            limit: 500,
+          })
+          : await ctx.runQuery(internal.toolRegistry.listToolsPage, {
+            workspaceId,
+            buildId: activeBuildId,
+            cursor,
+            limit: 500,
+          });
+        for (const entry of page.items) {
+          registryTools.push(entry);
+        }
+        if (page.continueCursor === null) {
+          nextCursor = null;
+          break;
+        }
+        cursor = page.continueCursor;
       }
-    }
-    traceStep("registryToolsRead", toolsByNamespaceStartedAt);
-  }
-
-  const sourceNamesWithTools = new Set(
-    registryTools
-      .map((tool) => toSourceName(tool.source))
-      .filter((sourceName): sourceName is string => Boolean(sourceName)),
-  );
-  const missingSourceNames = sourceNames.filter((sourceName) => !sourceNamesWithTools.has(sourceName));
-
-  if (!isFresh) {
-    warnings.push("Tool sources changed; showing previous results while refreshing.");
-  }
-
-  if (building || !isFresh) {
-    for (const sourceName of missingSourceNames) {
-      warnings.push(`Source '${sourceName}' is still loading; showing partial results.`);
-      loadingSources.push(sourceName);
+    } else {
+      const page: {
+        continueCursor: string | null;
+        items: RegistryToolEntry[];
+      } = options.source
+        ? await ctx.runQuery(internal.toolRegistry.listToolsBySourcePage, {
+          workspaceId,
+          buildId: activeBuildId,
+          source: options.source,
+          cursor: options.cursor,
+          limit: Math.max(1, Math.min(1_000, Math.floor(options.limit ?? 250))),
+        })
+        : await ctx.runQuery(internal.toolRegistry.listToolsPage, {
+          workspaceId,
+          buildId: activeBuildId,
+          cursor: options.cursor,
+          limit: Math.max(1, Math.min(1_000, Math.floor(options.limit ?? 250))),
+        });
+      registryTools.push(...page.items);
+      nextCursor = page.continueCursor;
     }
   }
 
@@ -1002,16 +1148,11 @@ async function getWorkspaceToolsFromRegistry(
     registryTools,
     warnings,
     typesStorageId: registryState?.typesStorageId,
-    debug: {
-      ...debugBase,
-      mode: "registry",
-      normalizedSourceCount: sources.length,
-      cacheHit: true,
-      cacheFresh: isFresh,
-      timedOutSources: loadingSources,
-      durationMs: Date.now() - startedAt,
-      trace,
-    },
+    inventoryStatus,
+    nextCursor,
+    totalTools,
+    sourceQuality,
+    sourceAuthProfiles,
   };
 }
 
@@ -1022,19 +1163,40 @@ async function loadWorkspaceToolInventoryForContext(
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
     toolPaths?: string[];
+    source?: string;
+    sourceName?: string;
+    cursor?: string;
+    limit?: number;
+    buildId?: string;
+    fetchAll?: boolean;
   } = {},
 ): Promise<WorkspaceToolInventory> {
   const includeDetails = options.includeDetails ?? true;
   const includeSourceMeta = options.includeSourceMeta ?? true;
   const [result, policies] = await Promise.all([
-    getWorkspaceToolsFromRegistry(ctx, context.workspaceId, { toolPaths: options.toolPaths }),
+    getWorkspaceToolsFromRegistry(ctx, context.workspaceId, {
+      toolPaths: options.toolPaths,
+      source: options.source,
+      sourceName: options.sourceName,
+      cursor: options.cursor,
+      limit: options.limit,
+      buildId: options.buildId,
+      fetchAll: options.fetchAll,
+    }),
     listWorkspaceAccessPolicies(ctx, context.workspaceId, context.accountId),
   ]);
-  const descriptorStartedAt = Date.now();
-  const baseDescriptors = listVisibleToolDescriptors(baseTools, context, policies, {
-    includeDetails,
-    toolPaths: options.toolPaths,
-  });
+
+  const includeBaseTools = options.source || options.sourceName
+    ? false
+    : options.toolPaths
+    ? true
+    : Boolean(options.fetchAll || !options.cursor);
+  const baseDescriptors = includeBaseTools
+    ? listVisibleToolDescriptors(baseTools, context, policies, {
+      includeDetails,
+      toolPaths: options.toolPaths,
+    })
+    : [];
   const registryDescriptors = listVisibleRegistryToolDescriptors(result.registryTools, context, policies, {
     includeDetails,
     toolPaths: options.toolPaths,
@@ -1043,30 +1205,9 @@ async function loadWorkspaceToolInventoryForContext(
   for (const tool of baseDescriptors) toolsByPath.set(tool.path, tool);
   for (const tool of registryDescriptors) toolsByPath.set(tool.path, tool);
   const tools = [...toolsByPath.values()];
-  const descriptorsMs = Date.now() - descriptorStartedAt;
 
-  let sourceQuality: Record<string, OpenApiSourceQuality> = {};
-  let sourceAuthProfiles: Record<string, SourceAuthProfile> = {};
-  let qualityMs = 0;
-  let authProfilesMs = 0;
-
-  if (includeSourceMeta) {
-    const qualityStartedAt = Date.now();
-    sourceQuality = computeOpenApiSourceQualityFromDescriptors(
-      result.registryTools.map((entry) => toDescriptorFromRegistryEntry(entry, { includeDetails: true })),
-    );
-    qualityMs = Date.now() - qualityStartedAt;
-    const authProfilesStartedAt = Date.now();
-    sourceAuthProfiles = computeSourceAuthProfilesFromSources(result.sources);
-    authProfilesMs = Date.now() - authProfilesStartedAt;
-  }
-
-  const sourceMetaTrace = includeSourceMeta
-    ? [
-        `computeOpenApiSourceQuality=${qualityMs}ms`,
-        `computeSourceAuthProfiles=${authProfilesMs}ms`,
-      ]
-    : ["sourceMeta=skipped"];
+  const sourceQuality = includeSourceMeta ? result.sourceQuality : {};
+  const sourceAuthProfiles = includeSourceMeta ? result.sourceAuthProfiles : {};
 
   let typesUrl: string | undefined;
   if (result.typesStorageId) {
@@ -1088,14 +1229,9 @@ async function loadWorkspaceToolInventoryForContext(
     typesUrl,
     sourceQuality,
     sourceAuthProfiles,
-    debug: {
-      ...result.debug,
-      trace: [
-        ...result.debug.trace,
-        `listVisibleToolDescriptors=${descriptorsMs}ms`,
-        ...sourceMetaTrace,
-      ],
-    },
+    inventoryStatus: result.inventoryStatus,
+    nextCursor: result.nextCursor,
+    totalTools: result.totalTools,
   };
 }
 
@@ -1106,11 +1242,17 @@ export async function listToolsForContext(
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
     toolPaths?: string[];
+    source?: string;
+    sourceName?: string;
+    cursor?: string;
+    limit?: number;
+    buildId?: string;
   } = {},
 ): Promise<ToolDescriptor[]> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, {
     ...options,
     includeSourceMeta: options.includeSourceMeta ?? false,
+    fetchAll: true,
   });
   return inventory.tools;
 }
@@ -1132,6 +1274,11 @@ export async function listToolsWithWarningsForContext(
     includeDetails?: boolean;
     includeSourceMeta?: boolean;
     toolPaths?: string[];
+    source?: string;
+    sourceName?: string;
+    cursor?: string;
+    limit?: number;
+    buildId?: string;
   } = {},
 ): Promise<{
   tools: ToolDescriptor[];
@@ -1139,7 +1286,9 @@ export async function listToolsWithWarningsForContext(
   typesUrl?: string;
   sourceQuality: Record<string, OpenApiSourceQuality>;
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
-  debug: WorkspaceToolsDebug;
+  inventoryStatus: ToolInventoryStatus;
+  nextCursor?: string | null;
+  totalTools: number;
 }> {
   const inventory = await loadWorkspaceToolInventoryForContext(ctx, context, options);
   return {
@@ -1148,7 +1297,9 @@ export async function listToolsWithWarningsForContext(
     typesUrl: inventory.typesUrl,
     sourceQuality: inventory.sourceQuality,
     sourceAuthProfiles: inventory.sourceAuthProfiles,
-    debug: inventory.debug,
+    inventoryStatus: inventory.inventoryStatus,
+    nextCursor: inventory.nextCursor,
+    totalTools: inventory.totalTools,
   };
 }
 

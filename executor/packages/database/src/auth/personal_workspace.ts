@@ -3,7 +3,7 @@ import { upsertOrganizationMembership } from "./memberships";
 import {
   buildPersonalWorkspaceSlugSeed,
   derivePersonalNames,
-  ensureUniqueOrganizationSlug,
+  generateUniqueOrganizationSlug,
   isGeneratedPersonalOrganizationName,
   isGeneratedPersonalWorkspaceName,
 } from "./naming";
@@ -57,7 +57,7 @@ async function renameGeneratedPersonalWorkspaceArtifacts(
   }
 }
 
-export async function ensurePersonalWorkspace(ctx: DbCtx, accountId: AccountId, opts: PersonalWorkspaceOptions) {
+export async function getOrCreatePersonalWorkspace(ctx: DbCtx, accountId: AccountId, opts: PersonalWorkspaceOptions) {
   const personalNames = derivePersonalNames({
     firstName: opts.firstName,
     fullName: opts.fullName,
@@ -101,7 +101,7 @@ export async function ensurePersonalWorkspace(ctx: DbCtx, accountId: AccountId, 
     };
   }
 
-  const organizationSlug = await ensureUniqueOrganizationSlug(ctx, personalNames.organizationName);
+  const organizationSlug = await generateUniqueOrganizationSlug(ctx, personalNames.organizationName);
   const organizationId = await ctx.db.insert("organizations", {
     slug: organizationSlug,
     name: personalNames.organizationName,

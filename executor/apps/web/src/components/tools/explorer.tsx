@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useState, useMemo, useCallback, useRef, useDeferredValue } from "react";
+import InfiniteScroll from "react-infinite-scroll-component";
 import { cn } from "@/lib/utils";
 import {
   collectGroupKeys,
@@ -38,6 +39,14 @@ import { warningsBySourceName } from "@/lib/tools/source-helpers";
 interface ToolExplorerProps {
   tools: ToolDescriptor[];
   sources: ToolSourceRecord[];
+  sourceCountsOverride?: Record<string, number>;
+  totalTools?: number;
+  hasMoreTools?: boolean;
+  loadingMoreTools?: boolean;
+  onLoadMoreTools?: () => Promise<void>;
+  sourceHasMoreTools?: Record<string, boolean>;
+  sourceLoadingMoreTools?: Record<string, boolean>;
+  onLoadMoreToolsForSource?: (source: { source: string; sourceName: string }) => Promise<void>;
   loading?: boolean;
   loadingSources?: string[];
   onLoadToolDetails?: (toolPaths: string[]) => Promise<Record<string, ToolDescriptor>>;
@@ -56,6 +65,14 @@ interface ToolExplorerProps {
 export function ToolExplorer({
   tools,
   sources,
+  sourceCountsOverride,
+  totalTools,
+  hasMoreTools = false,
+  loadingMoreTools = false,
+  onLoadMoreTools,
+  sourceHasMoreTools,
+  sourceLoadingMoreTools,
+  onLoadMoreToolsForSource,
   loading = false,
   loadingSources = [],
   onLoadToolDetails,
@@ -84,6 +101,8 @@ export function ToolExplorer({
   const [loadingDetailPaths, setLoadingDetailPaths] = useState<Set<string>>(new Set());
   const treeListRef = useRef<HTMLDivElement>(null);
   const flatListRef = useRef<HTMLDivElement>(null);
+  const flatScrollContainerId = "tool-explorer-flat-scroll";
+  const treeScrollContainerId = "tool-explorer-tree-scroll";
   const resolvedActiveSource =
     activeSource === undefined ? internalActiveSource : activeSource;
 
@@ -115,7 +134,15 @@ export function ToolExplorer({
     );
   }, [hydratedTools, resolvedActiveSource, filterApproval]);
 
-  const loadingSourceSet = useMemo(() => new Set(loadingSources), [loadingSources]);
+  const loadingSourceSet = useMemo(() => {
+    const set = new Set(loadingSources);
+    for (const [sourceName, isLoading] of Object.entries(sourceLoadingMoreTools ?? {})) {
+      if (isLoading) {
+        set.add(sourceName);
+      }
+    }
+    return set;
+  }, [loadingSources, sourceLoadingMoreTools]);
 
   const visibleLoadingSources = useMemo(() => {
     if (loadingSourceSet.size === 0) {
@@ -132,6 +159,10 @@ export function ToolExplorer({
   }, [loadingSourceSet, resolvedActiveSource]);
 
   const sourceCounts = useMemo(() => {
+    if (sourceCountsOverride) {
+      return sourceCountsOverride;
+    }
+
     const counts: Record<string, number> = {};
 
     for (const tool of hydratedTools) {
@@ -140,7 +171,7 @@ export function ToolExplorer({
     }
 
     return counts;
-  }, [hydratedTools]);
+  }, [hydratedTools, sourceCountsOverride]);
 
   const visibleSources = useMemo(() => {
     const enabledByName = new Map<string, ToolSourceRecord>();
@@ -164,12 +195,14 @@ export function ToolExplorer({
   }, [existingSourceNames, visibleSources]);
 
   const treeGroups = useMemo(() => {
+    const showAllSources = search.length === 0;
     return treeGroupsForView(searchedTools, viewMode, groupBy, {
       loadingSources: visibleLoadingSources,
-      sourceRecords: visibleSources,
+      sourceRecords: showAllSources ? visibleSources : [],
+      sourceCounts: showAllSources ? sourceCounts : {},
       activeSource: resolvedActiveSource,
     });
-  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, visibleSources, resolvedActiveSource]);
+  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, visibleSources, sourceCounts, resolvedActiveSource, search]);
 
   const flatTools = useMemo(() => {
     return flatToolsForView(searchedTools, viewMode);
@@ -189,7 +222,58 @@ export function ToolExplorer({
 
   const visibleExpandedKeys = autoExpandedKeys ?? expandedKeys;
 
+  const loadedCountsBySource = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const tool of hydratedTools) {
+      const name = sourceLabel(tool.source);
+      counts[name] = (counts[name] ?? 0) + 1;
+    }
+    return counts;
+  }, [hydratedTools]);
+
+  const expandedSourceNames = useMemo(() => {
+    return Array.from(visibleExpandedKeys)
+      .map((key) => /^source:([^:]+)$/.exec(key)?.[1] ?? null)
+      .filter((name): name is string => Boolean(name));
+  }, [visibleExpandedKeys]);
+
+  const sourceHasMoreByCount = useCallback((sourceName: string) => {
+    const total = sourceCounts[sourceName] ?? 0;
+    const loaded = loadedCountsBySource[sourceName] ?? 0;
+    return loaded < total;
+  }, [loadedCountsBySource, sourceCounts]);
+
+  const nextExpandedSourceToLoad = useMemo(() => {
+    for (const sourceName of expandedSourceNames) {
+      const explicitHasMore = sourceHasMoreTools?.[sourceName];
+      const hasMore = explicitHasMore ?? sourceHasMoreByCount(sourceName);
+      if (hasMore) {
+        return sourceName;
+      }
+    }
+    return null;
+  }, [expandedSourceNames, sourceHasMoreByCount, sourceHasMoreTools]);
+
   const toggleExpand = useCallback((key: string) => {
+    const sourceGroupMatch = /^source:([^:]+)$/.exec(key);
+    const isSourceGroup = Boolean(sourceGroupMatch);
+    const sourceName = sourceGroupMatch?.[1] ?? null;
+    const willExpand = !expandedKeys.has(key);
+
+    if (isSourceGroup && sourceName && willExpand && onLoadMoreToolsForSource) {
+      const sourceRecord = sourceByName.get(sourceName);
+      if (sourceRecord) {
+        const explicitHasMore = sourceHasMoreTools?.[sourceName];
+        const hasMore = explicitHasMore ?? sourceHasMoreByCount(sourceName);
+        if (hasMore) {
+          void onLoadMoreToolsForSource({
+            source: `${sourceRecord.type}:${sourceRecord.name}`,
+            sourceName: sourceRecord.name,
+          });
+        }
+      }
+    }
+
     setExpandedKeys((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
@@ -199,7 +283,7 @@ export function ToolExplorer({
       }
       return next;
     });
-  }, []);
+  }, [expandedKeys, onLoadMoreToolsForSource, sourceByName, sourceHasMoreByCount, sourceHasMoreTools]);
 
   const toggleSelectTool = useCallback(
     (path: string, e: React.MouseEvent) => {
@@ -318,6 +402,13 @@ export function ToolExplorer({
   }, [search, viewMode, visibleLoadingSources]);
 
   const hasFlatRows = flatTools.length > 0 || flatLoadingRows.length > 0;
+  const canInfiniteLoad = searchInput.length === 0
+    && (viewMode === "tree" && groupBy === "source"
+      ? nextExpandedSourceToLoad !== null
+      : hasMoreTools);
+  const activeSourceLoadingMore = nextExpandedSourceToLoad
+    ? (sourceLoadingMoreTools?.[nextExpandedSourceToLoad] ?? false)
+    : false;
   const awaitingInitialInventory =
     searchInput.length === 0
     && filteredTools.length === 0
@@ -420,12 +511,17 @@ export function ToolExplorer({
               onExpandedChange={maybeLoadToolDetails}
               detailLoadingPaths={loadingDetailPaths}
               scrollContainerRef={flatListRef}
+              scrollContainerId={flatScrollContainerId}
               loadingRows={flatLoadingRows}
+              hasMoreTools={canInfiniteLoad}
+              loadingMoreTools={loadingMoreTools}
+              onLoadMoreTools={onLoadMoreTools}
             />
           )
         ) : (
           <div
             ref={treeListRef}
+            id={treeScrollContainerId}
             className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
           >
             {treeGroups.length === 0 ? (
@@ -435,24 +531,60 @@ export function ToolExplorer({
                 <EmptyState hasSearch={!!search} onClearSearch={() => setSearchInput("")} />
               )
             ) : (
-              <div className="p-1">
-                {treeGroups.map((group) => (
-                  <GroupNode
-                    key={group.key}
-                    group={group}
-                    depth={0}
-                    expandedKeys={visibleExpandedKeys}
-                    onToggle={toggleExpand}
-                    selectedKeys={selectedKeys}
-                    onSelectGroup={toggleSelectGroup}
-                    onSelectTool={toggleSelectTool}
-                    onExpandedChange={maybeLoadToolDetails}
-                    detailLoadingPaths={loadingDetailPaths}
-                    source={group.type === "source" ? sourceByName.get(group.label) : undefined}
-                    search={search}
-                  />
-                ))}
-              </div>
+                <InfiniteScroll
+                  dataLength={tools.length}
+                  next={() => {
+                    if (
+                      searchInput.length === 0
+                      && viewMode === "tree"
+                      && groupBy === "source"
+                      && onLoadMoreToolsForSource
+                    ) {
+                      if (!nextExpandedSourceToLoad) {
+                        return;
+                      }
+                      const sourceRecord = sourceByName.get(nextExpandedSourceToLoad);
+                      if (sourceRecord) {
+                        void onLoadMoreToolsForSource({
+                          source: `${sourceRecord.type}:${sourceRecord.name}`,
+                          sourceName: sourceRecord.name,
+                        });
+                        return;
+                      }
+                    }
+
+                    void onLoadMoreTools?.();
+                  }}
+                  hasMore={canInfiniteLoad}
+                  scrollableTarget={treeScrollContainerId}
+                  style={{ overflow: "visible" }}
+                  loader={
+                    <div className="px-2 py-2 text-[11px] text-muted-foreground">
+                      {(loadingMoreTools || activeSourceLoadingMore)
+                        ? `Loading more tools${totalTools ? ` (${tools.length} / ${totalTools})` : ""}...`
+                        : ""}
+                    </div>
+                  }
+              >
+                <div className="p-1">
+                  {treeGroups.map((group) => (
+                    <GroupNode
+                      key={group.key}
+                      group={group}
+                      depth={0}
+                      expandedKeys={visibleExpandedKeys}
+                      onToggle={toggleExpand}
+                      selectedKeys={selectedKeys}
+                      onSelectGroup={toggleSelectGroup}
+                      onSelectTool={toggleSelectTool}
+                      onExpandedChange={maybeLoadToolDetails}
+                      detailLoadingPaths={loadingDetailPaths}
+                      source={group.type === "source" ? sourceByName.get(group.label) : undefined}
+                      search={search}
+                    />
+                  ))}
+                </div>
+              </InfiniteScroll>
             )}
           </div>
         )}

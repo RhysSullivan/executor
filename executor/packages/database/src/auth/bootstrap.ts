@@ -2,11 +2,8 @@ import type { MutationCtx } from "../../convex/_generated/server";
 import { upsertWorkosAccount } from "./accounts";
 import { getOrganizationByWorkosOrgId } from "./db_queries";
 import { getAuthKitUserProfile, resolveIdentityProfile } from "./identity";
-import {
-  markPendingInvitesAcceptedByEmail,
-  upsertOrganizationMembership,
-} from "./memberships";
-import { ensurePersonalWorkspace, refreshGeneratedPersonalWorkspaceNames } from "./personal_workspace";
+import { activateOrganizationMembershipFromInviteHint } from "./memberships";
+import { getOrCreatePersonalWorkspace, refreshGeneratedPersonalWorkspaceNames } from "./personal_workspace";
 import type { AccountId } from "./types";
 
 async function seedHintedOrganizationMembership(
@@ -18,13 +15,7 @@ async function seedHintedOrganizationMembership(
     now: number;
   },
 ) {
-  const activeOrgMembership = await ctx.db
-    .query("organizationMembers")
-    .withIndex("by_account", (q) => q.eq("accountId", args.accountId))
-    .filter((q) => q.eq(q.field("status"), "active"))
-    .first();
-
-  if (activeOrgMembership || !args.hintedWorkosOrgId) {
+  if (!args.hintedWorkosOrgId) {
     return;
   }
 
@@ -33,23 +24,17 @@ async function seedHintedOrganizationMembership(
     return;
   }
 
-  await upsertOrganizationMembership(ctx, {
+  await activateOrganizationMembershipFromInviteHint(ctx, {
     organizationId: hintedOrganization._id,
     accountId: args.accountId,
-    role: "member",
-    status: "active",
-    billable: true,
-    now: args.now,
-  });
-
-  await markPendingInvitesAcceptedByEmail(ctx, {
-    organizationId: hintedOrganization._id,
     email: args.email,
-    acceptedAt: args.now,
+    now: args.now,
+    fallbackRole: "member",
+    billable: true,
   });
 }
 
-async function ensureAtLeastOneWorkspaceMembership(ctx: MutationCtx, args: { accountId: AccountId }) {
+async function hasActiveWorkspaceMembership(ctx: MutationCtx, args: { accountId: AccountId }) {
   const activeWorkspaceMembership = await ctx.db
     .query("workspaceMembers")
     .withIndex("by_account", (q) => q.eq("accountId", args.accountId))
@@ -98,12 +83,12 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
     now,
   });
 
-  let hasActiveWorkspaceMembership = await ensureAtLeastOneWorkspaceMembership(ctx, {
+  let hasWorkspaceMembership = await hasActiveWorkspaceMembership(ctx, {
     accountId: account._id,
   });
 
-  if (!hasActiveWorkspaceMembership) {
-    await ensurePersonalWorkspace(ctx, account._id, {
+  if (!hasWorkspaceMembership) {
+    await getOrCreatePersonalWorkspace(ctx, account._id, {
       email: identityProfile.email,
       firstName: identityProfile.firstName,
       fullName: identityProfile.fullName,
@@ -111,11 +96,11 @@ export async function bootstrapCurrentWorkosAccountImpl(ctx: MutationCtx) {
       now,
     });
 
-    hasActiveWorkspaceMembership = await ensureAtLeastOneWorkspaceMembership(ctx, {
+    hasWorkspaceMembership = await hasActiveWorkspaceMembership(ctx, {
       accountId: account._id,
     });
 
-    if (!hasActiveWorkspaceMembership) {
+    if (!hasWorkspaceMembership) {
       throw new Error("Account bootstrap did not produce an active workspace membership");
     }
   }

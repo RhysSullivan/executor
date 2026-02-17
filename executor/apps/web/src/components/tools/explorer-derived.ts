@@ -131,6 +131,7 @@ export function treeGroupsForView(
   options?: {
     loadingSources?: string[];
     sourceRecords?: ToolSourceRecord[];
+    sourceCounts?: Record<string, number>;
     activeSource?: string | null;
   },
 ): ToolGroup[] {
@@ -143,6 +144,7 @@ export function treeGroupsForView(
       buildSourceTree(tools),
       options?.loadingSources ?? [],
       options?.sourceRecords ?? [],
+      options?.sourceCounts ?? {},
       options?.activeSource ?? null,
     );
   }
@@ -158,38 +160,71 @@ function buildSourceTreeWithLoading(
   groups: ToolGroup[],
   loadingSources: string[],
   sourceRecords: ToolSourceRecord[],
+  sourceCounts: Record<string, number>,
   activeSource: string | null,
 ): ToolGroup[] {
-  if (loadingSources.length === 0) return groups;
-
-  const existingSourceKeys = new Set(
+  const groupsBySource = new Map(
     groups
       .filter((group) => group.type === "source")
-      .map((group) => group.label),
+      .map((group) => [group.label, group]),
   );
   const sourceTypeByName = new Map<string, string>(
     sourceRecords.map((source) => [source.name, source.type]),
   );
 
+  for (const source of sourceRecords) {
+    if (activeSource && source.name !== activeSource) {
+      continue;
+    }
+
+    if (!groupsBySource.has(source.name)) {
+      groupsBySource.set(source.name, {
+        key: `source:${source.name}`,
+        label: source.name,
+        type: "source",
+        sourceType: source.type,
+        childCount: sourceCounts[source.name] ?? 0,
+        approvalCount: 0,
+        children: [],
+      });
+    }
+  }
+
   const loadingPlaceholders = loadingSources
     .filter((sourceName) =>
       (activeSource ? sourceName === activeSource : true)
-      && !existingSourceKeys.has(sourceName),
+      && !groupsBySource.has(sourceName),
     )
     .map((sourceName) => ({
       key: `source:${sourceName}`,
       label: sourceName,
       type: "source" as const,
       sourceType: sourceTypeByName.get(sourceName) ?? "local",
-      childCount: 0,
+      childCount: sourceCounts[sourceName] ?? 0,
       approvalCount: 0,
       loadingPlaceholderCount: 3,
       children: [],
     }));
 
-  if (loadingPlaceholders.length === 0) return groups;
+  for (const placeholder of loadingPlaceholders) {
+    groupsBySource.set(placeholder.label, placeholder);
+  }
 
-  return [...groups, ...loadingPlaceholders].sort((a, b) => {
+  if (loadingSources.length > 0) {
+    for (const sourceName of loadingSources) {
+      const existing = groupsBySource.get(sourceName);
+      if (!existing) {
+        continue;
+      }
+
+      groupsBySource.set(sourceName, {
+        ...existing,
+        loadingPlaceholderCount: existing.loadingPlaceholderCount ?? 3,
+      });
+    }
+  }
+
+  return [...groupsBySource.values()].sort((a, b) => {
     if (a.childCount !== b.childCount) return b.childCount - a.childCount;
     return a.label.localeCompare(b.label);
   });

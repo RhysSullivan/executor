@@ -27,7 +27,6 @@ export async function upsertOrganizationMembership(
     status: OrganizationMemberStatus;
     billable: boolean;
     invitedByAccountId?: AccountId;
-    workosOrgMembershipId?: string;
     now: number;
   },
 ) {
@@ -42,7 +41,6 @@ export async function upsertOrganizationMembership(
       status: args.status,
       billable: args.billable,
       invitedByAccountId: args.invitedByAccountId,
-      workosOrgMembershipId: args.workosOrgMembershipId,
       joinedAt: args.status === "active" ? (existing.joinedAt ?? args.now) : existing.joinedAt,
       updatedAt: args.now,
     });
@@ -54,7 +52,6 @@ export async function upsertOrganizationMembership(
       status: args.status,
       billable: args.billable,
       invitedByAccountId: args.invitedByAccountId,
-      workosOrgMembershipId: args.workosOrgMembershipId,
       joinedAt: args.status === "active" ? args.now : undefined,
       createdAt: args.now,
       updatedAt: args.now,
@@ -67,7 +64,80 @@ export async function upsertOrganizationMembership(
     role: mapOrganizationRoleToWorkspaceRole(args.role),
     status: args.status,
     now: args.now,
-    workosOrgMembershipId: args.workosOrgMembershipId,
+  });
+}
+
+async function getLatestPendingInviteRoleForEmail(
+  ctx: DbCtx,
+  args: {
+    organizationId: OrganizationId;
+    email?: string;
+  },
+): Promise<OrganizationRole | null> {
+  if (!args.email) {
+    return null;
+  }
+
+  const normalizedEmail = args.email.toLowerCase();
+  const pendingInvites = await ctx.db
+    .query("invites")
+    .withIndex("by_org_email_status", (q) =>
+      q.eq("organizationId", args.organizationId).eq("email", normalizedEmail).eq("status", "pending"),
+    )
+    .collect();
+
+  if (pendingInvites.length === 0) {
+    return null;
+  }
+
+  pendingInvites.sort((a, b) => b.createdAt - a.createdAt);
+  return pendingInvites[0]!.role;
+}
+
+export async function activateOrganizationMembershipFromInviteHint(
+  ctx: DbCtx,
+  args: {
+    organizationId: OrganizationId;
+    accountId: AccountId;
+    email?: string;
+    now: number;
+    fallbackRole?: OrganizationRole;
+    billable?: boolean;
+  },
+): Promise<void> {
+  const existingMembership = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
+    .unique();
+
+  if (existingMembership?.status === "active") {
+    await markPendingInvitesAcceptedByEmail(ctx, {
+      organizationId: args.organizationId,
+      email: args.email,
+      acceptedAt: args.now,
+    });
+    return;
+  }
+
+  const inviteRole = await getLatestPendingInviteRoleForEmail(ctx, {
+    organizationId: args.organizationId,
+    email: args.email,
+  });
+
+  await upsertOrganizationMembership(ctx, {
+    organizationId: args.organizationId,
+    accountId: args.accountId,
+    role: inviteRole ?? existingMembership?.role ?? args.fallbackRole ?? "member",
+    status: "active",
+    billable: args.billable ?? true,
+    invitedByAccountId: existingMembership?.invitedByAccountId,
+    now: args.now,
+  });
+
+  await markPendingInvitesAcceptedByEmail(ctx, {
+    organizationId: args.organizationId,
+    email: args.email,
+    acceptedAt: args.now,
   });
 }
 
@@ -98,8 +168,4 @@ export async function markPendingInvitesAcceptedByEmail(
       updatedAt: args.acceptedAt,
     });
   }
-}
-
-export function deriveOrganizationMembershipState(status?: string): OrganizationMemberStatus {
-  return status === "active" ? "active" : "pending";
 }

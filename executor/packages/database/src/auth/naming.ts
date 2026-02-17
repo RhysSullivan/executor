@@ -77,7 +77,7 @@ export function buildPersonalWorkspaceSlugSeed(email: string | undefined, workos
   return `${baseSlug}-${workosUserId.slice(-6)}`;
 }
 
-export async function ensureUniqueOrganizationSlug(ctx: DbCtx, baseName: string): Promise<string> {
+export async function generateUniqueOrganizationSlug(ctx: DbCtx, baseName: string): Promise<string> {
   const baseSlug = slugify(baseName, "workspace");
   return await ensureUniqueSlug(baseSlug, async (candidate) => {
     const collision = await ctx.db

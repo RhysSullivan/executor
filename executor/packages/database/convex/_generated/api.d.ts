@@ -135,11 +135,30 @@ export declare const api: {
       "public",
       {
         accountId?: Id<"accounts">;
+        buildId?: string;
         clientId?: string;
+        cursor?: string;
         includeDetails?: boolean;
         includeSourceMeta?: boolean;
+        limit?: number;
         sessionId?: string;
+        source?: string;
+        sourceName?: string;
         toolPaths?: Array<string>;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    previewOpenApiSourceUpgrade: FunctionReference<
+      "action",
+      "public",
+      {
+        accountId?: Id<"accounts">;
+        clientId?: string;
+        config: Record<string, any>;
+        name: string;
+        sessionId?: string;
+        sourceId: string;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -315,6 +334,12 @@ export declare const api: {
     >;
     listToolSources: FunctionReference<
       "query",
+      "public",
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    regenerateToolInventory: FunctionReference<
+      "mutation",
       "public",
       { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
@@ -1083,11 +1108,7 @@ export declare const internal: {
     linkOrganizationToWorkos: FunctionReference<
       "mutation",
       "internal",
-      {
-        organizationId: Id<"organizations">;
-        workosOrgId: string;
-        workspaceId?: Id<"workspaces">;
-      },
+      { organizationId: Id<"organizations">; workosOrgId: string },
       any
     >;
     markInviteDelivered: FunctionReference<
@@ -1164,7 +1185,7 @@ export declare const internal: {
     failBuild: FunctionReference<
       "mutation",
       "internal",
-      { buildId: string; workspaceId: Id<"workspaces"> },
+      { buildId: string; error?: string; workspaceId: Id<"workspaces"> },
       any
     >;
     finishBuild: FunctionReference<
@@ -1209,6 +1230,29 @@ export declare const internal: {
         buildId: string;
         limit: number;
         namespace: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    listToolsBySourcePage: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        cursor?: string;
+        limit: number;
+        source: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    listToolsPage: FunctionReference<
+      "query",
+      "internal",
+      {
+        buildId: string;
+        cursor?: string;
+        limit: number;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -1285,6 +1329,31 @@ export declare const internal: {
       "internal",
       {
         buildId: string;
+        sourceAuthProfiles: Array<{
+          header?: string;
+          inferred: boolean;
+          mode?: "account" | "organization" | "workspace";
+          sourceKey: string;
+          type: "none" | "bearer" | "apiKey" | "basic" | "mixed";
+        }>;
+        sourceQuality: Array<{
+          argsQuality: number;
+          overallQuality: number;
+          partialUnknownArgsCount: number;
+          partialUnknownReturnsCount: number;
+          returnsQuality: number;
+          sourceKey: string;
+          toolCount: number;
+          unknownArgsCount: number;
+          unknownReturnsCount: number;
+        }>;
+        sourceToolCounts: Array<{ sourceName: string; toolCount: number }>;
+        sourceVersions: Array<{
+          sourceId: string;
+          sourceName: string;
+          updatedAt: number;
+        }>;
+        toolCount: number;
         typesStorageId?: Id<"_storage">;
         warnings: Array<string>;
         workspaceId: Id<"workspaces">;

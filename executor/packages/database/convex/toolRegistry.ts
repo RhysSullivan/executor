@@ -18,8 +18,18 @@ export const getState = internalQuery({
       signature: entry.signature,
       readyBuildId: entry.readyBuildId,
       buildingBuildId: entry.buildingBuildId,
+      buildingSignature: entry.buildingSignature,
+      buildingStartedAt: entry.buildingStartedAt,
+      lastBuildCompletedAt: entry.lastBuildCompletedAt,
+      lastBuildFailedAt: entry.lastBuildFailedAt,
+      lastBuildError: entry.lastBuildError,
       typesStorageId: entry.typesStorageId,
       warnings: entry.warnings ?? [],
+      toolCount: entry.toolCount,
+      sourceToolCounts: entry.sourceToolCounts ?? [],
+      sourceVersions: entry.sourceVersions ?? [],
+      sourceQuality: entry.sourceQuality ?? [],
+      sourceAuthProfiles: entry.sourceAuthProfiles ?? [],
       updatedAt: entry.updatedAt,
     };
   },
@@ -41,6 +51,9 @@ export const beginBuild = internalMutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         buildingBuildId: args.buildId,
+        buildingSignature: args.signature,
+        buildingStartedAt: now,
+        lastBuildError: undefined,
         updatedAt: now,
       });
       return;
@@ -51,8 +64,18 @@ export const beginBuild = internalMutation({
       signature: args.signature,
       readyBuildId: undefined,
       buildingBuildId: args.buildId,
+      buildingSignature: args.signature,
+      buildingStartedAt: now,
+      lastBuildCompletedAt: undefined,
+      lastBuildFailedAt: undefined,
+      lastBuildError: undefined,
       typesStorageId: undefined,
       warnings: [],
+      toolCount: 0,
+      sourceToolCounts: [],
+      sourceVersions: [],
+      sourceQuality: [],
+      sourceAuthProfiles: [],
       createdAt: now,
       updatedAt: now,
     });
@@ -162,8 +185,18 @@ export const finishBuild = internalMutation({
         signature: args.signature,
         readyBuildId: args.buildId,
         buildingBuildId: undefined,
+        buildingSignature: undefined,
+        buildingStartedAt: undefined,
+        lastBuildCompletedAt: now,
+        lastBuildFailedAt: undefined,
+        lastBuildError: undefined,
         typesStorageId: undefined,
         warnings: [],
+        toolCount: 0,
+        sourceToolCounts: [],
+        sourceVersions: [],
+        sourceQuality: [],
+        sourceAuthProfiles: [],
         createdAt: now,
         updatedAt: now,
       });
@@ -179,6 +212,10 @@ export const finishBuild = internalMutation({
       readyBuildId: args.buildId,
       signature: args.signature,
       buildingBuildId: undefined,
+      buildingSignature: undefined,
+      buildingStartedAt: undefined,
+      lastBuildCompletedAt: now,
+      lastBuildError: undefined,
       updatedAt: now,
     });
   },
@@ -190,6 +227,34 @@ export const updateBuildMetadata = internalMutation({
     buildId: v.string(),
     typesStorageId: v.optional(v.id("_storage")),
     warnings: v.array(v.string()),
+    toolCount: v.number(),
+    sourceToolCounts: v.array(v.object({
+      sourceName: v.string(),
+      toolCount: v.number(),
+    })),
+    sourceVersions: v.array(v.object({
+      sourceId: v.string(),
+      sourceName: v.string(),
+      updatedAt: v.number(),
+    })),
+    sourceQuality: v.array(v.object({
+      sourceKey: v.string(),
+      toolCount: v.number(),
+      unknownArgsCount: v.number(),
+      unknownReturnsCount: v.number(),
+      partialUnknownArgsCount: v.number(),
+      partialUnknownReturnsCount: v.number(),
+      argsQuality: v.number(),
+      returnsQuality: v.number(),
+      overallQuality: v.number(),
+    })),
+    sourceAuthProfiles: v.array(v.object({
+      sourceKey: v.string(),
+      type: v.union(v.literal("none"), v.literal("bearer"), v.literal("apiKey"), v.literal("basic"), v.literal("mixed")),
+      mode: v.optional(v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"))),
+      header: v.optional(v.string()),
+      inferred: v.boolean(),
+    })),
   },
   handler: async (ctx, args) => {
     const state = await ctx.db
@@ -206,6 +271,11 @@ export const updateBuildMetadata = internalMutation({
     await ctx.db.patch(state._id, {
       typesStorageId: args.typesStorageId,
       warnings: args.warnings,
+      toolCount: args.toolCount,
+      sourceToolCounts: args.sourceToolCounts,
+      sourceVersions: args.sourceVersions,
+      sourceQuality: args.sourceQuality,
+      sourceAuthProfiles: args.sourceAuthProfiles,
       updatedAt: Date.now(),
     });
   },
@@ -215,6 +285,7 @@ export const failBuild = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     buildId: v.string(),
+    error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const state = await ctx.db
@@ -230,6 +301,10 @@ export const failBuild = internalMutation({
 
     await ctx.db.patch(state._id, {
       buildingBuildId: undefined,
+      buildingSignature: undefined,
+      buildingStartedAt: undefined,
+      lastBuildFailedAt: Date.now(),
+      lastBuildError: args.error,
       updatedAt: Date.now(),
     });
   },
@@ -459,6 +534,110 @@ export const listToolsByNamespace = internalQuery({
       previewInputKeys: entry.previewInputKeys,
       typedRef: entry.typedRef,
     }));
+  },
+});
+
+export const listToolsPage = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    cursor: v.optional(v.string()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(1_000, Math.floor(args.limit)));
+    const page = await ctx.db
+      .query("workspaceToolRegistry")
+      .withIndex("by_workspace_build", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId),
+      )
+      .paginate({
+        numItems: limit,
+        cursor: args.cursor ?? null,
+      });
+
+    return {
+      continueCursor: page.isDone ? null : page.continueCursor,
+      items: page.page.map((entry) => ({
+        path: entry.path,
+        preferredPath: entry.preferredPath,
+        aliases: entry.aliases,
+        description: entry.description,
+        approval: entry.approval,
+        source: entry.source,
+        displayInput: entry.displayInput,
+        displayOutput: entry.displayOutput,
+        requiredInputKeys: entry.requiredInputKeys,
+        previewInputKeys: entry.previewInputKeys,
+        typedRef: entry.typedRef,
+        serializedToolJson: entry.serializedToolJson,
+      })),
+    };
+  },
+});
+
+export const listToolsBySourcePage = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    source: v.string(),
+    cursor: v.optional(v.string()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const source = args.source.trim();
+    if (!source) {
+      return {
+        continueCursor: null,
+        items: [] as Array<{
+          path: string;
+          preferredPath: string;
+          aliases: string[];
+          description: string;
+          approval: "auto" | "required";
+          source?: string;
+          displayInput?: string;
+          displayOutput?: string;
+          requiredInputKeys?: string[];
+          previewInputKeys?: string[];
+          typedRef?: {
+            kind: "openapi_operation";
+            sourceKey: string;
+            operationId: string;
+          };
+          serializedToolJson: string;
+        }>,
+      };
+    }
+
+    const limit = Math.max(1, Math.min(1_000, Math.floor(args.limit)));
+    const page = await ctx.db
+      .query("workspaceToolRegistry")
+      .withIndex("by_workspace_build_source", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("source", source),
+      )
+      .paginate({
+        numItems: limit,
+        cursor: args.cursor ?? null,
+      });
+
+    return {
+      continueCursor: page.isDone ? null : page.continueCursor,
+      items: page.page.map((entry) => ({
+        path: entry.path,
+        preferredPath: entry.preferredPath,
+        aliases: entry.aliases,
+        description: entry.description,
+        approval: entry.approval,
+        source: entry.source,
+        displayInput: entry.displayInput,
+        displayOutput: entry.displayOutput,
+        requiredInputKeys: entry.requiredInputKeys,
+        previewInputKeys: entry.previewInputKeys,
+        typedRef: entry.typedRef,
+        serializedToolJson: entry.serializedToolJson,
+      })),
+    };
   },
 });
 

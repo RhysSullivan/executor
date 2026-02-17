@@ -147,7 +147,7 @@ export const deliverWorkosInvite = internalAction({
     }
 
     const organizationName = normalizePersonalOrganizationName(context.organization.name);
-    let workosOrgId = context.organization.workosOrgId ?? context.workspace?.workosOrgId ?? null;
+    let workosOrgId = context.organization.workosOrgId ?? null;
     let createdWorkosOrganization = false;
 
     try {
@@ -158,7 +158,6 @@ export const deliverWorkosInvite = internalAction({
 
         await ctx.runMutation(internal.invites.linkOrganizationToWorkos, {
           organizationId: context.organization._id,
-          workspaceId: context.workspace?._id,
           workosOrgId,
         });
       }
@@ -275,31 +274,12 @@ export const getInviteDeliveryContext = internalQuery({
 export const linkOrganizationToWorkos = internalMutation({
   args: {
     organizationId: v.id("organizations"),
-    workspaceId: v.optional(v.id("workspaces")),
     workosOrgId: v.string(),
   },
   handler: async (ctx, args) => {
-    const now = Date.now();
-
     await ctx.db.patch(args.organizationId, {
       workosOrgId: args.workosOrgId,
-      updatedAt: now,
-    });
-
-    const workspace = args.workspaceId
-      ? await ctx.db.get(args.workspaceId)
-      : await ctx.db
-        .query("workspaces")
-        .withIndex("by_organization_created", (q) => q.eq("organizationId", args.organizationId))
-        .first();
-
-    if (!workspace || workspace.organizationId !== args.organizationId) {
-      return;
-    }
-
-    await ctx.db.patch(workspace._id, {
-      workosOrgId: args.workosOrgId,
-      updatedAt: now,
+      updatedAt: Date.now(),
     });
   },
 });

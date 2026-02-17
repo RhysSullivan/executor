@@ -57,9 +57,9 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   expect(typeof cold.typesUrl).toBe("string");
   expect(typeof warm.typesUrl).toBe("string");
   expect(cold.typesUrl).toBe(warm.typesUrl);
-  expect(warm.debug.cacheHit).toBe(true);
-  expect(warm.debug.cacheFresh).toBe(true);
-  expect(warm.debug.mode).toBe("registry");
+  expect(cold.inventoryStatus.state).toBe("ready");
+  expect(warm.inventoryStatus.state).toBe("ready");
+  expect(warm.inventoryStatus.readyToolCount).toBeGreaterThan(500);
 
   expect(coldMs).toBeLessThan(12_000);
   expect(coldMs).toBeGreaterThan(warmMs * 3);

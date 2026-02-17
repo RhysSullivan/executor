@@ -38,6 +38,7 @@ import {
   CatalogViewSection,
   CustomViewSection,
 } from "./source/dialog-sections";
+import { createCustomSourceConfig } from "./source/dialog-helpers";
 import { SourceAuthPanel } from "./source/auth-panel";
 import {
   SourceQualitySummary,
@@ -103,6 +104,7 @@ export function AddSourceDialog({
   const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
   const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
+  const previewOpenApiSourceUpgrade = useAction(convexApi.executorNode.previewOpenApiSourceUpgrade);
   const credentials = useQuery(
     convexApi.workspace.listCredentials,
     workspaceQueryArgs(context),
@@ -151,6 +153,63 @@ export function AddSourceDialog({
   const handleCustomSubmit = async () => {
     if (!context || !form.name.trim() || !form.endpoint.trim()) {
       return;
+    }
+
+    if (sourceToEdit?.type === "openapi" && form.type === "openapi") {
+      const previewConfig = createCustomSourceConfig({
+        type: form.type,
+        endpoint: form.endpoint.trim(),
+        baseUrl: form.baseUrl,
+        auth: form.buildAuthConfig(),
+        mcpTransport: form.mcpTransport,
+        accountId: context.accountId,
+      });
+
+      const previewResult = await Result.tryPromise(() =>
+        previewOpenApiSourceUpgrade({
+          workspaceId: context.workspaceId,
+          sessionId: context.sessionId,
+          sourceId: sourceToEdit.id,
+          name: form.name.trim(),
+          config: previewConfig,
+        }),
+      );
+
+      if (!previewResult.isOk()) {
+        toast.error(resultErrorMessage(previewResult.error, "Failed to preview OpenAPI changes"));
+        return;
+      }
+
+      const preview = previewResult.value;
+      if (preview.hasChanges) {
+        const sample = (items: string[]) => items.slice(0, 8).join("\n- ");
+        const added = sample(preview.addedPaths);
+        const removed = sample(preview.removedPaths);
+        const changed = sample(preview.changedPaths);
+
+        const message = [
+          `OpenAPI upgrade for \"${preview.currentSourceName}\"`,
+          "",
+          `Added: ${preview.addedCount}`,
+          `Removed: ${preview.removedCount}`,
+          `Changed: ${preview.changedCount}`,
+          "",
+          added ? `Added sample:\n- ${added}` : "",
+          removed ? `Removed sample:\n- ${removed}` : "",
+          changed ? `Changed sample:\n- ${changed}` : "",
+          preview.truncated ? "\n(Preview truncated)" : "",
+          "",
+          "Apply this upgrade now?",
+        ]
+          .filter((line) => line.length > 0)
+          .join("\n");
+
+        const approved = window.confirm(message);
+        if (!approved) {
+          toast.message("Upgrade cancelled");
+          return;
+        }
+      }
     }
 
     if (form.isNameTaken(form.name)) {
