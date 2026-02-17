@@ -1,6 +1,10 @@
 import { v } from "convex/values";
-import { customMutation, customQuery } from "convex-helpers/server/customFunctions";
-import { internalQuery, mutation, query } from "../../database/convex/_generated/server";
+import {
+  customAction as convexCustomAction,
+  customMutation as convexCustomMutation,
+  customQuery as convexCustomQuery,
+} from "convex-helpers/server/customFunctions";
+import { action, internalQuery, mutation, query } from "../../database/convex/_generated/server";
 import {
   canManageBilling,
   getOrganizationMembership,
@@ -9,16 +13,37 @@ import {
   resolveAccountForRequest,
 } from "./identity";
 
+export type OpenApiMethod = "GET" | "POST";
+
+type QueryMethodOptions = {
+  method: "GET";
+};
+
+type MutationMethodOptions = {
+  method: "POST";
+};
+
+type ActionMethodOptions = {
+  method: "POST";
+};
+
 type WorkspaceAccessOptions = {
+  method: OpenApiMethod;
   requireAdmin?: boolean;
 };
 
 type OrganizationAccessOptions = {
+  method: OpenApiMethod;
   requireAdmin?: boolean;
   requireBillingAdmin?: boolean;
 };
 
-function ensureOrganizationRole(role: string, options: OrganizationAccessOptions): void {
+type InternalOrganizationAccessOptions = Omit<OrganizationAccessOptions, "method">;
+
+function ensureOrganizationRole(
+  role: string,
+  options: Pick<OrganizationAccessOptions, "requireAdmin" | "requireBillingAdmin">,
+): void {
   if (options.requireAdmin && !isAdminRole(role)) {
     throw new Error("Only organization admins can perform this action");
   }
@@ -28,7 +53,7 @@ function ensureOrganizationRole(role: string, options: OrganizationAccessOptions
   }
 }
 
-function ensureWorkspaceRole(role: string, options: WorkspaceAccessOptions): void {
+function ensureWorkspaceRole(role: string, options: Pick<WorkspaceAccessOptions, "requireAdmin">): void {
   if (options.requireAdmin && !isAdminRole(role)) {
     throw new Error("Only workspace admins can perform this action");
   }
@@ -45,11 +70,35 @@ async function requireAccountFromSession(
   return account;
 }
 
-export const authedQuery = customQuery(query, {
+export const customQuery = convexCustomQuery(query, {
+  args: {},
+  input: async (_ctx, _args, _options: QueryMethodOptions) => ({
+    ctx: {},
+    args: {},
+  }),
+});
+
+export const customMutation = convexCustomMutation(mutation, {
+  args: {},
+  input: async (_ctx, _args, _options: MutationMethodOptions) => ({
+    ctx: {},
+    args: {},
+  }),
+});
+
+export const customAction = convexCustomAction(action, {
+  args: {},
+  input: async (_ctx, _args, _options: ActionMethodOptions) => ({
+    ctx: {},
+    args: {},
+  }),
+});
+
+export const authedQuery = convexCustomQuery(query, {
   args: {
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args) => {
+  input: async (ctx, args, _options: QueryMethodOptions = { method: "GET" }) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
     return {
       ctx: { account },
@@ -58,11 +107,11 @@ export const authedQuery = customQuery(query, {
   },
 });
 
-export const optionalAccountQuery = customQuery(query, {
+export const optionalAccountQuery = convexCustomQuery(query, {
   args: {
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args) => {
+  input: async (ctx, args, _options: QueryMethodOptions = { method: "GET" }) => {
     const account = await resolveAccountForRequest(ctx, args.sessionId);
     return {
       ctx: { account, sessionId: args.sessionId },
@@ -71,11 +120,11 @@ export const optionalAccountQuery = customQuery(query, {
   },
 });
 
-export const authedMutation = customMutation(mutation, {
+export const authedMutation = convexCustomMutation(mutation, {
   args: {
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args) => {
+  input: async (ctx, args, _options: MutationMethodOptions = { method: "POST" }) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
     return {
       ctx: { account },
@@ -84,12 +133,12 @@ export const authedMutation = customMutation(mutation, {
   },
 });
 
-export const organizationQuery = customQuery(query, {
+export const organizationQuery = convexCustomQuery(query, {
   args: {
     organizationId: v.id("organizations"),
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
+  input: async (ctx, args, options: OrganizationAccessOptions = { method: "GET" }) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
     const accountMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 
@@ -110,12 +159,12 @@ export const organizationQuery = customQuery(query, {
   },
 });
 
-export const organizationMutation = customMutation(mutation, {
+export const organizationMutation = convexCustomMutation(mutation, {
   args: {
     organizationId: v.id("organizations"),
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
+  input: async (ctx, args, options: OrganizationAccessOptions = { method: "POST" }) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
     const accountMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 
@@ -136,12 +185,12 @@ export const organizationMutation = customMutation(mutation, {
   },
 });
 
-export const workspaceQuery = customQuery(query, {
+export const workspaceQuery = convexCustomQuery(query, {
   args: {
     workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args, options: WorkspaceAccessOptions = {}) => {
+  input: async (ctx, args, options: WorkspaceAccessOptions = { method: "GET" }) => {
     const access = await requireWorkspaceAccessForRequest(ctx, args.workspaceId, args.sessionId);
 
     ensureWorkspaceRole(access.workspaceMembership.role, options);
@@ -156,12 +205,12 @@ export const workspaceQuery = customQuery(query, {
   },
 });
 
-export const workspaceMutation = customMutation(mutation, {
+export const workspaceMutation = convexCustomMutation(mutation, {
   args: {
     workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args, options: WorkspaceAccessOptions = {}) => {
+  input: async (ctx, args, options: WorkspaceAccessOptions = { method: "POST" }) => {
     const access = await requireWorkspaceAccessForRequest(ctx, args.workspaceId, args.sessionId);
 
     ensureWorkspaceRole(access.workspaceMembership.role, options);
@@ -176,12 +225,12 @@ export const workspaceMutation = customMutation(mutation, {
   },
 });
 
-export const internalOrganizationQuery = customQuery(internalQuery, {
+export const internalOrganizationQuery = convexCustomQuery(internalQuery, {
   args: {
     organizationId: v.id("organizations"),
     sessionId: v.optional(v.string()),
   },
-  input: async (ctx, args, options: OrganizationAccessOptions = {}) => {
+  input: async (ctx, args, options: InternalOrganizationAccessOptions = {}) => {
     const account = await requireAccountFromSession(ctx, args.sessionId);
     const accountMembership = await getOrganizationMembership(ctx, args.organizationId, account._id);
 

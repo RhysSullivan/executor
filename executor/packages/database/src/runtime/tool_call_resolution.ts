@@ -6,7 +6,7 @@ import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { parseGraphqlOperationPaths } from "../../../core/src/graphql/operation-paths";
 import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
-import { parseSerializedTool, rehydrateTools } from "../../../core/src/tool/source-serialization";
+import { parseSerializedTool, type SerializedTool } from "../../../core/src/tool/source-serialization";
 import { getDecisionForContext, getToolDecision } from "./policy";
 import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
@@ -78,9 +78,9 @@ async function getRegistryToolsByNormalizedPath(
 
 export function getGraphqlDecision(
   task: TaskRecord,
-  tool: ToolDefinition,
+  tool: { path: string; approval: "auto" | "required"; _graphqlSource?: string },
   input: unknown,
-  workspaceTools: Map<string, ToolDefinition> | undefined,
+  workspaceTools: Map<string, { path: string; approval: "auto" | "required" }> | undefined,
   policies: AccessPolicyRecord[],
 ): { decision: PolicyDecision; effectivePaths: string[] } {
   const sourceName = tool._graphqlSource;
@@ -164,13 +164,22 @@ export async function resolveToolForCall(
   ctx: ActionCtx,
   task: TaskRecord,
   toolPath: string,
-): Promise<Result<{
-  tool: ToolDefinition;
-  resolvedToolPath: string;
-}, Error>> {
+): Promise<Result<
+  | {
+      tool: ToolDefinition;
+      kind: "builtin";
+      resolvedToolPath: string;
+    }
+  | {
+      tool: SerializedTool;
+      kind: "serialized";
+      resolvedToolPath: string;
+    },
+  Error
+>> {
   const builtin = baseTools.get(toolPath);
   if (builtin) {
-    return Result.ok({ tool: builtin, resolvedToolPath: toolPath });
+    return Result.ok({ kind: "builtin", tool: builtin, resolvedToolPath: toolPath });
   }
 
   const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
@@ -232,10 +241,5 @@ export async function resolveToolForCall(
     );
   }
 
-  const [tool] = rehydrateTools([serialized.value], baseTools);
-  if (!tool) {
-    return Result.err(new Error(`Failed to rehydrate tool: ${resolvedToolPath}`));
-  }
-
-  return Result.ok({ tool, resolvedToolPath });
+  return Result.ok({ kind: "serialized", tool: serialized.value, resolvedToolPath });
 }

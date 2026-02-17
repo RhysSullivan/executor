@@ -4,8 +4,12 @@ import type {
   AccessPolicyRecord,
   PolicyDecision,
   TaskRecord,
-  ToolDefinition,
 } from "../../../core/src/types";
+
+interface PolicyTool {
+  path: string;
+  approval: "auto" | "required";
+}
 
 function matchesToolPath(pattern: string, toolPath: string, matchType: "glob" | "exact" = "glob"): boolean {
   if (matchType === "exact") {
@@ -57,7 +61,7 @@ function resolvePolicyDecision(policy: AccessPolicyRecord, defaultDecision: Poli
 }
 
 export function getDecisionForContext(
-  tool: ToolDefinition,
+  tool: PolicyTool,
   context: { workspaceId: string; accountId?: string; clientId?: string },
   policies: AccessPolicyRecord[],
 ): PolicyDecision {
@@ -90,7 +94,7 @@ export function getDecisionForContext(
 
 export function getToolDecision(
   task: TaskRecord,
-  tool: ToolDefinition,
+  tool: PolicyTool,
   policies: AccessPolicyRecord[],
 ): PolicyDecision {
   return getDecisionForContext(
@@ -107,7 +111,7 @@ export function getToolDecision(
 export function isToolAllowedForTask(
   task: TaskRecord,
   toolPath: string,
-  workspaceTools: Map<string, ToolDefinition>,
+  workspaceTools: ReadonlyMap<string, PolicyTool>,
   policies: AccessPolicyRecord[],
 ): boolean {
   const tool = workspaceTools.get(toolPath);

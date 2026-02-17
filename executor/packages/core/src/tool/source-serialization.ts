@@ -4,7 +4,7 @@ import { normalizeGraphqlFieldVariables, selectGraphqlFieldEnvelope } from "../g
 import { callMcpToolWithReconnect, executeGraphqlRequest, executeOpenApiRequest } from "./source-execution";
 import { Result } from "better-result";
 import { z } from "zod";
-import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolTyping } from "../types";
+import type { ToolApprovalMode, ToolCredentialSpec, ToolDefinition, ToolRunContext, ToolTyping } from "../types";
 
 const recordSchema = z.record(z.unknown());
 
@@ -211,6 +211,7 @@ const serializedToolSchema: z.ZodType<SerializedTool> = z.object({
 type ToolWithRunSpec = ToolDefinition & { _runSpec?: SerializedTool["runSpec"] };
 type McpConnection = Awaited<ReturnType<typeof connectMcp>>;
 type McpConnectionCacheEntry = { promise: Promise<McpConnection> };
+const sharedMcpConnections = new Map<string, McpConnectionCacheEntry>();
 
 function resolveSerializedRunSpec(tool: ToolDefinition): SerializedTool["runSpec"] {
   const runSpec = (tool as ToolWithRunSpec)._runSpec;
@@ -267,12 +268,113 @@ export function parseSerializedTool(value: unknown): Result<SerializedTool, Erro
   return Result.ok(parsed.data);
 }
 
+export async function executeSerializedTool(
+  serialized: SerializedTool,
+  input: unknown,
+  context: ToolRunContext,
+  baseTools: ReadonlyMap<string, ToolDefinition>,
+): Promise<unknown> {
+  if (serialized.runSpec.kind === "builtin") {
+    const builtin = baseTools.get(serialized.path);
+    if (!builtin) {
+      throw new Error(`Builtin tool '${serialized.path}' not found`);
+    }
+    return await builtin.run(input, context);
+  }
+
+  if (serialized.runSpec.kind === "openapi") {
+    const response = await executeOpenApiRequest(serialized.runSpec, input, context.credential?.headers);
+    if (response.isErr()) {
+      throw new Error(response.error.message);
+    }
+    return response.value;
+  }
+
+  if (serialized.runSpec.kind === "postman") {
+    const payload = toRecord(input);
+    return await executePostmanRequest(serialized.runSpec, payload, context.credential?.headers);
+  }
+
+  if (serialized.runSpec.kind === "mcp") {
+    const { url, transport, queryParams, toolName } = serialized.runSpec;
+    const authHeaders = serialized.runSpec.authHeaders ?? {};
+    const mergedHeaders = {
+      ...authHeaders,
+      ...(context.credential?.headers ?? {}),
+    };
+    const connKey = buildMcpConnectionKey(url, transport, mergedHeaders);
+    let conn = await getOrCreateMcpConnection(
+      sharedMcpConnections,
+      connKey,
+      () => connectMcp(url, queryParams, transport, mergedHeaders),
+    );
+
+    const payload = toRecord(input);
+    const result = await callMcpToolWithReconnect(
+      () => conn.client.callTool({ name: toolName, arguments: payload }),
+      async () => {
+        try {
+          await conn.close();
+        } catch {
+          // ignore
+        }
+        const newConnPromise = connectMcp(url, queryParams, transport, mergedHeaders);
+        sharedMcpConnections.set(connKey, { promise: newConnPromise });
+        conn = await newConnPromise;
+        return await conn.client.callTool({ name: toolName, arguments: payload });
+      },
+    );
+    return extractMcpResult(result);
+  }
+
+  if (serialized.runSpec.kind === "graphql_raw") {
+    const normalized = normalizeGraphqlInvocationInput(input);
+    if (!normalized.hasExplicitQuery) {
+      throw new Error("GraphQL query string is required");
+    }
+    const response = await executeGraphqlRequest(
+      serialized.runSpec.endpoint,
+      serialized.runSpec.authHeaders,
+      normalized.query,
+      normalized.variables,
+      context.credential?.headers,
+    );
+    if (response.isErr()) {
+      throw new Error(response.error.message);
+    }
+    return response.value;
+  }
+
+  if (serialized.runSpec.kind === "graphql_field") {
+    const normalized = normalizeGraphqlInvocationInput(input);
+    const query = normalized.hasExplicitQuery ? normalized.query : serialized.runSpec.queryTemplate;
+
+    let variables = normalized.variables;
+    if (variables === undefined && !normalized.hasExplicitQuery) {
+      variables = normalizeGraphqlFieldVariables(serialized.runSpec.argNames ?? [], normalized.payload);
+    }
+
+    const envelopeResult = await executeGraphqlRequest(
+      serialized.runSpec.endpoint,
+      serialized.runSpec.authHeaders,
+      query,
+      variables,
+      context.credential?.headers,
+    );
+    if (envelopeResult.isErr()) {
+      throw new Error(envelopeResult.error.message);
+    }
+
+    return selectGraphqlFieldEnvelope(envelopeResult.value, serialized.runSpec.operationName);
+  }
+
+  throw new Error(`Unknown run spec kind for '${serialized.path}'`);
+}
+
 export function rehydrateTools(
   serialized: ReadonlyArray<unknown>,
   baseTools: Map<string, ToolDefinition>,
 ): ToolDefinition[] {
-  const mcpConnections = new Map<string, McpConnectionCacheEntry>();
-
   return serialized.map((candidate, index) => {
     const parsed = parseSerializedTool(candidate);
     if (parsed.isErr()) {
@@ -307,124 +409,11 @@ export function rehydrateTools(
     if (st.runSpec.kind === "builtin") {
       const builtin = baseTools.get(st.path);
       if (builtin) return builtin;
-      return { ...base, run: async () => { throw new Error(`Builtin tool '${st.path}' not found`); } };
     }
 
-    if (st.runSpec.kind === "openapi") {
-      const runSpec = st.runSpec;
-      return {
-        ...base,
-        run: async (input: unknown, context) => {
-          const response = await executeOpenApiRequest(runSpec, input, context.credential?.headers);
-          if (response.isErr()) {
-            throw new Error(response.error.message);
-          }
-          return response.value;
-        },
-      };
-    }
-
-    if (st.runSpec.kind === "postman") {
-      const runSpec = st.runSpec;
-      return {
-        ...base,
-        run: async (input: unknown, context) => {
-          const payload = toRecord(input);
-          return await executePostmanRequest(runSpec, payload, context.credential?.headers);
-        },
-      };
-    }
-
-    if (st.runSpec.kind === "mcp") {
-      const { url, transport, queryParams, toolName } = st.runSpec;
-      const authHeaders = st.runSpec.authHeaders ?? {};
-      return {
-        ...base,
-        run: async (input: unknown, context) => {
-          const mergedHeaders = {
-            ...authHeaders,
-            ...(context.credential?.headers ?? {}),
-          };
-          const connKey = buildMcpConnectionKey(url, transport, mergedHeaders);
-          let conn = await getOrCreateMcpConnection(
-            mcpConnections,
-            connKey,
-            () => connectMcp(url, queryParams, transport, mergedHeaders),
-          );
-
-          const payload = toRecord(input);
-          const result = await callMcpToolWithReconnect(
-            () => conn.client.callTool({ name: toolName, arguments: payload }),
-            async () => {
-              try {
-                await conn.close();
-              } catch {
-                // ignore
-              }
-              const newConnPromise = connectMcp(url, queryParams, transport, mergedHeaders);
-              mcpConnections.set(connKey, { promise: newConnPromise });
-              conn = await newConnPromise;
-              return await conn.client.callTool({ name: toolName, arguments: payload });
-            },
-          );
-          return extractMcpResult(result);
-        },
-      };
-    }
-
-    if (st.runSpec.kind === "graphql_raw") {
-      const { endpoint, authHeaders } = st.runSpec;
-      return {
-        ...base,
-        run: async (input: unknown, context) => {
-          const normalized = normalizeGraphqlInvocationInput(input);
-          if (!normalized.hasExplicitQuery) {
-            throw new Error("GraphQL query string is required");
-          }
-          const response = await executeGraphqlRequest(
-            endpoint,
-            authHeaders,
-            normalized.query,
-            normalized.variables,
-            context.credential?.headers,
-          );
-          if (response.isErr()) {
-            throw new Error(response.error.message);
-          }
-          return response.value;
-        },
-      };
-    }
-
-    if (st.runSpec.kind === "graphql_field") {
-      const { endpoint, operationName, queryTemplate, authHeaders, argNames } = st.runSpec;
-      return {
-        ...base,
-        run: async (input: unknown, context) => {
-          const normalized = normalizeGraphqlInvocationInput(input);
-          const query = normalized.hasExplicitQuery ? normalized.query : queryTemplate;
-
-          let variables = normalized.variables;
-          if (variables === undefined && !normalized.hasExplicitQuery) {
-            variables = normalizeGraphqlFieldVariables(argNames ?? [], normalized.payload);
-          }
-
-          const envelopeResult = await executeGraphqlRequest(
-            endpoint,
-            authHeaders,
-            query,
-            variables,
-            context.credential?.headers,
-          );
-          if (envelopeResult.isErr()) {
-            throw new Error(envelopeResult.error.message);
-          }
-
-          return selectGraphqlFieldEnvelope(envelopeResult.value, operationName);
-        },
-      };
-    }
-
-    return { ...base, run: async () => { throw new Error(`Unknown run spec kind for '${st.path}'`); } };
+    return {
+      ...base,
+      run: async (input: unknown, context) => await executeSerializedTool(st, input, context, baseTools),
+    };
   });
 }

@@ -13,6 +13,7 @@ import type {
   ToolCallRequest,
   ToolRunContext,
 } from "../../../core/src/types";
+import { executeSerializedTool } from "../../../core/src/tool/source-serialization";
 import { describeError } from "../../../core/src/utils";
 import {
   decodeToolCallControlSignal,
@@ -313,18 +314,25 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     if (resolvedToolResult.isErr()) {
       throw resolvedToolResult.error;
     }
-    const { tool, resolvedToolPath } = resolvedToolResult.value;
+    const resolvedTool = resolvedToolResult.value;
+    const { resolvedToolPath } = resolvedTool;
+    const tool = resolvedTool.tool;
+    const toolForPolicy = {
+      path: tool.path,
+      approval: tool.approval,
+      _graphqlSource: tool._graphqlSource,
+    };
 
     let decision: PolicyDecision;
     effectiveToolPath = resolvedToolPath;
-    if (tool._graphqlSource) {
-      const result = getGraphqlDecision(task, tool, input, undefined, typedPolicies);
+    if (toolForPolicy._graphqlSource) {
+      const result = getGraphqlDecision(task, toolForPolicy, input, undefined, typedPolicies);
       decision = result.decision;
       if (result.effectivePaths.length > 0) {
         effectiveToolPath = result.effectivePaths.join(", ");
       }
     } else {
-      decision = getToolDecision(task, tool, typedPolicies);
+      decision = getToolDecision(task, toolForPolicy, typedPolicies);
     }
 
     const publishToolStarted = persistedCall.status === "requested";
@@ -447,7 +455,9 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       // Tool visibility is enforced server-side; runtime tool implementations don't use this.
       isToolAllowed: (_path) => true,
     };
-    const value = await tool.run(input, context);
+    const value = resolvedTool.kind === "builtin"
+      ? await resolvedTool.tool.run(input, context)
+      : await executeSerializedTool(resolvedTool.tool, input, context, baseTools);
     await completeToolCall(ctx, {
       taskId: task.id,
       callId,
