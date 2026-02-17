@@ -131,6 +131,28 @@ function isNoProjectDoctorResult(result: CommandResult): boolean {
     || output.includes("functions: no_project");
 }
 
+function extractInstalledVersion(result: CommandResult): string | null {
+  const output = `${result.stdout}\n${result.stderr}`;
+  const match = output.match(/Installing executor v([^\s]+)/);
+  return match?.[1] ?? null;
+}
+
+function extractSemver(result: CommandResult): string | null {
+  const output = `${result.stdout}\n${result.stderr}`;
+  const match = output.match(/(\d+\.\d+\.\d+)/);
+  return match?.[1] ?? null;
+}
+
+function sandboxRuntimeEnv(backendPort: number, sitePort: number, webPort: number): Record<string, string> {
+  return {
+    EXECUTOR_BACKEND_INTERFACE: "0.0.0.0",
+    EXECUTOR_WEB_INTERFACE: "0.0.0.0",
+    EXECUTOR_BACKEND_PORT: String(backendPort),
+    EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
+    EXECUTOR_WEB_PORT: String(webPort),
+  };
+}
+
 const backendPort = parseIntegerEnv("EXECUTOR_BACKEND_PORT", 5410);
 const sitePort = parseIntegerEnv("EXECUTOR_BACKEND_SITE_PORT", 5411);
 const webPort = parseIntegerEnv("EXECUTOR_WEB_PORT", 5312);
@@ -174,11 +196,7 @@ try {
     {
       timeoutMs: installTimeoutMs,
       env: {
-        EXECUTOR_BACKEND_INTERFACE: "0.0.0.0",
-        EXECUTOR_WEB_INTERFACE: "0.0.0.0",
-        EXECUTOR_BACKEND_PORT: String(backendPort),
-        EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
-        EXECUTOR_WEB_PORT: String(webPort),
+        ...sandboxRuntimeEnv(backendPort, sitePort, webPort),
         ANONYMOUS_AUTH_PRIVATE_KEY_PEM: anonymousAuthEnv.privateKeyPem,
         ANONYMOUS_AUTH_PUBLIC_KEY_PEM: anonymousAuthEnv.publicKeyPem,
         MCP_API_KEY_SECRET: anonymousAuthEnv.apiKeySecret,
@@ -192,13 +210,7 @@ try {
     "~/.executor/bin/executor doctor --runtime-only --verbose",
     {
       timeoutMs: installTimeoutMs,
-      env: {
-        EXECUTOR_BACKEND_INTERFACE: "0.0.0.0",
-        EXECUTOR_WEB_INTERFACE: "0.0.0.0",
-        EXECUTOR_BACKEND_PORT: String(backendPort),
-        EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
-        EXECUTOR_WEB_PORT: String(webPort),
-      },
+      env: sandboxRuntimeEnv(backendPort, sitePort, webPort),
     },
   );
   assertSuccess(runtimeDoctor, "sandbox doctor --runtime-only");
@@ -208,23 +220,72 @@ try {
     "if [ -f ~/.executor/runtime/bootstrap-project/convex.json ]; then EXECUTOR_PROJECT_DIR=~/.executor/runtime/bootstrap-project ~/.executor/bin/executor doctor --verbose; else ~/.executor/bin/executor doctor --verbose; fi",
     {
       timeoutMs: installTimeoutMs,
-      env: {
-        EXECUTOR_BACKEND_INTERFACE: "0.0.0.0",
-        EXECUTOR_WEB_INTERFACE: "0.0.0.0",
-        EXECUTOR_BACKEND_PORT: String(backendPort),
-        EXECUTOR_BACKEND_SITE_PORT: String(sitePort),
-        EXECUTOR_WEB_PORT: String(webPort),
-      },
+      env: sandboxRuntimeEnv(backendPort, sitePort, webPort),
     },
   );
 
   if (doctor.exitCode !== 0) {
     if (isNoProjectDoctorResult(doctor)) {
-      console.warn("[sandbox] doctor reported no local project context; runtime is healthy but function checks were skipped");
+      console.warn("[sandbox] doctor reported no local project context; attempting bootstrap recovery from release tag source");
+
+      const installedVersion = extractSemver(install) ?? extractInstalledVersion(install);
+      if (!installedVersion) {
+        throw new Error("Could not determine installed executor version for bootstrap recovery");
+      }
+
+      const recovered = await runSandboxBash(
+        sandbox,
+        [
+          "set -euo pipefail",
+          `version='${installedVersion}'`,
+          "bootstrap_dir=~/.executor/runtime/bootstrap-project",
+          "archive=$(mktemp)",
+          "rm -rf \"$bootstrap_dir\"",
+          "mkdir -p \"$bootstrap_dir\"",
+          "curl -fsSL \"https://github.com/RhysSullivan/executor/archive/refs/tags/v${version}.tar.gz\" -o \"$archive\"",
+          "tar -xzf \"$archive\" -C \"$bootstrap_dir\" --strip-components=1",
+          "if [ -d \"$bootstrap_dir/executor\" ]; then project_dir=\"$bootstrap_dir/executor\"; else project_dir=\"$bootstrap_dir\"; fi",
+          "EXECUTOR_PROJECT_DIR=\"$project_dir\" ~/.executor/bin/executor up",
+          "EXECUTOR_PROJECT_DIR=\"$project_dir\" ~/.executor/bin/executor doctor --verbose",
+        ].join("; "),
+        {
+          timeoutMs: installTimeoutMs,
+          env: {
+            ...sandboxRuntimeEnv(backendPort, sitePort, webPort),
+            ANONYMOUS_AUTH_PRIVATE_KEY_PEM: anonymousAuthEnv.privateKeyPem,
+            ANONYMOUS_AUTH_PUBLIC_KEY_PEM: anonymousAuthEnv.publicKeyPem,
+            MCP_API_KEY_SECRET: anonymousAuthEnv.apiKeySecret,
+          },
+        },
+      );
+      assertSuccess(recovered, "sandbox bootstrap recovery");
+
+      console.log("[sandbox] bootstrap recovery succeeded");
     } else {
       assertSuccess(doctor, "sandbox doctor --verbose");
     }
   }
+
+  const anonymousCheck = await runSandboxBash(
+    sandbox,
+    [
+      "set -euo pipefail",
+      "for candidate in ~/.executor/runtime/node-*/bin/node; do node_bin=\"$candidate\"; break; done",
+      "if [ -z \"${node_bin:-}\" ]; then echo 'node runtime missing' >&2; exit 1; fi",
+      "if [ -d ~/.executor/runtime/bootstrap-project/executor ]; then project_dir=~/.executor/runtime/bootstrap-project/executor; else project_dir=~/.executor/runtime/bootstrap-project; fi",
+      "if [ ! -f \"$project_dir/convex.json\" ]; then echo 'bootstrap project missing for anonymous check' >&2; exit 1; fi",
+      `token_json=$(curl -fsS -X POST http://127.0.0.1:${sitePort}/auth/anonymous/token -H 'content-type: application/json' -d '{}')`,
+      "access_token=$(printf '%s' \"$token_json\" | \"$node_bin\" -e \"let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);if(typeof j.accessToken!=='string'||j.accessToken.length===0){console.error(d);process.exit(2)}process.stdout.write(j.accessToken)})\")",
+      "cd \"$project_dir\"",
+      `TOKEN=\"$access_token\" \"$node_bin\" -e \"const { ConvexHttpClient } = require('convex/browser'); (async()=>{const c=new ConvexHttpClient('http://127.0.0.1:${backendPort}'); c.setAuth(process.env.TOKEN); const r=await c.mutation('workspace:bootstrapAnonymousSession', {}); if(!r||!r.workspaceId||!r.sessionId){throw new Error('missing anonymous session context')} console.log(JSON.stringify(r)); })().catch((e)=>{console.error(e);process.exit(1);});\"`,
+    ].join("; "),
+    {
+      timeoutMs: installTimeoutMs,
+      env: sandboxRuntimeEnv(backendPort, sitePort, webPort),
+    },
+  );
+  assertSuccess(anonymousCheck, "sandbox anonymous account flow");
+  console.log("[sandbox] anonymous token + bootstrap session flow verified");
 
   const webUrl = sandbox.domain(webPort);
   const convexUrl = sandbox.domain(backendPort);
