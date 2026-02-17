@@ -233,7 +233,7 @@ export async function prepareOpenApiSpec(
     {
       includeSchemas: profile === "full",
       includeTypeHints: true,
-      includeParameterSchemas: profile === "full",
+      includeParameterSchemas: true,
       resolveSchemaRefs: profile === "full",
     },
   );

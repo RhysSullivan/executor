@@ -1504,11 +1504,6 @@ export async function rebuildWorkspaceToolInventoryForContext(
     sources.filter((source) => source.enabled),
   );
 
-  const alreadyReady = Boolean(
-    state?.readyBuildId
-      && !state?.buildingBuildId
-      && state?.signature === registrySignature,
-  );
   const alreadyBuildingTarget = Boolean(
     state?.buildingBuildId
       && state?.buildingSignature === registrySignature,
@@ -1523,7 +1518,7 @@ export async function rebuildWorkspaceToolInventoryForContext(
       && Date.now() - buildingStartedAt > REGISTRY_BUILD_STALE_MS,
   );
 
-  if (alreadyReady || (alreadyBuildingTarget && !staleBuildingTarget)) {
+  if (alreadyBuildingTarget && !staleBuildingTarget) {
     return { rebuilt: false };
   }
 

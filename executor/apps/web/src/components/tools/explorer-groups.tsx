@@ -80,7 +80,9 @@ export function GroupNode({
             "sticky bg-background/95 backdrop-blur-sm",
             isExpanded && "border-b border-border/30",
             isGroupSelected
-              ? "bg-primary/10 ring-1 ring-primary/20"
+              ? isSource
+                ? "bg-primary/10 ring-1 ring-primary/20"
+                : "bg-accent/20 ring-1 ring-accent/30"
               : "hover:bg-accent/30",
           )}
           style={{

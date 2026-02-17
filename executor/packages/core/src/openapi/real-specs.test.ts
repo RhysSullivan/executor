@@ -301,4 +301,34 @@ describe("real-world OpenAPI specs", () => {
     },
     300_000,
   );
+
+  test(
+    "openai: assistants cancel run keeps path parameter types in inventory mode",
+    async () => {
+      const openAiUrl = "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml";
+      const prepared = await prepareOpenApiSpec(openAiUrl, "openai", {
+        includeDts: false,
+        profile: "inventory",
+      });
+
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "openai",
+          spec: openAiUrl,
+          baseUrl: prepared.servers[0] || "https://api.openai.com",
+        },
+        prepared,
+      );
+
+      const tool = tools.find((t) => t.path === "openai.assistants.cancel_run");
+      expect(tool).toBeDefined();
+
+      const inputHint = tool!.typing?.inputHint ?? "";
+      expect(inputHint).toContain("thread_id: string");
+      expect(inputHint).toContain("run_id: string");
+      expect(inputHint.includes("unknown")).toBe(false);
+    },
+    300_000,
+  );
 });

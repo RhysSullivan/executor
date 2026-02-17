@@ -100,6 +100,8 @@ describe("OpenAPI schema-first typing", () => {
     expect(getTool!.typing?.outputSchema).toBeDefined();
     expect(getTool!.typing?.requiredInputKeys ?? []).toContain("id");
     expect(getTool!.typing?.previewInputKeys ?? []).toContain("include");
+    expect(getTool!.typing?.inputHint).toContain("id: string");
+    expect(getTool!.typing?.inputHint).toContain("include?:");
     expect(getTool!.typing?.typedRef).toBeDefined();
   });
 

@@ -50,9 +50,11 @@ const ToolRow = memo(function ToolRow({
           className={cn(
             "flex items-center gap-2 px-2 py-1.5 transition-colors cursor-pointer group/tool",
             expanded
-              ? "sticky bg-background/95 backdrop-blur-sm bg-accent/30"
+              ? selected
+                ? "sticky bg-accent ring-1 ring-accent/30"
+                : "sticky bg-card"
               : selected
-                ? "bg-primary/5 ring-1 ring-primary/10"
+                ? "bg-accent ring-1 ring-accent/30"
                 : "hover:bg-accent/20",
           )}
           style={{

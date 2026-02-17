@@ -412,6 +412,61 @@ test("discover depth 0 keeps full signatures", async () => {
   );
 });
 
+test("discover prefers schema over lossy typed hints", async () => {
+  const tool = createDiscoverTool([
+    {
+      path: "openai.batch.create_batch",
+      description: "Create batch",
+      approval: "required",
+      source: "openapi:openai",
+      typing: {
+        inputHint: "{ input_file_id: ...; endpoint: ... }",
+        outputHint: "{ id: string; errors?: { message?:... } }",
+        inputSchema: {
+          type: "object",
+          properties: {
+            input_file_id: { type: "string" },
+            endpoint: { type: "string" },
+            completion_window: { type: "string" },
+          },
+          required: ["input_file_id", "endpoint", "completion_window"],
+        },
+        outputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            errors: {
+              type: "object",
+              properties: {
+                message: { type: "string" },
+              },
+            },
+          },
+          required: ["id"],
+        },
+      },
+      run: async () => ({ id: "b_123" }),
+    } satisfies ToolDefinition,
+  ]);
+
+  const result = await tool.run(
+    { query: "create batch", depth: 2 },
+    { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+  ) as {
+    results: Array<{
+      signatureInfo: {
+        input: string;
+        output: string;
+      };
+    }>;
+  };
+
+  expect(result.results[0]?.signatureInfo.input).toContain("input_file_id: string");
+  expect(result.results[0]?.signatureInfo.input.includes("...")).toBe(false);
+  expect(result.results[0]?.signatureInfo.output).toContain("message?: string");
+  expect(result.results[0]?.signatureInfo.output.includes("...")).toBe(false);
+});
+
 test("discover returns null bestPath when there are no matches", async () => {
   const tool = createDiscoverTool([
     {
