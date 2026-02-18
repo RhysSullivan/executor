@@ -76,9 +76,9 @@ async function getRegistryToolsByNormalizedPath(
 
 export function getGraphqlDecision(
   task: TaskRecord,
-  tool: { path: string; approval: "auto" | "required"; _graphqlSource?: string },
+  tool: { path: string; approval: "auto" | "required"; source?: string; _graphqlSource?: string },
   input: unknown,
-  workspaceTools: Map<string, { path: string; approval: "auto" | "required" }> | undefined,
+  workspaceTools: Map<string, { path: string; approval: "auto" | "required"; source?: string }> | undefined,
   policies: AccessPolicyRecord[],
 ): { decision: PolicyDecision; effectivePaths: string[] } {
   const sourceName = tool._graphqlSource;
@@ -112,7 +112,11 @@ export function getGraphqlDecision(
           policies,
         )
       : getDecisionForContext(
-          { ...tool, path: fieldPath, approval: fieldPath.includes(".mutation.") ? "required" : "auto" },
+          {
+            ...tool,
+            path: fieldPath,
+            approval: fieldPath.includes(".mutation.") ? "required" : "auto",
+          },
           {
             workspaceId: task.workspaceId,
             accountId: task.accountId,

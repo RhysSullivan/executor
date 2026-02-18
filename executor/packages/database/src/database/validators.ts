@@ -18,9 +18,22 @@ export const terminalToolCallStatusValidator = v.union(
 );
 
 export const policyScopeTypeValidator = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
+export const policyResourceTypeValidator = v.union(
+  v.literal("all_tools"),
+  v.literal("source"),
+  v.literal("namespace"),
+  v.literal("tool_path"),
+);
 export const policyMatchTypeValidator = v.union(v.literal("glob"), v.literal("exact"));
 export const policyEffectValidator = v.union(v.literal("allow"), v.literal("deny"));
 export const policyApprovalModeValidator = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
+export const toolRoleSelectorTypeValidator = v.union(
+  v.literal("all"),
+  v.literal("source"),
+  v.literal("namespace"),
+  v.literal("tool_path"),
+);
+export const toolRoleBindingStatusValidator = v.union(v.literal("active"), v.literal("disabled"));
 export const argumentConditionOperatorValidator = v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals"));
 export const argumentConditionValidator = v.object({
   key: v.string(),

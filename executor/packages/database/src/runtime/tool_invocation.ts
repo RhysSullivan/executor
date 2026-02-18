@@ -385,10 +385,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       const payload = typeof input === "string"
         ? { query: input }
         : toInputPayload(input);
-      const isAllowed = (path: string, approval: ToolDefinition["approval"]) => {
+      const isAllowed = (path: string, approval: ToolDefinition["approval"], source?: string) => {
         const policyProbeTool: ToolDefinition = {
           path,
           approval,
+          source,
           description: "",
           run: async () => null,
         };
@@ -449,7 +450,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         const refHintTable: Record<string, string> = {};
         const results = raw
           .filter((entry) => !namespace || String(entry.preferredPath ?? entry.path ?? "").toLowerCase().startsWith(`${namespace}.`))
-          .filter((entry) => isAllowed(entry.path, entry.approval))
+          .filter((entry) => isAllowed(entry.path, entry.approval, entry.source))
           .slice(0, limit)
           .map((entry) => {
             const preferredPath = entry.preferredPath ?? entry.path;
@@ -497,7 +498,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       });
 
       const filtered = hits
-        .filter((entry) => isAllowed(entry.path, entry.approval))
+        .filter((entry) => isAllowed(entry.path, entry.approval, entry.source))
         .slice(0, limit);
 
       const refHintTable: Record<string, string> = {};
@@ -544,6 +545,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
     const toolForPolicy = {
       path: tool.path,
       approval: tool.approval,
+      source: tool.source,
       _graphqlSource: tool._graphqlSource,
     };
 

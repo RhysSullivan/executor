@@ -316,6 +316,29 @@ export declare const api: {
       { policyId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    deleteToolRole: FunctionReference<
+      "mutation",
+      "public",
+      { roleId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    deleteToolRoleBinding: FunctionReference<
+      "mutation",
+      "public",
+      { bindingId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    deleteToolRoleRule: FunctionReference<
+      "mutation",
+      "public",
+      {
+        roleId: string;
+        ruleId: string;
+        sessionId?: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
     deleteToolSource: FunctionReference<
       "mutation",
       "public",
@@ -369,6 +392,24 @@ export declare const api: {
       { sessionId?: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    listToolRoleBindings: FunctionReference<
+      "query",
+      "public",
+      { roleId?: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolRoleRules: FunctionReference<
+      "query",
+      "public",
+      { roleId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolRoles: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     listToolSources: FunctionReference<
       "query",
       "public",
@@ -409,6 +450,7 @@ export declare const api: {
         matchType?: "glob" | "exact";
         priority?: number;
         resourcePattern: string;
+        resourceType?: "all_tools" | "source" | "namespace" | "tool_path";
         scopeType?: "account" | "organization" | "workspace";
         sessionId?: string;
         targetAccountId?: Id<"accounts">;
@@ -428,6 +470,57 @@ export declare const api: {
         secretJson: Record<string, any>;
         sessionId?: string;
         sourceKey: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolRole: FunctionReference<
+      "mutation",
+      "public",
+      {
+        description?: string;
+        id?: string;
+        name: string;
+        sessionId?: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolRoleBinding: FunctionReference<
+      "mutation",
+      "public",
+      {
+        clientId?: string;
+        expiresAt?: number;
+        id?: string;
+        roleId: string;
+        scopeType?: "account" | "organization" | "workspace";
+        sessionId?: string;
+        status?: "active" | "disabled";
+        targetAccountId?: Id<"accounts">;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolRoleRule: FunctionReference<
+      "mutation",
+      "public",
+      {
+        approvalMode?: "inherit" | "auto" | "required";
+        argumentConditions?: Array<{
+          key: string;
+          operator: "equals" | "contains" | "starts_with" | "not_equals";
+          value: string;
+        }>;
+        effect?: "allow" | "deny";
+        id?: string;
+        matchType?: "glob" | "exact";
+        priority?: number;
+        resourcePattern?: string;
+        roleId: string;
+        selectorType: "all" | "source" | "namespace" | "tool_path";
+        sessionId?: string;
+        sourceKey?: string;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -690,6 +783,24 @@ export declare const internal: {
       { policyId: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    deleteToolRole: FunctionReference<
+      "mutation",
+      "internal",
+      { roleId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    deleteToolRoleBinding: FunctionReference<
+      "mutation",
+      "internal",
+      { bindingId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    deleteToolRoleRule: FunctionReference<
+      "mutation",
+      "internal",
+      { roleId: string; ruleId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     deleteToolSource: FunctionReference<
       "mutation",
       "internal",
@@ -785,6 +896,24 @@ export declare const internal: {
       { taskId: string },
       any
     >;
+    listToolRoleBindings: FunctionReference<
+      "query",
+      "internal",
+      { roleId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolRoleRules: FunctionReference<
+      "query",
+      "internal",
+      { roleId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolRoles: FunctionReference<
+      "query",
+      "internal",
+      { workspaceId: Id<"workspaces"> },
+      any
+    >;
     listToolSources: FunctionReference<
       "query",
       "internal",
@@ -815,6 +944,24 @@ export declare const internal: {
         { policyId: string; workspaceId: Id<"workspaces"> },
         any
       >;
+      deleteToolRole: FunctionReference<
+        "mutation",
+        "internal",
+        { roleId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      deleteToolRoleBinding: FunctionReference<
+        "mutation",
+        "internal",
+        { bindingId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      deleteToolRoleRule: FunctionReference<
+        "mutation",
+        "internal",
+        { roleId: string; ruleId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
       listAccessPolicies: FunctionReference<
         "query",
         "internal",
@@ -822,6 +969,24 @@ export declare const internal: {
         any
       >;
       listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
+      listToolRoleBindings: FunctionReference<
+        "query",
+        "internal",
+        { roleId?: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      listToolRoleRules: FunctionReference<
+        "query",
+        "internal",
+        { roleId: string; workspaceId: Id<"workspaces"> },
+        any
+      >;
+      listToolRoles: FunctionReference<
+        "query",
+        "internal",
+        { workspaceId: Id<"workspaces"> },
+        any
+      >;
       upsertAccessPolicy: FunctionReference<
         "mutation",
         "internal",
@@ -838,8 +1003,58 @@ export declare const internal: {
           matchType?: "glob" | "exact";
           priority?: number;
           resourcePattern: string;
+          resourceType?: "all_tools" | "source" | "namespace" | "tool_path";
           scopeType?: "account" | "organization" | "workspace";
           targetAccountId?: Id<"accounts">;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      upsertToolRole: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          createdByAccountId?: Id<"accounts">;
+          description?: string;
+          id?: string;
+          name: string;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      upsertToolRoleBinding: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          clientId?: string;
+          expiresAt?: number;
+          id?: string;
+          roleId: string;
+          scopeType?: "account" | "organization" | "workspace";
+          status?: "active" | "disabled";
+          targetAccountId?: Id<"accounts">;
+          workspaceId: Id<"workspaces">;
+        },
+        any
+      >;
+      upsertToolRoleRule: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          approvalMode?: "inherit" | "auto" | "required";
+          argumentConditions?: Array<{
+            key: string;
+            operator: "equals" | "contains" | "starts_with" | "not_equals";
+            value: string;
+          }>;
+          effect?: "allow" | "deny";
+          id?: string;
+          matchType?: "glob" | "exact";
+          priority?: number;
+          resourcePattern?: string;
+          roleId: string;
+          selectorType: "all" | "source" | "namespace" | "tool_path";
+          sourceKey?: string;
           workspaceId: Id<"workspaces">;
         },
         any
@@ -1031,6 +1246,7 @@ export declare const internal: {
         matchType?: "glob" | "exact";
         priority?: number;
         resourcePattern: string;
+        resourceType?: "all_tools" | "source" | "namespace" | "tool_path";
         scopeType?: "account" | "organization" | "workspace";
         targetAccountId?: Id<"accounts">;
         workspaceId: Id<"workspaces">;
@@ -1059,6 +1275,55 @@ export declare const internal: {
         callId: string;
         taskId: string;
         toolPath: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolRole: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        createdByAccountId?: Id<"accounts">;
+        description?: string;
+        id?: string;
+        name: string;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolRoleBinding: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        clientId?: string;
+        expiresAt?: number;
+        id?: string;
+        roleId: string;
+        scopeType?: "account" | "organization" | "workspace";
+        status?: "active" | "disabled";
+        targetAccountId?: Id<"accounts">;
+        workspaceId: Id<"workspaces">;
+      },
+      any
+    >;
+    upsertToolRoleRule: FunctionReference<
+      "mutation",
+      "internal",
+      {
+        approvalMode?: "inherit" | "auto" | "required";
+        argumentConditions?: Array<{
+          key: string;
+          operator: "equals" | "contains" | "starts_with" | "not_equals";
+          value: string;
+        }>;
+        effect?: "allow" | "deny";
+        id?: string;
+        matchType?: "glob" | "exact";
+        priority?: number;
+        resourcePattern?: string;
+        roleId: string;
+        selectorType: "all" | "source" | "namespace" | "tool_path";
+        sourceKey?: string;
         workspaceId: Id<"workspaces">;
       },
       any

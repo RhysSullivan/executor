@@ -54,10 +54,16 @@ const toolCallStatus = v.union(
 );
 const toolApprovalMode = v.union(v.literal("auto"), v.literal("required"));
 const policyScopeType = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
-const policyResourceType = v.literal("tool_path");
 const policyMatchType = v.union(v.literal("glob"), v.literal("exact"));
 const policyEffect = v.union(v.literal("allow"), v.literal("deny"));
 const policyApprovalMode = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
+const toolRoleSelectorType = v.union(
+  v.literal("all"),
+  v.literal("source"),
+  v.literal("namespace"),
+  v.literal("tool_path"),
+);
+const toolRoleBindingStatus = v.union(v.literal("active"), v.literal("disabled"));
 const toolSourceScopeType = v.union(v.literal("organization"), v.literal("workspace"));
 const credentialScopeType = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
 const credentialProvider = v.union(
@@ -310,24 +316,32 @@ export default defineSchema({
   })
     .index("by_task_sequence", ["taskId", "sequence"]),
 
-  // Workspace + organization access policy rules used by the approval / tool firewall.
-  // Rules can target specific accounts and clients, and can match tool paths either exactly
-  // or with a glob pattern. Argument conditions allow policies to match based on tool input
-  // arguments (e.g. always approve reads to a specific repo).
-  accessPolicies: defineTable({
-    policyId: v.string(), // domain ID: policy_<uuid>
-    scopeType: policyScopeType,
+  // Named tool roles (permission bundles) scoped to an organization.
+  toolRoles: defineTable({
+    roleId: v.string(), // domain ID: trole_<uuid>
     organizationId: v.id("organizations"),
-    workspaceId: v.optional(v.id("workspaces")),
-    targetAccountId: v.optional(v.id("accounts")),
-    clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
-    resourceType: policyResourceType,
-    resourcePattern: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    createdByAccountId: v.optional(v.id("accounts")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_role_id", ["roleId"])
+    .index("by_org_name", ["organizationId", "name"])
+    .index("by_org_created", ["organizationId", "createdAt"]),
+
+  // Rules belonging to a tool role.
+  toolRoleRules: defineTable({
+    ruleId: v.string(), // domain ID: trule_<uuid>
+    roleId: v.string(),
+    organizationId: v.id("organizations"),
+    selectorType: toolRoleSelectorType,
+    sourceKey: v.optional(v.string()),
+    namespacePattern: v.optional(v.string()),
+    toolPathPattern: v.optional(v.string()),
     matchType: policyMatchType,
     effect: policyEffect,
     approvalMode: policyApprovalMode,
-    // Optional argument conditions: array of {key, operator, value} that must all match
-    // for the policy to apply. When absent, the policy applies regardless of arguments.
     argumentConditions: v.optional(v.array(v.object({
       key: v.string(),
       operator: v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals")),
@@ -337,9 +351,28 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_policy_id", ["policyId"])
+    .index("by_rule_id", ["ruleId"])
+    .index("by_role_created", ["roleId", "createdAt"])
+    .index("by_org_created", ["organizationId", "createdAt"]),
+
+  // Role assignments to org/workspace/account/client contexts.
+  toolRoleBindings: defineTable({
+    bindingId: v.string(), // domain ID: trbind_<uuid>
+    roleId: v.string(),
+    organizationId: v.id("organizations"),
+    scopeType: policyScopeType,
+    workspaceId: v.optional(v.id("workspaces")),
+    targetAccountId: v.optional(v.id("accounts")),
+    clientId: v.optional(v.string()),
+    status: toolRoleBindingStatus,
+    expiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_binding_id", ["bindingId"])
+    .index("by_role_created", ["roleId", "createdAt"])
+    .index("by_org_created", ["organizationId", "createdAt"])
     .index("by_workspace_created", ["workspaceId", "createdAt"])
-    .index("by_organization_created", ["organizationId", "createdAt"])
     .index("by_org_target_account_created", ["organizationId", "targetAccountId", "createdAt"]),
 
   // Stored credentials for tool sources.

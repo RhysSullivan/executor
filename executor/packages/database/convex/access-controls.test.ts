@@ -608,6 +608,62 @@ describe("workspace access controls", () => {
     ).rejects.toThrow("Only organization admins can perform this action");
   });
 
+  test("regular member cannot manage tool roles (admin-only)", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "role-tool-owner" });
+    const member = await seedUser(t, { subject: "role-tool-member" });
+
+    await addOrgMember(t, {
+      organizationId: owner.organizationId,
+      accountId: member.accountId,
+      role: "member",
+    });
+
+    const authedMember = t.withIdentity({ subject: "role-tool-member" });
+
+    await expect(
+      authedMember.mutation(api.workspace.upsertToolRole, {
+        workspaceId: owner.workspaceId,
+        name: "limited",
+      }),
+    ).rejects.toThrow("Only organization admins can perform this action");
+  });
+
+  test("admin can configure source-level tool role rules", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "role-source-owner" });
+    const authedOwner = t.withIdentity({ subject: "role-source-owner" });
+
+    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
+      workspaceId: owner.workspaceId,
+      name: "github-access",
+      description: "Allows github source tools",
+    });
+
+    await authedOwner.mutation(api.workspace.upsertToolRoleRule, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      selectorType: "source",
+      sourceKey: "source:github",
+      effect: "allow",
+      approvalMode: "auto",
+    });
+
+    await authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      scopeType: "organization",
+      status: "active",
+    });
+
+    const policies = await authedOwner.query(api.workspace.listAccessPolicies, {
+      workspaceId: owner.workspaceId,
+    });
+
+    expect(policies.some((policy) => policy.resourceType === "source" && policy.resourcePattern === "source:github"))
+      .toBe(true);
+  });
+
   test("regular member can read access policies (no admin required)", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "read-policy-owner" });

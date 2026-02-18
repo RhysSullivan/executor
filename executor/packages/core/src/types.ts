@@ -10,6 +10,7 @@ export type PolicyScopeType = "account" | "organization" | "workspace";
 export type PolicyMatchType = "glob" | "exact";
 export type PolicyEffect = "allow" | "deny";
 export type PolicyApprovalMode = "inherit" | "auto" | "required";
+export type PolicyResourceType = "all_tools" | "source" | "namespace" | "tool_path";
 export type ToolSourceScopeType = "organization" | "workspace";
 export type CredentialScopeType = "account" | "organization" | "workspace";
 export type CredentialScope = CredentialScopeType;
@@ -106,13 +107,59 @@ export interface AccessPolicyRecord {
   workspaceId?: Id<"workspaces">;
   targetAccountId?: Id<"accounts">;
   clientId?: string;
-  resourceType: "tool_path";
+  resourceType: PolicyResourceType;
   resourcePattern: string;
   matchType: PolicyMatchType;
   effect: PolicyEffect;
   approvalMode: PolicyApprovalMode;
   argumentConditions?: ArgumentCondition[];
   priority: number;
+  roleId?: string;
+  ruleId?: string;
+  bindingId?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type ToolRoleSelectorType = "all" | "source" | "namespace" | "tool_path";
+
+export interface ToolRoleRecord {
+  id: string;
+  organizationId: Id<"organizations">;
+  name: string;
+  description?: string;
+  createdByAccountId?: Id<"accounts">;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ToolRoleRuleRecord {
+  id: string;
+  roleId: string;
+  organizationId: Id<"organizations">;
+  selectorType: ToolRoleSelectorType;
+  sourceKey?: string;
+  namespacePattern?: string;
+  toolPathPattern?: string;
+  matchType: PolicyMatchType;
+  effect: PolicyEffect;
+  approvalMode: PolicyApprovalMode;
+  argumentConditions?: ArgumentCondition[];
+  priority: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ToolRoleBindingRecord {
+  id: string;
+  roleId: string;
+  organizationId: Id<"organizations">;
+  scopeType: PolicyScopeType;
+  workspaceId?: Id<"workspaces">;
+  targetAccountId?: Id<"accounts">;
+  clientId?: string;
+  status: "active" | "disabled";
+  expiresAt?: number;
   createdAt: number;
   updatedAt: number;
 }

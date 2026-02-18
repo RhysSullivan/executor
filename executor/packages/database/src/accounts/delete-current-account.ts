@@ -39,12 +39,12 @@ async function deleteWorkspaceData(
     await ctx.db.delete(approval._id);
   }
 
-  const policyDocs = await ctx.db
-    .query("accessPolicies")
+  const roleBindings = await ctx.db
+    .query("toolRoleBindings")
     .withIndex("by_workspace_created", (q) => q.eq("workspaceId", workspaceId))
     .collect();
-  for (const policy of policyDocs) {
-    await ctx.db.delete(policy._id);
+  for (const binding of roleBindings) {
+    await ctx.db.delete(binding._id);
   }
 
   const credentialDocs = await ctx.db
@@ -115,12 +115,28 @@ async function deleteOrganizationData(
     await ctx.db.delete(seatState._id);
   }
 
-  const policyDocs = await ctx.db
-    .query("accessPolicies")
-    .withIndex("by_organization_created", (q) => q.eq("organizationId", organizationId))
+  const roleBindings = await ctx.db
+    .query("toolRoleBindings")
+    .withIndex("by_org_created", (q) => q.eq("organizationId", organizationId))
     .collect();
-  for (const policy of policyDocs) {
-    await ctx.db.delete(policy._id);
+  for (const binding of roleBindings) {
+    await ctx.db.delete(binding._id);
+  }
+
+  const roleRules = await ctx.db
+    .query("toolRoleRules")
+    .withIndex("by_org_created", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  for (const rule of roleRules) {
+    await ctx.db.delete(rule._id);
+  }
+
+  const roles = await ctx.db
+    .query("toolRoles")
+    .withIndex("by_org_created", (q) => q.eq("organizationId", organizationId))
+    .collect();
+  for (const role of roles) {
+    await ctx.db.delete(role._id);
   }
 
   const credentialDocs = await ctx.db

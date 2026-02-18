@@ -100,7 +100,30 @@ export function mapToolCall(doc: Doc<"toolCalls">) {
   };
 }
 
-export function mapPolicy(doc: Doc<"accessPolicies">) {
+export function mapPolicy(doc: {
+  policyId: string;
+  scopeType: "account" | "organization" | "workspace";
+  organizationId: Doc<"organizations">["_id"];
+  workspaceId?: Doc<"workspaces">["_id"];
+  targetAccountId?: Doc<"accounts">["_id"];
+  clientId?: string;
+  resourceType: "all_tools" | "source" | "namespace" | "tool_path";
+  resourcePattern: string;
+  matchType: "glob" | "exact";
+  effect: "allow" | "deny";
+  approvalMode: "inherit" | "auto" | "required";
+  argumentConditions?: Array<{
+    key: string;
+    operator: "equals" | "contains" | "starts_with" | "not_equals";
+    value: string;
+  }>;
+  priority: number;
+  createdAt: number;
+  updatedAt: number;
+  roleId?: string;
+  ruleId?: string;
+  bindingId?: string;
+}) {
   return {
     id: doc.policyId,
     scopeType: doc.scopeType,
@@ -115,6 +138,9 @@ export function mapPolicy(doc: Doc<"accessPolicies">) {
     approvalMode: doc.approvalMode,
     argumentConditions: doc.argumentConditions,
     priority: doc.priority,
+    roleId: doc.roleId,
+    ruleId: doc.ruleId,
+    bindingId: doc.bindingId,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
