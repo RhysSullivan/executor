@@ -160,7 +160,7 @@ export function waitForTerminalTask(
     let loggedElicitationFallback = false;
     const seenApprovalIds = new Set<string>();
     let unsubscribe: (() => void) | undefined;
-    let interval: ReturnType<typeof setInterval> | undefined;
+    let handlingApprovals = false;
 
     const logElicitationFallback = (reason: string) => {
       if (loggedElicitationFallback) return;
@@ -172,38 +172,21 @@ export function waitForTerminalTask(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      if (interval) {
-        clearInterval(interval);
-      }
       unsubscribe?.();
       resolve(await service.getTask(taskId, workspaceId));
     };
 
     const timeout = setTimeout(done, waitTimeoutMs);
 
-    // Convex HTTP actions don't provide a real push subscription. To avoid hanging
-    // forever, we poll task state and pending approvals on an interval.
-    let polling = false;
-    const poll = async () => {
-      if (settled || polling) return;
-      polling = true;
-      try {
-        await maybeHandleApprovals();
-        const task = await service.getTask(taskId, workspaceId);
-        if (task && getTaskTerminalState(task.status)) {
-          await done();
-        }
-      } finally {
-        polling = false;
-      }
-    };
-
-    interval = setInterval(() => {
-      void poll().catch(() => {});
-    }, 750);
-
     const maybeHandleApprovals = async () => {
-      if (!elicitationEnabled || !service.listPendingApprovals || !service.resolveApproval || !onApprovalPrompt || !approvalContext) {
+      if (
+        settled
+        || !elicitationEnabled
+        || !service.listPendingApprovals
+        || !service.resolveApproval
+        || !onApprovalPrompt
+        || !approvalContext
+      ) {
         return;
       }
 
@@ -239,24 +222,34 @@ export function waitForTerminalTask(
       }
     };
 
+    const maybeHandleApprovalsSafely = async () => {
+      if (handlingApprovals || settled) {
+        return;
+      }
+      handlingApprovals = true;
+      try {
+        await maybeHandleApprovals();
+      } finally {
+        handlingApprovals = false;
+      }
+    };
+
     unsubscribe = service.subscribe(taskId, workspaceId, (event) => {
       const parsedPayload = subscriptionEventPayloadSchema.safeParse(event.payload);
       const type = parsedPayload.success ? parsedPayload.data.status : undefined;
-      const pendingApprovalCount = parsedPayload.success
-        ? (parsedPayload.data.pendingApprovalCount ?? 0)
-        : 0;
+      const pendingApprovalCount = parsedPayload.success ? parsedPayload.data.pendingApprovalCount : undefined;
 
       if (type && getTaskTerminalState(type)) {
         void done();
         return;
       }
 
-      if (pendingApprovalCount > 0) {
-        void maybeHandleApprovals().catch(() => {});
+      if ((pendingApprovalCount ?? 1) > 0) {
+        void maybeHandleApprovalsSafely().catch(() => {});
       }
     });
 
-    void poll().catch(() => {});
+    void maybeHandleApprovalsSafely().catch(() => {});
 
     void service.getTask(taskId, workspaceId).then((task) => {
       if (task && getTaskTerminalState(task.status)) {
@@ -289,6 +282,8 @@ export async function runTaskNowWithApprovalElicitation(
   let settled = false;
   let elicitationEnabled = true;
   let loggedElicitationFallback = false;
+  let handlingApprovals = false;
+  let unsubscribe: (() => void) | undefined;
   const seenApprovalIds = new Set<string>();
 
   const logElicitationFallback = (reason: string) => {
@@ -298,7 +293,7 @@ export async function runTaskNowWithApprovalElicitation(
   };
 
   const maybeHandleApprovals = async () => {
-    if (!elicitationEnabled) {
+    if (settled || !elicitationEnabled) {
       return;
     }
 
@@ -335,21 +330,32 @@ export async function runTaskNowWithApprovalElicitation(
     }
   };
 
-  const pollApprovals = async () => {
-    while (!settled) {
-      await maybeHandleApprovals().catch(() => {});
-      if (settled) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 750));
+  const maybeHandleApprovalsSafely = async () => {
+    if (handlingApprovals || settled) {
+      return;
+    }
+    handlingApprovals = true;
+    try {
+      await maybeHandleApprovals();
+    } finally {
+      handlingApprovals = false;
     }
   };
 
-  const approvalPoller = pollApprovals();
+  unsubscribe = service.subscribe(taskId, approvalContext.workspaceId, (event) => {
+    const parsedPayload = subscriptionEventPayloadSchema.safeParse(event.payload);
+    const pendingApprovalCount = parsedPayload.success ? parsedPayload.data.pendingApprovalCount : undefined;
+    if ((pendingApprovalCount ?? 1) > 0) {
+      void maybeHandleApprovalsSafely().catch(() => {});
+    }
+  });
+
+  void maybeHandleApprovalsSafely().catch(() => {});
+
   try {
     return await runTaskNow();
   } finally {
     settled = true;
-    void approvalPoller;
+    unsubscribe?.();
   }
 }

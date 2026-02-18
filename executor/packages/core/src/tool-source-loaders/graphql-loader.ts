@@ -535,18 +535,12 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
       const inputHint = gqlFieldArgsTypeHint(field.args, typeMap);
       const outputHint = `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`;
 
-      // Build the example query for the description
       const exampleQuery = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
-      const directCallExample = field.args.length === 0
-        ? `tools.${fieldPath}({})`
-        : `tools.${fieldPath}({ ${field.args.map((arg) => `${arg.name}: ...`).join(", ")} })`;
 
       const fieldTool: ToolDefinition & { _pseudoTool: boolean } = {
         path: fieldPath,
         source: sourceKey,
-        description: field.description
-          ? `${field.description}\n\nPreferred: ${directCallExample}\nReturns: { data, errors }\nRaw GraphQL: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`
-          : `GraphQL ${operationType}: ${field.name}\n\nPreferred: ${directCallExample}\nReturns: { data, errors }\nRaw GraphQL: ${sourceName}.graphql({ query: \`${exampleQuery}\`, variables: {...} })`,
+        description: field.description || `GraphQL ${operationType}: ${field.name}`,
         approval,
         credential: credentialSpec,
         typing: {

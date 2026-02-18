@@ -26,8 +26,9 @@ import {
   toolDisplaySegment,
   type ToolGroup,
 } from "@/lib/tool/explorer-grouping";
-import type { SourceAuthProfile, ToolDescriptor, ToolSourceRecord } from "@/lib/types";
-import { SelectableToolRow, ToolLoadingRows } from "./explorer-rows";
+import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
+import type { SourceAuthProfile } from "@/lib/types";
+import { SelectableToolRow, ToolListItem, ToolLoadingRows } from "./explorer-rows";
 import { DefaultSourceIcon, SourceFavicon } from "./source-favicon";
 
 export function GroupNode({
@@ -197,6 +198,218 @@ export function GroupNode({
                   onSelectTool={onSelectTool}
                   onExpandedChange={onExpandedChange}
                   detailLoading={detailLoadingPaths?.has(child.path)}
+                />
+              );
+            })
+          : null}
+
+        {isLoading ? (
+          <ToolLoadingRows
+            source={displayLabel}
+            count={group.loadingPlaceholderCount ?? 3}
+            depth={depth + 1}
+          />
+        ) : null}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// ── Navigation tree node (click-to-focus, no inline detail) ─────────────────
+
+export function NavGroupNode({
+  group,
+  depth,
+  expandedKeys,
+  onToggle,
+  focusedPath,
+  focusedSource,
+  selectedKeys,
+  onFocusTool,
+  onSelectTool,
+  onSourceClick,
+  source,
+}: {
+  group: ToolGroup;
+  depth: number;
+  expandedKeys: Set<string>;
+  onToggle: (key: string) => void;
+  focusedPath: string | null;
+  focusedSource?: string | null;
+  selectedKeys: Set<string>;
+  onFocusTool: (tool: ToolDescriptor) => void;
+  onSelectTool?: (path: string, e: React.MouseEvent) => void;
+  onSourceClick?: (sourceName: string) => void;
+  source?: ToolSourceRecord;
+}) {
+  const isExpanded = expandedKeys.has(group.key);
+  const isSource = group.type === "source";
+  const isSourceFocused = isSource && focusedSource === group.label;
+  const isLoading =
+    group.type === "source" &&
+    typeof group.loadingPlaceholderCount === "number" &&
+    group.loadingPlaceholderCount > 0;
+  const sourceTypeFallback: ToolSourceRecord["type"] | "local" | "system" = source
+    ? source.type
+    : group.label === "system"
+      ? "system"
+      : (group.sourceType as ToolSourceRecord["type"] | "local") ?? "openapi";
+
+  const hasNestedGroups = group.children.some((child): child is ToolGroup => "key" in child);
+  const displayLabel = toolDisplaySegment(group.label);
+
+  const handleSourceHeaderClick = () => {
+    // Always expand when clicking a source
+    if (!isExpanded) {
+      onToggle(group.key);
+    }
+    // Show source details in the main panel
+    if (isSource && onSourceClick) {
+      onSourceClick(group.label);
+    }
+  };
+
+  return (
+    <Collapsible open={isExpanded} onOpenChange={() => onToggle(group.key)}>
+      {isSource ? (
+        // Source headers: click shows details in main panel + expands
+        <div
+          onClick={handleSourceHeaderClick}
+          className={cn(
+            "flex items-center gap-1.5 px-2 py-1 transition-colors cursor-pointer group/source",
+            "sticky bg-background/95 backdrop-blur-sm",
+            isExpanded && "border-b border-border/20",
+            isSourceFocused
+              ? "bg-accent/40 border-l-2 border-l-primary"
+              : "hover:bg-accent/20 border-l-2 border-l-transparent",
+          )}
+          style={{
+            paddingLeft: `${depth * 14 + 6}px`,
+            top: `${depth * 28}px`,
+            zIndex: 20 - depth,
+          }}
+        >
+          <CollapsibleTrigger asChild>
+            <button
+              className="h-3.5 w-3.5 flex items-center justify-center shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/60" />
+              ) : (
+                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/40" />
+              )}
+            </button>
+          </CollapsibleTrigger>
+
+          <div className="h-4 w-4 rounded bg-muted/50 flex items-center justify-center shrink-0">
+            {source ? (
+              <SourceFavicon
+                source={source}
+                iconClassName="h-2.5 w-2.5 text-muted-foreground"
+                imageClassName="w-full h-full"
+              />
+            ) : (
+              <DefaultSourceIcon type={sourceTypeFallback} className="h-2.5 w-2.5 text-muted-foreground" />
+            )}
+          </div>
+
+          <span className="font-mono text-[11px] font-semibold text-foreground/90 truncate">
+            {displayLabel}
+          </span>
+
+          <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto flex items-center gap-1 shrink-0">
+            {isLoading ? (
+              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            ) : (
+              <>
+                {group.approvalCount > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-terminal-amber">
+                    <ShieldCheck className="h-2 w-2" />
+                    {group.approvalCount}
+                  </span>
+                )}
+                <span className="tabular-nums">{group.childCount}</span>
+              </>
+            )}
+          </span>
+        </div>
+      ) : (
+        // Namespace headers: plain collapsible toggle
+        <CollapsibleTrigger asChild>
+          <div
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1 transition-colors cursor-pointer",
+              "sticky bg-background/95 backdrop-blur-sm",
+              isExpanded && "border-b border-border/20",
+              "hover:bg-accent/20",
+            )}
+            style={{
+              paddingLeft: `${depth * 14 + 6}px`,
+              top: `${depth * 28}px`,
+              zIndex: 20 - depth,
+            }}
+          >
+            <div className="h-3.5 w-3.5 flex items-center justify-center shrink-0">
+              {isExpanded ? (
+                <ChevronDown className="h-2.5 w-2.5 text-muted-foreground/60" />
+              ) : (
+                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/40" />
+              )}
+            </div>
+
+            <span className="font-mono text-[11px] font-medium text-foreground/80 truncate">
+              {displayLabel}
+            </span>
+
+            <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto flex items-center gap-1 shrink-0">
+              {group.approvalCount > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-terminal-amber">
+                  <ShieldCheck className="h-2 w-2" />
+                  {group.approvalCount}
+                </span>
+              )}
+              <span className="tabular-nums">{group.childCount}</span>
+            </span>
+          </div>
+        </CollapsibleTrigger>
+      )}
+
+      <CollapsibleContent>
+        {hasNestedGroups || group.children.some((child) => !("key" in child))
+          ? group.children.map((child) => {
+              if ("key" in child) {
+                return (
+                  <NavGroupNode
+                    key={child.key}
+                    group={child}
+                    depth={depth + 1}
+                    expandedKeys={expandedKeys}
+                    onToggle={onToggle}
+                    focusedPath={focusedPath}
+                    focusedSource={focusedSource}
+                    selectedKeys={selectedKeys}
+                    onFocusTool={onFocusTool}
+                    onSelectTool={onSelectTool}
+                    onSourceClick={onSourceClick}
+                  />
+                );
+              }
+
+              return (
+                <ToolListItem
+                  key={child.path}
+                  tool={child}
+                  label={toolDisplayOperation(child.path)}
+                  focused={child.path === focusedPath}
+                  selected={selectedKeys.has(child.path)}
+                  onFocus={onFocusTool}
+                  onSelect={
+                    onSelectTool
+                      ? (e) => onSelectTool(child.path, e)
+                      : undefined
+                  }
+                  depth={depth + 1}
                 />
               );
             })

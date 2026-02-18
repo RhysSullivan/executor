@@ -25,6 +25,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1",
     "convex": "^1.31.7",
+    "json-schema-traverse": "^1.0.0",
     "lucide-react": "^0.563.0",
     "monaco-editor": "^0.55.1",
     "next": "16.1.6",

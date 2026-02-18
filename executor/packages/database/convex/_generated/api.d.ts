@@ -284,6 +284,12 @@ export declare const api: {
       { approvalId: string; internalSecret: string; runId: string },
       any
     >;
+    getTaskWatchStatus: FunctionReference<
+      "query",
+      "public",
+      { internalSecret: string; runId: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     handleToolCall: FunctionReference<
       "action",
       "public",

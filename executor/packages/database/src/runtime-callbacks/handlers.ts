@@ -1,4 +1,6 @@
 import type { ActionCtx, MutationCtx, QueryCtx } from "../../convex/_generated/server";
+import type { Id } from "../../convex/_generated/dataModel.d.ts";
+import type { PendingApprovalRecord } from "../../../core/src/types";
 
 type InternalApi = typeof import("../../convex/_generated/api").internal;
 
@@ -75,4 +77,38 @@ export async function getApprovalStatusHandler(
   }
 
   return { status: approval.status };
+}
+
+export async function getTaskWatchStatusHandler(
+  ctx: Pick<QueryCtx, "runQuery">,
+  internalApi: InternalApi,
+  args: {
+    internalSecret: string;
+    runId: string;
+    workspaceId: Id<"workspaces">;
+  },
+) {
+  requireInternalSecret(args.internalSecret);
+
+  const task = await ctx.runQuery(internalApi.database.getTaskInWorkspace, {
+    taskId: args.runId,
+    workspaceId: args.workspaceId,
+  });
+
+  if (!task) {
+    return {
+      pendingApprovalCount: 0,
+    };
+  }
+
+  const pendingApprovals = await ctx.runQuery(internalApi.database.listPendingApprovals, {
+    workspaceId: args.workspaceId,
+  });
+
+  const pendingApprovalCount = pendingApprovals.filter((approval: PendingApprovalRecord) => approval.taskId === args.runId).length;
+
+  return {
+    status: task.status,
+    pendingApprovalCount,
+  };
 }

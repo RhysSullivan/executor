@@ -1,15 +1,13 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { Plus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/page-header";
 import { ToolExplorer } from "@/components/tools/explorer";
 import { TaskComposer } from "@/components/tasks/task-composer";
-import { AddSourceDialog } from "@/components/tools/add/source-dialog";
+
 import { CredentialsPanel } from "@/components/tools/credentials";
 import { ConnectionFormDialog } from "@/components/tools/connection/form-dialog";
 import { PoliciesPanel } from "@/components/tools/policies";
@@ -498,22 +496,7 @@ export function ToolsView({
                     || inventoryStatus?.state === "rebuilding"
                     || inventoryStatus?.state === "initializing"
                   }
-                  addSourceAction={
-                    <AddSourceDialog
-                      existingSourceNames={existingSourceNames}
-                      onSourceAdded={handleSourceAdded}
-                      trigger={
-                        <Button
-                          variant="default"
-                          size="sm"
-                          className="h-8 text-[11px]"
-                        >
-                          <Plus className="h-3.5 w-3.5 mr-1.5" />
-                          Add Source
-                        </Button>
-                      }
-                    />
-                  }
+                  onSourceAdded={handleSourceAdded}
                 />
               </div>
             </CardContent>

@@ -1,6 +1,5 @@
-import type { ActionCtx } from "../_generated/server";
-import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel.d.ts";
+import { ConvexClient } from "convex/browser";
+import type { LiveTaskEvent } from "../../../core/src/events";
 import type {
   AnonymousContext,
   PendingApprovalRecord,
@@ -8,6 +7,9 @@ import type {
   TaskRecord,
   ToolDescriptor,
 } from "../../../core/src/types";
+import { api, internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel.d.ts";
+import type { ActionCtx } from "../_generated/server";
 
 export function createMcpExecutorService(ctx: ActionCtx) {
   return {
@@ -41,8 +43,39 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       }
       return null;
     },
-    subscribe: () => {
-      return () => {};
+    subscribe: (taskId: string, workspaceId: Id<"workspaces">, listener: (event: LiveTaskEvent) => void) => {
+      const callbackConvexUrl = process.env.CONVEX_URL ?? process.env.CONVEX_SITE_URL;
+      const callbackInternalSecret = process.env.EXECUTOR_INTERNAL_TOKEN;
+      if (!callbackConvexUrl || !callbackInternalSecret) {
+        return () => {};
+      }
+
+      const client = new ConvexClient(callbackConvexUrl, {
+        skipConvexDeploymentUrlCheck: true,
+      });
+      let sequence = 0;
+      const unsubscribe = client.onUpdate(
+        api.runtimeCallbacks.getTaskWatchStatus,
+        {
+          internalSecret: callbackInternalSecret,
+          runId: taskId,
+          workspaceId,
+        },
+        (payload: unknown) => {
+          sequence += 1;
+          listener({
+            id: sequence,
+            eventName: "task",
+            payload,
+            createdAt: Date.now(),
+          });
+        },
+      );
+
+      return () => {
+        unsubscribe();
+        client.close();
+      };
     },
     bootstrapAnonymousContext: async (sessionId?: string): Promise<AnonymousContext> => {
       return await ctx.runMutation(internal.database.bootstrapAnonymousSession, { sessionId });

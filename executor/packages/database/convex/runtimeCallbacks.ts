@@ -4,6 +4,7 @@ import { customAction, customMutation, customQuery } from "../../core/src/functi
 import {
   completeRunHandler,
   getApprovalStatusHandler,
+  getTaskWatchStatusHandler,
   handleToolCallHandler,
 } from "../src/runtime-callbacks/handlers";
 import { jsonObjectValidator } from "../src/database/validators";
@@ -46,5 +47,17 @@ export const getApprovalStatus = customQuery({
   },
   handler: async (ctx, args) => {
     return await getApprovalStatusHandler(ctx, internal, args);
+  },
+});
+
+export const getTaskWatchStatus = customQuery({
+  method: "GET",
+  args: {
+    internalSecret: v.string(),
+    runId: v.string(),
+    workspaceId: v.id("workspaces"),
+  },
+  handler: async (ctx, args) => {
+    return await getTaskWatchStatusHandler(ctx, internal, args);
   },
 });

@@ -1,36 +1,36 @@
 "use client";
 
-import { type ReactNode, useState, useMemo, useCallback, useRef, useDeferredValue } from "react";
+import { useState, useMemo, useCallback, useRef, useDeferredValue, useEffect } from "react";
+import {
+  AlertTriangle,
+  Loader2,
+  RefreshCcw,
+} from "lucide-react";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { cn } from "@/lib/utils";
-import {
-  collectGroupKeys,
-} from "@/lib/tool/explorer-grouping";
-import type { SourceAuthProfile, ToolDescriptor, ToolSourceRecord } from "@/lib/types";
-import { findToolsInGroupByKey } from "./explorer-helpers";
+import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
+import type { SourceAuthProfile } from "@/lib/types";
 import {
   autoExpandedKeysForSearch,
   countSelectedTools,
-  expandedKeysForSource,
   filterToolsBySearch,
   filterToolsBySourceAndApproval,
-  flatToolsForView,
-  sourceOptionsFromTools,
   treeGroupsForView,
   type FilterApproval,
 } from "./explorer-derived";
+import { collectGroupKeys } from "@/lib/tool/explorer-grouping";
 import { sourceLabel } from "@/lib/tool/source-utils";
 import {
   EmptyState,
   LoadingState,
-  VirtualFlatList,
+  ToolLoadingRows,
 } from "./explorer-rows";
-import { GroupNode, SourceSidebar } from "./explorer-groups";
+import { NavGroupNode } from "./explorer-groups";
 import {
   ToolExplorerToolbar,
-  type GroupBy,
-  type ViewMode,
 } from "./explorer-toolbar";
+import { ToolDetailPanel, ToolDetailEmpty } from "./explorer/tool-detail";
+import { SourceFormPanel } from "./explorer/source-form-panel";
 import type { SourceDialogMeta } from "./add/source-dialog";
 import { warningsBySourceName } from "@/lib/tools/source-helpers";
 
@@ -54,8 +54,9 @@ interface ToolExplorerProps {
   initialSource?: string | null;
   activeSource?: string | null;
   onActiveSourceChange?: (source: string | null) => void;
+  /** @deprecated No longer used — source sidebar is merged into the tool list panel. */
   showSourceSidebar?: boolean;
-  addSourceAction?: ReactNode;
+  onSourceAdded?: (source: ToolSourceRecord) => void;
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   existingSourceNames?: Set<string>;
@@ -70,13 +71,10 @@ export function ToolExplorer({
   tools,
   sources,
   sourceCountsOverride,
-  totalTools,
   hasMoreTools = false,
   loadingMoreTools = false,
   onLoadMoreTools,
-  sourceHasMoreTools,
   sourceLoadingMoreTools,
-  onLoadMoreToolsForSource,
   loading = false,
   loadingSources = [],
   onLoadToolDetails,
@@ -84,8 +82,7 @@ export function ToolExplorer({
   initialSource = null,
   activeSource,
   onActiveSourceChange,
-  showSourceSidebar = true,
-  addSourceAction,
+  onSourceAdded,
   sourceDialogMeta,
   sourceAuthProfiles,
   existingSourceNames,
@@ -111,31 +108,19 @@ export function ToolExplorer({
 
   const [searchInput, setSearchInput] = useState("");
   const search = useDeferredValue(searchInput);
-  const [viewMode, setViewMode] = useState<ViewMode>("tree");
-  const [groupBy, setGroupBy] = useState<GroupBy>("source");
-  const [internalActiveSource, setInternalActiveSource] = useState<string | null>(initialSource);
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
-    () => expandedKeysForSource(initialSource),
-  );
+  const [internalActiveSource] = useState<string | null>(initialSource);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [filterApproval, setFilterApproval] = useState<FilterApproval>("all");
   const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>({});
   const [loadingDetailPaths, setLoadingDetailPaths] = useState<Set<string>>(new Set());
-  const treeListRef = useRef<HTMLDivElement>(null);
-  const flatListRef = useRef<HTMLDivElement>(null);
-  const flatScrollContainerId = "tool-explorer-flat-scroll";
-  const treeScrollContainerId = "tool-explorer-tree-scroll";
+  const [focusedToolPath, setFocusedToolPath] = useState<string | null>(null);
+  const [focusedSourceName, setFocusedSourceName] = useState<string | null>(null);
+  // "new" = add source form, ToolSourceRecord = edit/view existing source, null = no source panel
+  const [formSource, setFormSource] = useState<"new" | ToolSourceRecord | null>(null);
+  const toolListRef = useRef<HTMLDivElement>(null);
+  const toolListScrollContainerId = "tool-explorer-toollist-scroll";
   const resolvedActiveSource =
     activeSource === undefined ? internalActiveSource : activeSource;
-
-  const handleSourceSelect = useCallback((source: string | null) => {
-    if (activeSource === undefined) {
-      setInternalActiveSource(source);
-    }
-
-    onActiveSourceChange?.(source);
-    setExpandedKeys(expandedKeysForSource(source));
-  }, [activeSource, onActiveSourceChange]);
 
   const hydratedTools = useMemo(() => {
     if (Object.keys(toolDetailsByPath).length === 0) {
@@ -179,20 +164,6 @@ export function ToolExplorer({
     return set;
   }, [filteredTools.length, loading, loadingSources, resolvedActiveSource, searchInput.length, sourceLoadingMoreTools, sources]);
 
-  const visibleLoadingSources = useMemo(() => {
-    if (loadingSourceSet.size === 0) {
-      return [] as string[];
-    }
-
-    if (resolvedActiveSource) {
-      return loadingSourceSet.has(resolvedActiveSource)
-        ? [resolvedActiveSource]
-        : [];
-    }
-
-    return Array.from(loadingSourceSet);
-  }, [loadingSourceSet, resolvedActiveSource]);
-
   const sourceCounts = useMemo(() => {
     if (sourceCountsOverride) {
       return sourceCountsOverride;
@@ -223,25 +194,15 @@ export function ToolExplorer({
     return filterToolsBySearch(filteredTools, search);
   }, [filteredTools, search]);
 
-  const warningsBySource = useMemo(() => warningsBySourceName(warnings), [warnings]);
+  const selectedToolCount = useMemo(() => {
+    return countSelectedTools(selectedKeys, filteredTools);
+  }, [selectedKeys, filteredTools]);
 
   const sidebarExistingSourceNames = useMemo(() => {
     return existingSourceNames ?? new Set(visibleSources.map((source) => source.name));
   }, [existingSourceNames, visibleSources]);
 
-  const treeGroups = useMemo(() => {
-    const showAllSources = search.length === 0;
-    return treeGroupsForView(searchedTools, viewMode, groupBy, {
-      loadingSources: visibleLoadingSources,
-      sourceRecords: showAllSources ? visibleSources : [],
-      sourceCounts: showAllSources ? sourceCounts : {},
-      activeSource: resolvedActiveSource,
-    });
-  }, [searchedTools, viewMode, groupBy, visibleLoadingSources, visibleSources, sourceCounts, resolvedActiveSource, search]);
-
-  const flatTools = useMemo(() => {
-    return flatToolsForView(searchedTools, viewMode);
-  }, [searchedTools, viewMode]);
+  const warningsBySrc = useMemo(() => warningsBySourceName(warnings), [warnings]);
 
   const sourceByName = useMemo(() => {
     const map = new Map<string, ToolSourceRecord>();
@@ -250,75 +211,6 @@ export function ToolExplorer({
     }
     return map;
   }, [visibleSources]);
-
-  const autoExpandedKeys = useMemo(() => {
-    return autoExpandedKeysForSearch(search, filteredTools, viewMode);
-  }, [search, filteredTools, viewMode]);
-
-  const visibleExpandedKeys = autoExpandedKeys ?? expandedKeys;
-
-  const loadedCountsBySource = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const tool of hydratedTools) {
-      const name = sourceLabel(tool.source);
-      counts[name] = (counts[name] ?? 0) + 1;
-    }
-    return counts;
-  }, [hydratedTools]);
-
-  const expandedSourceNames = useMemo(() => {
-    return Array.from(visibleExpandedKeys)
-      .map((key) => /^source:([^:]+)$/.exec(key)?.[1] ?? null)
-      .filter((name): name is string => Boolean(name));
-  }, [visibleExpandedKeys]);
-
-  const sourceHasMoreByCount = useCallback((sourceName: string) => {
-    const total = sourceCounts[sourceName] ?? 0;
-    const loaded = loadedCountsBySource[sourceName] ?? 0;
-    return loaded < total;
-  }, [loadedCountsBySource, sourceCounts]);
-
-  const nextExpandedSourceToLoad = useMemo(() => {
-    for (const sourceName of expandedSourceNames) {
-      const explicitHasMore = sourceHasMoreTools?.[sourceName];
-      const hasMore = explicitHasMore ?? sourceHasMoreByCount(sourceName);
-      if (hasMore) {
-        return sourceName;
-      }
-    }
-    return null;
-  }, [expandedSourceNames, sourceHasMoreByCount, sourceHasMoreTools]);
-
-  const toggleExpand = useCallback((key: string) => {
-    const sourceGroupMatch = /^source:([^:]+)$/.exec(key);
-    const isSourceGroup = Boolean(sourceGroupMatch);
-    const sourceName = sourceGroupMatch?.[1] ?? null;
-    const willExpand = !expandedKeys.has(key);
-
-    if (isSourceGroup && sourceName && willExpand && onLoadMoreToolsForSource) {
-      const sourceRecord = sourceByName.get(sourceName);
-      if (sourceRecord) {
-        const explicitHasMore = sourceHasMoreTools?.[sourceName];
-        const hasMore = explicitHasMore ?? sourceHasMoreByCount(sourceName);
-        if (hasMore) {
-          void onLoadMoreToolsForSource({
-            source: `${sourceRecord.type}:${sourceRecord.name}`,
-            sourceName: sourceRecord.name,
-          });
-        }
-      }
-    }
-
-    setExpandedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  }, [expandedKeys, onLoadMoreToolsForSource, sourceByName, sourceHasMoreByCount, sourceHasMoreTools]);
 
   const toggleSelectTool = useCallback(
     (path: string, e: React.MouseEvent) => {
@@ -337,30 +229,6 @@ export function ToolExplorer({
     [],
   );
 
-  const toggleSelectGroup = useCallback(
-    (key: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
-      setSelectedKeys((prev) => {
-        const next = new Set(prev);
-        const childTools = findToolsInGroupByKey(treeGroups, key);
-        const allSelected =
-          childTools.length > 0 &&
-          childTools.every((t) => prev.has(t.path));
-
-        if (allSelected) {
-          for (const t of childTools) next.delete(t.path);
-          next.delete(key);
-        } else {
-          for (const t of childTools) next.add(t.path);
-          next.add(key);
-        }
-        return next;
-      });
-    },
-    [treeGroups],
-  );
-
   const clearSelection = useCallback(() => {
     setSelectedKeys(new Set());
   }, []);
@@ -368,21 +236,6 @@ export function ToolExplorer({
   const selectAll = useCallback(() => {
     setSelectedKeys(new Set(filteredTools.map((t) => t.path)));
   }, [filteredTools]);
-
-  const selectedToolCount = useMemo(() => {
-    return countSelectedTools(selectedKeys, filteredTools);
-  }, [selectedKeys, filteredTools]);
-
-  const sourceOptions = useMemo(
-    () => {
-      const optionSet = new Set(sourceOptionsFromTools(hydratedTools, loadingSources));
-      for (const source of visibleSources) {
-        optionSet.add(source.name);
-      }
-      return Array.from(optionSet).sort((a, b) => a.localeCompare(b));
-    },
-    [hydratedTools, loadingSources, visibleSources],
-  );
 
   const maybeLoadToolDetails = useCallback(async (tool: ToolDescriptor, expanded: boolean) => {
     if (!expanded || !onLoadToolDetails) {
@@ -420,117 +273,261 @@ export function ToolExplorer({
     }
   }, [hasRenderableToolDetails, loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
 
-  const flatLoadingRows = useMemo(() => {
-    if (search.length > 0 || viewMode !== "flat") {
-      return [];
+  // ── Focus tool handler ──────────────────────────────────────────────────
+
+  const handleFocusTool = useCallback((tool: ToolDescriptor) => {
+    setFocusedToolPath(tool.path);
+    setFocusedSourceName(null);
+    setFormSource(null);
+    void maybeLoadToolDetails(tool, true);
+  }, [maybeLoadToolDetails]);
+
+  const handleSourceClick = useCallback((sourceName: string) => {
+    const source = sourceByName.get(sourceName);
+    setFocusedSourceName(sourceName);
+    setFocusedToolPath(null);
+    // Open the source form panel directly — no separate "view" mode
+    setFormSource(source ?? null);
+    // Ensure the source group is expanded
+    setExpandedKeys((prev) => {
+      const key = `source:${sourceName}`;
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, [sourceByName]);
+
+  const handleAddSource = useCallback(() => {
+    setFormSource("new");
+    setFocusedToolPath(null);
+    setFocusedSourceName(null);
+  }, []);
+
+  const handleSourceFormClose = useCallback(() => {
+    setFormSource(null);
+  }, []);
+
+  const handleSourceFormAdded = useCallback((source: ToolSourceRecord) => {
+    onSourceAdded?.(source);
+    // After adding, show the new source in the form
+    setFormSource(null);
+    setFocusedSourceName(source.name);
+    setFocusedToolPath(null);
+  }, [onSourceAdded]);
+
+  const focusedTool = useMemo(() => {
+    if (!focusedToolPath) return null;
+    return hydratedTools.find((t) => t.path === focusedToolPath) ?? null;
+  }, [focusedToolPath, hydratedTools]);
+
+  const focusedSource = useMemo(() => {
+    if (!focusedSourceName) return null;
+    return sourceByName.get(focusedSourceName) ?? null;
+  }, [focusedSourceName, sourceByName]);
+
+  // Auto-focus first tool when tools arrive
+  useEffect(() => {
+    if (!focusedToolPath && searchedTools.length > 0) {
+      const first = searchedTools[0];
+      setFocusedToolPath(first.path);
+      void maybeLoadToolDetails(first, true);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchedTools.length > 0]);
 
-    return visibleLoadingSources.map((source) => ({
-      source,
-      count: 3,
-    }));
-  }, [search, viewMode, visibleLoadingSources]);
+  const loadingRows = useMemo(() => {
+    if (search.length > 0) return [];
+    const visibleLoadingSources = loadingSourceSet.size === 0
+      ? []
+      : resolvedActiveSource
+        ? loadingSourceSet.has(resolvedActiveSource) ? [resolvedActiveSource] : []
+        : Array.from(loadingSourceSet);
 
-  const hasFlatRows = flatTools.length > 0 || flatLoadingRows.length > 0;
-  const canInfiniteLoad = searchInput.length === 0
-    && (viewMode === "tree" && groupBy === "source"
-      ? nextExpandedSourceToLoad !== null
-      : hasMoreTools);
-  const activeSourceLoadingMore = nextExpandedSourceToLoad
-    ? (sourceLoadingMoreTools?.[nextExpandedSourceToLoad] ?? false)
-    : false;
+    return visibleLoadingSources.map((source) => ({ source, count: 3 }));
+  }, [search.length, loadingSourceSet, resolvedActiveSource]);
+
+  const canInfiniteLoad = searchInput.length === 0 && hasMoreTools;
   const awaitingInitialInventory =
     searchInput.length === 0
     && filteredTools.length === 0
     && (loading || loadingSources.length > 0);
 
-  const handleExpandAll = useCallback(() => {
-    setExpandedKeys(collectGroupKeys(treeGroups));
-  }, [treeGroups]);
+  // ── Tree view data ──────────────────────────────────────────────────────
 
-  const handleCollapseAll = useCallback(() => {
-    setExpandedKeys(new Set());
-  }, []);
+  const treeGroups = useMemo(() => {
+    return treeGroupsForView(searchedTools, "tree", "source", {
+      loadingSources,
+      sourceRecords: visibleSources,
+      sourceCounts,
+      activeSource: resolvedActiveSource,
+    });
+  }, [searchedTools, loadingSources, visibleSources, sourceCounts, resolvedActiveSource]);
 
-  const handleExplorerWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      const listEl = viewMode === "flat" ? flatListRef.current : treeListRef.current;
-      if (!listEl) return;
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
+    // Start with all source-level groups expanded
+    const keys = new Set<string>();
+    for (const group of treeGroups) {
+      keys.add(group.key);
+    }
+    return keys;
+  });
 
-      const target = e.target as HTMLElement | null;
-      if (target && listEl.contains(target)) return;
-
-      const atTop = listEl.scrollTop <= 0;
-      const atBottom =
-        listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 1;
-
-      if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) return;
-
-      listEl.scrollTop += e.deltaY;
-      e.preventDefault();
-    },
-    [viewMode],
+  // Auto-expand all groups when search is active
+  const searchAutoExpanded = useMemo(
+    () => autoExpandedKeysForSearch(search, searchedTools, "tree"),
+    [search, searchedTools],
   );
 
+  const effectiveExpandedKeys = searchAutoExpanded ?? expandedKeys;
+
+  // When new source groups appear, auto-expand them
+  useEffect(() => {
+    const allKeys = collectGroupKeys(treeGroups);
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const key of allKeys) {
+        if (key.startsWith("source:") && !key.includes(":ns:") && !next.has(key)) {
+          next.add(key);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [treeGroups]);
+
+  const toggleExpand = useCallback((key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
+  const inventoryStatus = useMemo(() => {
+    const loadingSourceCount = loadingSourceSet.size;
+
+    if (!inventoryState) {
+      return { label: "Checking...", tone: "muted" as const };
+    }
+    if (inventoryState === "initializing") {
+      const w = loadingSourceCount === 1 ? "source" : "sources";
+      return {
+        label: loadingSourceCount > 0 ? `Building (${loadingSourceCount} ${w})` : "Building...",
+        tone: "loading" as const,
+      };
+    }
+    if (inventoryState === "rebuilding") {
+      const w = loadingSourceCount === 1 ? "source" : "sources";
+      return {
+        label: loadingSourceCount > 0 ? `Refreshing (${loadingSourceCount} ${w})` : "Refreshing...",
+        tone: "loading" as const,
+      };
+    }
+    if (inventoryState === "stale") {
+      return { label: "Out of date", tone: "muted" as const };
+    }
+    if (inventoryState === "failed") {
+      return {
+        label: inventoryError ? `Failed: ${inventoryError}` : "Failed",
+        tone: "error" as const,
+      };
+    }
+    return { label: "Up to date", tone: "muted" as const };
+  }, [inventoryError, inventoryState, loadingSourceSet.size]);
+
+  const regenerationInProgress = isRebuilding;
+  const inventoryStale = inventoryState === "stale";
+
+  // ── Render ──────────────────────────────────────────────────────────────
+
   return (
-    <div className="flex" onWheelCapture={handleExplorerWheel}>
-      {showSourceSidebar ? (
-        <SourceSidebar
-          sources={visibleSources}
-          sourceCounts={sourceCounts}
-          loadingSources={loadingSourceSet}
-          warningsBySource={warningsBySource}
-          activeSource={resolvedActiveSource}
-          onSelectSource={handleSourceSelect}
-          sourceDialogMeta={sourceDialogMeta}
-          sourceAuthProfiles={sourceAuthProfiles}
-          existingSourceNames={sidebarExistingSourceNames}
-          onSourceDeleted={onSourceDeleted}
-          onRegenerate={onRegenerate}
-          isRebuilding={isRebuilding}
-          inventoryState={inventoryState}
-          inventoryError={inventoryError}
-        />
-      ) : null}
+    <div className="flex h-[calc(100vh-220px)]">
+      {/* ── Left panel: search + tree ────────────────────────────────────── */}
+      <div className="flex flex-col w-72 lg:w-80 xl:w-[22rem] shrink-0 border-r border-border/40">
+        {/* Header: inventory status + regenerate */}
+        <div className="shrink-0 px-3 pt-2 pb-1.5 border-b border-border/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/50">
+                Tools
+              </p>
+              <span
+                className={cn(
+                  "text-[9px] font-mono flex items-center gap-0.5",
+                  inventoryStatus.tone === "loading"
+                    ? "text-terminal-amber/80"
+                    : inventoryStatus.tone === "error"
+                      ? "text-terminal-red/80"
+                      : "text-muted-foreground/40",
+                )}
+                title={inventoryStatus.label}
+              >
+                {inventoryStatus.tone === "loading" ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                ) : inventoryStatus.tone === "error" ? (
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                ) : null}
+                {inventoryStatus.label}
+              </span>
+            </div>
+            <div className="flex items-center gap-0.5">
+              {onRegenerate ? (
+                <button
+                  onClick={onRegenerate}
+                  disabled={regenerationInProgress}
+                  title={
+                    regenerationInProgress
+                      ? "Rebuilding..."
+                      : inventoryStale
+                        ? "Out of date — click to refresh"
+                        : "Regenerate inventory"
+                  }
+                  className={cn(
+                    "p-0.5 rounded transition-colors",
+                    regenerationInProgress
+                      ? "text-terminal-amber cursor-not-allowed"
+                      : inventoryStale
+                        ? "text-muted-foreground/70 hover:text-muted-foreground"
+                        : "text-muted-foreground/30 hover:text-muted-foreground/60",
+                  )}
+                >
+                  <RefreshCcw className={cn("h-3 w-3", regenerationInProgress && "animate-spin")} />
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
 
-      <div
-        className={cn(
-          "flex-1 min-w-0 flex flex-col",
-          showSourceSidebar ? "pl-2 lg:pl-3" : "pl-0",
-        )}
-      >
-        <ToolExplorerToolbar
-          search={searchInput}
-          filteredToolCount={filteredTools.length}
-          hasSearch={searchInput.length > 0}
-          resultCount={searchedTools.length}
-          loadingInventory={awaitingInitialInventory}
-          viewMode={viewMode}
-          groupBy={groupBy}
-          filterApproval={filterApproval}
-          showSourceSidebar={showSourceSidebar}
-          activeSource={resolvedActiveSource}
-          sourceOptions={sourceOptions}
-          addSourceAction={addSourceAction}
-          selectedToolCount={selectedToolCount}
-          onSearchChange={setSearchInput}
-          onClearSearch={() => setSearchInput("")}
-          onViewModeChange={setViewMode}
-          onGroupByChange={setGroupBy}
-          onFilterApprovalChange={setFilterApproval}
-          onSourceSelect={handleSourceSelect}
-          onSelectAll={selectAll}
-          onClearSelection={clearSelection}
-          onExpandAll={handleExpandAll}
-          onCollapseAll={handleCollapseAll}
-        />
+        {/* Search toolbar (own row) */}
+        <div className="shrink-0 px-2 py-2 border-b border-border/20">
+          <ToolExplorerToolbar
+            search={searchInput}
+            filteredToolCount={filteredTools.length}
+            hasSearch={searchInput.length > 0}
+            resultCount={searchedTools.length}
+            loadingInventory={awaitingInitialInventory}
+            filterApproval={filterApproval}
+            activeSource={resolvedActiveSource}
+            selectedToolCount={selectedToolCount}
+            onSearchChange={setSearchInput}
+            onClearSearch={() => setSearchInput("")}
+            onFilterApprovalChange={setFilterApproval}
+            onAddSource={handleAddSource}
+            onSelectAll={selectAll}
+            onClearSelection={clearSelection}
+          />
+        </div>
 
-        {viewMode === "flat" ? (
-          !hasFlatRows ? (
-            <div
-              ref={flatListRef}
-              className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
-            >
+        {/* Source-grouped tree */}
+        <div className="flex-1 min-h-0">
+          {searchedTools.length === 0 && loadingRows.length === 0 ? (
+            <div className="h-full overflow-y-auto">
               {awaitingInitialInventory ? (
                 <LoadingState />
               ) : (
@@ -538,89 +535,77 @@ export function ToolExplorer({
               )}
             </div>
           ) : (
-            <VirtualFlatList
-              tools={flatTools}
-              selectedKeys={selectedKeys}
-              onSelectTool={toggleSelectTool}
-              onExpandedChange={maybeLoadToolDetails}
-              detailLoadingPaths={loadingDetailPaths}
-              scrollContainerRef={flatListRef}
-              scrollContainerId={flatScrollContainerId}
-              loadingRows={flatLoadingRows}
-              hasMoreTools={canInfiniteLoad}
-              loadingMoreTools={loadingMoreTools}
-              onLoadMoreTools={onLoadMoreTools}
-            />
-          )
-        ) : (
-          <div
-            ref={treeListRef}
-            id={treeScrollContainerId}
-            className="max-h-[calc(100vh-320px)] overflow-y-auto rounded-md border border-border/30 bg-background/30"
-          >
-            {treeGroups.length === 0 ? (
-              awaitingInitialInventory ? (
-                <LoadingState />
-              ) : (
-                <EmptyState hasSearch={!!search} onClearSearch={() => setSearchInput("")} />
-              )
-            ) : (
-                <InfiniteScroll
-                  dataLength={tools.length}
-                  next={() => {
-                    if (
-                      searchInput.length === 0
-                      && viewMode === "tree"
-                      && groupBy === "source"
-                      && onLoadMoreToolsForSource
-                    ) {
-                      if (!nextExpandedSourceToLoad) {
-                        return;
-                      }
-                      const sourceRecord = sourceByName.get(nextExpandedSourceToLoad);
-                      if (sourceRecord) {
-                        void onLoadMoreToolsForSource({
-                          source: `${sourceRecord.type}:${sourceRecord.name}`,
-                          sourceName: sourceRecord.name,
-                        });
-                        return;
-                      }
-                    }
-
-                    void onLoadMoreTools?.();
-                  }}
-                  hasMore={canInfiniteLoad}
-                  scrollableTarget={treeScrollContainerId}
-                  style={{ overflow: "visible" }}
-                  loader={
-                    <div className="px-2 py-2 text-[11px] text-muted-foreground">
-                      {(loadingMoreTools || activeSourceLoadingMore)
-                        ? `Loading more tools${totalTools ? ` (${tools.length} / ${totalTools})` : ""}...`
-                        : ""}
-                    </div>
-                  }
+            <div
+              ref={toolListRef}
+              id={toolListScrollContainerId}
+              className="h-full overflow-y-auto"
+            >
+              <InfiniteScroll
+                dataLength={searchedTools.length}
+                next={() => {
+                  void onLoadMoreTools?.();
+                }}
+                hasMore={canInfiniteLoad}
+                scrollableTarget={toolListScrollContainerId}
+                style={{ overflow: "visible" }}
+                loader={
+                  <div className="px-2 py-2 text-[10px] text-muted-foreground/60">
+                    {loadingMoreTools ? "Loading..." : ""}
+                  </div>
+                }
               >
-                <div className="p-1">
+                <div className="py-0.5">
                   {treeGroups.map((group) => (
-                    <GroupNode
+                    <NavGroupNode
                       key={group.key}
                       group={group}
                       depth={0}
-                      expandedKeys={visibleExpandedKeys}
+                      expandedKeys={effectiveExpandedKeys}
                       onToggle={toggleExpand}
+                      focusedPath={focusedToolPath}
+                      focusedSource={focusedSourceName}
                       selectedKeys={selectedKeys}
-                      onSelectGroup={toggleSelectGroup}
+                      onFocusTool={handleFocusTool}
                       onSelectTool={toggleSelectTool}
-                      onExpandedChange={maybeLoadToolDetails}
-                      detailLoadingPaths={loadingDetailPaths}
-                      source={group.type === "source" ? sourceByName.get(group.label) : undefined}
-                      search={search}
+                      onSourceClick={handleSourceClick}
+                      source={sourceByName.get(group.label) ?? undefined}
+                    />
+                  ))}
+
+                  {loadingRows.map((loadingRow) => (
+                    <ToolLoadingRows
+                      key={loadingRow.source}
+                      source={loadingRow.source}
+                      count={loadingRow.count}
+                      depth={0}
                     />
                   ))}
                 </div>
               </InfiniteScroll>
-            )}
-          </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Detail panel (right, main content) ─────────────────────────────── */}
+      <div className="flex-1 min-w-0 bg-background/50">
+        {formSource !== null ? (
+          <SourceFormPanel
+            existingSourceNames={sidebarExistingSourceNames}
+            sourceToEdit={formSource === "new" ? undefined : formSource}
+            sourceDialogMeta={formSource !== "new" ? sourceDialogMeta?.[formSource.name] : undefined}
+            sourceAuthProfiles={sourceAuthProfiles}
+            onSourceAdded={handleSourceFormAdded}
+            onSourceDeleted={onSourceDeleted}
+            onClose={handleSourceFormClose}
+          />
+        ) : focusedTool ? (
+          <ToolDetailPanel
+            tool={focusedTool}
+            loading={loadingDetailPaths.has(focusedTool.path)}
+          />
+        ) : (
+          <ToolDetailEmpty />
         )}
       </div>
     </div>

@@ -3,43 +3,24 @@
 import { useMemo } from "react";
 import { Streamdown } from "streamdown";
 import { createCodePlugin } from "@streamdown/code";
+import { ShieldCheck, Zap } from "lucide-react";
 import type { ToolDescriptor } from "@/lib/types";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { traverseSchema, type SchemaFieldEntry } from "@/lib/tool/schema-traverse";
 import { TypeSignature } from "./type-signature";
+import { CopyButton } from "./copy-button";
 
 const codePlugin = createCodePlugin({
   themes: ["github-light", "github-dark"],
 });
 
-type FieldDocEntry = {
-  path: string;
-  required?: boolean;
-  description?: string;
-  example?: string;
-  defaultValue?: string;
-  deprecated?: boolean;
-};
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
-}
-
-function toPreviewValue(value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    return trimmed.length > 96 ? `${trimmed.slice(0, 96)}...` : trimmed;
-  }
-  try {
-    const serialized = JSON.stringify(value);
-    if (!serialized) return undefined;
-    return serialized.length > 96 ? `${serialized.slice(0, 96)}...` : serialized;
-  } catch {
-    return undefined;
-  }
 }
 
 function parseSchemaJson(value: string): Record<string, unknown> {
@@ -52,110 +33,247 @@ function parseSchemaJson(value: string): Record<string, unknown> {
   }
 }
 
-function collectSchemaFieldDocs(schema: Record<string, unknown>, options: { maxEntries?: number; maxDepth?: number } = {}): {
-  entries: FieldDocEntry[];
-  truncated: boolean;
-} {
-  const maxEntries = options.maxEntries ?? 28;
-  const maxDepth = options.maxDepth ?? 4;
-  const entries: FieldDocEntry[] = [];
-  let truncated = false;
+// ── Type color mapping ──────────────────────────────────────────────────────
 
-  const pushEntry = (entry: FieldDocEntry) => {
-    if (entries.length >= maxEntries) {
-      truncated = true;
-      return;
-    }
-    entries.push(entry);
-  };
-
-  const walk = (node: unknown, prefix: string, depth: number) => {
-    if (depth > maxDepth || truncated) return;
-    const shape = asRecord(node);
-    const required = new Set(
-      Array.isArray(shape.required)
-        ? shape.required.filter((value): value is string => typeof value === "string")
-        : [],
-    );
-
-    const properties = asRecord(shape.properties);
-    for (const [rawKey, child] of Object.entries(properties)) {
-      if (truncated) break;
-      const key = rawKey.trim();
-      if (!key) continue;
-      const childShape = asRecord(child);
-      const path = prefix ? `${prefix}.${key}` : key;
-      const description = typeof childShape.description === "string"
-        ? childShape.description.trim()
-        : "";
-      const example = toPreviewValue(childShape.example);
-      const defaultValue = toPreviewValue(childShape.default);
-      const deprecated = childShape.deprecated === true;
-      const isRequired = required.has(key);
-
-      if (description || example || defaultValue || deprecated || isRequired) {
-        pushEntry({
-          path,
-          ...(isRequired ? { required: true } : {}),
-          ...(description ? { description } : {}),
-          ...(example ? { example } : {}),
-          ...(defaultValue ? { defaultValue } : {}),
-          ...(deprecated ? { deprecated: true } : {}),
-        });
-      }
-
-      walk(childShape, path, depth + 1);
-    }
-  };
-
-  walk(schema, "", 0);
-  const ordered = [...entries].sort((a, b) => {
-    const requiredOrder = Number(Boolean(b.required)) - Number(Boolean(a.required));
-    if (requiredOrder !== 0) return requiredOrder;
-    return a.path.localeCompare(b.path);
-  });
-  return { entries: ordered, truncated };
+function typeColorClasses(type: string): string {
+  switch (type) {
+    case "string":
+      return "text-[oklch(0.45_0.14_155)] bg-[oklch(0.45_0.14_155_/_0.07)] border-[oklch(0.45_0.14_155_/_0.15)] dark:text-[oklch(0.75_0.14_155)] dark:bg-[oklch(0.75_0.14_155_/_0.1)] dark:border-[oklch(0.75_0.14_155_/_0.2)]";
+    case "number":
+    case "integer":
+      return "text-[oklch(0.50_0.16_260)] bg-[oklch(0.50_0.16_260_/_0.07)] border-[oklch(0.50_0.16_260_/_0.15)] dark:text-[oklch(0.75_0.14_260)] dark:bg-[oklch(0.75_0.14_260_/_0.1)] dark:border-[oklch(0.75_0.14_260_/_0.2)]";
+    case "boolean":
+      return "text-[oklch(0.55_0.18_300)] bg-[oklch(0.55_0.18_300_/_0.07)] border-[oklch(0.55_0.18_300_/_0.15)] dark:text-[oklch(0.78_0.14_300)] dark:bg-[oklch(0.78_0.14_300_/_0.1)] dark:border-[oklch(0.78_0.14_300_/_0.2)]";
+    case "array":
+      return "text-[oklch(0.50_0.14_200)] bg-[oklch(0.50_0.14_200_/_0.07)] border-[oklch(0.50_0.14_200_/_0.15)] dark:text-[oklch(0.75_0.12_200)] dark:bg-[oklch(0.75_0.12_200_/_0.1)] dark:border-[oklch(0.75_0.12_200_/_0.2)]";
+    case "object":
+      return "text-[oklch(0.55_0.12_75)] bg-[oklch(0.55_0.12_75_/_0.07)] border-[oklch(0.55_0.12_75_/_0.15)] dark:text-[oklch(0.78_0.1_75)] dark:bg-[oklch(0.78_0.1_75_/_0.1)] dark:border-[oklch(0.78_0.1_75_/_0.2)]";
+    case "enum":
+    case "union":
+      return "text-[oklch(0.50_0.16_30)] bg-[oklch(0.50_0.16_30_/_0.07)] border-[oklch(0.50_0.16_30_/_0.15)] dark:text-[oklch(0.75_0.14_30)] dark:bg-[oklch(0.75_0.14_30_/_0.1)] dark:border-[oklch(0.75_0.14_30_/_0.2)]";
+    case "null":
+      return "text-muted-foreground/70";
+    default:
+      return "text-muted-foreground/50";
+  }
 }
 
-function FieldDocsSection({
+// ── Constraint badges ───────────────────────────────────────────────────────
+
+function ConstraintBadges({ entry }: { entry: SchemaFieldEntry }) {
+  const parts: string[] = [];
+
+  if (entry.constraints) {
+    const c = entry.constraints;
+    if (c.minimum !== undefined) parts.push(`>= ${c.minimum}`);
+    if (c.maximum !== undefined) parts.push(`<= ${c.maximum}`);
+    if (c.exclusiveMinimum !== undefined) parts.push(`> ${c.exclusiveMinimum}`);
+    if (c.exclusiveMaximum !== undefined) parts.push(`< ${c.exclusiveMaximum}`);
+    if (c.minLength !== undefined) parts.push(`minLen: ${c.minLength}`);
+    if (c.maxLength !== undefined) parts.push(`maxLen: ${c.maxLength}`);
+    if (c.pattern) parts.push(`/${c.pattern}/`);
+    if (c.minItems !== undefined) parts.push(`minItems: ${c.minItems}`);
+    if (c.maxItems !== undefined) parts.push(`maxItems: ${c.maxItems}`);
+    if (c.uniqueItems) parts.push("unique");
+  }
+
+  if (entry.format && !entry.typeLabel.includes(entry.format)) {
+    parts.push(entry.format);
+  }
+
+  if (parts.length === 0) return null;
+
+  return (
+    <span className="inline-flex items-center gap-1 ml-0.5">
+      {parts.map((p, i) => (
+        <span key={i} className="font-mono text-[9px] text-muted-foreground/65 bg-muted rounded-sm px-1 leading-[1.4]">
+          {p}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+// ── Field row ───────────────────────────────────────────────────────────────
+
+function FieldRow({ entry }: { entry: SchemaFieldEntry }) {
+  return (
+    <div
+      className="flex flex-col gap-1 py-2.5 pr-3.5 border-b border-border/50 last:border-b-0"
+      style={{ paddingLeft: `${entry.depth * 16 + 14}px` }}
+    >
+      {/* Name + type line */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="font-mono text-[11px] font-semibold text-foreground leading-tight">
+          {entry.path.split(".").pop()}
+        </span>
+
+        {entry.required ? (
+          <span
+            className="w-1 h-1 rounded-full bg-[oklch(0.65_0.22_25)] dark:bg-[oklch(0.72_0.2_25)] shrink-0"
+            title="required"
+          />
+        ) : null}
+
+        <span
+          className={cn(
+            "font-mono text-[10px] leading-none px-1.5 py-0.5 rounded-[3px] border font-medium",
+            typeColorClasses(entry.type),
+          )}
+        >
+          {entry.typeLabel}
+        </span>
+
+        {entry.deprecated ? (
+          <span className="font-mono text-[9px] font-medium uppercase tracking-wide text-[oklch(0.6_0.16_75)] dark:text-[oklch(0.78_0.14_75)] bg-[oklch(0.6_0.16_75_/_0.08)] dark:bg-[oklch(0.78_0.14_75_/_0.1)] border border-[oklch(0.6_0.16_75_/_0.18)] dark:border-[oklch(0.78_0.14_75_/_0.2)] rounded-[3px] px-1.5 py-px leading-none">
+            deprecated
+          </span>
+        ) : null}
+
+        <ConstraintBadges entry={entry} />
+      </div>
+
+      {/* Description */}
+      {entry.description ? (
+        <div className="text-[11px] leading-relaxed text-muted-foreground [&_p]:m-0 [&_p+p]:mt-0.5 [&_code]:font-mono [&_code]:text-[10px] [&_code]:bg-muted [&_code]:border [&_code]:border-border/70 [&_code]:rounded-sm [&_code]:px-1 [&_code]:py-px [&_code]:text-terminal-cyan [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_a]:decoration-primary/25 hover:[&_a]:decoration-primary/70">
+          <Streamdown plugins={{ code: codePlugin }} controls={false}>{entry.description}</Streamdown>
+        </div>
+      ) : null}
+
+      {/* Enum values */}
+      {entry.enumValues && entry.enumValues.length > 0 && entry.enumValues.length <= 12 ? (
+        <div className="flex flex-wrap gap-1 mt-0.5">
+          {entry.enumValues.map((v, i) => (
+            <code key={i} className="font-mono text-[10px] bg-muted border border-border/60 rounded-[3px] px-1.5 py-px text-foreground/80">
+              {v}
+            </code>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Example / Default */}
+      {(entry.example || entry.defaultValue) ? (
+        <div className="flex flex-wrap gap-2 mt-0.5">
+          {entry.example ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50">example</span>
+              <code className="font-mono text-[10px] text-muted-foreground/85">{entry.example}</code>
+            </span>
+          ) : null}
+          {entry.defaultValue ? (
+            <span className="inline-flex items-center gap-1">
+              <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50">default</span>
+              <code className="font-mono text-[10px] text-muted-foreground/85">{entry.defaultValue}</code>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// ── Schema fields section ───────────────────────────────────────────────────
+
+/** Detect schemas that describe an empty / void result (no useful fields). */
+function isEmptySchema(schemaJson: string | undefined): boolean {
+  if (!schemaJson) return false;
+  try {
+    const parsed = JSON.parse(schemaJson) as Record<string, unknown>;
+    if (parsed.type === "object") {
+      const props = parsed.properties;
+      if (!props || (typeof props === "object" && Object.keys(props as object).length === 0)) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function SchemaFieldsSection({
   label,
   entries,
   truncated,
+  schemaJson,
 }: {
   label: string;
-  entries: FieldDocEntry[];
+  entries: SchemaFieldEntry[];
   truncated: boolean;
+  schemaJson?: string;
 }) {
-  if (entries.length === 0) return null;
+  if (entries.length === 0 && !schemaJson) return null;
 
-  const collapsedByDefault = entries.length > 8 || truncated;
+  const hasEntries = entries.length > 0;
+  const empty = !hasEntries && isEmptySchema(schemaJson);
+  const collapsedByDefault = entries.length > 10 || truncated;
 
   return (
-    <details className="group" open={!collapsedByDefault}>
-      <summary className="mb-1 cursor-pointer select-none text-[10px] font-mono text-muted-foreground/70 group-open:mb-1">
-        <span className="mr-2 text-[9px] uppercase tracking-wider text-muted-foreground/50">{label}</span>
-        <span>{collapsedByDefault ? `show documented fields (${entries.length})` : `documented fields (${entries.length})`}</span>
-      </summary>
-      <div className="rounded-md border border-border/50 bg-muted/30 px-2.5 py-2 space-y-1.5">
-        {entries.map((entry) => (
-          <div key={entry.path} className="text-[11px] leading-relaxed">
-            <div className="font-mono text-foreground/85">
-              {entry.path}
-              {entry.required ? <span className="ml-1 text-[10px] text-emerald-600 dark:text-emerald-400">required</span> : null}
-            </div>
-            {entry.description ? <div className="text-muted-foreground">{entry.description}</div> : null}
-            {entry.example ? <div className="font-mono text-muted-foreground/80">example: {entry.example}</div> : null}
-            {entry.defaultValue ? <div className="font-mono text-muted-foreground/80">default: {entry.defaultValue}</div> : null}
-            {entry.deprecated ? <div className="font-mono text-amber-600 dark:text-amber-400">deprecated</div> : null}
-          </div>
-        ))}
-        {truncated ? (
-          <div className="text-[10px] font-mono text-muted-foreground/70">Showing first {entries.length} documented fields...</div>
+    <div className="flex flex-col gap-2">
+      {/* Section header */}
+      <div className="flex items-baseline gap-2">
+        <span className="font-mono text-[9px] font-medium tracking-wider uppercase text-muted-foreground/60">
+          {label}
+        </span>
+        {hasEntries ? (
+          <span className="font-mono text-[10px] text-muted-foreground/50">
+            {entries.length} field{entries.length !== 1 ? "s" : ""}
+            {truncated ? "+" : ""}
+          </span>
         ) : null}
       </div>
-    </details>
+
+      {/* Field list */}
+      {hasEntries ? (
+        <div className="border border-border rounded-md bg-muted/30 overflow-hidden">
+          {collapsedByDefault ? (
+            <details open={false}>
+              <summary className="cursor-pointer select-none font-mono text-[10px] text-muted-foreground/60 px-3.5 py-2 block transition-opacity hover:opacity-100">
+                Show all fields ({entries.length}{truncated ? "+" : ""})
+              </summary>
+              <div className="flex flex-col">
+                {entries.map((entry, i) => (
+                  <FieldRow key={`${entry.path}-${i}`} entry={entry} />
+                ))}
+                {truncated ? (
+                  <p className="font-mono text-[10px] text-muted-foreground/50 px-3.5 py-2">
+                    Showing first {entries.length} fields...
+                  </p>
+                ) : null}
+              </div>
+            </details>
+          ) : (
+            <div className="flex flex-col">
+              {entries.map((entry, i) => (
+                <FieldRow key={`${entry.path}-${i}`} entry={entry} />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : empty ? (
+        <p className="text-[11px] font-mono text-muted-foreground/50 italic pl-0.5">
+          Empty object
+        </p>
+      ) : schemaJson ? (
+        <TypeSignature raw={schemaJson} label="" lang="json" />
+      ) : null}
+
+      {/* Raw schema toggle */}
+      {hasEntries && schemaJson ? (
+        <details className="mt-1">
+          <summary className="cursor-pointer select-none font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50 transition-opacity hover:opacity-80">
+            Raw schema
+          </summary>
+          <div className="mt-1.5">
+            <TypeSignature raw={schemaJson} label="" lang="json" />
+          </div>
+        </details>
+      ) : null}
+    </div>
   );
 }
+
+// ── Inline detail (used inside collapsible rows in tree/flat view) ───────────
 
 export function ToolDetail({
   tool,
@@ -167,6 +285,83 @@ export function ToolDetail({
   loading?: boolean;
 }) {
   const insetLeft = depth * 20 + 8 + 16 + 8;
+
+  return (
+    <div style={{ paddingLeft: insetLeft }}>
+      <ToolDetailContent tool={tool} loading={loading} />
+    </div>
+  );
+}
+
+// ── Standalone detail panel (main content area in sidebar layout) ────────────
+
+export function ToolDetailPanel({
+  tool,
+  loading,
+}: {
+  tool: ToolDescriptor;
+  loading?: boolean;
+}) {
+  return (
+    <div className="h-full overflow-y-auto">
+      {/* Header */}
+      <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/40 px-5 py-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Zap className="h-3.5 w-3.5 text-primary/70 shrink-0" />
+          <h2 className="text-[14px] font-mono font-semibold text-foreground truncate">
+            {tool.path}
+          </h2>
+          {tool.approval === "required" ? (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-mono uppercase tracking-wider text-terminal-amber bg-terminal-amber/8 px-1.5 py-0.5 rounded border border-terminal-amber/15 shrink-0">
+              <ShieldCheck className="h-2.5 w-2.5" />
+              gated
+            </span>
+          ) : null}
+          <div className="ml-auto shrink-0">
+            <CopyButton text={tool.path} />
+          </div>
+        </div>
+        {tool.source ? (
+          <p className="mt-0.5 text-[10px] font-mono text-muted-foreground/50 pl-6">
+            {tool.source}
+          </p>
+        ) : null}
+      </div>
+
+      {/* Body */}
+      <div className="px-5 py-4">
+        <ToolDetailContent tool={tool} loading={loading} />
+      </div>
+    </div>
+  );
+}
+
+// ── Empty state for detail panel ────────────────────────────────────────────
+
+export function ToolDetailEmpty() {
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="text-center space-y-2">
+        <div className="h-10 w-10 rounded-full bg-muted/40 flex items-center justify-center mx-auto">
+          <Zap className="h-5 w-5 text-muted-foreground/20" />
+        </div>
+        <p className="text-[13px] text-muted-foreground/50">
+          Select a tool to view its schema
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Shared detail content (used by both inline and panel modes) ─────────────
+
+function ToolDetailContent({
+  tool,
+  loading,
+}: {
+  tool: ToolDescriptor;
+  loading?: boolean;
+}) {
   const description = tool.description?.trim() ?? "";
   const inputHint = tool.display?.input?.trim() ?? "";
   const outputHint = tool.display?.output?.trim() ?? "";
@@ -178,97 +373,75 @@ export function ToolDetail({
   const hasOutputSchema = outputSchemaJson.length > 0 && outputSchemaJson !== "{}";
   const showInputHint = hasInputHint && !hasInputSchema;
   const showOutputHint = hasOutputHint && !hasOutputSchema;
-  const inputFieldDocs = useMemo(
-    () => collectSchemaFieldDocs(parseSchemaJson(inputSchemaJson), { maxEntries: 24, maxDepth: 4 }),
+
+  const inputFields = useMemo(
+    () => traverseSchema(parseSchemaJson(inputSchemaJson), { maxEntries: 30, maxDepth: 5 }),
     [inputSchemaJson],
   );
-  const outputFieldDocs = useMemo(
-    () => collectSchemaFieldDocs(parseSchemaJson(outputSchemaJson), { maxEntries: 24, maxDepth: 4 }),
+  const outputFields = useMemo(
+    () => traverseSchema(parseSchemaJson(outputSchemaJson), { maxEntries: 30, maxDepth: 5 }),
     [outputSchemaJson],
   );
-  const hasInputFieldDocs = inputFieldDocs.entries.length > 0;
-  const hasOutputFieldDocs = outputFieldDocs.entries.length > 0;
-  const showInputRawSchema = hasInputSchema && !hasInputFieldDocs;
-  const showOutputRawSchema = hasOutputSchema && !hasOutputFieldDocs;
+
   const hasDetails = description.length > 0
     || showInputHint
     || showOutputHint
     || hasInputSchema
-    || hasOutputSchema
-    || inputFieldDocs.entries.length > 0
-    || outputFieldDocs.entries.length > 0;
+    || hasOutputSchema;
   const showLoading = Boolean(loading);
 
   return (
-    <div className="space-y-2.5 pb-3 pt-1 pr-2" style={{ paddingLeft: insetLeft }}>
+    <div className="pt-2 pb-4 flex flex-col gap-4">
+      {/* Loading state */}
       {showLoading ? (
-        <div className="space-y-2.5">
-          <Skeleton className="h-3.5 w-64" />
-
+        <div className="space-y-3">
+          <Skeleton className="h-3.5 w-72" />
           <div>
-            <p className="mb-1 text-[9px] font-mono uppercase tracking-wider text-muted-foreground/50">
-              Arguments
-            </p>
-            <Skeleton className="h-16 w-full rounded-md" />
+            <p className="font-mono text-[9px] font-medium tracking-wider uppercase text-muted-foreground/60">Arguments</p>
+            <Skeleton className="h-20 w-full rounded-md mt-1" />
           </div>
-
           <div>
-            <p className="mb-1 text-[9px] font-mono uppercase tracking-wider text-muted-foreground/50">
-              Returns
-            </p>
-            <Skeleton className="h-12 w-full rounded-md" />
+            <p className="font-mono text-[9px] font-medium tracking-wider uppercase text-muted-foreground/60">Returns</p>
+            <Skeleton className="h-14 w-full rounded-md mt-1" />
           </div>
         </div>
       ) : null}
 
-      {description && (
-        <div className="tool-description text-[12px] leading-relaxed text-muted-foreground">
-          <Streamdown plugins={{ code: codePlugin }}>{description}</Streamdown>
+      {/* Description */}
+      {description ? (
+        <div className="text-[12px] leading-relaxed text-muted-foreground">
+          <Streamdown plugins={{ code: codePlugin }} controls={{ code: true }}>{description}</Streamdown>
         </div>
-      )}
+      ) : null}
 
-      {showInputHint && <TypeSignature raw={inputHint} label="Arguments" />}
-      {showOutputHint && <TypeSignature raw={outputHint} label="Returns" />}
+      {/* Type hint fallbacks (when no full schema is available) */}
+      {showInputHint ? <TypeSignature raw={inputHint} label="Arguments" /> : null}
+      {showOutputHint ? <TypeSignature raw={outputHint} label="Returns" /> : null}
 
-      {showInputRawSchema ? <TypeSignature raw={inputSchemaJson} label="Input Schema" /> : null}
-      {showOutputRawSchema ? <TypeSignature raw={outputSchemaJson} label="Output Schema" /> : null}
+      {/* Structured schema rendering */}
       {hasInputSchema ? (
-        <FieldDocsSection
-          label="Input Field Docs"
-          entries={inputFieldDocs.entries}
-          truncated={inputFieldDocs.truncated}
+        <SchemaFieldsSection
+          label="Arguments"
+          entries={inputFields.entries}
+          truncated={inputFields.truncated}
+          schemaJson={inputSchemaJson}
         />
-      ) : null}
-      {hasOutputSchema ? (
-        <FieldDocsSection
-          label="Output Field Docs"
-          entries={outputFieldDocs.entries}
-          truncated={outputFieldDocs.truncated}
-        />
-      ) : null}
-      {hasInputSchema && hasInputFieldDocs ? (
-        <details>
-          <summary className="cursor-pointer select-none text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
-            Show Raw Input Schema
-          </summary>
-          <div className="mt-1">
-            <TypeSignature raw={inputSchemaJson} label="Input Schema" />
-          </div>
-        </details>
-      ) : null}
-      {hasOutputSchema && hasOutputFieldDocs ? (
-        <details>
-          <summary className="cursor-pointer select-none text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60">
-            Show Raw Output Schema
-          </summary>
-          <div className="mt-1">
-            <TypeSignature raw={outputSchemaJson} label="Output Schema" />
-          </div>
-        </details>
       ) : null}
 
+      {hasOutputSchema ? (
+        <SchemaFieldsSection
+          label="Returns"
+          entries={outputFields.entries}
+          truncated={outputFields.truncated}
+          schemaJson={outputSchemaJson}
+        />
+      ) : null}
+
+      {/* Empty state */}
       {!showLoading && !hasDetails ? (
-        <p className="text-[11px] text-muted-foreground/60">No description or type signatures available yet.</p>
+        <p className="text-[11px] text-muted-foreground/50 italic">
+          No description or schema available.
+        </p>
       ) : null}
     </div>
   );

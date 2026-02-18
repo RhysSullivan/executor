@@ -19,6 +19,85 @@ import type { ToolDescriptor } from "@/lib/types";
 import { CopyButton } from "./explorer/copy-button";
 import { ToolDetail } from "./explorer/tool-detail";
 
+// ── Compact sidebar tool item (click-to-focus, no collapsible) ──────────────
+
+export const ToolListItem = memo(function ToolListItem({
+  tool,
+  label,
+  focused,
+  selected,
+  onFocus,
+  onSelect,
+  depth = 0,
+}: {
+  tool: ToolDescriptor;
+  label: string;
+  focused: boolean;
+  selected: boolean;
+  onFocus: (tool: ToolDescriptor) => void;
+  onSelect?: (e: React.MouseEvent) => void;
+  depth?: number;
+}) {
+  const handleClick = useCallback(() => {
+    onFocus(tool);
+  }, [onFocus, tool]);
+
+  return (
+    <div
+      onClick={handleClick}
+      className={cn(
+        "flex items-center gap-1.5 px-2 py-1 cursor-pointer transition-colors group/item",
+        focused
+          ? "bg-accent/50 border-l-2 border-l-primary"
+          : "hover:bg-accent/20 border-l-2 border-l-transparent",
+        selected && !focused && "bg-primary/5",
+      )}
+      style={{ paddingLeft: `${depth * 14 + 8}px` }}
+    >
+      {onSelect ? (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelect(e);
+          }}
+          className={cn(
+            "h-3.5 w-3.5 rounded border flex items-center justify-center shrink-0 transition-colors",
+            selected
+              ? "bg-primary border-primary text-primary-foreground"
+              : "border-border/60 opacity-0 group-hover/item:opacity-100",
+          )}
+        >
+          {selected && <Check className="h-2 w-2" />}
+        </button>
+      ) : null}
+
+      <Zap className="h-2.5 w-2.5 text-primary/50 shrink-0" />
+
+      <span
+        className={cn(
+          "text-[12px] font-mono truncate",
+          focused ? "text-foreground font-medium" : "text-foreground/75",
+        )}
+      >
+        {label}
+      </span>
+
+      {tool.approval === "required" ? (
+        <ShieldCheck className="h-2.5 w-2.5 text-terminal-amber/70 shrink-0 ml-auto" />
+      ) : null}
+    </div>
+  );
+},
+(prev, next) =>
+  prev.tool === next.tool &&
+  prev.label === next.label &&
+  prev.focused === next.focused &&
+  prev.selected === next.selected &&
+  prev.depth === next.depth,
+);
+
+// ── Original collapsible tool row (used in tree/flat views) ─────────────────
+
 const ToolRow = memo(function ToolRow({
   tool,
   label,
@@ -150,6 +229,86 @@ export const SelectableToolRow = memo(function SelectableToolRow({
   prev.detailLoading === next.detailLoading &&
   prev.selectedKeys.has(prev.tool.path) === next.selectedKeys.has(next.tool.path),
 );
+
+// ── Tool list for sidebar layout ────────────────────────────────────────────
+
+export function ToolListSidebar({
+  tools,
+  focusedPath,
+  selectedKeys,
+  onFocusTool,
+  onSelectTool,
+  loadingRows,
+  hasMoreTools = false,
+  loadingMoreTools = false,
+  onLoadMoreTools,
+  scrollContainerId,
+  scrollContainerRef,
+}: {
+  tools: ToolDescriptor[];
+  focusedPath: string | null;
+  selectedKeys: Set<string>;
+  onFocusTool: (tool: ToolDescriptor) => void;
+  onSelectTool?: (path: string, e: React.MouseEvent) => void;
+  loadingRows?: { source: string; count: number }[];
+  hasMoreTools?: boolean;
+  loadingMoreTools?: boolean;
+  onLoadMoreTools?: () => Promise<void>;
+  scrollContainerId: string;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div
+      ref={scrollContainerRef}
+      id={scrollContainerId}
+      className="h-full overflow-y-auto"
+    >
+      <InfiniteScroll
+        dataLength={tools.length}
+        next={() => {
+          void onLoadMoreTools?.();
+        }}
+        hasMore={hasMoreTools}
+        scrollableTarget={scrollContainerId}
+        style={{ overflow: "visible" }}
+        loader={
+          <div className="px-2 py-2 text-[10px] text-muted-foreground/60">
+            {loadingMoreTools ? "Loading..." : ""}
+          </div>
+        }
+      >
+        <div className="py-0.5">
+          {tools.map((tool) => (
+            <ToolListItem
+              key={tool.path}
+              tool={tool}
+              label={toolDisplayPath(tool.path)}
+              focused={tool.path === focusedPath}
+              selected={selectedKeys.has(tool.path)}
+              onFocus={onFocusTool}
+              onSelect={
+                onSelectTool
+                  ? (e) => onSelectTool(tool.path, e)
+                  : undefined
+              }
+            />
+          ))}
+
+          {loadingRows?.map((loadingRow) => (
+            <ToolLoadingRows
+              key={loadingRow.source}
+              source={loadingRow.source}
+              count={loadingRow.count}
+              depth={0}
+            />
+          ))}
+        </div>
+      </InfiniteScroll>
+    </div>
+  );
+}
+
+// ── Flat list (original, used in flat view mode) ────────────────────────────
 
 export function VirtualFlatList({
   tools,

@@ -1,4 +1,5 @@
-import { ConvexHttpClient } from "convex/browser";
+import { ConvexClient, ConvexHttpClient } from "convex/browser";
+import { Result } from "better-result";
 import { z } from "zod";
 import { api } from "../../convex/_generated/api";
 import { dispatchCodeWithCloudflareWorkerLoader } from "../../../core/src/runtimes/cloudflare/worker/loader-runtime";
@@ -14,6 +15,7 @@ import type {
 import { describeError } from "../../../core/src/utils";
 
 const recordSchema = z.record(z.unknown());
+const APPROVAL_SUBSCRIPTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 function toRecord(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
@@ -49,28 +51,97 @@ class CallbackExecutionAdapter implements ExecutionAdapter {
     });
   }
 
-  async invokeTool(call: ToolCallRequest): Promise<ToolCallResult> {
-    const response = await this.client.action(api.runtimeCallbacks.handleToolCall, {
-      internalSecret: this.callbackConfig.callbackInternalSecret,
-      runId: call.runId,
-      callId: call.callId,
-      toolPath: call.toolPath,
-      input: toRecord(call.input),
-    }).catch((error: unknown) => ({
-      ok: false,
-      kind: "failed",
-      error: `Node runtime callback failed: ${describeError(error)}`,
-    } as const));
+  private createRealtimeClient(): ConvexClient {
+    return new ConvexClient(this.callbackConfig.callbackConvexUrl, {
+      skipConvexDeploymentUrlCheck: true,
+    });
+  }
 
-    const parsed = decodeToolCallResultFromTransport(response);
-    if (!parsed) {
-      return {
+  private async waitForApprovalUpdate(runId: string, approvalId: string): Promise<void> {
+    const client = this.createRealtimeClient();
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        unsubscribe();
+        client.close();
+        reject(new Error(`Timed out waiting for approval update: ${approvalId}`));
+      }, APPROVAL_SUBSCRIPTION_TIMEOUT_MS);
+
+      const unsubscribe = client.onUpdate(
+        api.runtimeCallbacks.getApprovalStatus,
+        {
+          internalSecret: this.callbackConfig.callbackInternalSecret,
+          runId,
+          approvalId,
+        },
+        (value: { status?: "pending" | "approved" | "denied" | "missing" } | null | undefined) => {
+          const status = value?.status;
+          if (!status || status === "pending") {
+            return;
+          }
+
+          if (status === "missing") {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            unsubscribe();
+            client.close();
+            reject(new Error(`Approval not found: ${approvalId}`));
+            return;
+          }
+
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          unsubscribe();
+          client.close();
+          resolve();
+        },
+      );
+    });
+  }
+
+  async invokeTool(call: ToolCallRequest): Promise<ToolCallResult> {
+    while (true) {
+      const response = await this.client.action(api.runtimeCallbacks.handleToolCall, {
+        internalSecret: this.callbackConfig.callbackInternalSecret,
+        runId: call.runId,
+        callId: call.callId,
+        toolPath: call.toolPath,
+        input: toRecord(call.input),
+      }).catch((error: unknown) => ({
         ok: false,
         kind: "failed",
-        error: "Node runtime callback returned invalid payload",
-      };
+        error: `Node runtime callback failed: ${describeError(error)}`,
+      } as const));
+
+      const parsed = decodeToolCallResultFromTransport(response);
+      if (!parsed) {
+        return {
+          ok: false,
+          kind: "failed",
+          error: "Node runtime callback returned invalid payload",
+        };
+      }
+
+      if (!parsed.ok && parsed.kind === "pending") {
+        const waitResult = await Result.tryPromise(() => this.waitForApprovalUpdate(call.runId, parsed.approvalId));
+        if (waitResult.isErr()) {
+          return {
+            ok: false,
+            kind: "failed",
+            error: `Node runtime approval subscription failed: ${describeError(waitResult.error.cause)}`,
+          };
+        }
+        continue;
+      }
+
+      return parsed;
     }
-    return parsed;
   }
 }
 
