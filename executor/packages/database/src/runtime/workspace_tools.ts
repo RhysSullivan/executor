@@ -18,7 +18,7 @@ import {
 import { parseSerializedTool, type SerializedTool } from "../../../core/src/tool/source-serialization";
 import type { ExternalToolSourceConfig } from "../../../core/src/tool/source-types";
 import type {
-  AccessPolicyRecord,
+  ToolPolicyRecord,
   JsonSchema,
   OpenApiSourceQuality,
   SourceAuthProfile,
@@ -66,12 +66,12 @@ async function listWorkspaceToolSources(
   return sources;
 }
 
-async function listWorkspaceAccessPolicies(
+async function listWorkspaceToolPolicies(
   ctx: QueryRunnerCtx,
   workspaceId: Id<"workspaces">,
   accountId?: Id<"accounts">,
-): Promise<AccessPolicyRecord[]> {
-  const policies: AccessPolicyRecord[] = await ctx.runQuery(internal.database.listAccessPolicies, { workspaceId, accountId });
+): Promise<ToolPolicyRecord[]> {
+  const policies: ToolPolicyRecord[] = await ctx.runQuery(internal.database.listToolPolicies, { workspaceId, accountId });
   return policies;
 }
 
@@ -378,7 +378,7 @@ function toToolDetailDescriptor(tool: ToolDescriptor): ToolDetailDescriptor {
 function listVisibleRegistryToolDescriptors(
   entries: RegistryToolEntry[],
   context: { workspaceId: string; accountId?: string; clientId?: string },
-  policies: AccessPolicyRecord[],
+  policies: ToolPolicyRecord[],
   options: {
     includeDetails?: boolean;
     toolPaths?: string[];
@@ -1151,7 +1151,7 @@ export async function getWorkspaceInventoryProgressForContext(
     // Read policies so Convex tracks this reactive dependency — any policy
     // change will invalidate the query and produce a new reactiveKey, which
     // in turn causes the client-side TanStack query to re-fetch tool data.
-    listWorkspaceAccessPolicies(ctx, workspaceId),
+    listWorkspaceToolPolicies(ctx, workspaceId),
   ]);
 
   const progress = computeWorkspaceInventoryProgress(
@@ -1368,7 +1368,7 @@ async function loadWorkspaceToolInventoryForContext(
       buildId: options.buildId,
       fetchAll: options.fetchAll,
     }),
-    listWorkspaceAccessPolicies(ctx, context.workspaceId, context.accountId),
+    listWorkspaceToolPolicies(ctx, context.workspaceId, context.accountId),
   ]);
 
   const warnings = [...result.warnings];
@@ -1468,7 +1468,7 @@ export async function listToolDetailsForContext(
     ctx.runQuery(internal.toolRegistry.getState, {
       workspaceId: context.workspaceId,
     }),
-    listWorkspaceAccessPolicies(ctx, context.workspaceId, context.accountId),
+    listWorkspaceToolPolicies(ctx, context.workspaceId, context.accountId),
   ]);
 
   const result: Record<string, ToolDetailDescriptor> = {};

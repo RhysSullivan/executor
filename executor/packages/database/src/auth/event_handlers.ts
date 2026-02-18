@@ -270,6 +270,23 @@ export const workosEventHandlers = {
       status: "deleted",
       updatedAt: now,
     });
+
+    const memberships = await ctx.db
+      .query("organizationMembers")
+      .withIndex("by_account", (q) => q.eq("accountId", account._id))
+      .collect();
+
+    await Promise.all(memberships.map(async (membership) => {
+      if (membership.status === "removed" && !membership.billable) {
+        return;
+      }
+
+      await ctx.db.patch(membership._id, {
+        status: "removed",
+        billable: false,
+        updatedAt: now,
+      });
+    }));
   },
 
   "organization.created": async (ctx, event) => {

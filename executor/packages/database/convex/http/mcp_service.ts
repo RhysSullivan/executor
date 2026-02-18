@@ -78,7 +78,10 @@ export function createMcpExecutorService(ctx: ActionCtx) {
       };
     },
     bootstrapAnonymousContext: async (sessionId?: string): Promise<AnonymousContext> => {
-      return await ctx.runMutation(internal.database.bootstrapAnonymousSession, { sessionId });
+      return await ctx.runMutation(internal.database.bootstrapAnonymousSession, {
+        sessionId,
+        clientId: "mcp",
+      });
     },
     listTools: async (
       toolContext?: { workspaceId: Id<"workspaces">; accountId?: Id<"accounts">; clientId?: string },

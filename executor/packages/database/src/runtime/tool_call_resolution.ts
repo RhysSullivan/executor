@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import { parseGraphqlOperationPaths } from "../../../core/src/graphql/operation-paths";
-import type { AccessPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
+import type { ToolPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
 import { parseSerializedTool, type SerializedTool } from "../../../core/src/tool/source-serialization";
 import { getDecisionForContext, getToolDecision } from "./policy";
 import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
@@ -79,7 +79,7 @@ export function getGraphqlDecision(
   tool: { path: string; approval: "auto" | "required"; source?: string; _graphqlSource?: string },
   input: unknown,
   workspaceTools: Map<string, { path: string; approval: "auto" | "required"; source?: string }> | undefined,
-  policies: AccessPolicyRecord[],
+  policies: ToolPolicyRecord[],
 ): { decision: PolicyDecision; effectivePaths: string[] } {
   const sourceName = tool._graphqlSource;
   if (!sourceName) {

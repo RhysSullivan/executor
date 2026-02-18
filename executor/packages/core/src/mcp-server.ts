@@ -38,7 +38,6 @@ function createRunCodeTool(
       timeoutMs?: number;
       runtimeId?: string;
       metadata?: Record<string, unknown>;
-      clientId?: string;
       sessionId?: string;
       waitForResult?: boolean;
       resultTimeoutMs?: number;
@@ -62,7 +61,7 @@ function createRunCodeTool(
       context = {
         workspaceId: anonymous.workspaceId,
         accountId: anonymous.accountId,
-        clientId: input.clientId ?? anonymous.clientId,
+        clientId: anonymous.clientId,
         sessionId: anonymous.sessionId,
       };
     }
@@ -178,7 +177,6 @@ const FULL_INPUT = z.object({
   timeoutMs: z.number().int().min(1).max(600_000).optional(),
   runtimeId: z.string().optional(),
   metadata: z.record(z.unknown()).optional(),
-  clientId: z.string().optional(),
   sessionId: z.string().optional(),
   waitForResult: z.boolean().optional(),
   resultTimeoutMs: z.number().int().min(100).max(900_000).optional(),

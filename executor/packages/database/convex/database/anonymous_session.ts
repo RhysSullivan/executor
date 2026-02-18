@@ -4,6 +4,59 @@ import { internalMutation } from "../_generated/server";
 import { ensureAnonymousIdentity } from "../../src/database/anonymous";
 import { mapAnonymousContext } from "../../src/database/readers";
 
+type TrustedClientId = "web" | "mcp";
+
+function parseTrustedClientId(value: string | undefined): TrustedClientId | undefined {
+  const candidate = value?.trim();
+  if (!candidate) {
+    return undefined;
+  }
+
+  if (candidate === "web" || candidate === "mcp") {
+    return candidate;
+  }
+
+  throw new Error("clientId must be one of: web, mcp");
+}
+
+function parseStoredTrustedClientId(value: string | undefined): TrustedClientId | undefined {
+  const candidate = value?.trim();
+  if (!candidate) {
+    return undefined;
+  }
+
+  if (candidate === "web" || candidate === "mcp") {
+    return candidate;
+  }
+
+  return undefined;
+}
+
+function defaultClientIdForSessionId(sessionId: string): TrustedClientId {
+  if (sessionId.startsWith("mcp_")) {
+    return "mcp";
+  }
+
+  return "web";
+}
+
+function resolveTrustedClientId(args: {
+  sessionId: string;
+  requestedClientId?: TrustedClientId;
+  existingClientId?: string;
+}): TrustedClientId {
+  if (args.requestedClientId) {
+    return args.requestedClientId;
+  }
+
+  const existingClientId = parseStoredTrustedClientId(args.existingClientId);
+  if (existingClientId) {
+    return existingClientId;
+  }
+
+  return defaultClientIdForSessionId(args.sessionId);
+}
+
 export const bootstrapAnonymousSession = internalMutation({
   args: {
     sessionId: v.optional(v.string()),
@@ -14,7 +67,7 @@ export const bootstrapAnonymousSession = internalMutation({
     const now = Date.now();
     const requestedSessionId = args.sessionId?.trim() || "";
     const requestedAccountId = args.accountId?.trim() || "";
-    const clientId = args.clientId?.trim() || "web";
+    const requestedClientId = parseTrustedClientId(args.clientId);
 
     const allowRequestedSessionId = requestedSessionId.startsWith("mcp_")
       || requestedSessionId.startsWith("anon_session_");
@@ -26,6 +79,11 @@ export const bootstrapAnonymousSession = internalMutation({
         .withIndex("by_session_id", (q) => q.eq("sessionId", sessionId))
         .unique();
       if (existing) {
+        const clientId = resolveTrustedClientId({
+          sessionId,
+          requestedClientId,
+          existingClientId: existing.clientId,
+        });
         const identity = await ensureAnonymousIdentity(ctx, {
           sessionId,
           workspaceId: existing.workspaceId,
@@ -57,6 +115,10 @@ export const bootstrapAnonymousSession = internalMutation({
     const sessionId = allowRequestedSessionId
       ? requestedSessionId as string
       : generatedSessionId;
+    const clientId = resolveTrustedClientId({
+      sessionId,
+      requestedClientId,
+    });
 
     const identity = await ensureAnonymousIdentity(ctx, {
       sessionId,

@@ -217,10 +217,9 @@ describe("authentication", () => {
     const owner = await seedUser(t, { subject: "owner-2" });
 
     await expect(
-      t.mutation(api.workspace.upsertAccessPolicy, {
+      t.mutation(api.workspace.upsertToolRole, {
         workspaceId: owner.workspaceId,
-        resourcePattern: "*",
-        effect: "allow",
+        name: "anonymous-role",
       }),
     ).rejects.toThrow("Must be signed in");
   });
@@ -421,7 +420,7 @@ describe("workspace access controls", () => {
     ).rejects.toThrow("You are not a member of this workspace");
   });
 
-  test("regular member cannot upsert access policies (admin-only)", async () => {
+  test("regular member cannot upsert tool roles (admin-only)", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "ws-admin-owner" });
     const member = await seedUser(t, { subject: "ws-plain-member" });
@@ -440,15 +439,14 @@ describe("workspace access controls", () => {
     const authedMember = t.withIdentity({ subject: "ws-plain-member" });
 
     await expect(
-      authedMember.mutation(api.workspace.upsertAccessPolicy, {
+      authedMember.mutation(api.workspace.upsertToolRole, {
         workspaceId: owner.workspaceId,
-        resourcePattern: "*",
-        effect: "allow",
+        name: "member-managed-role",
       }),
     ).rejects.toThrow("Only organization admins can perform this action");
   });
 
-  test("workspace admin can upsert access policies", async () => {
+  test("workspace admin can configure tool policies via roles", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "ws-policy-owner" });
     const admin = await seedUser(t, { subject: "ws-policy-admin" });
@@ -466,16 +464,37 @@ describe("workspace access controls", () => {
 
     const authedAdmin = t.withIdentity({ subject: "ws-policy-admin" });
 
-    const policy = await authedAdmin.mutation(api.workspace.upsertAccessPolicy, {
+    const role = await authedAdmin.mutation(api.workspace.upsertToolRole, {
       workspaceId: owner.workspaceId,
+      name: "policy-admin-role",
+      description: "workspace admin policy role",
+    });
+
+    await authedAdmin.mutation(api.workspace.upsertToolRoleRule, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      selectorType: "tool_path",
       resourcePattern: "*.delete",
       effect: "allow",
       approvalMode: "required",
     });
 
-    expect(policy.effect).toBe("allow");
-    expect(policy.approvalMode).toBe("required");
-    expect(policy.resourcePattern).toBe("*.delete");
+    await authedAdmin.mutation(api.workspace.upsertToolRoleBinding, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      scopeType: "workspace",
+      status: "active",
+    });
+
+    const policies = await authedAdmin.query(api.workspace.listToolPolicies, {
+      workspaceId: owner.workspaceId,
+    });
+
+    expect(policies.some((policy: { resourcePattern?: string; effect?: string; approvalMode?: string }) => (
+      policy.resourcePattern === "*.delete"
+      && policy.effect === "allow"
+      && policy.approvalMode === "required"
+    ))).toBe(true);
   });
 
   test("account-scoped policy target must be active org member", async () => {
@@ -484,29 +503,88 @@ describe("workspace access controls", () => {
     const outsider = await seedUser(t, { subject: "policy-target-outsider" });
     const authedOwner = t.withIdentity({ subject: "policy-target-owner" });
 
+    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
+      workspaceId: owner.workspaceId,
+      name: "policy-target-role",
+    });
+
     await expect(
-      authedOwner.mutation(api.workspace.upsertAccessPolicy, {
+      authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
         workspaceId: owner.workspaceId,
+        roleId: role.id,
         scopeType: "account",
         targetAccountId: outsider.accountId,
-        resourcePattern: "*",
-        effect: "allow",
+        status: "active",
       }),
     ).rejects.toThrow("targetAccountId must be an active member of this organization");
   });
 
-  test("workspace owner can upsert access policies", async () => {
+  test("workspace owner can configure tool policies", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "ws-owner-policy" });
     const authedOwner = t.withIdentity({ subject: "ws-owner-policy" });
 
-    const policy = await authedOwner.mutation(api.workspace.upsertAccessPolicy, {
+    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
       workspaceId: owner.workspaceId,
-      resourcePattern: "*",
-      effect: "allow",
+      name: "owner-policy-role",
     });
 
-    expect(policy.effect).toBe("allow");
+    await authedOwner.mutation(api.workspace.upsertToolRoleRule, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      selectorType: "all",
+      effect: "allow",
+      approvalMode: "required",
+    });
+
+    await authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      scopeType: "workspace",
+      status: "active",
+    });
+
+    const policies = await authedOwner.query(api.workspace.listToolPolicies, {
+      workspaceId: owner.workspaceId,
+    });
+    expect(policies.some((policy: { roleId?: string }) => policy.roleId === role.id)).toBe(true);
+  });
+
+  test("workspace owner can delete role-managed tool policies", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "ws-owner-policy-delete" });
+    const authedOwner = t.withIdentity({ subject: "ws-owner-policy-delete" });
+
+    const role = await authedOwner.mutation(api.workspace.upsertToolRole, {
+      workspaceId: owner.workspaceId,
+      name: "owner-policy-delete-role",
+    });
+
+    await authedOwner.mutation(api.workspace.upsertToolRoleRule, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      selectorType: "tool_path",
+      resourcePattern: "github.repos.delete",
+      effect: "deny",
+      matchType: "exact",
+    });
+
+    await authedOwner.mutation(api.workspace.upsertToolRoleBinding, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+      scopeType: "workspace",
+      status: "active",
+    });
+
+    await authedOwner.mutation(api.workspace.deleteToolRole, {
+      workspaceId: owner.workspaceId,
+      roleId: role.id,
+    });
+
+    const remaining = await authedOwner.query(api.workspace.listToolPolicies, {
+      workspaceId: owner.workspaceId,
+    });
+    expect(remaining.some((policy: { roleId?: string }) => policy.roleId === role.id)).toBe(false);
   });
 
   test("regular member cannot upsert credentials (admin-only)", async () => {
@@ -563,6 +641,60 @@ describe("workspace access controls", () => {
         config: { url: "https://example.com" },
       }),
     ).rejects.toThrow("Only organization admins can perform this action");
+  });
+
+  test("cannot hijack tool source id from another organization", async () => {
+    const t = setup();
+    const orgAOwner = await seedUser(t, { subject: "tool-source-org-a-owner" });
+    const orgBOwner = await seedUser(t, { subject: "tool-source-org-b-owner" });
+
+    const authedA = t.withIdentity({ subject: "tool-source-org-a-owner" });
+    const authedB = t.withIdentity({ subject: "tool-source-org-b-owner" });
+
+    const sourceB = await authedB.mutation(api.workspace.upsertToolSource, {
+      workspaceId: orgBOwner.workspaceId,
+      name: "org-b-source",
+      type: "mcp",
+      config: { url: "https://example.com/org-b" },
+    });
+
+    await expect(
+      authedA.mutation(api.workspace.upsertToolSource, {
+        workspaceId: orgAOwner.workspaceId,
+        id: sourceB.id,
+        name: "org-a-source",
+        type: "mcp",
+        config: { url: "https://example.com/org-a" },
+      }),
+    ).rejects.toThrow("Tool source id already exists in another organization");
+  });
+
+  test("cannot reuse workspace-scoped tool source id across workspaces", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "tool-source-workspace-owner" });
+    const authedOwner = t.withIdentity({ subject: "tool-source-workspace-owner" });
+
+    const secondWorkspace = await authedOwner.mutation(api.workspaces.create, {
+      name: "Second Workspace",
+      organizationId: owner.organizationId,
+    });
+
+    const source = await authedOwner.mutation(api.workspace.upsertToolSource, {
+      workspaceId: owner.workspaceId,
+      name: "workspace-one-source",
+      type: "mcp",
+      config: { url: "https://example.com/ws1" },
+    });
+
+    await expect(
+      authedOwner.mutation(api.workspace.upsertToolSource, {
+        workspaceId: secondWorkspace.id,
+        id: source.id,
+        name: "workspace-two-source",
+        type: "mcp",
+        config: { url: "https://example.com/ws2" },
+      }),
+    ).rejects.toThrow("Tool source id belongs to a different workspace");
   });
 
   test("account-scoped credential target must be active org member", async () => {
@@ -656,15 +788,15 @@ describe("workspace access controls", () => {
       status: "active",
     });
 
-    const policies = await authedOwner.query(api.workspace.listAccessPolicies, {
+    const policies = await authedOwner.query(api.workspace.listToolPolicies, {
       workspaceId: owner.workspaceId,
     });
 
-    expect(policies.some((policy) => policy.resourceType === "source" && policy.resourcePattern === "source:github"))
+    expect(policies.some((policy: { resourceType?: string; resourcePattern?: string }) => policy.resourceType === "source" && policy.resourcePattern === "source:github"))
       .toBe(true);
   });
 
-  test("regular member can read access policies (no admin required)", async () => {
+  test("regular member can read tool policies (no admin required)", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "read-policy-owner" });
     const member = await seedUser(t, { subject: "read-policy-member" });
@@ -682,7 +814,7 @@ describe("workspace access controls", () => {
 
     const authedMember = t.withIdentity({ subject: "read-policy-member" });
 
-    const policies = await authedMember.query(api.workspace.listAccessPolicies, {
+    const policies = await authedMember.query(api.workspace.listToolPolicies, {
       workspaceId: owner.workspaceId,
     });
 
@@ -762,6 +894,55 @@ describe("organization access controls", () => {
         organizationId: owner.organizationId,
       }),
     ).rejects.toThrow("You are not a member of this organization");
+  });
+
+  test("inactive organization blocks organization queries", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "inactive-org-query-owner" });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(owner.organizationId, {
+        status: "deleted",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const authedOwner = t.withIdentity({ subject: "inactive-org-query-owner" });
+
+    await expect(
+      authedOwner.query(api.organizationMembers.list, {
+        organizationId: owner.organizationId,
+      }),
+    ).rejects.toThrow("Organization is inactive");
+  });
+
+  test("inactive organization blocks organization mutations", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "inactive-org-mutation-owner" });
+    const member = await seedUser(t, { subject: "inactive-org-mutation-member" });
+
+    await addOrgMember(t, {
+      organizationId: owner.organizationId,
+      accountId: member.accountId,
+      role: "member",
+    });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(owner.organizationId, {
+        status: "deleted",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const authedOwner = t.withIdentity({ subject: "inactive-org-mutation-owner" });
+
+    await expect(
+      authedOwner.mutation(api.organizationMembers.updateRole, {
+        organizationId: owner.organizationId,
+        accountId: member.accountId,
+        role: "admin",
+      }),
+    ).rejects.toThrow("Organization is inactive");
   });
 
   test("regular member cannot update roles (admin-only)", async () => {
@@ -931,7 +1112,7 @@ describe("cross-workspace isolation", () => {
     ).rejects.toThrow("You are not a member of this workspace");
   });
 
-  test("user in workspace A cannot manage policies in workspace B", async () => {
+  test("user in workspace A cannot manage tool policies in workspace B", async () => {
     const t = setup();
     await seedUser(t, { subject: "policy-user-a" });
     const userB = await seedUser(t, { subject: "policy-user-b" });
@@ -939,10 +1120,9 @@ describe("cross-workspace isolation", () => {
     const authedA = t.withIdentity({ subject: "policy-user-a" });
 
     await expect(
-      authedA.mutation(api.workspace.upsertAccessPolicy, {
+      authedA.mutation(api.workspace.upsertToolRole, {
         workspaceId: userB.workspaceId,
-        resourcePattern: "*",
-        effect: "allow",
+        name: "cross-workspace-role",
       }),
     ).rejects.toThrow("You are not a member of this workspace");
   });
@@ -1447,13 +1627,29 @@ describe("role hierarchy validation", () => {
 
     const authed = t.withIdentity({ subject: "admin-hier-admin" });
 
-    // Admin can upsert access policies
-    const policy = await authed.mutation(api.workspace.upsertAccessPolicy, {
+    // Admin can manage tool-policy roles/rules/bindings
+    const role = await authed.mutation(api.workspace.upsertToolRole, {
       workspaceId: org.workspaceId,
+      name: "admin-hierarchy-role",
+    });
+    await authed.mutation(api.workspace.upsertToolRoleRule, {
+      workspaceId: org.workspaceId,
+      roleId: role.id,
+      selectorType: "tool_path",
       resourcePattern: "admin.*",
       effect: "deny",
     });
-    expect(policy.effect).toBe("deny");
+    await authed.mutation(api.workspace.upsertToolRoleBinding, {
+      workspaceId: org.workspaceId,
+      roleId: role.id,
+      scopeType: "workspace",
+      status: "active",
+    });
+
+    const policies = await authed.query(api.workspace.listToolPolicies, {
+      workspaceId: org.workspaceId,
+    });
+    expect(policies.some((policy: { roleId?: string; effect?: string }) => policy.roleId === role.id && policy.effect === "deny")).toBe(true);
 
     // Admin can upsert tool sources
     const source = await authed.mutation(api.workspace.upsertToolSource, {

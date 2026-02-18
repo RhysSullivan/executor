@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type {
-  AccessPolicyRecord,
+  ToolPolicyRecord,
   PolicyDecision,
   ResolvedToolCredential,
   TaskRecord,
@@ -218,15 +218,15 @@ async function upsertRequestedToolCall(
   return persistedCall;
 }
 
-async function listWorkspaceAccessPolicies(
+async function listWorkspaceToolPolicies(
   ctx: ActionCtx,
   task: Pick<TaskRecord, "workspaceId" | "accountId">,
-): Promise<AccessPolicyRecord[]> {
-  const policies = await ctx.runQuery(internal.database.listAccessPolicies, {
+): Promise<ToolPolicyRecord[]> {
+  const policies = await ctx.runQuery(internal.database.listToolPolicies, {
     workspaceId: task.workspaceId,
     accountId: task.accountId,
   });
-  return policies as AccessPolicyRecord[];
+  return policies as ToolPolicyRecord[];
 }
 
 async function listRegistryNamespaces(
@@ -348,7 +348,7 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
   let effectiveToolPath = toolPath;
   try {
-    const typedPolicies = await listWorkspaceAccessPolicies(ctx, task);
+    const typedPolicies = await listWorkspaceToolPolicies(ctx, task);
     const finalizeImmediateTool = async (value: unknown): Promise<unknown> => {
       if (persistedCall.status === "requested") {
         await publishTaskEvent(ctx, task.id, "task", "tool.call.started", {
@@ -368,6 +368,29 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
 
     // Fast system tools are handled server-side from the registry.
     if (toolPath === "discover" || toolPath === "catalog.namespaces" || toolPath === "catalog.tools") {
+      const systemToolDecision = getDecisionForContext(
+        {
+          path: toolPath,
+          approval: "auto",
+        },
+        {
+          workspaceId: task.workspaceId,
+          accountId: task.accountId,
+          clientId: task.clientId,
+        },
+        typedPolicies,
+      );
+      if (systemToolDecision === "deny") {
+        const deniedMessage = `${toolPath} (policy denied)`;
+        await denyToolCall(ctx, {
+          task,
+          callId,
+          toolPath,
+          deniedMessage,
+          reason: "policy_deny",
+        });
+      }
+
       const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
         workspaceId: task.workspaceId,
         accountId: task.accountId,

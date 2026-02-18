@@ -5,6 +5,7 @@ import type { ApprovalRecord, TaskExecutionOutcome, TaskRecord } from "../../../
 import {
   assertMatchesCanonicalAccountId,
   canonicalAccountIdForWorkspaceAccess,
+  canonicalClientIdForWorkspaceAccess,
 } from "../auth/account_identity";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
 import { createTaskEvent } from "../task/events";
@@ -227,7 +228,6 @@ export async function createTaskHandler(
     workspaceId: Id<"workspaces">;
     sessionId?: string;
     accountId?: Id<"accounts">;
-    clientId?: string;
     waitForResult?: boolean;
   },
 ): Promise<TaskExecutionOutcome> {
@@ -237,6 +237,10 @@ export async function createTaskHandler(
   });
 
   const canonicalAccountId = canonicalAccountIdForWorkspaceAccess(access);
+  const canonicalClientId = canonicalClientIdForWorkspaceAccess({
+    provider: access.provider,
+    sessionId: args.sessionId,
+  });
   assertMatchesCanonicalAccountId(args.accountId, canonicalAccountId);
 
   const waitForResult = args.waitForResult ?? false;
@@ -247,7 +251,7 @@ export async function createTaskHandler(
     metadata: toMetadata(args.metadata),
     workspaceId: args.workspaceId,
     accountId: canonicalAccountId,
-    clientId: args.clientId,
+    clientId: canonicalClientId,
     scheduleAfterCreate: !waitForResult,
   });
 

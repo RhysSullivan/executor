@@ -104,7 +104,6 @@ export declare const api: {
       "public",
       {
         accountId?: Id<"accounts">;
-        clientId?: string;
         code: string;
         metadata?: Record<string, any>;
         runtimeId?: string;
@@ -136,7 +135,6 @@ export declare const api: {
       {
         accountId?: Id<"accounts">;
         buildId?: string;
-        clientId?: string;
         cursor?: string;
         fetchAll?: boolean;
         includeDetails?: boolean;
@@ -156,7 +154,6 @@ export declare const api: {
       "public",
       {
         accountId?: Id<"accounts">;
-        clientId?: string;
         config: Record<string, any>;
         name: string;
         sessionId?: string;
@@ -176,7 +173,6 @@ export declare const api: {
         organizationId: Id<"organizations">;
         role: "owner" | "admin" | "member" | "billing_admin";
         sessionId?: string;
-        workspaceId?: Id<"workspaces">;
       },
       any
     >;
@@ -307,13 +303,7 @@ export declare const api: {
     bootstrapAnonymousSession: FunctionReference<
       "mutation",
       "public",
-      { accountId?: string; clientId?: string; sessionId?: string },
-      any
-    >;
-    deleteAccessPolicy: FunctionReference<
-      "mutation",
-      "public",
-      { policyId: string; sessionId?: string; workspaceId: Id<"workspaces"> },
+      { accountId?: string; sessionId?: string },
       any
     >;
     deleteToolRole: FunctionReference<
@@ -355,7 +345,6 @@ export declare const api: {
       "mutation",
       "public",
       {
-        clientId?: string;
         sessionId?: string;
         toolPaths: Array<string>;
         workspaceId: Id<"workspaces">;
@@ -363,12 +352,6 @@ export declare const api: {
       any
     >;
     getToolInventoryProgress: FunctionReference<
-      "query",
-      "public",
-      { sessionId?: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
-    listAccessPolicies: FunctionReference<
       "query",
       "public",
       { sessionId?: string; workspaceId: Id<"workspaces"> },
@@ -387,6 +370,12 @@ export declare const api: {
       any
     >;
     listTasks: FunctionReference<
+      "query",
+      "public",
+      { sessionId?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    listToolPolicies: FunctionReference<
       "query",
       "public",
       { sessionId?: string; workspaceId: Id<"workspaces"> },
@@ -430,30 +419,6 @@ export declare const api: {
         scopeType: "account" | "organization" | "workspace";
         sessionId?: string;
         sourceKey: string;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
-    upsertAccessPolicy: FunctionReference<
-      "mutation",
-      "public",
-      {
-        approvalMode?: "inherit" | "auto" | "required";
-        argumentConditions?: Array<{
-          key: string;
-          operator: "equals" | "contains" | "starts_with" | "not_equals";
-          value: string;
-        }>;
-        clientId?: string;
-        effect?: "allow" | "deny";
-        id?: string;
-        matchType?: "glob" | "exact";
-        priority?: number;
-        resourcePattern: string;
-        resourceType?: "all_tools" | "source" | "namespace" | "tool_path";
-        scopeType?: "account" | "organization" | "workspace";
-        sessionId?: string;
-        targetAccountId?: Id<"accounts">;
         workspaceId: Id<"workspaces">;
       },
       any
@@ -777,12 +742,6 @@ export declare const internal: {
         any
       >;
     };
-    deleteAccessPolicy: FunctionReference<
-      "mutation",
-      "internal",
-      { policyId: string; workspaceId: Id<"workspaces"> },
-      any
-    >;
     deleteToolRole: FunctionReference<
       "mutation",
       "internal",
@@ -843,12 +802,6 @@ export declare const internal: {
       { callId: string; taskId: string },
       any
     >;
-    listAccessPolicies: FunctionReference<
-      "query",
-      "internal",
-      { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
-      any
-    >;
     listApprovals: FunctionReference<
       "query",
       "internal",
@@ -896,6 +849,12 @@ export declare const internal: {
       { taskId: string },
       any
     >;
+    listToolPolicies: FunctionReference<
+      "query",
+      "internal",
+      { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
+      any
+    >;
     listToolRoleBindings: FunctionReference<
       "query",
       "internal",
@@ -938,12 +897,6 @@ export declare const internal: {
       any
     >;
     policies: {
-      deleteAccessPolicy: FunctionReference<
-        "mutation",
-        "internal",
-        { policyId: string; workspaceId: Id<"workspaces"> },
-        any
-      >;
       deleteToolRole: FunctionReference<
         "mutation",
         "internal",
@@ -962,13 +915,13 @@ export declare const internal: {
         { roleId: string; ruleId: string; workspaceId: Id<"workspaces"> },
         any
       >;
-      listAccessPolicies: FunctionReference<
+      listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
+      listToolPolicies: FunctionReference<
         "query",
         "internal",
         { accountId?: Id<"accounts">; workspaceId: Id<"workspaces"> },
         any
       >;
-      listRuntimeTargets: FunctionReference<"query", "internal", {}, any>;
       listToolRoleBindings: FunctionReference<
         "query",
         "internal",
@@ -985,29 +938,6 @@ export declare const internal: {
         "query",
         "internal",
         { workspaceId: Id<"workspaces"> },
-        any
-      >;
-      upsertAccessPolicy: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          approvalMode?: "inherit" | "auto" | "required";
-          argumentConditions?: Array<{
-            key: string;
-            operator: "equals" | "contains" | "starts_with" | "not_equals";
-            value: string;
-          }>;
-          clientId?: string;
-          effect?: "allow" | "deny";
-          id?: string;
-          matchType?: "glob" | "exact";
-          priority?: number;
-          resourcePattern: string;
-          resourceType?: "all_tools" | "source" | "namespace" | "tool_path";
-          scopeType?: "account" | "organization" | "workspace";
-          targetAccountId?: Id<"accounts">;
-          workspaceId: Id<"workspaces">;
-        },
         any
       >;
       upsertToolRole: FunctionReference<
@@ -1230,29 +1160,6 @@ export declare const internal: {
         any
       >;
     };
-    upsertAccessPolicy: FunctionReference<
-      "mutation",
-      "internal",
-      {
-        approvalMode?: "inherit" | "auto" | "required";
-        argumentConditions?: Array<{
-          key: string;
-          operator: "equals" | "contains" | "starts_with" | "not_equals";
-          value: string;
-        }>;
-        clientId?: string;
-        effect?: "allow" | "deny";
-        id?: string;
-        matchType?: "glob" | "exact";
-        priority?: number;
-        resourcePattern: string;
-        resourceType?: "all_tools" | "source" | "namespace" | "tool_path";
-        scopeType?: "account" | "organization" | "workspace";
-        targetAccountId?: Id<"accounts">;
-        workspaceId: Id<"workspaces">;
-      },
-      any
-    >;
     upsertCredential: FunctionReference<
       "mutation",
       "internal",

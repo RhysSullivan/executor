@@ -49,10 +49,13 @@ import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import { cn } from "@/lib/utils";
 import type {
-  AccessPolicyRecord,
+  ToolPolicyRecord,
   ArgumentCondition,
   ArgumentConditionOperator,
   ToolDescriptor,
+  ToolRoleBindingRecord,
+  ToolRoleRuleRecord,
+  ToolRoleRecord,
 } from "@/lib/types";
 import type { Id } from "@executor/database/convex/_generated/dataModel";
 import { workspaceQueryArgs } from "@/lib/workspace/query-args";
@@ -61,6 +64,7 @@ import { sourceLabel } from "@/lib/tool/source-utils";
 // ── Types ────────────────────────────────────────────────────────────────────
 
 type PolicyDecisionType = "allow" | "require_approval" | "deny";
+type PolicyResourceType = ToolPolicyRecord["resourceType"];
 
 interface ToolNamespace {
   prefix: string;
@@ -74,28 +78,92 @@ type PolicyScope = "personal" | "workspace" | "organization";
 interface FormState {
   scope: PolicyScope;
   decision: PolicyDecisionType;
+  resourceType: PolicyResourceType;
   selectedToolPaths: string[];
   resourcePattern: string;
+  sourcePattern: string;
+  namespacePattern: string;
   argumentConditions: ArgumentCondition[];
   clientId: string;
   priority: string;
+}
+
+interface RoleFormState {
+  name: string;
+  description: string;
+}
+
+interface RoleRuleFormState {
+  selectorType: ToolRoleRuleRecord["selectorType"];
+  sourceKey: string;
+  resourcePattern: string;
+  matchType: ToolRoleRuleRecord["matchType"];
+  effect: ToolRoleRuleRecord["effect"];
+  approvalMode: ToolRoleRuleRecord["approvalMode"];
+  priority: string;
+}
+
+interface RoleBindingFormState {
+  scopeType: ToolRoleBindingRecord["scopeType"];
+  targetAccountId: string;
+  clientId: string;
+  status: ToolRoleBindingRecord["status"];
+}
+
+interface OrganizationMemberListItem {
+  accountId: string;
+  displayName: string;
+  email: string | null;
+  role: "owner" | "admin" | "member" | "billing_admin";
+  status: "active" | "pending" | "removed";
 }
 
 function defaultFormState(): FormState {
   return {
     scope: "personal",
     decision: "require_approval",
+    resourceType: "tool_path",
     selectedToolPaths: [],
     resourcePattern: "",
+    sourcePattern: "",
+    namespacePattern: "",
     argumentConditions: [],
     clientId: "",
     priority: "100",
   };
 }
 
+function defaultRoleFormState(): RoleFormState {
+  return {
+    name: "",
+    description: "",
+  };
+}
+
+function defaultRoleRuleFormState(): RoleRuleFormState {
+  return {
+    selectorType: "tool_path",
+    sourceKey: "",
+    resourcePattern: "",
+    matchType: "glob",
+    effect: "allow",
+    approvalMode: "required",
+    priority: "100",
+  };
+}
+
+function defaultRoleBindingFormState(): RoleBindingFormState {
+  return {
+    scopeType: "workspace",
+    targetAccountId: "",
+    clientId: "",
+    status: "active",
+  };
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function getDecisionFromPolicy(policy: AccessPolicyRecord): PolicyDecisionType {
+function getDecisionFromPolicy(policy: ToolPolicyRecord): PolicyDecisionType {
   if (policy.effect === "deny") return "deny";
   return policy.approvalMode === "required" ? "require_approval" : "allow";
 }
@@ -106,7 +174,7 @@ function getDecisionPayload(decision: PolicyDecisionType) {
   return { effect: "allow" as const, approvalMode: "auto" as const };
 }
 
-function scopeLabel(policy: AccessPolicyRecord, currentAccountId?: string): string {
+function scopeLabel(policy: ToolPolicyRecord, currentAccountId?: string): string {
   if (policy.targetAccountId) {
     return policy.targetAccountId === currentAccountId ? "personal" : "user";
   }
@@ -135,6 +203,28 @@ const DECISION_CONFIG: Record<PolicyDecisionType, { label: string; color: string
   },
 };
 
+const RESOURCE_TYPE_CONFIG: Record<
+  PolicyResourceType,
+  { label: string; description: string }
+> = {
+  all_tools: {
+    label: "All tools",
+    description: "Apply to every tool in this workspace",
+  },
+  source: {
+    label: "Source",
+    description: "Apply to all tools from one source",
+  },
+  namespace: {
+    label: "Namespace",
+    description: "Apply to a namespace prefix pattern",
+  },
+  tool_path: {
+    label: "Tool path",
+    description: "Apply to specific tools or path patterns",
+  },
+};
+
 const OPERATOR_LABELS: Record<ArgumentConditionOperator, string> = {
   equals: "equals",
   not_equals: "not equals",
@@ -157,13 +247,6 @@ function buildNamespaces(tools: ToolDescriptor[]): ToolNamespace[] {
     ns.tools.push(tool);
   }
   return Array.from(nsMap.values()).sort((a, b) => a.prefix.localeCompare(b.prefix));
-}
-
-function patternMatchesToolPath(pattern: string, toolPath: string): boolean {
-  if (pattern === "*") return true;
-  if (!pattern.includes("*")) return pattern === toolPath;
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}$`).test(toolPath);
 }
 
 function derivePatternFromSelection(paths: string[], namespaces: ToolNamespace[]): string {
@@ -194,6 +277,77 @@ function derivePatternFromSelection(paths: string[], namespaces: ToolNamespace[]
   }
 
   return paths.join(", ");
+}
+
+function matchesResourcePattern(pattern: string, candidate: string, matchType: "glob" | "exact"): boolean {
+  if (matchType === "exact") {
+    return pattern === candidate;
+  }
+  if (pattern === "*") {
+    return true;
+  }
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`).test(candidate);
+}
+
+function policyMatchesTool(policy: ToolPolicyRecord, tool: ToolDescriptor): boolean {
+  if (policy.resourceType === "all_tools") {
+    return true;
+  }
+  if (policy.resourceType === "source") {
+    if (!tool.source) {
+      return false;
+    }
+    return matchesResourcePattern(policy.resourcePattern, tool.source, policy.matchType);
+  }
+
+  return matchesResourcePattern(policy.resourcePattern, tool.path, policy.matchType);
+}
+
+function resourceTypeLabel(resourceType: ToolPolicyRecord["resourceType"]): string {
+  if (resourceType === "all_tools") return "all tools";
+  if (resourceType === "source") return "source";
+  if (resourceType === "namespace") return "namespace";
+  return "tool path";
+}
+
+function createToolPolicyId(): string {
+  return `tool_policy_${crypto.randomUUID()}`;
+}
+
+function toolPolicyRoleId(policyId: string): string {
+  return `tool_policy_role_${policyId}`;
+}
+
+function toolPolicyRuleId(policyId: string): string {
+  return `tool_policy_rule_${policyId}`;
+}
+
+function toolPolicyBindingId(policyId: string): string {
+  return `tool_policy_binding_${policyId}`;
+}
+
+function isDirectToolPolicy(policy: ToolPolicyRecord): boolean {
+  if (!policy.id.startsWith("tool_policy_")) {
+    return false;
+  }
+
+  if (!policy.roleId || !policy.ruleId || !policy.bindingId) {
+    return false;
+  }
+
+  return (
+    policy.roleId === toolPolicyRoleId(policy.id)
+    && policy.ruleId === toolPolicyRuleId(policy.id)
+    && policy.bindingId === toolPolicyBindingId(policy.id)
+  );
+}
+
+function roleRulePattern(rule: ToolRoleRuleRecord): string {
+  if (rule.selectorType === "all") return "*";
+  if (rule.selectorType === "source") return rule.sourceKey ?? "";
+  if (rule.selectorType === "namespace") return rule.namespacePattern ?? "";
+  return rule.toolPathPattern ?? "";
 }
 
 // ── Tool Picker (virtualized) ────────────────────────────────────────────────
@@ -573,12 +727,14 @@ function PolicyCard({
   tools,
   currentAccountId,
   onDelete,
+  canDelete,
   deleting,
 }: {
-  policy: AccessPolicyRecord;
+  policy: ToolPolicyRecord;
   tools: ToolDescriptor[];
   currentAccountId?: string;
-  onDelete: (id: string) => void;
+  onDelete: (policy: ToolPolicyRecord) => void;
+  canDelete: boolean;
   deleting: boolean;
 }) {
   const decision = getDecisionFromPolicy(policy);
@@ -586,9 +742,8 @@ function PolicyCard({
   const Icon = config.icon;
 
   const matchingTools = useMemo(() => {
-    if (policy.resourcePattern === "*") return tools;
-    return tools.filter((t) => patternMatchesToolPath(policy.resourcePattern, t.path));
-  }, [policy.resourcePattern, tools]);
+    return tools.filter((tool) => policyMatchesTool(policy, tool));
+  }, [policy, tools]);
 
   const [showTools, setShowTools] = useState(false);
 
@@ -615,6 +770,12 @@ function PolicyCard({
                 className="text-[9px] px-1.5 py-0 font-mono uppercase tracking-wider border-border/50"
               >
                 p{policy.priority}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="text-[9px] px-1.5 py-0 font-mono uppercase tracking-wider border-border/50"
+              >
+                {resourceTypeLabel(policy.resourceType)}
               </Badge>
             </div>
             {/* Pattern display */}
@@ -663,14 +824,21 @@ function PolicyCard({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => onDelete(policy.id)}
-                  disabled={deleting}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive shrink-0"
+                  onClick={() => onDelete(policy)}
+                  disabled={deleting || !canDelete}
+                  className={cn(
+                    "opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded shrink-0",
+                    canDelete
+                      ? "hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                      : "text-muted-foreground/40 cursor-not-allowed",
+                  )}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="left" className="text-xs">Delete policy</TooltipContent>
+              <TooltipContent side="left" className="text-xs">
+                {canDelete ? "Delete policy" : "Role-managed policy (delete from roles)"}
+              </TooltipContent>
             </Tooltip>
           </TooltipProvider>
         </div>
@@ -688,33 +856,144 @@ export function PoliciesPanel({
   tools?: ToolDescriptor[];
   loadingTools?: boolean;
 }) {
-  const { context } = useSession();
+  const { context, workspaces } = useSession();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(defaultFormState);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [roleForm, setRoleForm] = useState<RoleFormState>(defaultRoleFormState);
+  const [roleRuleForm, setRoleRuleForm] = useState<RoleRuleFormState>(defaultRoleRuleFormState);
+  const [roleBindingForm, setRoleBindingForm] = useState<RoleBindingFormState>(defaultRoleBindingFormState);
+  const [busyRoleAction, setBusyRoleAction] = useState<string | null>(null);
 
   const listArgs = workspaceQueryArgs(context);
-  const policiesQuery = useQuery(convexApi.workspace.listAccessPolicies, listArgs);
-  const upsertAccessPolicy = useMutation(convexApi.workspace.upsertAccessPolicy);
-  const deleteAccessPolicy = useMutation(convexApi.workspace.deleteAccessPolicy);
+  const policiesQuery = useQuery(convexApi.workspace.listToolPolicies, listArgs);
+  const upsertToolRole = useMutation(convexApi.workspace.upsertToolRole);
+  const upsertToolRoleRule = useMutation(convexApi.workspace.upsertToolRoleRule);
+  const upsertToolRoleBinding = useMutation(convexApi.workspace.upsertToolRoleBinding);
+  const deleteToolRole = useMutation(convexApi.workspace.deleteToolRole);
+  const deleteToolRoleRule = useMutation(convexApi.workspace.deleteToolRoleRule);
+  const deleteToolRoleBinding = useMutation(convexApi.workspace.deleteToolRoleBinding);
 
   const loading = Boolean(context) && policiesQuery === undefined;
-  const policies = useMemo(() => (policiesQuery ?? []) as AccessPolicyRecord[], [policiesQuery]);
+  const policies = useMemo(() => (policiesQuery ?? []) as ToolPolicyRecord[], [policiesQuery]);
+
+  const currentWorkspace = useMemo(() => {
+    if (!context) return null;
+    return workspaces.find((workspace) => workspace.id === context.workspaceId) ?? null;
+  }, [context, workspaces]);
+  const currentOrganizationId = currentWorkspace?.organizationId ?? null;
+
+  const membersQuery = useQuery(
+    convexApi.organizationMembers.list,
+    context && currentOrganizationId
+      ? { organizationId: currentOrganizationId, sessionId: context.sessionId }
+      : "skip",
+  );
+  const memberItems = useMemo(
+    () => ((membersQuery?.items ?? []) as OrganizationMemberListItem[]),
+    [membersQuery],
+  );
+  const selfMembership = useMemo(() => {
+    if (!context) return null;
+    return memberItems.find((member) => member.accountId === context.accountId) ?? null;
+  }, [context, memberItems]);
+  const canManageRoles = selfMembership?.role === "owner" || selfMembership?.role === "admin";
+
+  const rolesQuery = useQuery(
+    convexApi.workspace.listToolRoles,
+    context && canManageRoles ? listArgs : "skip",
+  );
+  const roleItems = useMemo(() => ((rolesQuery ?? []) as ToolRoleRecord[]), [rolesQuery]);
+  const activeRoleId = useMemo(() => {
+    if (!canManageRoles) {
+      return null;
+    }
+
+    if (selectedRoleId && roleItems.some((role) => role.id === selectedRoleId)) {
+      return selectedRoleId;
+    }
+
+    return roleItems[0]?.id ?? null;
+  }, [canManageRoles, roleItems, selectedRoleId]);
+
+  const bindingsQuery = useQuery(
+    convexApi.workspace.listToolRoleBindings,
+    context && canManageRoles ? listArgs : "skip",
+  );
+  const bindingItems = useMemo(() => ((bindingsQuery ?? []) as ToolRoleBindingRecord[]), [bindingsQuery]);
+
+  const roleRulesQuery = useQuery(
+    convexApi.workspace.listToolRoleRules,
+    context && canManageRoles && activeRoleId
+      ? {
+          workspaceId: context.workspaceId,
+          sessionId: context.sessionId,
+          roleId: activeRoleId,
+        }
+      : "skip",
+  );
+  const selectedRoleRules = useMemo(
+    () => ((roleRulesQuery ?? []) as ToolRoleRuleRecord[]),
+    [roleRulesQuery],
+  );
 
   const namespaces = useMemo(() => buildNamespaces(tools), [tools]);
+  const sourceOptions = useMemo(() => {
+    return [...new Set(tools
+      .map((tool) => tool.source)
+      .filter((source): source is string => typeof source === "string" && source.trim().length > 0))]
+      .sort((a, b) => a.localeCompare(b));
+  }, [tools]);
+  const namespaceOptions = useMemo(() => {
+    return [...new Set(namespaces.map((namespace) => namespace.prefix))]
+      .sort((a, b) => a.localeCompare(b));
+  }, [namespaces]);
+
+  const selectedRole = useMemo(
+    () => roleItems.find((role) => role.id === activeRoleId) ?? null,
+    [activeRoleId, roleItems],
+  );
+  const selectedRoleBindings = useMemo(
+    () => bindingItems.filter((binding) => binding.roleId === activeRoleId),
+    [activeRoleId, bindingItems],
+  );
+  const activeMemberOptions = useMemo(
+    () => memberItems.filter((member) => member.status === "active"),
+    [memberItems],
+  );
 
   // ── Handlers ──
 
   const handleSave = async () => {
     if (!context) return;
 
-    const pattern = form.resourcePattern.trim() || (form.selectedToolPaths.length > 0
-      ? derivePatternFromSelection(form.selectedToolPaths, namespaces)
-      : "*");
-    if (!pattern) {
-      toast.error("Tool path pattern is required");
-      return;
+    let resourceType: PolicyResourceType = form.resourceType;
+    let pattern = "";
+    if (resourceType === "all_tools") {
+      pattern = "*";
+    } else if (resourceType === "source") {
+      pattern = form.sourcePattern.trim();
+      if (!pattern) {
+        toast.error("Select a source for source-scoped policies");
+        return;
+      }
+    } else if (resourceType === "namespace") {
+      pattern = form.namespacePattern.trim();
+      if (!pattern) {
+        toast.error("Namespace pattern is required");
+        return;
+      }
+    } else {
+      pattern = form.resourcePattern.trim() || (form.selectedToolPaths.length > 0
+        ? derivePatternFromSelection(form.selectedToolPaths, namespaces)
+        : "*");
+      if (!pattern) {
+        toast.error("Tool path pattern is required");
+        return;
+      }
+      resourceType = pattern === "*" ? "all_tools" : "tool_path";
     }
 
     const priority = Number(form.priority.trim() || "100");
@@ -725,8 +1004,19 @@ export function PoliciesPanel({
 
     setSubmitting(true);
     try {
+      const policyId = createToolPolicyId();
+      const roleId = toolPolicyRoleId(policyId);
+      const ruleId = toolPolicyRuleId(policyId);
+      const bindingId = toolPolicyBindingId(policyId);
       const { effect, approvalMode } = getDecisionPayload(form.decision);
       const argumentConditions = form.argumentConditions.filter((c) => c.key.trim().length > 0);
+      const selectorType = resourceType === "all_tools"
+        ? "all" as const
+        : resourceType === "source"
+          ? "source" as const
+          : resourceType === "namespace"
+            ? "namespace" as const
+            : "tool_path" as const;
 
       // Map UI scope to backend scopeType + targetAccountId.
       const scopeType = form.scope === "personal" ? "account" as const
@@ -734,19 +1024,52 @@ export function PoliciesPanel({
         : "organization" as const;
       const targetAccountId = form.scope === "personal" ? context.accountId : undefined;
 
-      await upsertAccessPolicy({
+      await upsertToolRole({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
-        scopeType,
-        resourcePattern: pattern,
-        effect,
-        approvalMode,
-        matchType: pattern.includes("*") ? "glob" : "exact",
-        targetAccountId,
-        clientId: form.clientId.trim() || undefined,
-        argumentConditions: argumentConditions.length > 0 ? argumentConditions : undefined,
-        priority,
+        id: roleId,
+        name: `tool-policy:${policyId}`,
+        description: "Tool policy",
       });
+
+      try {
+        await upsertToolRoleRule({
+          workspaceId: context.workspaceId,
+          sessionId: context.sessionId,
+          id: ruleId,
+          roleId,
+          selectorType,
+          sourceKey: resourceType === "source" ? pattern : undefined,
+          resourcePattern: resourceType === "source" || resourceType === "all_tools" ? undefined : pattern,
+          matchType: pattern.includes("*") ? "glob" : "exact",
+          effect,
+          approvalMode,
+          argumentConditions: argumentConditions.length > 0 ? argumentConditions : undefined,
+          priority,
+        });
+
+        await upsertToolRoleBinding({
+          workspaceId: context.workspaceId,
+          sessionId: context.sessionId,
+          id: bindingId,
+          roleId,
+          scopeType,
+          targetAccountId,
+          clientId: form.clientId.trim() || undefined,
+          status: "active",
+        });
+      } catch (error) {
+        try {
+          await deleteToolRole({
+            workspaceId: context.workspaceId,
+            sessionId: context.sessionId,
+            roleId,
+          });
+        } catch {
+          // Best effort cleanup.
+        }
+        throw error;
+      }
 
       toast.success("Policy created");
       setForm(defaultFormState());
@@ -758,14 +1081,24 @@ export function PoliciesPanel({
     }
   };
 
-  const handleDelete = useCallback(async (policyId: string) => {
+  const handleDelete = useCallback(async (policy: ToolPolicyRecord) => {
     if (!context) return;
-    setDeletingId(policyId);
+    if (!isDirectToolPolicy(policy)) {
+      toast.error("This policy is managed by role bindings. Use role management to remove it.");
+      return;
+    }
+
+    if (!policy.roleId) {
+      toast.error("Cannot delete policy without role metadata");
+      return;
+    }
+
+    setDeletingId(policy.id);
     try {
-      await deleteAccessPolicy({
+      await deleteToolRole({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
-        policyId,
+        roleId: policy.roleId,
       });
       toast.success("Policy deleted");
     } catch (error) {
@@ -773,12 +1106,172 @@ export function PoliciesPanel({
     } finally {
       setDeletingId(null);
     }
-  }, [context, deleteAccessPolicy]);
+  }, [context, deleteToolRole]);
+
+  const handleCreateRole = useCallback(async () => {
+    if (!context) return;
+    const name = roleForm.name.trim();
+    if (!name) {
+      toast.error("Role name is required");
+      return;
+    }
+
+    setBusyRoleAction("create-role");
+    try {
+      const role = await upsertToolRole({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        name,
+        description: roleForm.description.trim() || undefined,
+      });
+      setRoleForm(defaultRoleFormState());
+      setSelectedRoleId(role.id);
+      toast.success("Role created");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to create role");
+    } finally {
+      setBusyRoleAction(null);
+    }
+  }, [context, roleForm, upsertToolRole]);
+
+  const handleCreateRoleRule = useCallback(async () => {
+    if (!context || !activeRoleId) return;
+
+    const priority = Number(roleRuleForm.priority.trim() || "100");
+    if (!Number.isFinite(priority)) {
+      toast.error("Rule priority must be a number");
+      return;
+    }
+
+    const selectorType = roleRuleForm.selectorType;
+    const sourceKey = roleRuleForm.sourceKey.trim();
+    const resourcePattern = roleRuleForm.resourcePattern.trim();
+    if (selectorType === "source" && !sourceKey) {
+      toast.error("Source is required for source-scoped rules");
+      return;
+    }
+    if ((selectorType === "namespace" || selectorType === "tool_path") && !resourcePattern) {
+      toast.error("Pattern is required for this selector");
+      return;
+    }
+
+    setBusyRoleAction("create-rule");
+    try {
+      await upsertToolRoleRule({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        roleId: activeRoleId,
+        selectorType,
+        sourceKey: selectorType === "source" ? sourceKey : undefined,
+        resourcePattern: selectorType === "source" || selectorType === "all" ? undefined : resourcePattern,
+        matchType: roleRuleForm.matchType,
+        effect: roleRuleForm.effect,
+        approvalMode: roleRuleForm.approvalMode,
+        priority,
+      });
+      setRoleRuleForm(defaultRoleRuleFormState());
+      toast.success("Rule added");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to add rule");
+    } finally {
+      setBusyRoleAction(null);
+    }
+  }, [activeRoleId, context, roleRuleForm, upsertToolRoleRule]);
+
+  const handleCreateRoleBinding = useCallback(async () => {
+    if (!context || !activeRoleId) return;
+
+    const scopeType = roleBindingForm.scopeType;
+    const targetAccountId = roleBindingForm.targetAccountId.trim();
+    if (scopeType === "account" && !targetAccountId) {
+      toast.error("Select an account for account-scoped bindings");
+      return;
+    }
+
+    setBusyRoleAction("create-binding");
+    try {
+      await upsertToolRoleBinding({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        roleId: activeRoleId,
+        scopeType,
+        targetAccountId: scopeType === "account"
+          ? (targetAccountId as Id<"accounts">)
+          : undefined,
+        clientId: roleBindingForm.clientId.trim() || undefined,
+        status: roleBindingForm.status,
+      });
+      setRoleBindingForm(defaultRoleBindingFormState());
+      toast.success("Binding added");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to add binding");
+    } finally {
+      setBusyRoleAction(null);
+    }
+  }, [activeRoleId, context, roleBindingForm, upsertToolRoleBinding]);
+
+  const handleDeleteRole = useCallback(async (roleId: string) => {
+    if (!context) return;
+
+    setBusyRoleAction(`delete-role:${roleId}`);
+    try {
+      await deleteToolRole({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        roleId,
+      });
+      if (activeRoleId === roleId) {
+        setSelectedRoleId(null);
+      }
+      toast.success("Role deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete role");
+    } finally {
+      setBusyRoleAction(null);
+    }
+  }, [activeRoleId, context, deleteToolRole]);
+
+  const handleDeleteRule = useCallback(async (ruleId: string) => {
+    if (!context || !activeRoleId) return;
+
+    setBusyRoleAction(`delete-rule:${ruleId}`);
+    try {
+      await deleteToolRoleRule({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        roleId: activeRoleId,
+        ruleId,
+      });
+      toast.success("Rule deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete rule");
+    } finally {
+      setBusyRoleAction(null);
+    }
+  }, [activeRoleId, context, deleteToolRoleRule]);
+
+  const handleDeleteBinding = useCallback(async (bindingId: string) => {
+    if (!context) return;
+
+    setBusyRoleAction(`delete-binding:${bindingId}`);
+    try {
+      await deleteToolRoleBinding({
+        workspaceId: context.workspaceId,
+        sessionId: context.sessionId,
+        bindingId,
+      });
+      toast.success("Binding deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete binding");
+    } finally {
+      setBusyRoleAction(null);
+    }
+  }, [context, deleteToolRoleBinding]);
 
   // ── Group policies by decision for display ──
 
   const groupedPolicies = useMemo(() => {
-    const groups: Record<PolicyDecisionType, AccessPolicyRecord[]> = {
+    const groups: Record<PolicyDecisionType, ToolPolicyRecord[]> = {
       allow: [],
       require_approval: [],
       deny: [],
@@ -799,9 +1292,9 @@ export function PoliciesPanel({
         <div className="flex items-center gap-2.5">
           <Shield className="h-4 w-4 text-muted-foreground" />
           <div>
-            <h3 className="text-sm font-medium leading-none">Access Policies</h3>
+            <h3 className="text-sm font-medium leading-none">Tool Policies</h3>
             <p className="text-[11px] text-muted-foreground mt-1">
-              Control which tools require approval, auto-approve, or are blocked
+              Control which tools or sources are approved, gated, or blocked
             </p>
           </div>
         </div>
@@ -829,9 +1322,9 @@ export function PoliciesPanel({
         <div className="rounded-lg border border-dashed border-border/50 py-10 flex flex-col items-center gap-2.5">
           <Shield className="h-8 w-8 text-muted-foreground/30" />
           <div className="text-center">
-            <p className="text-xs text-muted-foreground">No policies configured</p>
+            <p className="text-xs text-muted-foreground">No tool policies configured</p>
             <p className="text-[11px] text-muted-foreground/60 mt-0.5">
-              Tools use their default approval settings. Create a policy to customize behavior.
+              Tools use default approval behavior. Create a tool policy to customize it.
             </p>
           </div>
           <Button
@@ -869,6 +1362,7 @@ export function PoliciesPanel({
                       tools={tools}
                       currentAccountId={context?.accountId}
                       onDelete={handleDelete}
+                      canDelete={isDirectToolPolicy(policy)}
                       deleting={deletingId === policy.id}
                     />
                   ))}
@@ -879,13 +1373,368 @@ export function PoliciesPanel({
         </div>
       )}
 
+      <Separator className="bg-border/40" />
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-medium">Role Manager</h4>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Manage reusable tool roles, rule selectors, and scoped bindings.
+            </p>
+          </div>
+        </div>
+
+        {!canManageRoles ? (
+          <div className="rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
+            Organization owner/admin role required to manage tool roles.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
+            <div className="space-y-3 rounded-lg border border-border/60 bg-card p-3">
+              <Label className="text-xs text-muted-foreground">Create role</Label>
+              <Input
+                value={roleForm.name}
+                onChange={(event) => setRoleForm((state) => ({ ...state, name: event.target.value }))}
+                placeholder="Role name"
+                className="h-8 text-xs"
+              />
+              <Input
+                value={roleForm.description}
+                onChange={(event) => setRoleForm((state) => ({ ...state, description: event.target.value }))}
+                placeholder="Description (optional)"
+                className="h-8 text-xs"
+              />
+              <Button
+                size="sm"
+                className="h-8 text-xs"
+                onClick={handleCreateRole}
+                disabled={busyRoleAction === "create-role"}
+              >
+                {busyRoleAction === "create-role" ? "Creating..." : "Create role"}
+              </Button>
+
+              <Separator className="bg-border/40" />
+
+              <div className="space-y-1.5 max-h-[320px] overflow-y-auto">
+                {roleItems.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">No roles yet.</p>
+                ) : (
+                  roleItems.map((role) => {
+                    const bindingCount = bindingItems.filter((binding) => binding.roleId === role.id).length;
+                    return (
+                      <button
+                        key={role.id}
+                        type="button"
+                        onClick={() => setSelectedRoleId(role.id)}
+                        className={cn(
+                          "w-full rounded-md border px-2 py-1.5 text-left",
+                          selectedRoleId === role.id
+                            ? "border-primary/40 bg-primary/5"
+                            : "border-border/40 hover:bg-muted/30",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-xs font-medium">{role.name}</span>
+                          <Badge variant="outline" className="text-[9px] px-1.5 py-0">
+                            {bindingCount} bind
+                          </Badge>
+                        </div>
+                        {role.description ? (
+                          <p className="mt-1 truncate text-[10px] text-muted-foreground">{role.description}</p>
+                        ) : null}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4 rounded-lg border border-border/60 bg-card p-4">
+              {!selectedRole ? (
+                <p className="text-xs text-muted-foreground">Select a role to manage its rules and bindings.</p>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h5 className="text-sm font-medium">{selectedRole.name}</h5>
+                      {selectedRole.description ? (
+                        <p className="text-[11px] text-muted-foreground mt-1">{selectedRole.description}</p>
+                      ) : null}
+                      <p className="text-[10px] text-muted-foreground mt-1 font-mono">{selectedRole.id}</p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => handleDeleteRole(selectedRole.id)}
+                      disabled={busyRoleAction === `delete-role:${selectedRole.id}`}
+                    >
+                      {busyRoleAction === `delete-role:${selectedRole.id}` ? "Deleting..." : "Delete role"}
+                    </Button>
+                  </div>
+
+                  <Separator className="bg-border/40" />
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Rules</Label>
+                      <span className="text-[10px] text-muted-foreground">{selectedRoleRules.length}</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                      {selectedRoleRules.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground">No rules.</p>
+                      ) : (
+                        selectedRoleRules.map((rule) => (
+                          <div key={rule.id} className="rounded border border-border/40 px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 uppercase">
+                                  {rule.selectorType}
+                                </Badge>
+                                <span className="text-[10px] font-mono truncate">{roleRulePattern(rule) || "*"}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRule(rule.id)}
+                                disabled={busyRoleAction === `delete-rule:${rule.id}`}
+                                className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                              <span>{rule.effect}</span>
+                              <span>|</span>
+                              <span>{rule.approvalMode}</span>
+                              <span>|</span>
+                              <span>p{rule.priority}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 rounded-md border border-border/40 bg-muted/10 p-2 md:grid-cols-2">
+                      <Select
+                        value={roleRuleForm.selectorType}
+                        onValueChange={(value) => setRoleRuleForm((state) => ({
+                          ...state,
+                          selectorType: value as ToolRoleRuleRecord["selectorType"],
+                        }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all" className="text-xs">All tools</SelectItem>
+                          <SelectItem value="source" className="text-xs">Source</SelectItem>
+                          <SelectItem value="namespace" className="text-xs">Namespace</SelectItem>
+                          <SelectItem value="tool_path" className="text-xs">Tool path</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {roleRuleForm.selectorType === "source" ? (
+                        <Select
+                          value={roleRuleForm.sourceKey}
+                          onValueChange={(value) => setRoleRuleForm((state) => ({ ...state, sourceKey: value }))}
+                        >
+                          <SelectTrigger className="h-8 text-xs font-mono">
+                            <SelectValue placeholder="Source" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sourceOptions.map((source) => (
+                              <SelectItem key={source} value={source} className="text-xs font-mono">
+                                {source}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={roleRuleForm.resourcePattern}
+                          onChange={(event) => setRoleRuleForm((state) => ({ ...state, resourcePattern: event.target.value }))}
+                          placeholder={roleRuleForm.selectorType === "namespace" ? "github.repos.*" : "github.repos.delete"}
+                          className="h-8 text-xs font-mono"
+                          disabled={roleRuleForm.selectorType === "all"}
+                        />
+                      )}
+
+                      <Select
+                        value={roleRuleForm.effect}
+                        onValueChange={(value) => setRoleRuleForm((state) => ({
+                          ...state,
+                          effect: value as ToolRoleRuleRecord["effect"],
+                        }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="allow" className="text-xs">Allow</SelectItem>
+                          <SelectItem value="deny" className="text-xs">Deny</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Select
+                        value={roleRuleForm.approvalMode}
+                        onValueChange={(value) => setRoleRuleForm((state) => ({
+                          ...state,
+                          approvalMode: value as ToolRoleRuleRecord["approvalMode"],
+                        }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="inherit" className="text-xs">Inherit</SelectItem>
+                          <SelectItem value="required" className="text-xs">Require approval</SelectItem>
+                          <SelectItem value="auto" className="text-xs">Auto approve</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Input
+                        value={roleRuleForm.priority}
+                        onChange={(event) => setRoleRuleForm((state) => ({ ...state, priority: event.target.value }))}
+                        placeholder="priority"
+                        className="h-8 text-xs font-mono"
+                      />
+
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs md:col-span-2"
+                        onClick={handleCreateRoleRule}
+                        disabled={busyRoleAction === "create-rule"}
+                      >
+                        {busyRoleAction === "create-rule" ? "Adding rule..." : "Add rule"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Separator className="bg-border/40" />
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs text-muted-foreground">Bindings</Label>
+                      <span className="text-[10px] text-muted-foreground">{selectedRoleBindings.length}</span>
+                    </div>
+                    <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+                      {selectedRoleBindings.length === 0 ? (
+                        <p className="text-[11px] text-muted-foreground">No bindings.</p>
+                      ) : (
+                        selectedRoleBindings.map((binding) => (
+                          <div key={binding.id} className="rounded border border-border/40 px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 uppercase">
+                                  {binding.scopeType}
+                                </Badge>
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 uppercase">
+                                  {binding.status}
+                                </Badge>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBinding(binding.id)}
+                                disabled={busyRoleAction === `delete-binding:${binding.id}`}
+                                className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                            {binding.targetAccountId || binding.clientId ? (
+                              <div className="mt-1 text-[10px] text-muted-foreground font-mono truncate">
+                                {[binding.targetAccountId, binding.clientId].filter(Boolean).join(" | ")}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 rounded-md border border-border/40 bg-muted/10 p-2 md:grid-cols-2">
+                      <Select
+                        value={roleBindingForm.scopeType}
+                        onValueChange={(value) => setRoleBindingForm((state) => ({
+                          ...state,
+                          scopeType: value as ToolRoleBindingRecord["scopeType"],
+                        }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="workspace" className="text-xs">Workspace</SelectItem>
+                          <SelectItem value="organization" className="text-xs">Organization</SelectItem>
+                          <SelectItem value="account" className="text-xs">Account</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      {roleBindingForm.scopeType === "account" ? (
+                        <Select
+                          value={roleBindingForm.targetAccountId}
+                          onValueChange={(value) => setRoleBindingForm((state) => ({ ...state, targetAccountId: value }))}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="Select account" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {activeMemberOptions.map((member) => (
+                              <SelectItem key={member.accountId} value={member.accountId} className="text-xs">
+                                {member.displayName}{member.email ? ` (${member.email})` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input
+                          value={roleBindingForm.clientId}
+                          onChange={(event) => setRoleBindingForm((state) => ({ ...state, clientId: event.target.value }))}
+                          placeholder="client id (optional)"
+                          className="h-8 text-xs font-mono"
+                        />
+                      )}
+
+                      <Select
+                        value={roleBindingForm.status}
+                        onValueChange={(value) => setRoleBindingForm((state) => ({
+                          ...state,
+                          status: value as ToolRoleBindingRecord["status"],
+                        }))}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active" className="text-xs">Active</SelectItem>
+                          <SelectItem value="disabled" className="text-xs">Disabled</SelectItem>
+                        </SelectContent>
+                      </Select>
+
+                      <Button
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={handleCreateRoleBinding}
+                        disabled={busyRoleAction === "create-binding"}
+                      >
+                        {busyRoleAction === "create-binding" ? "Adding binding..." : "Add binding"}
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Create Policy Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[540px]">
           <DialogHeader>
-            <DialogTitle className="text-base">New Access Policy</DialogTitle>
+            <DialogTitle className="text-base">New Tool Policy</DialogTitle>
             <DialogDescription className="text-xs">
-              Define which tools are auto-approved, require manual approval, or blocked.
+              Define which tools, namespaces, or sources are auto-approved, gated, or blocked.
             </DialogDescription>
           </DialogHeader>
 
@@ -919,38 +1768,130 @@ export function PoliciesPanel({
               </div>
             </div>
 
-            {/* Tools selection */}
+            {/* Resource target */}
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Apply to tools</Label>
-              {tools.length > 0 ? (
-                <ToolPicker
-                  tools={tools}
-                  selectedPaths={form.selectedToolPaths}
-                  onSelectionChange={(paths) => setForm((s) => ({ ...s, selectedToolPaths: paths }))}
-                  onPatternChange={(pattern) => setForm((s) => ({ ...s, resourcePattern: pattern }))}
-                />
-              ) : (
-                <Input
-                  value={form.resourcePattern}
-                  onChange={(e) => setForm((s) => ({ ...s, resourcePattern: e.target.value }))}
-                  placeholder="github.repos.* or * for all tools"
-                  className="h-9 text-xs font-mono bg-background"
-                />
-              )}
-              {/* Editable pattern override */}
-              {form.selectedToolPaths.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground shrink-0">Pattern:</span>
-                  <Input
-                    value={form.resourcePattern || derivePatternFromSelection(form.selectedToolPaths, namespaces)}
-                    onChange={(e) => setForm((s) => ({ ...s, resourcePattern: e.target.value }))}
-                    className="h-6 text-[10px] font-mono bg-muted/30 border-border/30"
-                  />
+              <Label className="text-xs text-muted-foreground">Apply to</Label>
+              <Select
+                value={form.resourceType}
+                onValueChange={(value) => {
+                  const nextType = value as PolicyResourceType;
+                  setForm((state) => ({
+                    ...state,
+                    resourceType: nextType,
+                    resourcePattern: nextType === "all_tools" ? "*" : state.resourcePattern,
+                    selectedToolPaths: nextType === "tool_path" ? state.selectedToolPaths : [],
+                  }));
+                }}
+              >
+                <SelectTrigger className="h-9 text-xs bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(RESOURCE_TYPE_CONFIG) as PolicyResourceType[]).map((resourceType) => (
+                    <SelectItem key={resourceType} value={resourceType} className="text-xs">
+                      {RESOURCE_TYPE_CONFIG[resourceType].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground/70 leading-tight">
+                {RESOURCE_TYPE_CONFIG[form.resourceType].description}
+              </p>
+
+              {form.resourceType === "all_tools" && (
+                <div className="h-9 rounded-md border border-border/40 bg-muted/20 px-3 flex items-center text-[11px] font-mono text-muted-foreground">
+                  *
                 </div>
+              )}
+
+              {form.resourceType === "source" && (
+                <>
+                  {sourceOptions.length > 0 ? (
+                    <Select
+                      value={form.sourcePattern}
+                      onValueChange={(sourcePattern) => setForm((state) => ({ ...state, sourcePattern }))}
+                    >
+                      <SelectTrigger className="h-9 text-xs font-mono bg-background">
+                        <SelectValue placeholder="Select source" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sourceOptions.map((source) => (
+                          <SelectItem key={source} value={source} className="text-xs font-mono">
+                            {source}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={form.sourcePattern}
+                      onChange={(event) => setForm((state) => ({ ...state, sourcePattern: event.target.value }))}
+                      placeholder="source:github"
+                      className="h-9 text-xs font-mono bg-background"
+                    />
+                  )}
+                </>
+              )}
+
+              {form.resourceType === "namespace" && (
+                <>
+                  {namespaceOptions.length > 0 ? (
+                    <Select
+                      value={form.namespacePattern}
+                      onValueChange={(namespace) => setForm((state) => ({ ...state, namespacePattern: `${namespace}.*` }))}
+                    >
+                      <SelectTrigger className="h-9 text-xs font-mono bg-background">
+                        <SelectValue placeholder="Select namespace" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {namespaceOptions.map((namespace) => (
+                          <SelectItem key={namespace} value={namespace} className="text-xs font-mono">
+                            {namespace}.*
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : null}
+                  <Input
+                    value={form.namespacePattern}
+                    onChange={(event) => setForm((state) => ({ ...state, namespacePattern: event.target.value }))}
+                    placeholder="github.repos.*"
+                    className="h-9 text-xs font-mono bg-background"
+                  />
+                </>
+              )}
+
+              {form.resourceType === "tool_path" && (
+                <>
+                  {tools.length > 0 ? (
+                    <ToolPicker
+                      tools={tools}
+                      selectedPaths={form.selectedToolPaths}
+                      onSelectionChange={(paths) => setForm((state) => ({ ...state, selectedToolPaths: paths }))}
+                      onPatternChange={(pattern) => setForm((state) => ({ ...state, resourcePattern: pattern }))}
+                    />
+                  ) : (
+                    <Input
+                      value={form.resourcePattern}
+                      onChange={(event) => setForm((state) => ({ ...state, resourcePattern: event.target.value }))}
+                      placeholder="github.repos.* or github.repos.list"
+                      className="h-9 text-xs font-mono bg-background"
+                    />
+                  )}
+                  {form.selectedToolPaths.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground shrink-0">Pattern:</span>
+                      <Input
+                        value={form.resourcePattern || derivePatternFromSelection(form.selectedToolPaths, namespaces)}
+                        onChange={(event) => setForm((state) => ({ ...state, resourcePattern: event.target.value }))}
+                        className="h-6 text-[10px] font-mono bg-muted/30 border-border/30"
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
-            {/* Scope */}
             {/* Scope */}
             <div className="space-y-2">
               <Label className="text-xs text-muted-foreground">Scope</Label>
@@ -980,6 +1921,27 @@ export function PoliciesPanel({
                 onChange={(e) => setForm((s) => ({ ...s, priority: e.target.value }))}
                 placeholder="100"
                 className="h-9 text-xs font-mono bg-background w-24"
+              />
+            </div>
+
+            {/* Advanced filters */}
+            <div className="space-y-3 rounded-md border border-border/40 bg-muted/10 p-3">
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Client ID</Label>
+                <Input
+                  value={form.clientId}
+                  onChange={(event) => setForm((state) => ({ ...state, clientId: event.target.value }))}
+                  placeholder="optional client identifier"
+                  className="h-8 text-xs font-mono bg-background"
+                />
+                <p className="text-[10px] text-muted-foreground/60 leading-tight">
+                  When set, this policy only applies to tool calls from this client ID.
+                </p>
+              </div>
+
+              <ArgumentConditionsEditor
+                conditions={form.argumentConditions}
+                onChange={(argumentConditions) => setForm((state) => ({ ...state, argumentConditions }))}
               />
             </div>
           </div>

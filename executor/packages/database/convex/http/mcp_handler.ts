@@ -103,7 +103,7 @@ function createMcpHandler(mode: McpEndpointMode) {
         context = {
           workspaceId,
           accountId: access.accountId,
-          clientId: requestedContext?.clientId,
+          clientId: "mcp",
         };
       } catch (error) {
         return Response.json(
@@ -144,7 +144,7 @@ function createMcpHandler(mode: McpEndpointMode) {
             context = {
               workspaceId,
               accountId: access.accountId,
-              clientId: requestedContext?.clientId,
+              clientId: "mcp",
             };
           } else {
             if (mcpAuthConfig.enabled && !requestedContext?.sessionId) {
@@ -166,7 +166,7 @@ function createMcpHandler(mode: McpEndpointMode) {
             context = {
               workspaceId,
               accountId: access.accountId,
-              clientId: requestedContext?.clientId,
+              clientId: "mcp",
               sessionId: requestedContext?.sessionId,
             };
           }

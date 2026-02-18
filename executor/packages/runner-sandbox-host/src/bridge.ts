@@ -1,7 +1,7 @@
 import { Result } from "better-result";
 import { api } from "@executor/database/convex/_generated/api";
 import { decodeToolCallResultFromTransport } from "../../core/src/tool-call-result-transport";
-import { ConvexClient, ConvexHttpClient } from "convex/browser";
+import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import type {
   BridgeEntrypointContext,
@@ -74,56 +74,42 @@ function createConvexClient(callbackConvexUrl: string): ConvexHttpClient {
   });
 }
 
-function createRealtimeClient(callbackConvexUrl: string): ConvexClient {
-  return new ConvexClient(callbackConvexUrl, {
-    skipConvexDeploymentUrlCheck: true,
-  });
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitForApprovalUpdate(props: BridgeProps, approvalId: string): Promise<void> {
-  const client = createRealtimeClient(props.callbackConvexUrl);
+  const client = createConvexClient(props.callbackConvexUrl);
+  const startedAt = Date.now();
+  const pollIntervalMs = 1000;
 
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
+  while (Date.now() - startedAt < APPROVAL_SUBSCRIPTION_TIMEOUT_MS) {
+    const statusResult = await Result.tryPromise(() => client.query(api.runtimeCallbacks.getApprovalStatus, {
+      internalSecret: props.callbackInternalSecret,
+      runId: props.taskId,
+      approvalId,
+    }));
 
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      unsubscribe();
-      client.close();
-      reject(new Error(`Timed out waiting for approval update: ${approvalId}`));
-    }, APPROVAL_SUBSCRIPTION_TIMEOUT_MS);
+    if (statusResult.isErr()) {
+      const cause = statusResult.error.cause;
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(`Approval status poll failed: ${message}`);
+    }
 
-    const unsubscribe = client.onUpdate(
-      api.runtimeCallbacks.getApprovalStatus,
-      {
-        internalSecret: props.callbackInternalSecret,
-        runId: props.taskId,
-        approvalId,
-      },
-      (value: { status?: "pending" | "approved" | "denied" | "missing" } | null | undefined) => {
-        const status = value?.status;
-        if (!status || status === "pending") {
-          return;
-        }
-        if (status === "missing") {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          unsubscribe();
-          client.close();
-          reject(new Error(`Approval not found: ${approvalId}`));
-          return;
-        }
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        unsubscribe();
-        client.close();
-        resolve();
-      },
-    );
-  });
+    const status = statusResult.value?.status;
+    if (!status || status === "pending") {
+      await sleep(pollIntervalMs);
+      continue;
+    }
+
+    if (status === "missing") {
+      throw new Error(`Approval not found: ${approvalId}`);
+    }
+
+    return;
+  }
+
+  throw new Error(`Timed out waiting for approval update: ${approvalId}`);
 }
 
 export async function callToolWithBridge(

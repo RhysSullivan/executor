@@ -1,5 +1,5 @@
 import type {
-  AccessPolicyRecord,
+  ToolPolicyRecord,
   ArgumentCondition,
   PolicyDecision,
   TaskRecord,
@@ -46,7 +46,7 @@ function matchesArgumentConditions(
   return conditions.every((condition) => matchesArgumentCondition(condition, input[condition.key]));
 }
 
-function matchesPolicyResource(policy: AccessPolicyRecord, tool: PolicyTool): boolean {
+function matchesPolicyResource(policy: ToolPolicyRecord, tool: PolicyTool): boolean {
   if (policy.resourceType === "all_tools") {
     return true;
   }
@@ -66,7 +66,7 @@ function matchesPolicyResource(policy: AccessPolicyRecord, tool: PolicyTool): bo
 }
 
 function policySpecificity(
-  policy: AccessPolicyRecord,
+  policy: ToolPolicyRecord,
   context: { workspaceId: string; accountId?: string; clientId?: string },
 ): number {
   const scopeType = policy.scopeType;
@@ -91,7 +91,7 @@ function policySpecificity(
   return score;
 }
 
-function resolvePolicyDecision(policy: AccessPolicyRecord, defaultDecision: PolicyDecision): PolicyDecision {
+function resolvePolicyDecision(policy: ToolPolicyRecord, defaultDecision: PolicyDecision): PolicyDecision {
   const effect = policy.effect;
   const approvalMode = policy.approvalMode;
 
@@ -113,13 +113,9 @@ function resolvePolicyDecision(policy: AccessPolicyRecord, defaultDecision: Poli
 export function getDecisionForContext(
   tool: PolicyTool,
   context: { workspaceId: string; accountId?: string; clientId?: string },
-  policies: AccessPolicyRecord[],
+  policies: ToolPolicyRecord[],
   input?: Record<string, unknown>,
 ): PolicyDecision {
-  if (tool.path === "discover") {
-    return "allow";
-  }
-
   const defaultDecision: PolicyDecision = tool.approval === "required" ? "require_approval" : "allow";
   const candidates = policies
     .filter((policy) => {
@@ -151,7 +147,7 @@ export function getDecisionForContext(
 export function getToolDecision(
   task: TaskRecord,
   tool: PolicyTool,
-  policies: AccessPolicyRecord[],
+  policies: ToolPolicyRecord[],
   input?: Record<string, unknown>,
 ): PolicyDecision {
   return getDecisionForContext(
@@ -170,7 +166,7 @@ export function isToolAllowedForTask(
   task: TaskRecord,
   toolPath: string,
   workspaceTools: ReadonlyMap<string, PolicyTool>,
-  policies: AccessPolicyRecord[],
+  policies: ToolPolicyRecord[],
 ): boolean {
   const tool = workspaceTools.get(toolPath);
   if (!tool) return false;

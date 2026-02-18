@@ -45,7 +45,7 @@ export interface RunResult {
 export type ToolCallResult =
   | {
       ok: true;
-      value?: unknown;
+      value: unknown;
     }
   | {
       ok: false;
@@ -57,7 +57,7 @@ export type ToolCallResult =
   | {
       ok: false;
       kind: "denied" | "failed";
-      error?: string;
+      error: string;
       approvalId?: string;
       retryAfterMs?: number;
     };

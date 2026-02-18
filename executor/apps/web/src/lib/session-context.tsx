@@ -49,6 +49,11 @@ interface SessionState {
   clientConfig: {
     authProviderMode: string;
     invitesProvider: string;
+    runtime?: {
+      allowLocalVm: boolean;
+      defaultRuntimeId: string;
+      enabledRuntimeIds: string[];
+    };
     features: {
       organizations: boolean;
       billing: boolean;

@@ -20,7 +20,7 @@ import { FormattedCodeBlock } from "@/components/formatted/code-block";
 import { convexApi } from "@/lib/convex-api";
 import { useSession } from "@/lib/session-context";
 import type { RuntimeTargetDescriptor } from "@/lib/types";
-import { listRuntimeTargets } from "@/lib/runtime-targets";
+import { listRuntimeTargetsWithOptions } from "@/lib/runtime-targets";
 import { useWorkspaceTools } from "@/hooks/use/workspace-tools";
 
 const DEFAULT_CODE = `// Example: discover tools and return matching tool names
@@ -107,7 +107,7 @@ function formatExecutionValue(value: unknown): string {
 }
 
 export function TaskComposer() {
-  const { context } = useSession();
+  const { context, clientConfig } = useSession();
   const [code, setCode] = useState(() => {
     return readCodeDraftForWorkspace(context?.workspaceId) ?? DEFAULT_CODE;
   });
@@ -131,7 +131,10 @@ export function TaskComposer() {
     [storageWorkspaceId],
   );
 
-  const runtimeTargets = useMemo(() => listRuntimeTargets(), []);
+  const runtimeTargets = useMemo(
+    () => listRuntimeTargetsWithOptions({ allowLocalVm: clientConfig?.runtime?.allowLocalVm }),
+    [clientConfig?.runtime?.allowLocalVm],
+  );
   const createTask = useAction(convexApi.executor.createTask);
   const { tools, typesUrl, loadingTools } = useWorkspaceTools(context ?? null);
   const effectiveRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
@@ -186,7 +189,6 @@ export function TaskComposer() {
         timeoutMs: Number.parseInt(timeoutMs, 10) || DEFAULT_TIMEOUT_MS,
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
-        clientId: context.clientId,
         waitForResult: true,
       });
 
@@ -221,7 +223,7 @@ export function TaskComposer() {
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Runtime</Label>
+            {showRuntimeSelector ? <Label className="text-xs text-muted-foreground">Runtime</Label> : null}
             {showRuntimeSelector ? (
               <Select value={effectiveRuntimeId} onValueChange={setRuntimeId}>
                 <SelectTrigger className="h-8 text-xs font-mono bg-background">

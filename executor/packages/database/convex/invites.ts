@@ -53,7 +53,6 @@ export const create = organizationMutation({
   args: {
     email: v.string(),
     role: organizationRoleValidator,
-    workspaceId: v.optional(v.id("workspaces")),
     expiresInDays: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -78,13 +77,6 @@ export const create = organizationMutation({
     const expiresAt = now + (args.expiresInDays ?? 7) * 24 * 60 * 60 * 1000;
     const normalizedEmail = args.email.toLowerCase().trim();
 
-    if (args.workspaceId) {
-      const workspace = await ctx.db.get(args.workspaceId);
-      if (workspace?.organizationId !== ctx.organizationId) {
-        throw new Error("Workspace does not belong to this organization");
-      }
-    }
-
     if (ctx.account.provider !== "workos") {
       throw new Error("Inviter is not linked to WorkOS");
     }
@@ -92,7 +84,6 @@ export const create = organizationMutation({
 
     const inviteId = await ctx.db.insert("invites", {
       organizationId: ctx.organizationId,
-      ...(args.workspaceId ? { workspaceId: args.workspaceId } : {}),
       email: normalizedEmail,
       role: args.role,
       status: "pending",

@@ -21,7 +21,6 @@ export const createTask = customAction({
     workspaceId: v.id("workspaces"),
     sessionId: v.optional(v.string()),
     accountId: v.optional(v.id("accounts")),
-    clientId: v.optional(v.string()),
     waitForResult: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {

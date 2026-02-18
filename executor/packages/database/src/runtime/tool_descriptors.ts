@@ -1,5 +1,5 @@
 import type {
-  AccessPolicyRecord,
+  ToolPolicyRecord,
   OpenApiSourceQuality,
   ToolDefinition,
   ToolDescriptor,
@@ -135,7 +135,7 @@ export function computeOpenApiSourceQuality(
 export function listVisibleToolDescriptors(
   workspaceTools: Map<string, ToolDefinition>,
   context: { workspaceId: string; accountId?: string; clientId?: string },
-  policies: AccessPolicyRecord[],
+  policies: ToolPolicyRecord[],
   options: { includeDetails?: boolean; toolPaths?: string[] } = {},
 ): ToolDescriptor[] {
   const requestedPaths = options.toolPaths ?? [];

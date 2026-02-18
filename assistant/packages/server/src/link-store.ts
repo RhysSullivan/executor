@@ -10,6 +10,7 @@ export interface LinkedMcpContext {
   readonly accountId?: string;
   readonly sessionId?: string;
   readonly accessToken?: string;
+  readonly mcpApiKey?: string;
   readonly clientId?: string;
   readonly linkedAt: number;
 }

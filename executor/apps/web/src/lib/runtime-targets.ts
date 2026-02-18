@@ -1,4 +1,5 @@
 import type { RuntimeTargetDescriptor } from "@/lib/types";
+import { readRuntimeConfig } from "@/lib/runtime-config";
 
 const LOCAL_BUN_RUNTIME_ID = "local-bun";
 const CLOUDFLARE_WORKER_LOADER_RUNTIME_ID = "cloudflare-worker-loader";
@@ -27,15 +28,25 @@ function isTruthyEnvValue(value: string | undefined): boolean {
   return TRUTHY_ENV_VALUES.has(value.trim().toLowerCase());
 }
 
-function isRuntimeEnabled(runtimeId: string): boolean {
+function resolveLocalVmAllowed(override?: boolean): boolean {
+  if (typeof override === "boolean") {
+    return override;
+  }
+
+  const fromRuntimeConfig = readRuntimeConfig().allowLocalVm;
+  if (typeof fromRuntimeConfig === "boolean") {
+    return fromRuntimeConfig;
+  }
+
+  return typeof process !== "undefined"
+    ? isTruthyEnvValue(process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY])
+    : false;
+}
+
+function isRuntimeEnabled(runtimeId: string, localVmAllowed: boolean): boolean {
   if (runtimeId !== LOCAL_BUN_RUNTIME_ID && runtimeId !== CLOUDFLARE_WORKER_LOADER_RUNTIME_ID) {
     return false;
   }
-
-  const localVmAllowed =
-    typeof process !== "undefined"
-      ? isTruthyEnvValue(process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY])
-      : false;
 
   if (localVmAllowed) {
     return true;
@@ -45,5 +56,10 @@ function isRuntimeEnabled(runtimeId: string): boolean {
 }
 
 export function listRuntimeTargets(): RuntimeTargetDescriptor[] {
-  return RUNTIME_TARGETS.filter((target) => isRuntimeEnabled(target.id));
+  return listRuntimeTargetsWithOptions({});
+}
+
+export function listRuntimeTargetsWithOptions(options: { allowLocalVm?: boolean }): RuntimeTargetDescriptor[] {
+  const localVmAllowed = resolveLocalVmAllowed(options.allowLocalVm);
+  return RUNTIME_TARGETS.filter((target) => isRuntimeEnabled(target.id, localVmAllowed));
 }

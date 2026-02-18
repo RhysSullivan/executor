@@ -28,7 +28,6 @@ export const listToolsWithWarnings = customAction({
   args: {
     workspaceId: v.id("workspaces"),
     accountId: v.optional(v.id("accounts")),
-    clientId: v.optional(v.string()),
     sessionId: v.optional(v.string()),
     includeDetails: v.optional(v.boolean()),
     includeSourceMeta: v.optional(v.boolean()),
@@ -73,14 +72,14 @@ export const listToolsWithWarnings = customAction({
       await rebuildWorkspaceToolInventoryForContext(ctx, {
         workspaceId: args.workspaceId,
         accountId: access.accountId,
-        clientId: args.clientId,
+        clientId: access.clientId,
       });
     }
 
     const inventory = await listToolsWithWarningsForContext(ctx, {
       workspaceId: args.workspaceId,
       accountId: access.accountId,
-      clientId: args.clientId,
+      clientId: access.clientId,
     }, {
       includeDetails: args.includeDetails ?? false,
       includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
@@ -150,7 +149,6 @@ export const previewOpenApiSourceUpgrade = customAction({
   args: {
     workspaceId: v.id("workspaces"),
     accountId: v.optional(v.id("accounts")),
-    clientId: v.optional(v.string()),
     sessionId: v.optional(v.string()),
     sourceId: v.string(),
     name: v.string(),
@@ -165,11 +163,11 @@ export const previewOpenApiSourceUpgrade = customAction({
 
     return await previewOpenApiSourceUpgradeForContext(
       ctx,
-      {
-        workspaceId: args.workspaceId,
-        accountId: access.accountId,
-        clientId: args.clientId,
-      },
+        {
+          workspaceId: args.workspaceId,
+          accountId: access.accountId,
+          clientId: access.clientId,
+        },
       {
         sourceId: args.sourceId,
         name: args.name,

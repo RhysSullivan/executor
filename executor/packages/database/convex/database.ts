@@ -34,9 +34,7 @@ export {
   upsertToolRoleBinding,
   listToolRoleBindings,
   deleteToolRoleBinding,
-  upsertAccessPolicy,
-  deleteAccessPolicy,
-  listAccessPolicies,
+  listToolPolicies,
 } from "./database/policies";
 export {
   upsertCredential,

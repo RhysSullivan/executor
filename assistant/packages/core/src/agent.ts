@@ -5,6 +5,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import {
+  ElicitRequestSchema,
+  ElicitationCompleteNotificationSchema,
+} from "@modelcontextprotocol/sdk/types.js";
+import {
   completeSimple,
   getModel,
   type Context as PiContext,
@@ -51,6 +55,23 @@ interface Message {
   toolCallId?: string;
 }
 
+export interface AgentElicitationRequest {
+  readonly mode: "form" | "url";
+  readonly message: string;
+  readonly requestedSchema?: Record<string, unknown>;
+  readonly url?: string;
+  readonly elicitationId?: string;
+}
+
+export interface AgentElicitationResponse {
+  readonly action: "accept" | "decline" | "cancel";
+  readonly content?: Record<string, unknown>;
+}
+
+export interface AgentElicitationCompleteNotification {
+  readonly elicitationId: string;
+}
+
 interface McpTool {
   name: string;
   description?: string;
@@ -81,10 +102,14 @@ export interface AgentOptions {
   readonly clientId?: string;
   readonly sessionId?: string;
   readonly mcpAccessToken?: string;
+  readonly mcpApiKey?: string;
+  readonly useAnonymousMcp?: boolean;
   readonly apiKey?: string;
   readonly modelId?: string;
   readonly context?: string;
   readonly maxToolCalls?: number;
+  readonly onElicitation?: (request: AgentElicitationRequest) => Promise<AgentElicitationResponse>;
+  readonly onElicitationComplete?: (notification: AgentElicitationCompleteNotification) => void;
 }
 
 export interface AgentResult {
@@ -156,10 +181,14 @@ export function createAgent(options: AgentOptions) {
     clientId,
     sessionId,
     mcpAccessToken,
+    mcpApiKey,
+    useAnonymousMcp = false,
     apiKey,
     modelId = "claude-sonnet-4-5",
     context,
     maxToolCalls = 20,
+    onElicitation,
+    onElicitationComplete,
   } = options;
 
   const resolvedApiKey = resolveApiKey(apiKey);
@@ -194,17 +223,23 @@ export function createAgent(options: AgentOptions) {
 
       // Connect to executor MCP
       emit({ type: "status", message: "Connecting..." });
-      const mcpUrl = new URL(`${executorBaseUrl}/mcp`);
+      const mcpPath = useAnonymousMcp ? "/mcp/anonymous" : "/mcp";
+      const mcpUrl = new URL(`${executorBaseUrl}${mcpPath}`);
       mcpUrl.searchParams.set("workspaceId", workspaceId);
-      if (accountId) mcpUrl.searchParams.set("accountId", accountId);
+      if (!useAnonymousMcp && accountId) mcpUrl.searchParams.set("accountId", accountId);
       if (clientId) mcpUrl.searchParams.set("clientId", clientId);
-      if (sessionId) mcpUrl.searchParams.set("sessionId", sessionId);
+      if (!useAnonymousMcp && sessionId) mcpUrl.searchParams.set("sessionId", sessionId);
 
-      const transport = mcpAccessToken
+      const transport = (mcpAccessToken || mcpApiKey)
         ? new StreamableHTTPClientTransport(mcpUrl, {
             fetch: async (input, init) => {
               const headers = new Headers(init?.headers);
-              headers.set("authorization", `Bearer ${mcpAccessToken}`);
+              if (mcpAccessToken) {
+                headers.set("authorization", `Bearer ${mcpAccessToken}`);
+              }
+              if (mcpApiKey) {
+                headers.set("x-api-key", mcpApiKey);
+              }
               return await fetch(input, {
                 ...init,
                 headers,
@@ -212,7 +247,58 @@ export function createAgent(options: AgentOptions) {
             },
           })
         : new StreamableHTTPClientTransport(mcpUrl);
-      const mcp = new Client({ name: "assistant-agent", version: "0.1.0" });
+      const mcp = new Client(
+        { name: "assistant-agent", version: "0.1.0" },
+        {
+          capabilities: {
+            elicitation: {
+              form: {},
+              url: {},
+            },
+          },
+        },
+      );
+
+      mcp.setRequestHandler(ElicitRequestSchema, async (request) => {
+        const params = request.params as {
+          mode?: "form" | "url";
+          message: string;
+          requestedSchema?: Record<string, unknown>;
+          url?: string;
+          elicitationId?: string;
+        };
+        const mode = params.mode ?? "form";
+
+        emit({ type: "status", message: `Awaiting ${mode} elicitation...` });
+
+        if (!onElicitation) {
+          return { action: "decline" as const };
+        }
+
+        const response = await onElicitation({
+          mode,
+          message: params.message,
+          requestedSchema: params.requestedSchema,
+          url: params.url,
+          elicitationId: params.elicitationId,
+        });
+
+        if (response.content === undefined) {
+          return { action: response.action };
+        }
+
+        return {
+          action: response.action,
+          content: response.content,
+        };
+      });
+
+      mcp.setNotificationHandler(ElicitationCompleteNotificationSchema, (notification) => {
+        emit({ type: "status", message: "Elicitation completed on server." });
+        onElicitationComplete?.({
+          elicitationId: notification.params.elicitationId,
+        });
+      });
 
       let mcpConnected = false;
       try {

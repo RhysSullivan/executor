@@ -9,7 +9,6 @@ import {
   policyApprovalModeValidator,
   policyEffectValidator,
   policyMatchTypeValidator,
-  policyResourceTypeValidator,
   policyScopeTypeValidator,
   toolRoleBindingStatusValidator,
   toolRoleSelectorTypeValidator,
@@ -56,7 +55,6 @@ export const bootstrapAnonymousSession = customMutation({
   args: {
     sessionId: v.optional(v.string()),
     accountId: v.optional(v.string()),
-    clientId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.runMutation(internal.database.bootstrapAnonymousSession, args);
@@ -127,75 +125,11 @@ export const listPendingApprovals = workspaceQuery({
   },
 });
 
-export const upsertAccessPolicy = workspaceMutation({
-  method: "POST",
-  requireAdmin: true,
-  args: {
-    id: v.optional(v.string()),
-    scopeType: v.optional(policyScopeTypeValidator),
-    targetAccountId: v.optional(v.id("accounts")),
-    clientId: v.optional(v.string()),
-    resourceType: v.optional(policyResourceTypeValidator),
-    resourcePattern: v.string(),
-    matchType: v.optional(policyMatchTypeValidator),
-    effect: v.optional(policyEffectValidator),
-    approvalMode: v.optional(policyApprovalModeValidator),
-    argumentConditions: v.optional(v.array(v.object({
-      key: v.string(),
-      operator: v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals")),
-      value: v.string(),
-    }))),
-    priority: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    if (args.scopeType === "organization") {
-      const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
-      if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
-        throw new Error("Only organization admins can create organization-level policies");
-      }
-    }
-
-    if (args.scopeType === "account") {
-      if (!args.targetAccountId) {
-        throw new Error("targetAccountId is required for account-scoped policies");
-      }
-
-      const targetMembership = await getOrganizationMembership(
-        ctx,
-        ctx.workspace.organizationId,
-        args.targetAccountId,
-      );
-      if (!targetMembership || targetMembership.status !== "active") {
-        throw new Error("targetAccountId must be an active member of this organization");
-      }
-    }
-
-    return await ctx.runMutation(internal.database.upsertAccessPolicy, {
-      ...args,
-      workspaceId: ctx.workspaceId,
-    });
-  },
-});
-
-export const deleteAccessPolicy = workspaceMutation({
-  method: "POST",
-  requireAdmin: true,
-  args: {
-    policyId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.deleteAccessPolicy, {
-      policyId: args.policyId,
-      workspaceId: ctx.workspaceId,
-    });
-  },
-});
-
-export const listAccessPolicies = workspaceQuery({
+export const listToolPolicies = workspaceQuery({
   method: "GET",
   args: {},
   handler: async (ctx) => {
-    return await ctx.runQuery(internal.database.listAccessPolicies, {
+    return await ctx.runQuery(internal.database.listToolPolicies, {
       workspaceId: ctx.workspaceId,
       accountId: ctx.account._id,
     });
@@ -480,7 +414,6 @@ export const getToolDetails = workspaceMutation({
   method: "POST",
   args: {
     toolPaths: v.array(v.string()),
-    clientId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await listToolDetailsForContext(
@@ -488,7 +421,7 @@ export const getToolDetails = workspaceMutation({
       {
         workspaceId: ctx.workspaceId,
         accountId: ctx.account._id,
-        clientId: args.clientId,
+        clientId: "web",
       },
       {
         toolPaths: args.toolPaths,

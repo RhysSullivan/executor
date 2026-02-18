@@ -4,6 +4,7 @@ export type ExecutorRuntimeConfig = {
   workosClientId?: string;
   stripePriceId?: string;
   executorHttpUrl?: string;
+  allowLocalVm?: boolean;
 };
 
 declare global {
@@ -15,6 +16,16 @@ declare global {
 function trim(value: string | null | undefined): string | undefined {
   const candidate = value?.trim();
   return candidate && candidate.length > 0 ? candidate : undefined;
+}
+
+const TRUTHY_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
+
+function parseBooleanEnv(value: string | null | undefined): boolean | undefined {
+  const candidate = trim(value);
+  if (!candidate) {
+    return undefined;
+  }
+  return TRUTHY_ENV_VALUES.has(candidate.toLowerCase());
 }
 
 function normalizeDeploymentSlug(value: string | undefined): string | undefined {
@@ -53,6 +64,7 @@ export function readRuntimeConfig(): ExecutorRuntimeConfig {
     workosClientId: trim(import.meta.env.VITE_WORKOS_CLIENT_ID),
     stripePriceId: trim(import.meta.env.VITE_STRIPE_PRICE_ID),
     executorHttpUrl: trim(import.meta.env.VITE_EXECUTOR_HTTP_URL),
+    allowLocalVm: parseBooleanEnv(import.meta.env.VITE_DANGEROUSLY_ALLOW_LOCAL_VM),
   };
 }
 
@@ -93,6 +105,10 @@ export function runtimeConfigFromEnv(): ExecutorRuntimeConfig {
       process.env.EXECUTOR_PUBLIC_ORIGIN
       ?? process.env.EXECUTOR_HTTP_URL
       ?? process.env.VITE_EXECUTOR_HTTP_URL,
+    ),
+    allowLocalVm: parseBooleanEnv(
+      process.env.DANGEROUSLY_ALLOW_LOCAL_VM
+      ?? process.env.VITE_DANGEROUSLY_ALLOW_LOCAL_VM,
     ),
   };
 }

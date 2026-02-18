@@ -4,7 +4,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listRuntimeTargets as listAvailableRuntimeTargets } from "../../../core/src/runtimes/runtime-catalog";
 import type {
-  AccessPolicyRecord,
+  ToolPolicyRecord,
   ToolRoleBindingRecord,
   ToolRoleRecord,
   ToolRoleRuleRecord,
@@ -15,18 +15,17 @@ import {
   policyApprovalModeValidator,
   policyEffectValidator,
   policyMatchTypeValidator,
-  policyResourceTypeValidator,
   policyScopeTypeValidator,
   toolRoleBindingStatusValidator,
   toolRoleSelectorTypeValidator,
 } from "../../src/database/validators";
 
-type PolicyResourceType = AccessPolicyRecord["resourceType"];
+type PolicyResourceType = ToolPolicyRecord["resourceType"];
 type DbContext = Pick<MutationCtx, "db"> | Pick<QueryCtx, "db">;
 
 function normalizeArgumentConditions(
-  argumentConditions: AccessPolicyRecord["argumentConditions"] | undefined,
-): AccessPolicyRecord["argumentConditions"] | undefined {
+  argumentConditions: ToolPolicyRecord["argumentConditions"] | undefined,
+): ToolPolicyRecord["argumentConditions"] | undefined {
   if (!argumentConditions || argumentConditions.length === 0) {
     return undefined;
   }
@@ -40,22 +39,6 @@ function normalizeArgumentConditions(
     .filter((condition) => condition.key.length > 0);
 
   return normalized.length > 0 ? normalized : undefined;
-}
-
-function selectorTypeFromResourceType(resourceType: PolicyResourceType): ToolRoleSelectorType {
-  if (resourceType === "all_tools") {
-    return "all";
-  }
-
-  if (resourceType === "source") {
-    return "source";
-  }
-
-  if (resourceType === "namespace") {
-    return "namespace";
-  }
-
-  return "tool_path";
 }
 
 function resourceTypeFromSelectorType(selectorType: ToolRoleSelectorType): PolicyResourceType {
@@ -72,69 +55,6 @@ function resourceTypeFromSelectorType(selectorType: ToolRoleSelectorType): Polic
   }
 
   return "tool_path";
-}
-
-function normalizePolicyResourceInput(args: {
-  resourceType?: PolicyResourceType;
-  resourcePattern: string;
-}): {
-  resourceType: PolicyResourceType;
-  resourcePattern: string;
-} {
-  const trimmedPattern = args.resourcePattern.trim();
-  const inferredType = trimmedPattern === "*" ? "all_tools" : "tool_path";
-  const resourceType = args.resourceType ?? inferredType;
-
-  if (resourceType === "all_tools") {
-    return {
-      resourceType,
-      resourcePattern: "*",
-    };
-  }
-
-  if (trimmedPattern.length === 0) {
-    throw new Error("resourcePattern is required");
-  }
-
-  return {
-    resourceType,
-    resourcePattern: trimmedPattern,
-  };
-}
-
-function selectorFieldsFromResource(
-  resourceType: PolicyResourceType,
-  resourcePattern: string,
-): {
-  selectorType: ToolRoleSelectorType;
-  sourceKey?: string;
-  namespacePattern?: string;
-  toolPathPattern?: string;
-} {
-  if (resourceType === "all_tools") {
-    return {
-      selectorType: "all",
-    };
-  }
-
-  if (resourceType === "source") {
-    return {
-      selectorType: "source",
-      sourceKey: resourcePattern,
-    };
-  }
-
-  if (resourceType === "namespace") {
-    return {
-      selectorType: "namespace",
-      namespacePattern: resourcePattern,
-    };
-  }
-
-  return {
-    selectorType: "tool_path",
-    toolPathPattern: resourcePattern,
-  };
 }
 
 function resourcePatternFromRule(rule: {
@@ -183,10 +103,10 @@ function mapToolRoleRule(doc: {
   sourceKey?: string;
   namespacePattern?: string;
   toolPathPattern?: string;
-  matchType: AccessPolicyRecord["matchType"];
-  effect: AccessPolicyRecord["effect"];
-  approvalMode: AccessPolicyRecord["approvalMode"];
-  argumentConditions?: AccessPolicyRecord["argumentConditions"];
+  matchType: ToolPolicyRecord["matchType"];
+  effect: ToolPolicyRecord["effect"];
+  approvalMode: ToolPolicyRecord["approvalMode"];
+  argumentConditions?: ToolPolicyRecord["argumentConditions"];
   priority: number;
   createdAt: number;
   updatedAt: number;
@@ -213,7 +133,7 @@ function mapToolRoleBinding(doc: {
   bindingId: string;
   roleId: string;
   organizationId: Id<"organizations">;
-  scopeType: AccessPolicyRecord["scopeType"];
+  scopeType: ToolPolicyRecord["scopeType"];
   workspaceId?: Id<"workspaces">;
   targetAccountId?: Id<"accounts">;
   clientId?: string;
@@ -238,9 +158,9 @@ function mapToolRoleBinding(doc: {
 }
 
 function derivedPolicyId(roleId: string, ruleId: string, bindingId: string): string {
-  const rolePrefix = "policy_role_";
-  const rulePrefix = "policy_rule_";
-  const bindingPrefix = "policy_binding_";
+  const rolePrefix = "tool_policy_role_";
+  const rulePrefix = "tool_policy_rule_";
+  const bindingPrefix = "tool_policy_binding_";
   if (
     roleId.startsWith(rolePrefix)
     && ruleId.startsWith(rulePrefix)
@@ -259,24 +179,24 @@ function derivedPolicyId(roleId: string, ruleId: string, bindingId: string): str
 
 function mapFlattenedPolicy(doc: {
   policyId: string;
-  scopeType: AccessPolicyRecord["scopeType"];
+  scopeType: ToolPolicyRecord["scopeType"];
   organizationId: Id<"organizations">;
   workspaceId?: Id<"workspaces">;
   targetAccountId?: Id<"accounts">;
   clientId?: string;
   resourceType: PolicyResourceType;
   resourcePattern: string;
-  matchType: AccessPolicyRecord["matchType"];
-  effect: AccessPolicyRecord["effect"];
-  approvalMode: AccessPolicyRecord["approvalMode"];
-  argumentConditions?: AccessPolicyRecord["argumentConditions"];
+  matchType: ToolPolicyRecord["matchType"];
+  effect: ToolPolicyRecord["effect"];
+  approvalMode: ToolPolicyRecord["approvalMode"];
+  argumentConditions?: ToolPolicyRecord["argumentConditions"];
   priority: number;
   roleId: string;
   ruleId: string;
   bindingId: string;
   createdAt: number;
   updatedAt: number;
-}): AccessPolicyRecord {
+}): ToolPolicyRecord {
   return {
     id: doc.policyId,
     scopeType: doc.scopeType,
@@ -805,200 +725,7 @@ export const deleteToolRoleBinding = internalMutation({
   },
 });
 
-export const upsertAccessPolicy = internalMutation({
-  args: {
-    id: v.optional(v.string()),
-    workspaceId: v.id("workspaces"),
-    scopeType: v.optional(policyScopeTypeValidator),
-    targetAccountId: v.optional(v.id("accounts")),
-    clientId: v.optional(v.string()),
-    resourceType: v.optional(policyResourceTypeValidator),
-    resourcePattern: v.string(),
-    matchType: v.optional(policyMatchTypeValidator),
-    effect: v.optional(policyEffectValidator),
-    approvalMode: v.optional(policyApprovalModeValidator),
-    argumentConditions: v.optional(v.array(argumentConditionValidator)),
-    priority: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const workspace = await requireWorkspaceWithOrganization(ctx, args.workspaceId);
-    const policyId = args.id ?? `policy_${crypto.randomUUID()}`;
-    const scopeType = args.scopeType ?? "workspace";
-    const targetAccountId = scopeType === "account" ? args.targetAccountId : undefined;
-    if (scopeType === "account" && !targetAccountId) {
-      throw new Error("targetAccountId is required for account-scoped policies");
-    }
-    if (targetAccountId) {
-      await assertActiveOrgMember(ctx, {
-        organizationId: workspace.organizationId,
-        accountId: targetAccountId,
-        fieldLabel: "targetAccountId",
-      });
-    }
-
-    const resourceInput = normalizePolicyResourceInput({
-      resourceType: args.resourceType,
-      resourcePattern: args.resourcePattern,
-    });
-    const selectorFields = selectorFieldsFromResource(resourceInput.resourceType, resourceInput.resourcePattern);
-
-    const roleId = `policy_role_${policyId}`;
-    const ruleId = `policy_rule_${policyId}`;
-    const bindingId = `policy_binding_${policyId}`;
-
-    const existingRole = await ctx.db
-      .query("toolRoles")
-      .withIndex("by_role_id", (q) => q.eq("roleId", roleId))
-      .unique();
-    if (existingRole) {
-      if (existingRole.organizationId !== workspace.organizationId) {
-        throw new Error("Policy role does not belong to this organization");
-      }
-      await ctx.db.patch(existingRole._id, {
-        name: `policy:${policyId}`,
-        description: "Direct access policy",
-        updatedAt: now,
-      });
-    } else {
-      await ctx.db.insert("toolRoles", {
-        roleId,
-        organizationId: workspace.organizationId,
-        name: `policy:${policyId}`,
-        description: "Direct access policy",
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    const normalizedConditions = normalizeArgumentConditions(args.argumentConditions);
-    const existingRule = await ctx.db
-      .query("toolRoleRules")
-      .withIndex("by_rule_id", (q) => q.eq("ruleId", ruleId))
-      .unique();
-    const rulePayload = {
-      roleId,
-      organizationId: workspace.organizationId,
-      selectorType: selectorFields.selectorType,
-      sourceKey: selectorFields.sourceKey,
-      namespacePattern: selectorFields.namespacePattern,
-      toolPathPattern: selectorFields.toolPathPattern,
-      matchType: args.matchType ?? "glob",
-      effect: args.effect ?? "allow",
-      approvalMode: args.approvalMode ?? "required",
-      argumentConditions: normalizedConditions,
-      priority: args.priority ?? 100,
-      updatedAt: now,
-    };
-    if (existingRule) {
-      await ctx.db.patch(existingRule._id, rulePayload);
-    } else {
-      await ctx.db.insert("toolRoleRules", {
-        ruleId,
-        ...rulePayload,
-        createdAt: now,
-      });
-    }
-
-    const existingBinding = await ctx.db
-      .query("toolRoleBindings")
-      .withIndex("by_binding_id", (q) => q.eq("bindingId", bindingId))
-      .unique();
-    const bindingPayload = {
-      roleId,
-      organizationId: workspace.organizationId,
-      scopeType,
-      workspaceId: scopeType === "workspace" ? args.workspaceId : undefined,
-      targetAccountId,
-      clientId: args.clientId?.trim() || undefined,
-      status: "active" as const,
-      expiresAt: undefined,
-      updatedAt: now,
-    };
-    if (existingBinding) {
-      await ctx.db.patch(existingBinding._id, bindingPayload);
-    } else {
-      await ctx.db.insert("toolRoleBindings", {
-        bindingId,
-        ...bindingPayload,
-        createdAt: now,
-      });
-    }
-
-    return mapFlattenedPolicy({
-      policyId,
-      scopeType,
-      organizationId: workspace.organizationId,
-      workspaceId: scopeType === "workspace" ? args.workspaceId : undefined,
-      targetAccountId,
-      clientId: args.clientId?.trim() || undefined,
-      resourceType: resourceInput.resourceType,
-      resourcePattern: resourceInput.resourcePattern,
-      matchType: args.matchType ?? "glob",
-      effect: args.effect ?? "allow",
-      approvalMode: args.approvalMode ?? "required",
-      argumentConditions: normalizedConditions,
-      priority: args.priority ?? 100,
-      roleId,
-      ruleId,
-      bindingId,
-      createdAt: now,
-      updatedAt: now,
-    });
-  },
-});
-
-export const deleteAccessPolicy = internalMutation({
-  args: {
-    policyId: v.string(),
-    workspaceId: v.id("workspaces"),
-  },
-  handler: async (ctx, args) => {
-    const workspace = await requireWorkspaceWithOrganization(ctx, args.workspaceId);
-    const roleId = `policy_role_${args.policyId}`;
-    const ruleId = `policy_rule_${args.policyId}`;
-    const bindingId = `policy_binding_${args.policyId}`;
-
-    const [role, rule, binding] = await Promise.all([
-      ctx.db
-        .query("toolRoles")
-        .withIndex("by_role_id", (q) => q.eq("roleId", roleId))
-        .unique(),
-      ctx.db
-        .query("toolRoleRules")
-        .withIndex("by_rule_id", (q) => q.eq("ruleId", ruleId))
-        .unique(),
-      ctx.db
-        .query("toolRoleBindings")
-        .withIndex("by_binding_id", (q) => q.eq("bindingId", bindingId))
-        .unique(),
-    ]);
-
-    if (
-      !role
-      || role.organizationId !== workspace.organizationId
-      || !rule
-      || rule.organizationId !== workspace.organizationId
-      || !binding
-      || binding.organizationId !== workspace.organizationId
-    ) {
-      throw new Error(`Policy not found: ${args.policyId}`);
-    }
-
-    if (binding.scopeType === "workspace" && binding.workspaceId !== args.workspaceId) {
-      throw new Error("Policy does not belong to this workspace");
-    }
-
-    await Promise.all([
-      ctx.db.delete(rule._id),
-      ctx.db.delete(binding._id),
-      ctx.db.delete(role._id),
-    ]);
-    return { ok: true as const };
-  },
-});
-
-export const listAccessPolicies = internalQuery({
+export const listToolPolicies = internalQuery({
   args: {
     workspaceId: v.id("workspaces"),
     accountId: v.optional(v.id("accounts")),
@@ -1020,7 +747,7 @@ export const listAccessPolicies = internalQuery({
     }));
     const rulesByRole = new Map(roleIds.map((roleId, index) => [roleId, roleRules[index] ?? []]));
 
-    const policies: AccessPolicyRecord[] = [];
+    const policies: ToolPolicyRecord[] = [];
     for (const binding of bindings) {
       const rules = rulesByRole.get(binding.roleId) ?? [];
       for (const rule of rules) {

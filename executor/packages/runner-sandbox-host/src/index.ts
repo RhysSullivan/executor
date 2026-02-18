@@ -35,6 +35,7 @@
 
 import { Result } from "better-result";
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { encodeToolCallResultForTransport } from "../../core/src/tool-call-result-transport";
 import GLOBALS_MODULE from "./isolate/globals.isolate.js";
 import HARNESS_CODE from "./isolate/harness.isolate.js";
 import { authorizeRunRequest } from "./auth";
@@ -63,8 +64,9 @@ export class ToolBridge extends WorkerEntrypoint<Env> {
   }
 
   /** Forward a tool call to the Convex callback RPC action. */
-  async callTool(toolPath: string, input: unknown, callId?: string): Promise<ToolCallResult> {
-    return callToolWithBridge(this.props, toolPath, input, callId);
+  async callTool(toolPath: string, input: unknown, callId?: string): Promise<string> {
+    const result = await callToolWithBridge(this.props, toolPath, input, callId);
+    return encodeToolCallResultForTransport(result as ToolCallResult);
   }
 }
 

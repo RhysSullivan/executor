@@ -47,14 +47,12 @@ type ToolDetailDescriptor = Pick<ToolDescriptor, "path" | "description" | "displ
 type GetToolDetailsMutation = (args: {
   workspaceId: Id<"workspaces">;
   sessionId?: string;
-  clientId?: string;
   toolPaths: string[];
 }) => Promise<Record<string, ToolDetailDescriptor>>;
 
 type ListToolsWithWarningsAction = (args: {
   workspaceId: Id<"workspaces">;
   accountId?: string;
-  clientId?: string;
   sessionId?: string;
   includeDetails?: boolean;
   includeSourceMeta?: boolean;
@@ -122,7 +120,6 @@ export function useWorkspaceTools(
       return await listToolsWithWarnings({
         workspaceId: context.workspaceId,
         ...(context.accountId && { accountId: context.accountId }),
-        ...(context.clientId && { clientId: context.clientId }),
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails,
         fetchAll: true,
@@ -152,7 +149,6 @@ export function useWorkspaceTools(
       const detailsByPath = await listToolDetails({
         workspaceId: context.workspaceId,
         sessionId: context.sessionId,
-        ...(context.clientId && { clientId: context.clientId }),
         toolPaths: missing,
       });
 
@@ -206,7 +202,6 @@ export function useWorkspaceTools(
     await listToolsWithWarnings({
       workspaceId: context.workspaceId,
       ...(context.accountId && { accountId: context.accountId }),
-      ...(context.clientId && { clientId: context.clientId }),
       ...(context.sessionId && { sessionId: context.sessionId }),
       includeDetails: false,
       includeSourceMeta: false,

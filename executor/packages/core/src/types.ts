@@ -100,7 +100,7 @@ export interface ArgumentCondition {
   value: string;
 }
 
-export interface AccessPolicyRecord {
+export interface ToolPolicyRecord {
   id: string;
   scopeType: PolicyScopeType;
   organizationId: Id<"organizations">;

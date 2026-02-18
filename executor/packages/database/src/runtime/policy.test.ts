@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import type { AccessPolicyRecord } from "../../../core/src/types";
+import type { ToolPolicyRecord } from "../../../core/src/types";
 import { getDecisionForContext } from "./policy";
 
-const basePolicy: Omit<AccessPolicyRecord, "id" | "resourceType" | "resourcePattern"> = {
+const basePolicy: Omit<ToolPolicyRecord, "id" | "resourceType" | "resourcePattern"> = {
   scopeType: "organization",
   organizationId: "org_1" as any,
   matchType: "glob",
@@ -14,7 +14,7 @@ const basePolicy: Omit<AccessPolicyRecord, "id" | "resourceType" | "resourcePatt
 };
 
 test("source-scoped policy can deny all tools from a source", () => {
-  const policies: AccessPolicyRecord[] = [
+  const policies: ToolPolicyRecord[] = [
     {
       id: "p1",
       ...basePolicy,
@@ -42,7 +42,7 @@ test("source-scoped policy can deny all tools from a source", () => {
 });
 
 test("tool-path policy can override source policy by specificity", () => {
-  const policies: AccessPolicyRecord[] = [
+  const policies: ToolPolicyRecord[] = [
     {
       id: "p-source",
       ...basePolicy,
@@ -81,7 +81,7 @@ test("tool-path policy can override source policy by specificity", () => {
 });
 
 test("all-tools policy applies without source context", () => {
-  const policies: AccessPolicyRecord[] = [
+  const policies: ToolPolicyRecord[] = [
     {
       id: "p-all",
       ...basePolicy,
@@ -105,4 +105,32 @@ test("all-tools policy applies without source context", () => {
   );
 
   expect(decision).toBe("require_approval");
+});
+
+test("discover can be denied by policy", () => {
+  const policies: ToolPolicyRecord[] = [
+    {
+      id: "p-discover-deny",
+      ...basePolicy,
+      resourceType: "tool_path",
+      resourcePattern: "discover",
+      matchType: "exact",
+      effect: "deny",
+      approvalMode: "required",
+    },
+  ];
+
+  const decision = getDecisionForContext(
+    {
+      path: "discover",
+      approval: "auto",
+    },
+    {
+      workspaceId: "ws_1",
+      accountId: "acct_1",
+    },
+    policies,
+  );
+
+  expect(decision).toBe("deny");
 });

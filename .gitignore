@@ -56,3 +56,4 @@ executor/.env.executor-push
 *.har
 .vercel
 .env*.local
+.chat-links.json

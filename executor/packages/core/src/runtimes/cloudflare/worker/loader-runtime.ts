@@ -125,11 +125,20 @@ export async function dispatchCodeWithCloudflareWorkerLoader(
     return mkError("Cloudflare sandbox execution response missing status");
   }
 
+  const normalizedError = typeof body.value.error === "string"
+    ? body.value.error.trim()
+    : "";
+  const error = normalizedError.length > 0
+    ? normalizedError
+    : body.value.status === "failed"
+      ? "Cloudflare sandbox execution failed without an error message"
+      : undefined;
+
   return {
     ok: true,
     status: body.value.status,
     result: body.value.result,
-    error: body.value.error,
+    error,
     exitCode: body.value.exitCode,
     durationMs: Date.now() - startedAt,
   };

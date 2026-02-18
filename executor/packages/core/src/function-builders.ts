@@ -146,6 +146,11 @@ export const organizationQuery = convexCustomQuery(query, {
       throw new Error("You are not a member of this organization");
     }
 
+    const organization = await ctx.db.get(args.organizationId);
+    if (!organization || organization.status !== "active") {
+      throw new Error("Organization is inactive");
+    }
+
     ensureOrganizationRole(accountMembership.role, options);
 
     return {
@@ -170,6 +175,11 @@ export const organizationMutation = convexCustomMutation(mutation, {
 
     if (!accountMembership || accountMembership.status !== "active") {
       throw new Error("You are not a member of this organization");
+    }
+
+    const organization = await ctx.db.get(args.organizationId);
+    if (!organization || organization.status !== "active") {
+      throw new Error("Organization is inactive");
     }
 
     ensureOrganizationRole(accountMembership.role, options);
@@ -236,6 +246,11 @@ export const internalOrganizationQuery = convexCustomQuery(internalQuery, {
 
     if (!accountMembership || accountMembership.status !== "active") {
       throw new Error("You are not a member of this organization");
+    }
+
+    const organization = await ctx.db.get(args.organizationId);
+    if (!organization || organization.status !== "active") {
+      throw new Error("Organization is inactive");
     }
 
     ensureOrganizationRole(accountMembership.role, options);

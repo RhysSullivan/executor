@@ -61,6 +61,18 @@ export const upsertToolSource = internalMutation({
     }
 
     if (existing) {
+      if (existing.organizationId !== organizationId) {
+        throw new Error("Tool source id already exists in another organization");
+      }
+
+      if (existing.scopeType !== scopeType) {
+        throw new Error("Tool source scope cannot be changed for an existing id");
+      }
+
+      if (scopeType === "workspace" && existing.workspaceId !== args.workspaceId) {
+        throw new Error("Tool source id belongs to a different workspace");
+      }
+
       await ctx.db.patch(existing._id, {
         scopeType,
         organizationId,

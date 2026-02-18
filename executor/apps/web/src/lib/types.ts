@@ -1,4 +1,10 @@
 import type { Id } from "@executor/database/convex/_generated/dataModel";
+import type {
+  ToolPolicyRecord as CoreToolPolicyRecord,
+  ToolRoleBindingRecord as CoreToolRoleBindingRecord,
+  ToolRoleRecord as CoreToolRoleRecord,
+  ToolRoleRuleRecord as CoreToolRoleRuleRecord,
+} from "@executor/core/types";
 
 // ── Shared types (inlined from @executor/contracts) ──────────────────────────
 
@@ -9,6 +15,8 @@ export type PolicyScopeType = "account" | "organization" | "workspace";
 export type PolicyMatchType = "glob" | "exact";
 export type PolicyEffect = "allow" | "deny";
 export type PolicyApprovalMode = "inherit" | "auto" | "required";
+export type ToolRoleSelectorType = "all" | "source" | "namespace" | "tool_path";
+export type ToolRoleBindingStatus = "active" | "disabled";
 export type ArgumentConditionOperator = "equals" | "contains" | "starts_with" | "not_equals";
 
 export interface ArgumentCondition {
@@ -76,23 +84,10 @@ export interface TaskEventRecord {
   createdAt: number;
 }
 
-export interface AccessPolicyRecord {
-  id: string;
-  scopeType: PolicyScopeType;
-  organizationId?: string;
-  workspaceId?: string;
-  targetAccountId?: string;
-  clientId?: string;
-  resourceType: "tool_path";
-  resourcePattern: string;
-  matchType: PolicyMatchType;
-  effect: PolicyEffect;
-  approvalMode: PolicyApprovalMode;
-  argumentConditions?: ArgumentCondition[];
-  priority: number;
-  createdAt: number;
-  updatedAt: number;
-}
+export type ToolPolicyRecord = CoreToolPolicyRecord;
+export type ToolRoleRecord = CoreToolRoleRecord;
+export type ToolRoleRuleRecord = CoreToolRoleRuleRecord;
+export type ToolRoleBindingRecord = CoreToolRoleBindingRecord;
 
 export interface CredentialRecord {
   id: string;
