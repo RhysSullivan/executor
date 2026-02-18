@@ -205,14 +205,14 @@ function createAnonymousAuthSeed(): AnonymousAuthSeed {
 async function resolveTanstackStartOutput(webAppDir: string): Promise<TanstackStartOutput> {
   const candidates: Array<{ outputRoot: string; serverEntry: string; stagedServerEntry: string }> = [
     {
-      outputRoot: path.join(webAppDir, "dist"),
-      serverEntry: path.join("dist", "server", "server.mjs"),
-      stagedServerEntry: path.join("dist", "server", "server.mjs"),
-    },
-    {
       outputRoot: path.join(webAppDir, ".output"),
       serverEntry: path.join(".output", "server", "index.mjs"),
       stagedServerEntry: path.join(".output", "server", "index.mjs"),
+    },
+    {
+      outputRoot: path.join(webAppDir, "dist"),
+      serverEntry: path.join("dist", "server", "server.mjs"),
+      stagedServerEntry: path.join("dist", "server", "server.mjs"),
     },
   ];
 
@@ -462,6 +462,7 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
   const stagedAppRoot = path.join(stageRoot, "executor", "apps", "web");
   const stagedServerEntry = tanstackStart.stagedServerEntry;
   const stagedOutputRoot = path.basename(outputRoot);
+  const stagedServerEntryWithLeadingSlash = `/${stagedServerEntry.split(path.sep).join("/")}`;
 
   if (!(await pathExists(outputServerEntry))) {
     throw new Error(`Missing TanStack Start output at ${outputServerEntry}. Ensure vite build completed.`);
@@ -473,9 +474,14 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
 
   await fs.cp(outputRoot, path.join(stagedAppRoot, stagedOutputRoot), { recursive: true });
 
+  const stagedServerEntryAbsolute = path.join(stagedAppRoot, stagedServerEntry);
+  if (!(await pathExists(stagedServerEntryAbsolute))) {
+    throw new Error(`Expected staged TanStack Start server entry at ${stagedServerEntryAbsolute}. Packaging failed.`);
+  }
+
   await Bun.write(
     path.join(stageRoot, "server.js"),
-    `process.chdir(__dirname + '/executor/apps/web');\nimport(process.cwd() + '${path.posix.normalize(stagedServerEntry)}');\n`,
+    `process.chdir(__dirname + '/executor/apps/web');\nimport(process.cwd() + '${stagedServerEntryWithLeadingSlash}');\n`,
   );
 
   await runArchiveCommand(["tar", "-czf", archivePath, "-C", stageRoot, "."]);

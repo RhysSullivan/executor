@@ -2,7 +2,6 @@
 
 import { useMemo } from "react";
 import { KeyRound, Plus } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -93,20 +92,26 @@ export function CredentialsPanel({
   }, [credentials]);
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
+    <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col border border-border/50 bg-card/40">
+      <div className="flex items-center justify-between border-b border-border/40 px-4 py-3 sm:px-5">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center border border-border/60 bg-background/80">
             <KeyRound className="h-4 w-4 text-muted-foreground" />
-            Connections
-          </CardTitle>
+          </div>
+          <h2 className="text-sm font-medium">Connections</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="h-5 px-2 text-[10px] font-mono uppercase tracking-wide text-muted-foreground">
+            {connectionOptions.length}
+          </Badge>
           <Button size="sm" className="h-8 text-xs" onClick={() => onCreateConnection()}>
             <Plus className="h-3.5 w-3.5 mr-1.5" />
             Add Connection
           </Button>
         </div>
-      </CardHeader>
-      <CardContent className="pt-0 space-y-3">
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
         {loading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
@@ -114,8 +119,8 @@ export function CredentialsPanel({
             ))}
           </div>
         ) : connectionOptions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 gap-2">
-            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+          <div className="flex h-full min-h-[280px] flex-col items-center justify-center gap-2 border border-dashed border-border/50 bg-background/50">
+            <div className="flex h-10 w-10 items-center justify-center border border-border/60 bg-muted/40">
               <KeyRound className="h-5 w-5 text-muted-foreground/50" />
             </div>
             <p className="text-sm text-muted-foreground">No connections configured</p>
@@ -134,48 +139,48 @@ export function CredentialsPanel({
               return (
                 <div
                   key={connection.key}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-muted/40"
+                  className="group flex items-center gap-3 border border-border/50 bg-background/70 px-3 py-2.5 transition-colors hover:border-border hover:bg-accent/20"
                 >
-                    <div className="h-8 w-8 rounded bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-                      {firstSource ? (
-                        <SourceFavicon
-                          source={firstSource}
-                          iconClassName="h-4 w-4 text-muted-foreground"
-                          imageClassName="w-5 h-5"
-                        />
-                      ) : (
-                        <KeyRound className="h-4 w-4 text-muted-foreground" />
-                      )}
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-border/60 bg-muted/50 overflow-hidden">
+                    {firstSource ? (
+                      <SourceFavicon
+                        source={firstSource}
+                        iconClassName="h-4 w-4 text-muted-foreground"
+                        imageClassName="w-5 h-5"
+                      />
+                    ) : (
+                      <KeyRound className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="mb-1 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm font-medium">{connectionDisplayName(sources, connection)}</span>
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                        {connection.scope}
+                      </Badge>
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                        {ownerScopeLabel(connection.scopeType)}
+                      </Badge>
+                      <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
+                        {providerLabel(connection.provider)}
+                      </Badge>
+                      {connection.scope === "account" && connection.accountId ? (
+                        <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded-sm">
+                          {connection.accountId}
+                        </span>
+                      ) : null}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                        <span className="text-sm font-medium">{connectionDisplayName(sources, connection)}</span>
-                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                          {connection.scope}
-                        </Badge>
-                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                          {ownerScopeLabel(connection.scopeType)}
-                        </Badge>
-                        <Badge variant="outline" className="text-[9px] font-mono uppercase tracking-wider">
-                          {providerLabel(connection.provider)}
-                        </Badge>
-                        {connection.scope === "account" && connection.accountId && (
-                          <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                            {connection.accountId}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        Linked to {connection.sourceKeys.size} API{connection.sourceKeys.size === 1 ? "" : "s"} - {storageCopy}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        Updated {new Date(connection.updatedAt).toLocaleString()}
-                      </p>
-                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Linked to {connection.sourceKeys.size} API{connection.sourceKeys.size === 1 ? "" : "s"} - {storageCopy}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      Updated {new Date(connection.updatedAt).toLocaleString()}
+                    </p>
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 text-[11px]"
+                    className="h-7 text-[11px] border-border/70 group-hover:border-border"
                     onClick={() => onEditConnection(representative)}
                   >
                     Edit
@@ -185,7 +190,7 @@ export function CredentialsPanel({
             })}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }

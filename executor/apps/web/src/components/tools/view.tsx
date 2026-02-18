@@ -1,13 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useQueryStates } from "nuqs";
-import { useNavigate as useTanStackNavigate } from "@tanstack/react-router";
 import { useLocation } from "@/lib/router";
-import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { PageHeader } from "@/components/page-header";
 import { ToolExplorer } from "@/components/tools/explorer";
 import { TaskComposer } from "@/components/tasks/task-composer";
 
@@ -33,58 +29,6 @@ import type { SourceDialogMeta } from "@/components/tools/add/source-dialog";
 import type { FilterApproval } from "@/components/tools/explorer-derived";
 import { toolsCatalogQueryParsers } from "@/lib/url-state/tools";
 
-// ── Optimistic source helpers ──
-
-type OptimisticAdd = { kind: "add"; source: ToolSourceRecord; addedAt: number };
-type OptimisticRemove = { kind: "remove"; sourceName: string; removedAt: number };
-type OptimisticOp = OptimisticAdd | OptimisticRemove;
-const OPTIMISTIC_ADD_TTL_MS = 45_000;
-
-/** Merge server sources with pending optimistic operations. */
-function applyOptimisticOps(
-  serverSources: ToolSourceRecord[],
-  ops: OptimisticOp[],
-): ToolSourceRecord[] {
-  const serverNames = new Set(serverSources.map((s) => s.name));
-  let result = [...serverSources];
-
-  for (const op of ops) {
-    if (op.kind === "add" && !serverNames.has(op.source.name)) {
-      result.push(op.source);
-    }
-    if (op.kind === "remove") {
-      result = result.filter((s) => s.name !== op.sourceName);
-    }
-  }
-
-  return result;
-}
-
-/** Remove ops that the server has already reflected. */
-function pruneStaleOps(
-  ops: OptimisticOp[],
-  serverSources: ToolSourceRecord[],
-  toolSourceNames: Set<string>,
-): OptimisticOp[] {
-  const serverNames = new Set(serverSources.map((s) => s.name));
-  const now = Date.now();
-  return ops.filter((op) => {
-    if (op.kind === "add") {
-      if (toolSourceNames.has(op.source.name)) {
-        return false;
-      }
-      if (serverNames.has(op.source.name) && (now - op.addedAt) > OPTIMISTIC_ADD_TTL_MS) {
-        return false;
-      }
-      return true;
-    }
-    if (op.kind === "remove") {
-      return serverNames.has(op.sourceName);
-    }
-    return false;
-  });
-}
-
 type ToolsTab = "catalog" | "connections" | "policies" | "editor";
 const INVENTORY_REGENERATION_TOAST_ID = "tool-inventory-regeneration";
 
@@ -108,19 +52,6 @@ function parseToolsTab(pathname: string): ToolsTab {
   return "catalog";
 }
 
-function toolsPathFromTab(tab: ToolsTab): string {
-  if (tab === "catalog") {
-    return "/tools/catalog";
-  }
-  if (tab === "connections") {
-    return "/tools/connections";
-  }
-  if (tab === "policies") {
-    return "/tools/policies";
-  }
-  return "/tools/editor";
-}
-
 function mapEmptyQueryValueToNull(value: string): string | null {
   return value.length > 0 ? value : null;
 }
@@ -128,7 +59,6 @@ function mapEmptyQueryValueToNull(value: string): string | null {
 // ── Tools View ──
 
 export function ToolsView() {
-  const navigate = useTanStackNavigate();
   const location = useLocation();
   const { context, loading: sessionLoading } = useSession();
   const activeTab = useMemo(() => parseToolsTab(location.pathname), [location.pathname]);
@@ -178,9 +108,6 @@ export function ToolsView() {
   );
   const sourcesLoading = !!context && sources === undefined && serverSourceItems.length === 0;
 
-  // ── Optimistic source state ──
-  const [rawOptimisticOps, setOptimisticOps] = useState<OptimisticOp[]>([]);
-
   const {
     tools,
     warnings,
@@ -197,7 +124,6 @@ export function ToolsView() {
     sourceLoadingMoreTools,
     loadMoreToolsForSource,
     rebuildInventoryNow,
-    totalTools,
     loadToolDetails,
   } = useWorkspaceTools(context ?? null, {
     includeDetails: false,
@@ -226,21 +152,7 @@ export function ToolsView() {
     toast.error(message, { id: INVENTORY_REGENERATION_TOAST_ID });
   }, []);
 
-  const serverToolSourceNames = useMemo(
-    () => new Set(tools.map((tool) => sourceLabel(tool.source))),
-    [tools],
-  );
-
-  // Prune stale ops: if the server already reflects an add/remove, drop it.
-  const optimisticOps = useMemo(
-    () => pruneStaleOps(rawOptimisticOps, serverSourceItems, serverToolSourceNames),
-    [rawOptimisticOps, serverSourceItems, serverToolSourceNames],
-  );
-
-  const sourceItems = useMemo(
-    () => applyOptimisticOps(serverSourceItems, optimisticOps),
-    [serverSourceItems, optimisticOps],
-  );
+  const sourceItems = serverSourceItems;
 
   const visibleSourceNames = useMemo(
     () => new Set(sourceItems.map((source) => source.name)),
@@ -272,14 +184,6 @@ export function ToolsView() {
     [sourceItems, visibleTools],
   );
 
-  // Source names that are optimistically loading (just added, tools not fetched yet)
-  const optimisticallyLoadingNames = useMemo(
-    () => optimisticOps
-      .filter((op): op is OptimisticAdd => op.kind === "add")
-      .map((op) => op.source.name),
-    [optimisticOps],
-  );
-
   const credentials = useQuery(
     convexApi.workspace.listCredentials,
     workspaceQueryArgs(context),
@@ -299,34 +203,33 @@ export function ToolsView() {
     [globalWarnings],
   );
 
-  // Merge optimistic loading with real loading sources
+  // Merge loading sources with global inventory warnings
   const mergedLoadingSources = useMemo(() => {
-    const combined = [...loadingSources];
+    const combined = new Set<string>();
+
+    for (const sourceName of loadingSources) {
+      if (typeof sourceName === "string") {
+        combined.add(sourceName);
+      }
+    }
 
     if (hasGlobalInventoryWarning) {
       for (const source of sourceItems) {
         if (toolSourceNames.has(source.name)) {
           continue;
         }
-        if (!combined.includes(source.name)) {
-          combined.push(source.name);
-        }
+        combined.add(source.name);
       }
     }
 
-    for (const name of optimisticallyLoadingNames) {
-      if (!combined.includes(name)) {
-        combined.push(name);
-      }
-    }
-    return combined;
-  }, [hasGlobalInventoryWarning, loadingSources, optimisticallyLoadingNames, sourceItems, toolSourceNames]);
+    return Array.from(combined);
+  }, [hasGlobalInventoryWarning, loadingSources, sourceItems, toolSourceNames]);
 
   const visibleLoadingSources = useMemo(
     () => mergedLoadingSources.filter((name) =>
-      visibleSourceNames.has(name) || name === "system" || name === "built-in" || optimisticallyLoadingNames.includes(name)
+      visibleSourceNames.has(name) || name === "system" || name === "built-in"
     ),
-    [mergedLoadingSources, optimisticallyLoadingNames, visibleSourceNames],
+    [mergedLoadingSources, visibleSourceNames],
   );
 
   const visibleSourceCounts = useMemo(() => {
@@ -374,13 +277,6 @@ export function ToolsView() {
       ? catalogSourceValue
       : null;
 
-  const handleSourceAdded = useCallback((source: ToolSourceRecord) => {
-    setOptimisticOps((ops) => [
-      ...ops,
-      { kind: "add", source, addedAt: Date.now() },
-    ]);
-  }, []);
-
   const syncSourceToUrl = useCallback((sourceName: string) => {
     void setCatalogQueryState({
       source: sourceName,
@@ -390,10 +286,6 @@ export function ToolsView() {
   }, [setCatalogQueryState]);
 
   const handleSourceDeleted = useCallback((sourceName: string) => {
-    setOptimisticOps((ops) => [
-      ...ops,
-      { kind: "remove", sourceName, removedAt: Date.now() },
-    ]);
     syncSourceToUrl(activeSource === sourceName ? "" : (activeSource ?? ""));
   }, [activeSource, syncSourceToUrl]);
 
@@ -436,11 +328,6 @@ export function ToolsView() {
       history: "replace",
     });
   }, [setCatalogQueryState]);
-
-  const setActiveTab = useCallback((nextTab: ToolsTab) => {
-    const nextPath = toolsPathFromTab(nextTab);
-    void navigate({ to: nextPath, search: true });
-  }, [navigate]);
 
   const handleRegenerateInventory = useCallback(async () => {
     if (!context || regenerationInFlight) {
@@ -486,13 +373,8 @@ export function ToolsView() {
   if (sessionLoading) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="space-y-1 mb-4">
-          <Skeleton className="h-7 w-32" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-9 w-80 mb-4" />
-        <div className="rounded-lg border border-border/50 p-4 flex-1">
-          <div className="flex">
+        <div className="flex flex-1 min-h-0 rounded-lg border border-border/50 p-4">
+          <div className="flex h-full w-full">
             {/* Sidebar skeleton */}
             <div className="w-52 shrink-0 border-r border-border/30 pr-3 space-y-2 hidden lg:block">
               <Skeleton className="h-3 w-16 mb-3" />
@@ -519,93 +401,58 @@ export function ToolsView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader
-        title="Tools"
-        description="Run tasks, manage sources, auth, connections, and available tools"
-      />
-
-      <Tabs
-        value={activeTab}
-        onValueChange={(value) => setActiveTab(value as ToolsTab)}
-        className="w-full min-h-0 flex-1"
-      >
-        <TabsList className="bg-muted/50 h-9">
-          <TabsTrigger value="catalog" className="text-xs data-[state=active]:bg-background">
-            Catalog
-            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-              {loadingTools ? "..." : totalTools}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="connections" className="text-xs data-[state=active]:bg-background">
-            Connections
-            {credentials && (
-              <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">
-                {new Set(credentialItems.map((credential) => credential.id)).size}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="policies" className="text-xs data-[state=active]:bg-background">
-            Policies
-          </TabsTrigger>
-          <TabsTrigger value="editor" className="text-xs data-[state=active]:bg-background">
-            Editor
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="editor" className="mt-4">
+      {activeTab === "editor" ? (
+        <div className="flex-1 min-h-0">
           <TaskComposer />
-        </TabsContent>
+        </div>
+      ) : null}
 
-        <TabsContent value="catalog" className="mt-4 min-h-0">
-          <Card className="bg-card border-border min-h-0 flex flex-col pt-4 gap-3">
-            <CardContent className="pt-0 min-h-0 flex-1 flex flex-col gap-3">
-              <div className="min-h-0 flex-1">
-                <ToolExplorer
-                  tools={visibleTools}
-                  sources={sourceItems}
-                  loadingSources={visibleLoadingSources}
-                  sourceCountsOverride={visibleSourceCounts}
-                  totalTools={visibleTools.length}
-                  hasMoreTools={hasMoreTools}
-                  loadingMoreTools={loadingMoreTools}
-                  onLoadMoreTools={loadMoreTools}
-                  sourceHasMoreTools={sourceHasMoreTools}
-                  sourceLoadingMoreTools={sourceLoadingMoreTools}
-                  onLoadMoreToolsForSource={loadMoreToolsForSource}
-                   loading={loadingTools}
-                   sourceDialogMeta={sourceDialogMeta}
-                   sourceAuthProfiles={sourceAuthProfiles}
-                   existingSourceNames={existingSourceNames}
-                   onSourceDeleted={handleSourceDeleted}
-                   onLoadToolDetails={loadToolDetails}
-                   warnings={warnings}
-                   activeSource={activeSource}
-                   searchValue={catalogSearchValue}
-                  filterApprovalValue={catalogFilterValue}
-                  focusedToolPathValue={catalogActiveToolPath}
-                  selectedToolPathsValue={catalogSelectedToolPaths}
-                  focusedSourceNameValue={catalogFocusedSourceName}
-                  onSearchValueChange={setCatalogSearch}
-                  onFilterApprovalValueChange={setCatalogApprovalFilter}
-                  onFocusedToolPathChange={setCatalogActiveToolPath}
-                  onSelectedToolPathsChange={setCatalogSelectedToolPaths}
-                  onFocusedSourceNameChange={setCatalogFocusedSourceName}
-                  onRegenerate={handleRegenerateInventory}
-                  inventoryState={inventoryStatus?.state}
-                  inventoryError={inventoryStatus?.error}
-                  isRebuilding={
-                    regenerationInFlight
-                    || inventoryStatus?.state === "rebuilding"
-                    || inventoryStatus?.state === "initializing"
-                  }
-                  onSourceAdded={handleSourceAdded}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+      {activeTab === "catalog" ? (
+        <div className="flex-1 min-h-0">
+          <ToolExplorer
+            tools={visibleTools}
+            sources={sourceItems}
+            loadingSources={visibleLoadingSources}
+            sourceCountsOverride={visibleSourceCounts}
+            totalTools={visibleTools.length}
+            hasMoreTools={hasMoreTools}
+            loadingMoreTools={loadingMoreTools}
+            onLoadMoreTools={loadMoreTools}
+            sourceHasMoreTools={sourceHasMoreTools}
+            sourceLoadingMoreTools={sourceLoadingMoreTools}
+            onLoadMoreToolsForSource={loadMoreToolsForSource}
+            loading={loadingTools}
+            sourceDialogMeta={sourceDialogMeta}
+            sourceAuthProfiles={sourceAuthProfiles}
+            existingSourceNames={existingSourceNames}
+            onSourceDeleted={handleSourceDeleted}
+            onLoadToolDetails={loadToolDetails}
+            warnings={warnings}
+            activeSource={activeSource}
+            searchValue={catalogSearchValue}
+            filterApprovalValue={catalogFilterValue}
+            focusedToolPathValue={catalogActiveToolPath}
+            selectedToolPathsValue={catalogSelectedToolPaths}
+            focusedSourceNameValue={catalogFocusedSourceName}
+            onSearchValueChange={setCatalogSearch}
+            onFilterApprovalValueChange={setCatalogApprovalFilter}
+            onFocusedToolPathChange={setCatalogActiveToolPath}
+            onSelectedToolPathsChange={setCatalogSelectedToolPaths}
+            onFocusedSourceNameChange={setCatalogFocusedSourceName}
+            onRegenerate={handleRegenerateInventory}
+            inventoryState={inventoryStatus?.state}
+            inventoryError={inventoryStatus?.error}
+            isRebuilding={
+              regenerationInFlight
+              || inventoryStatus?.state === "rebuilding"
+              || inventoryStatus?.state === "initializing"
+            }
+          />
+        </div>
+      ) : null}
 
-        <TabsContent value="connections" className="mt-4">
+      {activeTab === "connections" ? (
+        <div className="flex-1 min-h-0">
           <CredentialsPanel
             sources={sourceItems}
             credentials={credentialItems}
@@ -613,16 +460,17 @@ export function ToolsView() {
             onCreateConnection={openConnectionCreate}
             onEditConnection={openConnectionEdit}
           />
-        </TabsContent>
+        </div>
+      ) : null}
 
-        <TabsContent value="policies" className="mt-4">
+      {activeTab === "policies" ? (
+        <div className="flex-1 min-h-0">
           <PoliciesPanel
             tools={visibleTools}
             loadingTools={loadingTools}
           />
-        </TabsContent>
-
-      </Tabs>
+        </div>
+      ) : null}
 
       <ConnectionFormDialog
         open={connectionDialogOpen}

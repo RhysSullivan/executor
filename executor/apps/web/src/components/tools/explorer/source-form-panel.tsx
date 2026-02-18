@@ -17,7 +17,7 @@ import type {
   SourceAuthProfile,
   ToolSourceRecord,
 } from "@/lib/types";
-import type { SourceDialogMeta } from "../add/source-dialog";
+import { type OnSourceAdded, type SourceDialogMeta } from "../add/source-dialog";
 import { SourceFavicon } from "../source-favicon";
 import { displaySourceName } from "@/lib/tool/source-utils";
 import {
@@ -76,7 +76,7 @@ export function SourceFormPanel({
   sourceToEdit?: ToolSourceRecord;
   sourceDialogMeta?: SourceDialogMeta;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
-  onSourceAdded?: (source: ToolSourceRecord, options?: { connected?: boolean }) => void;
+  onSourceAdded?: OnSourceAdded;
   onSourceDeleted?: (sourceName: string) => void;
   onClose: () => void;
 }) {
@@ -237,7 +237,10 @@ export function SourceFormPanel({
 
     const result = saveResult.value;
     const needsCredentials = form.authType !== "none" && !result.connected;
-    onSourceAdded?.(result.source, { connected: result.connected });
+    onSourceAdded?.(result.source, {
+      connected: result.connected,
+      isNew: !sourceToEdit,
+    });
     if (needsCredentials) {
       toast.warning(
         sourceToEdit

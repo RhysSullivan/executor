@@ -27,7 +27,25 @@ const NAV_ITEMS = [
   { href: "/", label: "Home", icon: LayoutDashboard },
   { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
-  { href: "/tools", label: "Tools", icon: Wrench },
+  {
+    href: "/tools",
+    label: "Tools",
+    icon: Wrench,
+    children: [
+      { href: "/tools/catalog", label: "Catalog" },
+      {
+        href: "/tools/connections",
+        label: "Connections",
+        matchPrefixes: ["/tools/connections", "/tools/credentials"],
+      },
+      { href: "/tools/policies", label: "Policies" },
+      {
+        href: "/tools/editor",
+        label: "Editor",
+        matchPrefixes: ["/tools/editor", "/tools/runner"],
+      },
+    ],
+  },
 ];
 
 const EXECUTOR_REPO_URL = "https://github.com/RhysSullivan/executor";
@@ -38,28 +56,54 @@ function NavLinks({ onClick }: { onClick?: () => void }) {
   const location = useLocation();
   const pathname = location.pathname;
 
+  const isActivePath = (href: string) => (
+    href === "/" ? pathname === "/" : pathname.startsWith(href)
+  );
+
   return (
     <nav className="flex flex-col gap-1">
       {NAV_ITEMS.map((item) => {
-        const isActive =
-          item.href === "/"
-            ? pathname === "/"
-            : pathname.startsWith(item.href);
+        const isActive = isActivePath(item.href);
+
         return (
-          <Link
-            key={item.href}
-            to={item.href}
-            onClick={onClick}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
-              isActive
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent",
-            )}
-          >
-            <item.icon className="h-4 w-4 shrink-0" />
-            {item.label}
-          </Link>
+          <div key={item.href} className="space-y-1">
+            <Link
+              to={item.href}
+              onClick={onClick}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent",
+              )}
+            >
+              <item.icon className="h-4 w-4 shrink-0" />
+              {item.label}
+            </Link>
+
+            {item.children && isActive ? (
+              <div className="ml-8 flex flex-col gap-1">
+                {item.children.map((child) => {
+                  const childActive = (child.matchPrefixes ?? [child.href]).some((prefix) => isActivePath(prefix));
+                  return (
+                    <Link
+                      key={child.href}
+                      to={child.href}
+                      onClick={onClick}
+                      className={cn(
+                        "rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                        childActive
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                      )}
+                    >
+                      {child.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </nav>
@@ -172,6 +216,10 @@ function MobileHeader() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const pathname = location.pathname;
+  const useCompactChrome = pathname === "/"
+    || pathname.startsWith("/tools")
+    || pathname.startsWith("/tasks")
+    || pathname.startsWith("/approvals");
   const { loading, organizations, organizationsLoading, isSignedInToWorkos } = useSession();
 
   const onOnboardingRoute = pathname.startsWith("/onboarding");
@@ -208,7 +256,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <MobileHeader />
-        <main className="flex-1 min-h-0 p-4 md:p-6 lg:p-8">{children}</main>
+        <main className={cn("flex-1 min-h-0", useCompactChrome ? "p-0" : "p-4 md:p-6 lg:p-8")}>{children}</main>
       </div>
     </div>
   );

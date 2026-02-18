@@ -4,7 +4,6 @@ import { Server } from "lucide-react";
 import { useQuery } from "convex/react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageHeader } from "@/components/page-header";
 import { DashboardPendingApprovalsCard } from "@/components/dashboard/pending/approvals-card";
 import { McpSetupCard } from "@/components/tools/setup-card";
 import { useSession } from "@/lib/session-context";
@@ -23,7 +22,7 @@ export function DashboardView() {
 
   if (sessionLoading) {
     return (
-      <div className="space-y-6">
+      <div className="p-4 md:p-6 lg:p-8 space-y-6">
         <Skeleton className="h-8 w-48" />
         <div className="grid gap-6 xl:grid-cols-2">
           {Array.from({ length: 2 }).map((_, i) => (
@@ -36,13 +35,8 @@ export function DashboardView() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Workspace Home"
-        description="Approvals on the left and agent setup on the right"
-      />
-
-      <div className="grid gap-6 xl:grid-cols-2">
+    <div className="flex h-full min-h-0 flex-col p-4 md:p-6 lg:p-8">
+      <div className="grid min-h-0 flex-1 gap-6 xl:grid-cols-2">
         {approvalsLoading ? (
           <Skeleton className="h-[420px]" />
         ) : (
@@ -52,14 +46,14 @@ export function DashboardView() {
           />
         )}
 
-        <Card id="mcp-setup" className="bg-card border-border">
+        <Card id="mcp-setup" className="bg-card border-border min-h-0 flex flex-col">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Server className="h-4 w-4 text-primary" />
               Integrate with your agent
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-0">
+          <CardContent className="pt-0 min-h-0 flex-1 overflow-y-auto">
             <McpSetupCard
               workspaceId={context?.workspaceId}
               sessionId={context?.sessionId}

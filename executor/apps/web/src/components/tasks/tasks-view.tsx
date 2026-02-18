@@ -7,10 +7,7 @@ import { ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PageHeader } from "@/components/page-header";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TaskDetail } from "@/components/tasks/task-detail";
-import { TaskComposer } from "@/components/tasks/task-composer";
 import { TaskListItem } from "@/components/tasks/task/list-item";
 import { useSession } from "@/lib/session-context";
 import { useQuery } from "convex/react";
@@ -22,11 +19,7 @@ import type {
   PendingApprovalRecord,
 } from "@/lib/types";
 import { getTaskRuntimeLabel } from "@/lib/runtime-display";
-import {
-  normalizeTaskTab,
-  taskQueryParsers,
-  type TaskTab,
-} from "@/lib/url-state/tasks";
+import { taskQueryParsers } from "@/lib/url-state/tasks";
 // ── Tasks View ──
 
 export function TasksView() {
@@ -35,7 +28,6 @@ export function TasksView() {
   const [taskQueryState, setTaskQueryState] = useQueryStates(taskQueryParsers, {
     history: "replace",
   });
-  const activeTab = taskQueryState.tab;
   const selectedId = taskQueryState.selected;
 
   const tasks = useQuery(
@@ -65,17 +57,9 @@ export function TasksView() {
     [setTaskQueryState],
   );
 
-  const setActiveTab = useCallback(
-    (nextTab: string) => {
-      const normalized = normalizeTaskTab(nextTab);
-      void setTaskQueryState({ tab: normalized }, { history: "push" });
-    },
-    [setTaskQueryState],
-  );
-
   if (sessionLoading) {
     return (
-      <div className="space-y-6">
+      <div className="p-4 md:p-6 lg:p-8 space-y-6">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64" />
       </div>
@@ -83,99 +67,76 @@ export function TasksView() {
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Tasks"
-        description="Task activity first, with an advanced editor when you need it"
-      >
-        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setActiveTab("runner")}>
-          Editor
-        </Button>
+    <div className="flex h-full min-h-0 flex-col p-4 md:p-6 lg:p-8">
+      <div className="mb-4 flex items-center justify-end gap-2">
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => navigate("/approvals")}>
           <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
           {pendingApprovals.length} pending
         </Button>
-      </PageHeader>
+      </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TaskTab)}>
-        <TabsList className="bg-muted/50 h-9">
-          <TabsTrigger value="activity" className="text-xs data-[state=active]:bg-background">
-            Activity
-            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{taskItems.length}</span>
-          </TabsTrigger>
-          <TabsTrigger value="runner" className="text-xs data-[state=active]:bg-background">
-            Editor
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="activity" className="mt-4">
-          <div className="grid lg:grid-cols-2 gap-6">
-            <Card className="bg-card border-border">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  Task History
-                  {tasks && (
-                    <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
-                      {taskItems.length}
-                    </span>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {tasksLoading ? (
-                  <div className="space-y-2">
-                    {Array.from({ length: 4 }).map((_, i) => (
-                      <Skeleton key={i} className="h-14" />
-                    ))}
-                  </div>
-                ) : taskItems.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground gap-2">
-                    <p>No tasks yet.</p>
-                    <Button size="sm" className="h-8 text-xs" onClick={() => setActiveTab("runner")}>Run your first task</Button>
-                  </div>
-                ) : (
-                  <div className="space-y-1 max-h-[620px] overflow-y-auto">
-                    {taskItems.map((task: TaskRecord) => (
-                      <TaskListItem
-                        key={task.id}
-                        task={task}
-                        selected={task.id === selectedId}
-                        runtimeLabel={getTaskRuntimeLabel(task.runtimeId, runtimeItems)}
-                        onClick={() => selectTask(task.id)}
-                      />
-                    ))}
-                  </div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="grid h-full min-h-0 gap-6 lg:grid-cols-[minmax(360px,440px)_1fr]">
+          <Card className="bg-card border-border min-h-0 flex flex-col">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                Task History
+                {tasks && (
+                  <span className="text-[10px] font-mono bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                    {taskItems.length}
+                  </span>
                 )}
-              </CardContent>
-            </Card>
-
-            <div>
-              {selectedTask && context ? (
-                <TaskDetail
-                  task={selectedTask}
-                  workspaceId={context.workspaceId}
-                  sessionId={context?.sessionId}
-                  runtimeLabel={getTaskRuntimeLabel(selectedTask.runtimeId, runtimeItems)}
-                  pendingApprovals={selectedTaskApprovals}
-                  onClose={() => selectTask(null)}
-                />
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 min-h-0 flex-1">
+              {tasksLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-14" />
+                  ))}
+                </div>
+              ) : taskItems.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground gap-2">
+                  <p>No tasks yet.</p>
+                </div>
               ) : (
-                <Card className="bg-card border-border">
-                  <CardContent className="flex items-center justify-center py-24">
-                    <p className="text-sm text-muted-foreground">
-                      Select a task to view logs, output, and approval actions
-                    </p>
-                  </CardContent>
-                </Card>
+                <div className="h-full overflow-y-auto space-y-1 pr-1">
+                  {taskItems.map((task: TaskRecord) => (
+                    <TaskListItem
+                      key={task.id}
+                      task={task}
+                      selected={task.id === selectedId}
+                      runtimeLabel={getTaskRuntimeLabel(task.runtimeId, runtimeItems)}
+                      onClick={() => selectTask(task.id)}
+                    />
+                  ))}
+                </div>
               )}
-            </div>
-          </div>
-        </TabsContent>
+            </CardContent>
+          </Card>
 
-        <TabsContent value="runner" className="mt-4">
-          <TaskComposer />
-        </TabsContent>
-      </Tabs>
+          <div className="min-h-0">
+            {selectedTask && context ? (
+              <TaskDetail
+                task={selectedTask}
+                workspaceId={context.workspaceId}
+                sessionId={context?.sessionId}
+                runtimeLabel={getTaskRuntimeLabel(selectedTask.runtimeId, runtimeItems)}
+                pendingApprovals={selectedTaskApprovals}
+                onClose={() => selectTask(null)}
+              />
+            ) : (
+              <Card className="bg-card border-border h-full">
+                <CardContent className="flex items-center justify-center py-24">
+                  <p className="text-sm text-muted-foreground">
+                    Select a task to view logs, output, and approval actions
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

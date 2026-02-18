@@ -55,6 +55,13 @@ export type SourceDialogMeta = {
   warnings?: string[];
 };
 
+export type SourceAddedOptions = {
+  connected?: boolean;
+  isNew?: boolean;
+};
+
+export type OnSourceAdded = (source: ToolSourceRecord, options?: SourceAddedOptions) => void;
+
 function resultErrorMessage(error: unknown, fallback: string): string {
   const cause = typeof error === "object" && error && "cause" in error
     ? (error as { cause?: unknown }).cause
@@ -82,7 +89,7 @@ export function AddSourceDialog({
   trigger,
 }: {
   existingSourceNames: Set<string>;
-  onSourceAdded?: (source: ToolSourceRecord, options?: { connected?: boolean }) => void;
+  onSourceAdded?: OnSourceAdded;
   onSourceDeleted?: (sourceName: string) => void;
   sourceToEdit?: ToolSourceRecord;
   sourceDialogMeta?: SourceDialogMeta;
@@ -253,7 +260,10 @@ export function AddSourceDialog({
 
     const result = saveResult.value;
     const needsCredentials = form.authType !== "none" && !result.connected;
-    onSourceAdded?.(result.source, { connected: result.connected });
+    onSourceAdded?.(result.source, {
+      connected: result.connected,
+      isNew: !sourceToEdit,
+    });
     if (needsCredentials) {
       toast.warning(
         sourceToEdit

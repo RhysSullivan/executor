@@ -23,7 +23,6 @@ import { sourceLabel } from "@/lib/tool/source-utils";
 import {
   EmptyState,
   LoadingState,
-  ToolLoadingRows,
 } from "./explorer-rows";
 import { NavGroupNode } from "./explorer-groups";
 import {
@@ -31,7 +30,10 @@ import {
 } from "./explorer-toolbar";
 import { ToolDetailPanel, ToolDetailEmpty } from "./explorer/tool-detail";
 import { SourceFormPanel } from "./explorer/source-form-panel";
-import type { SourceDialogMeta } from "./add/source-dialog";
+import type {
+  SourceDialogMeta,
+  SourceAddedOptions,
+} from "./add/source-dialog";
 import { warningsBySourceName } from "@/lib/tools/source-helpers";
 
 // ── Main Explorer ──
@@ -62,7 +64,7 @@ interface ToolExplorerProps {
   onFocusedToolPathChange: (toolPath: string | null) => void;
   onSelectedToolPathsChange: (toolPaths: string[]) => void;
   onFocusedSourceNameChange: (sourceName: string | null) => void;
-  onSourceAdded?: (source: ToolSourceRecord) => void;
+  onSourceAdded?: (source: ToolSourceRecord, options?: SourceAddedOptions) => void;
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   existingSourceNames?: Set<string>;
@@ -251,6 +253,10 @@ export function ToolExplorer({
   }, [visibleSources]);
 
   useEffect(() => {
+    if (formSource === "new") {
+      return;
+    }
+
     const resolvedSource = focusedSourceNameValue
       ? sourceByName.get(focusedSourceNameValue) ?? null
       : null;
@@ -259,7 +265,7 @@ export function ToolExplorer({
     if (focusedSourceNameValue) {
       setFocusedToolPath(null);
     }
-  }, [focusedSourceNameValue, sourceByName, setFocusedToolPath]);
+  }, [focusedSourceNameValue, formSource, sourceByName, setFocusedToolPath]);
 
   const toggleSelectTool = useCallback(
     (path: string, e: React.MouseEvent) => {
@@ -345,15 +351,22 @@ export function ToolExplorer({
   const handleAddSource = useCallback(() => {
     setSourceFocusState(null, null);
     setFormSource("new");
-  }, [setFocusedSourceName, setSourceFocusState]);
+  }, [setSourceFocusState]);
 
   const handleSourceFormClose = useCallback(() => {
     setFormSource(null);
   }, []);
 
-  const handleSourceFormAdded = useCallback((source: ToolSourceRecord) => {
-    onSourceAdded?.(source);
-    // After adding, show the new source in the form
+  const handleSourceFormAdded = useCallback((
+    source: ToolSourceRecord,
+    options?: SourceAddedOptions,
+  ) => {
+    onSourceAdded?.(source, options);
+    if (options?.isNew) {
+      return;
+    }
+
+    // After editing, keep the updated source open for quick follow-up.
     setSourceFocusState(source.name, source);
   }, [onSourceAdded, setSourceFocusState]);
 
@@ -367,15 +380,22 @@ export function ToolExplorer({
     return sourceByName.get(focusedSourceName) ?? null;
   }, [focusedSourceName, sourceByName]);
 
+  useEffect(() => {
+    if (formSource !== null && focusedToolPath) {
+      setFocusedToolPath(null);
+    }
+  }, [focusedToolPath, formSource, setFocusedToolPath]);
+
   // Auto-focus first tool when tools arrive
   useEffect(() => {
-    if (!focusedToolPath && !focusedSourceName && searchedTools.length > 0) {
-      const first = searchedTools[0];
-      setFocusedToolPath(first.path);
-      void maybeLoadToolDetails(first, true);
+    if (formSource === null && !focusedToolPath && !focusedSourceName && searchedTools.length > 0) {
+      const [first] = searchedTools;
+      if (first) {
+        setFocusedToolPath(first.path);
+        void maybeLoadToolDetails(first, true);
+      }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchedTools.length > 0]);
+  }, [focusedSourceName, focusedToolPath, formSource, maybeLoadToolDetails, searchedTools, setFocusedToolPath]);
 
   useEffect(() => {
     if (!focusedToolPath || searchedTools.length === 0) {
@@ -386,17 +406,6 @@ export function ToolExplorer({
       setFocusedToolPath(null);
     }
   }, [focusedToolPath, searchedTools]);
-
-  const loadingRows = useMemo(() => {
-    if (search.length > 0) return [];
-    const visibleLoadingSources = loadingSourceSet.size === 0
-      ? []
-      : resolvedActiveSource
-        ? loadingSourceSet.has(resolvedActiveSource) ? [resolvedActiveSource] : []
-        : Array.from(loadingSourceSet);
-
-    return visibleLoadingSources.map((source) => ({ source, count: 3 }));
-  }, [search.length, loadingSourceSet, resolvedActiveSource]);
 
   const canInfiniteLoad = searchInput.length === 0 && hasMoreTools;
   const awaitingInitialInventory =
@@ -498,9 +507,9 @@ export function ToolExplorer({
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-[calc(100vh-220px)]">
+    <div className="flex h-full min-h-0 max-h-screen overflow-hidden">
       {/* ── Left panel: search + tree ────────────────────────────────────── */}
-      <div className="flex flex-col w-72 lg:w-80 xl:w-[22rem] shrink-0 border-r border-border/40">
+      <div className="flex h-full max-h-screen flex-col w-72 lg:w-80 xl:w-[22rem] shrink-0 border-r border-border/40">
         {/* Header: inventory status + regenerate */}
         <div className="shrink-0 px-3 pt-2 pb-1.5 border-b border-border/30">
           <div className="flex items-center justify-between">
@@ -577,7 +586,7 @@ export function ToolExplorer({
 
         {/* Source-grouped tree */}
         <div className="flex-1 min-h-0">
-          {searchedTools.length === 0 && loadingRows.length === 0 ? (
+          {searchedTools.length === 0 && loadingSourceSet.size === 0 ? (
             <div className="h-full overflow-y-auto">
               {awaitingInitialInventory ? (
                 <LoadingState />
@@ -623,14 +632,6 @@ export function ToolExplorer({
                     />
                   ))}
 
-                  {loadingRows.map((loadingRow) => (
-                    <ToolLoadingRows
-                      key={loadingRow.source}
-                      source={loadingRow.source}
-                      count={loadingRow.count}
-                      depth={0}
-                    />
-                  ))}
                 </div>
               </InfiniteScroll>
             </div>
@@ -639,7 +640,7 @@ export function ToolExplorer({
       </div>
 
       {/* ── Detail panel (right, main content) ─────────────────────────────── */}
-      <div className="flex-1 min-w-0 bg-background/50">
+      <div className="flex-1 min-w-0 max-h-screen overflow-y-auto bg-background/50">
         {formSource !== null ? (
           <SourceFormPanel
             existingSourceNames={sidebarExistingSourceNames}

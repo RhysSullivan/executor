@@ -1286,7 +1286,9 @@ export function PoliciesPanel({
   // ── Render ──
 
   return (
-    <div className="space-y-4">
+    <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col border border-border/50 bg-card/40">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+        <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
@@ -1962,6 +1964,8 @@ export function PoliciesPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+        </div>
+      </div>
+    </section>
   );
 }

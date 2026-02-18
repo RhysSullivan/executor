@@ -179,6 +179,7 @@ spawnService("sources", ["bun", "--hot", "server.ts"], {
 spawnService("convex", [
   "bunx", "convex", "dev",
   "--typecheck", "disable",
+  "--env-file", "../.env",
 ], {
   cwd: "./executor",
 });

@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { PageHeader } from "@/components/page-header";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
@@ -159,7 +158,7 @@ export function ApprovalsView() {
 
   if (sessionLoading) {
     return (
-      <div className="space-y-6">
+      <div className="p-4 md:p-6 lg:p-8 space-y-6">
         <Skeleton className="h-8 w-48" />
         <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -173,12 +172,7 @@ export function ApprovalsView() {
   const count = approvals?.length ?? 0;
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Approvals"
-        description="Review and approve pending tool calls"
-      />
-
+    <div className="flex h-full min-h-0 flex-col p-4 md:p-6 lg:p-8">
       {approvalsLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
@@ -186,7 +180,7 @@ export function ApprovalsView() {
           ))}
         </div>
       ) : count === 0 ? (
-        <Card className="bg-card border-border">
+        <Card className="bg-card border-border flex-1">
           <CardContent className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="h-12 w-12 rounded-full bg-terminal-green/10 flex items-center justify-center">
               <CheckCircle2 className="h-6 w-6 text-terminal-green/60" />
@@ -200,14 +194,16 @@ export function ApprovalsView() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4 max-w-2xl">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex min-h-0 flex-1 flex-col max-w-2xl">
+          <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
             <Clock className="h-3.5 w-3.5" />
             {count} pending approval{count !== 1 ? "s" : ""}
           </div>
-          {(approvals ?? []).map((a: PendingApprovalRecord) => (
-            <ApprovalCard key={a.id} approval={a} />
-          ))}
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            {(approvals ?? []).map((a: PendingApprovalRecord) => (
+              <ApprovalCard key={a.id} approval={a} />
+            ))}
+          </div>
         </div>
       )}
     </div>
