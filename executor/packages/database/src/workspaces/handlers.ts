@@ -1,7 +1,7 @@
 import type { Doc, Id } from "../../convex/_generated/dataModel.d.ts";
 import type { MutationCtx, QueryCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
-import { getOrganizationMembership, slugify } from "../../../core/src/identity";
+import { getOrganizationMembership, isAdminRole, slugify } from "../../../core/src/identity";
 import { ensureUniqueSlug } from "../../../core/src/slug";
 import { upsertOrganizationMembership } from "../auth/memberships";
 import { safeRunAfter } from "../lib/scheduler";
@@ -88,6 +88,9 @@ export async function createWorkspaceHandler(
     const membership = await getOrganizationMembership(ctx, organizationId, account._id);
     if (!membership || membership.status !== "active") {
       throw new Error("You are not a member of this organization");
+    }
+    if (!isAdminRole(membership.role)) {
+      throw new Error("Only organization admins can create workspaces in this organization");
     }
   } else {
     const now = Date.now();

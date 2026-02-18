@@ -125,6 +125,11 @@ export async function requireWorkspaceAccessForAccount(
     throw new Error("Workspace not found");
   }
 
+  const organization = await ctx.db.get(workspace.organizationId);
+  if (!organization || organization.status !== "active") {
+    throw new Error("Workspace organization is inactive");
+  }
+
   const organizationMembership = await getOrganizationMembership(ctx, workspace.organizationId, account._id);
   if (!organizationMembership || organizationMembership.status !== "active") {
     throw new Error("You are not a member of this workspace");
