@@ -375,6 +375,26 @@ describe("workspace access controls", () => {
     ).rejects.toThrow("You are not a member of this workspace");
   });
 
+  test("workspace access is denied when organization is inactive", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "inactive-org-owner" });
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(owner.organizationId, {
+        status: "deleted",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const authedOwner = t.withIdentity({ subject: "inactive-org-owner" });
+
+    await expect(
+      authedOwner.query(api.workspace.listTasks, {
+        workspaceId: owner.workspaceId,
+      }),
+    ).rejects.toThrow("Workspace organization is inactive");
+  });
+
   test("removed member cannot access workspace", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "ws-owner-3" });
@@ -985,6 +1005,27 @@ describe("workspace creation", () => {
         organizationId: otherOrg.organizationId,
       }),
     ).rejects.toThrow("You are not a member of this organization");
+  });
+
+  test("org member cannot create workspace without admin role", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "ws-org-owner" });
+    const member = await seedUser(t, { subject: "ws-org-member" });
+
+    await addOrgMember(t, {
+      organizationId: owner.organizationId,
+      accountId: member.accountId,
+      role: "member",
+    });
+
+    const authedMember = t.withIdentity({ subject: "ws-org-member" });
+
+    await expect(
+      authedMember.mutation(api.workspaces.create, {
+        name: "Member Workspace",
+        organizationId: owner.organizationId,
+      }),
+    ).rejects.toThrow("Only organization admins can create workspaces in this organization");
   });
 
   test("workspace name must be at least 2 characters", async () => {
