@@ -1280,6 +1280,12 @@ export declare const internal: {
       { buildId: string; cursor?: string; workspaceId: Id<"workspaces"> },
       any
     >;
+    deleteToolRegistryPayloadsPage: FunctionReference<
+      "mutation",
+      "internal",
+      { buildId: string; cursor?: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
     deleteToolRegistryToolsPage: FunctionReference<
       "mutation",
       "internal",
@@ -1296,6 +1302,12 @@ export declare const internal: {
       "mutation",
       "internal",
       { buildId: string; signature: string; workspaceId: Id<"workspaces"> },
+      any
+    >;
+    getSerializedToolsByPaths: FunctionReference<
+      "query",
+      "internal",
+      { buildId: string; paths: Array<string>; workspaceId: Id<"workspaces"> },
       any
     >;
     getState: FunctionReference<

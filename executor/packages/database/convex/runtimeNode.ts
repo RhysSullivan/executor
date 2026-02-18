@@ -24,12 +24,13 @@ export const compileExternalToolSource = internalAction({
   args: {
     source: jsonObjectValidator,
   },
-  handler: async (_ctx, args) => {
+  handler: async (_ctx, args): Promise<string> => {
     const source = args.source as unknown as { type?: string; name?: string };
     if (typeof source.type !== "string" || typeof source.name !== "string") {
       throw new Error("Runtime source compile requires source.type and source.name");
     }
-    return await compileExternalToolSourceInNode(args.source as any);
+    const artifact = await compileExternalToolSourceInNode(args.source as any);
+    return JSON.stringify(artifact);
   },
 });
 
@@ -39,11 +40,19 @@ export const prepareOpenApiSpec = internalAction({
     sourceName: v.string(),
     includeDts: v.optional(v.boolean()),
   },
-  handler: async (_ctx, args): Promise<string> => {
+  handler: async (ctx, args): Promise<string> => {
     const prepared = await prepareOpenApiSpecInNode(args.specUrl, args.sourceName, {
       includeDts: args.includeDts,
+      profile: "full",
     });
 
-    return JSON.stringify(prepared);
+    const json = JSON.stringify(prepared);
+    const blob = new Blob([json], { type: "application/json" });
+    const storageId = await ctx.storage.store(blob);
+
+    return JSON.stringify({
+      storageId,
+      sizeBytes: json.length,
+    });
   },
 });

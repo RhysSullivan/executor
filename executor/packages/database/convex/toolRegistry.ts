@@ -136,6 +136,13 @@ export const putToolsBatch = internalMutation({
         requiredInputKeys: tool.requiredInputKeys,
         previewInputKeys: tool.previewInputKeys,
         typedRef: tool.typedRef,
+        createdAt: now,
+      });
+
+      await ctx.db.insert("workspaceToolRegistryPayloads", {
+        workspaceId: args.workspaceId,
+        buildId: args.buildId,
+        path: tool.path,
         serializedToolJson: tool.serializedToolJson,
         createdAt: now,
       });
@@ -367,6 +374,26 @@ export const deleteToolRegistryToolsPage = internalMutation({
   },
 });
 
+export const deleteToolRegistryPayloadsPage = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("workspaceToolRegistryPayloads")
+      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId))
+      .paginate({ numItems: PRUNE_DELETE_PAGE_SIZE, cursor: args.cursor ?? null });
+
+    for (const entry of page.page) {
+      await ctx.db.delete(entry._id);
+    }
+
+    return { continueCursor: page.isDone ? null : page.continueCursor };
+  },
+});
+
 export const deleteToolRegistryNamespacesPage = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
@@ -460,6 +487,24 @@ export const pruneBuilds = internalAction({
         cursor = page.continueCursor;
       }
 
+      let payloadCursor: string | undefined = undefined;
+      while (true) {
+        const payloadPage: { continueCursor: string | null } = await ctx.runMutation(
+          internal.toolRegistry.deleteToolRegistryPayloadsPage,
+          {
+            workspaceId: args.workspaceId,
+            buildId,
+            cursor: payloadCursor,
+          },
+        );
+
+        if (payloadPage.continueCursor === null) {
+          break;
+        }
+
+        payloadCursor = payloadPage.continueCursor;
+      }
+
       let namespacePageCursor: string | undefined = undefined;
       while (true) {
         const namespaceDeletePage: { continueCursor: string | null } = await ctx.runMutation(
@@ -497,6 +542,13 @@ export const getToolByPath = internalQuery({
 
     if (!entry) return null;
 
+    const payload = await ctx.db
+      .query("workspaceToolRegistryPayloads")
+      .withIndex("by_workspace_build_path", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("path", entry.path),
+      )
+      .first();
+
     return {
       path: entry.path,
       preferredPath: entry.preferredPath,
@@ -510,8 +562,40 @@ export const getToolByPath = internalQuery({
       requiredInputKeys: entry.requiredInputKeys,
       previewInputKeys: entry.previewInputKeys,
       typedRef: entry.typedRef,
-      serializedToolJson: entry.serializedToolJson,
+      serializedToolJson: payload?.serializedToolJson,
     };
+  },
+});
+
+export const getSerializedToolsByPaths = internalQuery({
+  args: {
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    paths: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const paths = [...new Set(args.paths.map((path) => path.trim()).filter((path) => path.length > 0))]
+      .slice(0, 500);
+    if (paths.length === 0) {
+      return [] as Array<{ path: string; serializedToolJson: string }>;
+    }
+
+    const payloads = await Promise.all(paths.map(async (path) => {
+      const payload = await ctx.db
+        .query("workspaceToolRegistryPayloads")
+        .withIndex("by_workspace_build_path", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("path", path),
+        )
+        .first();
+
+      if (!payload) return null;
+      return {
+        path: payload.path,
+        serializedToolJson: payload.serializedToolJson,
+      };
+    }));
+
+    return payloads.filter((entry): entry is { path: string; serializedToolJson: string } => Boolean(entry));
   },
 });
 
@@ -546,7 +630,6 @@ export const listToolsByNamespace = internalQuery({
       requiredInputKeys: entry.requiredInputKeys,
       previewInputKeys: entry.previewInputKeys,
       typedRef: entry.typedRef,
-      serializedToolJson: entry.serializedToolJson,
     }));
   },
 });
@@ -559,7 +642,7 @@ export const listToolsPage = internalQuery({
     limit: v.number(),
   },
   handler: async (ctx, args) => {
-    const limit = Math.max(1, Math.min(1_000, Math.floor(args.limit)));
+    const limit = Math.max(1, Math.min(250, Math.floor(args.limit)));
     const page = await ctx.db
       .query("workspaceToolRegistry")
       .withIndex("by_workspace_build", (q) =>
@@ -584,7 +667,6 @@ export const listToolsPage = internalQuery({
         requiredInputKeys: entry.requiredInputKeys,
         previewInputKeys: entry.previewInputKeys,
         typedRef: entry.typedRef,
-        serializedToolJson: entry.serializedToolJson,
       })),
     };
   },
@@ -619,12 +701,11 @@ export const listToolsBySourcePage = internalQuery({
             sourceKey: string;
             operationId: string;
           };
-          serializedToolJson: string;
         }>,
       };
     }
 
-    const limit = Math.max(1, Math.min(1_000, Math.floor(args.limit)));
+    const limit = Math.max(1, Math.min(250, Math.floor(args.limit)));
     const page = await ctx.db
       .query("workspaceToolRegistry")
       .withIndex("by_workspace_build_source", (q) =>
@@ -649,7 +730,6 @@ export const listToolsBySourcePage = internalQuery({
         requiredInputKeys: entry.requiredInputKeys,
         previewInputKeys: entry.previewInputKeys,
         typedRef: entry.typedRef,
-        serializedToolJson: entry.serializedToolJson,
       })),
     };
   },
@@ -674,12 +754,28 @@ export const getToolsByNormalizedPath = internalQuery({
       )
       .take(limit);
 
-    return entries.map((entry) => ({
-      path: entry.path,
-      preferredPath: entry.preferredPath,
-      approval: entry.approval,
-      serializedToolJson: entry.serializedToolJson,
+    const payloads = await Promise.all(entries.map(async (entry) => {
+      const payload = await ctx.db
+        .query("workspaceToolRegistryPayloads")
+        .withIndex("by_workspace_build_path", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("path", entry.path),
+        )
+        .first();
+      if (!payload) return null;
+      return {
+        path: entry.path,
+        preferredPath: entry.preferredPath,
+        approval: entry.approval,
+        serializedToolJson: payload.serializedToolJson,
+      };
     }));
+
+    return payloads.filter((entry): entry is {
+      path: string;
+      preferredPath: string;
+      approval: "auto" | "required";
+      serializedToolJson: string;
+    } => Boolean(entry));
   },
 });
 
@@ -715,7 +811,7 @@ export const searchTools = internalQuery({
       displayOutput: entry.displayOutput,
       requiredInputKeys: entry.requiredInputKeys,
       previewInputKeys: entry.previewInputKeys,
-      serializedToolJson: entry.serializedToolJson,
+      typedRef: entry.typedRef,
     }));
   },
 });

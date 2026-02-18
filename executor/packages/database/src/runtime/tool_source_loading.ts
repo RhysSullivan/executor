@@ -11,7 +11,6 @@ import {
   buildStaticAuthHeaders,
   readCredentialOverrideHeaders,
 } from "../../../core/src/tool/source-auth";
-import type { SerializedTool } from "../../../core/src/tool/source-serialization";
 import type {
   ExternalToolSourceConfig,
   GraphqlToolSourceConfig,
@@ -30,7 +29,7 @@ import {
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v6";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v7";
 
 const openApiAuthModeSchema = z.enum(["static", "account", "workspace", "organization"]);
 
@@ -72,6 +71,11 @@ const rawToolSourceSchema = z.object({
   config: z.record(z.unknown()),
 });
 
+const preparedOpenApiEnvelopeSchema = z.object({
+  storageId: z.string(),
+  sizeBytes: z.number().optional(),
+});
+
 function toPreparedOpenApiSpec(value: unknown): PreparedOpenApiSpec | null {
   const parsed = preparedOpenApiSpecSchema.safeParse(value);
   if (!parsed.success) {
@@ -96,10 +100,7 @@ function compileOpenApiArtifactFromPrepared(
   prepared: PreparedOpenApiSpec,
 ): CompiledToolSourceArtifact {
   const tools = buildOpenApiToolsFromPrepared(source, prepared);
-  const includeSchemaPayload = prepared.dtsStatus === "ready";
-  const serializedTools = serializeTools(tools).map((tool) =>
-    compactSerializedToolForRegistry(tool, { includeSchemaPayload })
-  );
+  const serializedTools = serializeTools(tools);
 
   return {
     version: "v1",
@@ -110,39 +111,6 @@ function compileOpenApiArtifactFromPrepared(
       ? { openApiRefHintTable: prepared.refHintTable }
       : {}),
     tools: serializedTools,
-  };
-}
-
-function compactSerializedToolForRegistry(
-  tool: SerializedTool,
-  options: { includeSchemaPayload: boolean },
-): SerializedTool {
-  const includeSchemaPayload = options.includeSchemaPayload;
-
-  const compactTyping = tool.typing
-    ? {
-        ...tool.typing,
-        ...(includeSchemaPayload ? {} : {
-          inputSchema: undefined,
-          outputSchema: undefined,
-        }),
-      }
-    : undefined;
-
-  const compactRunSpec = tool.runSpec.kind === "openapi"
-    ? {
-        ...tool.runSpec,
-        parameters: tool.runSpec.parameters.map((parameter) => ({
-          ...parameter,
-          ...(includeSchemaPayload ? {} : { schema: {} }),
-        })),
-      }
-    : tool.runSpec;
-
-  return {
-    ...tool,
-    typing: compactTyping,
-    runSpec: compactRunSpec,
   };
 }
 
@@ -375,9 +343,25 @@ async function loadCachedOpenApiSpec(
   });
 
   let preparedPayload: unknown;
+  let preparedStorageId: Id<"_storage"> | undefined;
+  let preparedSizeBytes: number | undefined;
   if (typeof preparedResponse === "string") {
     try {
-      preparedPayload = JSON.parse(preparedResponse);
+      const parsed = JSON.parse(preparedResponse) as unknown;
+      const parsedEnvelope = preparedOpenApiEnvelopeSchema.safeParse(parsed);
+      if (parsedEnvelope.success) {
+        preparedStorageId = parsedEnvelope.data.storageId as Id<"_storage">;
+        preparedSizeBytes = parsedEnvelope.data.sizeBytes;
+
+        const blob = await ctx.storage.get(preparedStorageId);
+        if (!blob) {
+          throw new Error(`Prepared OpenAPI blob missing for '${sourceName}'`);
+        }
+        const text = await blob.text();
+        preparedPayload = JSON.parse(text);
+      } else {
+        preparedPayload = parsed;
+      }
     } catch {
       preparedPayload = undefined;
     }
@@ -392,13 +376,12 @@ async function loadCachedOpenApiSpec(
 
   try {
     const json = JSON.stringify(prepared);
-    const blob = new Blob([json], { type: "application/json" });
-    const storageId = await ctx.storage.store(blob);
+    const storageId = preparedStorageId ?? await ctx.storage.store(new Blob([json], { type: "application/json" }));
     await ctx.runMutation(internal.openApiSpecCache.putEntry, {
       specUrl,
       version: OPENAPI_PREPARED_CACHE_VERSION,
       storageId,
-      sizeBytes: json.length,
+      sizeBytes: preparedSizeBytes ?? json.length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -14,6 +14,15 @@ import {
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../../../core/src/tool-typing/schema-utils";
 import { getDecisionForContext } from "./policy";
 
+function stringifySchema(schema: Record<string, unknown> | undefined): string | undefined {
+  if (!schema || Object.keys(schema).length === 0) return undefined;
+  try {
+    return JSON.stringify(schema, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
 function toToolDescriptor(
   tool: ToolDefinition,
   approval: "auto" | "required",
@@ -24,6 +33,8 @@ function toToolDescriptor(
   const outputHint = tool.typing?.outputHint?.trim();
   const hasInputSchema = Object.keys(tool.typing?.inputSchema ?? {}).length > 0;
   const hasOutputSchema = Object.keys(tool.typing?.outputSchema ?? {}).length > 0;
+  const inputSchemaJson = stringifySchema(tool.typing?.inputSchema);
+  const outputSchemaJson = stringifySchema(tool.typing?.outputSchema);
   const useInputHint = Boolean(inputHint && (!isLossyTypeHint(inputHint) || !hasInputSchema));
   const useOutputHint = Boolean(outputHint && (!isLossyTypeHint(outputHint) || !hasOutputSchema));
 
@@ -40,6 +51,8 @@ function toToolDescriptor(
                   ?? extractTopLevelRequiredKeys(tool.typing.inputSchema),
                 previewInputKeys: tool.typing.previewInputKeys
                   ?? buildPreviewKeys(tool.typing.inputSchema),
+                ...(inputSchemaJson ? { inputSchemaJson } : {}),
+                ...(outputSchemaJson ? { outputSchemaJson } : {}),
                 typedRef: tool.typing.typedRef,
               }
             : undefined,

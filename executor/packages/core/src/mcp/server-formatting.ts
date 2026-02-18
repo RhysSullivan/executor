@@ -55,7 +55,7 @@ export function buildRunCodeDescription(tools?: ToolDescriptor[]): string {
     ? `\n\nTop-level tool keys: ${topLevelKeys.join(", ")}`
     : "";
   const hasGraphqlTools = toolList.some((tool) => tool.path.endsWith(".graphql"));
-  const discoverNote = "\n\nTooling tip: avoid repeated tiny discovery calls. Start with a single broad inventory pass via `tools.catalog.namespaces({})` and `tools.catalog.tools({ namespace?, query?, depth: 1, limit: 20 })`, then do at most one focused `tools.discover({ query, depth: 1, limit: 12 })`. `discover` returns `{ bestPath, results, schemas?, total }`; prefer `bestPath` when present, otherwise copy `results[i].exampleCall`. Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
+  const discoverNote = "\n\nTooling tip: avoid repeated tiny discovery calls. Start with a single broad inventory pass via `tools.catalog.namespaces({})` and `tools.catalog.tools({ namespace?, query?, limit: 20 })`, then do at most one focused `tools.discover({ query, limit: 12, compact: true })`. `discover` returns `{ bestPath, results, total }`; prefer `bestPath` when present, otherwise use `results[i].path`. Read `results[i].typing?.inputSchemaJson` / `outputSchemaJson` for exact payload shapes. Do not assign to `const tools = ...`; use a different variable name (e.g. `const discovered = ...`).";
   const executionNote = "\n\nExecution tip: for migration/ETL-style tasks, discover once, then run in small batches and `return` compact summaries (counts, IDs, and top-N samples) instead of full objects.";
   const graphqlNote = hasGraphqlTools
     ? "\n\nGraphQL tip: prefer `source.query.*` / `source.mutation.*` helper paths when available; GraphQL tools return `{ data, errors }`."

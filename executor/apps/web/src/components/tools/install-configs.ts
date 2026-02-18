@@ -19,7 +19,7 @@ export function getAddMcpInstallConfig(
     type: "command",
     description: "Run once to install for all supported clients (via add-mcp):",
     content: auth
-      ? `npx add-mcp "${mcpUrl}" --transport http --name "${serverName}" --all${headerArg}`
-      : `npx add-mcp "${mcpUrl}" --transport http --name "${serverName}" --all${headerArg}`,
+      ? `npx add-mcp "${mcpUrl}" --transport http --name "${serverName}" ${headerArg}`
+      : `npx add-mcp "${mcpUrl}" --transport http --name "${serverName}" ${headerArg}`,
   };
 }

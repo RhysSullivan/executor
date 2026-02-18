@@ -46,7 +46,7 @@ async function listCurrentSourceToolMap(
   while (true) {
     const page: {
       continueCursor: string | null;
-      items: Array<{ path: string; serializedToolJson: string }>;
+      items: Array<{ path: string }>;
     } = await ctx.runQuery(internal.toolRegistry.listToolsBySourcePage, {
       workspaceId,
       buildId,
@@ -55,8 +55,17 @@ async function listCurrentSourceToolMap(
       limit: 500,
     });
 
-    for (const item of page.items) {
-      tools.set(item.path, item.serializedToolJson);
+    const payloads: Array<{ path: string; serializedToolJson: string }> = await ctx.runQuery(
+      internal.toolRegistry.getSerializedToolsByPaths,
+      {
+        workspaceId,
+        buildId,
+        paths: page.items.map((item) => item.path),
+      },
+    );
+
+    for (const payload of payloads) {
+      tools.set(payload.path, payload.serializedToolJson);
     }
 
     if (page.continueCursor === null) {

@@ -392,6 +392,21 @@ function extractHintSegment(inputHint: string, paramName: string): string | null
   return null;
 }
 
+function extractInputHintSegment(inputHint: string, paramName: string): string | null {
+  const direct = extractHintSegment(inputHint, paramName);
+  if (direct) return direct;
+
+  const containers = ["path", "query", "headers", "cookie", "body"];
+  for (const container of containers) {
+    const nested = extractHintSegment(inputHint, container);
+    if (!nested) continue;
+    const segment = extractHintSegment(nested, paramName);
+    if (segment) return segment;
+  }
+
+  return null;
+}
+
 function hintSegmentMatchesPrimitiveType(
   segment: string,
   expectedType: PrimitiveParamType,
@@ -578,8 +593,8 @@ describe("real-world OpenAPI specs", () => {
 
       expect(tool).toBeDefined();
       expect(tool!.path).toBe("github.activity.delete_repo_subscription");
-      expect(tool!.typing?.requiredInputKeys ?? []).toContain("owner");
-      expect(tool!.typing?.requiredInputKeys ?? []).toContain("repo");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("path.owner");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("path.repo");
     },
     300_000,
   );
@@ -607,10 +622,10 @@ describe("real-world OpenAPI specs", () => {
 
       expect(tool).toBeDefined();
       expect(tool!.path).toBe("github.actions.add_custom_labels_to_self_hosted_runner_for_repo");
-      expect(tool!.typing?.requiredInputKeys ?? []).toContain("owner");
-      expect(tool!.typing?.requiredInputKeys ?? []).toContain("repo");
-      expect(tool!.typing?.requiredInputKeys ?? []).toContain("runner_id");
-      expect(tool!.typing?.requiredInputKeys ?? []).toContain("labels");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("path.owner");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("path.repo");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("path.runner_id");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("body.labels");
     },
     300_000,
   );
@@ -638,7 +653,7 @@ describe("real-world OpenAPI specs", () => {
 
       expect(tool).toBeDefined();
       expect(tool!.path).toBe("github.actions.create_hosted_runner_for_org");
-      expect(tool!.typing?.requiredInputKeys ?? []).toContain("org");
+      expect(tool!.typing?.requiredInputKeys ?? []).toContain("path.org");
       expect(tool!.typing?.outputSchema).toBeDefined();
     },
     300_000,
@@ -843,7 +858,7 @@ describe("real-world OpenAPI specs", () => {
           }
 
           for (const expected of expectations.expectedInputFields) {
-            const segment = extractHintSegment(inputHint, expected.name);
+            const segment = extractInputHintSegment(inputHint, expected.name);
             if (!segment) {
               throw new Error(`[${fixture.name}] missing input segment for ${operationId}.${expected.name}: ${inputHint}`);
             }

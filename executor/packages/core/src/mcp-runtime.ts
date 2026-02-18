@@ -5,6 +5,8 @@ import { z } from "zod";
 
 const mcpToolResultSchema = z.object({
   content: z.array(z.object({ text: z.string().optional() }).passthrough()).optional(),
+  structuredContent: z.unknown().optional(),
+  isError: z.boolean().optional(),
 }).passthrough();
 
 function withHeaders(
@@ -79,16 +81,9 @@ export async function connectMcp(
 
 export function extractMcpResult(result: unknown): unknown {
   const parsed = mcpToolResultSchema.safeParse(result);
-  if (!parsed.success || !Array.isArray(parsed.data.content)) {
+  if (!parsed.success) {
     return result;
   }
 
-  const content = parsed.data.content;
-  const texts = content
-    .map((item) => item.text)
-    .filter((item): item is string => typeof item === "string");
-
-  if (texts.length === 0) return content;
-  if (texts.length === 1) return texts[0];
-  return texts;
+  return parsed.data;
 }

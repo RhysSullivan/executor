@@ -23,10 +23,19 @@ export function ToolDetail({
   const description = tool.description?.trim() ?? "";
   const inputHint = tool.display?.input?.trim() ?? "";
   const outputHint = tool.display?.output?.trim() ?? "";
-  const required = tool.typing?.requiredInputKeys ?? [];
+  const inputSchemaJson = tool.typing?.inputSchemaJson?.trim() ?? "";
+  const outputSchemaJson = tool.typing?.outputSchemaJson?.trim() ?? "";
   const hasInputHint = inputHint.length > 0 && inputHint !== "{}" && inputHint.toLowerCase() !== "unknown";
   const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
-  const hasDetails = description.length > 0 || hasInputHint || hasOutputHint || required.length > 0;
+  const hasInputSchema = inputSchemaJson.length > 0 && inputSchemaJson !== "{}";
+  const hasOutputSchema = outputSchemaJson.length > 0 && outputSchemaJson !== "{}";
+  const showInputHint = hasInputHint && !hasInputSchema;
+  const showOutputHint = hasOutputHint && !hasOutputSchema;
+  const hasDetails = description.length > 0
+    || showInputHint
+    || showOutputHint
+    || hasInputSchema
+    || hasOutputSchema;
   const showLoading = Boolean(loading);
 
   return (
@@ -57,8 +66,11 @@ export function ToolDetail({
         </div>
       )}
 
-      {hasInputHint && <TypeSignature raw={inputHint} label="Arguments" />}
-      {hasOutputHint && <TypeSignature raw={outputHint} label="Returns" />}
+      {showInputHint && <TypeSignature raw={inputHint} label="Arguments" />}
+      {showOutputHint && <TypeSignature raw={outputHint} label="Returns" />}
+
+      {hasInputSchema ? <TypeSignature raw={inputSchemaJson} label="Input Schema" /> : null}
+      {hasOutputSchema ? <TypeSignature raw={outputSchemaJson} label="Output Schema" /> : null}
 
       {!showLoading && !hasDetails ? (
         <p className="text-[11px] text-muted-foreground/60">No description or type signatures available yet.</p>
