@@ -77,23 +77,23 @@ const registryToolEntrySchema: z.ZodType<RegistryToolEntry> = z.object({
   serializedToolJson: z.string().optional(),
 });
 
+const registryToolPayloadEntrySchema = z.object({
+  path: z.string(),
+  serializedToolJson: z.string(),
+});
+
 const openApiRefHintTablesSchema = z.array(z.object({
   sourceKey: z.string(),
   refs: z.array(z.object({ key: z.string(), hint: z.string() })),
 }));
 
-function toStringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-
-  const out: Record<string, string> = {};
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof raw !== "string") continue;
-    const trimmed = raw.trim();
-    if (!trimmed) continue;
-    out[key] = trimmed;
+function toSchemaJson(value: unknown): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
   }
-
-  return out;
 }
 
 function buildOpenApiRefHintLookup(value: unknown): Record<string, Record<string, string>> {
@@ -117,52 +117,68 @@ function buildOpenApiRefHintLookup(value: unknown): Record<string, Record<string
   return lookup;
 }
 
-function resolveEntryRefHints(
+type DiscoveryTypingPayload = {
+  inputSchemaJson?: string;
+  outputSchemaJson?: string;
+  previewInputKeys?: string[];
+  refHintKeys?: string[];
+};
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0))];
+}
+
+function resolveEntryDiscoveryTyping(
   entry: RegistryToolEntry,
   refHintLookup: Record<string, Record<string, string>>,
-): { refHintKeys: string[]; refHints?: Record<string, string> } {
+): { typing: DiscoveryTypingPayload; refHints?: Record<string, string> } {
   if (!entry.serializedToolJson) {
-    return { refHintKeys: [] };
+    return { typing: {} };
   }
 
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(entry.serializedToolJson);
   } catch {
-    return { refHintKeys: [] };
+    return { typing: {} };
   }
 
   const serializedTool = parseSerializedTool(parsedJson);
   if (serializedTool.isErr()) {
-    return { refHintKeys: [] };
+    return { typing: {} };
   }
 
-  const refHintKeys = Array.isArray(serializedTool.value.typing?.refHintKeys)
-    ? [...new Set(serializedTool.value.typing!.refHintKeys!
-      .filter((key): key is string => typeof key === "string" && key.trim().length > 0))]
-    : [];
+  const typing = serializedTool.value.typing;
+  const refHintKeys = toStringArray(typing?.refHintKeys);
+  const previewInputKeys = toStringArray(typing?.previewInputKeys);
+  const inputSchemaJson = toSchemaJson((typing as { inputSchema?: unknown } | undefined)?.inputSchema);
+  const outputSchemaJson = toSchemaJson((typing as { outputSchema?: unknown } | undefined)?.outputSchema);
+
+  const discoveryTyping: DiscoveryTypingPayload = {
+    ...(inputSchemaJson ? { inputSchemaJson } : {}),
+    ...(outputSchemaJson ? { outputSchemaJson } : {}),
+    ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
+    ...(refHintKeys.length > 0 ? { refHintKeys } : {}),
+  };
+
   if (refHintKeys.length === 0) {
-    return { refHintKeys: [] };
+    return { typing: discoveryTyping };
   }
-
-  const legacyRefHints = toStringRecord(
-    (parsedJson as { typing?: { refHints?: unknown } })?.typing?.refHints,
-  );
 
   const sourceKey = serializedTool.value.typing?.typedRef?.kind === "openapi_operation"
     ? serializedTool.value.typing.typedRef.sourceKey
     : entry.typedRef?.sourceKey;
   if (!sourceKey) {
-    return Object.keys(legacyRefHints).length > 0
-      ? { refHintKeys, refHints: legacyRefHints }
-      : { refHintKeys };
+    return { typing: discoveryTyping };
   }
 
   const table = refHintLookup[sourceKey];
   if (!table) {
-    return Object.keys(legacyRefHints).length > 0
-      ? { refHintKeys, refHints: legacyRefHints }
-      : { refHintKeys };
+    return { typing: discoveryTyping };
   }
 
   const refHints: Record<string, string> = {};
@@ -174,12 +190,10 @@ function resolveEntryRefHints(
   }
 
   if (Object.keys(refHints).length > 0) {
-    return { refHintKeys, refHints };
+    return { typing: discoveryTyping, refHints };
   }
 
-  return Object.keys(legacyRefHints).length > 0
-    ? { refHintKeys, refHints: legacyRefHints }
-    : { refHintKeys };
+  return { typing: discoveryTyping };
 }
 
 function mergeRefHintsIntoTable(target: Record<string, string>, refHints: Record<string, string>): void {
@@ -233,7 +247,24 @@ async function searchRegistryTools(
 ): Promise<RegistryToolEntry[]> {
   const entries = await ctx.runQuery(internal.toolRegistry.searchTools, args);
   const parsed = z.array(registryToolEntrySchema).safeParse(entries);
-  return parsed.success ? parsed.data : [];
+  if (!parsed.success) return [];
+
+  const payloads = await ctx.runQuery(internal.toolRegistry.getSerializedToolsByPaths, {
+    workspaceId: args.workspaceId,
+    buildId: args.buildId,
+    paths: parsed.data.map((entry) => entry.path),
+  });
+  const parsedPayloads = z.array(registryToolPayloadEntrySchema).safeParse(payloads);
+  const payloadByPath = new Map<string, string>(
+    parsedPayloads.success
+      ? parsedPayloads.data.map((payload) => [payload.path, payload.serializedToolJson])
+      : [],
+  );
+
+  return parsed.data.map((entry) => ({
+    ...entry,
+    serializedToolJson: payloadByPath.get(entry.path),
+  }));
 }
 
 async function listRegistryToolsByNamespace(
@@ -242,7 +273,24 @@ async function listRegistryToolsByNamespace(
 ): Promise<RegistryToolEntry[]> {
   const entries = await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, args);
   const parsed = z.array(registryToolEntrySchema).safeParse(entries);
-  return parsed.success ? parsed.data : [];
+  if (!parsed.success) return [];
+
+  const payloads = await ctx.runQuery(internal.toolRegistry.getSerializedToolsByPaths, {
+    workspaceId: args.workspaceId,
+    buildId: args.buildId,
+    paths: parsed.data.map((entry) => entry.path),
+  });
+  const parsedPayloads = z.array(registryToolPayloadEntrySchema).safeParse(payloads);
+  const payloadByPath = new Map<string, string>(
+    parsedPayloads.success
+      ? parsedPayloads.data.map((payload) => [payload.path, payload.serializedToolJson])
+      : [],
+  );
+
+  return parsed.data.map((entry) => ({
+    ...entry,
+    serializedToolJson: payloadByPath.get(entry.path),
+  }));
 }
 
 async function denyToolCallForApproval(
@@ -381,18 +429,20 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
           .slice(0, limit)
           .map((entry) => {
             const preferredPath = entry.preferredPath ?? entry.path;
-            const refHints = resolveEntryRefHints(entry, refHintLookup);
-            if (refHints.refHints) {
-              mergeRefHintsIntoTable(refHintTable, refHints.refHints);
+            const discoveryTyping = resolveEntryDiscoveryTyping(entry, refHintLookup);
+            if (discoveryTyping.refHints) {
+              mergeRefHintsIntoTable(refHintTable, discoveryTyping.refHints);
             }
+            const inputHint = normalizeHint(entry.displayInput, "{}");
+            const outputHint = normalizeHint(entry.displayOutput, "unknown");
             return {
               path: preferredPath,
               source: entry.source,
               approval: entry.approval,
               description: entry.description,
-              input: normalizeHint(entry.displayInput, "{}"),
-              output: normalizeHint(entry.displayOutput, "unknown"),
-              // required keys are encoded in the `input` type hint
+              inputHint,
+              outputHint,
+              ...(Object.keys(discoveryTyping.typing).length > 0 ? { typing: discoveryTyping.typing } : {}),
             };
           });
 
@@ -425,18 +475,20 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       const results = filtered.map((entry) => {
         const preferredPath = entry.preferredPath ?? entry.path;
         const description = compact ? String(entry.description ?? "").split("\n")[0] : entry.description;
-        const refHints = resolveEntryRefHints(entry, refHintLookup);
-        if (refHints.refHints) {
-          mergeRefHintsIntoTable(refHintTable, refHints.refHints);
+        const discoveryTyping = resolveEntryDiscoveryTyping(entry, refHintLookup);
+        if (discoveryTyping.refHints) {
+          mergeRefHintsIntoTable(refHintTable, discoveryTyping.refHints);
         }
+        const inputHint = normalizeHint(entry.displayInput, "{}");
+        const outputHint = normalizeHint(entry.displayOutput, "unknown");
         return {
           path: preferredPath,
           source: entry.source,
           approval: entry.approval,
           description,
-          input: normalizeHint(entry.displayInput, "{}"),
-          output: normalizeHint(entry.displayOutput, "unknown"),
-          // required keys are encoded in the `input` type hint
+          inputHint,
+          outputHint,
+          ...(Object.keys(discoveryTyping.typing).length > 0 ? { typing: discoveryTyping.typing } : {}),
         };
       });
 

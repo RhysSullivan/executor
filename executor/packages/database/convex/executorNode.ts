@@ -4,7 +4,6 @@ import { v } from "convex/values";
 import { internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type {
-  ToolCallResult,
   ToolDescriptor,
   OpenApiSourceQuality,
   SourceAuthProfile,
@@ -21,6 +20,7 @@ import { runQueuedTask } from "../src/runtime/task_runner";
 import { handleExternalToolCallRequest } from "../src/runtime/external_tool_call";
 import { jsonObjectValidator } from "../src/database/validators";
 import { customAction } from "../../core/src/function-builders";
+import { encodeToolCallResultForTransport } from "../../core/src/tool-call-result-transport";
 import { previewOpenApiSourceUpgradeForContext, type OpenApiUpgradeDiffPreview } from "../src/runtime/tool_upgrade";
 
 export const listToolsWithWarnings = customAction({
@@ -186,7 +186,10 @@ export const handleExternalToolCall = internalAction({
     toolPath: v.string(),
     input: v.optional(jsonObjectValidator),
   },
-  handler: async (ctx, args): Promise<ToolCallResult> => await handleExternalToolCallRequest(ctx, args),
+  handler: async (ctx, args): Promise<string> => {
+    const result = await handleExternalToolCallRequest(ctx, args);
+    return encodeToolCallResultForTransport(result);
+  },
 });
 
 export const runTask = internalAction({

@@ -26,7 +26,21 @@ const compiledToolSourceArtifactSchema = z.object({
 });
 
 export function parseCompiledToolSourceArtifact(value: unknown): Result<CompiledToolSourceArtifact, Error> {
-  const parsedArtifact = compiledToolSourceArtifactSchema.safeParse(value);
+  const parsedValue = typeof value === "string"
+    ? (() => {
+        try {
+          return JSON.parse(value) as unknown;
+        } catch (error) {
+          return error;
+        }
+      })()
+    : value;
+
+  if (parsedValue instanceof Error) {
+    return Result.err(new Error(`Invalid compiled tool source artifact JSON: ${parsedValue.message}`));
+  }
+
+  const parsedArtifact = compiledToolSourceArtifactSchema.safeParse(parsedValue);
   if (!parsedArtifact.success) {
     return Result.err(new Error(parsedArtifact.error.message));
   }

@@ -1,7 +1,9 @@
+import { z } from "zod";
 import {
   buildComponentRefHintTable,
   buildOpenApiArgPreviewKeys,
   buildOpenApiInputSchema,
+  buildOpenApiRequiredInputKeys,
   collectComponentRefKeys,
   getPreferredContentSchema,
   getPreferredResponseSchema,
@@ -20,6 +22,19 @@ import { toPlainObject } from "./utils";
 function toRecordOrEmpty(value: unknown): Record<string, unknown> {
   return toPlainObject(value) ?? {};
 }
+
+const openApiParameterEntrySchema = z.object({
+  name: z.string(),
+  in: z.string(),
+  required: z.boolean().optional(),
+  description: z.string().optional(),
+  deprecated: z.boolean().optional(),
+  style: z.string().optional(),
+  explode: z.boolean().optional(),
+  allowReserved: z.boolean().optional(),
+  example: z.unknown().optional(),
+  examples: z.record(z.unknown()).optional(),
+}).passthrough();
 
 export interface CompactOpenApiPathsOptions {
   includeSchemas?: boolean;
@@ -63,17 +78,36 @@ export function compactOpenApiPaths(
     return entry;
   };
 
-  const normalizeParameters = (entries: unknown): Array<OpenApiParameterHint & { in: string }> => {
+  const normalizeParameters = (entries: unknown): OpenApiParameterHint[] => {
     if (!Array.isArray(entries)) return [];
     return entries
       .map((entry) => resolveParam(toRecordOrEmpty(entry)))
-      .filter((entry) => typeof entry.name === "string" && typeof entry.in === "string")
-      .map((entry) => ({
-        name: String(entry.name),
-        in: String(entry.in),
-        required: Boolean(entry.required),
-        schema: includeParameterSchemas ? parameterSchemaFromEntry(entry) : {},
-      }));
+      .map((entry) => {
+        const parsed = openApiParameterEntrySchema.safeParse(entry);
+        if (!parsed.success) return null;
+
+        const location = parsed.data.in.trim();
+        const description = (parsed.data.description ?? "").trim();
+        const style = (parsed.data.style ?? "").trim();
+        const parsedExamples = parsed.data.examples
+          ? toRecordOrEmpty(parsed.data.examples)
+          : undefined;
+
+        return {
+          name: parsed.data.name,
+          in: location,
+          required: location === "path" ? true : (parsed.data.required ?? false),
+          schema: includeParameterSchemas ? parameterSchemaFromEntry(entry) : {},
+          ...(description.length > 0 ? { description } : {}),
+          ...(parsed.data.deprecated !== undefined ? { deprecated: parsed.data.deprecated } : {}),
+          ...(style.length > 0 ? { style } : {}),
+          ...(parsed.data.explode !== undefined ? { explode: parsed.data.explode } : {}),
+          ...(parsed.data.allowReserved !== undefined ? { allowReserved: parsed.data.allowReserved } : {}),
+          ...(parsed.data.example !== undefined ? { example: parsed.data.example } : {}),
+          ...(parsedExamples && Object.keys(parsedExamples).length > 0 ? { examples: parsedExamples } : {}),
+        } satisfies OpenApiParameterHint;
+      })
+      .filter((entry): entry is OpenApiParameterHint => Boolean(entry));
   };
 
   for (const [pathTemplate, pathValue] of Object.entries(paths)) {
@@ -114,11 +148,12 @@ export function compactOpenApiPaths(
       let requestBodySchema: Record<string, unknown> = {};
       let responseSchema: Record<string, unknown> = {};
       let responseStatus = "";
+      const requestBody = resolveRequestBodyRef(toRecordOrEmpty(operation.requestBody), compRequestBodies);
+      const requestBodyRequired = Boolean(requestBody.required);
       const shouldBuildSchemas = includeSchemas || hasGeneratedTypes || !resolveSchemaRefs;
       // Always attempt to compute minimal input/output schemas. This keeps the
       // prepared spec compact while enabling schema-first tool signatures.
       if (shouldBuildSchemas) {
-        const requestBody = resolveRequestBodyRef(toRecordOrEmpty(operation.requestBody), compRequestBodies);
         const requestBodyContent = toRecordOrEmpty(requestBody.content);
         const rawRequestBodySchema = getPreferredContentSchema(requestBodyContent);
         requestBodySchema = resolveSchemaRefs
@@ -141,7 +176,9 @@ export function compactOpenApiPaths(
       const mergedParameters = normalizeParameters(operation.parameters).concat(sharedParameters);
       const hasInputSchema = mergedParameters.length > 0 || Object.keys(requestBodySchema).length > 0;
       if (hasInputSchema) {
-        compactOperation._inputSchema = buildOpenApiInputSchema(mergedParameters, requestBodySchema);
+        compactOperation._inputSchema = buildOpenApiInputSchema(mergedParameters, requestBodySchema, {
+          requestBodyRequired,
+        });
       }
       if (Object.keys(responseSchema).length > 0 || responseStatus) {
         compactOperation._outputSchema = responseSchema;
@@ -164,6 +201,16 @@ export function compactOpenApiPaths(
       const previewKeys = buildOpenApiArgPreviewKeys(mergedParameters, requestBodySchema, compSchemas);
       if (previewKeys.length > 0) {
         compactOperation._previewInputKeys = [...new Set(previewKeys)];
+      }
+
+      const requiredInputKeys = buildOpenApiRequiredInputKeys(
+        mergedParameters,
+        requestBodySchema,
+        compSchemas,
+        requestBodyRequired,
+      );
+      if (requiredInputKeys.length > 0) {
+        compactOperation._requiredInputKeys = [...new Set(requiredInputKeys)];
       }
 
       if (hasGeneratedTypes) {

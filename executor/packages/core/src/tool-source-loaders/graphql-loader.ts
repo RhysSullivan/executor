@@ -1,7 +1,10 @@
 import { Result } from "better-result";
+import { parseValue, valueFromASTUntyped } from "graphql";
 import { z } from "zod";
 import {
   buildFieldQuery,
+  gqlFieldArgsTypeHint,
+  gqlTypeToHint,
   normalizeGraphqlFieldVariables,
   selectGraphqlFieldEnvelope,
   type GqlSchema,
@@ -27,6 +30,8 @@ const gqlTypeRefSchema: z.ZodType<GqlTypeRef> = z.lazy(() => z.object({
 const gqlFieldArgSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional().transform((value) => value ?? null),
+  isDeprecated: z.boolean().nullable().optional().transform((value) => value ?? null),
+  deprecationReason: z.string().nullable().optional().transform((value) => value ?? null),
   type: gqlTypeRefSchema,
   defaultValue: z.string().nullable().optional().transform((value) => value ?? null),
 });
@@ -34,6 +39,8 @@ const gqlFieldArgSchema = z.object({
 const gqlFieldSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional().transform((value) => value ?? null),
+  isDeprecated: z.boolean().nullable().optional().transform((value) => value ?? null),
+  deprecationReason: z.string().nullable().optional().transform((value) => value ?? null),
   args: z.array(gqlFieldArgSchema),
   type: gqlTypeRefSchema,
 });
@@ -41,6 +48,8 @@ const gqlFieldSchema = z.object({
 const gqlInputFieldSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional().transform((value) => value ?? null),
+  isDeprecated: z.boolean().nullable().optional().transform((value) => value ?? null),
+  deprecationReason: z.string().nullable().optional().transform((value) => value ?? null),
   type: gqlTypeRefSchema,
   defaultValue: z.string().nullable().optional().transform((value) => value ?? null),
 });
@@ -48,6 +57,8 @@ const gqlInputFieldSchema = z.object({
 const gqlEnumValueSchema = z.object({
   name: z.string(),
   description: z.string().nullable().optional().transform((value) => value ?? null),
+  isDeprecated: z.boolean().nullable().optional().transform((value) => value ?? null),
+  deprecationReason: z.string().nullable().optional().transform((value) => value ?? null),
 });
 
 const gqlTypeSchema = z.object({
@@ -56,6 +67,7 @@ const gqlTypeSchema = z.object({
   fields: z.array(gqlFieldSchema).nullable().optional().transform((value) => value ?? null),
   inputFields: z.array(gqlInputFieldSchema).nullable().optional().transform((value) => value ?? null),
   enumValues: z.array(gqlEnumValueSchema).nullable().optional().transform((value) => value ?? null),
+  possibleTypes: z.array(gqlTypeRefSchema).nullable().optional().transform((value) => value ?? null),
 });
 
 const gqlSchemaSchema = z.object({
@@ -122,24 +134,25 @@ function normalizeGraphqlToolInput(value: unknown): {
   };
 }
 
-const INTROSPECTION_QUERY = `
+const INTROSPECTION_QUERY_EXTENDED = `
   query IntrospectionQuery {
     __schema {
       queryType { name }
       mutationType { name }
       types {
         kind name
-        fields {
-          name description
-          args { name description type { ...TypeRef } defaultValue }
+        fields(includeDeprecated: true) {
+          name description isDeprecated deprecationReason
+          args { name description isDeprecated deprecationReason type { ...TypeRef } defaultValue }
           type { ...TypeRef }
         }
-        inputFields {
-          name description
+        inputFields(includeDeprecated: true) {
+          name description isDeprecated deprecationReason
           type { ...TypeRef }
           defaultValue
         }
-        enumValues { name description }
+        enumValues(includeDeprecated: true) { name description isDeprecated deprecationReason }
+        possibleTypes { ...TypeRef }
       }
     }
   }
@@ -157,6 +170,40 @@ const INTROSPECTION_QUERY = `
     }
   }
 `;
+
+async function fetchGraphqlIntrospection(
+  endpoint: string,
+  authHeaders: Record<string, string>,
+): Promise<GqlSchema> {
+  const introspectionResult = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...authHeaders,
+    },
+    body: JSON.stringify({ query: INTROSPECTION_QUERY_EXTENDED }),
+  });
+
+  if (!introspectionResult.ok) {
+    const text = await introspectionResult.text().catch(() => "");
+    throw new Error(`GraphQL introspection failed: HTTP ${introspectionResult.status}: ${text.slice(0, 300)}`);
+  }
+
+  let introspectionJson: unknown;
+  try {
+    introspectionJson = await introspectionResult.json();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`GraphQL introspection response parse failed: ${message}`);
+  }
+
+  const schemaResult = parseGraphqlIntrospectionSchema(introspectionJson);
+  if (schemaResult.isErr()) {
+    throw schemaResult.error;
+  }
+
+  return schemaResult.value;
+}
 
 function schemaForNamedScalar(name: string): Record<string, unknown> {
   switch (name) {
@@ -179,6 +226,50 @@ function schemaForNamedScalar(name: string): Record<string, unknown> {
     default:
       return {};
   }
+}
+
+function parseGraphqlDefaultValue(raw: string | null | undefined): unknown {
+  if (raw === null || raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    return valueFromASTUntyped(parseValue(trimmed));
+  } catch {
+    return raw;
+  }
+}
+
+function withGraphqlSchemaMetadata(
+  schema: Record<string, unknown>,
+  metadata: {
+    description?: string | null;
+    defaultValue?: string | null;
+    isDeprecated?: boolean | null;
+    deprecationReason?: string | null;
+  },
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...schema };
+  const description = (metadata.description ?? "").trim();
+  if (description.length > 0 && !("description" in next)) {
+    next.description = description;
+  }
+
+  const parsedDefault = parseGraphqlDefaultValue(metadata.defaultValue);
+  if (parsedDefault !== undefined && !("default" in next)) {
+    next.default = parsedDefault;
+  }
+
+  if (metadata.isDeprecated === true && !("deprecated" in next)) {
+    next.deprecated = true;
+  }
+
+  const deprecationReason = (metadata.deprecationReason ?? "").trim();
+  if (deprecationReason.length > 0 && !("x-deprecationReason" in next)) {
+    next["x-deprecationReason"] = deprecationReason;
+  }
+
+  return next;
 }
 
 function schemaForTypeRef(
@@ -204,7 +295,17 @@ function schemaForTypeRef(
 
   const resolved = typeMap.get(name);
   if (resolved?.kind === "ENUM" && resolved.enumValues && resolved.enumValues.length > 0) {
-    return { type: "string", enum: resolved.enumValues.map((v) => v.name).slice(0, 200) };
+    const enumValues = resolved.enumValues.slice(0, 200);
+    return {
+      type: "string",
+      enum: enumValues.map((v) => v.name),
+      oneOf: enumValues.map((v) => ({
+        const: v.name,
+        ...(v.description ? { description: v.description } : {}),
+        ...(v.isDeprecated ? { deprecated: true } : {}),
+        ...(v.deprecationReason ? { "x-deprecationReason": v.deprecationReason } : {}),
+      })),
+    };
   }
 
   if (resolved?.kind === "INPUT_OBJECT" && resolved.inputFields && depth < 2) {
@@ -212,7 +313,15 @@ function schemaForTypeRef(
     const required: string[] = [];
     for (const field of resolved.inputFields) {
       if (!field?.name) continue;
-      props[field.name] = schemaForTypeRef(field.type, typeMap, depth + 1);
+      props[field.name] = withGraphqlSchemaMetadata(
+        schemaForTypeRef(field.type, typeMap, depth + 1),
+        {
+          description: field.description,
+          defaultValue: field.defaultValue,
+          isDeprecated: field.isDeprecated,
+          deprecationReason: field.deprecationReason,
+        },
+      );
       if (field.type?.kind === "NON_NULL") {
         required.push(field.name);
       }
@@ -224,11 +333,49 @@ function schemaForTypeRef(
     };
   }
 
+  if (resolved?.kind === "UNION" && Array.isArray(resolved.possibleTypes) && resolved.possibleTypes.length > 0 && depth < 2) {
+    const variants = resolved.possibleTypes
+      .slice(0, 16)
+      .map((possible) => schemaForTypeRef(possible, typeMap, depth + 1))
+      .filter((variant) => Object.keys(variant).length > 0);
+    if (variants.length > 0) {
+      return {
+        oneOf: variants,
+      };
+    }
+  }
+
+  if ((resolved?.kind === "OBJECT" || resolved?.kind === "INTERFACE") && resolved.fields && depth < 2) {
+    const props: Record<string, unknown> = {};
+    for (const field of resolved.fields) {
+      if (!field?.name || field.name.startsWith("__")) continue;
+      props[field.name] = withGraphqlSchemaMetadata(
+        schemaForTypeRef(field.type, typeMap, depth + 1),
+        {
+          description: field.description,
+          isDeprecated: field.isDeprecated,
+          deprecationReason: field.deprecationReason,
+        },
+      );
+    }
+    return {
+      type: "object",
+      properties: props,
+    };
+  }
+
   return schemaForNamedScalar(name);
 }
 
 function buildArgsObjectSchema(
-  args: Array<{ name: string; type: GqlTypeRef }>,
+  args: Array<{
+    name: string;
+    type: GqlTypeRef;
+    description?: string | null;
+    defaultValue?: string | null;
+    isDeprecated?: boolean | null;
+    deprecationReason?: string | null;
+  }>,
   typeMap: Map<string, GqlType>,
 ): Record<string, unknown> {
   const props: Record<string, unknown> = {};
@@ -237,7 +384,15 @@ function buildArgsObjectSchema(
   for (const arg of args) {
     const name = typeof arg?.name === "string" ? arg.name : "";
     if (!name) continue;
-    props[name] = schemaForTypeRef(arg.type, typeMap);
+    props[name] = withGraphqlSchemaMetadata(
+      schemaForTypeRef(arg.type, typeMap),
+      {
+        description: arg.description,
+        defaultValue: arg.defaultValue,
+        isDeprecated: arg.isDeprecated,
+        deprecationReason: arg.deprecationReason,
+      },
+    );
     if (arg.type?.kind === "NON_NULL") {
       required.push(name);
     }
@@ -283,34 +438,7 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
   const credentialSpec = buildCredentialSpec(getCredentialSourceKey(config), config.auth);
   const sourceName = sanitizeSegment(config.name);
 
-  // Introspect the schema
-  const introspectionResult = await fetch(config.endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...authHeaders,
-    },
-    body: JSON.stringify({ query: INTROSPECTION_QUERY }),
-  });
-
-  if (!introspectionResult.ok) {
-    const text = await introspectionResult.text().catch(() => "");
-    throw new Error(`GraphQL introspection failed: HTTP ${introspectionResult.status}: ${text.slice(0, 300)}`);
-  }
-
-  let introspectionJson: unknown;
-  try {
-    introspectionJson = await introspectionResult.json();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`GraphQL introspection response parse failed: ${message}`);
-  }
-
-  const schemaResult = parseGraphqlIntrospectionSchema(introspectionJson);
-  if (schemaResult.isErr()) {
-    throw schemaResult.error;
-  }
-  const schema = schemaResult.value;
+  const schema = await fetchGraphqlIntrospection(config.endpoint, authHeaders);
 
   // Index types by name
   const typeMap = new Map<string, GqlType>();
@@ -393,8 +521,19 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
       const fieldPath = `${sourceName}.${operationType}.${sanitizeSegment(field.name)}`;
       const approval = config.overrides?.[field.name]?.approval ?? defaultApproval;
       const inputSchema = buildArgsObjectSchema(field.args, typeMap);
+      const fieldDataSchema = schemaForTypeRef(field.type, typeMap);
+      const outputSchema = {
+        type: "object",
+        properties: {
+          data: fieldDataSchema,
+          errors: { type: "array", items: {} },
+        },
+        required: ["data"],
+      } satisfies Record<string, unknown>;
       const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
       const previewInputKeys = buildPreviewKeys(inputSchema);
+      const inputHint = gqlFieldArgsTypeHint(field.args, typeMap);
+      const outputHint = `{ data: ${gqlTypeToHint(field.type, typeMap)}; errors: unknown[] }`;
 
       // Build the example query for the description
       const exampleQuery = buildFieldQuery(operationType, field.name, field.args, field.type, typeMap);
@@ -412,14 +551,9 @@ export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise
         credential: credentialSpec,
         typing: {
           inputSchema,
-          outputSchema: {
-            type: "object",
-            properties: {
-              data: {},
-              errors: { type: "array", items: {} },
-            },
-            required: ["data"],
-          },
+          outputSchema,
+          inputHint,
+          outputHint,
           ...(requiredInputKeys.length > 0 ? { requiredInputKeys } : {}),
           ...(previewInputKeys.length > 0 ? { previewInputKeys } : {}),
         },

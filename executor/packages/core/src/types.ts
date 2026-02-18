@@ -306,6 +306,10 @@ export interface ToolDescriptorTyping {
   previewInputKeys?: string[];
   refHintKeys?: string[];
   refHints?: Record<string, string>;
+  /** Convex-safe JSON-encoded input schema for UI/detail rendering. */
+  inputSchemaJson?: string;
+  /** Convex-safe JSON-encoded output schema for UI/detail rendering. */
+  outputSchemaJson?: string;
   typedRef?: ToolTypedRef;
 }
 

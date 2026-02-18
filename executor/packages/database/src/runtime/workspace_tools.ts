@@ -49,6 +49,15 @@ function toJsonSchema(value: unknown): JsonSchema {
   return parsed.success ? parsed.data : {};
 }
 
+function stringifySchema(schema: JsonSchema): string | undefined {
+  if (Object.keys(schema).length === 0) return undefined;
+  try {
+    return JSON.stringify(schema, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
 async function listWorkspaceToolSources(
   ctx: QueryRunnerCtx,
   workspaceId: Id<"workspaces">,
@@ -111,6 +120,9 @@ export type ToolDetailDescriptor = Pick<ToolDescriptor, "path" | "description" |
 const MAX_TOOLS_IN_ACTION_RESULT = 8_000;
 const MAX_TOOL_DETAILS_LOOKUP_PATHS = 100;
 const REGISTRY_BUILD_STALE_MS = 2 * 60_000;
+const MAX_REF_HINTS_PER_SOURCE = 300;
+const MAX_REF_HINT_HINT_CHARS = 240;
+const MAX_REF_HINT_METADATA_BYTES = 220_000;
 
 function truncateToolsForActionResult(
   tools: ToolDescriptor[],
@@ -237,6 +249,50 @@ function toSourceName(source?: string): string | null {
   return name.length > 0 ? name : null;
 }
 
+function buildBoundedOpenApiRefHintTables(
+  externalArtifacts: CompiledToolSourceArtifact[],
+): Array<{ sourceKey: string; refs: Array<{ key: string; hint: string }> }> {
+  let remainingBudget = MAX_REF_HINT_METADATA_BYTES;
+
+  const tables = externalArtifacts
+    .filter((artifact) => typeof artifact.openApiSourceKey === "string" && typeof artifact.openApiRefHintTable === "object")
+    .map((artifact) => {
+      const sourceKey = artifact.openApiSourceKey!;
+      const refs: Array<{ key: string; hint: string }> = [];
+
+      const rawEntries = Object.entries(artifact.openApiRefHintTable ?? {})
+        .filter((entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string");
+
+      for (const [key, rawHint] of rawEntries) {
+        if (refs.length >= MAX_REF_HINTS_PER_SOURCE || remainingBudget <= 0) break;
+
+        const trimmedKey = key.trim();
+        const trimmedHint = rawHint.trim();
+        if (!trimmedKey || !trimmedHint) continue;
+
+        const boundedHint = trimmedHint.length > MAX_REF_HINT_HINT_CHARS
+          ? `${trimmedHint.slice(0, MAX_REF_HINT_HINT_CHARS)}...`
+          : trimmedHint;
+
+        const entryBytes = trimmedKey.length + boundedHint.length + 16;
+        if (entryBytes > remainingBudget) {
+          break;
+        }
+
+        refs.push({ key: trimmedKey, hint: boundedHint });
+        remainingBudget -= entryBytes;
+      }
+
+      return {
+        sourceKey,
+        refs,
+      };
+    })
+    .filter((entry) => entry.refs.length > 0);
+
+  return tables;
+}
+
 function toDescriptorFromRegistryEntry(
   entry: RegistryToolEntry,
   options: { includeDetails?: boolean; openApiRefHintLookup?: Record<string, Record<string, string>> } = {},
@@ -252,6 +308,8 @@ function toDescriptorFromRegistryEntry(
 
   let resolvedDisplayInput = fallbackDisplayInput;
   let resolvedDisplayOutput = fallbackDisplayOutput;
+  let inputSchemaJson: string | undefined;
+  let outputSchemaJson: string | undefined;
 
   if (entry.serializedToolJson) {
     try {
@@ -261,6 +319,8 @@ function toDescriptorFromRegistryEntry(
         const serializedTool = parsedSerializedTool.value;
         const inputSchema = toJsonSchema(serializedTool.typing?.inputSchema);
         const outputSchema = toJsonSchema(serializedTool.typing?.outputSchema);
+        inputSchemaJson = stringifySchema(inputSchema);
+        outputSchemaJson = stringifySchema(outputSchema);
         const typedInputHint = serializedTool.typing?.inputHint?.trim();
         const typedOutputHint = serializedTool.typing?.outputHint?.trim();
         const hasInputSchema = Object.keys(inputSchema).length > 0;
@@ -291,6 +351,8 @@ function toDescriptorFromRegistryEntry(
           typing: {
             requiredInputKeys: entry.requiredInputKeys,
             previewInputKeys: entry.previewInputKeys,
+            ...(inputSchemaJson ? { inputSchemaJson } : {}),
+            ...(outputSchemaJson ? { outputSchemaJson } : {}),
             ...(refHintResolution.refHintKeys.length > 0 ? { refHintKeys: refHintResolution.refHintKeys } : {}),
             ...(Object.keys(refHintResolution.refHints).length > 0 ? { refHints: refHintResolution.refHints } : {}),
             typedRef: entry.typedRef,
@@ -837,15 +899,7 @@ export async function getWorkspaceTools(
         header: profile.header,
         inferred: profile.inferred,
       })),
-      openApiRefHintTables: externalArtifacts
-        .filter((artifact) => typeof artifact.openApiSourceKey === "string" && typeof artifact.openApiRefHintTable === "object")
-        .map((artifact) => ({
-          sourceKey: artifact.openApiSourceKey!,
-          refs: Object.entries(artifact.openApiRefHintTable ?? {})
-            .filter((entry): entry is [string, string] => typeof entry[0] === "string" && typeof entry[1] === "string")
-            .map(([key, hint]) => ({ key, hint })),
-        }))
-        .filter((entry) => entry.refs.length > 0),
+      openApiRefHintTables: buildBoundedOpenApiRefHintTables(externalArtifacts),
     } as never);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -1228,13 +1282,13 @@ async function getWorkspaceToolsFromRegistry(
             buildId: activeBuildId,
             source: options.source,
             cursor,
-            limit: 500,
+            limit: 100,
           })
           : await ctx.runQuery(internal.toolRegistry.listToolsPage, {
             workspaceId,
             buildId: activeBuildId,
             cursor,
-            limit: 500,
+            limit: 100,
           });
         for (const entry of page.items) {
           registryTools.push(entry);
@@ -1255,13 +1309,13 @@ async function getWorkspaceToolsFromRegistry(
           buildId: activeBuildId,
           source: options.source,
           cursor: options.cursor,
-          limit: Math.max(1, Math.min(1_000, Math.floor(options.limit ?? 250))),
+          limit: Math.max(1, Math.min(250, Math.floor(options.limit ?? 100))),
         })
         : await ctx.runQuery(internal.toolRegistry.listToolsPage, {
           workspaceId,
           buildId: activeBuildId,
           cursor: options.cursor,
-          limit: Math.max(1, Math.min(1_000, Math.floor(options.limit ?? 250))),
+          limit: Math.max(1, Math.min(250, Math.floor(options.limit ?? 100))),
         });
       registryTools.push(...page.items);
       nextCursor = page.continueCursor;

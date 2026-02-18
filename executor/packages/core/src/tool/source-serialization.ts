@@ -28,7 +28,19 @@ export interface SerializedTool {
         baseUrl: string;
         method: string;
         pathTemplate: string;
-        parameters: Array<{ name: string; in: string; required: boolean; schema: Record<string, unknown> }>;
+        parameters: Array<{
+          name: string;
+          in: string;
+          required: boolean;
+          schema: Record<string, unknown>;
+          description?: string;
+          deprecated?: boolean;
+          style?: string;
+          explode?: boolean;
+          allowReserved?: boolean;
+          example?: unknown;
+          examples?: Record<string, unknown>;
+        }>;
         authHeaders: Record<string, string>;
       }
     | {
@@ -67,6 +79,13 @@ const openApiRunSpecSchema = z.object({
     in: z.string(),
     required: z.boolean(),
     schema: z.record(z.unknown()),
+    description: z.string().optional(),
+    deprecated: z.boolean().optional(),
+    style: z.string().optional(),
+    explode: z.boolean().optional(),
+    allowReserved: z.boolean().optional(),
+    example: z.unknown().optional(),
+    examples: z.record(z.unknown()).optional(),
   })),
   authHeaders: z.record(z.string()),
 });

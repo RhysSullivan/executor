@@ -31,10 +31,15 @@ export const catalogNamespacesOutputSchema = z.object({
 export const catalogToolsInputSchema = z.object({
   namespace: z.string().optional(),
   query: z.string().optional(),
-  depth: z.coerce.number().optional(),
   limit: z.coerce.number().optional(),
   compact: z.boolean().optional(),
-  includeSchemas: z.boolean().optional(),
+});
+
+export const discoveryTypingSchema = z.object({
+  inputSchemaJson: z.string().optional(),
+  outputSchemaJson: z.string().optional(),
+  previewInputKeys: z.array(z.string()).optional(),
+  refHintKeys: z.array(z.string()).optional(),
 });
 
 export const discoveryResultSchema = z.object({
@@ -42,9 +47,9 @@ export const discoveryResultSchema = z.object({
   source: z.string().optional(),
   approval: toolApprovalSchema,
   description: z.string().optional(),
-  input: z.string(),
-  output: z.string(),
-  refHintKeys: z.array(z.string()).optional(),
+  inputHint: z.string().optional(),
+  outputHint: z.string().optional(),
+  typing: discoveryTypingSchema.optional(),
 });
 
 export const catalogToolsOutputSchema = z.object({
@@ -55,10 +60,8 @@ export const catalogToolsOutputSchema = z.object({
 
 export const discoverInputSchema = z.object({
   query: z.string().optional(),
-  depth: z.coerce.number().optional(),
   limit: z.coerce.number().optional(),
   compact: z.boolean().optional(),
-  includeSchemas: z.boolean().optional(),
 });
 
 export const discoverOutputSchema = z.object({
@@ -75,11 +78,20 @@ const discoveryResultJsonSchema: JsonSchema = {
     source: { type: "string" },
     approval: { type: "string", enum: ["auto", "required"] },
     description: { type: "string" },
-    input: { type: "string" },
-    output: { type: "string" },
-    refHintKeys: { type: "array", items: { type: "string" } },
+    inputHint: { type: "string" },
+    outputHint: { type: "string" },
+    typing: {
+      type: "object",
+      properties: {
+        inputSchemaJson: { type: "string" },
+        outputSchemaJson: { type: "string" },
+        previewInputKeys: { type: "array", items: { type: "string" } },
+        refHintKeys: { type: "array", items: { type: "string" } },
+      },
+      additionalProperties: false,
+    },
   },
-  required: ["path", "approval", "input", "output"],
+  required: ["path", "approval"],
   additionalProperties: false,
 };
 
@@ -118,10 +130,8 @@ export const catalogToolsInputJsonSchema = toJsonSchema(catalogToolsInputSchema,
   properties: {
     namespace: { type: "string" },
     query: { type: "string" },
-    depth: { type: "number" },
     limit: { type: "number" },
     compact: { type: "boolean" },
-    includeSchemas: { type: "boolean" },
   },
   additionalProperties: false,
 });
@@ -147,10 +157,8 @@ export const discoverInputJsonSchema = toJsonSchema(discoverInputSchema, {
   type: "object",
   properties: {
     query: { type: "string" },
-    depth: { type: "number" },
     limit: { type: "number" },
     compact: { type: "boolean" },
-    includeSchemas: { type: "boolean" },
   },
   additionalProperties: false,
 });

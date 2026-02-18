@@ -1,4 +1,3 @@
-import type { ToolCallResult } from "../../../core/src/types";
 import type { ActionCtx, MutationCtx, QueryCtx } from "../../convex/_generated/server";
 
 type InternalApi = typeof import("../../convex/_generated/api").internal;
@@ -23,7 +22,7 @@ export async function handleToolCallHandler(
     toolPath: string;
     input?: Record<string, unknown>;
   },
-): Promise<ToolCallResult> {
+): Promise<string> {
   requireInternalSecret(args.internalSecret);
   return await ctx.runAction(internalApi.executorNode.handleExternalToolCall, {
     runId: args.runId,

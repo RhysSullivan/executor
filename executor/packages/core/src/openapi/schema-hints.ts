@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { toPlainObject } from "../utils";
 
 function toRecordOrEmpty(value: unknown): Record<string, unknown> {
@@ -6,6 +7,20 @@ function toRecordOrEmpty(value: unknown): Record<string, unknown> {
 
 type JsonSchema = Record<string, unknown>;
 const COMPONENT_REF_INLINE_DEPTH = 2;
+const openApiParameterMetadataSchema = z.object({
+  type: z.string().optional(),
+  enum: z.array(z.unknown()).optional(),
+  items: z.record(z.unknown()).optional(),
+  description: z.string().optional(),
+  deprecated: z.boolean().optional(),
+  default: z.unknown().optional(),
+  example: z.unknown().optional(),
+  examples: z.record(z.unknown()).optional(),
+  nullable: z.boolean().optional(),
+}).passthrough();
+const openApiExampleObjectSchema = z.object({
+  value: z.unknown().optional(),
+}).passthrough();
 
 function isSmallInlineableComponentSchema(schema: Record<string, unknown>): boolean {
   const shape = schema;
@@ -21,8 +36,16 @@ function isSmallInlineableComponentSchema(schema: Record<string, unknown>): bool
 
 export type OpenApiParameterHint = {
   name: string;
+  in: string;
   required: boolean;
   schema: Record<string, unknown>;
+  description?: string;
+  deprecated?: boolean;
+  style?: string;
+  explode?: boolean;
+  allowReserved?: boolean;
+  example?: unknown;
+  examples?: Record<string, unknown>;
 };
 
 export function extractOperationIdsFromDts(dts: string): Set<string> {
@@ -128,27 +151,76 @@ export function resolveResponseRef(
   return resolved;
 }
 
+function extractParameterExamples(entry: Record<string, unknown>): unknown[] {
+  const rawExamples = toRecordOrEmpty(entry.examples);
+  if (Object.keys(rawExamples).length === 0) return [];
+
+  const values: unknown[] = [];
+  for (const rawExample of Object.values(rawExamples)) {
+    if (rawExample === undefined) continue;
+    const parsedExampleObject = openApiExampleObjectSchema.safeParse(rawExample);
+    if (parsedExampleObject.success && Object.prototype.hasOwnProperty.call(parsedExampleObject.data, "value")) {
+      const value = parsedExampleObject.data.value;
+      if (value !== undefined) values.push(value);
+      continue;
+    }
+    values.push(rawExample);
+  }
+
+  return values.slice(0, 8);
+}
+
 export function parameterSchemaFromEntry(entry: Record<string, unknown>): Record<string, unknown> {
   const schema = toRecordOrEmpty(entry.schema);
-  if (Object.keys(schema).length > 0) {
-    return schema;
+  const normalized: Record<string, unknown> = Object.keys(schema).length > 0 ? { ...schema } : {};
+  const parsedMetadata = openApiParameterMetadataSchema.safeParse(entry);
+  const metadata = parsedMetadata.success ? parsedMetadata.data : {};
+
+  if (Object.keys(normalized).length === 0) {
+    const type = metadata.type;
+    if (type) {
+      normalized.type = type;
+    }
+
+    if (Array.isArray(metadata.enum) && metadata.enum.length > 0) {
+      normalized.enum = metadata.enum;
+    }
+
+    const items = toRecordOrEmpty(metadata.items);
+    if (Object.keys(items).length > 0) {
+      normalized.items = items;
+    }
   }
 
-  const type = typeof entry.type === "string" ? entry.type : "";
-  if (!type) {
-    return {};
+  if (!("description" in normalized) && typeof metadata.description === "string") {
+    const description = metadata.description.trim();
+    if (description.length > 0) normalized.description = description;
   }
 
-  const fallback: Record<string, unknown> = { type };
-  if (Array.isArray(entry.enum) && entry.enum.length > 0) {
-    fallback.enum = entry.enum;
-  }
-  const items = toRecordOrEmpty(entry.items);
-  if (Object.keys(items).length > 0) {
-    fallback.items = items;
+  if (!("deprecated" in normalized) && metadata.deprecated !== undefined) {
+    normalized.deprecated = metadata.deprecated;
   }
 
-  return fallback;
+  if (!("default" in normalized) && metadata.default !== undefined) {
+    normalized.default = metadata.default;
+  }
+
+  if (!("example" in normalized) && metadata.example !== undefined) {
+    normalized.example = metadata.example;
+  }
+
+  if (!("examples" in normalized)) {
+    const examples = extractParameterExamples(entry);
+    if (examples.length > 0) {
+      normalized.examples = examples;
+    }
+  }
+
+  if (!("nullable" in normalized) && metadata.nullable !== undefined) {
+    normalized.nullable = metadata.nullable;
+  }
+
+  return normalized;
 }
 
 export function responseTypeHintFromSchema(
@@ -1082,6 +1154,7 @@ function collectTopLevelSchemaKeys(
 export function buildOpenApiInputSchema(
   parameters: OpenApiParameterHint[],
   requestBodySchema: Record<string, unknown>,
+  options: { requestBodyRequired?: boolean } = {},
 ): JsonSchema {
   const hasBodySchema = Object.keys(requestBodySchema).length > 0;
   const hasParams = parameters.length > 0;
@@ -1090,23 +1163,111 @@ export function buildOpenApiInputSchema(
     return {};
   }
 
-  const parameterSchema: JsonSchema = {
-    type: "object",
-    properties: Object.fromEntries(parameters.map((param) => [param.name, param.schema])),
-    required: parameters.filter((param) => param.required).map((param) => param.name),
+  const properties: Record<string, unknown> = {};
+  const required: string[] = [];
+
+  const addParameterGroup = (location: OpenApiParameterHint["in"], key: "path" | "query" | "headers" | "cookie") => {
+    const group = parameters.filter((param) => param.in === location);
+    if (group.length === 0) return;
+
+    const groupRequired = group
+      .filter((param) => param.required)
+      .map((param) => param.name);
+
+    properties[key] = {
+      type: "object",
+      properties: Object.fromEntries(group.map((param) => [param.name, param.schema])),
+      ...(groupRequired.length > 0 ? { required: groupRequired } : {}),
+      additionalProperties: false,
+    };
+
+    if (groupRequired.length > 0) {
+      required.push(key);
+    }
   };
 
-  if (!hasBodySchema) {
-    return parameterSchema;
-  }
+  addParameterGroup("path", "path");
+  addParameterGroup("query", "query");
+  addParameterGroup("header", "headers");
+  addParameterGroup("cookie", "cookie");
 
-  if (!hasParams) {
-    return requestBodySchema;
+  if (hasBodySchema) {
+    properties.body = requestBodySchema;
+    if (options.requestBodyRequired) {
+      required.push("body");
+    }
   }
 
   return {
-    allOf: [parameterSchema, requestBodySchema],
+    type: "object",
+    properties,
+    ...(required.length > 0 ? { required } : {}),
+    additionalProperties: false,
   };
+}
+
+function parameterContainerKey(param: OpenApiParameterHint): "path" | "query" | "headers" | "cookie" {
+  if (param.in === "header") return "headers";
+  if (param.in === "cookie") return "cookie";
+  if (param.in === "path") return "path";
+  return "query";
+}
+
+function buildOpenApiArgKeys(
+  parameters: OpenApiParameterHint[],
+  requestBodySchema: Record<string, unknown>,
+  options: {
+    componentSchemas?: Record<string, unknown>;
+    requiredOnly?: boolean;
+    requestBodyRequired?: boolean;
+  } = {},
+): string[] {
+  const { componentSchemas, requiredOnly = false, requestBodyRequired = false } = options;
+  const keys: string[] = [];
+  const seen = new Set<string>();
+
+  for (const parameter of parameters) {
+    if (!parameter.required) continue;
+    pushUnique(keys, seen, `${parameterContainerKey(parameter)}.${parameter.name}`);
+  }
+
+  const bodyTopLevelKeys = requiredOnly
+    ? (Array.isArray(requestBodySchema.required)
+      ? requestBodySchema.required.filter((value): value is string => typeof value === "string")
+      : [])
+    : collectTopLevelSchemaKeys(requestBodySchema, componentSchemas);
+
+  if (bodyTopLevelKeys.length > 0) {
+    for (const key of [...new Set(bodyTopLevelKeys)]) {
+      pushUnique(keys, seen, `body.${key}`);
+    }
+  } else if (requiredOnly && requestBodyRequired && Object.keys(requestBodySchema).length > 0) {
+    pushUnique(keys, seen, "body");
+  } else if (!requiredOnly && Object.keys(requestBodySchema).length > 0) {
+    pushUnique(keys, seen, "body");
+  }
+
+  if (!requiredOnly) {
+    for (const parameter of parameters) {
+      if (parameter.required) continue;
+      pushUnique(keys, seen, `${parameterContainerKey(parameter)}.${parameter.name}`);
+    }
+  }
+
+  return keys;
+}
+
+export function buildOpenApiRequiredInputKeys(
+  parameters: OpenApiParameterHint[],
+  requestBodySchema: Record<string, unknown>,
+  componentSchemas?: Record<string, unknown>,
+  requestBodyRequired = false,
+): string[] {
+  return buildOpenApiArgKeys(parameters, requestBodySchema, {
+    componentSchemas,
+    requiredOnly: true,
+    requestBodyRequired,
+  });
 }
 
 export function buildOpenApiArgPreviewKeys(
@@ -1114,24 +1275,7 @@ export function buildOpenApiArgPreviewKeys(
   requestBodySchema: Record<string, unknown>,
   componentSchemas?: Record<string, unknown>,
 ): string[] {
-  const keys: string[] = [];
-  const seen = new Set<string>();
-
-  for (const parameter of parameters) {
-    if (!parameter.required) continue;
-    pushUnique(keys, seen, parameter.name);
-  }
-
-  for (const key of collectTopLevelSchemaKeys(requestBodySchema, componentSchemas)) {
-    pushUnique(keys, seen, key);
-  }
-
-  for (const parameter of parameters) {
-    if (parameter.required) continue;
-    pushUnique(keys, seen, parameter.name);
-  }
-
-  return keys;
+  return buildOpenApiArgKeys(parameters, requestBodySchema, { componentSchemas });
 }
 
 function collectComponentRefKeysDeep(

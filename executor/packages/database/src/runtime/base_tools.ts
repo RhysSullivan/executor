@@ -17,7 +17,7 @@ baseTools.set("discover", {
   source: "system",
   approval: "auto",
   description:
-    "Search available tools by keyword. Returns preferred path aliases, signature hints, and ready-to-copy call examples. Compact mode is enabled by default.",
+    "Search available tools by keyword. Returns preferred path aliases, signature hints, and typing schemas for precise calls.",
   typing: {
     inputSchema: discoverInputJsonSchema,
     outputSchema: discoverOutputJsonSchema,
@@ -45,7 +45,7 @@ baseTools.set("catalog.tools", {
   path: "catalog.tools",
   source: "system",
   approval: "auto",
-  description: "List tools with typed signatures. Supports namespace and query filters in one call.",
+  description: "List tools with typed signatures and input/output JSON Schemas. Supports namespace and query filters.",
   typing: {
     inputSchema: catalogToolsInputJsonSchema,
     outputSchema: catalogToolsOutputJsonSchema,

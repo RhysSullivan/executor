@@ -36,7 +36,7 @@ function makeInlineSpec(tag: string, operationId: string): Record<string, unknow
 function makeFakeMcpServer(
   delayMs: number,
   toolName: string,
-  options: { outputSchema?: Record<string, unknown> } = {},
+  options: { outputSchema?: unknown; callResult?: Record<string, unknown> } = {},
 ) {
   const server = Bun.serve({
     port: 0,
@@ -78,9 +78,24 @@ function makeFakeMcpServer(
                   name: toolName,
                   description: `Tool ${toolName}`,
                   inputSchema: { type: "object", properties: {} },
-                  ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
+                  ...(Object.prototype.hasOwnProperty.call(options, "outputSchema")
+                    ? { outputSchema: options.outputSchema }
+                    : {}),
                 },
               ],
+            },
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      }
+
+      if (body.method === "tools/call") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: options.callResult ?? {
+              content: [{ type: "text", text: "ok" }],
             },
           }),
           { headers: { "content-type": "application/json" } },
@@ -130,6 +145,41 @@ test("mcp tools use outputSchema for return type hints when available", async ()
     expect(props).toBeDefined();
     expect(Object.keys(props ?? {})).toContain("ok");
     expect(Object.keys(props ?? {})).toContain("retries");
+  } finally {
+    mcp.server.stop(true);
+  }
+});
+
+test("mcp tool execution preserves structured result envelope", async () => {
+  const mcp = makeFakeMcpServer(0, "get_status", {
+    callResult: {
+      content: [{ type: "text", text: "fallback" }],
+      structuredContent: { ok: true, retries: 2 },
+      isError: false,
+    },
+  });
+
+  try {
+    const { tools, warnings } = await loadExternalTools([
+      {
+        type: "mcp",
+        name: "status",
+        url: mcp.url,
+        transport: "streamable-http",
+      },
+    ]);
+
+    expect(warnings).toHaveLength(0);
+    expect(tools).toHaveLength(1);
+
+    const result = await tools[0]!.run(
+      {},
+      { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
+    ) as { structuredContent?: unknown; content?: unknown[]; isError?: boolean };
+
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toEqual({ ok: true, retries: 2 });
+    expect(Array.isArray(result.content)).toBe(true);
   } finally {
     mcp.server.stop(true);
   }
@@ -354,7 +404,7 @@ test("compiled source artifacts can be materialized and executed", async () => {
     expect(tools[0]?.path).toBe("compiled_api.health.check");
 
     const result = await tools[0]!.run(
-      { probe: "status" },
+      { query: { probe: "status" } },
       { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true },
     );
 
@@ -582,9 +632,26 @@ test("graphql helper tools generate valid selection sets and envelope responses"
                   fields: [
                     {
                       name: "teams",
-                      description: null,
-                      args: [],
+                      description: "List teams",
+                      isDeprecated: true,
+                      deprecationReason: "Use organizations instead",
+                      args: [
+                        {
+                          name: "first",
+                          description: "Maximum teams to return",
+                          defaultValue: "50",
+                          isDeprecated: true,
+                          deprecationReason: "Use pagination.limit instead",
+                          type: { kind: "SCALAR", name: "Int", ofType: null },
+                        },
+                      ],
                       type: { kind: "OBJECT", name: "TeamConnection", ofType: null },
+                    },
+                    {
+                      name: "search",
+                      description: "Search for entities",
+                      args: [],
+                      type: { kind: "UNION", name: "SearchResult", ofType: null },
                     },
                   ],
                   inputFields: null,
@@ -600,7 +667,7 @@ test("graphql helper tools generate valid selection sets and envelope responses"
                       args: [
                         {
                           name: "input",
-                          description: null,
+                          description: "Batch issue payload",
                           defaultValue: null,
                           type: {
                             kind: "NON_NULL",
@@ -651,7 +718,9 @@ test("graphql helper tools generate valid selection sets and envelope responses"
                     },
                     {
                       name: "name",
-                      description: null,
+                      description: "Team display name",
+                      isDeprecated: true,
+                      deprecationReason: "Use displayName",
                       args: [],
                       type: { kind: "SCALAR", name: "String", ofType: null },
                     },
@@ -704,13 +773,26 @@ test("graphql helper tools generate valid selection sets and envelope responses"
                   enumValues: null,
                 },
                 {
+                  kind: "UNION",
+                  name: "SearchResult",
+                  fields: null,
+                  inputFields: null,
+                  enumValues: null,
+                  possibleTypes: [
+                    { kind: "OBJECT", name: "Team", ofType: null },
+                    { kind: "OBJECT", name: "Issue", ofType: null },
+                  ],
+                },
+                {
                   kind: "INPUT_OBJECT",
                   name: "IssueBatchCreateInput",
                   fields: null,
                   inputFields: [
                     {
                       name: "issues",
-                      description: null,
+                      description: "Issue titles",
+                      isDeprecated: true,
+                      deprecationReason: "Use issueInputs instead",
                       defaultValue: null,
                       type: {
                         kind: "LIST",
@@ -759,6 +841,21 @@ test("graphql helper tools generate valid selection sets and envelope responses"
         });
       }
 
+      if (query.includes("search")) {
+        if (!/search(?:\([^)]*\))?\s*\{/.test(query)) {
+          return Response.json({ errors: [{ message: "search requires a selection set" }] });
+        }
+        return Response.json({
+          data: {
+            search: {
+              __typename: "Team",
+              id: "team_1",
+              name: "Core",
+            },
+          },
+        });
+      }
+
       return Response.json({ errors: [{ message: "Unknown operation" }] });
     },
   });
@@ -776,16 +873,46 @@ test("graphql helper tools generate valid selection sets and envelope responses"
     const toolMap = new Map(tools.map((tool) => [tool.path, tool]));
 
     const teamsTool = toolMap.get("linear.query.teams");
+    const searchTool = toolMap.get("linear.query.search");
     const batchTool = toolMap.get("linear.mutation.issuebatchcreate");
     const rawTool = toolMap.get("linear.graphql");
 
     expect(teamsTool).toBeDefined();
+    expect(searchTool).toBeDefined();
     expect(batchTool).toBeDefined();
     expect(rawTool).toBeDefined();
+
+    const teamsInputSchema = teamsTool!.typing?.inputSchema as {
+      properties?: Record<string, Record<string, unknown>>;
+    };
+    expect(teamsInputSchema.properties?.first?.description).toBe("Maximum teams to return");
+    expect(teamsInputSchema.properties?.first?.default).toBe(50);
+    expect(teamsInputSchema.properties?.first?.deprecated).toBe(true);
+    expect(teamsInputSchema.properties?.first?.["x-deprecationReason"]).toBe("Use pagination.limit instead");
+
+    const batchInputSchema = batchTool!.typing?.inputSchema as {
+      properties?: Record<string, { description?: string; properties?: Record<string, Record<string, unknown>> }>;
+    };
+    expect(batchInputSchema.properties?.input?.description).toBe("Batch issue payload");
+    expect(batchInputSchema.properties?.input?.properties?.issues?.description).toBe("Issue titles");
+    expect(batchInputSchema.properties?.input?.properties?.issues?.deprecated).toBe(true);
+
+    const searchOutputSchema = searchTool!.typing?.outputSchema as {
+      properties?: Record<string, { oneOf?: unknown[] }>;
+    };
+    expect(Array.isArray(searchOutputSchema.properties?.data?.oneOf)).toBe(true);
+    expect((searchOutputSchema.properties?.data?.oneOf ?? []).length).toBeGreaterThan(1);
+
+    const teamsOutputSchema = teamsTool!.typing?.outputSchema as {
+      properties?: Record<string, { properties?: Record<string, unknown> }>;
+    };
+    expect(teamsOutputSchema.properties?.data?.properties).toBeDefined();
+    expect(Object.keys(teamsOutputSchema.properties?.data?.properties ?? {})).toContain("totalCount");
 
     const context = { taskId: "t", workspaceId: TEST_WORKSPACE_ID, isToolAllowed: () => true };
 
     const teamsResult = await teamsTool!.run({}, context);
+    const searchResult = await searchTool!.run({}, context);
     const batchResult = await batchTool!.run({ input: { issues: ["one"] } }, context);
     const batchResultDoubleWrapped = await batchTool!.run({ input: { input: { issues: ["two"] } } }, context);
     const rawResult = await rawTool!.run({ query: "query { teams { totalCount } }" }, context);
@@ -812,6 +939,14 @@ test("graphql helper tools generate valid selection sets and envelope responses"
       },
       errors: [],
     });
+    expect(searchResult).toEqual({
+      data: {
+        __typename: "Team",
+        id: "team_1",
+        name: "Core",
+      },
+      errors: [],
+    });
     expect(rawResult).toEqual({
       data: {
         teams: {
@@ -834,11 +969,53 @@ test("graphql helper tools generate valid selection sets and envelope responses"
     const helperQueries = capturedQueries.filter((query) => !query.includes("__schema"));
     const helperVariables = capturedVariables.slice(1);
     expect(helperQueries.some((query) => /teams(?:\([^)]*\))?\s*\{/.test(query))).toBe(true);
+    expect(helperQueries.some((query) => /search(?:\([^)]*\))?\s*\{/.test(query))).toBe(true);
     expect(helperQueries.some((query) => /issueBatchCreate(?:\([^)]*\))?\s*\{/.test(query))).toBe(true);
     expect(helperQueries.some((query) => /teams(?:\([^)]*\))?\s*\{[^}]*nodes\s*\{/.test(query))).toBe(true);
     expect(helperQueries.some((query) => /issueBatchCreate(?:\([^)]*\))?\s*\{[^}]*issues\s*\{/.test(query))).toBe(true);
     expect(helperVariables.some((variables) => JSON.stringify(variables) === JSON.stringify({ input: { issues: ["one"] } }))).toBe(true);
     expect(helperVariables.some((variables) => JSON.stringify(variables) === JSON.stringify({ input: { issues: ["two"] } }))).toBe(true);
+  } finally {
+    server.stop(true);
+  }
+});
+
+test("graphql loader fails fast when server rejects extended introspection", async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (req) => {
+      const body = (await req.json()) as { query?: string };
+      const query = String(body.query ?? "");
+
+      if (query.includes("__schema")) {
+        return Response.json({
+          errors: [{ message: "Unknown argument 'includeDeprecated'" }],
+        });
+      }
+
+      if (query.includes("ping")) {
+        return Response.json({
+          data: { ping: "pong" },
+        });
+      }
+
+      return Response.json({ errors: [{ message: "Unknown operation" }] });
+    },
+  });
+
+  try {
+    const { tools, warnings } = await loadExternalTools([
+      {
+        type: "graphql",
+        name: "legacy",
+        endpoint: `http://127.0.0.1:${server.port}/graphql`,
+      },
+    ]);
+
+    expect(tools).toHaveLength(0);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("legacy");
+    expect(warnings[0]).toContain("includeDeprecated");
   } finally {
     server.stop(true);
   }

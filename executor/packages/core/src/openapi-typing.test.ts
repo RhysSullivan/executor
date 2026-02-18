@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildOpenApiToolsFromPrepared, prepareOpenApiSpec } from "./tool-sources";
+import { buildOpenApiToolsFromPrepared, prepareOpenApiSpec, serializeTools } from "./tool-sources";
 
 function makeLargeSpec(operationCount: number): Record<string, unknown> {
   const paths: Record<string, unknown> = {};
@@ -98,11 +98,102 @@ describe("OpenAPI schema-first typing", () => {
     expect(getTool).toBeDefined();
     expect(getTool!.typing?.inputSchema).toBeDefined();
     expect(getTool!.typing?.outputSchema).toBeDefined();
-    expect(getTool!.typing?.requiredInputKeys ?? []).toContain("id");
-    expect(getTool!.typing?.previewInputKeys ?? []).toContain("include");
-    expect(getTool!.typing?.inputHint).toContain("id: string");
-    expect(getTool!.typing?.inputHint).toContain("include?:");
+    expect(getTool!.typing?.requiredInputKeys ?? []).toContain("path.id");
+    expect(getTool!.typing?.previewInputKeys ?? []).toContain("query.include");
+    expect(getTool!.typing?.inputHint).toContain("path");
+    expect(getTool!.typing?.inputHint).toContain("query");
     expect(getTool!.typing?.typedRef).toBeDefined();
+  });
+
+  test("preserves OpenAPI parameter metadata in schemas and run specs", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Metadata API", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      paths: {
+        "/widgets/{id}": {
+          get: {
+            operationId: "getWidget",
+            parameters: [
+              {
+                name: "id",
+                in: "path",
+                required: false,
+                description: "Widget ID",
+                schema: { type: "string" },
+                example: "wid_123",
+              },
+              {
+                name: "fields",
+                in: "query",
+                description: "Fields to include",
+                style: "form",
+                explode: false,
+                allowReserved: true,
+                schema: { type: "array", items: { type: "string" } },
+                examples: {
+                  minimal: { value: ["name"] },
+                },
+              },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        id: { type: "string" },
+                      },
+                      required: ["id"],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "meta", { includeDts: false, profile: "full" });
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "meta", spec, baseUrl: "https://api.example.com" },
+      prepared,
+    );
+
+    const getWidget = tools.find((tool) => tool.typing?.typedRef?.operationId === "getWidget");
+    expect(getWidget).toBeDefined();
+
+    const inputSchema = (getWidget!.typing?.inputSchema ?? {}) as {
+      properties?: Record<string, {
+        properties?: Record<string, Record<string, unknown>>;
+      }>;
+      required?: string[];
+    };
+    expect(inputSchema.properties?.path?.properties?.id?.description).toBe("Widget ID");
+    expect(inputSchema.properties?.path?.properties?.id?.example).toBe("wid_123");
+    expect(inputSchema.properties?.query?.properties?.fields?.description).toBe("Fields to include");
+    expect(inputSchema.properties?.query?.properties?.fields?.examples).toEqual([["name"]]);
+    expect(inputSchema.required ?? []).toContain("path");
+
+    const serialized = serializeTools([getWidget!])[0];
+    expect(serialized).toBeDefined();
+    if (!serialized || serialized.runSpec.kind !== "openapi") {
+      throw new Error("Expected OpenAPI run spec");
+    }
+
+    const idParam = serialized.runSpec.parameters.find((parameter) => parameter.name === "id");
+    expect(idParam?.required).toBe(true);
+    expect(idParam?.description).toBe("Widget ID");
+    expect(idParam?.example).toBe("wid_123");
+
+    const fieldsParam = serialized.runSpec.parameters.find((parameter) => parameter.name === "fields");
+    expect(fieldsParam?.style).toBe("form");
+    expect(fieldsParam?.explode).toBe(false);
+    expect(fieldsParam?.allowReserved).toBe(true);
+    expect(fieldsParam?.examples).toEqual({ minimal: { value: ["name"] } });
   });
 
   test("full profile with dts sets typedRef for OpenAPI operations", async () => {
@@ -261,7 +352,10 @@ describe("OpenAPI schema-first typing", () => {
 
     const addCertificates = tools.find((tool) => tool.typing?.typedRef?.operationId === "addCertificates");
     expect(addCertificates).toBeDefined();
-    expect(addCertificates!.typing?.inputHint).toBe("{ project_id: string; certificate_ids: string[] }");
+    expect(addCertificates!.typing?.inputHint).toContain("path");
+    expect(addCertificates!.typing?.inputHint).toContain("project_id");
+    expect(addCertificates!.typing?.inputHint).toContain("body");
+    expect(addCertificates!.typing?.inputHint).toContain("certificate_ids");
   });
 
   test("prepared spec stays reasonably small for many operations", async () => {

@@ -19,6 +19,12 @@ function coerceRecord(value: unknown): Record<string, unknown> {
   return parsed.success ? parsed.data : {};
 }
 
+function normalizeJsonSchema(value: unknown): Record<string, unknown> {
+  if (value === true) return {};
+  if (value === false) return { not: {} };
+  return coerceRecord(value);
+}
+
 function extractListedTools(value: unknown): Record<string, unknown>[] {
   const parsed = listedToolsResponseSchema.safeParse(value);
   if (!parsed.success) {
@@ -72,8 +78,8 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
 
   return tools.map((tool) => {
     const toolName = String(tool.name ?? "tool");
-    const inputSchema = coerceRecord(tool.inputSchema);
-    const outputSchema = coerceRecord(tool.outputSchema);
+    const inputSchema = normalizeJsonSchema(tool.inputSchema);
+    const outputSchema = normalizeJsonSchema(tool.outputSchema);
     const previewInputKeys = buildPreviewKeys(inputSchema).filter((key) => key.length > 0);
     const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
     return {

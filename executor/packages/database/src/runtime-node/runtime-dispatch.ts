@@ -3,6 +3,7 @@ import { z } from "zod";
 import { api } from "../../convex/_generated/api";
 import { dispatchCodeWithCloudflareWorkerLoader } from "../../../core/src/runtimes/cloudflare/worker/loader-runtime";
 import { runCodeWithAdapter } from "../../../core/src/runtimes/runtime-core";
+import { decodeToolCallResultFromTransport } from "../../../core/src/tool-call-result-transport";
 import type {
   ExecutionAdapter,
   SandboxExecutionRequest,
@@ -13,27 +14,6 @@ import type {
 import { describeError } from "../../../core/src/utils";
 
 const recordSchema = z.record(z.unknown());
-
-const toolCallResultSchema = z.union([
-  z.object({ ok: z.literal(true), value: z.unknown() }),
-  z.object({
-    ok: z.literal(false),
-    kind: z.literal("pending"),
-    approvalId: z.string(),
-    retryAfterMs: z.number().optional(),
-    error: z.string().optional(),
-  }),
-  z.object({
-    ok: z.literal(false),
-    kind: z.literal("denied"),
-    error: z.string(),
-  }),
-  z.object({
-    ok: z.literal(false),
-    kind: z.literal("failed"),
-    error: z.string(),
-  }),
-]);
 
 function toRecord(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
@@ -82,15 +62,15 @@ class CallbackExecutionAdapter implements ExecutionAdapter {
       error: `Node runtime callback failed: ${describeError(error)}`,
     } as const));
 
-    const parsed = toolCallResultSchema.safeParse(response);
-    if (!parsed.success) {
+    const parsed = decodeToolCallResultFromTransport(response);
+    if (!parsed) {
       return {
         ok: false,
         kind: "failed",
         error: "Node runtime callback returned invalid payload",
       };
     }
-    return parsed.data as ToolCallResult;
+    return parsed;
   }
 }
 

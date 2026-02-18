@@ -135,6 +135,8 @@ export interface ToolDescriptor {
     previewInputKeys?: string[];
     refHintKeys?: string[];
     refHints?: Record<string, string>;
+    inputSchemaJson?: string;
+    outputSchemaJson?: string;
     typedRef?: {
       kind: "openapi_operation";
       sourceKey: string;

@@ -30,8 +30,21 @@ test("discovery output schemas validate expected payload shape", () => {
   const entry = {
     path: "github.repos.list",
     approval: "auto",
-    input: "{ owner: string; repo: string }",
-    output: "{ id: number; name: string }",
+    inputHint: "{ owner: string; repo: string }",
+    outputHint: "{ id: number; name: string }",
+    typing: {
+      inputSchemaJson: JSON.stringify({
+        type: "object",
+        properties: {
+          owner: { type: "string" },
+          repo: { type: "string" },
+        },
+      }),
+      outputSchemaJson: JSON.stringify({
+        type: "object",
+      }),
+      previewInputKeys: ["owner", "repo"],
+    },
   };
 
   expect(() => catalogNamespacesOutputSchema.parse({

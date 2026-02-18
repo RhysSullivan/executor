@@ -294,7 +294,7 @@ export function TaskComposer() {
                 <FormattedCodeBlock
                   content={lastExecution.result}
                   language="json"
-                  className="max-h-48 overflow-auto"
+                  className="min-h-40 max-h-[65vh] overflow-auto resize-y"
                 />
               </div>
             )}
@@ -308,7 +308,7 @@ export function TaskComposer() {
                   content={lastExecution.error}
                   language="text"
                   tone="red"
-                  className="max-h-48 overflow-auto"
+                  className="min-h-32 max-h-[50vh] overflow-auto resize-y"
                 />
               </div>
             )}

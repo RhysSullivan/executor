@@ -1,5 +1,6 @@
 import { Result } from "better-result";
 import { api } from "@executor/database/convex/_generated/api";
+import { decodeToolCallResultFromTransport } from "../../core/src/tool-call-result-transport";
 import { ConvexClient, ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 import type {
@@ -16,24 +17,6 @@ const bridgePropsSchema: z.ZodType<BridgeProps> = z.object({
   callbackInternalSecret: z.string(),
   taskId: z.string(),
 });
-
-const toolCallResultSchema: z.ZodType<ToolCallResult> = z.union([
-  z.object({ ok: z.literal(true), value: z.unknown().optional() }),
-  z.object({
-    ok: z.literal(false),
-    kind: z.literal("pending"),
-    approvalId: z.string(),
-    error: z.string().optional(),
-    retryAfterMs: z.number().optional(),
-  }),
-  z.object({
-    ok: z.literal(false),
-    kind: z.enum(["denied", "failed"]),
-    error: z.string().optional(),
-    approvalId: z.string().optional(),
-    retryAfterMs: z.number().optional(),
-  }),
-]);
 
 const recordSchema = z.record(z.unknown());
 
@@ -172,11 +155,11 @@ export async function callToolWithBridge(
       return { ok: false, kind: "failed", error: `Tool callback failed: ${message}` };
     }
 
-    const parsedResult = toolCallResultSchema.safeParse(response.value);
-    if (!parsedResult.success) {
+    const parsedResult = decodeToolCallResultFromTransport(response.value);
+    if (!parsedResult) {
       return { ok: false, kind: "failed", error: "Tool callback returned invalid result payload" };
     }
-    const result = parsedResult.data;
+    const result = parsedResult;
 
     if (!result.ok && result.kind === "pending") {
       const approvalId = result.approvalId;

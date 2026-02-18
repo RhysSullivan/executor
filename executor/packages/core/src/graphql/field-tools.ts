@@ -17,9 +17,13 @@ export interface GqlTypeRef {
 interface GqlField {
   name: string;
   description: string | null;
+  isDeprecated?: boolean | null;
+  deprecationReason?: string | null;
   args: Array<{
     name: string;
     description: string | null;
+    isDeprecated?: boolean | null;
+    deprecationReason?: string | null;
     type: GqlTypeRef;
     defaultValue: string | null;
   }>;
@@ -29,6 +33,8 @@ interface GqlField {
 interface GqlInputField {
   name: string;
   description: string | null;
+  isDeprecated?: boolean | null;
+  deprecationReason?: string | null;
   type: GqlTypeRef;
   defaultValue: string | null;
 }
@@ -36,6 +42,8 @@ interface GqlInputField {
 interface GqlEnumValue {
   name: string;
   description: string | null;
+  isDeprecated?: boolean | null;
+  deprecationReason?: string | null;
 }
 
 export interface GqlType {
@@ -44,6 +52,7 @@ export interface GqlType {
   fields: GqlField[] | null;
   inputFields: GqlInputField[] | null;
   enumValues: GqlEnumValue[] | null;
+  possibleTypes?: GqlTypeRef[] | null;
 }
 
 export interface GqlSchema {

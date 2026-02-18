@@ -99,12 +99,14 @@ export function ToolExplorer({
     const description = tool.description?.trim() ?? "";
     const inputHint = tool.display?.input?.trim() ?? "";
     const outputHint = tool.display?.output?.trim() ?? "";
-    const required = tool.typing?.requiredInputKeys ?? [];
+    const inputSchemaJson = tool.typing?.inputSchemaJson?.trim() ?? "";
+    const outputSchemaJson = tool.typing?.outputSchemaJson?.trim() ?? "";
 
     const hasInputHint = inputHint.length > 0 && inputHint !== "{}" && inputHint.toLowerCase() !== "unknown";
     const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
+    const hasSchemas = inputSchemaJson.length > 0 || outputSchemaJson.length > 0;
 
-    return description.length > 0 || hasInputHint || hasOutputHint || required.length > 0;
+    return description.length > 0 || hasInputHint || hasOutputHint || hasSchemas;
   }, []);
 
   const [searchInput, setSearchInput] = useState("");

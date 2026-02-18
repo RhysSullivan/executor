@@ -516,8 +516,6 @@ export default defineSchema({
       sourceKey: v.string(),
       operationId: v.string(),
     })),
-    // JSON string of a core SerializedTool (safe to contain `$ref` etc in string content).
-    serializedToolJson: v.string(),
     createdAt: v.number(),
   })
     .index("by_workspace_build_path", ["workspaceId", "buildId", "path"])
@@ -529,6 +527,17 @@ export default defineSchema({
       searchField: "searchText",
       filterFields: ["workspaceId", "buildId"],
     }),
+
+  // Heavy per-tool payloads kept separate from searchable metadata.
+  workspaceToolRegistryPayloads: defineTable({
+    workspaceId: v.id("workspaces"),
+    buildId: v.string(),
+    path: v.string(),
+    serializedToolJson: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_workspace_build_path", ["workspaceId", "buildId", "path"])
+    .index("by_workspace_build", ["workspaceId", "buildId"]),
 
   // Precomputed namespace summaries for fast catalog.namespaces.
   workspaceToolNamespaces: defineTable({

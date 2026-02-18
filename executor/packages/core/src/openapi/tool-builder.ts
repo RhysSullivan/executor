@@ -22,10 +22,30 @@ type OpenApiOperationParameter = {
   in: string;
   required: boolean;
   schema: Record<string, unknown>;
+  description?: string;
+  deprecated?: boolean;
+  style?: string;
+  explode?: boolean;
+  allowReserved?: boolean;
+  example?: unknown;
+  examples?: Record<string, unknown>;
 };
 
 const stringArraySchema = z.array(z.string());
 const nonEmptyTrimmedStringSchema = z.string().transform((value) => value.trim()).refine((value) => value.length > 0);
+const openApiOperationParameterSchema = z.object({
+  name: z.string(),
+  in: z.string(),
+  required: z.boolean().optional(),
+  schema: z.record(z.unknown()).optional(),
+  description: z.string().optional(),
+  deprecated: z.boolean().optional(),
+  style: z.string().optional(),
+  explode: z.boolean().optional(),
+  allowReserved: z.boolean().optional(),
+  example: z.unknown().optional(),
+  examples: z.record(z.unknown()).optional(),
+}).passthrough();
 
 function toRecordOrEmpty(value: unknown): Record<string, unknown> {
   return toPlainObject(value) ?? {};
@@ -65,12 +85,36 @@ function buildOpenApiOperationParameters(
   return [
     ...sharedParameters,
     ...toRecordArray(operation.parameters),
-  ].map((entry) => ({
-    name: String(entry.name ?? ""),
-    in: String(entry.in ?? "query"),
-    required: Boolean(entry.required),
-    schema: toRecordOrEmpty(entry.schema),
-  }));
+  ].map((entry) => {
+    const parsed = openApiOperationParameterSchema.safeParse(entry);
+    if (!parsed.success) {
+      return null;
+    }
+
+    const location = parsed.data.in;
+    const description = parseNonEmptyTrimmedString(parsed.data.description);
+    const style = parseNonEmptyTrimmedString(parsed.data.style);
+    const parsedSchema = parsed.data.schema
+      ? toRecordOrEmpty(parsed.data.schema)
+      : {};
+    const parsedExamples = parsed.data.examples
+      ? toRecordOrEmpty(parsed.data.examples)
+      : undefined;
+
+    return {
+      name: parsed.data.name,
+      in: location,
+      required: location === "path" ? true : (parsed.data.required ?? false),
+      schema: parsedSchema,
+      ...(description ? { description } : {}),
+      ...(parsed.data.deprecated !== undefined ? { deprecated: parsed.data.deprecated } : {}),
+      ...(style ? { style } : {}),
+      ...(parsed.data.explode !== undefined ? { explode: parsed.data.explode } : {}),
+      ...(parsed.data.allowReserved !== undefined ? { allowReserved: parsed.data.allowReserved } : {}),
+      ...(parsed.data.example !== undefined ? { example: parsed.data.example } : {}),
+      ...(parsedExamples && Object.keys(parsedExamples).length > 0 ? { examples: parsedExamples } : {}),
+    };
+  }).filter((entry): entry is OpenApiOperationParameter => Boolean(entry));
 }
 
 export function buildOpenApiToolsFromPrepared(
@@ -114,7 +158,10 @@ export function buildOpenApiToolsFromPrepared(
       const outputHint = parseNonEmptyTrimmedString(operation._returnsTypeHint);
       const refHintKeys = parseHintKeys(operation._refHintKeys)
         .filter((key) => typeof sourceRefHintTable[key] === "string");
-      const requiredInputKeys = extractTopLevelRequiredKeys(inputSchema);
+      const parsedRequiredInputKeys = stringArraySchema.safeParse(operation._requiredInputKeys);
+      const requiredInputKeys = parsedRequiredInputKeys.success
+        ? parsedRequiredInputKeys.data
+        : extractTopLevelRequiredKeys(inputSchema);
       const parsedPreviewInputKeys = stringArraySchema.safeParse(operation._previewInputKeys);
       const previewInputKeys = parsedPreviewInputKeys.success
         ? parsedPreviewInputKeys.data
