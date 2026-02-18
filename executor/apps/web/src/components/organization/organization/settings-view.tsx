@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { useLocation, useNavigate, useSearchParams } from "@/lib/router";
 import { CreditCard, Users } from "lucide-react";
 import { BillingView } from "@/components/organization/billing-view";
 import { MembersView } from "@/components/organization/members-view";

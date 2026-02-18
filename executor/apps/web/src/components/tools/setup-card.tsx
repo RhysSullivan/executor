@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { getAddMcpInstallConfig } from "@/components/tools/install-configs"
 import { convexApi } from "@/lib/convex-api"
+import { readRuntimeConfig } from "@/lib/runtime-config"
 
 function inferServerName(workspaceId?: string): string {
   if (!workspaceId) return "executor"
@@ -26,12 +27,13 @@ function isWorkosSessionId(sessionId?: string): boolean {
 }
 
 function resolveMcpOrigin(windowOrigin: string): string {
-  const explicit = process.env.NEXT_PUBLIC_EXECUTOR_HTTP_URL ?? process.env.NEXT_PUBLIC_CONVEX_SITE_URL
+  const runtimeConfig = readRuntimeConfig()
+  const explicit = runtimeConfig.executorHttpUrl ?? runtimeConfig.convexSiteUrl
   if (explicit && explicit.trim().length > 0) {
     return explicit.trim().replace(/\/$/, "")
   }
 
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL
+  const convexUrl = runtimeConfig.convexUrl
   if (convexUrl) {
     try {
       const parsed = new URL(convexUrl)

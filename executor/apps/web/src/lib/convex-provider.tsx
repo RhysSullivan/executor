@@ -6,7 +6,7 @@ import {
   AuthKitProvider,
   useAccessToken,
   useAuth as useWorkosAuth,
-} from "@workos-inc/authkit-nextjs/components";
+} from "@workos/authkit-tanstack-react-start/client";
 import { ConvexReactClient } from "convex/react";
 import type { ReactNode } from "react";
 import { useQueryClient, useQuery as useTanstackQuery } from "@tanstack/react-query";
@@ -15,26 +15,12 @@ import {
   readStoredAnonymousAuthToken,
 } from "@/lib/anonymous-auth";
 import { workosEnabled } from "@/lib/auth-capabilities";
-
-declare global {
-  interface Window {
-    __EXECUTOR_RUNTIME_CONFIG__?: {
-      convexUrl?: string;
-    };
-  }
-}
+import { readRuntimeConfig } from "@/lib/runtime-config";
 
 function resolveConvexUrl(): string {
-  if (typeof window !== "undefined") {
-    const runtimeUrl = window.__EXECUTOR_RUNTIME_CONFIG__?.convexUrl?.trim();
-    if (runtimeUrl) {
-      return runtimeUrl;
-    }
-  }
-
-  const envUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (envUrl?.trim()) {
-    return envUrl;
+  const runtimeUrl = readRuntimeConfig().convexUrl;
+  if (runtimeUrl?.trim()) {
+    return runtimeUrl;
   }
 
   throw new Error("CONVEX_URL is not set. Add it to the root .env file.");

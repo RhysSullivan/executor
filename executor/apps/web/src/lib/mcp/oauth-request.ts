@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server";
 import { Result } from "better-result";
 
 function firstHeaderValue(value: string | null): string {
@@ -11,7 +10,8 @@ function firstHeaderValue(value: string | null): string {
 function configuredExternalOrigin(): string | null {
   const configured =
     process.env.EXECUTOR_PUBLIC_ORIGIN
-    ?? process.env.NEXT_PUBLIC_EXECUTOR_HTTP_URL
+    ?? process.env.EXECUTOR_HTTP_URL
+    ?? process.env.VITE_EXECUTOR_HTTP_URL
     ?? "";
   if (!configured.trim()) {
     return null;
@@ -24,25 +24,26 @@ function configuredExternalOrigin(): string | null {
   return parsed.value.origin;
 }
 
-export function getExternalOrigin(request: NextRequest): string {
+export function getExternalOrigin(request: Request): string {
   const configured = configuredExternalOrigin();
   if (configured) {
     return configured;
   }
 
   const host = firstHeaderValue(request.headers.get("x-forwarded-host") ?? request.headers.get("host"));
+  const requestUrl = new URL(request.url);
   const proto = firstHeaderValue(request.headers.get("x-forwarded-proto"))
-    || request.nextUrl.protocol.replace(":", "");
+    || requestUrl.protocol.replace(":", "");
   if (host && proto) {
     const parsed = Result.try(() => new URL(`${proto}://${host}`));
     if (parsed.isOk()) {
       return parsed.value.origin;
     }
   }
-  return request.nextUrl.origin;
+  return requestUrl.origin;
 }
 
-export function isExternalHttps(request: NextRequest): boolean {
+export function isExternalHttps(request: Request): boolean {
   const origin = getExternalOrigin(request);
   return origin.startsWith("https://");
 }

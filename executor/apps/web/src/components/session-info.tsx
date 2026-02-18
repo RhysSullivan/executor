@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "@/lib/router";
 import { useMutation } from "convex/react";
 import { ChevronsUpDown, LogIn } from "lucide-react";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -113,13 +112,12 @@ export function SessionInfo() {
                 >
                   <span className="flex items-center gap-2 min-w-0">
                     {avatarUrl ? (
-                      <Image
+                      <img
                         src={avatarUrl}
                         alt={avatarLabel}
-                        width={24}
-                        height={24}
                         className="h-6 w-6 rounded-full border border-border object-cover"
-                        unoptimized
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
                       />
                     ) : (
                       <span className="h-6 w-6 rounded-full border border-border bg-muted text-[10px] font-mono text-muted-foreground flex items-center justify-center">

@@ -56,6 +56,8 @@
 
 /* ── Light theme (default) ─────────────────────────────────────────────────── */
 :root {
+  --font-geist-sans: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-geist-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.5rem;
   --background: oklch(0.985 0.002 260);
   --foreground: oklch(0.18 0.01 260);
@@ -391,5 +393,4 @@
   max-width: 100%;
   border-radius: 0.25rem;
 }
-
 

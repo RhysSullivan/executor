@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate } from "@/lib/router";
 import { useMutation } from "convex/react";
 import { Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";

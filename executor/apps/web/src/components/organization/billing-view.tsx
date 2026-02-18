@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useSearchParams } from "@/lib/router";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { AlertTriangle, BadgeCheck, CreditCard, RefreshCcw } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { convexApi } from "@/lib/convex-api";
+import { readRuntimeConfig } from "@/lib/runtime-config";
 import { useSession } from "@/lib/session-context";
 
 interface BillingViewProps {
@@ -53,7 +54,7 @@ export function BillingView({ showHeader = true }: BillingViewProps) {
   const [searchParams] = useSearchParams();
   const [actionState, setActionState] = useState<"idle" | "running" | "success" | "error">("idle");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [priceId, setPriceId] = useState(() => process.env.NEXT_PUBLIC_STRIPE_PRICE_ID ?? "");
+  const [priceId, setPriceId] = useState(() => readRuntimeConfig().stripePriceId ?? "");
 
   const derivedOrganizationId = context
     ? workspaces.find((workspace) => workspace.id === context.workspaceId)?.organizationId ?? null

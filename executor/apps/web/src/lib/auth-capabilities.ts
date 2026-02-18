@@ -1,1 +1,3 @@
-export const workosEnabled = Boolean(process.env.NEXT_PUBLIC_WORKOS_CLIENT_ID);
+import { readRuntimeConfig } from "@/lib/runtime-config";
+
+export const workosEnabled = Boolean(readRuntimeConfig().workosClientId);

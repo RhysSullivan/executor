@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { Link, Navigate, useLocation } from "react-router";
+import { Link, Navigate, useLocation } from "@/lib/router";
 import {
   ExternalLink,
   Github,

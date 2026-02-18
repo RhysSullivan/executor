@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "@/lib/router";
 import { useMutation } from "convex/react";
 import { ChevronsUpDown, Plus, Check, Settings } from "lucide-react";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -160,13 +159,12 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
           >
             <span className="flex items-center gap-2 min-w-0">
               {activeWorkspace?.iconUrl ? (
-                <Image
+                <img
                   src={activeWorkspace.iconUrl}
                   alt={activeWorkspaceLabel}
-                  width={16}
-                  height={16}
                   className="h-4 w-4 rounded-sm border border-border object-cover"
-                  unoptimized
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
                 />
               ) : (
                 <span className="h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">
@@ -228,13 +226,12 @@ export function WorkspaceSelector({ inHeader = false }: { inHeader?: boolean }) 
                           >
                             <Check className={cn("mr-2 h-3.5 w-3.5", isActive ? "opacity-100" : "opacity-0")} />
                             {workspace.iconUrl ? (
-                              <Image
+                              <img
                                 src={workspace.iconUrl}
                                 alt={workspace.name}
-                                width={16}
-                                height={16}
                                 className="mr-2 h-4 w-4 rounded-sm border border-border object-cover"
-                                unoptimized
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
                               />
                             ) : (
                               <span className="mr-2 h-4 w-4 rounded-sm border border-border bg-muted text-[9px] font-semibold flex items-center justify-center text-muted-foreground">

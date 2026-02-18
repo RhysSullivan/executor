@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Link } from "react-router";
+import { Link } from "@/lib/router";
 import { Check, Copy, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {

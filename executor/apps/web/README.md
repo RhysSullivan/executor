@@ -6,7 +6,7 @@
 bun run dev
 ```
 
-Runs Next.js on `http://localhost:4312`.
+Runs TanStack Start (Vite + Nitro) on `http://localhost:4312`.
 
 ## Production preview
 
@@ -15,4 +15,4 @@ bun run build
 bun run start
 ```
 
-Runs Next.js on `http://localhost:5312` so it can coexist with the dev server.
+Runs the built Nitro server on `http://localhost:5312` so it can coexist with the dev server.

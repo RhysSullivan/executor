@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Layers, Globe, Server, Terminal } from "lucide-react";
-import Image from "next/image";
 import type { ToolSourceRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { getSourceFavicon, getSourceFaviconUrl } from "@/lib/tools/source-helpers";
@@ -51,7 +50,7 @@ export function SourceFavicon({
   }
 
   return (
-    <Image
+    <img
       key={sourceFavicon}
       src={sourceFavicon}
       alt=""
@@ -59,7 +58,7 @@ export function SourceFavicon({
       height={imageSize}
       className={cn("w-full h-full object-cover rounded-full", imageClassName)}
       loading="lazy"
-      unoptimized
+      referrerPolicy="no-referrer"
       onError={() => setFailedSrc(sourceFavicon)}
     />
   );

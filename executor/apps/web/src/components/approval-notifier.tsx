@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "@/lib/router";
 import { useQuery } from "convex/react";
 import { toast } from "sonner";
 import { useSession } from "@/lib/session-context";

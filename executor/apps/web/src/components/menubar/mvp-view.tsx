@@ -1,7 +1,7 @@
 "use client";
 
 import { Bell, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate } from "@/lib/router";
 import { useQuery } from "convex/react";
 import { PendingApprovalList, usePendingApprovals } from "@executor/ui";
 import { Skeleton } from "@/components/ui/skeleton";

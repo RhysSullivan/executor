@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { useNavigate } from "@/lib/router";
 import { AlertTriangle, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
