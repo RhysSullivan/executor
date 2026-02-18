@@ -137,6 +137,8 @@ export function TaskComposer() {
   const effectiveRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
     ? runtimeId
     : runtimeTargets[0]?.id ?? "";
+  const selectedRuntime = runtimeTargets.find((runtime) => runtime.id === effectiveRuntimeId);
+  const showRuntimeSelector = runtimeTargets.length > 1;
 
   useEffect(() => {
     const draft = readCodeDraftForWorkspace(storageWorkspaceId);
@@ -220,18 +222,24 @@ export function TaskComposer() {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">Runtime</Label>
-            <Select value={effectiveRuntimeId} onValueChange={setRuntimeId}>
-              <SelectTrigger className="h-8 text-xs font-mono bg-background">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {runtimeTargets.map((r: RuntimeTargetDescriptor) => (
-                  <SelectItem key={r.id} value={r.id} className="text-xs">
-                    {r.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {showRuntimeSelector ? (
+              <Select value={effectiveRuntimeId} onValueChange={setRuntimeId}>
+                <SelectTrigger className="h-8 text-xs font-mono bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {runtimeTargets.map((r: RuntimeTargetDescriptor) => (
+                    <SelectItem key={r.id} value={r.id} className="text-xs">
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="h-8 px-3 rounded-md border border-input bg-background/70 text-xs text-muted-foreground flex items-center font-mono">
+                {selectedRuntime?.label ?? "Runtime"}
+              </div>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">

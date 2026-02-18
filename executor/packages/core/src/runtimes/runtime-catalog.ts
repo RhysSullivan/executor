@@ -2,7 +2,7 @@
 
 export const LOCAL_BUN_RUNTIME_ID = "local-bun";
 export const CLOUDFLARE_WORKER_LOADER_RUNTIME_ID = "cloudflare-worker-loader";
-export const CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY = "EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY";
+export const DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY = "DANGEROUSLY_ALLOW_LOCAL_VM";
 
 const TRUTHY_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
 
@@ -22,24 +22,23 @@ function isTruthyEnvValue(value: string | undefined): boolean {
   return TRUTHY_ENV_VALUES.has(value.trim().toLowerCase());
 }
 
-function isCloudflareDynamicWorkerOnlyMode(): boolean {
-  return isTruthyEnvValue(process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY]);
+function isLocalVmAllowed(): boolean {
+  return isTruthyEnvValue(process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY]);
 }
 
 export function isRuntimeEnabled(runtimeId: string): boolean {
   if (!isKnownRuntimeId(runtimeId)) {
     return false;
   }
-  if (!isCloudflareDynamicWorkerOnlyMode()) {
+  if (isLocalVmAllowed()) {
     return true;
   }
+
   return runtimeId === CLOUDFLARE_WORKER_LOADER_RUNTIME_ID;
 }
 
 export function defaultRuntimeId(): string {
-  return isCloudflareDynamicWorkerOnlyMode()
-    ? CLOUDFLARE_WORKER_LOADER_RUNTIME_ID
-    : LOCAL_BUN_RUNTIME_ID;
+  return isLocalVmAllowed() ? LOCAL_BUN_RUNTIME_ID : CLOUDFLARE_WORKER_LOADER_RUNTIME_ID;
 }
 
 export interface RuntimeTargetDescriptor {

@@ -295,12 +295,14 @@ async function seedManagedRuntimeState(
     `CONVEX_SELF_HOSTED_URL=http://${config.hostInterface}:${config.backendPort}`,
     `CONVEX_SELF_HOSTED_ADMIN_KEY=${adminKey}`,
     "WORKOS_CLIENT_ID=disabled",
+    "DANGEROUSLY_ALLOW_LOCAL_VM=1",
   ].join("\n");
 
   await fs.writeFile(envFilePath, `${envContents}\n`, "utf8");
 
   const envEntries: Array<{ name: string; value: string }> = [
     { name: "WORKOS_CLIENT_ID", value: "disabled" },
+    { name: "DANGEROUSLY_ALLOW_LOCAL_VM", value: "1" },
     { name: "ANONYMOUS_AUTH_ISSUER", value: expectedAnonymousIssuer },
     { name: "ANONYMOUS_AUTH_PRIVATE_KEY_PEM", value: anonymousAuth.privateKeyPem },
     { name: "ANONYMOUS_AUTH_PUBLIC_KEY_PEM", value: anonymousAuth.publicKeyPem },

@@ -159,6 +159,7 @@ async function seedManagedRuntimeEnvVars(
   const anonymousAuthEnv = await resolveManagedAnonymousAuthEnv(info);
   const envEntries: Array<{ name: string; value: string }> = [
     { name: "WORKOS_CLIENT_ID", value: "disabled" },
+    { name: "DANGEROUSLY_ALLOW_LOCAL_VM", value: "1" },
     { name: "ANONYMOUS_AUTH_PRIVATE_KEY_PEM", value: anonymousAuthEnv.ANONYMOUS_AUTH_PRIVATE_KEY_PEM },
     { name: "ANONYMOUS_AUTH_PUBLIC_KEY_PEM", value: anonymousAuthEnv.ANONYMOUS_AUTH_PUBLIC_KEY_PEM },
     { name: "MCP_API_KEY_SECRET", value: anonymousAuthEnv.MCP_API_KEY_SECRET },
@@ -296,6 +297,7 @@ async function writeBootstrapEnvFile(info: ManagedRuntimeInfo, adminKey: string)
     `CONVEX_SELF_HOSTED_URL=http://${info.config.hostInterface}:${info.config.backendPort}`,
     `CONVEX_SELF_HOSTED_ADMIN_KEY=${adminKey}`,
     "WORKOS_CLIENT_ID=disabled",
+    "DANGEROUSLY_ALLOW_LOCAL_VM=1",
   ].join("\n");
   await fs.writeFile(filePath, `${contents}\n`, "utf8");
   return filePath;

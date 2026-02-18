@@ -20,7 +20,6 @@ const REQUIRED_PROD_ENV_KEYS = [
   "CLOUDFLARE_SANDBOX_RUN_URL",
   "CLOUDFLARE_SANDBOX_AUTH_TOKEN",
   "EXECUTOR_INTERNAL_TOKEN",
-  "EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY",
   "CONVEX_URL",
 ] as const;
 
@@ -112,13 +111,6 @@ function parseUrl(input: string): URL | null {
   } catch {
     return null;
   }
-}
-
-function isTruthy(value: string | undefined): boolean {
-  if (!value) {
-    return false;
-  }
-  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
 function deploymentPrefix(hostname: string, suffix: ".convex.cloud" | ".convex.site"): string | null {
@@ -262,19 +254,6 @@ export function buildEnvChecks(env: Map<string, string>): DoctorCheck[] {
     addTokenStrengthCheck(report, "EXECUTOR_INTERNAL_TOKEN", internalSecret);
   }
 
-  const cloudflareOnlyMode = env.get("EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY")?.trim();
-  if (cloudflareOnlyMode) {
-    const enabled = isTruthy(cloudflareOnlyMode);
-    addCheck(
-      report,
-      "runtime restriction mode",
-      enabled,
-      enabled
-        ? "Cloudflare dynamic worker runtime-only mode is enabled"
-        : `expected truthy value, got '${cloudflareOnlyMode}'`,
-    );
-  }
-
   for (const key of OPTIONAL_BILLING_ENV_KEYS) {
     const value = env.get(key)?.trim();
     addCheck(
@@ -293,16 +272,9 @@ function guidanceForFailure(checkName: string): string[] {
     checkName === "env:CLOUDFLARE_SANDBOX_RUN_URL"
     || checkName === "env:CLOUDFLARE_SANDBOX_AUTH_TOKEN"
     || checkName === "env:EXECUTOR_INTERNAL_TOKEN"
-    || checkName === "env:EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY"
   ) {
     return [
       "Run `bun run setup:prod:cloudflare --deploy` (or `bun run setup:prod:all`) to deploy sandbox host and set required Cloudflare runtime env vars.",
-    ];
-  }
-
-  if (checkName === "runtime restriction mode") {
-    return [
-      "Set `EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY=1` in Convex prod env to force Cloudflare dynamic worker runtime.",
     ];
   }
 

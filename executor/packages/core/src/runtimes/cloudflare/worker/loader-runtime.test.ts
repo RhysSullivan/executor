@@ -162,9 +162,9 @@ describe("runtime catalog", () => {
     expect(isCloudflareWorkerLoaderConfigured()).toBe(true);
   });
 
-  test("can restrict runtime targets to cloudflare dynamic worker", async () => {
+  test("uses local runtime when explicitly allowed", async () => {
     const {
-      CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY,
+      DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY,
       CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
       LOCAL_BUN_RUNTIME_ID,
       defaultRuntimeId,
@@ -172,21 +172,49 @@ describe("runtime catalog", () => {
       listRuntimeTargets,
     } = await import("../../runtime-catalog");
 
-    const previous = process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY];
+    const previous = process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY];
     try {
-      process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY] = "1";
+      process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY] = "1";
 
-      expect(defaultRuntimeId()).toBe(CLOUDFLARE_WORKER_LOADER_RUNTIME_ID);
-      expect(isRuntimeEnabled(LOCAL_BUN_RUNTIME_ID)).toBe(false);
+      expect(defaultRuntimeId()).toBe(LOCAL_BUN_RUNTIME_ID);
+      expect(isRuntimeEnabled(LOCAL_BUN_RUNTIME_ID)).toBe(true);
       expect(isRuntimeEnabled(CLOUDFLARE_WORKER_LOADER_RUNTIME_ID)).toBe(true);
       expect(listRuntimeTargets().map((target) => target.id)).toEqual([
+        LOCAL_BUN_RUNTIME_ID,
         CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
       ]);
     } finally {
       if (previous === undefined) {
-        delete process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY];
+        delete process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY];
       } else {
-        process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY] = previous;
+        process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY] = previous;
+      }
+    }
+  });
+
+  test("defaults to Cloudflare runtime when local VM is not allowed", async () => {
+    const {
+      DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY,
+      CLOUDFLARE_WORKER_LOADER_RUNTIME_ID,
+      LOCAL_BUN_RUNTIME_ID,
+      defaultRuntimeId,
+      isRuntimeEnabled,
+      listRuntimeTargets,
+    } = await import("../../runtime-catalog");
+
+    const previous = process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY];
+    try {
+      delete process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY];
+
+      expect(defaultRuntimeId()).toBe(CLOUDFLARE_WORKER_LOADER_RUNTIME_ID);
+      expect(isRuntimeEnabled(LOCAL_BUN_RUNTIME_ID)).toBe(false);
+      expect(isRuntimeEnabled(CLOUDFLARE_WORKER_LOADER_RUNTIME_ID)).toBe(true);
+      expect(listRuntimeTargets().map((target) => target.id)).toEqual([CLOUDFLARE_WORKER_LOADER_RUNTIME_ID]);
+    } finally {
+      if (previous === undefined) {
+        delete process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY];
+      } else {
+        process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY] = previous;
       }
     }
   });

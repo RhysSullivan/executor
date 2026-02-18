@@ -2,7 +2,7 @@ import type { RuntimeTargetDescriptor } from "@/lib/types";
 
 const LOCAL_BUN_RUNTIME_ID = "local-bun";
 const CLOUDFLARE_WORKER_LOADER_RUNTIME_ID = "cloudflare-worker-loader";
-const CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY = "EXECUTOR_CLOUDFLARE_DYNAMIC_WORKER_ONLY";
+const DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY = "DANGEROUSLY_ALLOW_LOCAL_VM";
 
 const TRUTHY_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
 
@@ -32,12 +32,12 @@ function isRuntimeEnabled(runtimeId: string): boolean {
     return false;
   }
 
-  const dynamicWorkerOnly =
+  const localVmAllowed =
     typeof process !== "undefined"
-      ? isTruthyEnvValue(process.env[CLOUDFLARE_DYNAMIC_WORKER_ONLY_ENV_KEY])
+      ? isTruthyEnvValue(process.env[DANGEROUSLY_ALLOW_LOCAL_VM_ENV_KEY])
       : false;
 
-  if (!dynamicWorkerOnly) {
+  if (localVmAllowed) {
     return true;
   }
 
