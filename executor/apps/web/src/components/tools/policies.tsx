@@ -748,7 +748,7 @@ function PolicyCard({
   const [showTools, setShowTools] = useState(false);
 
   return (
-    <div className="group relative rounded-lg border border-border/60 bg-card hover:border-border transition-colors">
+    <div className="group relative rounded-none border border-border/60 bg-card/60 hover:border-border transition-colors">
       <div className="px-3.5 py-2.5">
         {/* Header row */}
         <div className="flex items-start gap-2.5">
@@ -1321,7 +1321,7 @@ export function PoliciesPanel({
           ))}
         </div>
       ) : policies.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border/50 py-10 flex flex-col items-center gap-2.5">
+        <div className="rounded-none border border-dashed border-border/50 py-10 flex flex-col items-center gap-2.5">
           <Shield className="h-8 w-8 text-muted-foreground/30" />
           <div className="text-center">
             <p className="text-xs text-muted-foreground">No tool policies configured</p>
@@ -1377,7 +1377,7 @@ export function PoliciesPanel({
 
       <Separator className="bg-border/40" />
 
-      <details className="group rounded-lg border border-border/60 bg-card/40">
+      <details className="group rounded-none border border-border/60 bg-card/30">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5">
           <div>
             <h4 className="text-sm font-medium">Policy Set Manager</h4>
@@ -1391,12 +1391,12 @@ export function PoliciesPanel({
 
         <div className="px-3 pb-3">
           {!canManageRoles ? (
-            <div className="rounded-lg border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
+            <div className="rounded-none border border-dashed border-border/50 p-4 text-xs text-muted-foreground">
               Organization owner/admin role required to manage tool policy sets.
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_1fr]">
-            <div className="space-y-3 rounded-lg border border-border/60 bg-card p-3">
+            <div className="space-y-3 rounded-none border border-border/60 bg-card/50 p-3">
               <Label className="text-xs text-muted-foreground">Create policy set</Label>
               <Input
                 value={roleForm.name}
@@ -1455,7 +1455,7 @@ export function PoliciesPanel({
               </div>
             </div>
 
-            <div className="space-y-4 rounded-lg border border-border/60 bg-card p-4">
+            <div className="space-y-4 rounded-none border border-border/60 bg-card/50 p-4">
               {!selectedRole ? (
                 <p className="text-xs text-muted-foreground">Select a policy set to manage its rules and assignments.</p>
               ) : (

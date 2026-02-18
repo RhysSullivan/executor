@@ -67,7 +67,7 @@ function ApprovalCard({
   );
 
   return (
-    <Card className="bg-card border-border border-l-2 border-l-terminal-amber glow-amber">
+    <Card className="rounded-none bg-card/40 border-border/50 border-l-2 border-l-terminal-amber glow-amber">
       <CardContent className="p-4 space-y-3">
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
@@ -180,7 +180,7 @@ export function ApprovalsView() {
           ))}
         </div>
       ) : count === 0 ? (
-        <Card className="bg-card border-border flex-1">
+        <Card className="rounded-none bg-card/40 border-border/50 flex-1">
           <CardContent className="flex flex-col items-center justify-center py-20 gap-3">
             <div className="h-12 w-12 rounded-full bg-terminal-green/10 flex items-center justify-center">
               <CheckCircle2 className="h-6 w-6 text-terminal-green/60" />

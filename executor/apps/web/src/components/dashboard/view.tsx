@@ -46,7 +46,7 @@ export function DashboardView() {
           />
         )}
 
-        <Card id="mcp-setup" className="bg-card border-border min-h-0 flex flex-col">
+        <Card id="mcp-setup" className="rounded-none bg-card/40 border-border/50 min-h-0 flex flex-col">
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Server className="h-4 w-4 text-primary" />

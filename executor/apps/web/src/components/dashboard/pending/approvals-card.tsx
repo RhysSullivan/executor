@@ -11,7 +11,7 @@ function PendingApprovalRow({ approval }: { approval: PendingApprovalRecord }) {
   return (
     <button
       onClick={() => navigate("/approvals")}
-      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-accent/50 transition-colors text-left group"
+      className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/20"
     >
       <div className="h-2 w-2 rounded-full bg-terminal-amber pulse-dot shrink-0" />
       <div className="flex-1 min-w-0">
@@ -33,7 +33,7 @@ export function DashboardPendingApprovalsCard({
   const navigate = useNavigate();
 
   return (
-    <Card className="bg-card border-border">
+    <Card className="rounded-none border-border/50 bg-card/40">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -63,7 +63,7 @@ export function DashboardPendingApprovalsCard({
             No pending approvals
           </div>
         ) : (
-          <div className="space-y-0.5">
+          <div className="divide-y divide-border/30">
             {approvals.map((approval) => (
               <PendingApprovalRow key={approval.id} approval={approval} />
             ))}

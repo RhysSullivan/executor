@@ -336,17 +336,29 @@ export function ToolExplorer({
   }, [maybeLoadToolDetails, setFocusedSourceName]);
 
   const handleSourceClick = useCallback((sourceName: string) => {
+    const key = `source:${sourceName}`;
+    const wasFocused = focusedSourceName === sourceName;
     const source = sourceByName.get(sourceName);
+
+    if (wasFocused) {
+      setSourceFocusState(null, null);
+      setExpandedKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      return;
+    }
+
     setSourceFocusState(sourceName, source ?? null);
     // Ensure the source group is expanded
     setExpandedKeys((prev) => {
-      const key = `source:${sourceName}`;
       if (prev.has(key)) return prev;
       const next = new Set(prev);
       next.add(key);
       return next;
     });
-  }, [sourceByName]);
+  }, [focusedSourceName, setSourceFocusState, sourceByName]);
 
   const handleAddSource = useCallback(() => {
     setSourceFocusState(null, null);

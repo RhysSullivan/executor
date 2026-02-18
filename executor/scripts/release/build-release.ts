@@ -447,9 +447,11 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
     EXECUTOR_WEB_CONVEX_SITE_URL: "http://127.0.0.1:5411",
     VITE_CONVEX_URL: "http://127.0.0.1:5410",
     VITE_CONVEX_SITE_URL: "http://127.0.0.1:5411",
+    NODE_ENV: "production",
+    VITE_USER_NODE_ENV: "production",
   };
 
-  await runCommand(["bunx", "vite", "build"], {
+  await runCommand(["bunx", "vite", "build", "--mode", "production"], {
     cwd: webAppDir,
     env: webBuildEnv,
   });

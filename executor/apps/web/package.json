@@ -5,7 +5,7 @@
   "scripts": {
     "with-env": "bun run --env-file=../../../.env --",
     "dev": "bun with-env vite dev --port 4312",
-    "build": "bun with-env vite build",
+    "build": "NODE_ENV=production bun with-env vite build --mode production",
     "start": "bun with-env env PORT=5312 HOSTNAME=127.0.0.1 node dist/server/server.mjs",
     "lint": "eslint",
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",

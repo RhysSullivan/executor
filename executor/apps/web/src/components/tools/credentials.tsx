@@ -92,7 +92,7 @@ export function CredentialsPanel({
   }, [credentials]);
 
   return (
-    <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col border border-border/50 bg-card/40">
+    <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col rounded-none border border-border/50 bg-card/30">
       <div className="flex items-center justify-between border-b border-border/40 px-4 py-3 sm:px-5">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center border border-border/60 bg-background/80">
@@ -140,6 +140,7 @@ export function CredentialsPanel({
                 <div
                   key={connection.key}
                   className="group flex items-center gap-3 border border-border/50 bg-background/70 px-3 py-2.5 transition-colors hover:border-border hover:bg-accent/20"
+                  style={{ boxShadow: "inset 2px 0 0 0 color-mix(in oklch, var(--border) 70%, transparent)" }}
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center border border-border/60 bg-muted/50 overflow-hidden">
                     {firstSource ? (

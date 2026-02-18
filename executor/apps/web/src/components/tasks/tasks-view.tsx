@@ -77,7 +77,7 @@ export function TasksView() {
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="grid h-full min-h-0 gap-6 lg:grid-cols-[minmax(360px,440px)_1fr]">
-          <Card className="bg-card border-border min-h-0 flex flex-col">
+          <Card className="rounded-none bg-card/40 border-border/50 min-h-0 flex flex-col">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 Task History
@@ -126,7 +126,7 @@ export function TasksView() {
                 onClose={() => selectTask(null)}
               />
             ) : (
-              <Card className="bg-card border-border h-full">
+              <Card className="rounded-none bg-card/40 border-border/50 h-full">
                 <CardContent className="flex items-center justify-center py-24">
                   <p className="text-sm text-muted-foreground">
                     Select a task to view logs, output, and approval actions
