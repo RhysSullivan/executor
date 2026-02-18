@@ -207,7 +207,7 @@ async function resolveTanstackStartOutput(webAppDir: string): Promise<TanstackSt
     {
       outputRoot: path.join(webAppDir, "dist"),
       serverEntry: path.join("dist", "server", "server.mjs"),
-      stagedServerEntry: path.join(".output", "server", "server.mjs"),
+      stagedServerEntry: path.join("dist", "server", "server.mjs"),
     },
     {
       outputRoot: path.join(webAppDir, ".output"),
@@ -461,6 +461,7 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
   const stageRoot = path.join(releaseDir, `executor-web-${host.platform}-${host.arch}`);
   const stagedAppRoot = path.join(stageRoot, "executor", "apps", "web");
   const stagedServerEntry = tanstackStart.stagedServerEntry;
+  const stagedOutputRoot = path.basename(outputRoot);
 
   if (!(await pathExists(outputServerEntry))) {
     throw new Error(`Missing TanStack Start output at ${outputServerEntry}. Ensure vite build completed.`);
@@ -470,7 +471,7 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
   await fs.mkdir(stageRoot, { recursive: true });
   await fs.mkdir(stagedAppRoot, { recursive: true });
 
-  await fs.cp(outputRoot, path.join(stagedAppRoot, ".output"), { recursive: true });
+  await fs.cp(outputRoot, path.join(stagedAppRoot, stagedOutputRoot), { recursive: true });
 
   await Bun.write(
     path.join(stageRoot, "server.js"),
