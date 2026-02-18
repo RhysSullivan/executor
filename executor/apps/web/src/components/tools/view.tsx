@@ -373,7 +373,7 @@ export function ToolsView() {
   if (sessionLoading) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex flex-1 min-h-0 rounded-lg border border-border/50 p-4">
+        <div className="flex flex-1 min-h-0 rounded-none border border-border/50 p-4">
           <div className="flex h-full w-full">
             {/* Sidebar skeleton */}
             <div className="w-52 shrink-0 border-r border-border/30 pr-3 space-y-2 hidden lg:block">
@@ -402,7 +402,7 @@ export function ToolsView() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {activeTab === "editor" ? (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8">
           <TaskComposer />
         </div>
       ) : null}
@@ -452,7 +452,7 @@ export function ToolsView() {
       ) : null}
 
       {activeTab === "connections" ? (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8">
           <CredentialsPanel
             sources={sourceItems}
             credentials={credentialItems}
@@ -464,7 +464,7 @@ export function ToolsView() {
       ) : null}
 
       {activeTab === "policies" ? (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8">
           <PoliciesPanel
             tools={visibleTools}
             loadingTools={loadingTools}
