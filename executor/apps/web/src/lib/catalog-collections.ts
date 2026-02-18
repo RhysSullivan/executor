@@ -28,6 +28,20 @@ export const HARD_CODED_CATALOG_ITEMS: CatalogCollectionItem[] = [
     addedAt: "2026-02-14",
   },
   {
+    id: "neon-mcp",
+    name: "Neon MCP Server",
+    summary: "Manage Neon Postgres projects and branches via MCP with OAuth or API key authentication.",
+    specUrl: "https://mcp.neon.tech/mcp",
+    sourceType: "mcp",
+    originUrl: "https://github.com/neondatabase/mcp-server-neon",
+    providerName: "Neon",
+    logoUrl: "https://neon.com/brand/neon-logomark-dark-color.svg",
+    categories: "database",
+    version: "latest",
+    rank: 6,
+    addedAt: "2026-02-18",
+  },
+  {
     id: "github-rest",
     name: "GitHub REST API",
     summary: "Manage repositories, pull requests, issues, and org settings.",
@@ -96,7 +110,7 @@ export const HARD_CODED_CATALOG_ITEMS: CatalogCollectionItem[] = [
     providerName: "Slack",
     categories: "communications",
     version: "v2",
-    rank: 6,
+    rank: 7,
     addedAt: "2025-12-10",
   },
   {
@@ -108,7 +122,7 @@ export const HARD_CODED_CATALOG_ITEMS: CatalogCollectionItem[] = [
     providerName: "Sentry",
     categories: "observability",
     version: "latest",
-    rank: 7,
+    rank: 8,
     addedAt: "2025-11-30",
   },
   {
@@ -120,7 +134,7 @@ export const HARD_CODED_CATALOG_ITEMS: CatalogCollectionItem[] = [
     providerName: "Atlassian",
     categories: "project-management",
     version: "v3",
-    rank: 8,
+    rank: 9,
     addedAt: "2025-11-15",
   },
 ];
