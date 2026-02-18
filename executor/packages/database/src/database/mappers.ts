@@ -100,52 +100,6 @@ export function mapToolCall(doc: Doc<"toolCalls">) {
   };
 }
 
-export function mapPolicy(doc: {
-  policyId: string;
-  scopeType: "account" | "organization" | "workspace";
-  organizationId: Doc<"organizations">["_id"];
-  workspaceId?: Doc<"workspaces">["_id"];
-  targetAccountId?: Doc<"accounts">["_id"];
-  clientId?: string;
-  resourceType: "all_tools" | "source" | "namespace" | "tool_path";
-  resourcePattern: string;
-  matchType: "glob" | "exact";
-  effect: "allow" | "deny";
-  approvalMode: "inherit" | "auto" | "required";
-  argumentConditions?: Array<{
-    key: string;
-    operator: "equals" | "contains" | "starts_with" | "not_equals";
-    value: string;
-  }>;
-  priority: number;
-  createdAt: number;
-  updatedAt: number;
-  roleId?: string;
-  ruleId?: string;
-  bindingId?: string;
-}) {
-  return {
-    id: doc.policyId,
-    scopeType: doc.scopeType,
-    organizationId: doc.organizationId,
-    workspaceId: doc.workspaceId,
-    targetAccountId: doc.targetAccountId,
-    clientId: doc.clientId,
-    resourceType: doc.resourceType,
-    resourcePattern: doc.resourcePattern,
-    matchType: doc.matchType,
-    effect: doc.effect,
-    approvalMode: doc.approvalMode,
-    argumentConditions: doc.argumentConditions,
-    priority: doc.priority,
-    roleId: doc.roleId,
-    ruleId: doc.ruleId,
-    bindingId: doc.bindingId,
-    createdAt: doc.createdAt,
-    updatedAt: doc.updatedAt,
-  };
-}
-
 export function mapCredential(doc: Doc<"sourceCredentials">) {
   const secretJson = isRecord(doc.secretJson) ? doc.secretJson : {};
   const overridesJson = isRecord(doc.overridesJson) ? doc.overridesJson : {};
