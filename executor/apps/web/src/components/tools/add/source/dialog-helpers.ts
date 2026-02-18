@@ -37,30 +37,6 @@ export function getVisibleCatalogItems(
   });
 }
 
-export function endpointLabelForType(type: SourceType): string {
-  if (type === "mcp") {
-    return "Endpoint URL";
-  }
-
-  if (type === "graphql") {
-    return "GraphQL Endpoint";
-  }
-
-  return "Spec URL";
-}
-
-export function endpointPlaceholderForType(type: SourceType): string {
-  if (type === "mcp") {
-    return "https://mcp-server.example.com/sse";
-  }
-
-  if (type === "graphql") {
-    return "https://api.example.com/graphql";
-  }
-
-  return "https://api.example.com/openapi.json";
-}
-
 export function createCustomSourceConfig({
   type,
   endpoint,

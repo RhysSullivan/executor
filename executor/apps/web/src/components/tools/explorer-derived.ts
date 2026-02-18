@@ -85,10 +85,6 @@ function matchesSearchNeedles(tool: ToolDescriptor, searchNeedles: string[][]): 
   });
 }
 
-export function expandedKeysForSource(source: string | null): Set<string> {
-  return source ? new Set([`source:${source}`]) : new Set();
-}
-
 export function filterToolsBySourceAndApproval(
   tools: ToolDescriptor[],
   activeSource: string | null,
@@ -231,17 +227,6 @@ function buildSourceTreeWithLoading(
   });
 }
 
-export function flatToolsForView(
-  tools: ToolDescriptor[],
-  viewMode: ViewMode,
-): ToolDescriptor[] {
-  if (viewMode !== "flat") {
-    return [];
-  }
-
-  return [...tools].sort((a, b) => a.path.localeCompare(b.path));
-}
-
 export function autoExpandedKeysForSearch(
   search: string,
   filteredTools: ToolDescriptor[],
@@ -275,19 +260,4 @@ export function countSelectedTools(
   return Array.from(selectedKeys).filter((key) =>
     filteredTools.some((tool) => tool.path === key),
   ).length;
-}
-
-export function sourceOptionsFromTools(
-  tools: ToolDescriptor[],
-  loadingSources: string[] = [],
-): string[] {
-  const sourceSet = new Set(
-    tools.map((tool) => sourceLabel(tool.source)),
-  );
-
-  for (const source of loadingSources) {
-    sourceSet.add(source);
-  }
-
-  return Array.from(sourceSet);
 }

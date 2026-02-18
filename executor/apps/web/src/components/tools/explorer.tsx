@@ -62,8 +62,6 @@ interface ToolExplorerProps {
   onFocusedToolPathChange: (toolPath: string | null) => void;
   onSelectedToolPathsChange: (toolPaths: string[]) => void;
   onFocusedSourceNameChange: (sourceName: string | null) => void;
-  /** @deprecated No longer used — source sidebar is merged into the tool list panel. */
-  showSourceSidebar?: boolean;
   onSourceAdded?: (source: ToolSourceRecord) => void;
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;

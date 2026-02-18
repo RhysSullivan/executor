@@ -171,6 +171,12 @@ type RuntimeConfig = {
   siteProxyPort: number;
 };
 
+type TanstackStartOutput = {
+  outputRoot: string;
+  serverEntry: string;
+  stagedServerEntry: string;
+};
+
 function normalizePemForEnv(value: string): string {
   return value.replace(/\r\n/g, "\n").replace(/\n/g, "\\n").trim();
 }
@@ -194,6 +200,38 @@ function createAnonymousAuthSeed(): AnonymousAuthSeed {
     publicKeyPem: normalizePemForEnv(keyPair.publicKey),
     apiKeySecret: privateKeyPem,
   };
+}
+
+async function resolveTanstackStartOutput(webAppDir: string): Promise<TanstackStartOutput> {
+  const candidates: Array<{ outputRoot: string; serverEntry: string; stagedServerEntry: string }> = [
+    {
+      outputRoot: path.join(webAppDir, "dist"),
+      serverEntry: path.join("dist", "server", "server.mjs"),
+      stagedServerEntry: path.join(".output", "server", "server.mjs"),
+    },
+    {
+      outputRoot: path.join(webAppDir, ".output"),
+      serverEntry: path.join(".output", "server", "index.mjs"),
+      stagedServerEntry: path.join(".output", "server", "index.mjs"),
+    },
+  ];
+
+  for (const candidate of candidates) {
+    const absoluteServerEntry = path.join(webAppDir, candidate.serverEntry);
+    if (await pathExists(absoluteServerEntry)) {
+      return {
+        outputRoot: candidate.outputRoot,
+        serverEntry: candidate.serverEntry,
+        stagedServerEntry: candidate.stagedServerEntry,
+      };
+    }
+  }
+
+  const checkedPaths = candidates
+    .map((candidate) => path.join(webAppDir, candidate.serverEntry))
+    .join(", ");
+
+  throw new Error(`Could not find TanStack Start server output. Checked: ${checkedPaths}`);
 }
 
 async function readRuntimeConfig(runtimeDir: string): Promise<RuntimeConfig> {
@@ -403,7 +441,6 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
   const webAppDir = path.join(rootDir, "apps", "web");
   const webArtifactName = webArchiveName(host.platform, host.arch);
   const archivePath = path.join(releaseDir, webArtifactName);
-
   const webBuildEnv = {
     ...process.env,
     EXECUTOR_WEB_CONVEX_URL: "http://127.0.0.1:5410",
@@ -417,10 +454,13 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
     env: webBuildEnv,
   });
 
-  const outputRoot = path.join(webAppDir, ".output");
-  const outputServerEntry = path.join(outputRoot, "server", "index.mjs");
+  const tanstackStart = await resolveTanstackStartOutput(webAppDir);
+
+  const outputRoot = tanstackStart.outputRoot;
+  const outputServerEntry = path.join(webAppDir, tanstackStart.serverEntry);
   const stageRoot = path.join(releaseDir, `executor-web-${host.platform}-${host.arch}`);
   const stagedAppRoot = path.join(stageRoot, "executor", "apps", "web");
+  const stagedServerEntry = tanstackStart.stagedServerEntry;
 
   if (!(await pathExists(outputServerEntry))) {
     throw new Error(`Missing TanStack Start output at ${outputServerEntry}. Ensure vite build completed.`);
@@ -434,7 +474,7 @@ async function buildWebArtifact(rootDir: string, releaseDir: string, checksums: 
 
   await Bun.write(
     path.join(stageRoot, "server.js"),
-    "process.chdir(__dirname + '/executor/apps/web');\nimport(process.cwd() + '/.output/server/index.mjs');\n",
+    `process.chdir(__dirname + '/executor/apps/web');\nimport(process.cwd() + '${path.posix.normalize(stagedServerEntry)}');\n`,
   );
 
   await runArchiveCommand(["tar", "-czf", archivePath, "-C", stageRoot, "."]);
