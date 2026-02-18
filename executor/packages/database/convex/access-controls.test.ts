@@ -458,6 +458,23 @@ describe("workspace access controls", () => {
     expect(policy.resourcePattern).toBe("*.delete");
   });
 
+  test("account-scoped policy target must be active org member", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "policy-target-owner" });
+    const outsider = await seedUser(t, { subject: "policy-target-outsider" });
+    const authedOwner = t.withIdentity({ subject: "policy-target-owner" });
+
+    await expect(
+      authedOwner.mutation(api.workspace.upsertAccessPolicy, {
+        workspaceId: owner.workspaceId,
+        scopeType: "account",
+        targetAccountId: outsider.accountId,
+        resourcePattern: "*",
+        effect: "allow",
+      }),
+    ).rejects.toThrow("targetAccountId must be an active member of this organization");
+  });
+
   test("workspace owner can upsert access policies", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "ws-owner-policy" });
@@ -526,6 +543,23 @@ describe("workspace access controls", () => {
         config: { url: "https://example.com" },
       }),
     ).rejects.toThrow("Only organization admins can perform this action");
+  });
+
+  test("account-scoped credential target must be active org member", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "cred-target-owner" });
+    const outsider = await seedUser(t, { subject: "cred-target-outsider" });
+    const authedOwner = t.withIdentity({ subject: "cred-target-owner" });
+
+    await expect(
+      authedOwner.mutation(api.workspace.upsertCredential, {
+        workspaceId: owner.workspaceId,
+        sourceKey: "openapi:github",
+        scopeType: "account",
+        accountId: outsider.accountId,
+        secretJson: { token: "ghp_test" },
+      }),
+    ).rejects.toThrow("accountId must be an active member of this organization");
   });
 
   test("regular member cannot delete tool sources (admin-only)", async () => {
@@ -1255,6 +1289,45 @@ describe("credential security", () => {
         scopeType: "workspace",
       }),
     ).rejects.toThrow("Only organization admins can perform this action");
+  });
+
+  test("non-admin tool source listing redacts auth secret values", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "source-redact-owner" });
+    const member = await seedUser(t, { subject: "source-redact-member" });
+
+    await addOrgMember(t, {
+      organizationId: owner.organizationId,
+      accountId: member.accountId,
+      role: "member",
+    });
+
+    const authedOwner = t.withIdentity({ subject: "source-redact-owner" });
+    await authedOwner.mutation(api.workspace.upsertToolSource, {
+      workspaceId: owner.workspaceId,
+      name: "secure-source",
+      type: "openapi",
+      config: {
+        spec: "https://example.com/openapi.json",
+        baseUrl: "https://example.com",
+        auth: {
+          type: "bearer",
+          mode: "workspace",
+          token: "super-secret-token",
+        },
+      },
+    });
+
+    const authedMember = t.withIdentity({ subject: "source-redact-member" });
+    const sources = await authedMember.query(api.workspace.listToolSources, {
+      workspaceId: owner.workspaceId,
+    });
+
+    expect(sources.length).toBe(1);
+    const auth = (sources[0]!.config.auth ?? {}) as Record<string, unknown>;
+    expect(auth.type).toBe("bearer");
+    expect(auth.mode).toBe("workspace");
+    expect(auth.token).toBeUndefined();
   });
 });
 
