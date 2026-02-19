@@ -11,6 +11,11 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel.d.ts";
 import type { ActionCtx } from "../_generated/server";
 
+type TaskWatchStatusPayload = {
+  status?: string;
+  pendingApprovalCount?: number;
+};
+
 export function createMcpExecutorService(ctx: ActionCtx) {
   return {
     createTask: async (input: {
@@ -50,32 +55,77 @@ export function createMcpExecutorService(ctx: ActionCtx) {
         return () => {};
       }
 
-      const client = new ConvexClient(callbackConvexUrl, {
-        skipConvexDeploymentUrlCheck: true,
-      });
-      let sequence = 0;
-      const unsubscribe = client.onUpdate(
-        api.runtimeCallbacks.getTaskWatchStatus,
-        {
-          internalSecret: callbackInternalSecret,
-          runId: taskId,
-          workspaceId,
-        },
-        (payload: unknown) => {
-          sequence += 1;
-          listener({
-            id: sequence,
-            eventName: "task",
-            payload,
-            createdAt: Date.now(),
-          });
-        },
-      );
-
-      return () => {
-        unsubscribe();
-        client.close();
+      const callbackArgs = {
+        internalSecret: callbackInternalSecret,
+        runId: taskId,
+        workspaceId,
       };
+      let sequence = 0;
+      try {
+        const client = new ConvexClient(callbackConvexUrl, {
+          skipConvexDeploymentUrlCheck: true,
+        });
+        const unsubscribe = client.onUpdate(
+          api.runtimeCallbacks.getTaskWatchStatus,
+          callbackArgs,
+          (payload: TaskWatchStatusPayload | null | undefined) => {
+            sequence += 1;
+            listener({
+              id: sequence,
+              eventName: "task",
+              payload,
+              createdAt: Date.now(),
+            });
+          },
+        );
+
+        return () => {
+          unsubscribe();
+          client.close();
+        };
+      } catch {
+        // ConvexClient requires websocket support, which isn't always available in
+        // production HTTP-only Convex function hosts. Fall back to polling-based
+        // updates to avoid runtime failures.
+        const pollMs = 750;
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+
+        const poll = async () => {
+          if (cancelled) {
+            return;
+          }
+
+          try {
+            const payload = await ctx.runQuery(api.runtimeCallbacks.getTaskWatchStatus, callbackArgs);
+            sequence += 1;
+            listener({
+              id: sequence,
+              eventName: "task",
+              payload: {
+                status: payload?.status,
+                pendingApprovalCount: payload?.pendingApprovalCount,
+              },
+              createdAt: Date.now(),
+            });
+          } catch {
+            // Ignore transient polling failures and continue retrying.
+          }
+
+          if (!cancelled) {
+            timer = setTimeout(poll, pollMs);
+          }
+        };
+
+        void poll();
+
+        return () => {
+          cancelled = true;
+          if (timer) {
+            clearTimeout(timer);
+          }
+        };
+      }
     },
     bootstrapAnonymousContext: async (sessionId?: string): Promise<AnonymousContext> => {
       return await ctx.runMutation(internal.database.bootstrapAnonymousSession, {

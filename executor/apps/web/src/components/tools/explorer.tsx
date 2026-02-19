@@ -20,6 +20,7 @@ import {
 } from "./explorer-derived";
 import { collectGroupKeys } from "@/lib/tool/explorer-grouping";
 import { sourceLabel } from "@/lib/tool/source-utils";
+import { traverseSchema } from "@/lib/tool/schema-traverse";
 import {
   EmptyState,
   LoadingState,
@@ -37,6 +38,27 @@ import type {
 import { warningsBySourceName } from "@/lib/tools/source-helpers";
 
 // ── Main Explorer ──
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function parseSchemaJson(value: string): Record<string, unknown> {
+  if (!value) return {};
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return {};
+  }
+}
+
+function hasRenderableSchemaFields(schemaJson: string): boolean {
+  return traverseSchema(parseSchemaJson(schemaJson), { maxEntries: 1 }).entries.length > 0;
+}
 
 interface ToolExplorerProps {
   tools: ToolDescriptor[];
@@ -117,9 +139,10 @@ export function ToolExplorer({
 
     const hasInputHint = inputHint.length > 0 && inputHint !== "{}" && inputHint.toLowerCase() !== "unknown";
     const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
-    const hasSchemas = inputSchemaJson.length > 0 || outputSchemaJson.length > 0;
+    const hasInputSchema = inputSchemaJson.length > 0 && inputSchemaJson !== "{}" && hasRenderableSchemaFields(inputSchemaJson);
+    const hasOutputSchema = outputSchemaJson.length > 0 && outputSchemaJson !== "{}" && hasRenderableSchemaFields(outputSchemaJson);
 
-    return description.length > 0 || hasInputHint || hasOutputHint || hasSchemas;
+    return description.length > 0 || hasInputHint || hasOutputHint || hasInputSchema || hasOutputSchema;
   }, []);
 
   const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>({});

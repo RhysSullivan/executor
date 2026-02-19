@@ -371,8 +371,6 @@ function ToolDetailContent({
   const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
   const hasInputSchema = inputSchemaJson.length > 0 && inputSchemaJson !== "{}";
   const hasOutputSchema = outputSchemaJson.length > 0 && outputSchemaJson !== "{}";
-  const showInputHint = hasInputHint && !hasInputSchema;
-  const showOutputHint = hasOutputHint && !hasOutputSchema;
 
   const inputFields = useMemo(
     () => traverseSchema(parseSchemaJson(inputSchemaJson), { maxEntries: 30, maxDepth: 5 }),
@@ -383,11 +381,20 @@ function ToolDetailContent({
     [outputSchemaJson],
   );
 
+  const hasInputFields = inputFields.entries.length > 0;
+  const hasOutputFields = outputFields.entries.length > 0;
+
+  const canRenderInputSchema = hasInputSchema && hasInputFields;
+  const canRenderOutputSchema = hasOutputSchema && hasOutputFields;
+
+  const shouldShowInputHint = hasInputHint && !canRenderInputSchema;
+  const shouldShowOutputHint = hasOutputHint && !canRenderOutputSchema;
+
   const hasDetails = description.length > 0
-    || showInputHint
-    || showOutputHint
-    || hasInputSchema
-    || hasOutputSchema;
+    || shouldShowInputHint
+    || shouldShowOutputHint
+    || canRenderInputSchema
+    || canRenderOutputSchema;
   const showLoading = Boolean(loading);
 
   return (
@@ -415,11 +422,11 @@ function ToolDetailContent({
       ) : null}
 
       {/* Type hint fallbacks (when no full schema is available) */}
-      {showInputHint ? <TypeSignature raw={inputHint} label="Arguments" /> : null}
-      {showOutputHint ? <TypeSignature raw={outputHint} label="Returns" /> : null}
+      {shouldShowInputHint ? <TypeSignature raw={inputHint} label="Arguments" /> : null}
+      {shouldShowOutputHint ? <TypeSignature raw={outputHint} label="Returns" /> : null}
 
       {/* Structured schema rendering */}
-      {hasInputSchema ? (
+      {canRenderInputSchema ? (
         <SchemaFieldsSection
           label="Arguments"
           entries={inputFields.entries}
@@ -428,7 +435,7 @@ function ToolDetailContent({
         />
       ) : null}
 
-      {hasOutputSchema ? (
+      {canRenderOutputSchema ? (
         <SchemaFieldsSection
           label="Returns"
           entries={outputFields.entries}
