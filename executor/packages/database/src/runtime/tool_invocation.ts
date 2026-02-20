@@ -385,6 +385,95 @@ async function denyToolCallForApproval(
   });
 }
 
+export async function enforceToolApproval(
+  ctx: ActionCtx,
+  args: {
+    task: TaskRecord;
+    callId: string;
+    toolPath: string;
+    input: unknown;
+    requireApproval: boolean;
+    existingApprovalId?: string;
+  },
+): Promise<void> {
+  let approvalSatisfied = false;
+  if (args.existingApprovalId) {
+    const existingApproval = await ctx.runQuery(internal.database.getApproval, {
+      approvalId: args.existingApprovalId,
+    });
+    if (!existingApproval) {
+      throw new Error(`Approval ${args.existingApprovalId} not found for call ${args.callId}`);
+    }
+
+    if (existingApproval.status === "pending") {
+      throw new ToolCallControlError({
+        kind: "approval_pending",
+        approvalId: existingApproval.id,
+      });
+    }
+
+    if (existingApproval.status === "denied") {
+      await denyToolCallForApproval(ctx, {
+        task: args.task,
+        callId: args.callId,
+        toolPath: args.toolPath,
+        approvalId: existingApproval.id,
+      });
+    }
+
+    approvalSatisfied = existingApproval.status === "approved";
+  }
+
+  if (!args.requireApproval || approvalSatisfied) {
+    return;
+  }
+
+  const approvalId = args.existingApprovalId ?? createApprovalId();
+  let approval = await ctx.runQuery(internal.database.getApproval, {
+    approvalId,
+  });
+
+  if (!approval) {
+    approval = await ctx.runMutation(internal.database.createApproval, {
+      id: approvalId,
+      taskId: args.task.id,
+      toolPath: args.toolPath,
+      input: toInputPayload(args.input),
+    });
+
+    await publishTaskEvent(ctx, args.task.id, "approval", "approval.requested", {
+      approvalId: approval.id,
+      taskId: args.task.id,
+      callId: args.callId,
+      toolPath: approval.toolPath,
+      input: toInputPayload(approval.input),
+      createdAt: approval.createdAt,
+    });
+  }
+
+  await ctx.runMutation(internal.database.setToolCallPendingApproval, {
+    taskId: args.task.id,
+    callId: args.callId,
+    approvalId: approval.id,
+  });
+
+  if (approval.status === "pending") {
+    throw new ToolCallControlError({
+      kind: "approval_pending",
+      approvalId: approval.id,
+    });
+  }
+
+  if (approval.status === "denied") {
+    await denyToolCallForApproval(ctx, {
+      task: args.task,
+      callId: args.callId,
+      toolPath: args.toolPath,
+      approvalId: approval.id,
+    });
+  }
+}
+
 export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCallRequest): Promise<unknown> {
   const { toolPath, input, callId } = call;
   const persistedCall = await upsertRequestedToolCall(ctx, {
@@ -445,8 +534,31 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       }
 
       if (isStorageSystemToolPath(toolPath)) {
+        if (persistedCall.status === "requested") {
+          await publishTaskEvent(ctx, task.id, "task", "tool.call.started", {
+            taskId: task.id,
+            callId,
+            toolPath,
+            approval: systemToolDecision === "require_approval" ? "required" : "auto",
+          });
+        }
+
+        await enforceToolApproval(ctx, {
+          task,
+          callId,
+          toolPath,
+          input,
+          requireApproval: systemToolDecision === "require_approval",
+          existingApprovalId: persistedCall.approvalId,
+        });
+
         const output = await runStorageSystemTool(ctx, task, toolPath, input);
-        return await finalizeImmediateTool(output);
+        await completeToolCall(ctx, {
+          taskId: task.id,
+          callId,
+          toolPath,
+        });
+        return output;
       }
 
       const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
@@ -799,80 +911,14 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       });
     }
 
-    let approvalSatisfied = false;
-    if (persistedCall.approvalId) {
-      const existingApproval = await ctx.runQuery(internal.database.getApproval, {
-        approvalId: persistedCall.approvalId,
-      });
-      if (!existingApproval) {
-        throw new Error(`Approval ${persistedCall.approvalId} not found for call ${callId}`);
-      }
-
-      if (existingApproval.status === "pending") {
-        throw new ToolCallControlError({
-          kind: "approval_pending",
-          approvalId: existingApproval.id,
-        });
-      }
-
-      if (existingApproval.status === "denied") {
-        await denyToolCallForApproval(ctx, {
-          task,
-          callId,
-          toolPath: effectiveToolPath,
-          approvalId: existingApproval.id,
-        });
-      }
-
-      approvalSatisfied = existingApproval.status === "approved";
-    }
-
-    if (decision === "require_approval" && !approvalSatisfied) {
-      const approvalId = persistedCall.approvalId ?? createApprovalId();
-      let approval = await ctx.runQuery(internal.database.getApproval, {
-        approvalId,
-      });
-
-      if (!approval) {
-        approval = await ctx.runMutation(internal.database.createApproval, {
-          id: approvalId,
-          taskId: task.id,
-          toolPath: effectiveToolPath,
-          input: toInputPayload(input),
-        });
-
-        await publishTaskEvent(ctx, task.id, "approval", "approval.requested", {
-          approvalId: approval.id,
-          taskId: task.id,
-          callId,
-          toolPath: approval.toolPath,
-          input: toInputPayload(approval.input),
-          createdAt: approval.createdAt,
-        });
-      }
-
-      await ctx.runMutation(internal.database.setToolCallPendingApproval, {
-        taskId: task.id,
-        callId,
-        approvalId: approval.id,
-      });
-
-      if (approval.status === "pending") {
-        throw new ToolCallControlError({
-          kind: "approval_pending",
-          approvalId: approval.id,
-        });
-      }
-
-      if (approval.status === "denied") {
-        await denyToolCallForApproval(ctx, {
-          task,
-          callId,
-          toolPath: effectiveToolPath,
-          approvalId: approval.id,
-        });
-      }
-    }
+    await enforceToolApproval(ctx, {
+      task,
+      callId,
+      toolPath: effectiveToolPath,
+      input,
+      requireApproval: decision === "require_approval",
+      existingApprovalId: persistedCall.approvalId,
+    });
 
     const context: ToolRunContext = {
       taskId: task.id,

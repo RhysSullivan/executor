@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { mapStorageInstance } from "../../src/database/mappers";
 import {
@@ -11,6 +11,7 @@ import {
 
 const DEFAULT_EPHEMERAL_TTL_HOURS = 24;
 const MAX_EPHEMERAL_TTL_HOURS = 24 * 30;
+const STORAGE_TOUCH_DEBOUNCE_MS = 5_000;
 
 function resolveStorageProvider(): "agentfs-local" | "agentfs-cloudflare" {
   const raw = (process.env.AGENT_STORAGE_PROVIDER ?? "").trim().toLowerCase();
@@ -76,6 +77,49 @@ function canAccessInstance(args: {
 
 function isExpired(doc: { expiresAt?: number }, now = Date.now()): boolean {
   return typeof doc.expiresAt === "number" && Number.isFinite(doc.expiresAt) && doc.expiresAt <= now;
+}
+
+async function isOrganizationAdmin(
+  ctx: MutationCtx,
+  args: {
+    organizationId: Id<"organizations">;
+    accountId?: Id<"accounts">;
+  },
+): Promise<boolean> {
+  if (!args.accountId) {
+    return false;
+  }
+
+  const membership = await ctx.db
+    .query("organizationMembers")
+    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
+    .unique();
+
+  if (!membership || membership.status !== "active") {
+    return false;
+  }
+
+  return membership.role === "owner" || membership.role === "admin";
+}
+
+async function assertCanManageSharedScope(
+  ctx: MutationCtx,
+  args: {
+    organizationId: Id<"organizations">;
+    accountId?: Id<"accounts">;
+    scopeType: "workspace" | "organization";
+    action: "open" | "close" | "delete";
+  },
+) {
+  const isAdmin = await isOrganizationAdmin(ctx, {
+    organizationId: args.organizationId,
+    accountId: args.accountId,
+  });
+  if (!isAdmin) {
+    throw new Error(
+      `Only organization admins can ${args.action} ${args.scopeType} storage instances`,
+    );
+  }
 }
 
 export const openStorageInstance = internalMutation({
@@ -149,6 +193,14 @@ export const openStorageInstance = internalMutation({
     const scopeType = args.scopeType ?? "scratch";
     if (scopeType === "account" && !args.accountId) {
       throw new Error("accountId is required for account-scoped storage instances");
+    }
+    if (scopeType === "workspace" || scopeType === "organization") {
+      await assertCanManageSharedScope(ctx, {
+        organizationId,
+        accountId: args.accountId,
+        scopeType,
+        action: "open",
+      });
     }
 
     const durability = args.durability
@@ -308,6 +360,15 @@ export const closeStorageInstance = internalMutation({
       throw new Error("Storage instance is not accessible in this workspace context");
     }
 
+    if (doc.scopeType === "workspace" || doc.scopeType === "organization") {
+      await assertCanManageSharedScope(ctx, {
+        organizationId: workspace.organizationId,
+        accountId: args.accountId,
+        scopeType: doc.scopeType,
+        action: "close",
+      });
+    }
+
     const now = Date.now();
     await ctx.db.patch(doc._id, {
       status: "closed",
@@ -353,13 +414,13 @@ export const deleteStorageInstance = internalMutation({
       throw new Error("Storage instance is not accessible in this workspace context");
     }
 
-    if (
-      (doc.scopeType === "organization" || doc.scopeType === "workspace")
-      && doc.createdByAccountId
-      && args.accountId
-      && doc.createdByAccountId !== args.accountId
-    ) {
-      throw new Error("Only the instance creator can delete shared storage instances");
+    if (doc.scopeType === "workspace" || doc.scopeType === "organization") {
+      await assertCanManageSharedScope(ctx, {
+        organizationId: workspace.organizationId,
+        accountId: args.accountId,
+        scopeType: doc.scopeType,
+        action: "delete",
+      });
     }
 
     const now = Date.now();
@@ -416,6 +477,16 @@ export const touchStorageInstance = internalMutation({
     }
 
     const now = Date.now();
+    const hasStatusUpdate = Boolean(args.status || args.provider);
+    const hasUsageUpdate = typeof args.sizeBytes === "number" || typeof args.fileCount === "number";
+    const shouldPatch = hasStatusUpdate
+      || hasUsageUpdate
+      || now - doc.lastSeenAt >= STORAGE_TOUCH_DEBOUNCE_MS;
+
+    if (!shouldPatch) {
+      return mapStorageInstance(doc);
+    }
+
     await ctx.db.patch(doc._id, {
       updatedAt: now,
       lastSeenAt: now,

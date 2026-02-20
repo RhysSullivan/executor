@@ -134,3 +134,61 @@ test("discover can be denied by policy", () => {
 
   expect(decision).toBe("deny");
 });
+
+test("storage.open can be forced to require approval by policy", () => {
+  const policies: ToolPolicyRecord[] = [
+    {
+      id: "p-storage-open-required",
+      ...basePolicy,
+      resourceType: "tool_path",
+      resourcePattern: "storage.open",
+      matchType: "exact",
+      effect: "allow",
+      approvalMode: "required",
+    },
+  ];
+
+  const decision = getDecisionForContext(
+    {
+      path: "storage.open",
+      source: "system",
+      approval: "auto",
+    },
+    {
+      workspaceId: "ws_1",
+      accountId: "acct_1",
+    },
+    policies,
+  );
+
+  expect(decision).toBe("require_approval");
+});
+
+test("storage.delete can be denied by policy", () => {
+  const policies: ToolPolicyRecord[] = [
+    {
+      id: "p-storage-delete-deny",
+      ...basePolicy,
+      resourceType: "tool_path",
+      resourcePattern: "storage.delete",
+      matchType: "exact",
+      effect: "deny",
+      approvalMode: "required",
+    },
+  ];
+
+  const decision = getDecisionForContext(
+    {
+      path: "storage.delete",
+      source: "system",
+      approval: "auto",
+    },
+    {
+      workspaceId: "ws_1",
+      accountId: "acct_1",
+    },
+    policies,
+  );
+
+  expect(decision).toBe("deny");
+});

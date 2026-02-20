@@ -1608,6 +1608,139 @@ describe("credential security", () => {
   });
 });
 
+describe("storage lifecycle access controls", () => {
+  test("non-admin member cannot open workspace-scoped storage", async () => {
+    const previousStorageProvider = process.env.AGENT_STORAGE_PROVIDER;
+    process.env.AGENT_STORAGE_PROVIDER = "agentfs-cloudflare";
+    try {
+      const t = setup();
+      const owner = await seedUser(t, { subject: "storage-open-owner" });
+      const member = await seedUser(t, { subject: "storage-open-member" });
+
+      await addOrgMember(t, {
+        organizationId: owner.organizationId,
+        accountId: member.accountId,
+        role: "member",
+      });
+      await addWorkspaceMember(t, {
+        workspaceId: owner.workspaceId,
+        accountId: member.accountId,
+        role: "member",
+      });
+
+      const authedMember = t.withIdentity({ subject: "storage-open-member" });
+
+      await expect(
+        authedMember.mutation(api.workspace.openStorageInstance, {
+          workspaceId: owner.workspaceId,
+          scopeType: "workspace",
+          durability: "durable",
+        }),
+      ).rejects.toThrow("Only organization admins can open workspace or organization storage instances");
+    } finally {
+      if (previousStorageProvider === undefined) {
+        delete process.env.AGENT_STORAGE_PROVIDER;
+      } else {
+        process.env.AGENT_STORAGE_PROVIDER = previousStorageProvider;
+      }
+    }
+  });
+
+  test("non-admin member cannot close or delete shared workspace storage", async () => {
+    const previousStorageProvider = process.env.AGENT_STORAGE_PROVIDER;
+    process.env.AGENT_STORAGE_PROVIDER = "agentfs-cloudflare";
+    try {
+      const t = setup();
+      const owner = await seedUser(t, { subject: "storage-close-owner" });
+      const member = await seedUser(t, { subject: "storage-close-member" });
+
+      await addOrgMember(t, {
+        organizationId: owner.organizationId,
+        accountId: member.accountId,
+        role: "member",
+      });
+      await addWorkspaceMember(t, {
+        workspaceId: owner.workspaceId,
+        accountId: member.accountId,
+        role: "member",
+      });
+
+      const authedOwner = t.withIdentity({ subject: "storage-close-owner" });
+      const instance = await authedOwner.mutation(api.workspace.openStorageInstance, {
+        workspaceId: owner.workspaceId,
+        scopeType: "workspace",
+        durability: "durable",
+        purpose: "shared cache",
+      });
+
+      const authedMember = t.withIdentity({ subject: "storage-close-member" });
+
+      await expect(
+        authedMember.mutation(api.workspace.closeStorageInstance, {
+          workspaceId: owner.workspaceId,
+          instanceId: instance.id,
+        }),
+      ).rejects.toThrow("Only organization admins can close workspace storage instances");
+
+      await expect(
+        authedMember.mutation(api.workspace.deleteStorageInstance, {
+          workspaceId: owner.workspaceId,
+          instanceId: instance.id,
+        }),
+      ).rejects.toThrow("Only organization admins can delete workspace storage instances");
+    } finally {
+      if (previousStorageProvider === undefined) {
+        delete process.env.AGENT_STORAGE_PROVIDER;
+      } else {
+        process.env.AGENT_STORAGE_PROVIDER = previousStorageProvider;
+      }
+    }
+  });
+
+  test("non-admin member can delete their own scratch storage", async () => {
+    const previousStorageProvider = process.env.AGENT_STORAGE_PROVIDER;
+    process.env.AGENT_STORAGE_PROVIDER = "agentfs-cloudflare";
+    try {
+      const t = setup();
+      const owner = await seedUser(t, { subject: "storage-scratch-owner" });
+      const member = await seedUser(t, { subject: "storage-scratch-member" });
+
+      await addOrgMember(t, {
+        organizationId: owner.organizationId,
+        accountId: member.accountId,
+        role: "member",
+      });
+      await addWorkspaceMember(t, {
+        workspaceId: owner.workspaceId,
+        accountId: member.accountId,
+        role: "member",
+      });
+
+      const authedMember = t.withIdentity({ subject: "storage-scratch-member" });
+      const instance = await authedMember.mutation(api.workspace.openStorageInstance, {
+        workspaceId: owner.workspaceId,
+        scopeType: "scratch",
+        durability: "ephemeral",
+        purpose: "member scratch",
+      });
+
+      const deleted = await authedMember.mutation(api.workspace.deleteStorageInstance, {
+        workspaceId: owner.workspaceId,
+        instanceId: instance.id,
+      });
+
+      expect(deleted?.status).toBe("deleted");
+    } finally {
+      if (previousStorageProvider === undefined) {
+        delete process.env.AGENT_STORAGE_PROVIDER;
+      } else {
+        process.env.AGENT_STORAGE_PROVIDER = previousStorageProvider;
+      }
+    }
+  });
+
+});
+
 describe("role hierarchy validation", () => {
   test("admin role grants access to admin-only operations", async () => {
     const t = setup();

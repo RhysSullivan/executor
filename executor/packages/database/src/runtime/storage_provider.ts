@@ -167,6 +167,7 @@ function isReadOnlySql(sql: string): boolean {
 
 class AgentFsLocalStorageProvider implements StorageProvider {
   private readonly baseDir: string;
+  private readonly instanceWriteLocks = new Map<string, Promise<void>>();
 
   constructor(baseDir: string) {
     this.baseDir = baseDir;
@@ -196,7 +197,27 @@ class AgentFsLocalStorageProvider implements StorageProvider {
     return fullPath;
   }
 
-  private async withDatabase<T>(
+  private async withInstanceWriteLock<T>(instance: StorageInstanceRecord, callback: () => Promise<T>): Promise<T> {
+    const key = instance.id;
+    const previous = this.instanceWriteLocks.get(key) ?? Promise.resolve();
+    let releaseLock!: () => void;
+    const current = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    this.instanceWriteLocks.set(key, current);
+
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      releaseLock();
+      if (this.instanceWriteLocks.get(key) === current) {
+        this.instanceWriteLocks.delete(key);
+      }
+    }
+  }
+
+  private async withDatabaseUnlocked<T>(
     instance: StorageInstanceRecord,
     writeMode: boolean,
     callback: (db: SqlJsDatabase) => Promise<T> | T,
@@ -226,6 +247,20 @@ class AgentFsLocalStorageProvider implements StorageProvider {
     } finally {
       db.close();
     }
+  }
+
+  private async withDatabase<T>(
+    instance: StorageInstanceRecord,
+    writeMode: boolean,
+    callback: (db: SqlJsDatabase) => Promise<T> | T,
+  ): Promise<T> {
+    if (!writeMode) {
+      return await this.withDatabaseUnlocked(instance, false, callback);
+    }
+
+    return await this.withInstanceWriteLock(instance, async () => {
+      return await this.withDatabaseUnlocked(instance, true, callback);
+    });
   }
 
   private async ensureKvTable(db: SqlJsDatabase) {
@@ -261,15 +296,17 @@ class AgentFsLocalStorageProvider implements StorageProvider {
     content: string,
     encoding: StorageEncoding,
   ): Promise<{ bytesWritten: number }> {
-    const fullPath = this.resolveFsPath(instance, path);
-    await mkdir(dirname(fullPath), { recursive: true });
-    const payload = encoding === "base64"
-      ? Buffer.from(content, "base64")
-      : Buffer.from(content, "utf8");
-    await writeFile(fullPath, payload);
-    return {
-      bytesWritten: payload.length,
-    };
+    return await this.withInstanceWriteLock(instance, async () => {
+      const fullPath = this.resolveFsPath(instance, path);
+      await mkdir(dirname(fullPath), { recursive: true });
+      const payload = encoding === "base64"
+        ? Buffer.from(content, "base64")
+        : Buffer.from(content, "utf8");
+      await writeFile(fullPath, payload);
+      return {
+        bytesWritten: payload.length,
+      };
+    });
   }
 
   async readdir(instance: StorageInstanceRecord, path: string): Promise<StorageDirectoryEntry[]> {
@@ -314,15 +351,19 @@ class AgentFsLocalStorageProvider implements StorageProvider {
   }
 
   async mkdir(instance: StorageInstanceRecord, path: string): Promise<void> {
-    const fullPath = this.resolveFsPath(instance, path);
-    await mkdir(fullPath, { recursive: true });
+    await this.withInstanceWriteLock(instance, async () => {
+      const fullPath = this.resolveFsPath(instance, path);
+      await mkdir(fullPath, { recursive: true });
+    });
   }
 
   async remove(instance: StorageInstanceRecord, path: string, options: { recursive?: boolean; force?: boolean }): Promise<void> {
-    const fullPath = this.resolveFsPath(instance, path);
-    await rm(fullPath, {
-      recursive: options.recursive ?? false,
-      force: options.force ?? false,
+    await this.withInstanceWriteLock(instance, async () => {
+      const fullPath = this.resolveFsPath(instance, path);
+      await rm(fullPath, {
+        recursive: options.recursive ?? false,
+        force: options.force ?? false,
+      });
     });
   }
 
@@ -678,4 +719,10 @@ export function getStorageProvider(provider: StorageProviderId): StorageProvider
   }
 
   return getLocalProvider();
+}
+
+export function resetStorageProviderSingletonsForTests() {
+  localProviderSingleton = null;
+  cloudflareProviderSingleton = null;
+  cloudflareStorageProbeStarted = false;
 }

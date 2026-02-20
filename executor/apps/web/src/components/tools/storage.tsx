@@ -354,6 +354,10 @@ export function StoragePanel({
   const canInspect = Boolean(workspaceId && selectedInstance);
   const sqlRows = useMemo(() => (sqlResult?.rows ?? []) as Array<Record<string, unknown>>, [sqlResult]);
   const sqlColumns = useMemo(() => collectSqlColumns(sqlRows), [sqlRows]);
+  const parsedFilePreviewJson = useMemo(
+    () => (isJsonLike(filePreviewContent) ? tryParseJson(filePreviewContent) : null),
+    [filePreviewContent],
+  );
   const visibleSqlObjects = useMemo(
     () => sqlObjects.filter((entry) => sqlShowInternalObjects || !isInternalSqlObject(entry.name)),
     [sqlObjects, sqlShowInternalObjects],
@@ -905,8 +909,8 @@ export function StoragePanel({
                                   <Skeleton key={i} className="h-4 rounded" style={{ width: `${40 + Math.random() * 50}%` }} />
                                 ))}
                               </div>
-                            ) : isJsonLike(filePreviewContent) && tryParseJson(filePreviewContent) !== null ? (
-                              <JsonPreview data={tryParseJson(filePreviewContent)} />
+                            ) : parsedFilePreviewJson !== null ? (
+                              <JsonPreview data={parsedFilePreviewJson} />
                             ) : (
                               <pre className="font-mono text-xs leading-relaxed text-foreground/80 whitespace-pre-wrap break-words">
                                 {filePreviewContent}

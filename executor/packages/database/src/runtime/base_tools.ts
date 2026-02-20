@@ -20,6 +20,8 @@ import {
   fsStatOutputJsonSchema,
   fsWriteInputJsonSchema,
   fsWriteOutputJsonSchema,
+} from "./storage_tool_contracts/fs";
+import {
   kvDeleteInputJsonSchema,
   kvDeleteOutputJsonSchema,
   kvGetInputJsonSchema,
@@ -30,12 +32,16 @@ import {
   kvListOutputJsonSchema,
   kvSetInputJsonSchema,
   kvSetOutputJsonSchema,
-  sqliteQueryInputJsonSchema,
-  sqliteQueryOutputJsonSchema,
+} from "./storage_tool_contracts/kv";
+import {
   sqliteCapabilitiesInputJsonSchema,
   sqliteCapabilitiesOutputJsonSchema,
   sqliteInsertRowsInputJsonSchema,
   sqliteInsertRowsOutputJsonSchema,
+  sqliteQueryInputJsonSchema,
+  sqliteQueryOutputJsonSchema,
+} from "./storage_tool_contracts/sqlite";
+import {
   storageCloseInputJsonSchema,
   storageCloseOutputJsonSchema,
   storageDeleteInputJsonSchema,
@@ -44,7 +50,7 @@ import {
   storageListOutputJsonSchema,
   storageOpenInputJsonSchema,
   storageOpenOutputJsonSchema,
-} from "./storage_tool_contracts";
+} from "./storage_tool_contracts/storage";
 
 export const baseTools = new Map<string, ToolDefinition>();
 

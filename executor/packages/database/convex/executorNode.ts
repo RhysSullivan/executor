@@ -24,6 +24,8 @@ import { customAction } from "../../core/src/function-builders";
 import { encodeToolCallResultForTransport } from "../../core/src/tool-call-result-transport";
 import { previewOpenApiSourceUpgradeForContext, type OpenApiUpgradeDiffPreview } from "../src/runtime/tool_upgrade";
 import { getStorageProvider, type StorageEncoding, type StorageProvider } from "../src/runtime/storage_provider";
+import { shouldTouchStorageOnRead } from "../src/runtime/storage_touch_policy";
+import { shouldRefreshStorageUsage } from "../src/runtime/storage_usage_refresh";
 
 function isReadOnlySql(sql: string): boolean {
   const trimmed = sql.trim().toLowerCase();
@@ -79,7 +81,13 @@ async function touchStorageInstance(
     withUsage: boolean;
   },
 ) {
-  const usage = args.withUsage ? await args.provider.usage(args.instance) : undefined;
+  if (!args.withUsage && !shouldTouchStorageOnRead()) {
+    return;
+  }
+
+  const usage = args.withUsage && shouldRefreshStorageUsage(args.instance.id)
+    ? await args.provider.usage(args.instance)
+    : undefined;
   await ctx.runMutation(internal.database.touchStorageInstance, {
     workspaceId: args.workspaceId,
     accountId: args.accountId,

@@ -290,3 +290,67 @@ test("credentials can link one connection to multiple sources", async () => {
   });
   expect(relinked?.secretJson).toEqual({ token: "token_v2" });
 });
+
+test("storage touch mutation debounces hot read updates", async () => {
+  const previousConvexUrl = process.env.CONVEX_URL;
+  const previousConvexSiteUrl = process.env.CONVEX_SITE_URL;
+  process.env.CONVEX_URL = "http://127.0.0.1:3210";
+  process.env.CONVEX_SITE_URL = "http://127.0.0.1:3211";
+
+  const t = setup();
+  const wsId = await seedWorkspace(t, "ws_touch");
+  const accountId = await seedAccount(t, "touch-account");
+  try {
+    const opened = await t.mutation(internal.database.openStorageInstance, {
+      workspaceId: wsId,
+      accountId,
+      scopeType: "scratch",
+      durability: "ephemeral",
+      purpose: "touch debounce",
+    });
+
+    const firstTouch = await t.mutation(internal.database.touchStorageInstance, {
+      workspaceId: wsId,
+      accountId,
+      instanceId: opened.id,
+    });
+    expect(firstTouch).not.toBeNull();
+
+    await Bun.sleep(25);
+
+    const secondTouch = await t.mutation(internal.database.touchStorageInstance, {
+      workspaceId: wsId,
+      accountId,
+      instanceId: opened.id,
+    });
+
+    expect(secondTouch?.updatedAt).toBe(firstTouch?.updatedAt);
+    expect(secondTouch?.lastSeenAt).toBe(firstTouch?.lastSeenAt);
+
+    await Bun.sleep(25);
+
+    const touchWithUsage = await t.mutation(internal.database.touchStorageInstance, {
+      workspaceId: wsId,
+      accountId,
+      instanceId: opened.id,
+      sizeBytes: 123,
+      fileCount: 2,
+    });
+
+    expect(touchWithUsage?.sizeBytes).toBe(123);
+    expect(touchWithUsage?.fileCount).toBe(2);
+    expect((touchWithUsage?.updatedAt ?? 0) >= (secondTouch?.updatedAt ?? 0)).toBe(true);
+  } finally {
+    if (previousConvexUrl === undefined) {
+      delete process.env.CONVEX_URL;
+    } else {
+      process.env.CONVEX_URL = previousConvexUrl;
+    }
+
+    if (previousConvexSiteUrl === undefined) {
+      delete process.env.CONVEX_SITE_URL;
+    } else {
+      process.env.CONVEX_SITE_URL = previousConvexSiteUrl;
+    }
+  }
+});

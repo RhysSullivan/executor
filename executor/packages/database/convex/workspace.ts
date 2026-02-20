@@ -417,7 +417,7 @@ export const openStorageInstance = workspaceMutation({
     const scopeType = args.scopeType ?? "scratch";
     if (scopeType === "organization" || scopeType === "workspace") {
       if (!isAdminRole(ctx.organizationMembership.role)) {
-        throw new Error("Only workspace admins can open workspace or organization storage instances");
+        throw new Error("Only organization admins can open workspace or organization storage instances");
       }
     }
 
@@ -460,7 +460,6 @@ export const closeStorageInstance = workspaceMutation({
 
 export const deleteStorageInstance = workspaceMutation({
   method: "POST",
-  requireAdmin: true,
   args: {
     instanceId: v.string(),
   },
