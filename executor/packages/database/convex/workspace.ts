@@ -298,13 +298,6 @@ export const upsertCredential = workspaceMutation({
     overridesJson: v.optional(jsonObjectValidator),
   },
   handler: async (ctx, args) => {
-    if (args.scopeType === "organization") {
-      const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
-      if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
-        throw new Error("Only organization admins can manage organization-level credentials");
-      }
-    }
-
     if (args.scopeType === "account") {
       if (!args.accountId) {
         throw new Error("accountId is required for account-scoped credentials");
@@ -371,13 +364,6 @@ export const upsertToolSource = workspaceMutation({
     enabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    if (args.scopeType === "organization") {
-      const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
-      if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
-        throw new Error("Only organization admins can manage organization-level tool sources");
-      }
-    }
-
     return await ctx.runMutation(internal.database.upsertToolSource, {
       ...args,
       workspaceId: ctx.workspaceId,
@@ -507,23 +493,6 @@ export const deleteToolSource = workspaceMutation({
     sourceId: v.string(),
   },
   handler: async (ctx, args) => {
-    const sources = await ctx.runQuery(internal.database.listToolSources, {
-      workspaceId: ctx.workspaceId,
-    });
-    let source: { id: string; scopeType?: "organization" | "workspace" } | undefined;
-    for (const entry of sources as Array<{ id: string; scopeType?: "organization" | "workspace" }>) {
-      if (entry.id === args.sourceId) {
-        source = entry;
-        break;
-      }
-    }
-    if (source?.scopeType === "organization") {
-      const organizationMembership = await getOrganizationMembership(ctx, ctx.workspace.organizationId, ctx.account._id);
-      if (!organizationMembership || !isAdminRole(organizationMembership.role)) {
-        throw new Error("Only organization admins can delete organization-level tool sources");
-      }
-    }
-
     return await ctx.runMutation(internal.database.deleteToolSource, {
       ...args,
       workspaceId: ctx.workspaceId,

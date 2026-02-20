@@ -14,6 +14,29 @@ import {
 
 const recordSchema = z.record(z.unknown());
 
+function isTruthyEnvValue(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
+function managedCredentialMode(): "cloud" | "self-hosted" {
+  const explicit = (process.env.EXECUTOR_DEPLOYMENT_MODE ?? "").trim().toLowerCase();
+  if (explicit === "cloud" || explicit === "hosted" || explicit === "production" || explicit === "prod") {
+    return "cloud";
+  }
+  if (explicit === "self-hosted" || explicit === "self_hosted" || explicit === "selfhosted") {
+    return "self-hosted";
+  }
+  if (isTruthyEnvValue(process.env.EXECUTOR_ENFORCE_MANAGED_CREDENTIALS)) {
+    return "cloud";
+  }
+  return "self-hosted";
+}
+
+function shouldEnforceManagedCredentials(): boolean {
+  return managedCredentialMode() === "cloud";
+}
+
 function toRecordValue(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
   return parsed.success ? parsed.data : {};
@@ -156,6 +179,12 @@ export const upsertCredential = internalMutation({
 
     const exemplar = linkedRows[0] ?? existing ?? null;
     const provider = args.provider ?? exemplar?.provider ?? "local-convex";
+    if (shouldEnforceManagedCredentials() && provider !== "workos-vault") {
+      throw new Error(
+        "Managed credential storage is required in cloud deployments. Configure WORKOS_API_KEY and use provider 'workos-vault'.",
+      );
+    }
+
     const fallbackSecret = toRecordValue(exemplar?.secretJson);
     const finalSecret = hasSubmittedSecret ? submittedSecret : fallbackSecret;
     if (Object.keys(finalSecret).length === 0) {
@@ -310,6 +339,22 @@ export const listCredentialProviders = internalQuery({
   args: {},
   handler: async () => {
     const workosEnabled = Boolean(process.env.WORKOS_API_KEY?.trim());
+    const enforceManaged = shouldEnforceManagedCredentials();
+
+    if (enforceManaged && !workosEnabled) {
+      return [] as const;
+    }
+
+    if (enforceManaged) {
+      return [
+        {
+          id: "workos-vault",
+          label: "Encrypted",
+          description: "Secrets are stored in WorkOS Vault.",
+        },
+      ] as const;
+    }
+
     return [
       {
         id: workosEnabled ? "workos-vault" : "local-convex",
