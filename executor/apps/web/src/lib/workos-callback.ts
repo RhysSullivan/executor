@@ -2,6 +2,7 @@ import { handleCallbackRoute } from "@workos/authkit-tanstack-react-start";
 
 import { redirectResponse } from "@/lib/http/response";
 import { isWorkosDebugEnabled, logWorkosAuth, redactAuthCode } from "@/lib/workos-debug";
+import { resolveWorkosRedirectUri } from "@/lib/workos-redirect";
 
 const callbackHandler = handleCallbackRoute({
   returnPathname: "/",
@@ -53,6 +54,20 @@ function markCodeAsReplayed(code: string, now = Date.now()): void {
   callbackCodeReplay.set(code, now + WORKOS_CALLBACK_REPLAY_MS);
 }
 
+function getSetCookieValues(responseHeaders: Headers): string[] {
+  const getSetCookie = (responseHeaders as { getSetCookie?: () => string[] }).getSetCookie;
+  if (typeof getSetCookie === "function") {
+    try {
+      return getSetCookie.call(responseHeaders);
+    } catch {
+      // Fall back to reading the standard header.
+    }
+  }
+
+  const singleHeader = responseHeaders.get("set-cookie");
+  return singleHeader ? [singleHeader] : [];
+}
+
 function isInvalidGrantError(error: unknown): boolean {
   if (!error) {
     return false;
@@ -85,6 +100,7 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
   const requestId = request.headers.get("x-request-id");
   const oauthError = requestUrl.searchParams.get("error")?.trim();
   const oauthErrorDescription = requestUrl.searchParams.get("error_description")?.trim();
+  const configuredWorkosRedirectUri = resolveWorkosRedirectUri(request);
 
   if (isWorkosDebugEnabled()) {
     logWorkosAuth("callback.request", {
@@ -101,6 +117,7 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
       error: oauthError,
       errorDescription: oauthErrorDescription ? "present" : "missing",
       cookieCount: request.headers.get("cookie")?.split(";").length ?? 0,
+      configuredWorkosRedirectUri,
     });
   }
 
@@ -118,12 +135,9 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
   try {
     const response = await callbackHandler(context);
 
-    const responseHeaders = new Headers(response.headers);
+    const responseHeaders = response.headers;
     const responseHeaderNames = Array.from(responseHeaders.keys());
-    const setCookieHeaders = responseHeaderNames
-      .filter((headerName) => headerName.toLowerCase() === "set-cookie")
-      .map((headerName) => responseHeaders.get(headerName))
-      .filter((value): value is string => value !== null);
+    const setCookieHeaders = getSetCookieValues(responseHeaders);
 
     if (isWorkosDebugEnabled()) {
       logWorkosAuth("callback.result", {
@@ -175,6 +189,20 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
           code: redactAuthCode(code),
           status: response.status,
           reason: "missing-set-cookie",
+        });
+      }
+
+      if (setCookieHeaders.length === 0) {
+        return new Response(JSON.stringify({
+          error: {
+            message: "Authentication did not set a session cookie",
+            description: "Sign-in completed but the callback response did not include Set-Cookie.",
+          },
+        }), {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+          },
         });
       }
 
