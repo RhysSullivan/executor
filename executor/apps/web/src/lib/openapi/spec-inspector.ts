@@ -159,8 +159,9 @@ function inferSecuritySchemaAuth(spec: Record<string, unknown>): InferredSpecAut
     })
     : [];
   const referencedSchemeNames = globalSecurity.flatMap((entry) => Object.keys(entry));
+  const securitySchemeNames = new Set(schemeNames);
   const candidateNames = referencedSchemeNames.length > 0
-    ? [...new Set(referencedSchemeNames.filter((name) => Object.prototype.hasOwnProperty.call(securitySchemes, name)))]
+    ? [...new Set(referencedSchemeNames.filter((name) => securitySchemeNames.has(name)))]
     : schemeNames;
 
   const normalized = candidateNames

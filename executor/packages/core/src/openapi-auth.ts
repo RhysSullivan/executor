@@ -29,9 +29,11 @@ export function inferOpenApiAuth(spec: Record<string, unknown>): OpenApiAuth | u
       .map((entry) => entry.data)
     : [];
 
+  const securitySchemeNames = new Set(Object.keys(securitySchemes));
+
   const referencedSchemeName = security
     .flatMap((entry) => Object.keys(entry))
-    .find((name) => Object.prototype.hasOwnProperty.call(securitySchemes, name));
+    .find((name) => securitySchemeNames.has(name));
 
   const schemeName = referencedSchemeName ?? Object.keys(securitySchemes)[0];
   if (!schemeName) return undefined;

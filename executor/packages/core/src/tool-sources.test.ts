@@ -78,7 +78,7 @@ function makeFakeMcpServer(
                   name: toolName,
                   description: `Tool ${toolName}`,
                   inputSchema: { type: "object", properties: {} },
-                  ...(Object.prototype.hasOwnProperty.call(options, "outputSchema")
+                  ...(Object.keys(options).includes("outputSchema")
                     ? { outputSchema: options.outputSchema }
                     : {}),
                 },

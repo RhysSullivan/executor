@@ -75,7 +75,7 @@ type OpenApiInputBuckets = {
 };
 
 function hasOwnKey(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
+  return Object.keys(record).includes(key);
 }
 
 function stringifyParameterValue(value: unknown): string {

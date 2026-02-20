@@ -18,9 +18,8 @@ export function stringifyTemplateValue(value: unknown): string {
 export function interpolatePostmanTemplate(value: string, variables: Record<string, string>): string {
   return value.replace(POSTMAN_TEMPLATE_PATTERN, (_, rawKey: string) => {
     const key = rawKey.trim();
-    return Object.prototype.hasOwnProperty.call(variables, key)
-      ? variables[key]!
-      : `{{${key}}}`;
+    const resolved = variables[key];
+    return resolved !== undefined ? resolved : `{{${key}}}`;
   });
 }
 

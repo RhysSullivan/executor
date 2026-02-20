@@ -66,7 +66,7 @@ export function selectGraphqlFieldEnvelope(
   operationName: string,
 ): GraphqlExecutionEnvelope {
   const record = coerceRecord(envelope.data);
-  if (Object.prototype.hasOwnProperty.call(record, operationName)) {
+  if (Object.keys(record).includes(operationName)) {
     return {
       data: record[operationName],
       errors: envelope.errors,
@@ -90,7 +90,7 @@ export function normalizeGraphqlFieldVariables(
 
   if (argNames.length === 1) {
     const argName = argNames[0]!;
-    if (Object.prototype.hasOwnProperty.call(variablePayload, argName)) {
+    if (Object.keys(variablePayload).includes(argName)) {
       const value = variablePayload[argName];
       if (
         Object.keys(variablePayload).length === 1
@@ -99,7 +99,7 @@ export function normalizeGraphqlFieldVariables(
         && !Array.isArray(value)
       ) {
           const nested = coerceRecord(value);
-        if (Object.keys(nested).length === 1 && Object.prototype.hasOwnProperty.call(nested, argName)) {
+        if (Object.keys(nested).length === 1 && Object.keys(nested).includes(argName)) {
           return { [argName]: nested[argName] };
         }
       }

@@ -92,7 +92,7 @@ export async function executePostmanRequest(
   let body: string | undefined;
 
   if (!readMethods.has(method)) {
-    const hasExplicitBody = Object.prototype.hasOwnProperty.call(normalizedPayload, "body");
+    const hasExplicitBody = Object.keys(normalizedPayload).includes("body");
     if (hasExplicitBody) {
       const bodyValue = normalizedPayload.body;
       if (typeof bodyValue === "string") {
