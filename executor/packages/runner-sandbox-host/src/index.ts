@@ -220,7 +220,7 @@ export class AgentFSStorageObject extends DurableObject<Env> {
           ? base64ToBytes(content).length
           : new TextEncoder().encode(content).length;
         if (encoding === "base64") {
-          await this.fs.writeFile(path, base64ToBytes(content) as unknown as Buffer);
+          await this.fs.writeFile(path, base64ToBytes(content));
         } else {
           await this.fs.writeFile(path, content);
         }

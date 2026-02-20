@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useState } from "react";
 import { Layers, Globe, Server, Terminal } from "lucide-react";
 import type { ToolSourceRecord } from "@/lib/types";

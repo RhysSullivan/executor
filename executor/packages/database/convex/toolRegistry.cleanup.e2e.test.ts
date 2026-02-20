@@ -60,7 +60,7 @@ describe("toolRegistry cleanup", () => {
       limit: 50,
     });
 
-    expect(page.items.filter((item) => item.path === "bulk.same_path").length).toBe(1);
+    expect(page.items.filter((item: { path: string }) => item.path === "bulk.same_path").length).toBe(1);
   });
 
   test("deleteToolsBySource action pages through large source inventories", async () => {

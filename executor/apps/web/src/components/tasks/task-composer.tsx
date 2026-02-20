@@ -139,7 +139,6 @@ export function TaskComposer() {
   const effectiveRuntimeId = runtimeTargets.some((runtime: RuntimeTargetDescriptor) => runtime.id === runtimeId)
     ? runtimeId
     : runtimeTargets[0]?.id ?? "";
-  const selectedRuntime = runtimeTargets.find((runtime) => runtime.id === effectiveRuntimeId);
   const showRuntimeSelector = runtimeTargets.length > 1;
   const isMac = useMemo(() => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent), []);
   const modKey = isMac ? "⌘" : "Ctrl";
@@ -149,7 +148,7 @@ export function TaskComposer() {
     if (draft !== null) {
       setCode(draft);
     }
-  }, [codeDraftStorageKey]);
+  }, [codeDraftStorageKey, storageWorkspaceId]);
 
   const handleCodeChange = (nextCode: string) => {
     setCode(nextCode);
@@ -177,7 +176,7 @@ export function TaskComposer() {
       window.removeEventListener("pagehide", flushCodeDraft);
       flushCodeDraft();
     };
-  }, [codeDraftStorageKey]);
+  }, [codeDraftStorageKey, storageWorkspaceId]);
 
   const handleSubmitRef = useRef<(() => void) | undefined>(undefined);
 
@@ -216,7 +215,7 @@ export function TaskComposer() {
     } finally {
       setSubmitting(false);
     }
-  }, [context, code, effectiveRuntimeId, timeoutMs, createTask, submitting]);
+  }, [context, code, effectiveRuntimeId, timeoutMs, createTask]);
 
   handleSubmitRef.current = handleSubmit;
 

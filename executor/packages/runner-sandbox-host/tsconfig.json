@@ -16,7 +16,11 @@
       "*": [
         "./*"
       ],
-      "@executor/database/*": ["../database/*"]
+      "@executor/database/*": ["../database/*"],
+      "convex": ["../../../node_modules/convex"],
+      "convex/*": ["../../../node_modules/convex/*"],
+      "convex-helpers": ["../../../node_modules/convex-helpers"],
+      "convex-helpers/*": ["../../../node_modules/convex-helpers/*"]
     }
   },
   "include": ["src/**/*.ts"]

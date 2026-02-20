@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useState, type FormEvent } from "react";
 import { parseAsString, useQueryStates } from "nuqs";
 import { Link } from "@/lib/router";

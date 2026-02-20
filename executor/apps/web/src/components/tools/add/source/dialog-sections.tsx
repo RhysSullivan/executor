@@ -1,6 +1,8 @@
 import { ChevronRight, Loader2, Plus } from "lucide-react";
 import { Streamdown } from "streamdown";
 import type { ReactNode } from "react";
+
+/* eslint-disable @next/next/no-img-element */
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable @next/next/no-img-element */
+
 import { useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "@/lib/router";
 import { useMutation } from "convex/react";

@@ -332,6 +332,7 @@ export function StoragePanel({
     setFilePreviewPath(null);
     setFilePreviewContent("");
     setFilePreviewBytes(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canInspect, selectedInstance?.id]);
 
   const submitCreate = async () => {

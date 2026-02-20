@@ -287,7 +287,7 @@ export function ToolExplorer({
     setFocusedSourceName(null);
     setFormSource(null);
     void maybeLoadToolDetails(tool, true);
-  }, [maybeLoadToolDetails, setFocusedSourceName]);
+  }, [maybeLoadToolDetails, setFocusedSourceName, setFocusedToolPath]);
 
   const handleSourceClick = useCallback((sourceName: string) => {
     const key = `source:${sourceName}`;
@@ -345,11 +345,6 @@ export function ToolExplorer({
     return hydratedTools.find((t) => t.path === focusedToolPath) ?? null;
   }, [focusedToolPath, hydratedTools]);
 
-  const focusedSource = useMemo(() => {
-    if (!focusedSourceName) return null;
-    return sourceByName.get(focusedSourceName) ?? null;
-  }, [focusedSourceName, sourceByName]);
-
   const selectedSourceState = resolvedActiveSource ? sourceStates[resolvedActiveSource] : undefined;
   const selectedSourceWarnings = resolvedActiveSource ? (warningsBySrc[resolvedActiveSource] ?? []) : [];
   const selectedSourceToolCount = resolvedActiveSource
@@ -389,7 +384,7 @@ export function ToolExplorer({
     if (!searchedTools.some((tool) => tool.path === focusedToolPath)) {
       setFocusedToolPath(null);
     }
-  }, [focusedToolPath, searchedTools]);
+  }, [focusedToolPath, searchedTools, setFocusedToolPath]);
 
   const canInfiniteLoad = searchInput.length === 0 && hasMoreTools;
   const awaitingInitialInventory =

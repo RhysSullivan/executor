@@ -219,10 +219,10 @@ export function traverseSchema(
 
   // Pre-compute required sets for all object nodes
   traverse(schema, {
-    cb: (subSchema, _jsonPtr, _rootSchema, _parentJsonPtr, _parentKeyword, _parentSchema, _keyIndex) => {
+    cb: (subSchema, jsonPtr) => {
       const node = asRecord(subSchema);
       if (Array.isArray(node.required)) {
-        const ptr = _jsonPtr || "";
+        const ptr = jsonPtr || "";
         requiredSets.set(
           ptr,
           new Set(
