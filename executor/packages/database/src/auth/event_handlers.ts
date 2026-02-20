@@ -15,12 +15,7 @@ const workosMembershipEventDataSchema = z.object({
   organizationId: trimmedStringSchema.optional(),
 });
 
-type WorkosMembershipEventData = {
-  user_id?: string;
-  userId?: string;
-  organization_id?: string;
-  organizationId?: string;
-};
+type WorkosMembershipEventData = z.infer<typeof workosMembershipEventDataSchema>;
 
 function stableSerialize(value: unknown): string {
   if (value === null || value === undefined) {
@@ -85,12 +80,7 @@ function parseMembershipEventData(value: unknown): WorkosMembershipEventData | n
     return null;
   }
 
-  return {
-    user_id: parsed.data.user_id,
-    userId: parsed.data.userId,
-    organization_id: parsed.data.organization_id,
-    organizationId: parsed.data.organizationId,
-  };
+  return parsed.data;
 }
 
 async function applyInviteHintFromMembershipEvent(
