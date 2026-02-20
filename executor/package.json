@@ -8,6 +8,7 @@
   },
   "private": true,
   "scripts": {
+    "preinstall": "bun run ./scripts/ensure-root-install.ts",
     "doctor": "bun run executor.ts doctor",
     "up": "bun run executor.ts up",
     "upgrade": "bun run executor.ts upgrade",
