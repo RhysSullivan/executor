@@ -4,7 +4,7 @@ import { internal } from "../../convex/_generated/api";
 import { resolveCredentialPayloadResult } from "../../../core/src/credential-providers";
 import {
   buildCredentialAuthHeaders,
-  readCredentialOverrideHeaders,
+  readCredentialAdditionalHeaders,
 } from "../../../core/src/tool/source-auth";
 import type { ResolvedToolCredential, TaskRecord, ToolCallRecord, ToolCredentialSpec } from "../../../core/src/types";
 import { ToolCallControlError } from "../../../core/src/tool-call-control";
@@ -26,7 +26,7 @@ export async function resolveCredentialHeadersResult(
     ? await resolveCredentialPayloadResult(record, {
       readVaultObject: async (input) => await readWorkosVaultObjectViaAction(ctx, input),
     })
-    : Result.ok(spec.staticSecretJson ?? null);
+    : Result.ok(null);
   if (sourceResult.isErr()) {
     return Result.err(
       new Error(`Failed to resolve credential payload for '${spec.sourceKey}': ${sourceResult.error.message}`),
@@ -46,8 +46,8 @@ export async function resolveCredentialHeadersResult(
     source,
   );
 
-  const overrideHeaders = readCredentialOverrideHeaders(record?.overridesJson);
-  for (const [key, value] of Object.entries(overrideHeaders)) {
+  const additionalHeaders = readCredentialAdditionalHeaders(record?.additionalHeaders);
+  for (const [key, value] of Object.entries(additionalHeaders)) {
     headers[key] = value;
   }
 

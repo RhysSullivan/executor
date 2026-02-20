@@ -1,7 +1,9 @@
-type CredentialScopeType = "account" | "organization" | "workspace";
-type ToolSourceScopeType = "organization" | "workspace";
-type PolicyScopeType = "account" | "organization" | "workspace";
-type StorageScopeType = "scratch" | "account" | "workspace" | "organization";
+import type {
+  CredentialScopeType,
+  PolicyScopeType,
+  StorageScopeType,
+  ToolSourceScopeType,
+} from "../../../core/src/types";
 
 function isSet(value: unknown): boolean {
   return value !== undefined && value !== null;

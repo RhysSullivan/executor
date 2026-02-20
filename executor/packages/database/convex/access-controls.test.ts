@@ -252,6 +252,17 @@ describe("authentication", () => {
     ).rejects.toThrow("Must be signed in");
   });
 
+  test("unauthenticated user cannot call workspace-scoped custom actions", async () => {
+    const t = setup();
+    const owner = await seedUser(t, { subject: "owner-custom-action-auth" });
+
+    await expect(
+      t.action(api.executorNode.listToolsWithWarnings, {
+        workspaceId: owner.workspaceId,
+      }),
+    ).rejects.toThrow("Must be signed in");
+  });
+
   test("authenticated user can access their workspace", async () => {
     const t = setup();
     const owner = await seedUser(t, { subject: "user-ok" });
@@ -667,7 +678,7 @@ describe("workspace access controls", () => {
     const authedMember = t.withIdentity({ subject: "tool-member" });
 
     await expect(
-      authedMember.mutation(api.workspace.upsertToolSource, {
+      authedMember.action(api.workspace.upsertToolSource, {
         workspaceId: owner.workspaceId,
         name: "my-tool",
         type: "mcp",
@@ -684,7 +695,7 @@ describe("workspace access controls", () => {
     const authedA = t.withIdentity({ subject: "tool-source-org-a-owner" });
     const authedB = t.withIdentity({ subject: "tool-source-org-b-owner" });
 
-    const sourceB = await authedB.mutation(api.workspace.upsertToolSource, {
+    const sourceB = await authedB.action(api.workspace.upsertToolSource, {
       workspaceId: orgBOwner.workspaceId,
       name: "org-b-source",
       type: "mcp",
@@ -692,7 +703,7 @@ describe("workspace access controls", () => {
     });
 
     await expect(
-      authedA.mutation(api.workspace.upsertToolSource, {
+      authedA.action(api.workspace.upsertToolSource, {
         workspaceId: orgAOwner.workspaceId,
         id: sourceB.id,
         name: "org-a-source",
@@ -712,7 +723,7 @@ describe("workspace access controls", () => {
       organizationId: owner.organizationId,
     });
 
-    const source = await authedOwner.mutation(api.workspace.upsertToolSource, {
+    const source = await authedOwner.action(api.workspace.upsertToolSource, {
       workspaceId: owner.workspaceId,
       name: "workspace-one-source",
       type: "mcp",
@@ -720,7 +731,7 @@ describe("workspace access controls", () => {
     });
 
     await expect(
-      authedOwner.mutation(api.workspace.upsertToolSource, {
+      authedOwner.action(api.workspace.upsertToolSource, {
         workspaceId: secondWorkspace.id,
         id: source.id,
         name: "workspace-two-source",
@@ -1141,6 +1152,20 @@ describe("cross-workspace isolation", () => {
       authedA.action(api.executor.createTask, {
         workspaceId: userB.workspaceId,
         code: "console.log('pwned')",
+      }),
+    ).rejects.toThrow("You are not a member of this workspace");
+  });
+
+  test("user in workspace A cannot call workspace-scoped custom actions in workspace B", async () => {
+    const t = setup();
+    await seedUser(t, { subject: "custom-action-user-a" });
+    const userB = await seedUser(t, { subject: "custom-action-user-b" });
+
+    const authedA = t.withIdentity({ subject: "custom-action-user-a" });
+
+    await expect(
+      authedA.action(api.executorNode.listToolsWithWarnings, {
+        workspaceId: userB.workspaceId,
       }),
     ).rejects.toThrow("You are not a member of this workspace");
   });
@@ -1613,7 +1638,7 @@ describe("credential security", () => {
     });
 
     const authedOwner = t.withIdentity({ subject: "source-redact-owner" });
-    await authedOwner.mutation(api.workspace.upsertToolSource, {
+    await authedOwner.action(api.workspace.upsertToolSource, {
       workspaceId: owner.workspaceId,
       name: "secure-source",
       type: "openapi",
@@ -1638,6 +1663,13 @@ describe("credential security", () => {
     expect(auth.type).toBe("bearer");
     expect(auth.mode).toBe("workspace");
     expect(auth.token).toBeUndefined();
+
+    const resolved = await authedOwner.query(api.workspace.resolveCredential, {
+      workspaceId: owner.workspaceId,
+      sourceKey: `source:${sources[0]!.id}`,
+      scopeType: "workspace",
+    });
+    expect(resolved?.secretJson).toEqual({ token: "super-secret-token" });
   });
 });
 
@@ -1871,7 +1903,7 @@ describe("role hierarchy validation", () => {
     expect(policies.some((policy: { roleId?: string; effect?: string }) => policy.roleId === role.id && policy.effect === "deny")).toBe(true);
 
     // Admin can upsert tool sources
-    const source = await authed.mutation(api.workspace.upsertToolSource, {
+    const source = await authed.action(api.workspace.upsertToolSource, {
       workspaceId: org.workspaceId,
       name: "admin-tool",
       type: "mcp",

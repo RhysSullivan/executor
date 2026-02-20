@@ -1,6 +1,5 @@
 import { z } from "zod";
-
-type JsonSchema = Record<string, unknown>;
+import type { JsonSchema } from "../../../core/src/types";
 
 function toJsonSchema(schema: z.ZodTypeAny, fallback: JsonSchema): JsonSchema {
   const maybeToJsonSchema = (z as unknown as { toJSONSchema?: (value: z.ZodTypeAny) => unknown }).toJSONSchema;
@@ -11,7 +10,7 @@ function toJsonSchema(schema: z.ZodTypeAny, fallback: JsonSchema): JsonSchema {
   return fallback;
 }
 
-const toolApprovalSchema = z.enum(["auto", "required"]);
+export const toolApprovalSchema = z.enum(["auto", "required"]);
 
 export const catalogNamespacesInputSchema = z.object({
   limit: z.coerce.number().optional(),
@@ -22,6 +21,8 @@ export const catalogNamespaceSchema = z.object({
   toolCount: z.number(),
   samplePaths: z.array(z.string()),
 });
+
+export type CatalogNamespace = z.infer<typeof catalogNamespaceSchema>;
 
 export const catalogNamespacesOutputSchema = z.object({
   namespaces: z.array(catalogNamespaceSchema),
@@ -41,6 +42,8 @@ export const discoveryTypingSchema = z.object({
   outputSchemaJson: z.string().optional(),
   refHintKeys: z.array(z.string()).optional(),
 });
+
+export type DiscoveryTypingPayload = z.infer<typeof discoveryTypingSchema>;
 
 export const discoveryResultSchema = z.object({
   path: z.string(),

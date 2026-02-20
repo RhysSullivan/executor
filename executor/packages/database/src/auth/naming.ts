@@ -34,6 +34,10 @@ function isGeneratedIdentityLabel(value: string, workosUserId: string): boolean 
     return true;
   }
 
+  if (/^(?:[a-z0-9]+[|:/._-])*user_[a-z0-9]+$/i.test(normalizedValue)) {
+    return true;
+  }
+
   return normalizedValue.toLowerCase() === normalizedWorkosUserId.toLowerCase();
 }
 

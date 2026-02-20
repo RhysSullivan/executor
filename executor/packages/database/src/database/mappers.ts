@@ -2,10 +2,11 @@ import type { Doc } from "../../convex/_generated/dataModel.d.ts";
 import { z } from "zod";
 import { isRecord } from "../lib/object";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
+import { normalizeCredentialAdditionalHeaders } from "../../../core/src/tool/source-auth";
 
 const sourceAuthSchema = z.object({
   type: z.string().optional(),
-  mode: z.enum(["workspace", "account", "organization", "static"]).optional(),
+  mode: z.enum(["workspace", "account", "organization"]).optional(),
   header: z.string().optional(),
 });
 
@@ -102,7 +103,7 @@ export function mapToolCall(doc: Doc<"toolCalls">) {
 
 export function mapCredential(doc: Doc<"sourceCredentials">) {
   const secretJson = isRecord(doc.secretJson) ? doc.secretJson : {};
-  const overridesJson = isRecord(doc.overridesJson) ? doc.overridesJson : {};
+  const additionalHeaders = normalizeCredentialAdditionalHeaders(doc.additionalHeaders);
   return {
     id: doc.credentialId,
     bindingId: doc.bindingId,
@@ -113,7 +114,7 @@ export function mapCredential(doc: Doc<"sourceCredentials">) {
     sourceKey: doc.sourceKey,
     provider: doc.provider,
     secretJson,
-    overridesJson,
+    additionalHeaders,
     boundAuthFingerprint: doc.boundAuthFingerprint,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,

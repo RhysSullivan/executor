@@ -3,13 +3,13 @@ import { z } from "zod";
 import type { ActionCtx } from "../../convex/_generated/server";
 import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
-import { buildOpenApiToolsFromPrepared } from "../../../core/src/openapi/tool-builder";
 import { resolveCredentialPayloadResult } from "../../../core/src/credential-providers";
+import { buildOpenApiToolsFromPrepared } from "../../../core/src/openapi/tool-builder";
 import { serializeTools } from "../../../core/src/tool/source-serialization";
 import {
   buildCredentialAuthHeaders,
-  buildStaticAuthHeaders,
-  readCredentialOverrideHeaders,
+  type CredentialHeaderAuthSpec,
+  readCredentialAdditionalHeaders,
 } from "../../../core/src/tool/source-auth";
 import type {
   ExternalToolSourceConfig,
@@ -29,9 +29,9 @@ import {
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v7";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v8";
 
-const openApiAuthModeSchema = z.enum(["static", "account", "workspace", "organization"]);
+const openApiAuthModeSchema = z.enum(["account", "workspace", "organization"]);
 
 const openApiAuthSchema = z.union([
   z.object({ type: z.literal("none") }),
@@ -100,8 +100,6 @@ function compileOpenApiArtifactFromPrepared(
   prepared: PreparedOpenApiSpec,
 ): CompiledToolSourceArtifact {
   const tools = buildOpenApiToolsFromPrepared(source, prepared);
-  const serializedTools = serializeTools(tools);
-
   return {
     version: "v1",
     sourceType: source.type,
@@ -110,7 +108,7 @@ function compileOpenApiArtifactFromPrepared(
     ...(prepared.refHintTable && Object.keys(prepared.refHintTable).length > 0
       ? { openApiRefHintTable: prepared.refHintTable }
       : {}),
-    tools: serializedTools,
+    tools: serializeTools(tools),
   };
 }
 
@@ -197,9 +195,7 @@ export function normalizeExternalToolSource(raw: {
   return Result.ok(result);
 }
 
-function toCredentialHeaderSpec(auth: OpenApiAuth):
-  | { authType: "bearer" | "apiKey" | "basic"; headerName?: string }
-  | null {
+function toCredentialHeaderSpec(auth: OpenApiAuth): CredentialHeaderAuthSpec | null {
   if (auth.type === "none") {
     return null;
   }
@@ -227,10 +223,7 @@ async function resolveMcpDiscoveryHeaders(
     return { headers: {}, warnings: [] };
   }
 
-  const mode = auth.mode ?? "static";
-  if (mode === "static") {
-    return { headers: buildStaticAuthHeaders(auth), warnings: [] };
-  }
+  const mode = auth.mode ?? "workspace";
 
   if (!source.sourceKey) {
     return {
@@ -277,8 +270,8 @@ async function resolveMcpDiscoveryHeaders(
   }
 
   const headers = buildCredentialAuthHeaders(authSpec, secret);
-  const overrideHeaders = readCredentialOverrideHeaders(record.overridesJson);
-  for (const [key, value] of Object.entries(overrideHeaders)) {
+  const additionalHeaders = readCredentialAdditionalHeaders(record.additionalHeaders);
+  for (const [key, value] of Object.entries(additionalHeaders)) {
     headers[key] = value;
   }
 

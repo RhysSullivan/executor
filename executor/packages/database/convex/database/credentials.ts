@@ -3,10 +3,12 @@ import { z } from "zod";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { normalizeCredentialAdditionalHeaders } from "../../../core/src/tool/source-auth";
 import { mapCredential } from "../../src/database/mappers";
 import { computeBoundAuthFingerprint } from "../../src/database/readers";
 import { safeRunAfter } from "../../src/lib/scheduler";
 import {
+  credentialAdditionalHeadersValidator,
   credentialProviderValidator,
   credentialScopeTypeValidator,
   jsonObjectValidator,
@@ -78,7 +80,7 @@ export const upsertCredential = internalMutation({
     accountId: v.optional(vv.id("accounts")),
     provider: v.optional(credentialProviderValidator),
     secretJson: jsonObjectValidator,
-    overridesJson: v.optional(jsonObjectValidator),
+    additionalHeaders: v.optional(credentialAdditionalHeadersValidator),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -199,9 +201,10 @@ export const upsertCredential = internalMutation({
       throw new Error("Credential values are required");
     }
 
-    const overridesJson = args.overridesJson === undefined
-      ? toRecordValue(existing?.overridesJson)
-      : toRecordValue(args.overridesJson);
+    const additionalHeaders = args.additionalHeaders === undefined
+      ? normalizeCredentialAdditionalHeaders(existing?.additionalHeaders)
+      : normalizeCredentialAdditionalHeaders(args.additionalHeaders);
+    const storedAdditionalHeaders = additionalHeaders.length > 0 ? additionalHeaders : undefined;
 
     const boundAuthFingerprint = await computeBoundAuthFingerprint(
       ctx,
@@ -228,7 +231,7 @@ export const upsertCredential = internalMutation({
         workspaceId: scopedWorkspaceId,
         provider,
         secretJson: finalSecret,
-        overridesJson,
+        additionalHeaders: storedAdditionalHeaders,
         boundAuthFingerprint,
         updatedAt: now,
       });
@@ -243,7 +246,7 @@ export const upsertCredential = internalMutation({
         sourceKey: args.sourceKey,
         provider,
         secretJson: finalSecret,
-        overridesJson,
+        additionalHeaders: storedAdditionalHeaders,
         boundAuthFingerprint,
         createdAt: now,
         updatedAt: now,

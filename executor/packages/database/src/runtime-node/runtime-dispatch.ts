@@ -17,6 +17,11 @@ import { describeError } from "../../../core/src/utils";
 const recordSchema = z.record(z.unknown());
 const APPROVAL_SUBSCRIPTION_TIMEOUT_MS = 10 * 60 * 1000;
 
+type RuntimeCallbackConfig = {
+  callbackConvexUrl: string;
+  callbackInternalSecret: string;
+};
+
 function toRecord(value: unknown): Record<string, unknown> {
   const parsed = recordSchema.safeParse(value);
   if (parsed.success) {
@@ -25,10 +30,7 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value === undefined ? {} : { value };
 }
 
-function getRuntimeCallbackConfig(): {
-  callbackConvexUrl: string;
-  callbackInternalSecret: string;
-} {
+function getRuntimeCallbackConfig(): RuntimeCallbackConfig {
   const callbackConvexUrl = process.env.CONVEX_URL ?? process.env.CONVEX_SITE_URL;
   if (!callbackConvexUrl) {
     throw new Error("Node runtime requires CONVEX_URL or CONVEX_SITE_URL for runtime callbacks");
@@ -45,7 +47,7 @@ function getRuntimeCallbackConfig(): {
 class CallbackExecutionAdapter implements ExecutionAdapter {
   private readonly client: ConvexHttpClient;
 
-  constructor(private readonly callbackConfig: { callbackInternalSecret: string; callbackConvexUrl: string }) {
+  constructor(private readonly callbackConfig: RuntimeCallbackConfig) {
     this.client = new ConvexHttpClient(callbackConfig.callbackConvexUrl, {
       skipConvexDeploymentUrlCheck: true,
     });

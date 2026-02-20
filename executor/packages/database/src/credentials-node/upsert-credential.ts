@@ -7,16 +7,13 @@ import {
   extractWorkosVaultObjectId,
   withWorkosVaultRetryResult,
 } from "../../../core/src/credentials/workos-vault";
+import { normalizeCredentialAdditionalHeaders } from "../../../core/src/tool/source-auth";
 
 type Internal = typeof import("../../convex/_generated/api").internal;
 
 type SecretBackend = "local-convex" | "workos-vault";
 
 const recordSchema = z.record(z.unknown());
-
-const secretPayloadSchema = z.object({
-  __headers: z.record(z.unknown()).optional(),
-}).catchall(z.unknown());
 
 const listedCredentialSchema = z.object({
   id: z.string().optional(),
@@ -48,29 +45,6 @@ function configuredSecretBackend(): SecretBackend {
     return "local-convex";
   }
   return process.env.WORKOS_API_KEY?.trim() ? "workos-vault" : "local-convex";
-}
-
-function extractHeaderOverrides(secretJson: Record<string, unknown>): {
-  cleanSecret: Record<string, unknown>;
-  overridesJson: Record<string, unknown>;
-} {
-  const parsedSecret = secretPayloadSchema.safeParse(secretJson);
-  const normalizedSecret = parsedSecret.success ? parsedSecret.data : {};
-  const rawHeaders = toRecordValue(normalizedSecret.__headers);
-  const headers: Record<string, string> = {};
-  for (const [name, value] of Object.entries(rawHeaders)) {
-    const headerName = name.trim();
-    if (!headerName) continue;
-    const text = typeof value === "string" ? value.trim() : String(value ?? "").trim();
-    if (!text) continue;
-    headers[headerName] = text;
-  }
-
-  const { __headers: _headers, ...rest } = normalizedSecret;
-  return {
-    cleanSecret: toRecordValue(rest),
-    overridesJson: Object.keys(headers).length > 0 ? { headers } : {},
-  };
 }
 
 function parseListedCredentials(value: unknown): ListedCredential[] {
@@ -171,6 +145,7 @@ export async function upsertCredentialHandler(
     accountId?: Id<"accounts">;
     provider?: "local-convex" | "workos-vault";
     secretJson: unknown;
+    additionalHeaders?: unknown;
   },
 ): Promise<Record<string, unknown>> {
   const scopeType = args.scopeType ?? "workspace";
@@ -178,8 +153,11 @@ export async function upsertCredentialHandler(
     throw new Error("accountId must match the authenticated account for account-scoped credentials");
   }
   const accountId = normalizedAccountId(scopeType, args.accountId ?? ctx.accountId);
-  const rawSubmittedSecret = toRecordValue(args.secretJson);
-  const { cleanSecret: submittedSecret, overridesJson } = extractHeaderOverrides(rawSubmittedSecret);
+  const submittedSecret = toRecordValue(args.secretJson);
+  const hasAdditionalHeaders = args.additionalHeaders !== undefined;
+  const additionalHeaders = hasAdditionalHeaders
+    ? normalizeCredentialAdditionalHeaders(args.additionalHeaders)
+    : undefined;
 
   const existingBinding = await ctx.runQuery(internal.database.resolveCredential, {
     workspaceId: ctx.workspaceId,
@@ -230,7 +208,7 @@ export async function upsertCredentialHandler(
       accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
       provider: "local-convex",
       secretJson: finalSecret,
-      overridesJson,
+      ...(hasAdditionalHeaders ? { additionalHeaders } : {}),
     });
   }
 
@@ -275,6 +253,6 @@ export async function upsertCredentialHandler(
     accountId: scopeType === "account" ? (accountId as Id<"accounts">) : undefined,
     provider: "workos-vault",
     secretJson: { objectId: finalObjectId },
-    overridesJson,
+    ...(hasAdditionalHeaders ? { additionalHeaders } : {}),
   });
 }

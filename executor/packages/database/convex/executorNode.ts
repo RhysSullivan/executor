@@ -1,7 +1,7 @@
 "use node";
 
 import { v } from "convex/values";
-import { internalAction } from "./_generated/server";
+import { internalAction, type ActionCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type {
   ToolDescriptor,
@@ -10,7 +10,7 @@ import type {
   StorageInstanceRecord,
 } from "../../core/src/types";
 import { isAdminRole } from "../../core/src/identity";
-import { requireCanonicalAccount } from "../src/runtime/account_auth";
+import { assertMatchesCanonicalAccountId } from "../src/auth/account_identity";
 import {
   listToolsForContext,
   listToolsWithWarningsForContext,
@@ -20,13 +20,15 @@ import {
 import { runQueuedTask } from "../src/runtime/task_runner";
 import { handleExternalToolCallRequest } from "../src/runtime/external_tool_call";
 import { jsonObjectValidator } from "../src/database/validators";
-import { customAction } from "../../core/src/function-builders";
+import { workspaceAction, type WorkspaceActionContext } from "../../core/src/function-builders";
 import { encodeToolCallResultForTransport } from "../../core/src/tool-call-result-transport";
 import { previewOpenApiSourceUpgradeForContext, type OpenApiUpgradeDiffPreview } from "../src/runtime/tool_upgrade";
 import { getStorageProvider, type StorageEncoding, type StorageProvider } from "../src/runtime/storage_provider";
 import { shouldTouchStorageOnRead } from "../src/runtime/storage_touch_policy";
 import { shouldRefreshStorageUsage } from "../src/runtime/storage_usage_refresh";
 import { vv } from "./typedV";
+
+type WorkspaceBoundaryActionCtx = ActionCtx & WorkspaceActionContext;
 
 function isReadOnlySql(sql: string): boolean {
   const trimmed = sql.trim().toLowerCase();
@@ -45,27 +47,21 @@ function hasMultipleSqlStatements(sql: string): boolean {
 }
 
 async function resolveStorageInspectorContext(
-  ctx: Parameters<typeof requireCanonicalAccount>[0],
+  ctx: WorkspaceBoundaryActionCtx,
   args: {
-    workspaceId: Parameters<typeof requireCanonicalAccount>[1]["workspaceId"];
-    accountId?: Parameters<typeof requireCanonicalAccount>[1]["accountId"];
-    sessionId?: string;
+    accountId?: WorkspaceActionContext["accountId"];
     instanceId: string;
   },
 ): Promise<{
-  accountId: Awaited<ReturnType<typeof requireCanonicalAccount>>["accountId"];
+  accountId: WorkspaceActionContext["accountId"];
   instance: StorageInstanceRecord;
   provider: StorageProvider;
 }> {
-  const access = await requireCanonicalAccount(ctx, {
-    workspaceId: args.workspaceId,
-    sessionId: args.sessionId,
-    accountId: args.accountId,
-  });
+  assertMatchesCanonicalAccountId(args.accountId, ctx.accountId);
 
   const instance = await ctx.runQuery(internal.database.getStorageInstance, {
-    workspaceId: args.workspaceId,
-    accountId: access.accountId,
+    workspaceId: ctx.workspaceId,
+    accountId: ctx.accountId,
     instanceId: args.instanceId,
   }) as StorageInstanceRecord | null;
 
@@ -74,17 +70,16 @@ async function resolveStorageInspectorContext(
   }
 
   return {
-    accountId: access.accountId,
+    accountId: ctx.accountId,
     instance,
     provider: getStorageProvider(instance.provider),
   };
 }
 
 async function touchStorageInstance(
-  ctx: Parameters<typeof requireCanonicalAccount>[0],
+  ctx: WorkspaceBoundaryActionCtx,
   args: {
-    workspaceId: Parameters<typeof requireCanonicalAccount>[1]["workspaceId"];
-    accountId: Awaited<ReturnType<typeof requireCanonicalAccount>>["accountId"];
+    accountId: WorkspaceActionContext["accountId"];
     instance: StorageInstanceRecord;
     provider: StorageProvider;
     withUsage: boolean;
@@ -98,7 +93,7 @@ async function touchStorageInstance(
     ? await args.provider.usage(args.instance)
     : undefined;
   await ctx.runMutation(internal.database.touchStorageInstance, {
-    workspaceId: args.workspaceId,
+    workspaceId: ctx.workspaceId,
     accountId: args.accountId,
     instanceId: args.instance.id,
     provider: args.instance.provider,
@@ -107,12 +102,10 @@ async function touchStorageInstance(
   });
 }
 
-export const listToolsWithWarnings = customAction({
+export const listToolsWithWarnings = workspaceAction({
   method: "POST",
   args: {
-    workspaceId: vv.id("workspaces"),
     accountId: v.optional(vv.id("accounts")),
-    sessionId: v.optional(v.string()),
     includeDetails: v.optional(v.boolean()),
     includeSourceMeta: v.optional(v.boolean()),
     toolPaths: v.optional(v.array(v.string())),
@@ -137,33 +130,24 @@ export const listToolsWithWarnings = customAction({
     nextCursor?: string | null;
     totalTools: number;
   }> => {
-    const access = await requireCanonicalAccount(ctx, {
-      workspaceId: args.workspaceId,
-      sessionId: args.sessionId,
-      accountId: args.accountId,
-    });
+    assertMatchesCanonicalAccountId(args.accountId, ctx.accountId);
 
     if (args.rebuildInventory) {
-      const workspaceAccess = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-        workspaceId: args.workspaceId,
-        sessionId: args.sessionId,
-      });
-
-      if (!isAdminRole(workspaceAccess.role)) {
+      if (!isAdminRole(ctx.role)) {
         throw new Error("Only workspace admins can regenerate tool inventory");
       }
 
       await rebuildWorkspaceToolInventoryForContext(ctx, {
-        workspaceId: args.workspaceId,
-        accountId: access.accountId,
-        clientId: access.clientId,
+        workspaceId: ctx.workspaceId,
+        accountId: ctx.accountId,
+        clientId: ctx.clientId,
       });
     }
 
     const inventory = await listToolsWithWarningsForContext(ctx, {
-      workspaceId: args.workspaceId,
-      accountId: access.accountId,
-      clientId: access.clientId,
+      workspaceId: ctx.workspaceId,
+      accountId: ctx.accountId,
+      clientId: ctx.clientId,
     }, {
       includeDetails: args.includeDetails ?? false,
       includeSourceMeta: args.includeSourceMeta ?? (args.toolPaths ? false : true),
@@ -228,29 +212,23 @@ export const rebuildToolInventoryInternal = internalAction({
   },
 });
 
-export const previewOpenApiSourceUpgrade = customAction({
+export const previewOpenApiSourceUpgrade = workspaceAction({
   method: "POST",
   args: {
-    workspaceId: vv.id("workspaces"),
     accountId: v.optional(vv.id("accounts")),
-    sessionId: v.optional(v.string()),
     sourceId: v.string(),
     name: v.string(),
     config: jsonObjectValidator,
   },
   handler: async (ctx, args): Promise<OpenApiUpgradeDiffPreview> => {
-    const access = await requireCanonicalAccount(ctx, {
-      workspaceId: args.workspaceId,
-      sessionId: args.sessionId,
-      accountId: args.accountId,
-    });
+    assertMatchesCanonicalAccountId(args.accountId, ctx.accountId);
 
     return await previewOpenApiSourceUpgradeForContext(
       ctx,
         {
-          workspaceId: args.workspaceId,
-          accountId: access.accountId,
-          clientId: access.clientId,
+          workspaceId: ctx.workspaceId,
+          accountId: ctx.accountId,
+          clientId: ctx.clientId,
         },
       {
         sourceId: args.sourceId,
@@ -261,12 +239,10 @@ export const previewOpenApiSourceUpgrade = customAction({
   },
 });
 
-export const storageListDirectory = customAction({
+export const storageListDirectory = workspaceAction({
   method: "POST",
   args: {
-    workspaceId: vv.id("workspaces"),
     accountId: v.optional(vv.id("accounts")),
-    sessionId: v.optional(v.string()),
     instanceId: v.string(),
     path: v.optional(v.string()),
   },
@@ -275,7 +251,6 @@ export const storageListDirectory = customAction({
     const path = args.path?.trim() || "/";
     const entries = await provider.readdir(instance, path);
     await touchStorageInstance(ctx, {
-      workspaceId: args.workspaceId,
       accountId,
       instance,
       provider,
@@ -289,12 +264,10 @@ export const storageListDirectory = customAction({
   },
 });
 
-export const storageReadFile = customAction({
+export const storageReadFile = workspaceAction({
   method: "POST",
   args: {
-    workspaceId: vv.id("workspaces"),
     accountId: v.optional(vv.id("accounts")),
-    sessionId: v.optional(v.string()),
     instanceId: v.string(),
     path: v.string(),
     encoding: v.optional(v.union(v.literal("utf8"), v.literal("base64"))),
@@ -304,7 +277,6 @@ export const storageReadFile = customAction({
     const encoding = (args.encoding ?? "utf8") as StorageEncoding;
     const file = await provider.readFile(instance, args.path, encoding);
     await touchStorageInstance(ctx, {
-      workspaceId: args.workspaceId,
       accountId,
       instance,
       provider,
@@ -320,12 +292,10 @@ export const storageReadFile = customAction({
   },
 });
 
-export const storageListKv = customAction({
+export const storageListKv = workspaceAction({
   method: "POST",
   args: {
-    workspaceId: vv.id("workspaces"),
     accountId: v.optional(vv.id("accounts")),
-    sessionId: v.optional(v.string()),
     instanceId: v.string(),
     prefix: v.optional(v.string()),
     limit: v.optional(v.number()),
@@ -336,7 +306,6 @@ export const storageListKv = customAction({
     const prefix = args.prefix?.trim() ?? "";
     const items = await provider.kvList(instance, prefix, limit);
     await touchStorageInstance(ctx, {
-      workspaceId: args.workspaceId,
       accountId,
       instance,
       provider,
@@ -351,12 +320,10 @@ export const storageListKv = customAction({
   },
 });
 
-export const storageQuerySql = customAction({
+export const storageQuerySql = workspaceAction({
   method: "POST",
   args: {
-    workspaceId: vv.id("workspaces"),
     accountId: v.optional(vv.id("accounts")),
-    sessionId: v.optional(v.string()),
     instanceId: v.string(),
     sql: v.string(),
     params: v.optional(v.array(v.union(v.string(), v.number(), v.boolean(), v.null()))),
@@ -379,7 +346,6 @@ export const storageQuerySql = customAction({
       maxRows,
     });
     await touchStorageInstance(ctx, {
-      workspaceId: args.workspaceId,
       accountId,
       instance,
       provider,

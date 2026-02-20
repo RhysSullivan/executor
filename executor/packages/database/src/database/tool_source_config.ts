@@ -32,7 +32,7 @@ export type NormalizedToolSourceConfig =
   | NormalizedOpenApiToolSourceConfig;
 
 const approvalModeSchema = z.enum(["auto", "required"]);
-const authModeSchema = z.enum(["static", "account", "workspace", "organization"]);
+const authModeSchema = z.enum(["account", "workspace", "organization"]);
 const mcpTransportSchema = z.enum(["sse", "streamable-http"]);
 const overrideEntrySchema = z.object({
   approval: approvalModeSchema.optional(),
@@ -42,19 +42,20 @@ const stringMapSchema = z.record(z.string());
 const trimmedStringSchema = z.string().transform((value) => value.trim());
 const nonEmptyTrimmedStringSchema = trimmedStringSchema.refine((value) => value.length > 0);
 const basicAuthSchema = z.object({
+  type: z.literal("basic"),
   mode: authModeSchema.optional(),
-  username: z.string().optional(),
-  password: z.string().optional(),
-});
+}).strict();
 const bearerAuthSchema = z.object({
+  type: z.literal("bearer"),
   mode: authModeSchema.optional(),
-  token: z.string().optional(),
-});
+}).strict();
 const apiKeyAuthSchema = z.object({
+  type: z.literal("apiKey"),
   mode: authModeSchema.optional(),
   header: z.string(),
-  value: z.string().optional(),
-});
+}).strict();
+
+const AUTH_MODE_ERROR = "Tool source auth.mode must be 'account', 'workspace', or 'organization'";
 
 function optionalTrimmedString(value: unknown): string | undefined {
   const parsed = trimmedStringSchema.safeParse(value);
@@ -175,27 +176,24 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
   if (authType === "basic") {
     const parsed = basicAuthSchema.safeParse(auth);
     if (!parsed.success) {
-      return Result.err(new Error("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'"));
+      return Result.err(new Error(AUTH_MODE_ERROR));
     }
 
     return Result.ok({
       type: "basic",
       mode: parsed.data.mode,
-      username: optionalTrimmedString(parsed.data.username),
-      password: optionalTrimmedString(parsed.data.password),
     });
   }
 
   if (authType === "bearer") {
     const parsed = bearerAuthSchema.safeParse(auth);
     if (!parsed.success) {
-      return Result.err(new Error("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'"));
+      return Result.err(new Error(AUTH_MODE_ERROR));
     }
 
     return Result.ok({
       type: "bearer",
       mode: parsed.data.mode,
-      token: optionalTrimmedString(parsed.data.token),
     });
   }
 
@@ -206,7 +204,7 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
       if (headerIssue) {
         return Result.err(new Error("Tool source auth.header is required"));
       }
-        return Result.err(new Error("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'"));
+      return Result.err(new Error(AUTH_MODE_ERROR));
     }
 
     const headerResult = requiredTrimmedString(parsed.data.header, "auth.header");
@@ -218,7 +216,6 @@ function normalizeAuth(value: unknown): Result<OpenApiAuth | undefined, Error> {
       type: "apiKey",
       mode: parsed.data.mode,
       header: headerResult.value,
-      value: optionalTrimmedString(parsed.data.value),
     });
   }
 

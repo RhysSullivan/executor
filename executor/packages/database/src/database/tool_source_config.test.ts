@@ -18,7 +18,6 @@ test("normalizeToolSourceConfig trims and normalizes openapi auth/header values"
     auth: {
       type: "apiKey",
       header: " x-api-key ",
-      value: "token-value",
     },
   });
 
@@ -29,7 +28,6 @@ test("normalizeToolSourceConfig trims and normalizes openapi auth/header values"
     expect(result.value.auth?.type).toBe("apiKey");
     if (result.value.auth?.type === "apiKey") {
       expect(result.value.auth.header).toBe("x-api-key");
-      expect(result.value.auth.value).toBe("token-value");
     }
   }
 });
@@ -76,6 +74,22 @@ test("normalizeToolSourceConfig validates auth mode for apiKey auth", () => {
 
   expect(result.isErr()).toBe(true);
   if (result.isErr()) {
-    expect(result.error.message).toBe("Tool source auth.mode must be 'static', 'account', 'workspace', or 'organization'");
+    expect(result.error.message).toBe("Tool source auth.mode must be 'account', 'workspace', or 'organization'");
+  }
+});
+
+test("normalizeToolSourceConfig rejects inline static auth secrets", () => {
+  const result = normalizeToolSourceConfig("openapi", {
+    spec: "https://example.com/openapi.json",
+    auth: {
+      type: "bearer",
+      mode: "workspace",
+      token: "secret-token",
+    },
+  });
+
+  expect(result.isErr()).toBe(true);
+  if (result.isErr()) {
+    expect(result.error.message).toBe("Tool source auth.mode must be 'account', 'workspace', or 'organization'");
   }
 });

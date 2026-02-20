@@ -1,20 +1,7 @@
 import { Result } from "better-result";
 import { z } from "zod";
-import {
-  parseSerializedTool,
-  rehydrateTools,
-  type SerializedTool,
-} from "../../../core/src/tool/source-serialization";
+import { parseSerializedTool, rehydrateTools, type SerializedTool } from "../../../core/src/tool/source-serialization";
 import type { ToolDefinition } from "../../../core/src/types";
-
-export interface CompiledToolSourceArtifact {
-  version: "v1";
-  sourceType: "mcp" | "openapi" | "graphql";
-  sourceName: string;
-  openApiSourceKey?: string;
-  openApiRefHintTable?: Record<string, string>;
-  tools: SerializedTool[];
-}
 
 const compiledToolSourceArtifactSchema = z.object({
   version: z.literal("v1"),
@@ -24,6 +11,12 @@ const compiledToolSourceArtifactSchema = z.object({
   openApiRefHintTable: z.record(z.string()).optional(),
   tools: z.array(z.unknown()),
 });
+
+type CompiledToolSourceArtifactEnvelope = z.infer<typeof compiledToolSourceArtifactSchema>;
+
+export type CompiledToolSourceArtifact = Omit<CompiledToolSourceArtifactEnvelope, "tools"> & {
+  tools: SerializedTool[];
+};
 
 export function parseCompiledToolSourceArtifact(value: unknown): Result<CompiledToolSourceArtifact, Error> {
   const parsedValue = typeof value === "string"
@@ -49,19 +42,13 @@ export function parseCompiledToolSourceArtifact(value: unknown): Result<Compiled
   for (const tool of parsedArtifact.data.tools) {
     const parsedTool = parseSerializedTool(tool);
     if (parsedTool.isErr()) {
-      return Result.err(
-        new Error(`Invalid serialized tool in artifact '${parsedArtifact.data.sourceName}': ${parsedTool.error.message}`),
-      );
+      return Result.err(new Error(`Invalid serialized tool in artifact '${parsedArtifact.data.sourceName}': ${parsedTool.error.message}`));
     }
     tools.push(parsedTool.value);
   }
 
   return Result.ok({
-    version: parsedArtifact.data.version,
-    sourceType: parsedArtifact.data.sourceType,
-    sourceName: parsedArtifact.data.sourceName,
-    openApiSourceKey: parsedArtifact.data.openApiSourceKey,
-    openApiRefHintTable: parsedArtifact.data.openApiRefHintTable,
+    ...parsedArtifact.data,
     tools,
   });
 }

@@ -8,6 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, normalize, resolve, sep } from "node:path";
+import type { SqlJsDatabase, SqlJsModule } from "sql.js/dist/sql-asm.js";
 import type { StorageInstanceRecord, StorageProvider as StorageProviderId } from "../../../core/src/types";
 
 export type StorageEncoding = "utf8" | "base64";
@@ -64,27 +65,12 @@ export interface StorageProvider {
   deleteInstance(instance: StorageInstanceRecord): Promise<void>;
 }
 
-type SqlJsDatabase = {
-  run: (sql: string, params?: Array<string | number | null>) => void;
-  exec: (sql: string, params?: Array<string | number | null>) => Array<{
-    columns: string[];
-    values: Array<Array<string | number | null>>;
-  }>;
-  export: () => Uint8Array;
-  getRowsModified: () => number;
-  close: () => void;
-};
-
-type SqlJsModule = {
-  Database: new (data?: Uint8Array) => SqlJsDatabase;
-};
-
 let sqlJsModulePromise: Promise<SqlJsModule> | null = null;
 
 async function loadSqlJsModule(): Promise<SqlJsModule> {
   if (!sqlJsModulePromise) {
     sqlJsModulePromise = (async () => {
-      const module = await import("sql.js/dist/sql-asm.js") as { default?: (options?: unknown) => Promise<SqlJsModule> };
+      const module = await import("sql.js/dist/sql-asm.js");
       const initialize = module.default;
       if (typeof initialize !== "function") {
         throw new Error("Failed to load sql.js asm module");

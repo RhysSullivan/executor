@@ -5,6 +5,7 @@ import { workspaceAction } from "../../core/src/function-builders";
 import { readVaultObjectHandler } from "../src/credentials-node/read-vault-object";
 import { upsertCredentialHandler } from "../src/credentials-node/upsert-credential";
 import {
+  credentialAdditionalHeadersValidator,
   credentialProviderValidator,
   credentialScopeTypeValidator,
   jsonObjectValidator,
@@ -21,6 +22,7 @@ export const upsertCredential = workspaceAction({
     accountId: v.optional(vv.id("accounts")),
     provider: v.optional(credentialProviderValidator),
     secretJson: jsonObjectValidator,
+    additionalHeaders: v.optional(credentialAdditionalHeadersValidator),
   },
   handler: async (ctx, args): Promise<Record<string, unknown>> => {
     return await upsertCredentialHandler(ctx, internal, args);

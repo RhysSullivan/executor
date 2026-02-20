@@ -1,4 +1,4 @@
-type FunctionType = "query" | "mutation" | "action";
+export type FunctionType = "query" | "mutation" | "action";
 
 const CONTROL_QUERY_PARAMS = new Set(["format", "args", "path", "function", "type"]);
 

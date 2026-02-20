@@ -29,12 +29,16 @@ import { resolveCredentialHeadersResult, validatePersistedCallRunnable } from ".
 import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
 import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
 import {
+  catalogNamespaceSchema,
   catalogNamespacesInputSchema,
   catalogNamespacesOutputSchema,
   catalogToolsInputSchema,
   catalogToolsOutputSchema,
+  type CatalogNamespace,
+  type DiscoveryTypingPayload,
   discoverInputSchema,
   discoverOutputSchema,
+  toolApprovalSchema,
 } from "./discovery_tool_contracts";
 import { isStorageSystemToolPath, runStorageSystemTool } from "./storage_tools";
 
@@ -44,19 +48,11 @@ function createApprovalId(): string {
   return `approval_${crypto.randomUUID()}`;
 }
 
-const registryNamespaceSchema = z.object({
-  namespace: z.string(),
-  toolCount: z.number(),
-  samplePaths: z.array(z.string()),
-});
-
-type RegistryNamespace = z.infer<typeof registryNamespaceSchema>;
-
 const registryToolEntrySchema = z.object({
   path: z.string(),
   preferredPath: z.string().optional(),
   source: z.string().optional(),
-  approval: z.enum(["auto", "required"]),
+  approval: toolApprovalSchema,
   description: z.string().optional(),
   displayInput: z.string().optional(),
   displayOutput: z.string().optional(),
@@ -109,12 +105,6 @@ function buildOpenApiRefHintLookup(value: unknown): Record<string, Record<string
 
   return lookup;
 }
-
-type DiscoveryTypingPayload = {
-  inputSchemaJson?: string;
-  outputSchemaJson?: string;
-  refHintKeys?: string[];
-};
 
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -225,9 +215,9 @@ async function listWorkspaceToolPolicies(
 async function listRegistryNamespaces(
   ctx: ActionCtx,
   args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; limit: number },
-): Promise<RegistryNamespace[]> {
+): Promise<CatalogNamespace[]> {
   const namespaces = await ctx.runQuery(internal.toolRegistry.listNamespaces, args);
-  const parsed = z.array(registryNamespaceSchema).safeParse(namespaces);
+  const parsed = z.array(catalogNamespaceSchema).safeParse(namespaces);
   return parsed.success ? parsed.data : [];
 }
 

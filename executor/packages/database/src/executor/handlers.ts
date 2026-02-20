@@ -4,8 +4,6 @@ import { defaultRuntimeId, isKnownRuntimeId, isRuntimeEnabled } from "../../../c
 import type { ApprovalRecord, TaskExecutionOutcome, TaskRecord } from "../../../core/src/types";
 import {
   assertMatchesCanonicalAccountId,
-  canonicalAccountIdForWorkspaceAccess,
-  canonicalClientIdForWorkspaceAccess,
 } from "../auth/account_identity";
 import { DEFAULT_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS } from "../task/constants";
 import { createTaskEvent } from "../task/events";
@@ -231,30 +229,22 @@ async function resolveApprovalRecord(
 }
 
 export async function createTaskHandler(
-  ctx: ActionCtx,
+  ctx: ActionCtx & {
+    workspaceId: Id<"workspaces">;
+    accountId: Id<"accounts">;
+    clientId: "web" | "mcp";
+  },
   internal: Internal,
   args: {
     code: string;
     timeoutMs?: number;
     runtimeId?: string;
     metadata?: unknown;
-    workspaceId: Id<"workspaces">;
-    sessionId?: string;
     accountId?: Id<"accounts">;
     waitForResult?: boolean;
   },
 ): Promise<TaskExecutionOutcome> {
-  const access = await ctx.runQuery(internal.workspaceAuthInternal.getWorkspaceAccessForRequest, {
-    workspaceId: args.workspaceId,
-    sessionId: args.sessionId,
-  });
-
-  const canonicalAccountId = canonicalAccountIdForWorkspaceAccess(access);
-  const canonicalClientId = canonicalClientIdForWorkspaceAccess({
-    provider: access.provider,
-    sessionId: args.sessionId,
-  });
-  assertMatchesCanonicalAccountId(args.accountId, canonicalAccountId);
+  assertMatchesCanonicalAccountId(args.accountId, ctx.accountId);
 
   const waitForResult = args.waitForResult ?? false;
   const created = await createTaskInternal(ctx, internal, {
@@ -262,9 +252,9 @@ export async function createTaskHandler(
     timeoutMs: args.timeoutMs,
     runtimeId: args.runtimeId,
     metadata: toMetadata(args.metadata),
-    workspaceId: args.workspaceId,
-    accountId: canonicalAccountId,
-    clientId: canonicalClientId,
+    workspaceId: ctx.workspaceId,
+    accountId: ctx.accountId,
+    clientId: ctx.clientId,
     scheduleAfterCreate: !waitForResult,
   });
 
@@ -282,7 +272,7 @@ export async function createTaskHandler(
 
   const task = await ctx.runQuery(internal.database.getTaskInWorkspace, {
     taskId: created.task.id,
-    workspaceId: args.workspaceId,
+    workspaceId: ctx.workspaceId,
   });
 
   if (!task) {

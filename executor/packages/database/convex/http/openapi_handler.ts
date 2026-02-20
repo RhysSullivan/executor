@@ -1,9 +1,8 @@
 import { makeFunctionReference } from "convex/server";
 import { httpAction } from "../_generated/server";
 import { buildOpenApiDocument } from "./openapi_spec";
+import type { FunctionType } from "./openapi_spec";
 import { collectPublicFunctionSpecs } from "./openapi_spec_registry";
-
-type FunctionType = "query" | "mutation" | "action";
 
 type OpenApiPayload = {
   path?: string;

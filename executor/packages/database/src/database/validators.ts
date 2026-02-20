@@ -76,6 +76,13 @@ export const credentialScopeTypeValidator = literals(...CREDENTIAL_SCOPE_TYPES);
 
 export const credentialProviderValidator = literals(...CREDENTIAL_PROVIDERS);
 
+export const credentialAdditionalHeaderValidator = v.object({
+  name: v.string(),
+  value: v.string(),
+});
+
+export const credentialAdditionalHeadersValidator = v.array(credentialAdditionalHeaderValidator);
+
 export const toolSourceTypeValidator = literals(...TOOL_SOURCE_TYPES);
 
 export const storageScopeTypeValidator = literals(...STORAGE_SCOPE_TYPES);

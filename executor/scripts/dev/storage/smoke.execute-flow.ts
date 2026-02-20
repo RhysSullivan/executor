@@ -281,7 +281,7 @@ async function run(): Promise<void> {
     },
   };
 
-  const source = await client.mutation(api.workspace.upsertToolSource, {
+  const source = await client.action(api.workspace.upsertToolSource, {
     workspaceId: workspaceId as never,
     sessionId: bootstrap.sessionId,
     name: sourceName,

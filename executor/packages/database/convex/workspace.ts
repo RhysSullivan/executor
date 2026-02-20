@@ -1,9 +1,11 @@
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { customMutation, workspaceMutation, workspaceQuery } from "../../core/src/function-builders";
+import { customMutation, workspaceAction, workspaceMutation, workspaceQuery } from "../../core/src/function-builders";
 import { getOrganizationMembership, isAdminRole } from "../../core/src/identity";
 import {
   argumentConditionValidator,
+  credentialAdditionalHeadersValidator,
   credentialProviderValidator,
   credentialScopeTypeValidator,
   jsonObjectValidator,
@@ -29,6 +31,7 @@ import {
   isMcpApiKeyConfigured,
   MCP_API_KEY_ENV_NAME,
 } from "../src/auth/mcp_api_key";
+import { upsertCredentialHandler } from "../src/credentials-node/upsert-credential";
 
 function sanitizeSourceConfig(config: Record<string, unknown>): Record<string, unknown> {
   const sanitized: Record<string, unknown> = {
@@ -52,6 +55,118 @@ function sanitizeSourceConfig(config: Record<string, unknown>): Record<string, u
   }
 
   return sanitized;
+}
+
+type ToolSourceScope = "workspace" | "organization";
+
+type ToolSourceCredentialSeed = {
+  id?: string;
+  scopeType?: "account" | "workspace" | "organization";
+  accountId?: Id<"accounts">;
+  provider?: "local-convex" | "workos-vault";
+  secretJson: Record<string, unknown>;
+  additionalHeaders?: Array<{ name: string; value: string }>;
+};
+
+function trimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function sourceScopeFallback(scopeType: ToolSourceScope): "workspace" | "organization" {
+  return scopeType === "organization" ? "organization" : "workspace";
+}
+
+function resolveAuthModeForCredential(
+  rawMode: string,
+  scopeType: ToolSourceScope,
+): "account" | "workspace" | "organization" | undefined {
+  if (rawMode === "account" || rawMode === "workspace" || rawMode === "organization") {
+    return rawMode;
+  }
+  if (rawMode === "static") {
+    return sourceScopeFallback(scopeType);
+  }
+  return undefined;
+}
+
+function extractLegacyInlineCredential(
+  config: Record<string, unknown>,
+  scopeType: ToolSourceScope,
+): { config: Record<string, unknown>; credential?: ToolSourceCredentialSeed } {
+  const authRaw = config.auth;
+  if (!authRaw || typeof authRaw !== "object" || Array.isArray(authRaw)) {
+    return { config };
+  }
+
+  const auth = authRaw as Record<string, unknown>;
+  const authType = trimmedString(auth.type);
+  if (authType !== "bearer" && authType !== "apiKey" && authType !== "basic") {
+    return { config };
+  }
+
+  const modeRaw = trimmedString(auth.mode);
+  const normalizedMode = resolveAuthModeForCredential(modeRaw, scopeType);
+  const modeForConfig = modeRaw === "static"
+    ? sourceScopeFallback(scopeType)
+    : (modeRaw || undefined);
+
+  const sanitizedAuth: Record<string, unknown> = {
+    type: authType,
+    ...(modeForConfig ? { mode: modeForConfig } : {}),
+  };
+  if (authType === "apiKey") {
+    const header = trimmedString(auth.header);
+    if (header) {
+      sanitizedAuth.header = header;
+    }
+  }
+
+  const sanitizedConfig: Record<string, unknown> = {
+    ...config,
+    auth: sanitizedAuth,
+  };
+
+  if (authType === "bearer") {
+    const token = trimmedString(auth.token);
+    if (!token) {
+      return { config: sanitizedConfig };
+    }
+    return {
+      config: sanitizedConfig,
+      credential: {
+        scopeType: normalizedMode ?? sourceScopeFallback(scopeType),
+        secretJson: { token },
+      },
+    };
+  }
+
+  if (authType === "apiKey") {
+    const value = trimmedString(auth.value);
+    if (!value) {
+      return { config: sanitizedConfig };
+    }
+    return {
+      config: sanitizedConfig,
+      credential: {
+        scopeType: normalizedMode ?? sourceScopeFallback(scopeType),
+        secretJson: { value },
+      },
+    };
+  }
+
+  const username = trimmedString(auth.username);
+  const password = trimmedString(auth.password);
+  if (!username || !password) {
+    return { config: sanitizedConfig };
+  }
+
+  return {
+    config: sanitizedConfig,
+    credential: {
+      scopeType: normalizedMode ?? sourceScopeFallback(scopeType),
+      secretJson: { username, password },
+    },
+  };
 }
 
 export const bootstrapAnonymousSession = customMutation({
@@ -297,7 +412,7 @@ export const upsertCredential = workspaceMutation({
     accountId: v.optional(vv.id("accounts")),
     provider: v.optional(credentialProviderValidator),
     secretJson: jsonObjectValidator,
-    overridesJson: v.optional(jsonObjectValidator),
+    additionalHeaders: v.optional(credentialAdditionalHeadersValidator),
   },
   handler: async (ctx, args) => {
     if (args.scopeType === "account") {
@@ -354,7 +469,7 @@ export const resolveCredential = workspaceQuery({
   },
 });
 
-export const upsertToolSource = workspaceMutation({
+export const upsertToolSource = workspaceAction({
   method: "POST",
   requireAdmin: true,
   args: {
@@ -364,12 +479,47 @@ export const upsertToolSource = workspaceMutation({
     type: toolSourceTypeValidator,
     config: jsonObjectValidator,
     enabled: v.optional(v.boolean()),
+    credential: v.optional(v.object({
+      id: v.optional(v.string()),
+      scopeType: v.optional(credentialScopeTypeValidator),
+      accountId: v.optional(vv.id("accounts")),
+      provider: v.optional(credentialProviderValidator),
+      secretJson: jsonObjectValidator,
+      additionalHeaders: v.optional(credentialAdditionalHeadersValidator),
+    })),
   },
   handler: async (ctx, args) => {
-    return await ctx.runMutation(internal.database.upsertToolSource, {
-      ...args,
+    const sourceScopeType: ToolSourceScope = args.scopeType === "organization" ? "organization" : "workspace";
+    const normalized = extractLegacyInlineCredential(args.config, sourceScopeType);
+    const sourceId = args.id ?? `src_${crypto.randomUUID()}`;
+    const { credential: _credential, ...sourceArgs } = args;
+
+    const source = await ctx.runMutation(internal.database.upsertToolSource, {
+      ...sourceArgs,
+      id: sourceId,
+      config: normalized.config,
       workspaceId: ctx.workspaceId,
     });
+
+    const credentialInput = args.credential ?? normalized.credential;
+    if (credentialInput) {
+      const scopeType = credentialInput.scopeType ?? sourceScopeFallback(sourceScopeType);
+      const accountId = scopeType === "account"
+        ? (credentialInput.accountId ?? ctx.accountId)
+        : undefined;
+
+      await upsertCredentialHandler(ctx, internal, {
+        id: credentialInput.id,
+        scopeType,
+        sourceKey: `source:${source.id}`,
+        accountId,
+        provider: credentialInput.provider,
+        secretJson: credentialInput.secretJson,
+        additionalHeaders: credentialInput.additionalHeaders,
+      });
+    }
+
+    return source;
   },
 });
 

@@ -267,7 +267,7 @@ test("credentials can link one connection to multiple sources", async () => {
     sourceKey: "source:stripe",
     scopeType: "workspace",
     secretJson: {},
-    overridesJson: { headers: { "x-tenant-id": "acme" } },
+    additionalHeaders: [{ name: "x-tenant-id", value: "acme" }],
   });
 
   const linked = await t.query(internal.database.resolveCredential, {
@@ -277,7 +277,7 @@ test("credentials can link one connection to multiple sources", async () => {
   });
   expect(linked?.id).toBe(primary.id);
   expect(linked?.secretJson).toEqual({ token: "token_v1" });
-  expect(linked?.overridesJson).toEqual({ headers: { "x-tenant-id": "acme" } });
+  expect(linked?.additionalHeaders).toEqual([{ name: "x-tenant-id", value: "acme" }]);
 
   await t.mutation(internal.database.upsertCredential, {
     id: primary.id,
