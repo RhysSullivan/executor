@@ -213,6 +213,11 @@ function buildSourceTreeWithLoading(
         continue;
       }
 
+      const hasVisibleChildren = existing.children.length > 0 || existing.childCount > 0;
+      if (hasVisibleChildren) {
+        continue;
+      }
+
       groupsBySource.set(sourceName, {
         ...existing,
         loadingPlaceholderCount: existing.loadingPlaceholderCount ?? 3,

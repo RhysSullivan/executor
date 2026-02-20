@@ -422,17 +422,13 @@ export default defineSchema({
     .index("by_spec_url_version", ["specUrl", "version"]),
 
   // Workspace tool registry state.
-  // Stores the currently "ready" build id for search + invocation.
+  // Stores active incremental materialization state for search + invocation.
   workspaceToolRegistryState: defineTable({
     workspaceId: v.id("workspaces"),
     signature: v.optional(v.string()),
-    readyBuildId: v.optional(v.string()),
-    buildingBuildId: v.optional(v.string()),
-    buildingSignature: v.optional(v.string()),
-    buildingStartedAt: v.optional(v.number()),
-    lastBuildCompletedAt: v.optional(v.number()),
-    lastBuildFailedAt: v.optional(v.number()),
-    lastBuildError: v.optional(v.string()),
+    lastRefreshCompletedAt: v.optional(v.number()),
+    lastRefreshFailedAt: v.optional(v.number()),
+    lastRefreshError: v.optional(v.string()),
     typesStorageId: v.optional(v.id("_storage")),
     warnings: v.optional(v.array(v.string())),
     toolCount: v.optional(v.number()),
@@ -440,11 +436,7 @@ export default defineSchema({
       sourceName: v.string(),
       toolCount: v.number(),
     }))),
-    sourceVersions: v.optional(v.array(v.object({
-      sourceId: v.string(),
-      sourceName: v.string(),
-      updatedAt: v.number(),
-    }))),
+    sourceStates: v.optional(v.array(jsonObjectValidator)),
     sourceQuality: v.optional(v.array(v.object({
       sourceKey: v.string(),
       toolCount: v.number(),
@@ -479,7 +471,6 @@ export default defineSchema({
   // NOTE: We avoid storing raw JSON Schemas here because Convex forbids `$`-prefixed keys.
   workspaceToolRegistry: defineTable({
     workspaceId: v.id("workspaces"),
-    buildId: v.string(),
     path: v.string(),
     preferredPath: v.string(),
     namespace: v.string(),
@@ -500,37 +491,35 @@ export default defineSchema({
     })),
     createdAt: v.number(),
   })
-    .index("by_workspace_build_path", ["workspaceId", "buildId", "path"])
-    .index("by_workspace_build_normalized", ["workspaceId", "buildId", "normalizedPath"])
-    .index("by_workspace_build_source", ["workspaceId", "buildId", "source"])
-    .index("by_workspace_build_namespace", ["workspaceId", "buildId", "namespace"])
-    .index("by_workspace_build", ["workspaceId", "buildId"])
+    .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace_normalized", ["workspaceId", "normalizedPath"])
+    .index("by_workspace_source", ["workspaceId", "source"])
+    .index("by_workspace_namespace", ["workspaceId", "namespace"])
+    .index("by_workspace", ["workspaceId"])
     .searchIndex("search_text", {
       searchField: "searchText",
-      filterFields: ["workspaceId", "buildId"],
+      filterFields: ["workspaceId"],
     }),
 
   // Heavy per-tool payloads kept separate from searchable metadata.
   workspaceToolRegistryPayloads: defineTable({
     workspaceId: v.id("workspaces"),
-    buildId: v.string(),
     path: v.string(),
     serializedToolJson: v.string(),
     createdAt: v.number(),
   })
-    .index("by_workspace_build_path", ["workspaceId", "buildId", "path"])
-    .index("by_workspace_build", ["workspaceId", "buildId"]),
+    .index("by_workspace_path", ["workspaceId", "path"])
+    .index("by_workspace", ["workspaceId"]),
 
   // Precomputed namespace summaries for fast catalog.namespaces.
   workspaceToolNamespaces: defineTable({
     workspaceId: v.id("workspaces"),
-    buildId: v.string(),
     namespace: v.string(),
     toolCount: v.number(),
     samplePaths: v.array(v.string()),
     createdAt: v.number(),
   })
-    .index("by_workspace_build", ["workspaceId", "buildId"]),
+    .index("by_workspace", ["workspaceId"]),
 
   // Durable and ephemeral storage instances used by filesystem/kv/sql tools.
   // Rows are scope-aware and can be shared across account/workspace/org contexts.

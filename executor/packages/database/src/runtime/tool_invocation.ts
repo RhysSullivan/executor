@@ -27,7 +27,7 @@ import { publishTaskEvent } from "./events";
 import { completeToolCall, denyToolCall, failToolCall } from "./tool_call_lifecycle";
 import { resolveCredentialHeadersResult, validatePersistedCallRunnable } from "./tool_call_credentials";
 import { getGraphqlDecision, resolveToolForCall } from "./tool_call_resolution";
-import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
+import { getRegistryReadyResult } from "./tool_registry_state";
 import {
   catalogNamespaceSchema,
   catalogNamespacesInputSchema,
@@ -214,7 +214,7 @@ async function listWorkspaceToolPolicies(
 
 async function listRegistryNamespaces(
   ctx: ActionCtx,
-  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; limit: number },
+  args: { workspaceId: TaskRecord["workspaceId"]; limit: number },
 ): Promise<CatalogNamespace[]> {
   const namespaces = await ctx.runQuery(internal.toolRegistry.listNamespaces, args);
   const parsed = z.array(catalogNamespaceSchema).safeParse(namespaces);
@@ -272,7 +272,6 @@ async function searchRegistryTools(
   ctx: ActionCtx,
   args: {
     workspaceId: TaskRecord["workspaceId"];
-    buildId: string;
     query: string;
     limit: number;
     includeSchemas?: boolean;
@@ -280,7 +279,6 @@ async function searchRegistryTools(
 ): Promise<RegistryToolEntry[]> {
   const entries = await ctx.runQuery(internal.toolRegistry.searchTools, {
     workspaceId: args.workspaceId,
-    buildId: args.buildId,
     query: args.query,
     limit: args.limit,
   });
@@ -290,7 +288,6 @@ async function searchRegistryTools(
 
   const payloads = await ctx.runQuery(internal.toolRegistry.getSerializedToolsByPaths, {
     workspaceId: args.workspaceId,
-    buildId: args.buildId,
     paths: parsed.data.map((entry) => entry.path),
   });
   const parsedPayloads = z.array(registryToolPayloadEntrySchema).safeParse(payloads);
@@ -310,7 +307,6 @@ async function listRegistryToolsByNamespace(
   ctx: ActionCtx,
   args: {
     workspaceId: TaskRecord["workspaceId"];
-    buildId: string;
     namespace: string;
     limit: number;
     includeSchemas?: boolean;
@@ -318,7 +314,6 @@ async function listRegistryToolsByNamespace(
 ): Promise<RegistryToolEntry[]> {
   const entries = await ctx.runQuery(internal.toolRegistry.listToolsByNamespace, {
     workspaceId: args.workspaceId,
-    buildId: args.buildId,
     namespace: args.namespace,
     limit: args.limit,
   });
@@ -328,7 +323,6 @@ async function listRegistryToolsByNamespace(
 
   const payloads = await ctx.runQuery(internal.toolRegistry.getSerializedToolsByPaths, {
     workspaceId: args.workspaceId,
-    buildId: args.buildId,
     paths: parsed.data.map((entry) => entry.path),
   });
   const parsedPayloads = z.array(registryToolPayloadEntrySchema).safeParse(payloads);
@@ -539,13 +533,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         return output;
       }
 
-      const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
+      const readyResult = await getRegistryReadyResult(ctx, {
         workspaceId: task.workspaceId,
-        accountId: task.accountId,
-        clientId: task.clientId,
       });
-      const buildId = buildIdResult.isErr() ? undefined : buildIdResult.value;
-      const state = buildId
+      const registryReady = readyResult.isOk();
+      const state = registryReady
         ? await ctx.runQuery(internal.toolRegistry.getState, {
             workspaceId: task.workspaceId,
           }) as unknown as { openApiRefHintTables?: unknown } | null
@@ -579,10 +571,9 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         const parsedInput = catalogNamespacesInputSchema.safeParse(payload);
         const limitInput = parsedInput.success ? parsedInput.data.limit : undefined;
         const limit = Math.max(1, Math.min(200, Number(limitInput ?? 200)));
-        const registryNamespaces = buildId
+        const registryNamespaces = registryReady
           ? await listRegistryNamespaces(ctx, {
               workspaceId: task.workspaceId,
-              buildId,
               limit: 200,
             })
           : [];
@@ -633,12 +624,11 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         const limit = Math.max(1, Math.min(200, Number(limitInput ?? 50)));
         const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
 
-        const raw = !buildId
+        const raw = !registryReady
           ? []
           : query
             ? await searchRegistryTools(ctx, {
                 workspaceId: task.workspaceId,
-                buildId,
                 query,
                 limit,
                 includeSchemas,
@@ -646,7 +636,6 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
             : namespace
               ? await listRegistryToolsByNamespace(ctx, {
                   workspaceId: task.workspaceId,
-                  buildId,
                   namespace,
                   limit,
                   includeSchemas,
@@ -739,10 +728,9 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       const limit = Math.max(1, Math.min(50, Number(limitInput ?? 8)));
       const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
       const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
-      const hits = buildId
+      const hits = registryReady
         ? await searchRegistryTools(ctx, {
             workspaceId: task.workspaceId,
-            buildId,
             query,
             limit: Math.max(limit * 2, limit),
             includeSchemas,

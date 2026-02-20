@@ -229,6 +229,7 @@ export function NavGroupNode({
   onFocusTool,
   onSourceClick,
   source,
+  sourceState,
 }: {
   group: ToolGroup;
   depth: number;
@@ -239,14 +240,24 @@ export function NavGroupNode({
   onFocusTool: (tool: ToolDescriptor) => void;
   onSourceClick?: (sourceName: string) => void;
   source?: ToolSourceRecord;
+  sourceState?: {
+    state: "queued" | "loading" | "indexing" | "ready" | "failed";
+    toolCount: number;
+    processedTools?: number;
+    message?: string;
+    error?: string;
+  };
 }) {
   const isExpanded = expandedKeys.has(group.key);
   const isSource = group.type === "source";
   const isSourceFocused = isSource && focusedSource === group.label;
-  const isLoading =
+  const isLoadingFromTree =
     group.type === "source" &&
     typeof group.loadingPlaceholderCount === "number" &&
     group.loadingPlaceholderCount > 0;
+  const isLoadingFromState = sourceState?.state === "queued" || sourceState?.state === "loading" || sourceState?.state === "indexing";
+  const isLoading = isLoadingFromTree || isLoadingFromState;
+  const showLoadingRows = isLoading && group.children.length === 0;
   const sourceTypeFallback: ToolSourceRecord["type"] | "local" | "system" = source
     ? source.type
     : group.label === "system"
@@ -317,8 +328,22 @@ export function NavGroupNode({
           </span>
 
           <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground/60">
-            {isLoading ? (
-              <Loader2 className="h-2.5 w-2.5 animate-spin" />
+            {sourceState?.state === "failed" ? (
+              <span className="inline-flex items-center gap-0.5 text-terminal-red" title={sourceState.error ?? "Source failed"}>
+                <AlertTriangle className="h-2.5 w-2.5" />
+              </span>
+            ) : isLoading ? (
+              <span
+                className="inline-flex items-center gap-1"
+                title={sourceState?.message}
+              >
+                <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                {sourceState?.state === "indexing" && typeof sourceState.processedTools === "number" && sourceState.toolCount > 0 ? (
+                  <span className="tabular-nums text-[10px] text-muted-foreground/70">
+                    {sourceState.processedTools}/{sourceState.toolCount}
+                  </span>
+                ) : null}
+              </span>
             ) : (
               <>
                 {group.approvalCount > 0 && (
@@ -327,7 +352,7 @@ export function NavGroupNode({
                     {group.approvalCount}
                   </span>
                 )}
-                <span className="tabular-nums">{group.childCount}</span>
+                <span className="tabular-nums">{sourceState?.toolCount ?? group.childCount}</span>
               </>
             )}
           </span>
@@ -388,6 +413,7 @@ export function NavGroupNode({
                     focusedSource={focusedSource}
                     onFocusTool={onFocusTool}
                     onSourceClick={onSourceClick}
+                    sourceState={sourceState}
                   />
                 );
               }
@@ -405,7 +431,7 @@ export function NavGroupNode({
             })
           : null}
 
-        {isLoading ? (
+        {showLoadingRows ? (
           <ToolLoadingRows
             source={displayLabel}
             count={group.loadingPlaceholderCount ?? 3}
@@ -445,7 +471,7 @@ export function SourceSidebar({
   onSourceDeleted?: (sourceName: string) => void;
   onRegenerate?: () => void;
   isRebuilding?: boolean;
-  inventoryState?: "initializing" | "ready" | "rebuilding" | "stale" | "failed";
+  inventoryState?: "initializing" | "ready" | "rebuilding" | "failed";
   inventoryError?: string;
 }) {
   const warningCountsBySource = useMemo(() => {
@@ -464,8 +490,6 @@ export function SourceSidebar({
   );
   const loadingSourceCount = loadingSources.size;
   const regenerationInProgress = isRebuilding;
-  const inventoryStale = inventoryState === "stale";
-
   const inventoryStatus = useMemo(() => {
     if (!inventoryState) {
       return {
@@ -491,13 +515,6 @@ export function SourceSidebar({
           ? `Refreshing inventory (${loadingSourceCount} ${sourceWord})`
           : "Refreshing inventory",
         tone: "loading" as const,
-      };
-    }
-
-    if (inventoryState === "stale") {
-      return {
-        label: "Inventory out of date",
-        tone: "muted" as const,
       };
     }
 
@@ -566,17 +583,13 @@ export function SourceSidebar({
               title={
                 regenerationInProgress
                   ? "Rebuilding..."
-                  : inventoryStale
-                    ? "Inventory is out of date"
-                    : "Regenerate inventory"
+                  : "Regenerate inventory"
               }
               className={cn(
                 "p-0.5 rounded transition-colors",
                 regenerationInProgress
                   ? "text-terminal-amber cursor-not-allowed"
-                  : inventoryStale
-                    ? "text-muted-foreground/70 hover:text-muted-foreground"
-                    : "text-muted-foreground/40 hover:text-muted-foreground/70",
+                  : "text-muted-foreground/40 hover:text-muted-foreground/70",
               )}
             >
               <RefreshCcw className={cn("h-3 w-3", regenerationInProgress && "animate-spin")} />

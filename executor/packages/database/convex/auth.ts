@@ -45,6 +45,7 @@ export const bootstrapCurrentWorkosAccount = customMutation({
   method: "POST",
   args: {
     sessionId: v.optional(v.string()),
+    profileName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await bootstrapCurrentWorkosAccountImpl(ctx, args);

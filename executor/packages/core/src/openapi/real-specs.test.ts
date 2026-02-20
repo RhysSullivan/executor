@@ -660,6 +660,74 @@ describe("real-world OpenAPI specs", () => {
   );
 
   test(
+    "stripe: extraction keeps concrete schemas for forwarding + verification report list outputs",
+    async () => {
+      const stripeUrl = "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json";
+      const prepared = await prepareOpenApiSpec(stripeUrl, "stripe", {
+        includeDts: false,
+        profile: "full",
+      });
+
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "stripe",
+          spec: stripeUrl,
+          baseUrl: prepared.servers[0] || "https://api.stripe.com",
+        },
+        prepared,
+      );
+
+      const forwarding = tools.find((tool) => tool.path === "stripe.get_forwarding_requests_id");
+      expect(forwarding).toBeDefined();
+      const forwardingOutputSchema = toRecord(forwarding?.typing?.outputSchema);
+      const forwardingProperties = toRecord(forwardingOutputSchema.properties);
+      expect(forwardingOutputSchema.type).toBe("object");
+      expect(toRecord(forwardingProperties.id).type).toBe("string");
+      expect(toRecord(forwardingProperties.created).type).toBe("integer");
+
+      const verificationList = tools.find((tool) => tool.path === "stripe.get_identity_verification_reports");
+      expect(verificationList).toBeDefined();
+      const verificationOutputSchema = toRecord(verificationList?.typing?.outputSchema);
+      const verificationProperties = toRecord(verificationOutputSchema.properties);
+      const dataSchema = toRecord(verificationProperties.data);
+      const dataItems = toRecord(dataSchema.items);
+      expect(verificationOutputSchema.type).toBe("object");
+      expect(dataSchema.type).toBe("array");
+      expect(dataItems.type).toBe("object");
+      expect(toRecord(toRecord(dataItems.properties).id).type).toBe("string");
+
+      const toolsWithUnknownDataHint = tools
+        .filter((tool) => (tool.typing?.outputHint ?? "").includes("data: unknown[]"));
+
+      for (const tool of toolsWithUnknownDataHint) {
+        const outputSchema = toRecord(tool.typing?.outputSchema);
+        const outputProperties = toRecord(outputSchema.properties);
+        const objectSchema = toRecord(outputProperties.object);
+        const outputData = toRecord(outputProperties.data);
+        const outputDataItems = toRecord(outputData.items);
+        const objectEnum = Array.isArray(objectSchema.enum) ? objectSchema.enum : [];
+        const isListEnvelope = objectEnum.includes("list");
+        if (!isListEnvelope) {
+          continue;
+        }
+
+        const hasDetailedDataSchema = outputData.type === "array"
+          && (
+            outputDataItems.type === "object"
+            || Array.isArray(outputDataItems.anyOf)
+            || Array.isArray(outputDataItems.oneOf)
+            || Array.isArray(outputDataItems.allOf)
+          );
+        if (!hasDetailedDataSchema) {
+          throw new Error(`stripe regression: ${tool.path} has list output with unknown[] hint but no detailed data schema`);
+        }
+      }
+    },
+    300_000,
+  );
+
+  test(
     "OpenAPI inventory mode still yields usable schemas",
     async () => {
       const cloudflareUrl = "https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.yaml";
@@ -681,6 +749,49 @@ describe("real-world OpenAPI specs", () => {
       expect(anyToolWithSchema).toBeDefined();
       const anyToolWithTypedRef = tools.find((t) => t.typing?.typedRef);
       expect(anyToolWithTypedRef).toBeDefined();
+    },
+    300_000,
+  );
+
+  test(
+    "stripe: full profile keeps structured output schemas for large operations",
+    async () => {
+      const stripeUrl = "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json";
+
+      const prepared = await prepareOpenApiSpec(stripeUrl, "stripe", {
+        includeDts: false,
+        profile: "full",
+      });
+
+      const tools = buildOpenApiToolsFromPrepared(
+        {
+          type: "openapi",
+          name: "stripe",
+          spec: stripeUrl,
+          baseUrl: prepared.servers[0] || "https://api.stripe.com",
+        },
+        prepared,
+      );
+
+      const forwardingRequest = tools.find((tool) => tool.path === "stripe.get_forwarding_requests_id");
+      expect(forwardingRequest).toBeDefined();
+
+      const forwardingOutputSchema = toRecord(forwardingRequest?.typing?.outputSchema);
+      expect(forwardingOutputSchema.type).toBe("object");
+      expect(Object.keys(toRecord(forwardingOutputSchema.properties)).length).toBeGreaterThan(5);
+      expect(toRecord(forwardingOutputSchema.properties).id).toBeDefined();
+
+      const verificationReports = tools.find((tool) => tool.path === "stripe.get_identity_verification_reports");
+      expect(verificationReports).toBeDefined();
+
+      const verificationOutputSchema = toRecord(verificationReports?.typing?.outputSchema);
+      const verificationDataSchema = toRecord(toRecord(verificationOutputSchema.properties).data);
+      expect(verificationDataSchema.type).toBe("array");
+      const verificationDataItems = toRecord(verificationDataSchema.items);
+      expect(Object.keys(toRecord(verificationDataItems.properties)).length).toBeGreaterThan(5);
+
+      const outputHint = verificationReports?.typing?.outputHint ?? "";
+      expect(outputHint.includes("data: unknown[]")).toBe(false);
     },
     300_000,
   );

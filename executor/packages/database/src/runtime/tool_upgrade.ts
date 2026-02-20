@@ -37,7 +37,6 @@ function clampPreview(items: string[]): { items: string[]; truncated: boolean } 
 async function listCurrentSourceToolMap(
   ctx: ActionCtx,
   workspaceId: Id<"workspaces">,
-  buildId: string,
   sourceLabel: string,
 ): Promise<Map<string, string>> {
   const tools = new Map<string, string>();
@@ -49,7 +48,6 @@ async function listCurrentSourceToolMap(
       items: Array<{ path: string }>;
     } = await ctx.runQuery(internal.toolRegistry.listToolsBySourcePage, {
       workspaceId,
-      buildId,
       source: sourceLabel,
       cursor,
       limit: 500,
@@ -59,7 +57,6 @@ async function listCurrentSourceToolMap(
       internal.toolRegistry.getSerializedToolsByPaths,
       {
         workspaceId,
-        buildId,
         paths: page.items.map((item) => item.path),
       },
     );
@@ -134,12 +131,11 @@ export async function previewOpenApiSourceUpgradeForContext(
     proposedByPath.set(tool.path, JSON.stringify(tool));
   }
 
-  const state = await ctx.runQuery(internal.toolRegistry.getState, {
-    workspaceId: context.workspaceId,
-  });
-  const currentByPath = state?.readyBuildId
-    ? await listCurrentSourceToolMap(ctx, context.workspaceId, state.readyBuildId, `openapi:${existing.name}`)
-    : new Map<string, string>();
+  const currentByPath = await listCurrentSourceToolMap(
+    ctx,
+    context.workspaceId,
+    `openapi:${existing.name}`,
+  );
 
   const added: string[] = [];
   const removed: string[] = [];

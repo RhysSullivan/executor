@@ -44,6 +44,7 @@ export const prepareOpenApiSpec = internalAction({
     const prepared = await prepareOpenApiSpecInNode(args.specUrl, args.sourceName, {
       includeDts: args.includeDts,
       profile: "full",
+      resolveSchemaRefs: args.includeDts === true,
     });
 
     const json = JSON.stringify(prepared);

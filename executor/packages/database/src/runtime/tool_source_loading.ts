@@ -28,8 +28,10 @@ import {
 } from "./tool_source_artifact";
 
 const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
+const OPENAPI_PREPARE_MAX_ATTEMPTS = 3;
+const OPENAPI_PREPARE_RETRY_BASE_DELAY_MS = 1_500;
 
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v8";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v9";
 
 const openApiAuthModeSchema = z.enum(["account", "workspace", "organization"]);
 
@@ -329,11 +331,34 @@ async function loadCachedOpenApiSpec(
     console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
   }
 
-  const preparedResponse = await ctx.runAction(internal.runtimeNode.prepareOpenApiSpec, {
-    specUrl,
-    sourceName,
-    includeDts,
-  });
+  let preparedResponse: unknown = undefined;
+  let lastPrepareError: string | undefined;
+  for (let attempt = 1; attempt <= OPENAPI_PREPARE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      preparedResponse = await ctx.runAction(internal.runtimeNode.prepareOpenApiSpec, {
+        specUrl,
+        sourceName,
+        includeDts,
+      });
+      lastPrepareError = undefined;
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lastPrepareError = message;
+      if (attempt >= OPENAPI_PREPARE_MAX_ATTEMPTS) {
+        break;
+      }
+
+      const delayMs = OPENAPI_PREPARE_RETRY_BASE_DELAY_MS * attempt;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  if (lastPrepareError) {
+    throw new Error(
+      `Failed to prepare OpenAPI source '${sourceName}' after ${OPENAPI_PREPARE_MAX_ATTEMPTS} attempts: ${lastPrepareError}`,
+    );
+  }
 
   let preparedPayload: unknown;
   let preparedStorageId: Id<"_storage"> | undefined;

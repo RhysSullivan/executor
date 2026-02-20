@@ -113,7 +113,6 @@ export const listToolsWithWarnings = workspaceAction({
     sourceName: v.optional(v.string()),
     cursor: v.optional(v.string()),
     limit: v.optional(v.number()),
-    buildId: v.optional(v.string()),
     fetchAll: v.optional(v.boolean()),
     rebuildInventory: v.optional(v.boolean()),
   },
@@ -156,7 +155,6 @@ export const listToolsWithWarnings = workspaceAction({
       sourceName: args.sourceName,
       cursor: args.cursor,
       limit: args.limit,
-      buildId: args.buildId,
       fetchAll: args.fetchAll,
     });
 

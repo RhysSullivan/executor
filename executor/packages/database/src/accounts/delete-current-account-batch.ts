@@ -108,7 +108,7 @@ async function deleteWorkspaceDataBatch(
     const remaining = maxDeletes - deleted;
     const docs = await ctx.db
       .query(table)
-      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", workspaceId))
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
       .take(remaining);
     if (docs.length === 0) {
       return false;
@@ -149,9 +149,9 @@ async function deleteWorkspaceDataBatch(
     ctx.db.query("toolSources").withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId)).first(),
     ctx.db.query("anonymousSessions").withIndex("by_workspace_account", (q) => q.eq("workspaceId", workspaceId)).first(),
     ctx.db.query("storageInstances").withIndex("by_workspace_updated", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db.query("workspaceToolRegistry").withIndex("by_workspace_build", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db.query("workspaceToolRegistryPayloads").withIndex("by_workspace_build", (q) => q.eq("workspaceId", workspaceId)).first(),
-    ctx.db.query("workspaceToolNamespaces").withIndex("by_workspace_build", (q) => q.eq("workspaceId", workspaceId)).first(),
+    ctx.db.query("workspaceToolRegistry").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
+    ctx.db.query("workspaceToolRegistryPayloads").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
+    ctx.db.query("workspaceToolNamespaces").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
     ctx.db.query("workspaceToolRegistryState").withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId)).first(),
   ]);
 

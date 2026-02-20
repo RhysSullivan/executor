@@ -4,8 +4,6 @@
   "type": "module",
   "scripts": {
     "test": "bun test packages/core/src/",
-    "dev:server": "bun run --filter @assistant/server dev",
-    "dev:bot": "bun run --filter @assistant/bot dev",
     "typecheck": "bun run --cwd packages/server typecheck && bun run --cwd packages/bot typecheck && bun run --cwd packages/core typecheck && bun run --cwd packages/reacord typecheck",
     "typecheck:slow": "bun run --cwd packages/server typecheck:slow && bun run --cwd packages/bot typecheck:slow && bun run --cwd packages/core typecheck:slow && bun run --cwd packages/reacord typecheck:slow",
     "clean": "rm -rf node_modules .turbo"

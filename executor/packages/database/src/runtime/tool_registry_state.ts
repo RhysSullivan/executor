@@ -17,8 +17,17 @@ export function registrySignatureForWorkspace(
 
 const registryStateSchema = z.object({
   signature: z.string().optional(),
-  readyBuildId: z.string().optional(),
-  buildingBuildId: z.string().optional(),
+  sourceStates: z.array(z.object({
+    sourceId: z.string(),
+    signature: z.string(),
+    state: z.union([
+      z.literal("queued"),
+      z.literal("loading"),
+      z.literal("indexing"),
+      z.literal("ready"),
+      z.literal("failed"),
+    ]),
+  })).optional(),
 });
 
 type RegistryState = z.infer<typeof registryStateSchema> | null;
@@ -70,7 +79,7 @@ function toToolSourceStateList(value: unknown): ToolSourceState[] {
 async function readRegistryState(
   ctx: Pick<ActionCtx, "runQuery">,
   workspaceId: Id<"workspaces">,
-): Promise<{ buildId?: string; isReady: boolean }> {
+): Promise<{ isReady: boolean }> {
   const [rawState, rawSources] = await Promise.all([
     ctx.runQuery(internal.toolRegistry.getState, { workspaceId }),
     ctx.runQuery(internal.database.listToolSources, { workspaceId }),
@@ -79,44 +88,44 @@ async function readRegistryState(
   const sources = toToolSourceStateList(rawSources);
 
   const expectedSignature = registrySignatureForWorkspace(workspaceId, sources);
-  const buildId = state?.readyBuildId;
+  const sourceStateById = new Map((state?.sourceStates ?? []).map((item) => [item.sourceId, item]));
+  const hasPendingOrMismatchedSource = sources.some((source) => {
+    if (source.enabled === false) {
+      return false;
+    }
+
+    const sourceState = sourceStateById.get(source.id);
+    const expectedSourceSignature = registrySignatureForWorkspace(workspaceId, [{
+      id: source.id,
+      updatedAt: source.updatedAt,
+      enabled: source.enabled,
+    }]);
+    if (!sourceState) {
+      return true;
+    }
+    if (sourceState.signature !== expectedSourceSignature) {
+      return true;
+    }
+    return sourceState.state !== "ready";
+  });
 
   return {
-    buildId,
-    isReady: Boolean(buildId && !state?.buildingBuildId && state?.signature === expectedSignature),
+    isReady: Boolean(state?.signature === expectedSignature && !hasPendingOrMismatchedSource),
   };
 }
 
-export async function getReadyRegistryBuildIdResult(
-  ctx: Pick<ActionCtx, "runQuery" | "runAction">,
+export async function getRegistryReadyResult(
+  ctx: Pick<ActionCtx, "runQuery">,
   args: {
     workspaceId: Id<"workspaces">;
-    accountId?: Id<"accounts">;
-    clientId?: string;
   },
-): Promise<Result<string, Error>> {
+): Promise<Result<void, Error>> {
   const initial = await readRegistryState(ctx, args.workspaceId);
-  if (initial.isReady && initial.buildId) {
-    return Result.ok(initial.buildId);
+  if (initial.isReady) {
+    return Result.ok(undefined);
   }
 
   return Result.err(
-    new Error("Tool registry is not ready (or is stale). Rebuild after changing sources or credentials."),
+    new Error("Tool registry is not ready yet. Rebuild after changing sources or credentials."),
   );
-}
-
-export async function getReadyRegistryBuildId(
-  ctx: Pick<ActionCtx, "runQuery" | "runAction">,
-  args: {
-    workspaceId: Id<"workspaces">;
-    accountId?: Id<"accounts">;
-    clientId?: string;
-  },
-): Promise<string> {
-  const buildIdResult = await getReadyRegistryBuildIdResult(ctx, args);
-  if (buildIdResult.isErr()) {
-    throw buildIdResult.error;
-  }
-
-  return buildIdResult.value;
 }

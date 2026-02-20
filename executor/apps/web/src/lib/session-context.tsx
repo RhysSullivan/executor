@@ -177,11 +177,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return resolveActiveWorkspaceId(workspaces, activeWorkspaceId, accountStoredWorkspace);
   }, [workspaces, activeWorkspaceId, account]);
 
+  const profileName = workosAuthProfile?.name?.trim();
+
   const bootstrapWorkosAccountQuery = useTanstackQuery({
     queryKey: [
       "workos-account-bootstrap",
       storedSessionId ?? "none",
       workosAuthenticated ? "signed-in" : "signed-out",
+      profileName ?? "no-profile-name",
     ],
     enabled:
       workosEnabled
@@ -192,6 +195,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     staleTime: Number.POSITIVE_INFINITY,
     queryFn: async () => bootstrapCurrentWorkosAccount({
       sessionId: storedSessionId ?? undefined,
+      profileName: profileName && profileName.length > 0 ? profileName : undefined,
     }),
   });
 

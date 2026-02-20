@@ -6,7 +6,7 @@ import { parseGraphqlOperationPaths } from "../../../core/src/graphql/operation-
 import type { ToolPolicyRecord, PolicyDecision, TaskRecord, ToolDefinition } from "../../../core/src/types";
 import { parseSerializedTool, type SerializedTool } from "../../../core/src/tool/source-serialization";
 import { getDecisionForContext, getToolDecision } from "./policy";
-import { getReadyRegistryBuildIdResult } from "./tool_registry_state";
+import { getRegistryReadyResult } from "./tool_registry_state";
 import { normalizeToolPathForLookup, toPreferredToolPath } from "./tool_paths";
 import { baseTools } from "./base_tools";
 
@@ -43,7 +43,7 @@ function getGraphqlQueryFromInput(input: unknown): string {
 
 async function searchRegistryEntries(
   ctx: ActionCtx,
-  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; query: string; limit: number },
+  args: { workspaceId: TaskRecord["workspaceId"]; query: string; limit: number },
 ): Promise<RegistrySearchEntry[]> {
   const entries = await ctx.runQuery(internal.toolRegistry.searchTools, args);
   const parsed = z.array(registrySearchEntrySchema).safeParse(entries);
@@ -52,7 +52,7 @@ async function searchRegistryEntries(
 
 async function getRegistryToolByPath(
   ctx: ActionCtx,
-  args: { workspaceId: TaskRecord["workspaceId"]; buildId: string; path: string },
+  args: { workspaceId: TaskRecord["workspaceId"]; path: string },
 ): Promise<RegistrySerializedToolEntry | null> {
   const entry = await ctx.runQuery(internal.toolRegistry.getToolByPath, args);
   const parsed = registrySerializedToolEntrySchema.safeParse(entry);
@@ -63,7 +63,6 @@ async function getRegistryToolsByNormalizedPath(
   ctx: ActionCtx,
   args: {
     workspaceId: TaskRecord["workspaceId"];
-    buildId: string;
     normalizedPath: string;
     limit: number;
   },
@@ -139,13 +138,11 @@ export function getGraphqlDecision(
 async function suggestFromRegistry(
   ctx: ActionCtx,
   workspaceId: TaskRecord["workspaceId"],
-  buildId: string,
   toolPath: string,
 ): Promise<string[]> {
   const term = toolPath.split(".").filter(Boolean).join(" ");
   const hits = await searchRegistryEntries(ctx, {
     workspaceId,
-    buildId,
     query: term,
     limit: 3,
   });
@@ -185,20 +182,15 @@ export async function resolveToolForCall(
     return Result.ok({ kind: "builtin", tool: builtin, resolvedToolPath: toolPath });
   }
 
-  const buildIdResult = await getReadyRegistryBuildIdResult(ctx, {
+  const readyResult = await getRegistryReadyResult(ctx, {
     workspaceId: task.workspaceId,
-    accountId: task.accountId,
-    clientId: task.clientId,
   });
-  if (buildIdResult.isErr()) {
-    return Result.err(buildIdResult.error);
+  if (readyResult.isErr()) {
+    return Result.err(readyResult.error);
   }
-  const buildId = buildIdResult.value;
-
   let resolvedToolPath = toolPath;
   let entry = await getRegistryToolByPath(ctx, {
     workspaceId: task.workspaceId,
-    buildId,
     path: toolPath,
   });
 
@@ -206,7 +198,6 @@ export async function resolveToolForCall(
     const normalized = normalizeToolPathForLookup(toolPath);
     const hits = await getRegistryToolsByNormalizedPath(ctx, {
       workspaceId: task.workspaceId,
-      buildId,
       normalizedPath: normalized,
       limit: 5,
     });
@@ -224,7 +215,7 @@ export async function resolveToolForCall(
   }
 
   if (!entry) {
-    const suggestions = await suggestFromRegistry(ctx, task.workspaceId, buildId, toolPath);
+    const suggestions = await suggestFromRegistry(ctx, task.workspaceId, toolPath);
     return Result.err(new Error(unknownToolErrorMessage(toolPath, suggestions)));
   }
 

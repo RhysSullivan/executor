@@ -18,7 +18,6 @@ import {
   type FilterApproval,
 } from "./explorer-derived";
 import { sourceLabel } from "@/lib/tool/source-utils";
-import { traverseSchema } from "@/lib/tool/schema-traverse";
 import {
   EmptyState,
   LoadingState,
@@ -37,27 +36,6 @@ import { warningsBySourceName } from "@/lib/tools/source-helpers";
 
 // ── Main Explorer ──
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
-
-function parseSchemaJson(value: string): Record<string, unknown> {
-  if (!value) return {};
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return asRecord(parsed);
-  } catch {
-    return {};
-  }
-}
-
-function hasRenderableSchemaFields(schemaJson: string): boolean {
-  return traverseSchema(parseSchemaJson(schemaJson), { maxEntries: 1 }).entries.length > 0;
-}
-
 interface ToolExplorerProps {
   tools: ToolDescriptor[];
   sources: ToolSourceRecord[];
@@ -71,6 +49,13 @@ interface ToolExplorerProps {
   onLoadMoreToolsForSource?: (source: { source: string; sourceName: string }) => Promise<void>;
   loading?: boolean;
   loadingSources?: string[];
+  sourceStates?: Record<string, {
+    state: "queued" | "loading" | "indexing" | "ready" | "failed";
+    toolCount: number;
+    processedTools?: number;
+    message?: string;
+    error?: string;
+  }>;
   onLoadToolDetails?: (toolPaths: string[]) => Promise<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>;
   warnings?: string[];
   activeSource: string | null;
@@ -89,7 +74,7 @@ interface ToolExplorerProps {
   onSourceDeleted?: (sourceName: string) => void;
   onRegenerate?: () => void;
   isRebuilding?: boolean;
-  inventoryState?: "initializing" | "ready" | "rebuilding" | "stale" | "failed";
+  inventoryState?: "initializing" | "ready" | "rebuilding" | "failed";
   inventoryError?: string;
 }
 
@@ -103,6 +88,7 @@ export function ToolExplorer({
   sourceLoadingMoreTools,
   loading = false,
   loadingSources = [],
+  sourceStates = {},
   onLoadToolDetails,
   warnings = [],
   activeSource,
@@ -124,21 +110,6 @@ export function ToolExplorer({
   inventoryState,
   inventoryError,
 }: ToolExplorerProps) {
-  const hasRenderableToolDetails = useCallback((tool: Pick<ToolDescriptor, "description" | "display" | "typing">) => {
-    const description = tool.description?.trim() ?? "";
-    const inputHint = tool.display?.input?.trim() ?? "";
-    const outputHint = tool.display?.output?.trim() ?? "";
-    const inputSchemaJson = tool.typing?.inputSchemaJson?.trim() ?? "";
-    const outputSchemaJson = tool.typing?.outputSchemaJson?.trim() ?? "";
-
-    const hasInputHint = inputHint.length > 0 && inputHint !== "{}" && inputHint.toLowerCase() !== "unknown";
-    const hasOutputHint = outputHint.length > 0 && outputHint.toLowerCase() !== "unknown";
-    const hasInputSchema = inputSchemaJson.length > 0 && inputSchemaJson !== "{}" && hasRenderableSchemaFields(inputSchemaJson);
-    const hasOutputSchema = outputSchemaJson.length > 0 && outputSchemaJson !== "{}" && hasRenderableSchemaFields(outputSchemaJson);
-
-    return description.length > 0 || hasInputHint || hasOutputHint || hasInputSchema || hasOutputSchema;
-  }, []);
-
   const [toolDetailsByPath, setToolDetailsByPath] = useState<Record<string, Pick<ToolDescriptor, "path" | "description" | "display" | "typing">>>({});
   const [loadingDetailPaths, setLoadingDetailPaths] = useState<Set<string>>(new Set());
   // "new" = add source form, ToolSourceRecord = edit/view existing source, null = no source panel
@@ -280,9 +251,7 @@ export function ToolExplorer({
       return;
     }
 
-    const hasDetails = hasRenderableToolDetails(tool);
-
-    if (hasDetails || toolDetailsByPath[tool.path]) {
+    if (toolDetailsByPath[tool.path]) {
       return;
     }
 
@@ -309,7 +278,7 @@ export function ToolExplorer({
         return next;
       });
     }
-  }, [hasRenderableToolDetails, loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
+  }, [loadingDetailPaths, onLoadToolDetails, toolDetailsByPath]);
 
   // ── Focus tool handler ──────────────────────────────────────────────────
 
@@ -359,12 +328,16 @@ export function ToolExplorer({
     options?: SourceAddedOptions,
   ) => {
     onSourceAdded?.(source, options);
-    if (options?.isNew) {
-      return;
-    }
-
-    // After editing, keep the updated source open for quick follow-up.
     setSourceFocusState(source.name, source);
+    const key = `source:${source.name}`;
+    setExpandedKeys((prev) => {
+      if (prev.has(key)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
   }, [onSourceAdded, setSourceFocusState]);
 
   const focusedTool = useMemo(() => {
@@ -376,6 +349,20 @@ export function ToolExplorer({
     if (!focusedSourceName) return null;
     return sourceByName.get(focusedSourceName) ?? null;
   }, [focusedSourceName, sourceByName]);
+
+  const selectedSourceState = resolvedActiveSource ? sourceStates[resolvedActiveSource] : undefined;
+  const selectedSourceWarnings = resolvedActiveSource ? (warningsBySrc[resolvedActiveSource] ?? []) : [];
+  const selectedSourceToolCount = resolvedActiveSource
+    ? (sourceCounts[resolvedActiveSource] ?? selectedSourceState?.toolCount ?? 0)
+    : 0;
+  const selectedSourceLoading = selectedSourceState
+    ? selectedSourceState.state === "queued"
+      || selectedSourceState.state === "loading"
+      || selectedSourceState.state === "indexing"
+    : false;
+  const formSourceProgress = formSource && formSource !== "new"
+    ? sourceStates[formSource.name]
+    : undefined;
 
   useEffect(() => {
     if (formSource !== null && focusedToolPath) {
@@ -446,39 +433,49 @@ export function ToolExplorer({
 
   const inventoryStatus = useMemo(() => {
     const loadingSourceCount = loadingSourceSet.size;
+    const sourceStateEntries = Object.entries(sourceStates);
+    const totalSourceCount = sourceStateEntries.length;
+    const readySourceCount = sourceStateEntries.filter(([, state]) => state.state === "ready").length;
+    const failedSourceCount = sourceStateEntries.filter(([, state]) => state.state === "failed").length;
 
     if (!inventoryState) {
       return { label: "Checking...", tone: "muted" as const };
     }
     if (inventoryState === "initializing") {
-      const w = loadingSourceCount === 1 ? "source" : "sources";
+      const progress = totalSourceCount > 0
+        ? `${readySourceCount}/${totalSourceCount}`
+        : `${loadingSourceCount}`;
       return {
-        label: loadingSourceCount > 0 ? `Building (${loadingSourceCount} ${w})` : "Building...",
+        label: `Building ${progress}`,
         tone: "loading" as const,
       };
     }
     if (inventoryState === "rebuilding") {
-      const w = loadingSourceCount === 1 ? "source" : "sources";
+      const progress = totalSourceCount > 0
+        ? `${readySourceCount}/${totalSourceCount}`
+        : `${loadingSourceCount}`;
       return {
-        label: loadingSourceCount > 0 ? `Refreshing (${loadingSourceCount} ${w})` : "Refreshing...",
+        label: `Refreshing ${progress}`,
         tone: "loading" as const,
       };
     }
-    if (inventoryState === "stale") {
-      return { label: "Out of date", tone: "muted" as const };
-    }
     if (inventoryState === "failed") {
       return {
-        label: inventoryError ? `Failed: ${inventoryError}` : "Failed",
+        label: inventoryError
+          ? `Failed: ${inventoryError}`
+          : failedSourceCount > 0
+            ? `Failed (${failedSourceCount} sources)`
+            : "Failed",
         tone: "error" as const,
       };
     }
-    return { label: "Up to date", tone: "muted" as const };
-  }, [inventoryError, inventoryState, loadingSourceSet.size]);
+    return {
+      label: totalSourceCount > 0 ? `Up to date (${readySourceCount}/${totalSourceCount})` : "Up to date",
+      tone: "muted" as const,
+    };
+  }, [inventoryError, inventoryState, loadingSourceSet.size, sourceStates]);
 
   const regenerationInProgress = isRebuilding;
-  const inventoryStale = inventoryState === "stale";
-
   // ── Render ──────────────────────────────────────────────────────────────
 
   return (
@@ -519,17 +516,13 @@ export function ToolExplorer({
                   title={
                     regenerationInProgress
                       ? "Rebuilding..."
-                      : inventoryStale
-                        ? "Out of date — click to refresh"
-                        : "Regenerate inventory"
+                      : "Regenerate inventory"
                   }
                   className={cn(
                     "p-0.5 rounded transition-colors",
                     regenerationInProgress
                       ? "text-terminal-amber cursor-not-allowed"
-                      : inventoryStale
-                        ? "text-muted-foreground/70 hover:text-muted-foreground"
-                        : "text-muted-foreground/30 hover:text-muted-foreground/60",
+                      : "text-muted-foreground/30 hover:text-muted-foreground/60",
                   )}
                 >
                   <RefreshCcw className={cn("h-3 w-3", regenerationInProgress && "animate-spin")} />
@@ -599,6 +592,7 @@ export function ToolExplorer({
                       onFocusTool={handleFocusTool}
                       onSourceClick={handleSourceClick}
                       source={sourceByName.get(group.label) ?? undefined}
+                      sourceState={sourceStates[group.label]}
                     />
                   ))}
 
@@ -615,6 +609,7 @@ export function ToolExplorer({
           <SourceFormPanel
             existingSourceNames={sidebarExistingSourceNames}
             sourceToEdit={formSource === "new" ? undefined : formSource}
+            sourceProgress={formSourceProgress}
             sourceDialogMeta={formSource !== "new" ? sourceDialogMeta?.[formSource.name] : undefined}
             sourceAuthProfiles={sourceAuthProfiles}
             onSourceAdded={handleSourceFormAdded}
@@ -626,6 +621,80 @@ export function ToolExplorer({
             tool={focusedTool}
             loading={loadingDetailPaths.has(focusedTool.path)}
           />
+        ) : resolvedActiveSource ? (
+          <div className="h-full p-6">
+            <div className="mx-auto w-full max-w-3xl space-y-4 rounded-xl border border-border/60 bg-card/40 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground/70">Selected source</p>
+                  <h2 className="mt-1 text-xl font-semibold text-foreground">{resolvedActiveSource}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {selectedSourceToolCount} tool{selectedSourceToolCount === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <div className={cn(
+                  "inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs",
+                  selectedSourceState?.state === "failed"
+                    ? "border-terminal-red/40 bg-terminal-red/5 text-terminal-red"
+                    : selectedSourceLoading
+                      ? "border-terminal-amber/40 bg-terminal-amber/5 text-terminal-amber"
+                      : "border-border/60 bg-muted/30 text-muted-foreground",
+                )}>
+                  {selectedSourceState?.state === "failed" ? (
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                  ) : selectedSourceLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  <span>
+                    {selectedSourceState?.state === "failed"
+                      ? "Failed"
+                      : selectedSourceLoading
+                        ? "Loading"
+                        : "Ready"}
+                  </span>
+                </div>
+              </div>
+
+              {selectedSourceState?.message ? (
+                <p className="text-sm text-muted-foreground">{selectedSourceState.message}</p>
+              ) : null}
+
+              {selectedSourceState?.state === "indexing" && typeof selectedSourceState.processedTools === "number" && selectedSourceState.toolCount > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="h-1.5 overflow-hidden rounded bg-muted">
+                    <div
+                      className="h-full bg-terminal-amber transition-[width] duration-300"
+                      style={{ width: `${Math.max(2, Math.min(100, (selectedSourceState.processedTools / selectedSourceState.toolCount) * 100))}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground/80 tabular-nums">
+                    Indexed {selectedSourceState.processedTools}/{selectedSourceState.toolCount}
+                  </p>
+                </div>
+              ) : null}
+
+              {selectedSourceState?.error ? (
+                <p className="rounded-md border border-terminal-red/30 bg-terminal-red/5 px-3 py-2 text-sm text-terminal-red">
+                  {selectedSourceState.error}
+                </p>
+              ) : null}
+
+              {selectedSourceWarnings.length > 0 ? (
+                <div className="rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-3 py-2">
+                  <p className="text-xs font-medium text-terminal-amber/90">
+                    {selectedSourceWarnings.length} warning{selectedSourceWarnings.length !== 1 ? "s" : ""}
+                  </p>
+                  <div className="mt-1.5 space-y-1">
+                    {selectedSourceWarnings.map((warning, index) => (
+                      <p key={`${resolvedActiveSource}-${index}`} className="text-xs leading-4 text-muted-foreground">
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
         ) : (
           <ToolDetailEmpty />
         )}

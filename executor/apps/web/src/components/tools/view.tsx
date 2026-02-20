@@ -22,7 +22,6 @@ import type {
   StorageScopeType,
 } from "@/lib/types";
 import {
-  parseWarningSourceName,
   warningsBySourceName,
 } from "@/lib/tools/source-helpers";
 import { sourceLabel } from "@/lib/tool/source-utils";
@@ -121,6 +120,7 @@ export function ToolsView() {
     sourceQuality,
     sourceAuthProfiles,
     inventoryStatus,
+    inventorySourceStates,
     loadingSources,
     loadingTools,
     refreshingTools,
@@ -134,6 +134,7 @@ export function ToolsView() {
     loadToolDetails,
   } = useWorkspaceTools(context ?? null, {
     includeDetails: false,
+    sourceName: activeTab === "catalog" ? catalogSourceValue : null,
   });
 
   const showRegenerationToast = useCallback((kind: "loading" | "success" | "error", message: string) => {
@@ -212,19 +213,6 @@ export function ToolsView() {
   const storagePanelLoading = sessionLoading || storageLoading;
   const shouldRenderShellSkeleton = sessionLoading && !TAB_USES_OWN_LOADING_STATE[activeTab];
 
-  const globalWarnings = useMemo(
-    () => warnings.filter((warning) => !parseWarningSourceName(warning)),
-    [warnings],
-  );
-  const hasGlobalInventoryWarning = useMemo(
-    () => globalWarnings.some((warning) =>
-      warning.includes("Tool inventory is still loading")
-      || warning.includes("showing previous results while refreshing"),
-    ),
-    [globalWarnings],
-  );
-
-  // Merge loading sources with global inventory warnings
   const mergedLoadingSources = useMemo(() => {
     const combined = new Set<string>();
 
@@ -234,17 +222,18 @@ export function ToolsView() {
       }
     }
 
-    if (hasGlobalInventoryWarning) {
-      for (const source of sourceItems) {
-        if (toolSourceNames.has(source.name)) {
-          continue;
-        }
-        combined.add(source.name);
+    for (const [sourceName, sourceState] of Object.entries(inventorySourceStates)) {
+      if (
+        sourceState?.state === "queued"
+        || sourceState?.state === "loading"
+        || sourceState?.state === "indexing"
+      ) {
+        combined.add(sourceName);
       }
     }
 
     return Array.from(combined);
-  }, [hasGlobalInventoryWarning, loadingSources, sourceItems, toolSourceNames]);
+  }, [inventorySourceStates, loadingSources]);
 
   const visibleLoadingSources = useMemo(
     () => mergedLoadingSources.filter((name) =>
@@ -474,6 +463,7 @@ export function ToolsView() {
             tools={visibleTools}
             sources={sourceItems}
             loadingSources={visibleLoadingSources}
+            sourceStates={inventorySourceStates}
             sourceCountsOverride={visibleSourceCounts}
             totalTools={visibleTools.length}
             hasMoreTools={hasMoreTools}

@@ -79,11 +79,6 @@ bun run kill:all
 # Development
 bun run dev
 bun run kill:all
-bun run dev:executor:convex
-bun run dev:executor:web
-bun run dev:executor:menubar
-bun run dev:assistant
-bun run dev:bot
 
 # Quality
 bun run test

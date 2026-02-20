@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   AlertTriangle,
   ArrowLeft,
+  CheckCircle2,
   Loader2,
   Trash2,
 } from "lucide-react";
@@ -49,11 +50,70 @@ function ownerScopeBadge(scopeType: ToolSourceRecord["scopeType"] | undefined): 
   return scopeType === "organization" ? "org shared" : "workspace only";
 }
 
+type SourceProgressState = {
+  state: "queued" | "loading" | "indexing" | "ready" | "failed";
+  toolCount: number;
+  processedTools?: number;
+  message?: string;
+  error?: string;
+};
+
+function progressStepStates(sourceType: ToolSourceRecord["type"], progress?: SourceProgressState) {
+  const isOpenApi = sourceType === "openapi";
+  const labels = isOpenApi
+    ? ["Download spec", "Extract operations", "Index tools"]
+    : ["Connect", "Discover tools", "Index tools"];
+
+  const defaultSteps = labels.map((label, index) => ({
+    id: index + 1,
+    label,
+    status: "pending" as "pending" | "active" | "done" | "failed",
+  }));
+
+  if (!progress) {
+    return defaultSteps;
+  }
+
+  if (progress.state === "ready") {
+    return defaultSteps.map((step) => ({ ...step, status: "done" as const }));
+  }
+
+  if (progress.state === "indexing") {
+    return defaultSteps.map((step) => {
+      if (step.id < 3) return { ...step, status: "done" as const };
+      return { ...step, status: "active" as const };
+    });
+  }
+
+  if (progress.state === "loading") {
+    const message = progress.message?.toLowerCase() ?? "";
+    const activeStep = message.includes("download") ? 1 : 2;
+    return defaultSteps.map((step) => {
+      if (step.id < activeStep) return { ...step, status: "done" as const };
+      if (step.id === activeStep) return { ...step, status: "active" as const };
+      return step;
+    });
+  }
+
+  if (progress.state === "failed") {
+    const message = progress.message?.toLowerCase() ?? "";
+    const failedStep = message.includes("index") ? 3 : message.includes("download") ? 1 : 2;
+    return defaultSteps.map((step) => {
+      if (step.id < failedStep) return { ...step, status: "done" as const };
+      if (step.id === failedStep) return { ...step, status: "failed" as const };
+      return step;
+    });
+  }
+
+  return defaultSteps;
+}
+
 // ── Main Panel ──────────────────────────────────────────────────────────────
 
 export function SourceFormPanel({
   existingSourceNames,
   sourceToEdit,
+  sourceProgress,
   sourceDialogMeta,
   sourceAuthProfiles,
   onSourceAdded,
@@ -62,6 +122,7 @@ export function SourceFormPanel({
 }: {
   existingSourceNames: Set<string>;
   sourceToEdit?: ToolSourceRecord;
+  sourceProgress?: SourceProgressState;
   sourceDialogMeta?: SourceDialogMeta;
   sourceAuthProfiles?: Record<string, SourceAuthProfile>;
   onSourceAdded?: OnSourceAdded;
@@ -247,7 +308,6 @@ export function SourceFormPanel({
     if (!sourceToEdit) {
       form.reserveSourceName(form.name.trim());
     }
-    onClose();
   };
 
   const handleMcpOAuthConnect = async () => {
@@ -387,6 +447,66 @@ export function SourceFormPanel({
                   </div>
                 </div>
               </div>
+
+              {sourceToEdit ? (
+                <div className="rounded-md border border-border/50 bg-background/40 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-medium text-muted-foreground/80">Source sync progress</p>
+                    <span className="text-[10px] tabular-nums text-muted-foreground/70">
+                      {sourceProgress?.state === "indexing" && typeof sourceProgress?.processedTools === "number"
+                        ? `${sourceProgress.processedTools}/${sourceProgress.toolCount}`
+                        : `${sourceProgress?.toolCount ?? 0} tools`}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 space-y-1.5">
+                    {progressStepStates(sourceToEdit.type, sourceProgress).map((step) => (
+                      <div key={step.id} className="flex items-center gap-2 text-[11px]">
+                        <span className={
+                          step.status === "done"
+                            ? "text-terminal-green"
+                            : step.status === "active"
+                              ? "text-terminal-amber"
+                              : step.status === "failed"
+                                ? "text-terminal-red"
+                                : "text-muted-foreground/40"
+                        }>
+                          {step.status === "done" ? (
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                          ) : step.status === "active" ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : step.status === "failed" ? (
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                          ) : (
+                            <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-current text-[9px] font-semibold">
+                              {step.id}
+                            </span>
+                          )}
+                        </span>
+                        <span className={
+                          step.status === "active"
+                            ? "text-foreground"
+                            : step.status === "failed"
+                              ? "text-terminal-red"
+                              : "text-muted-foreground"
+                        }>
+                          {step.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {sourceProgress?.message ? (
+                    <p className="mt-2 text-[11px] text-muted-foreground">{sourceProgress.message}</p>
+                  ) : null}
+
+                  {sourceProgress?.error ? (
+                    <p className="mt-2 rounded-md border border-terminal-red/30 bg-terminal-red/5 px-2 py-1.5 text-[11px] text-terminal-red">
+                      {sourceProgress.error}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {editSourceWarnings.length > 0 ? (
                 <div className="rounded-md border border-terminal-amber/20 bg-terminal-amber/5 px-3 py-2 space-y-0.5">

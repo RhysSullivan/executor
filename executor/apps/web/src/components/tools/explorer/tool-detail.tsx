@@ -397,10 +397,9 @@ function ToolDetailContent({
     || canRenderOutputSchema;
   const showLoading = Boolean(loading);
 
-  return (
-    <div className="pt-2 pb-4 flex flex-col gap-4">
-      {/* Loading state */}
-      {showLoading ? (
+  if (showLoading) {
+    return (
+      <div className="pt-2 pb-4 flex flex-col gap-4">
         <div className="space-y-3">
           <Skeleton className="h-3.5 w-72" />
           <div>
@@ -412,8 +411,12 @@ function ToolDetailContent({
             <Skeleton className="h-14 w-full rounded-md mt-1" />
           </div>
         </div>
-      ) : null}
+      </div>
+    );
+  }
 
+  return (
+    <div className="pt-2 pb-4 flex flex-col gap-4">
       {/* Description */}
       {description ? (
         <div className="text-[12px] leading-relaxed text-muted-foreground">

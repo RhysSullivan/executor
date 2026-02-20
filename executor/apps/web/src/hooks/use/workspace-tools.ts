@@ -22,15 +22,10 @@ interface WorkspaceToolsQueryResult {
   /** URL to a workspace-wide Monaco `.d.ts` bundle (may be undefined). */
   typesUrl?: string;
   inventoryStatus: {
-    state: "initializing" | "ready" | "rebuilding" | "stale" | "failed";
-    readyBuildId?: string;
-    buildingBuildId?: string;
+    state: "initializing" | "ready" | "rebuilding" | "failed";
     readyToolCount: number;
     loadingSourceNames: string[];
     sourceToolCounts: Record<string, number>;
-    lastBuildStartedAt?: number;
-    lastBuildCompletedAt?: number;
-    lastBuildFailedAt?: number;
     error?: string;
     updatedAt?: number;
   };
@@ -40,6 +35,21 @@ interface WorkspaceToolsQueryResult {
 
 interface UseWorkspaceToolsOptions {
   includeDetails?: boolean;
+  sourceName?: string | null;
+}
+
+interface WorkspaceInventoryProgress {
+  inventoryStatus: WorkspaceToolsQueryResult["inventoryStatus"];
+  sourceStates: Record<string, {
+    state: "queued" | "loading" | "indexing" | "ready" | "failed";
+    toolCount: number;
+    processedTools?: number;
+    message?: string;
+    error?: string;
+    updatedAt?: number;
+  }>;
+  warnings: string[];
+  reactiveKey: string;
 }
 
 type ToolDetailDescriptor = Pick<ToolDescriptor, "path" | "description" | "display" | "typing">;
@@ -61,7 +71,6 @@ type ListToolsWithWarningsAction = (args: {
   sourceName?: string;
   cursor?: string;
   limit?: number;
-  buildId?: string;
   fetchAll?: boolean;
   rebuildInventory?: boolean;
 }) => Promise<WorkspaceToolsQueryResult>;
@@ -77,6 +86,7 @@ export function useWorkspaceTools(
   options: UseWorkspaceToolsOptions = {},
 ) {
   const includeDetails = options.includeDetails ?? false;
+  const sourceName = options.sourceName?.trim() ? options.sourceName.trim() : undefined;
   const listToolsWithWarningsRaw = useAction(convexApi.executorNode.listToolsWithWarnings);
   const listToolsWithWarnings = listToolsWithWarningsRaw as ListToolsWithWarningsAction;
   const listToolDetailsRaw = useMutation(convexApi.workspace.getToolDetails);
@@ -87,7 +97,7 @@ export function useWorkspaceTools(
   const inventoryProgress = useConvexQuery(
     convexApi.workspace.getToolInventoryProgress,
     context ? { workspaceId: context.workspaceId, sessionId: context.sessionId } : "skip",
-  );
+  ) as WorkspaceInventoryProgress | undefined;
 
   const inventoryQuery = useQuery<WorkspaceToolsQueryResult, Error>({
     queryKey: [
@@ -96,6 +106,7 @@ export function useWorkspaceTools(
       context?.accountId,
       context?.clientId,
       includeDetails,
+      sourceName,
       inventoryProgress?.reactiveKey,
     ],
     queryFn: async (): Promise<WorkspaceToolsQueryResult> => {
@@ -123,6 +134,7 @@ export function useWorkspaceTools(
         ...(context.sessionId && { sessionId: context.sessionId }),
         includeDetails,
         fetchAll: true,
+        ...(sourceName ? { sourceName } : {}),
       });
     },
     enabled: !!context,
@@ -131,6 +143,7 @@ export function useWorkspaceTools(
 
   const inventoryData = inventoryQuery.data;
   const inventoryStatus = inventoryProgress?.inventoryStatus ?? inventoryData?.inventoryStatus;
+  const inventorySourceStates: WorkspaceInventoryProgress["sourceStates"] = inventoryProgress?.sourceStates ?? {};
   const tools = inventoryData?.tools ?? [];
 
   const loadToolDetails = useCallback(async (toolPaths: string[]): Promise<Record<string, ToolDetailDescriptor>> => {
@@ -170,6 +183,10 @@ export function useWorkspaceTools(
   useEffect(() => {
     detailsCacheRef.current.clear();
   }, [context?.workspaceId, context?.accountId, context?.clientId, context?.sessionId]);
+
+  useEffect(() => {
+    detailsCacheRef.current.clear();
+  }, [inventoryProgress?.reactiveKey]);
 
   useEffect(() => {
     if (!inventoryData || !includeDetails) {
@@ -219,7 +236,7 @@ export function useWorkspaceTools(
     sourceQuality: inventoryData?.sourceQuality ?? {},
     sourceAuthProfiles: inventoryData?.sourceAuthProfiles ?? {},
     inventoryStatus,
-    inventorySourceStates: inventoryProgress?.sourceStates ?? {},
+    inventorySourceStates,
     loadingSources: inventoryStatus?.loadingSourceNames ?? [],
     loadingTools: !!context && inventoryQuery.isLoading,
     refreshingTools: !!context && inventoryQuery.isFetching,

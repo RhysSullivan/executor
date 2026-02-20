@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
 import { internalAction, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { vv } from "./typedV";
 
 export const getState = internalQuery({
@@ -16,21 +16,20 @@ export const getState = internalQuery({
     if (!entry) return null;
 
     const stateEntry = entry as Record<string, unknown>;
+    const sourceStates = Array.isArray(stateEntry.sourceStates)
+      ? stateEntry.sourceStates.filter((value): value is Record<string, unknown> => Boolean(value && typeof value === "object"))
+      : [];
 
     return {
       signature: entry.signature,
-      readyBuildId: entry.readyBuildId,
-      buildingBuildId: entry.buildingBuildId,
-      buildingSignature: entry.buildingSignature,
-      buildingStartedAt: entry.buildingStartedAt,
-      lastBuildCompletedAt: entry.lastBuildCompletedAt,
-      lastBuildFailedAt: entry.lastBuildFailedAt,
-      lastBuildError: entry.lastBuildError,
+      lastRefreshCompletedAt: entry.lastRefreshCompletedAt,
+      lastRefreshFailedAt: entry.lastRefreshFailedAt,
+      lastRefreshError: entry.lastRefreshError,
       typesStorageId: entry.typesStorageId,
       warnings: entry.warnings ?? [],
       toolCount: entry.toolCount,
       sourceToolCounts: entry.sourceToolCounts ?? [],
-      sourceVersions: entry.sourceVersions ?? [],
+      sourceStates,
       sourceQuality: entry.sourceQuality ?? [],
       sourceAuthProfiles: entry.sourceAuthProfiles ?? [],
       openApiRefHintTables: Array.isArray(stateEntry.openApiRefHintTables) ? stateEntry.openApiRefHintTables : [],
@@ -39,58 +38,9 @@ export const getState = internalQuery({
   },
 });
 
-export const beginBuild = internalMutation({
-  args: {
-    workspaceId: vv.id("workspaces"),
-    signature: v.string(),
-    buildId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const existing = await ctx.db
-      .query("workspaceToolRegistryState")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        buildingBuildId: args.buildId,
-        buildingSignature: args.signature,
-        buildingStartedAt: now,
-        lastBuildError: undefined,
-        updatedAt: now,
-      });
-      return;
-    }
-
-    await ctx.db.insert("workspaceToolRegistryState", {
-      workspaceId: args.workspaceId,
-      signature: args.signature,
-      readyBuildId: undefined,
-      buildingBuildId: args.buildId,
-      buildingSignature: args.signature,
-      buildingStartedAt: now,
-      lastBuildCompletedAt: undefined,
-      lastBuildFailedAt: undefined,
-      lastBuildError: undefined,
-      typesStorageId: undefined,
-      warnings: [],
-      toolCount: 0,
-      sourceToolCounts: [],
-      sourceVersions: [],
-      sourceQuality: [],
-      sourceAuthProfiles: [],
-      openApiRefHintTables: [],
-      createdAt: now,
-      updatedAt: now,
-    } as never);
-  },
-});
-
 export const putToolsBatch = internalMutation({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     tools: v.array(
       v.object({
         path: v.string(),
@@ -120,9 +70,43 @@ export const putToolsBatch = internalMutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     for (const tool of args.tools) {
+      // Enforce a single active row per tool path for the workspace.
+      while (true) {
+        const existingEntries = await ctx.db
+          .query("workspaceToolRegistry")
+          .withIndex("by_workspace_path", (q) =>
+            q.eq("workspaceId", args.workspaceId).eq("path", tool.path),
+          )
+          .take(20);
+
+        if (existingEntries.length === 0) {
+          break;
+        }
+
+        for (const entry of existingEntries) {
+          await ctx.db.delete(entry._id);
+        }
+      }
+
+      while (true) {
+        const existingPayloads = await ctx.db
+          .query("workspaceToolRegistryPayloads")
+          .withIndex("by_workspace_path", (q) =>
+            q.eq("workspaceId", args.workspaceId).eq("path", tool.path),
+          )
+          .take(20);
+
+        if (existingPayloads.length === 0) {
+          break;
+        }
+
+        for (const payload of existingPayloads) {
+          await ctx.db.delete(payload._id);
+        }
+      }
+
       await ctx.db.insert("workspaceToolRegistry", {
         workspaceId: args.workspaceId,
-        buildId: args.buildId,
         path: tool.path,
         preferredPath: tool.preferredPath,
         namespace: tool.namespace,
@@ -142,7 +126,6 @@ export const putToolsBatch = internalMutation({
 
       await ctx.db.insert("workspaceToolRegistryPayloads", {
         workspaceId: args.workspaceId,
-        buildId: args.buildId,
         path: tool.path,
         serializedToolJson: tool.serializedToolJson,
         createdAt: now,
@@ -154,7 +137,6 @@ export const putToolsBatch = internalMutation({
 export const putNamespacesBatch = internalMutation({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     namespaces: v.array(
       v.object({
         namespace: v.string(),
@@ -168,7 +150,6 @@ export const putNamespacesBatch = internalMutation({
     for (const ns of args.namespaces) {
       await ctx.db.insert("workspaceToolNamespaces", {
         workspaceId: args.workspaceId,
-        buildId: args.buildId,
         namespace: ns.namespace,
         toolCount: ns.toolCount,
         samplePaths: ns.samplePaths,
@@ -178,77 +159,15 @@ export const putNamespacesBatch = internalMutation({
   },
 });
 
-export const finishBuild = internalMutation({
+export const updateRegistryMetadata = internalMutation({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
-    signature: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const state = await ctx.db
-      .query("workspaceToolRegistryState")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-
-    if (!state) {
-      await ctx.db.insert("workspaceToolRegistryState", {
-        workspaceId: args.workspaceId,
-        signature: args.signature,
-        readyBuildId: args.buildId,
-        buildingBuildId: undefined,
-        buildingSignature: undefined,
-        buildingStartedAt: undefined,
-        lastBuildCompletedAt: now,
-        lastBuildFailedAt: undefined,
-        lastBuildError: undefined,
-        typesStorageId: undefined,
-        warnings: [],
-        toolCount: 0,
-        sourceToolCounts: [],
-        sourceVersions: [],
-        sourceQuality: [],
-        sourceAuthProfiles: [],
-        openApiRefHintTables: [],
-        createdAt: now,
-        updatedAt: now,
-      } as never);
-      return;
-    }
-
-    if (state.buildingBuildId !== args.buildId) {
-      // Another build started; ignore finishing this one.
-      return;
-    }
-
-    await ctx.db.patch(state._id, {
-      readyBuildId: args.buildId,
-      signature: args.signature,
-      buildingBuildId: undefined,
-      buildingSignature: undefined,
-      buildingStartedAt: undefined,
-      lastBuildCompletedAt: now,
-      lastBuildError: undefined,
-      updatedAt: now,
-    });
-  },
-});
-
-export const updateBuildMetadata = internalMutation({
-  args: {
-    workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     typesStorageId: v.optional(v.id("_storage")),
     warnings: v.array(v.string()),
     toolCount: v.number(),
     sourceToolCounts: v.array(v.object({
       sourceName: v.string(),
       toolCount: v.number(),
-    })),
-    sourceVersions: v.array(v.object({
-      sourceId: v.string(),
-      sourceName: v.string(),
-      updatedAt: v.number(),
     })),
     sourceQuality: v.array(v.object({
       sourceKey: v.string(),
@@ -282,9 +201,23 @@ export const updateBuildMetadata = internalMutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
     if (!state) {
-      return;
-    }
-    if (state.readyBuildId !== args.buildId) {
+      await ctx.db.insert("workspaceToolRegistryState", {
+        workspaceId: args.workspaceId,
+        signature: undefined,
+        lastRefreshCompletedAt: Date.now(),
+        lastRefreshFailedAt: undefined,
+        lastRefreshError: undefined,
+        typesStorageId: args.typesStorageId,
+        warnings: args.warnings,
+        toolCount: args.toolCount,
+        sourceToolCounts: args.sourceToolCounts,
+        sourceStates: [],
+        sourceQuality: args.sourceQuality,
+        sourceAuthProfiles: args.sourceAuthProfiles,
+        openApiRefHintTables: args.openApiRefHintTables,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      } as never);
       return;
     }
 
@@ -293,119 +226,215 @@ export const updateBuildMetadata = internalMutation({
       warnings: args.warnings,
       toolCount: args.toolCount,
       sourceToolCounts: args.sourceToolCounts,
-      sourceVersions: args.sourceVersions,
       sourceQuality: args.sourceQuality,
       sourceAuthProfiles: args.sourceAuthProfiles,
       openApiRefHintTables: args.openApiRefHintTables,
+      lastRefreshCompletedAt: Date.now(),
+      lastRefreshError: undefined,
       updatedAt: Date.now(),
     } as never);
   },
 });
 
-export const failBuild = internalMutation({
+const sourceStateValidator = v.any();
+
+export const setSourceStates = internalMutation({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
-    error: v.optional(v.string()),
+    sourceStates: v.array(sourceStateValidator),
+    signature: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const now = Date.now();
     const state = await ctx.db
       .query("workspaceToolRegistryState")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
+
     if (!state) {
-      return;
-    }
-    if (state.buildingBuildId !== args.buildId) {
+      await ctx.db.insert("workspaceToolRegistryState", {
+        workspaceId: args.workspaceId,
+        signature: args.signature,
+        lastRefreshCompletedAt: undefined,
+        lastRefreshFailedAt: undefined,
+        lastRefreshError: undefined,
+        typesStorageId: undefined,
+        warnings: [],
+        toolCount: 0,
+        sourceToolCounts: [],
+        sourceStates: args.sourceStates,
+        sourceQuality: [],
+        sourceAuthProfiles: [],
+        openApiRefHintTables: [],
+        createdAt: now,
+        updatedAt: now,
+      } as never);
       return;
     }
 
     await ctx.db.patch(state._id, {
-      buildingBuildId: undefined,
-      buildingSignature: undefined,
-      buildingStartedAt: undefined,
-      lastBuildFailedAt: Date.now(),
-      lastBuildError: args.error,
-      updatedAt: Date.now(),
+      ...(args.signature ? { signature: args.signature } : {}),
+      sourceStates: args.sourceStates,
+      updatedAt: now,
     });
   },
 });
 
-const PRUNE_DELETE_PAGE_SIZE = 10;
-const PRUNE_NAMESPACE_SCAN_PAGE_SIZE = 250;
-
-export const scanNamespaceBuildsForPrune = internalQuery({
+export const setRefreshError = internalMutation({
   args: {
     workspaceId: vv.id("workspaces"),
-    cursor: v.optional(v.string()),
+    error: v.string(),
   },
   handler: async (ctx, args) => {
-    const page = await ctx.db
-      .query("workspaceToolNamespaces")
-      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId))
-      .paginate({ numItems: PRUNE_NAMESPACE_SCAN_PAGE_SIZE, cursor: args.cursor ?? null });
+    const now = Date.now();
+    const state = await ctx.db
+      .query("workspaceToolRegistryState")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+
+    if (!state) {
+      await ctx.db.insert("workspaceToolRegistryState", {
+        workspaceId: args.workspaceId,
+        signature: undefined,
+        lastRefreshCompletedAt: undefined,
+        lastRefreshFailedAt: now,
+        lastRefreshError: args.error,
+        typesStorageId: undefined,
+        warnings: [],
+        toolCount: 0,
+        sourceToolCounts: [],
+        sourceStates: [],
+        sourceQuality: [],
+        sourceAuthProfiles: [],
+        openApiRefHintTables: [],
+        createdAt: now,
+        updatedAt: now,
+      } as never);
+      return;
+    }
+
+    await ctx.db.patch(state._id, {
+      lastRefreshFailedAt: now,
+      lastRefreshError: args.error,
+      updatedAt: now,
+    });
+  },
+});
+
+export const deleteToolsBySourcePage = internalMutation({
+  args: {
+    workspaceId: vv.id("workspaces"),
+    source: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const source = args.source.trim();
+    if (!source) {
+      return { removed: 0 };
+    }
+
+    const PAGE_SIZE = 100;
+    let removed = 0;
+
+    const entries = await ctx.db
+      .query("workspaceToolRegistry")
+      .withIndex("by_workspace_source", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("source", source),
+      )
+      .take(PAGE_SIZE);
+
+    for (const entry of entries) {
+      await ctx.db.delete(entry._id);
+      removed += 1;
+
+      // Payload table is keyed by path; delete all matching payload rows in small slices.
+      while (true) {
+        const payloads = await ctx.db
+          .query("workspaceToolRegistryPayloads")
+          .withIndex("by_workspace_path", (q) =>
+            q.eq("workspaceId", args.workspaceId).eq("path", entry.path),
+          )
+          .take(20);
+
+        if (payloads.length === 0) {
+          break;
+        }
+
+        for (const payload of payloads) {
+          await ctx.db.delete(payload._id);
+        }
+      }
+    }
 
     return {
-      items: page.page.map((entry) => ({
-        buildId: entry.buildId,
-        createdAt: entry.createdAt,
-      })),
-      continueCursor: page.isDone ? null : page.continueCursor,
+      removed,
+      hasMore: entries.length >= PAGE_SIZE,
     };
   },
 });
 
-export const deleteToolRegistryToolsPage = internalMutation({
+export const deleteToolsBySource = internalAction({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
-    cursor: v.optional(v.string()),
+    source: v.string(),
   },
   handler: async (ctx, args) => {
-    const page = await ctx.db
-      .query("workspaceToolRegistry")
-      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId))
-      .paginate({ numItems: PRUNE_DELETE_PAGE_SIZE, cursor: args.cursor ?? null });
+    let removed = 0;
 
-    for (const entry of page.page) {
-      await ctx.db.delete(entry._id);
+    while (true) {
+      const page: { removed: number; hasMore: boolean } = await ctx.runMutation(
+        internal.toolRegistry.deleteToolsBySourcePage,
+        {
+          workspaceId: args.workspaceId,
+          source: args.source,
+        },
+      );
+
+      removed += page.removed;
+      if (!page.hasMore || page.removed === 0) {
+        break;
+      }
     }
 
-    return { continueCursor: page.isDone ? null : page.continueCursor };
+    return { removed };
   },
 });
 
-export const deleteToolRegistryPayloadsPage = internalMutation({
+export const listSerializedToolsPage = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     cursor: v.optional(v.string()),
+    limit: v.number(),
   },
   handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(250, Math.floor(args.limit)));
     const page = await ctx.db
       .query("workspaceToolRegistryPayloads")
-      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId))
-      .paginate({ numItems: PRUNE_DELETE_PAGE_SIZE, cursor: args.cursor ?? null });
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .paginate({
+        numItems: limit,
+        cursor: args.cursor ?? null,
+      });
 
-    for (const entry of page.page) {
-      await ctx.db.delete(entry._id);
-    }
-
-    return { continueCursor: page.isDone ? null : page.continueCursor };
+    return {
+      continueCursor: page.isDone ? null : page.continueCursor,
+      items: page.page.map((entry) => ({
+        path: entry.path,
+        serializedToolJson: entry.serializedToolJson,
+      })),
+    };
   },
 });
 
 export const deleteToolRegistryNamespacesPage = internalMutation({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     cursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const page = await ctx.db
       .query("workspaceToolNamespaces")
-      .withIndex("by_workspace_build", (q) => q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId))
-      .paginate({ numItems: PRUNE_DELETE_PAGE_SIZE, cursor: args.cursor ?? null });
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .paginate({ numItems: 100, cursor: args.cursor ?? null });
 
     for (const entry of page.page) {
       await ctx.db.delete(entry._id);
@@ -415,129 +444,16 @@ export const deleteToolRegistryNamespacesPage = internalMutation({
   },
 });
 
-export const pruneBuilds = internalAction({
-  args: {
-    workspaceId: vv.id("workspaces"),
-    maxRetainedBuilds: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const maxRetainedBuilds = Math.max(1, Math.min(10, Math.floor(args.maxRetainedBuilds ?? 2)));
-    const state = await ctx.runQuery(internal.toolRegistry.getState, {
-      workspaceId: args.workspaceId,
-    });
-
-    const protectedBuildIds = new Set<string>();
-    if (state?.readyBuildId) protectedBuildIds.add(state.readyBuildId);
-    if (state?.buildingBuildId) protectedBuildIds.add(state.buildingBuildId);
-
-    const latestCreatedAtByBuild = new Map<string, number>();
-    let namespaceCursor: string | undefined = undefined;
-
-    while (true) {
-      const namespacePage: {
-        continueCursor: string | null;
-        items: Array<{ buildId: string; createdAt: number }>;
-      } = await ctx.runQuery(internal.toolRegistry.scanNamespaceBuildsForPrune, {
-        workspaceId: args.workspaceId,
-        cursor: namespaceCursor,
-      });
-
-      for (const item of namespacePage.items) {
-        const current = latestCreatedAtByBuild.get(item.buildId) ?? 0;
-        if (item.createdAt > current) {
-          latestCreatedAtByBuild.set(item.buildId, item.createdAt);
-        }
-      }
-
-      if (namespacePage.continueCursor === null) {
-        break;
-      }
-
-      namespaceCursor = namespacePage.continueCursor;
-    }
-
-    const buildIdsByRecency = [...latestCreatedAtByBuild.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([buildId]) => buildId);
-
-    const retained = new Set<string>(buildIdsByRecency.slice(0, maxRetainedBuilds));
-    for (const protectedBuildId of protectedBuildIds) {
-      retained.add(protectedBuildId);
-    }
-
-    for (const buildId of buildIdsByRecency) {
-      if (retained.has(buildId)) {
-        continue;
-      }
-
-      let cursor: string | undefined = undefined;
-      while (true) {
-        const page: { continueCursor: string | null } = await ctx.runMutation(
-          internal.toolRegistry.deleteToolRegistryToolsPage,
-          {
-            workspaceId: args.workspaceId,
-            buildId,
-            cursor,
-          },
-        );
-
-        if (page.continueCursor === null) {
-          break;
-        }
-
-        cursor = page.continueCursor;
-      }
-
-      let payloadCursor: string | undefined = undefined;
-      while (true) {
-        const payloadPage: { continueCursor: string | null } = await ctx.runMutation(
-          internal.toolRegistry.deleteToolRegistryPayloadsPage,
-          {
-            workspaceId: args.workspaceId,
-            buildId,
-            cursor: payloadCursor,
-          },
-        );
-
-        if (payloadPage.continueCursor === null) {
-          break;
-        }
-
-        payloadCursor = payloadPage.continueCursor;
-      }
-
-      let namespacePageCursor: string | undefined = undefined;
-      while (true) {
-        const namespaceDeletePage: { continueCursor: string | null } = await ctx.runMutation(
-          internal.toolRegistry.deleteToolRegistryNamespacesPage,
-          {
-            workspaceId: args.workspaceId,
-            buildId,
-            cursor: namespacePageCursor,
-          },
-        );
-
-        if (namespaceDeletePage.continueCursor === null) {
-          break;
-        }
-
-        namespacePageCursor = namespaceDeletePage.continueCursor;
-      }
-    }
-  },
-});
-
 export const getToolByPath = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     path: v.string(),
   },
   handler: async (ctx, args) => {
     const entry = await ctx.db
       .query("workspaceToolRegistry")
-      .withIndex("by_workspace_build_path", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("path", args.path),
+      .withIndex("by_workspace_path", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("path", args.path),
       )
       .first();
 
@@ -545,8 +461,8 @@ export const getToolByPath = internalQuery({
 
     const payload = await ctx.db
       .query("workspaceToolRegistryPayloads")
-      .withIndex("by_workspace_build_path", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("path", entry.path),
+      .withIndex("by_workspace_path", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("path", entry.path),
       )
       .first();
 
@@ -571,7 +487,6 @@ export const getToolByPath = internalQuery({
 export const getSerializedToolsByPaths = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     paths: v.array(v.string()),
   },
   handler: async (ctx, args) => {
@@ -584,8 +499,8 @@ export const getSerializedToolsByPaths = internalQuery({
     const payloads = await Promise.all(paths.map(async (path) => {
       const payload = await ctx.db
         .query("workspaceToolRegistryPayloads")
-        .withIndex("by_workspace_build_path", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("path", path),
+        .withIndex("by_workspace_path", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("path", path),
         )
         .first();
 
@@ -603,7 +518,6 @@ export const getSerializedToolsByPaths = internalQuery({
 export const listToolsByNamespace = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     namespace: v.string(),
     limit: v.number(),
   },
@@ -614,8 +528,8 @@ export const listToolsByNamespace = internalQuery({
 
     const entries = await ctx.db
       .query("workspaceToolRegistry")
-      .withIndex("by_workspace_build_namespace", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("namespace", namespace),
+      .withIndex("by_workspace_namespace", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("namespace", namespace),
       )
       .take(limit);
 
@@ -638,7 +552,6 @@ export const listToolsByNamespace = internalQuery({
 export const listToolsPage = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     cursor: v.optional(v.string()),
     limit: v.number(),
   },
@@ -646,9 +559,7 @@ export const listToolsPage = internalQuery({
     const limit = Math.max(1, Math.min(250, Math.floor(args.limit)));
     const page = await ctx.db
       .query("workspaceToolRegistry")
-      .withIndex("by_workspace_build", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId),
-      )
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .paginate({
         numItems: limit,
         cursor: args.cursor ?? null,
@@ -676,7 +587,6 @@ export const listToolsPage = internalQuery({
 export const listToolsBySourcePage = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     source: v.string(),
     cursor: v.optional(v.string()),
     limit: v.number(),
@@ -709,8 +619,8 @@ export const listToolsBySourcePage = internalQuery({
     const limit = Math.max(1, Math.min(250, Math.floor(args.limit)));
     const page = await ctx.db
       .query("workspaceToolRegistry")
-      .withIndex("by_workspace_build_source", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("source", source),
+      .withIndex("by_workspace_source", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("source", source),
       )
       .paginate({
         numItems: limit,
@@ -739,7 +649,6 @@ export const listToolsBySourcePage = internalQuery({
 export const getToolsByNormalizedPath = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     normalizedPath: v.string(),
     limit: v.number(),
   },
@@ -750,16 +659,16 @@ export const getToolsByNormalizedPath = internalQuery({
 
     const entries = await ctx.db
       .query("workspaceToolRegistry")
-      .withIndex("by_workspace_build_normalized", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("normalizedPath", normalized),
+      .withIndex("by_workspace_normalized", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("normalizedPath", normalized),
       )
       .take(limit);
 
     const payloads = await Promise.all(entries.map(async (entry) => {
       const payload = await ctx.db
         .query("workspaceToolRegistryPayloads")
-        .withIndex("by_workspace_build_path", (q) =>
-          q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId).eq("path", entry.path),
+        .withIndex("by_workspace_path", (q) =>
+          q.eq("workspaceId", args.workspaceId).eq("path", entry.path),
         )
         .first();
       if (!payload) return null;
@@ -783,7 +692,6 @@ export const getToolsByNormalizedPath = internalQuery({
 export const searchTools = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     query: v.string(),
     limit: v.number(),
   },
@@ -796,8 +704,7 @@ export const searchTools = internalQuery({
       .query("workspaceToolRegistry")
       .withSearchIndex("search_text", (q) =>
         q.search("searchText", term)
-          .eq("workspaceId", args.workspaceId)
-          .eq("buildId", args.buildId),
+          .eq("workspaceId", args.workspaceId),
       )
       .take(limit);
 
@@ -820,16 +727,13 @@ export const searchTools = internalQuery({
 export const listNamespaces = internalQuery({
   args: {
     workspaceId: vv.id("workspaces"),
-    buildId: v.string(),
     limit: v.number(),
   },
   handler: async (ctx, args) => {
     const limit = Math.max(1, Math.min(200, Math.floor(args.limit)));
     const entries = await ctx.db
       .query("workspaceToolNamespaces")
-      .withIndex("by_workspace_build", (q) =>
-        q.eq("workspaceId", args.workspaceId).eq("buildId", args.buildId),
-      )
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .take(limit);
 
     return entries.map((entry) => ({

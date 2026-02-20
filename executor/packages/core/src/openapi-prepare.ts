@@ -9,6 +9,7 @@ import type { PreparedOpenApiSpec } from "./tool/source-types";
 import { toPlainObject } from "./utils";
 
 const unknownRecordSchema = z.record(z.unknown());
+const OPENAPI_JSON_FETCH_TIMEOUT_MS = 45_000;
 
 const openApiDocumentSchema = z.object({
   openapi: z.string().optional(),
@@ -53,6 +54,66 @@ function toOpenApiTsInput(spec: Record<string, unknown>): Parameters<typeof open
   }
 
   return parsed.data as Parameters<typeof openapiTS>[0] & Record<string, unknown>;
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function looksLikeJsonSpecUrl(value: string): boolean {
+  if (!isHttpUrl(value)) {
+    return false;
+  }
+
+  return /\.json($|[?#])/i.test(value);
+}
+
+async function fetchJsonOpenApiSpec(url: string, sourceName: string): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, OPENAPI_JSON_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+
+    const body = await response.text();
+    if (!body.trim()) {
+      throw new Error("empty response body");
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(body);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`invalid JSON payload: ${msg}`);
+    }
+
+    const asRecord = toRecordResult(parsed, `Fetched OpenAPI source '${sourceName}'`);
+    if (asRecord.isErr()) {
+      throw asRecord.error;
+    }
+
+    return asRecord.value;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${msg}`);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function stripBrokenDiscriminators(spec: Record<string, unknown>): Record<string, unknown> | null {
@@ -157,6 +218,7 @@ async function generateOpenApiDts(spec: Record<string, unknown>): Promise<string
 export interface PrepareOpenApiSpecOptions {
   includeDts?: boolean;
   profile?: "full" | "inventory";
+  resolveSchemaRefs?: boolean;
 }
 
 export async function prepareOpenApiSpec(
@@ -168,26 +230,31 @@ export async function prepareOpenApiSpec(
   const includeDts = options.includeDts ?? true;
   const profile = options.profile ?? (includeDts ? "full" : "inventory");
   const shouldGenerateDts = includeDts && profile === "full";
-  const shouldBundle = profile === "full";
+  const shouldBundle = profile === "full" && includeDts;
+  const resolveSchemaRefs = options.resolveSchemaRefs ?? (profile === "full");
 
   const warnings: string[] = [];
 
   let parsed: Record<string, unknown>;
   if (typeof spec === "string") {
-    let parsedValue: unknown;
-    try {
-      parsedValue = await parser.parse(spec);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${msg}`);
-    }
+    if (looksLikeJsonSpecUrl(spec)) {
+      parsed = await fetchJsonOpenApiSpec(spec, sourceName);
+    } else {
+      let parsedValue: unknown;
+      try {
+        parsedValue = await parser.parse(spec);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${msg}`);
+      }
 
-    const parsedRecord = toRecordResult(parsedValue, `Parsed OpenAPI source '${sourceName}'`);
-    if (parsedRecord.isErr()) {
-      throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${parsedRecord.error.message}`);
-    }
+      const parsedRecord = toRecordResult(parsedValue, `Parsed OpenAPI source '${sourceName}'`);
+      if (parsedRecord.isErr()) {
+        throw new Error(`Failed to fetch/parse OpenAPI source '${sourceName}': ${parsedRecord.error.message}`);
+      }
 
-    parsed = parsedRecord.value;
+      parsed = parsedRecord.value;
+    }
   } else {
     parsed = spec;
   }
@@ -234,7 +301,7 @@ export async function prepareOpenApiSpec(
       includeSchemas: profile === "full",
       includeTypeHints: true,
       includeParameterSchemas: true,
-      resolveSchemaRefs: profile === "full",
+      resolveSchemaRefs,
     },
   );
 
