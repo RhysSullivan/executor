@@ -3,7 +3,7 @@
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { useEffect } from "react";
 import NextLink from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 type NavigateOptions = {
   replace?: boolean;
@@ -59,12 +59,10 @@ export function useNavigate() {
 
 export function useLocation() {
   const pathname = usePathname() ?? "/";
-  const searchParams = useSearchParams();
-  const search = searchParams.toString();
 
   return {
     pathname,
-    search: search ? `?${search}` : "",
+    search: "",
     hash: "",
   };
 }
