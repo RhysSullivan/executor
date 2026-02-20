@@ -15,17 +15,13 @@ export function registrySignatureForWorkspace(
   return `${TOOL_REGISTRY_SIGNATURE_PREFIX}${sourceSignature(workspaceId, enabledSources)}`;
 }
 
-type RegistryState = {
-  signature?: string;
-  readyBuildId?: string;
-  buildingBuildId?: string;
-} | null;
-
 const registryStateSchema = z.object({
   signature: z.string().optional(),
   readyBuildId: z.string().optional(),
   buildingBuildId: z.string().optional(),
 });
+
+type RegistryState = z.infer<typeof registryStateSchema> | null;
 
 const toolSourceStateSchema = z.object({
   id: z.string(),
@@ -59,11 +55,7 @@ function toRegistryState(value: unknown): RegistryState {
     return null;
   }
 
-  return {
-    signature: parsed.data.signature,
-    readyBuildId: parsed.data.readyBuildId,
-    buildingBuildId: parsed.data.buildingBuildId,
-  };
+  return parsed.data;
 }
 
 function toToolSourceStateList(value: unknown): ToolSourceState[] {
