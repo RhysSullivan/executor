@@ -1,9 +1,11 @@
-import type { TaskStatus } from "../../../core/src/types";
+import { COMPLETED_TASK_STATUSES, type CompletedTaskStatus, type TaskStatus } from "../../../core/src/types";
 
-type TerminalTaskStatus = Extract<TaskStatus, "completed" | "failed" | "timed_out" | "denied">;
+type TerminalTaskStatus = CompletedTaskStatus;
+
+const TERMINAL_TASK_STATUS_SET = new Set<TaskStatus>(COMPLETED_TASK_STATUSES);
 
 export function isTerminalTaskStatus(status: TaskStatus): status is TerminalTaskStatus {
-  return status === "completed" || status === "failed" || status === "timed_out" || status === "denied";
+  return TERMINAL_TASK_STATUS_SET.has(status);
 }
 
 export function taskTerminalEventType(status: TerminalTaskStatus): "task.completed" | "task.failed" | "task.timed_out" | "task.denied" {

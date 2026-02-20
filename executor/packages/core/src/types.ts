@@ -2,29 +2,103 @@
 
 import type { Id } from "../../database/convex/_generated/dataModel.d.ts";
 
-export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
-export type ApprovalStatus = "pending" | "approved" | "denied";
-export type ToolCallStatus = "requested" | "pending_approval" | "completed" | "failed" | "denied";
+export const ACCOUNT_PROVIDERS = ["workos", "anonymous"] as const;
+export type AccountProvider = (typeof ACCOUNT_PROVIDERS)[number];
+
+export const ACCOUNT_STATUSES = ["active", "deleted"] as const;
+export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
+
+export const ORGANIZATION_STATUSES = ["active", "deleted"] as const;
+export type OrganizationStatus = (typeof ORGANIZATION_STATUSES)[number];
+
+export const ORGANIZATION_ROLES = ["owner", "admin", "member", "billing_admin"] as const;
+export type OrganizationRole = (typeof ORGANIZATION_ROLES)[number];
+
+export const ORGANIZATION_MEMBER_STATUSES = ["active", "pending", "removed"] as const;
+export type OrganizationMemberStatus = (typeof ORGANIZATION_MEMBER_STATUSES)[number];
+
+export const BILLING_SUBSCRIPTION_STATUSES = [
+  "incomplete",
+  "incomplete_expired",
+  "trialing",
+  "active",
+  "past_due",
+  "canceled",
+  "unpaid",
+  "paused",
+] as const;
+export type BillingSubscriptionStatus = (typeof BILLING_SUBSCRIPTION_STATUSES)[number];
+
+export const INVITE_STATUSES = ["pending", "accepted", "expired", "revoked", "failed"] as const;
+export type InviteStatus = (typeof INVITE_STATUSES)[number];
+
+export const TASK_STATUSES = ["queued", "running", "completed", "failed", "timed_out", "denied"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+export const COMPLETED_TASK_STATUSES = ["completed", "failed", "timed_out", "denied"] as const;
+export type CompletedTaskStatus = (typeof COMPLETED_TASK_STATUSES)[number];
+
+export const APPROVAL_STATUSES = ["pending", "approved", "denied"] as const;
+export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
+
+export const TOOL_CALL_STATUSES = ["requested", "pending_approval", "completed", "failed", "denied"] as const;
+export type ToolCallStatus = (typeof TOOL_CALL_STATUSES)[number];
+
+export const TERMINAL_TOOL_CALL_STATUSES = ["completed", "failed", "denied"] as const;
+export type TerminalToolCallStatus = (typeof TERMINAL_TOOL_CALL_STATUSES)[number];
+
 export type PolicyDecision = "allow" | "require_approval" | "deny";
-export type PolicyScopeType = "account" | "organization" | "workspace";
-export type PolicyMatchType = "glob" | "exact";
-export type PolicyEffect = "allow" | "deny";
-export type PolicyApprovalMode = "inherit" | "auto" | "required";
-export type PolicyResourceType = "all_tools" | "source" | "namespace" | "tool_path";
-export type ToolSourceScopeType = "organization" | "workspace";
-export type CredentialScopeType = "account" | "organization" | "workspace";
+
+export const POLICY_SCOPE_TYPES = ["account", "organization", "workspace"] as const;
+export type PolicyScopeType = (typeof POLICY_SCOPE_TYPES)[number];
+
+export const POLICY_MATCH_TYPES = ["glob", "exact"] as const;
+export type PolicyMatchType = (typeof POLICY_MATCH_TYPES)[number];
+
+export const POLICY_EFFECTS = ["allow", "deny"] as const;
+export type PolicyEffect = (typeof POLICY_EFFECTS)[number];
+
+export const POLICY_APPROVAL_MODES = ["inherit", "auto", "required"] as const;
+export type PolicyApprovalMode = (typeof POLICY_APPROVAL_MODES)[number];
+
+export const POLICY_RESOURCE_TYPES = ["all_tools", "source", "namespace", "tool_path"] as const;
+export type PolicyResourceType = (typeof POLICY_RESOURCE_TYPES)[number];
+
+export const TOOL_SOURCE_SCOPE_TYPES = ["organization", "workspace"] as const;
+export type ToolSourceScopeType = (typeof TOOL_SOURCE_SCOPE_TYPES)[number];
+
+export const CREDENTIAL_SCOPE_TYPES = ["account", "organization", "workspace"] as const;
+export type CredentialScopeType = (typeof CREDENTIAL_SCOPE_TYPES)[number];
 export type CredentialScope = CredentialScopeType;
-export type CredentialProvider = "local-convex" | "workos-vault";
-export type ToolApprovalMode = "auto" | "required";
-export type ToolSourceType = "mcp" | "openapi" | "graphql";
-export type StorageScopeType = "scratch" | "account" | "workspace" | "organization";
-export type StorageDurability = "ephemeral" | "durable";
-export type StorageInstanceStatus = "active" | "closed" | "deleted";
-export type StorageProvider = "agentfs-local" | "agentfs-cloudflare";
+
+export const CREDENTIAL_PROVIDERS = ["local-convex", "workos-vault"] as const;
+export type CredentialProvider = (typeof CREDENTIAL_PROVIDERS)[number];
+
+export const TOOL_APPROVAL_MODES = ["auto", "required"] as const;
+export type ToolApprovalMode = (typeof TOOL_APPROVAL_MODES)[number];
+
+export const TOOL_SOURCE_TYPES = ["mcp", "openapi", "graphql"] as const;
+export type ToolSourceType = (typeof TOOL_SOURCE_TYPES)[number];
+
+export const STORAGE_SCOPE_TYPES = ["scratch", "account", "workspace", "organization"] as const;
+export type StorageScopeType = (typeof STORAGE_SCOPE_TYPES)[number];
+
+export const STORAGE_DURABILITIES = ["ephemeral", "durable"] as const;
+export type StorageDurability = (typeof STORAGE_DURABILITIES)[number];
+
+export const STORAGE_INSTANCE_STATUSES = ["active", "closed", "deleted"] as const;
+export type StorageInstanceStatus = (typeof STORAGE_INSTANCE_STATUSES)[number];
+
+export const STORAGE_PROVIDERS = ["agentfs-local", "agentfs-cloudflare"] as const;
+export type StorageProvider = (typeof STORAGE_PROVIDERS)[number];
+
+export const STORAGE_ACCESS_TYPES = ["opened", "provided", "accessed"] as const;
+export type StorageAccessType = (typeof STORAGE_ACCESS_TYPES)[number];
 
 export type JsonSchema = Record<string, unknown>;
 
-export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
+export const SOURCE_AUTH_TYPES = ["none", "bearer", "apiKey", "basic", "mixed"] as const;
+export type SourceAuthType = (typeof SOURCE_AUTH_TYPES)[number];
 
 export interface SourceAuthProfile {
   type: SourceAuthType;
@@ -96,7 +170,8 @@ export interface ToolCallRecord {
   completedAt?: number;
 }
 
-export type ArgumentConditionOperator = "equals" | "contains" | "starts_with" | "not_equals";
+export const ARGUMENT_CONDITION_OPERATORS = ["equals", "contains", "starts_with", "not_equals"] as const;
+export type ArgumentConditionOperator = (typeof ARGUMENT_CONDITION_OPERATORS)[number];
 
 export interface ArgumentCondition {
   key: string;
@@ -125,7 +200,11 @@ export interface ToolPolicyRecord {
   updatedAt: number;
 }
 
-export type ToolRoleSelectorType = "all" | "source" | "namespace" | "tool_path";
+export const TOOL_ROLE_SELECTOR_TYPES = ["all", "source", "namespace", "tool_path"] as const;
+export type ToolRoleSelectorType = (typeof TOOL_ROLE_SELECTOR_TYPES)[number];
+
+export const TOOL_ROLE_BINDING_STATUSES = ["active", "disabled"] as const;
+export type ToolRoleBindingStatus = (typeof TOOL_ROLE_BINDING_STATUSES)[number];
 
 export interface ToolPolicySetRecord {
   id: string;
@@ -162,7 +241,7 @@ export interface ToolPolicyAssignmentRecord {
   workspaceId?: Id<"workspaces">;
   targetAccountId?: Id<"accounts">;
   clientId?: string;
-  status: "active" | "disabled";
+  status: ToolRoleBindingStatus;
   expiresAt?: number;
   createdAt: number;
   updatedAt: number;
@@ -315,7 +394,8 @@ export interface SandboxRuntime {
   ): Promise<SandboxExecutionResult>;
 }
 
-export type ToolCredentialAuthType = "bearer" | "apiKey" | "basic";
+export const TOOL_CREDENTIAL_AUTH_TYPES = ["bearer", "apiKey", "basic"] as const;
+export type ToolCredentialAuthType = (typeof TOOL_CREDENTIAL_AUTH_TYPES)[number];
 
 export interface ToolCredentialSpec {
   sourceKey: string;

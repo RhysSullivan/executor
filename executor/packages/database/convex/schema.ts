@@ -1,5 +1,34 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  argumentConditionValidator,
+  accountProviderValidator,
+  accountStatusValidator,
+  approvalStatusValidator,
+  billingSubscriptionStatusValidator,
+  credentialProviderValidator,
+  credentialScopeTypeValidator,
+  inviteStatusValidator,
+  jsonObjectValidator,
+  orgMemberStatusValidator,
+  organizationStatusValidator,
+  orgRoleValidator,
+  policyApprovalModeValidator,
+  policyEffectValidator,
+  policyMatchTypeValidator,
+  policyScopeTypeValidator,
+  storageDurabilityValidator,
+  storageInstanceStatusValidator,
+  storageProviderValidator,
+  storageScopeTypeValidator,
+  taskStatusValidator,
+  toolApprovalModeValidator,
+  toolCallStatusValidator,
+  toolRoleBindingStatusValidator,
+  toolRoleSelectorTypeValidator,
+  toolSourceScopeTypeValidator,
+  toolSourceTypeValidator,
+} from "../src/database/validators";
 
 // Convex database schema.
 //
@@ -10,87 +39,20 @@ import { v } from "convex/values";
 //   systems and in logs; `_id` stays internal to Convex.
 // - `accountId` links rows to `accounts` where identity context is needed.
 //
-// The small validators below act like enums for schema fields.
-// Note: Some of these are duplicated as request validators under `executor/packages/database/convex/database/validators.ts`
-// and in a few feature modules. Keep the literal sets aligned to avoid drift.
-
-const accountProvider = v.union(v.literal("workos"), v.literal("anonymous"));
-const accountStatus = v.union(v.literal("active"), v.literal("deleted"));
-const organizationStatus = v.union(v.literal("active"), v.literal("deleted"));
-const orgRole = v.union(v.literal("owner"), v.literal("admin"), v.literal("member"), v.literal("billing_admin"));
-const orgMemberStatus = v.union(v.literal("active"), v.literal("pending"), v.literal("removed"));
-const billingSubscriptionStatus = v.union(
-  v.literal("incomplete"),
-  v.literal("incomplete_expired"),
-  v.literal("trialing"),
-  v.literal("active"),
-  v.literal("past_due"),
-  v.literal("canceled"),
-  v.literal("unpaid"),
-  v.literal("paused"),
-);
-const inviteStatus = v.union(
-  v.literal("pending"),
-  v.literal("accepted"),
-  v.literal("expired"),
-  v.literal("revoked"),
-  v.literal("failed"),
-);
-const taskStatus = v.union(
-  v.literal("queued"),
-  v.literal("running"),
-  v.literal("completed"),
-  v.literal("failed"),
-  v.literal("timed_out"),
-  v.literal("denied"),
-);
-const approvalStatus = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
-const toolCallStatus = v.union(
-  v.literal("requested"),
-  v.literal("pending_approval"),
-  v.literal("completed"),
-  v.literal("failed"),
-  v.literal("denied"),
-);
-const toolApprovalMode = v.union(v.literal("auto"), v.literal("required"));
-const policyScopeType = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
-const policyMatchType = v.union(v.literal("glob"), v.literal("exact"));
-const policyEffect = v.union(v.literal("allow"), v.literal("deny"));
-const policyApprovalMode = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
-const toolRoleSelectorType = v.union(
-  v.literal("all"),
-  v.literal("source"),
-  v.literal("namespace"),
-  v.literal("tool_path"),
-);
-const toolRoleBindingStatus = v.union(v.literal("active"), v.literal("disabled"));
-const toolSourceScopeType = v.union(v.literal("organization"), v.literal("workspace"));
-const credentialScopeType = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
-const storageScopeType = v.union(v.literal("scratch"), v.literal("account"), v.literal("workspace"), v.literal("organization"));
-const storageDurability = v.union(v.literal("ephemeral"), v.literal("durable"));
-const storageInstanceStatus = v.union(v.literal("active"), v.literal("closed"), v.literal("deleted"));
-const storageProvider = v.union(v.literal("agentfs-local"), v.literal("agentfs-cloudflare"));
-const credentialProvider = v.union(
-  v.literal("local-convex"),
-  v.literal("workos-vault"),
-);
-const toolSourceType = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
-const jsonObject = v.record(v.string(), v.any());
-
 export default defineSchema({
   // User identities (WorkOS-backed or anonymous).
   //
   // Primary access patterns:
   // - Lookup by provider + providerAccountId (WorkOS user id / anon id).
   accounts: defineTable({
-    provider: accountProvider,
+    provider: accountProviderValidator,
     providerAccountId: v.string(), // WorkOS user ID or anon_* UUID
     email: v.optional(v.string()),
     name: v.string(),
     firstName: v.optional(v.string()),
     lastName: v.optional(v.string()),
     avatarUrl: v.optional(v.string()),
-    status: accountStatus,
+    status: accountStatusValidator,
     createdAt: v.number(),
     updatedAt: v.number(),
     lastLoginAt: v.optional(v.number()),
@@ -128,7 +90,7 @@ export default defineSchema({
     workosOrgId: v.optional(v.string()), // external WorkOS org ID
     slug: v.string(),
     name: v.string(),
-    status: organizationStatus,
+    status: organizationStatusValidator,
     createdByAccountId: v.optional(v.id("accounts")),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -148,8 +110,8 @@ export default defineSchema({
   organizationMembers: defineTable({
     organizationId: v.id("organizations"),
     accountId: v.id("accounts"),
-    role: orgRole,
-    status: orgMemberStatus,
+    role: orgRoleValidator,
+    status: orgMemberStatusValidator,
     billable: v.boolean(),
     invitedByAccountId: v.optional(v.id("accounts")),
     joinedAt: v.optional(v.number()),
@@ -171,8 +133,8 @@ export default defineSchema({
     organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
     email: v.string(),
-    role: orgRole,
-    status: inviteStatus,
+    role: orgRoleValidator,
+    status: inviteStatusValidator,
     providerInviteId: v.optional(v.string()), // external WorkOS invite ID
     invitedByAccountId: v.id("accounts"),
     expiresAt: v.number(),
@@ -215,7 +177,7 @@ export default defineSchema({
     organizationId: v.id("organizations"),
     stripeSubscriptionId: v.string(), // external Stripe subscription ID
     stripePriceId: v.string(), // external Stripe price ID
-    status: billingSubscriptionStatus,
+    status: billingSubscriptionStatusValidator,
     currentPeriodStart: v.optional(v.number()),
     currentPeriodEnd: v.optional(v.number()),
     cancelAtPeriodEnd: v.boolean(),
@@ -251,9 +213,9 @@ export default defineSchema({
     workspaceId: v.id("workspaces"),
     accountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()), // client label: "web", "mcp", etc.
-    status: taskStatus,
+    status: taskStatusValidator,
     timeoutMs: v.number(),
-    metadata: jsonObject,
+    metadata: jsonObjectValidator,
     nextEventSequence: v.optional(v.number()),
     error: v.optional(v.string()),
     stdout: v.optional(v.string()),
@@ -279,8 +241,8 @@ export default defineSchema({
     taskId: v.string(), // references tasks.taskId (not tasks._id)
     workspaceId: v.id("workspaces"),
     toolPath: v.string(),
-    input: jsonObject,
-    status: approvalStatus,
+    input: jsonObjectValidator,
+    status: approvalStatusValidator,
     reason: v.optional(v.string()),
     reviewerId: v.optional(v.string()), // account._id or anon_<uuid>
     createdAt: v.number(),
@@ -300,7 +262,7 @@ export default defineSchema({
     callId: v.string(),
     workspaceId: v.id("workspaces"),
     toolPath: v.string(),
-    status: toolCallStatus,
+    status: toolCallStatusValidator,
     approvalId: v.optional(v.string()),
     error: v.optional(v.string()),
     createdAt: v.number(),
@@ -318,7 +280,7 @@ export default defineSchema({
     taskId: v.string(), // references tasks.taskId (not tasks._id)
     eventName: v.string(),
     type: v.string(),
-    payload: jsonObject,
+    payload: jsonObjectValidator,
     createdAt: v.number(),
   })
     .index("by_task_sequence", ["taskId", "sequence"]),
@@ -342,18 +304,14 @@ export default defineSchema({
     ruleId: v.string(), // domain ID: trule_<uuid>
     roleId: v.string(),
     organizationId: v.id("organizations"),
-    selectorType: toolRoleSelectorType,
+    selectorType: toolRoleSelectorTypeValidator,
     sourceKey: v.optional(v.string()),
     namespacePattern: v.optional(v.string()),
     toolPathPattern: v.optional(v.string()),
-    matchType: policyMatchType,
-    effect: policyEffect,
-    approvalMode: policyApprovalMode,
-    argumentConditions: v.optional(v.array(v.object({
-      key: v.string(),
-      operator: v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals")),
-      value: v.string(),
-    }))),
+    matchType: policyMatchTypeValidator,
+    effect: policyEffectValidator,
+    approvalMode: policyApprovalModeValidator,
+    argumentConditions: v.optional(v.array(argumentConditionValidator)),
     priority: v.number(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -367,11 +325,11 @@ export default defineSchema({
     bindingId: v.string(), // domain ID: trbind_<uuid>
     roleId: v.string(),
     organizationId: v.id("organizations"),
-    scopeType: policyScopeType,
+    scopeType: policyScopeTypeValidator,
     workspaceId: v.optional(v.id("workspaces")),
     targetAccountId: v.optional(v.id("accounts")),
     clientId: v.optional(v.string()),
-    status: toolRoleBindingStatus,
+    status: toolRoleBindingStatusValidator,
     expiresAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -396,14 +354,14 @@ export default defineSchema({
   sourceCredentials: defineTable({
     bindingId: v.string(), // domain ID: bind_<uuid>
     credentialId: v.string(), // domain ID: conn_<uuid>
-    scopeType: credentialScopeType,
+    scopeType: credentialScopeTypeValidator,
     accountId: v.optional(v.id("accounts")),
     organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
     sourceKey: v.string(),
-    provider: credentialProvider,
-    secretJson: jsonObject,
-    overridesJson: v.optional(jsonObject),
+    provider: credentialProviderValidator,
+    secretJson: jsonObjectValidator,
+    overridesJson: v.optional(jsonObjectValidator),
     boundAuthFingerprint: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -430,13 +388,13 @@ export default defineSchema({
   // - Enforce name uniqueness per owner scope.
   toolSources: defineTable({
     sourceId: v.string(), // domain ID: src_<uuid>
-    scopeType: toolSourceScopeType,
+    scopeType: toolSourceScopeTypeValidator,
     organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
     name: v.string(),
-    type: toolSourceType,
+    type: toolSourceTypeValidator,
     configVersion: v.number(),
-    config: jsonObject,
+    config: jsonObjectValidator,
     specHash: v.optional(v.string()),
     authFingerprint: v.optional(v.string()),
     enabled: v.boolean(),
@@ -527,7 +485,7 @@ export default defineSchema({
     normalizedPath: v.string(),
     aliases: v.array(v.string()),
     description: v.string(),
-    approval: toolApprovalMode,
+    approval: toolApprovalModeValidator,
     source: v.optional(v.string()),
     searchText: v.string(),
     displayInput: v.optional(v.string()),
@@ -577,10 +535,10 @@ export default defineSchema({
   // Rows are scope-aware and can be shared across account/workspace/org contexts.
   storageInstances: defineTable({
     instanceId: v.string(),
-    scopeType: storageScopeType,
-    durability: storageDurability,
-    status: storageInstanceStatus,
-    provider: storageProvider,
+    scopeType: storageScopeTypeValidator,
+    durability: storageDurabilityValidator,
+    status: storageInstanceStatusValidator,
+    provider: storageProviderValidator,
     backendKey: v.string(),
     organizationId: v.id("organizations"),
     workspaceId: v.optional(v.id("workspaces")),
@@ -626,8 +584,8 @@ export default defineSchema({
   accountLinks: defineTable({
     sourceAccountId: v.id("accounts"),
     targetAccountId: v.id("accounts"),
-    sourceProvider: accountProvider,
-    targetProvider: accountProvider,
+    sourceProvider: accountProviderValidator,
+    targetProvider: accountProviderValidator,
     linkReason: v.union(v.literal("anonymous_claim")),
     createdAt: v.number(),
     updatedAt: v.number(),
