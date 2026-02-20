@@ -1,11 +1,64 @@
 import { z } from "zod";
 
 type JsonSchema = Record<string, unknown>;
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function mergeSchemaWithFallback(schema: unknown, fallback: JsonSchema): JsonSchema {
+  if (!isRecord(schema)) {
+    return fallback;
+  }
+
+  const merged: JsonSchema = { ...schema };
+
+  if (typeof fallback.description === "string" && typeof merged.description !== "string") {
+    merged.description = fallback.description;
+  }
+
+  const schemaProps = isRecord(merged.properties) ? { ...merged.properties } : {};
+  const fallbackProps = isRecord(fallback.properties) ? fallback.properties : {};
+  for (const [key, fallbackProp] of Object.entries(fallbackProps)) {
+    const currentProp = schemaProps[key];
+    if (!isRecord(currentProp)) {
+      schemaProps[key] = fallbackProp;
+      continue;
+    }
+
+    if (isRecord(fallbackProp)) {
+      schemaProps[key] = {
+        ...fallbackProp,
+        ...currentProp,
+        ...(typeof fallbackProp.description === "string" && typeof currentProp.description !== "string"
+          ? { description: fallbackProp.description }
+          : {}),
+      };
+    }
+  }
+  if (Object.keys(schemaProps).length > 0) {
+    merged.properties = schemaProps;
+  }
+
+  if (!Array.isArray(merged.required) && Array.isArray(fallback.required)) {
+    merged.required = fallback.required;
+  }
+  if (!("additionalProperties" in merged) && "additionalProperties" in fallback) {
+    merged.additionalProperties = fallback.additionalProperties;
+  }
+
+  return merged;
+}
 
 function toJsonSchema(schema: z.ZodTypeAny, fallback: JsonSchema): JsonSchema {
   const maybeToJsonSchema = (z as unknown as { toJSONSchema?: (value: z.ZodTypeAny) => unknown }).toJSONSchema;
   if (typeof maybeToJsonSchema === "function") {
-    return maybeToJsonSchema(schema) as JsonSchema;
+    try {
+      return mergeSchemaWithFallback(maybeToJsonSchema(schema), fallback);
+    } catch {
+      return fallback;
+    }
   }
 
   return fallback;
@@ -15,6 +68,15 @@ export const storageScopeSchema = z.enum(["scratch", "account", "workspace", "or
 export const storageDurabilitySchema = z.enum(["ephemeral", "durable"]);
 export const storageStatusSchema = z.enum(["active", "closed", "deleted"]);
 export const storageProviderSchema = z.enum(["agentfs-local", "agentfs-cloudflare"]);
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(jsonValueSchema),
+  z.record(jsonValueSchema),
+]));
 
 export const storageInstanceSchema = z.object({
   id: z.string(),
@@ -165,12 +227,12 @@ export const kvGetOutputSchema = z.object({
   instanceId: z.string(),
   key: z.string(),
   found: z.boolean(),
-  value: z.unknown().optional(),
+  value: jsonValueSchema.optional(),
 });
 
 export const kvSetInputSchema = fsAccessSchema.extend({
   key: z.string(),
-  value: z.unknown(),
+  value: jsonValueSchema,
 });
 
 export const kvSetOutputSchema = z.object({
@@ -186,7 +248,7 @@ export const kvListInputSchema = fsAccessSchema.extend({
 
 export const kvListOutputSchema = z.object({
   instanceId: z.string(),
-  items: z.array(z.object({ key: z.string(), value: z.unknown() })),
+  items: z.array(z.object({ key: z.string(), value: jsonValueSchema })),
   total: z.number(),
 });
 
@@ -200,6 +262,20 @@ export const kvDeleteOutputSchema = z.object({
   ok: z.boolean(),
 });
 
+export const kvIncrInputSchema = fsAccessSchema.extend({
+  key: z.string(),
+  by: z.coerce.number().optional(),
+  initial: z.coerce.number().optional(),
+});
+
+export const kvIncrOutputSchema = z.object({
+  instanceId: z.string(),
+  key: z.string(),
+  by: z.number(),
+  previous: z.number(),
+  value: z.number(),
+});
+
 export const sqliteQueryInputSchema = fsAccessSchema.extend({
   sql: z.string(),
   params: z.array(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
@@ -210,10 +286,54 @@ export const sqliteQueryInputSchema = fsAccessSchema.extend({
 export const sqliteQueryOutputSchema = z.object({
   instanceId: z.string(),
   mode: z.enum(["read", "write"]),
-  rows: z.array(z.record(z.unknown())).optional(),
+  rows: z.array(z.record(jsonValueSchema)).optional(),
   rowCount: z.number(),
   changes: z.number().optional(),
 });
+
+const sqliteScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+
+export const sqliteCapabilitiesInputSchema = fsAccessSchema.extend({});
+
+export const sqliteCapabilitiesOutputSchema = z.object({
+  instanceId: z.string(),
+  provider: storageProviderSchema,
+  maxBindVariables: z.number(),
+  supportsJsonEach: z.boolean(),
+  supportsInsertRowsTool: z.boolean(),
+  guidance: z.array(z.string()),
+});
+
+export const sqliteInsertRowsInputSchema = fsAccessSchema.extend({
+  table: z.string(),
+  columns: z.array(z.string()).min(1),
+  rows: z.array(z.array(sqliteScalarSchema)).min(1),
+  onConflict: z.enum(["none", "ignore", "replace"]).optional(),
+  chunkSize: z.coerce.number().optional(),
+});
+
+export const sqliteInsertRowsOutputSchema = z.object({
+  instanceId: z.string(),
+  table: z.string(),
+  columns: z.array(z.string()),
+  rowsReceived: z.number(),
+  rowsProcessed: z.number(),
+  chunkCount: z.number(),
+  rowsPerChunk: z.number(),
+  maxBindVariables: z.number(),
+  changes: z.number(),
+});
+
+const jsonValueJsonSchema = {
+  oneOf: [
+    { type: "string" },
+    { type: "number" },
+    { type: "boolean" },
+    { type: "null" },
+    { type: "array", items: {} },
+    { type: "object", additionalProperties: {} },
+  ],
+};
 
 export const storageOpenInputJsonSchema = toJsonSchema(storageOpenInputSchema, {
   type: "object",
@@ -280,8 +400,15 @@ export const storageDeleteOutputJsonSchema = storageCloseOutputJsonSchema;
 
 function fsAccessJsonProperties() {
   return {
-    instanceId: { type: "string" },
-    scopeType: { type: "string", enum: ["scratch", "account", "workspace", "organization"] },
+    instanceId: {
+      type: "string",
+      description: "Storage instance identifier. Recommended for cross-task/cross-run persistence.",
+    },
+    scopeType: {
+      type: "string",
+      enum: ["scratch", "account", "workspace", "organization"],
+      description: "Scope used to open/select a default instance when instanceId is omitted.",
+    },
   };
 }
 
@@ -438,7 +565,7 @@ export const kvGetOutputJsonSchema = toJsonSchema(kvGetOutputSchema, {
     instanceId: { type: "string" },
     key: { type: "string" },
     found: { type: "boolean" },
-    value: {},
+    value: jsonValueJsonSchema,
   },
   required: ["instanceId", "key", "found"],
   additionalProperties: false,
@@ -449,7 +576,7 @@ export const kvSetInputJsonSchema = toJsonSchema(kvSetInputSchema, {
   properties: {
     ...fsAccessJsonProperties(),
     key: { type: "string" },
-    value: {},
+    value: jsonValueJsonSchema,
   },
   required: ["key", "value"],
   additionalProperties: false,
@@ -480,7 +607,18 @@ export const kvListOutputJsonSchema = toJsonSchema(kvListOutputSchema, {
   type: "object",
   properties: {
     instanceId: { type: "string" },
-    items: { type: "array", items: { type: "object" } },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          key: { type: "string" },
+          value: jsonValueJsonSchema,
+        },
+        required: ["key", "value"],
+        additionalProperties: false,
+      },
+    },
     total: { type: "number" },
   },
   required: ["instanceId", "items", "total"],
@@ -508,19 +646,52 @@ export const kvDeleteOutputJsonSchema = toJsonSchema(kvDeleteOutputSchema, {
   additionalProperties: false,
 });
 
-export const sqliteQueryInputJsonSchema = toJsonSchema(sqliteQueryInputSchema, {
+export const kvIncrInputJsonSchema = toJsonSchema(kvIncrInputSchema, {
   type: "object",
   properties: {
     ...fsAccessJsonProperties(),
-    sql: { type: "string" },
+    key: { type: "string" },
+    by: { type: "number" },
+    initial: { type: "number" },
+  },
+  required: ["key"],
+  additionalProperties: false,
+});
+
+export const kvIncrOutputJsonSchema = toJsonSchema(kvIncrOutputSchema, {
+  type: "object",
+  properties: {
+    instanceId: { type: "string" },
+    key: { type: "string" },
+    by: { type: "number" },
+    previous: { type: "number" },
+    value: { type: "number" },
+  },
+  required: ["instanceId", "key", "by", "previous", "value"],
+  additionalProperties: false,
+});
+
+export const sqliteQueryInputJsonSchema = toJsonSchema(sqliteQueryInputSchema, {
+  type: "object",
+  description:
+    "Execute SQL on a storage-backed SQLite database. Use instanceId to target the same database across separate tasks or sessions.",
+  properties: {
+    ...fsAccessJsonProperties(),
+    sql: { type: "string", description: "SQL statement text to execute." },
     params: {
       type: "array",
+      description:
+        "Positional SQL parameters. Keep per-call bind count modest (for large inserts, batch rows into smaller chunks or pass one JSON payload and expand with json_each(?)).",
       items: {
         oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }, { type: "null" }],
       },
     },
-    mode: { type: "string", enum: ["read", "write"] },
-    maxRows: { type: "number" },
+    mode: {
+      type: "string",
+      enum: ["read", "write"],
+      description: "Use 'write' for CREATE/INSERT/UPDATE/DELETE statements.",
+    },
+    maxRows: { type: "number", description: "Read mode row cap for result payload size." },
   },
   required: ["sql"],
   additionalProperties: false,
@@ -531,10 +702,90 @@ export const sqliteQueryOutputJsonSchema = toJsonSchema(sqliteQueryOutputSchema,
   properties: {
     instanceId: { type: "string" },
     mode: { type: "string", enum: ["read", "write"] },
-    rows: { type: "array", items: { type: "object" } },
+    rows: { type: "array", items: { type: "object", additionalProperties: jsonValueJsonSchema } },
     rowCount: { type: "number" },
     changes: { type: "number" },
   },
   required: ["instanceId", "mode", "rowCount"],
+  additionalProperties: false,
+});
+
+export const sqliteCapabilitiesInputJsonSchema = toJsonSchema(sqliteCapabilitiesInputSchema, {
+  type: "object",
+  description: "Get provider-specific SQLite execution capabilities and batching guidance.",
+  properties: {
+    ...fsAccessJsonProperties(),
+  },
+  additionalProperties: false,
+});
+
+export const sqliteCapabilitiesOutputJsonSchema = toJsonSchema(sqliteCapabilitiesOutputSchema, {
+  type: "object",
+  properties: {
+    instanceId: { type: "string" },
+    provider: { type: "string", enum: ["agentfs-local", "agentfs-cloudflare"] },
+    maxBindVariables: { type: "number" },
+    supportsJsonEach: { type: "boolean" },
+    supportsInsertRowsTool: { type: "boolean" },
+    guidance: { type: "array", items: { type: "string" } },
+  },
+  required: [
+    "instanceId",
+    "provider",
+    "maxBindVariables",
+    "supportsJsonEach",
+    "supportsInsertRowsTool",
+    "guidance",
+  ],
+  additionalProperties: false,
+});
+
+export const sqliteInsertRowsInputJsonSchema = toJsonSchema(sqliteInsertRowsInputSchema, {
+  type: "object",
+  description:
+    "Insert tabular rows with automatic chunking to stay under SQLite bind-variable limits. Prefer this over huge VALUES(...) statements.",
+  properties: {
+    ...fsAccessJsonProperties(),
+    table: { type: "string", description: "Target table name." },
+    columns: { type: "array", items: { type: "string" }, minItems: 1 },
+    rows: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "array",
+        items: { oneOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }, { type: "null" }] },
+      },
+    },
+    onConflict: { type: "string", enum: ["none", "ignore", "replace"] },
+    chunkSize: { type: "number", description: "Optional max rows per insert chunk." },
+  },
+  required: ["table", "columns", "rows"],
+  additionalProperties: false,
+});
+
+export const sqliteInsertRowsOutputJsonSchema = toJsonSchema(sqliteInsertRowsOutputSchema, {
+  type: "object",
+  properties: {
+    instanceId: { type: "string" },
+    table: { type: "string" },
+    columns: { type: "array", items: { type: "string" } },
+    rowsReceived: { type: "number" },
+    rowsProcessed: { type: "number" },
+    chunkCount: { type: "number" },
+    rowsPerChunk: { type: "number" },
+    maxBindVariables: { type: "number" },
+    changes: { type: "number" },
+  },
+  required: [
+    "instanceId",
+    "table",
+    "columns",
+    "rowsReceived",
+    "rowsProcessed",
+    "chunkCount",
+    "rowsPerChunk",
+    "maxBindVariables",
+    "changes",
+  ],
   additionalProperties: false,
 });

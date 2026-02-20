@@ -62,3 +62,9 @@ export const storageDurabilityValidator = v.union(v.literal("ephemeral"), v.lite
 export const storageInstanceStatusValidator = v.union(v.literal("active"), v.literal("closed"), v.literal("deleted"));
 
 export const storageProviderValidator = v.union(v.literal("agentfs-local"), v.literal("agentfs-cloudflare"));
+
+export const storageAccessTypeValidator = v.union(
+  v.literal("opened"),
+  v.literal("provided"),
+  v.literal("accessed"),
+);

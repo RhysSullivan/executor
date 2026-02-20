@@ -6,6 +6,8 @@ export {
   getTaskInWorkspace,
   markTaskRunning,
   markTaskFinished,
+  setTaskStorageDefaultInstance,
+  trackTaskStorageAccess,
 } from "./database/tasks";
 export {
   createApproval,

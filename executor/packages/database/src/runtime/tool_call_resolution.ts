@@ -159,7 +159,9 @@ function unknownToolErrorMessage(toolPath: string, suggestions: string[]): strin
     : "";
   const queryHint = toolPath.split(".").filter(Boolean).join(" ");
   const discoverHint = `\nTry: const found = await tools.discover({ query: "${queryHint}", depth: 1, limit: 12 });`;
-  return `Unknown tool: ${toolPath}${suggestionText}${discoverHint}`;
+  const catalogHint = `\nOr: const list = await tools.catalog.tools({ query: "${queryHint}", limit: 20 });`;
+  const proxyHint = "\nNote: tools.* uses a lazy proxy, so property introspection (Object.keys/typeof on arbitrary paths) is not a reliable availability check.";
+  return `Unknown tool: ${toolPath}${suggestionText}${discoverHint}${catalogHint}${proxyHint}`;
 }
 
 export async function resolveToolForCall(

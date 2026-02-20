@@ -24,12 +24,18 @@ import {
   kvDeleteOutputJsonSchema,
   kvGetInputJsonSchema,
   kvGetOutputJsonSchema,
+  kvIncrInputJsonSchema,
+  kvIncrOutputJsonSchema,
   kvListInputJsonSchema,
   kvListOutputJsonSchema,
   kvSetInputJsonSchema,
   kvSetOutputJsonSchema,
   sqliteQueryInputJsonSchema,
   sqliteQueryOutputJsonSchema,
+  sqliteCapabilitiesInputJsonSchema,
+  sqliteCapabilitiesOutputJsonSchema,
+  sqliteInsertRowsInputJsonSchema,
+  sqliteInsertRowsOutputJsonSchema,
   storageCloseInputJsonSchema,
   storageCloseOutputJsonSchema,
   storageDeleteInputJsonSchema,
@@ -94,7 +100,7 @@ registerSystemTool(
 
 registerSystemTool(
   "storage.open",
-  "Open an existing storage instance or create a new one when instanceId is omitted.",
+  "Open an existing storage instance or create a new one when instanceId is omitted. Saves a default instance for this task; pass instanceId explicitly when you need to reuse the same storage across separate tasks/runs.",
   {
     inputSchema: storageOpenInputJsonSchema,
     outputSchema: storageOpenOutputJsonSchema,
@@ -130,7 +136,7 @@ registerSystemTool(
 
 registerSystemTool(
   "fs.read",
-  "Read a file from a storage instance.",
+  "Read a file from a storage instance. Reuses the current default instance when instanceId is omitted.",
   {
     inputSchema: fsReadInputJsonSchema,
     outputSchema: fsReadOutputJsonSchema,
@@ -139,7 +145,7 @@ registerSystemTool(
 
 registerSystemTool(
   "fs.write",
-  "Write file contents into a storage instance.",
+  "Write file contents into a storage instance. Reuses the current default instance when instanceId is omitted.",
   {
     inputSchema: fsWriteInputJsonSchema,
     outputSchema: fsWriteOutputJsonSchema,
@@ -201,8 +207,44 @@ registerSystemTool(
 );
 
 registerSystemTool(
+  "kv.put",
+  "Alias for kv.set. Write a key-value entry into a storage instance.",
+  {
+    inputSchema: kvSetInputJsonSchema,
+    outputSchema: kvSetOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.create",
+  "Alias for kv.set. Create a key-value entry in a storage instance.",
+  {
+    inputSchema: kvSetInputJsonSchema,
+    outputSchema: kvSetOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.update",
+  "Alias for kv.set. Update a key-value entry in a storage instance.",
+  {
+    inputSchema: kvSetInputJsonSchema,
+    outputSchema: kvSetOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
   "kv.list",
   "List key-value entries by prefix from a storage instance.",
+  {
+    inputSchema: kvListInputJsonSchema,
+    outputSchema: kvListOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.keys",
+  "Alias for kv.list. List keys by prefix from a storage instance.",
   {
     inputSchema: kvListInputJsonSchema,
     outputSchema: kvListOutputJsonSchema,
@@ -219,10 +261,100 @@ registerSystemTool(
 );
 
 registerSystemTool(
+  "kv.del",
+  "Alias for kv.delete. Delete a key-value entry from a storage instance.",
+  {
+    inputSchema: kvDeleteInputJsonSchema,
+    outputSchema: kvDeleteOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.has",
+  "Alias for kv.get. Check whether a key exists in a storage instance.",
+  {
+    inputSchema: kvGetInputJsonSchema,
+    outputSchema: kvGetOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.exists",
+  "Alias for kv.get. Check whether a key exists in a storage instance.",
+  {
+    inputSchema: kvGetInputJsonSchema,
+    outputSchema: kvGetOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.value",
+  "Alias for kv.get. Read a key-value entry from a storage instance.",
+  {
+    inputSchema: kvGetInputJsonSchema,
+    outputSchema: kvGetOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.incr",
+  "Increment a numeric key-value entry and return the updated value. Creates the key from initial when missing.",
+  {
+    inputSchema: kvIncrInputJsonSchema,
+    outputSchema: kvIncrOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "kv.decr",
+  "Decrement a numeric key-value entry and return the updated value. Creates the key from initial when missing.",
+  {
+    inputSchema: kvIncrInputJsonSchema,
+    outputSchema: kvIncrOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
   "sqlite.query",
-  "Run SQL queries against the storage instance database.",
+  "Run SQL against storage-backed SQLite. Use mode='write' for mutating SQL. For multi-task persistence, pass instanceId explicitly. For bulk inserts, chunk into smaller batches or use json_each(?) with a JSON payload to avoid SQLite bind-variable limits.",
   {
     inputSchema: sqliteQueryInputJsonSchema,
     outputSchema: sqliteQueryOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "sqlite.exec",
+  "Alias for sqlite.query. Run SQL against storage-backed SQLite with the same guidance on mode, instanceId reuse, and bulk inserts via chunking or json_each(?).",
+  {
+    inputSchema: sqliteQueryInputJsonSchema,
+    outputSchema: sqliteQueryOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "sqlite.capabilities",
+  "Return SQLite execution limits and import guidance for the active storage provider.",
+  {
+    inputSchema: sqliteCapabilitiesInputJsonSchema,
+    outputSchema: sqliteCapabilitiesOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "sqlite.insert_rows",
+  "Insert rows into a table with automatic chunking under bind-variable limits. Use for bulk imports instead of huge VALUES clauses.",
+  {
+    inputSchema: sqliteInsertRowsInputJsonSchema,
+    outputSchema: sqliteInsertRowsOutputJsonSchema,
+  },
+);
+
+registerSystemTool(
+  "sqlite.bulk_insert",
+  "Alias for sqlite.insert_rows. Bulk insert rows with automatic chunking.",
+  {
+    inputSchema: sqliteInsertRowsInputJsonSchema,
+    outputSchema: sqliteInsertRowsOutputJsonSchema,
   },
 );

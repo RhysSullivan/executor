@@ -2,9 +2,45 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { mapTask } from "../../src/database/mappers";
 import { getTaskDoc } from "../../src/database/readers";
-import { completedTaskStatusValidator, jsonObjectValidator } from "../../src/database/validators";
+import {
+  completedTaskStatusValidator,
+  jsonObjectValidator,
+  storageAccessTypeValidator,
+  storageScopeTypeValidator,
+} from "../../src/database/validators";
 import { DEFAULT_TASK_TIMEOUT_MS } from "../../src/task/constants";
 import { isTerminalTaskStatus } from "../../src/task/status";
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    .map((entry) => entry.trim());
+}
+
+function pushUniqueString(items: string[], value: string, maxItems = 50): string[] {
+  const normalized = value.trim();
+  if (!normalized) {
+    return items;
+  }
+
+  const withoutExisting = items.filter((entry) => entry !== normalized);
+  const next = [...withoutExisting, normalized];
+  if (next.length <= maxItems) {
+    return next;
+  }
+
+  return next.slice(next.length - maxItems);
+}
 
 export const createTask = internalMutation({
   args: {
@@ -136,6 +172,109 @@ export const markTaskFinished = internalMutation({
       exitCode: args.exitCode,
       error: args.error,
       completedAt: now,
+      updatedAt: now,
+    });
+
+    const updated = await getTaskDoc(ctx, args.taskId);
+    return updated ? mapTask(updated) : null;
+  },
+});
+
+export const setTaskStorageDefaultInstance = internalMutation({
+  args: {
+    taskId: v.string(),
+    scopeType: storageScopeTypeValidator,
+    instanceId: v.string(),
+    setCurrent: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const doc = await getTaskDoc(ctx, args.taskId);
+    if (!doc) {
+      return null;
+    }
+
+    const now = Date.now();
+    const metadata = asRecord(doc.metadata);
+    const storage = asRecord(metadata.storage);
+    const defaultsByScope = asRecord(storage.defaultInstanceByScope);
+
+    defaultsByScope[args.scopeType] = args.instanceId;
+
+    const nextStorage: Record<string, unknown> = {
+      ...storage,
+      defaultInstanceByScope: defaultsByScope,
+    };
+
+    if (args.setCurrent !== false) {
+      nextStorage.currentInstanceId = args.instanceId;
+      nextStorage.currentScopeType = args.scopeType;
+    }
+
+    await ctx.db.patch(doc._id, {
+      metadata: {
+        ...metadata,
+        storage: nextStorage,
+      },
+      updatedAt: now,
+    });
+
+    const updated = await getTaskDoc(ctx, args.taskId);
+    return updated ? mapTask(updated) : null;
+  },
+});
+
+export const trackTaskStorageAccess = internalMutation({
+  args: {
+    taskId: v.string(),
+    instanceId: v.string(),
+    scopeType: v.optional(storageScopeTypeValidator),
+    accessType: storageAccessTypeValidator,
+  },
+  handler: async (ctx, args) => {
+    const doc = await getTaskDoc(ctx, args.taskId);
+    if (!doc) {
+      return null;
+    }
+
+    const now = Date.now();
+    const metadata = asRecord(doc.metadata);
+    const storage = asRecord(metadata.storage);
+
+    const accessedInstanceIds = pushUniqueString(
+      asStringArray(storage.accessedInstanceIds),
+      args.instanceId,
+    );
+
+    const nextStorage: Record<string, unknown> = {
+      ...storage,
+      accessedInstanceIds,
+      lastAccessedInstanceId: args.instanceId,
+      lastAccessedAt: now,
+    };
+
+    if (args.accessType === "opened") {
+      nextStorage.openedInstanceIds = pushUniqueString(
+        asStringArray(storage.openedInstanceIds),
+        args.instanceId,
+      );
+    }
+
+    if (args.accessType === "provided") {
+      nextStorage.providedInstanceIds = pushUniqueString(
+        asStringArray(storage.providedInstanceIds),
+        args.instanceId,
+      );
+    }
+
+    if (args.scopeType) {
+      nextStorage.lastAccessedScopeType = args.scopeType;
+    }
+
+    await ctx.db.patch(doc._id, {
+      metadata: {
+        ...metadata,
+        storage: nextStorage,
+      },
       updatedAt: now,
     });
 

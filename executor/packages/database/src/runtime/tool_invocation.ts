@@ -12,6 +12,10 @@ import type {
   ToolRunContext,
 } from "../../../core/src/types";
 import { executeSerializedTool, parseSerializedTool } from "../../../core/src/tool/source-serialization";
+import {
+  compactArgTypeHintFromSchema,
+  compactReturnTypeHintFromSchema,
+} from "../../../core/src/type-hints";
 import { describeError } from "../../../core/src/utils";
 import {
   decodeToolCallControlSignal,
@@ -239,6 +243,53 @@ async function listRegistryNamespaces(
   return parsed.success ? parsed.data : [];
 }
 
+function toolNamespace(path: string): string {
+  const normalized = path.trim().toLowerCase();
+  if (!normalized) return "default";
+  const [head] = normalized.split(".");
+  return head && head.length > 0 ? head : "default";
+}
+
+function matchesToolQuery(
+  query: string,
+  args: { path: string; description?: string; source?: string },
+): boolean {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return true;
+
+  const haystack = `${args.path} ${args.description ?? ""} ${args.source ?? ""}`.toLowerCase();
+  return normalizedQuery
+    .split(/\s+/)
+    .filter((token) => token.length > 0)
+    .every((token) => haystack.includes(token));
+}
+
+function getToolHints(tool: ToolDefinition): { inputHint: string; outputHint: string } {
+  const hintedInput = typeof tool.typing?.inputHint === "string" ? tool.typing.inputHint.trim() : "";
+  const hintedOutput = typeof tool.typing?.outputHint === "string" ? tool.typing.outputHint.trim() : "";
+
+  const inputHint = hintedInput.length > 0
+    ? hintedInput
+    : compactArgTypeHintFromSchema(tool.typing?.inputSchema ?? {});
+  const outputHint = hintedOutput.length > 0
+    ? hintedOutput
+    : compactReturnTypeHintFromSchema(tool.typing?.outputSchema ?? {});
+
+  return {
+    inputHint: inputHint.trim().length > 0 ? inputHint : "{}",
+    outputHint: outputHint.trim().length > 0 ? outputHint : "unknown",
+  };
+}
+
+function toBaseDiscoveryTyping(tool: ToolDefinition): DiscoveryTypingPayload {
+  const inputSchemaJson = toSchemaJson(tool.typing?.inputSchema);
+  const outputSchemaJson = toSchemaJson(tool.typing?.outputSchema);
+  return {
+    ...(inputSchemaJson ? { inputSchemaJson } : {}),
+    ...(outputSchemaJson ? { outputSchemaJson } : {}),
+  };
+}
+
 async function searchRegistryTools(
   ctx: ActionCtx,
   args: {
@@ -403,13 +454,12 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         accountId: task.accountId,
         clientId: task.clientId,
       });
-      if (buildIdResult.isErr()) {
-        throw buildIdResult.error;
-      }
-      const buildId = buildIdResult.value;
-      const state = await ctx.runQuery(internal.toolRegistry.getState, {
-        workspaceId: task.workspaceId,
-      }) as unknown as { openApiRefHintTables?: unknown } | null;
+      const buildId = buildIdResult.isErr() ? undefined : buildIdResult.value;
+      const state = buildId
+        ? await ctx.runQuery(internal.toolRegistry.getState, {
+            workspaceId: task.workspaceId,
+          }) as unknown as { openApiRefHintTables?: unknown } | null
+        : null;
       const refHintLookup = buildOpenApiRefHintLookup(state?.openApiRefHintTables);
 
       const payload = typeof input === "string"
@@ -439,11 +489,45 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         const parsedInput = catalogNamespacesInputSchema.safeParse(payload);
         const limitInput = parsedInput.success ? parsedInput.data.limit : undefined;
         const limit = Math.max(1, Math.min(200, Number(limitInput ?? 200)));
-        const namespaces = await listRegistryNamespaces(ctx, {
-          workspaceId: task.workspaceId,
-          buildId,
-          limit,
-        });
+        const registryNamespaces = buildId
+          ? await listRegistryNamespaces(ctx, {
+              workspaceId: task.workspaceId,
+              buildId,
+              limit: 200,
+            })
+          : [];
+
+        const namespaceMap = new Map<string, { toolCount: number; samplePaths: string[] }>();
+        for (const entry of registryNamespaces) {
+          namespaceMap.set(entry.namespace, {
+            toolCount: entry.toolCount,
+            samplePaths: [...entry.samplePaths],
+          });
+        }
+
+        for (const baseTool of baseTools.values()) {
+          if (!isAllowed(baseTool.path, baseTool.approval, baseTool.source)) {
+            continue;
+          }
+
+          const namespace = toolNamespace(baseTool.path);
+          const current = namespaceMap.get(namespace) ?? { toolCount: 0, samplePaths: [] };
+          current.toolCount += 1;
+          if (!current.samplePaths.includes(baseTool.path)) {
+            current.samplePaths.push(baseTool.path);
+          }
+          namespaceMap.set(namespace, current);
+        }
+
+        const namespaces = [...namespaceMap.entries()]
+          .map(([namespace, meta]) => ({
+            namespace,
+            toolCount: meta.toolCount,
+            samplePaths: [...meta.samplePaths].sort((a, b) => a.localeCompare(b)).slice(0, 3),
+          }))
+          .sort((a, b) => a.namespace.localeCompare(b.namespace))
+          .slice(0, limit);
+
         const output = catalogNamespacesOutputSchema.parse({
           namespaces,
           total: namespaces.length,
@@ -459,29 +543,47 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
         const limit = Math.max(1, Math.min(200, Number(limitInput ?? 50)));
         const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
 
-        const raw = query
-          ? await searchRegistryTools(ctx, {
-              workspaceId: task.workspaceId,
-              buildId,
-              query,
-              limit,
-              includeSchemas,
-            })
-          : namespace
-            ? await listRegistryToolsByNamespace(ctx, {
+        const raw = !buildId
+          ? []
+          : query
+            ? await searchRegistryTools(ctx, {
                 workspaceId: task.workspaceId,
                 buildId,
-                namespace,
+                query,
                 limit,
                 includeSchemas,
               })
-            : [];
+            : namespace
+              ? await listRegistryToolsByNamespace(ctx, {
+                  workspaceId: task.workspaceId,
+                  buildId,
+                  namespace,
+                  limit,
+                  includeSchemas,
+                })
+              : [];
+
+        const baseMatches = [...baseTools.values()]
+          .filter((baseTool) => {
+            if (namespace && toolNamespace(baseTool.path) !== namespace) {
+              return false;
+            }
+            if (query && !matchesToolQuery(query, {
+              path: baseTool.path,
+              description: baseTool.description,
+              source: baseTool.source,
+            })) {
+              return false;
+            }
+
+            return isAllowed(baseTool.path, baseTool.approval, baseTool.source);
+          })
+          .sort((left, right) => left.path.localeCompare(right.path));
 
         const refHintTable: Record<string, string> = {};
-        const results = raw
+        const registryResults = raw
           .filter((entry) => !namespace || String(entry.preferredPath ?? entry.path ?? "").toLowerCase().startsWith(`${namespace}.`))
           .filter((entry) => isAllowed(entry.path, entry.approval, entry.source))
-          .slice(0, limit)
           .map((entry) => {
             const preferredPath = entry.preferredPath ?? entry.path;
             const discoveryTyping = resolveEntryDiscoveryTyping(entry, refHintLookup);
@@ -504,6 +606,34 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
             };
           });
 
+        const baseResults = baseMatches.map((entry) => {
+          const hints = getToolHints(entry);
+          const typing = toBaseDiscoveryTyping(entry);
+          return {
+            path: entry.path,
+            source: entry.source,
+            approval: entry.approval,
+            description: entry.description,
+            ...(includeSchemas
+              ? (Object.keys(typing).length > 0 ? { typing } : {})
+              : {
+                  inputHint: hints.inputHint,
+                  outputHint: hints.outputHint,
+                }),
+          };
+        });
+
+        const mergedByPath = new Map<string, (typeof registryResults)[number]>();
+        for (const entry of baseResults) {
+          mergedByPath.set(entry.path, entry);
+        }
+        for (const entry of registryResults) {
+          if (!mergedByPath.has(entry.path)) {
+            mergedByPath.set(entry.path, entry);
+          }
+        }
+        const results = [...mergedByPath.values()].slice(0, limit);
+
         const output = catalogToolsOutputSchema.parse({
           ...(Object.keys(refHintTable).length > 0 ? { refHintTable } : {}),
           results,
@@ -519,20 +649,31 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
       const limit = Math.max(1, Math.min(50, Number(limitInput ?? 8)));
       const compact = parsedInput.success ? (parsedInput.data.compact ?? true) : true;
       const includeSchemas = parsedInput.success ? (parsedInput.data.includeSchemas ?? false) : false;
-      const hits = await searchRegistryTools(ctx, {
-        workspaceId: task.workspaceId,
-        buildId,
-        query,
-        limit: Math.max(limit * 2, limit),
-        includeSchemas,
-      });
+      const hits = buildId
+        ? await searchRegistryTools(ctx, {
+            workspaceId: task.workspaceId,
+            buildId,
+            query,
+            limit: Math.max(limit * 2, limit),
+            includeSchemas,
+          })
+        : [];
+
+      const baseHits = [...baseTools.values()]
+        .filter((baseTool) => matchesToolQuery(query, {
+          path: baseTool.path,
+          description: baseTool.description,
+          source: baseTool.source,
+        }))
+        .filter((baseTool) => isAllowed(baseTool.path, baseTool.approval, baseTool.source))
+        .sort((left, right) => left.path.localeCompare(right.path));
 
       const filtered = hits
         .filter((entry) => isAllowed(entry.path, entry.approval, entry.source))
-        .slice(0, limit);
+        .slice(0, Math.max(limit * 2, limit));
 
       const refHintTable: Record<string, string> = {};
-      const results = filtered.map((entry) => {
+      const registryResults = filtered.map((entry) => {
         const preferredPath = entry.preferredPath ?? entry.path;
         const description = compact ? String(entry.description ?? "").split("\n")[0] : entry.description;
         const discoveryTyping = resolveEntryDiscoveryTyping(entry, refHintLookup);
@@ -554,6 +695,34 @@ export async function invokeTool(ctx: ActionCtx, task: TaskRecord, call: ToolCal
               }),
         };
       });
+
+      const baseResults = baseHits.map((entry) => {
+        const hints = getToolHints(entry);
+        const typing = toBaseDiscoveryTyping(entry);
+        return {
+          path: entry.path,
+          source: entry.source,
+          approval: entry.approval,
+          description: compact ? String(entry.description ?? "").split("\n")[0] : entry.description,
+          ...(includeSchemas
+            ? (Object.keys(typing).length > 0 ? { typing } : {})
+            : {
+                inputHint: hints.inputHint,
+                outputHint: hints.outputHint,
+              }),
+        };
+      });
+
+      const mergedByPath = new Map<string, (typeof registryResults)[number]>();
+      for (const entry of baseResults) {
+        mergedByPath.set(entry.path, entry);
+      }
+      for (const entry of registryResults) {
+        if (!mergedByPath.has(entry.path)) {
+          mergedByPath.set(entry.path, entry);
+        }
+      }
+      const results = [...mergedByPath.values()].slice(0, limit);
 
       const bestPath = results[0]?.path ?? null;
       const output = discoverOutputSchema.parse({

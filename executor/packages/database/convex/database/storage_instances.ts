@@ -14,9 +14,29 @@ const MAX_EPHEMERAL_TTL_HOURS = 24 * 30;
 
 function resolveStorageProvider(): "agentfs-local" | "agentfs-cloudflare" {
   const raw = (process.env.AGENT_STORAGE_PROVIDER ?? "").trim().toLowerCase();
+
+  const isHostedConvexDeployment = [process.env.CONVEX_URL, process.env.CONVEX_SITE_URL]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .some((value) => {
+      try {
+        const hostname = new URL(value).hostname.trim().toLowerCase();
+        return hostname.endsWith(".convex.cloud") || hostname.endsWith(".convex.site");
+      } catch {
+        return false;
+      }
+    });
+
   if (raw === "cloudflare" || raw === "agentfs-cloudflare") {
     return "agentfs-cloudflare";
   }
+
+  if (isHostedConvexDeployment) {
+    throw new Error(
+      "agentfs-local is not supported on hosted Convex deployments because filesystem state is not shared across workers. Set AGENT_STORAGE_PROVIDER=agentfs-cloudflare.",
+    );
+  }
+
   return "agentfs-local";
 }
 

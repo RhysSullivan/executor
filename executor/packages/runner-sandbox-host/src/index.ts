@@ -320,10 +320,13 @@ export class AgentFSStorageObject extends DurableObject<Env> {
         const limit = typeof payload.limit === "number" && Number.isFinite(payload.limit)
           ? Math.max(1, Math.min(500, Math.floor(payload.limit)))
           : 100;
-        const escaped = prefix.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
+        const escaped = prefix
+          .replaceAll("^", "^^")
+          .replaceAll("%", "^%")
+          .replaceAll("_", "^_");
         const rows = this.ctx.storage.sql
           .exec<{ key: string; value: string }>(
-            "SELECT key, value FROM kv_store WHERE key LIKE ? ESCAPE '\\\\' ORDER BY key LIMIT ?",
+            "SELECT key, value FROM kv_store WHERE key LIKE ? ESCAPE '^' ORDER BY key LIMIT ?",
             `${escaped}%`,
             limit,
           )

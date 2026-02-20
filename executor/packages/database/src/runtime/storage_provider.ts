@@ -351,15 +351,19 @@ class AgentFsLocalStorageProvider implements StorageProvider {
   async kvList(instance: StorageInstanceRecord, prefix: string, limit: number): Promise<Array<{ key: string; value: unknown }>> {
     return await this.withDatabase(instance, false, async (db) => {
       await this.ensureKvTable(db);
+      const escapedPrefix = prefix
+        .replaceAll("^", "^^")
+        .replaceAll("%", "^%")
+        .replaceAll("_", "^_");
       const rows = rowsFromSqlResult(
         db.exec(
-          "SELECT key, value FROM kv_store WHERE key LIKE ? ESCAPE '\\\\' ORDER BY key LIMIT ?",
-          [`${prefix.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`, limit],
+          "SELECT key, value FROM kv_store WHERE key LIKE ? ESCAPE '^' ORDER BY key LIMIT ?",
+          [`${escapedPrefix}%`, limit],
         ),
       );
       return rows.map((row) => ({
         key: String(row.key ?? ""),
-        value: typeof row.value === "string" ? JSON.parse(row.value) : undefined,
+        value: typeof row.value === "string" ? JSON.parse(row.value) : null,
       }));
     });
   }
@@ -553,6 +557,40 @@ let localProviderSingleton: AgentFsLocalStorageProvider | null = null;
 let cloudflareProviderSingleton: CloudflareRemoteStorageProvider | null = null;
 let cloudflareStorageProbeStarted = false;
 
+function isHostedConvexHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized.endsWith(".convex.cloud") || normalized.endsWith(".convex.site");
+}
+
+function isHostedConvexDeployment(): boolean {
+  const candidates = [process.env.CONVEX_URL, process.env.CONVEX_SITE_URL]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+
+  for (const candidate of candidates) {
+    try {
+      const url = new URL(candidate);
+      if (isHostedConvexHostname(url.hostname)) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return false;
+}
+
+function assertLocalProviderSupported() {
+  if (!isHostedConvexDeployment()) {
+    return;
+  }
+
+  throw new Error(
+    "agentfs-local is not supported on hosted Convex deployments because filesystem state is not shared across workers. Use AGENT_STORAGE_PROVIDER=agentfs-cloudflare, or run self-hosted Convex for agentfs-local.",
+  );
+}
+
 function startCloudflareStorageProbe(endpoint: string, token: string) {
   if (cloudflareStorageProbeStarted) {
     return;
@@ -594,6 +632,8 @@ function startCloudflareStorageProbe(endpoint: string, token: string) {
 }
 
 function getLocalProvider(): AgentFsLocalStorageProvider {
+  assertLocalProviderSupported();
+
   if (!localProviderSingleton) {
     const baseDir = (process.env.AGENT_STORAGE_ROOT ?? "").trim() || "/tmp/executor-agentfs";
     localProviderSingleton = new AgentFsLocalStorageProvider(baseDir);

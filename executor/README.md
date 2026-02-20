@@ -148,6 +148,10 @@ Important env vars (see root `.env.example` for the base template):
   - `CONVEX_URL`
   - `CONVEX_SITE_URL`
   - `DANGEROUSLY_ALLOW_LOCAL_VM` (`1` in local/self-hosted deployments to allow `local-bun` runtime; production leaves unset for Cloudflare-first behavior)
+- Agent storage:
+  - `AGENT_STORAGE_PROVIDER` (`agentfs-local` for self-hosted/single-host only; hosted Convex requires `agentfs-cloudflare`)
+  - `AGENT_STORAGE_ROOT` (optional local storage root for `agentfs-local`)
+  - `CLOUDFLARE_SANDBOX_RUN_URL` and `CLOUDFLARE_SANDBOX_AUTH_TOKEN` (required when using `agentfs-cloudflare`)
 - WorkOS (optional auth/org features):
   - `WORKOS_CLIENT_ID`
   - `WORKOS_API_KEY`
@@ -225,4 +229,5 @@ executor/
 - `401` on `/mcp`: verify your bearer token issuer matches `MCP_AUTHORIZATION_SERVER`.
 - `401` on `/mcp/anonymous`: pass `API_KEY` from the setup card as `Authorization: Bearer <API_KEY>` (or `x-api-key`).
 - Web UI cannot load data: verify `CONVEX_URL` / `CONVEX_SITE_URL` and that Convex dev is running.
+- `ENOENT` after `fs.write` on hosted Convex: `agentfs-local` is unsupported on hosted Convex because local filesystem state is not shared across workers. Use `AGENT_STORAGE_PROVIDER=agentfs-cloudflare`.
 - Release build missing managed artifacts: run `bun run build:release` and verify `executor/dist/release/` contains `executor-*.tar.gz`, `executor-web-*.tar.gz`, and `executor-runtime-*.tar.gz`.

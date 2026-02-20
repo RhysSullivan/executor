@@ -81,6 +81,15 @@ function parseWorkersDevUrl(output: string): string | null {
   return match ? match[0] : null;
 }
 
+function isHostedConvexUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.trim().toLowerCase();
+    return hostname.endsWith(".convex.cloud") || hostname.endsWith(".convex.site");
+  } catch {
+    return false;
+  }
+}
+
 async function deployCloudflareWorkerAndGetUrl(): Promise<string> {
   console.log("[storage:smoke:execute-flow] deploying runner-sandbox-host...");
   const output = await $`bun run --cwd packages/runner-sandbox-host deploy`
@@ -171,6 +180,12 @@ async function run(): Promise<void> {
 
   const requestedRuntime: RuntimeId = options.runtimeId
     ?? (process.env.CLOUDFLARE_SANDBOX_RUN_URL?.trim() ? "cloudflare-worker-loader" : "local-bun");
+
+  if (requestedRuntime === "local-bun" && isHostedConvexUrl(convexUrl)) {
+    throw new Error(
+      "local-bun storage smoke is self-host only. Hosted Convex deployments must use AGENT_STORAGE_PROVIDER=agentfs-cloudflare and the cloudflare-worker-loader runtime.",
+    );
+  }
 
   await maybeDeployConvex(options.deployConvex);
 
