@@ -53,11 +53,38 @@ function markCodeAsReplayed(code: string, now = Date.now()): void {
   callbackCodeReplay.set(code, now + WORKOS_CALLBACK_REPLAY_MS);
 }
 
+function isInvalidGrantError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const value = error as { error?: string; errorDescription?: string; rawData?: { error?: string; error_description?: string } };
+
+  if ((value.error?.toLowerCase() === "invalid_grant") || message.toLowerCase().includes("invalid grant")) {
+    return true;
+  }
+
+  if (value.errorDescription?.toLowerCase().includes("expired")) {
+    return true;
+  }
+
+  if (value.rawData?.error === "invalid_grant" || value.rawData?.error_description?.toLowerCase().includes("expired") === true) {
+    return true;
+  }
+
+  return message.toLowerCase().includes("invalid_grant")
+    || message.toLowerCase().includes("expired or invalid")
+    || message.includes("Error Description:");
+}
+
 export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promise<Response> {
   const request = (context as { request: Request }).request;
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code")?.trim() ?? "";
   const requestId = request.headers.get("x-request-id");
+  const oauthError = requestUrl.searchParams.get("error")?.trim();
+  const oauthErrorDescription = requestUrl.searchParams.get("error_description")?.trim();
 
   if (isWorkosDebugEnabled()) {
     logWorkosAuth("callback.request", {
@@ -71,12 +98,9 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
       authorizationSessionId: requestUrl.searchParams.get("authorization_session_id")
         ? "present"
         : "missing",
-      error: requestUrl.searchParams.get("error")
-        ? requestUrl.searchParams.get("error")
-        : undefined,
-      errorDescription: requestUrl.searchParams.get("error_description")
-        ? "present"
-        : "missing",
+      error: oauthError,
+      errorDescription: oauthErrorDescription ? "present" : "missing",
+      cookieCount: request.headers.get("cookie")?.split(";").length ?? 0,
     });
   }
 
@@ -91,79 +115,115 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
     return redirectResponse("/", 302);
   }
 
-  const response = await callbackHandler(context);
+  try {
+    const response = await callbackHandler(context);
 
-  const responseHeaders = new Headers(response.headers);
-  const responseHeaderNames = Array.from(responseHeaders.keys());
-  const setCookieHeaders = responseHeaderNames
-    .filter((headerName) => headerName.toLowerCase() === "set-cookie")
-    .map((headerName) => responseHeaders.get(headerName))
-    .filter((value): value is string => value !== null);
+    const responseHeaders = new Headers(response.headers);
+    const responseHeaderNames = Array.from(responseHeaders.keys());
+    const setCookieHeaders = responseHeaderNames
+      .filter((headerName) => headerName.toLowerCase() === "set-cookie")
+      .map((headerName) => responseHeaders.get(headerName))
+      .filter((value): value is string => value !== null);
 
-  if (isWorkosDebugEnabled()) {
-    logWorkosAuth("callback.result", {
-      requestId,
-      code: redactAuthCode(code),
-      status: response.status,
-      statusText: response.statusText,
-      location: responseHeaders.get("location"),
-      headerNames: responseHeaderNames,
-      setCookieCount: setCookieHeaders.length,
-      setCookieLength: setCookieHeaders[0]?.length ?? 0,
-    });
-  }
-
-  if (isWorkosDebugEnabled() && setCookieHeaders.length > 0) {
-    logWorkosAuth("callback.set-cookie", {
-      requestId,
-      cookie: setCookieHeaders[0],
-    });
-  }
-
-  if (isWorkosDebugEnabled() && code && response.status >= 300 && response.status < 400 && setCookieHeaders.length === 0) {
-    logWorkosAuth("callback.missing-set-cookie", {
-      requestId,
-      code: redactAuthCode(code),
-      status: response.status,
-      statusText: response.statusText,
-      location: responseHeaders.get("location"),
-      hasLocation: responseHeaders.has("location"),
-    });
-  }
-
-  if (code && response.status >= 300 && response.status < 400) {
-    if (setCookieHeaders.length > 0) {
-      markCodeAsReplayed(code);
-
-      if (isWorkosDebugEnabled()) {
-        logWorkosAuth("callback.code-marked-used", {
-          requestId,
-          code: redactAuthCode(code),
-          status: response.status,
-          setCookieCount: setCookieHeaders.length,
-        });
-      }
-    }
-    else if (isWorkosDebugEnabled()) {
-      logWorkosAuth("callback.code-not-marked-used", {
+    if (isWorkosDebugEnabled()) {
+      logWorkosAuth("callback.result", {
         requestId,
         code: redactAuthCode(code),
         status: response.status,
-        reason: "missing-set-cookie",
+        statusText: response.statusText,
+        location: responseHeaders.get("location"),
+        headerNames: responseHeaderNames,
+        setCookieCount: setCookieHeaders.length,
+        setCookieLength: setCookieHeaders[0]?.length ?? 0,
+      });
+    }
+
+    if (isWorkosDebugEnabled() && setCookieHeaders.length > 0) {
+      logWorkosAuth("callback.set-cookie", {
+        requestId,
+        cookie: setCookieHeaders[0],
+      });
+    }
+
+    if (isWorkosDebugEnabled() && code && response.status >= 300 && response.status < 400 && setCookieHeaders.length === 0) {
+      logWorkosAuth("callback.missing-set-cookie", {
+        requestId,
+        code: redactAuthCode(code),
+        status: response.status,
+        statusText: response.statusText,
+        location: responseHeaders.get("location"),
+        hasLocation: responseHeaders.has("location"),
+      });
+    }
+
+    if (code && response.status >= 300 && response.status < 400) {
+      if (setCookieHeaders.length > 0) {
+        markCodeAsReplayed(code);
+
+        if (isWorkosDebugEnabled()) {
+          logWorkosAuth("callback.code-marked-used", {
+            requestId,
+            code: redactAuthCode(code),
+            status: response.status,
+            setCookieCount: setCookieHeaders.length,
+          });
+        }
+      }
+      else if (isWorkosDebugEnabled()) {
+        logWorkosAuth("callback.code-not-marked-used", {
+          requestId,
+          code: redactAuthCode(code),
+          status: response.status,
+          reason: "missing-set-cookie",
+        });
+      }
+
+      return response;
+    }
+
+    if (isWorkosDebugEnabled()) {
+      logWorkosAuth("callback.complete", {
+        requestId,
+        code: redactAuthCode(code),
+        status: response.status,
+        statusText: response.statusText,
       });
     }
 
     return response;
   }
+  catch (callbackError) {
+    const callbackErrorMessage = callbackError instanceof Error ? callbackError.message : String(callbackError);
+    const invalidGrant = isInvalidGrantError(callbackError);
 
-  if (isWorkosDebugEnabled()) {
-    logWorkosAuth("callback.complete", {
-      requestId,
-      code: redactAuthCode(code),
-      status: response.status,
-      statusText: response.statusText,
+    if (isWorkosDebugEnabled()) {
+      logWorkosAuth("callback.failure", {
+        requestId,
+        code: redactAuthCode(code),
+        error: callbackErrorMessage,
+        errorKind: invalidGrant ? "invalid_grant" : "callback_error",
+        oauthError,
+        oauthErrorDescription,
+      });
+    }
+
+    if (code && invalidGrant) {
+      markCodeAsReplayed(code);
+
+      return redirectResponse("/", 302);
+    }
+
+    return new Response(JSON.stringify({
+      error: {
+        message: "Authentication failed",
+        description: "Couldn't sign in. Please contact your organization admin if the issue persists.",
+        details: callbackErrorMessage,
+      },
+    }), {
+      status: 500,
+      headers: {
+        "Content-Type": "application/json",
+      },
     });
   }
-
-  return response;
 }
