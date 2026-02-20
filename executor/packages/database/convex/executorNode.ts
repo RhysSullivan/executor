@@ -35,6 +35,14 @@ function isReadOnlySql(sql: string): boolean {
     || trimmed.startsWith("with");
 }
 
+function hasMultipleSqlStatements(sql: string): boolean {
+  const statements = sql
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return statements.length > 1;
+}
+
 async function resolveStorageInspectorContext(
   ctx: Parameters<typeof requireCanonicalAccount>[0],
   args: {
@@ -356,6 +364,9 @@ export const storageQuerySql = customAction({
   handler: async (ctx, args) => {
     if (!isReadOnlySql(args.sql)) {
       throw new Error("Storage inspector only allows read-only SQL (SELECT/PRAGMA/EXPLAIN/WITH)");
+    }
+    if (hasMultipleSqlStatements(args.sql)) {
+      throw new Error("Storage inspector rejects multi-statement SQL payloads");
     }
 
     const { accountId, instance, provider } = await resolveStorageInspectorContext(ctx, args);

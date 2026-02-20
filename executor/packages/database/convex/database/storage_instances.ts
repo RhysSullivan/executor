@@ -86,13 +86,14 @@ async function isOrganizationAdmin(
     accountId?: Id<"accounts">;
   },
 ): Promise<boolean> {
-  if (!args.accountId) {
+  const accountId = args.accountId;
+  if (!accountId) {
     return false;
   }
 
   const membership = await ctx.db
     .query("organizationMembers")
-    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", args.accountId))
+    .withIndex("by_org_account", (q) => q.eq("organizationId", args.organizationId).eq("accountId", accountId))
     .unique();
 
   if (!membership || membership.status !== "active") {

@@ -1,1 +1,2 @@
 export const DEFAULT_TASK_TIMEOUT_MS = 300_000;
+export const MAX_TASK_TIMEOUT_MS = 900_000;

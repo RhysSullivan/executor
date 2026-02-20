@@ -2,6 +2,9 @@ import { z } from "zod";
 import type { Env, RunRequest, RunResult } from "./types";
 import { getEntrypointExports } from "./bridge";
 
+const DEFAULT_TASK_TIMEOUT_MS = 300_000;
+const MAX_TASK_TIMEOUT_MS = 900_000;
+
 const runResultSchema: z.ZodType<RunResult> = z.object({
   status: z.enum(["completed", "failed", "timed_out", "denied"]),
   result: z.unknown().optional(),
@@ -26,7 +29,8 @@ export async function executeSandboxRun(
   harnessCode: string,
   globalsModule: string,
 ): Promise<RunResult> {
-  const timeoutMs = request.timeoutMs ?? 300_000;
+  const timeoutMsRaw = request.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS;
+  const timeoutMs = Math.max(1, Math.min(MAX_TASK_TIMEOUT_MS, Math.floor(timeoutMsRaw)));
   const isolateId = request.taskId;
 
   const ctxExports = getEntrypointExports(ctx);

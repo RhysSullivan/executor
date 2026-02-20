@@ -66,6 +66,14 @@ function isReadOnlySql(sql: string): boolean {
     || trimmed.startsWith("with");
 }
 
+function hasMultipleSqlStatements(sql: string): boolean {
+  const statements = sql
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return statements.length > 1;
+}
+
 function isNotFoundError(error: unknown): boolean {
   if (!error || typeof error !== "object") {
     return false;
@@ -136,6 +144,25 @@ export class AgentFSStorageObject extends DurableObject<Env> {
       throw new Error("sqlite.query rejected a non-read SQL statement in read mode");
     }
 
+    if (hasMultipleSqlStatements(sql)) {
+      throw new Error("sqlite.query rejects multi-statement SQL payloads");
+    }
+
+    if (mode === "read") {
+      this.ctx.storage.sql.exec("PRAGMA query_only = 1");
+      try {
+        const cursor = this.ctx.storage.sql.exec(sql, ...params);
+        const rows = cursor.toArray().slice(0, Math.max(1, Math.floor(maxRows))) as Record<string, unknown>[];
+        return {
+          mode,
+          rows,
+          rowCount: rows.length,
+        };
+      } finally {
+        this.ctx.storage.sql.exec("PRAGMA query_only = 0");
+      }
+    }
+
     const cursor = this.ctx.storage.sql.exec(sql, ...params);
     if (mode === "write") {
       return {
@@ -145,11 +172,10 @@ export class AgentFSStorageObject extends DurableObject<Env> {
       };
     }
 
-    const rows = cursor.toArray().slice(0, Math.max(1, Math.floor(maxRows))) as Record<string, unknown>[];
     return {
       mode,
-      rows,
-      rowCount: rows.length,
+      rows: [],
+      rowCount: 0,
     };
   }
 
@@ -190,11 +216,14 @@ export class AgentFSStorageObject extends DurableObject<Env> {
           return jsonResponse({ ok: false, error: "fs.write requires path" }, 400);
         }
         const encoding = payload.encoding === "base64" ? "base64" : "utf8";
-        const toWrite = encoding === "base64" ? base64ToBytes(content) : content;
-        await this.fs.writeFile(path, toWrite);
         const bytesWritten = encoding === "base64"
           ? base64ToBytes(content).length
           : new TextEncoder().encode(content).length;
+        if (encoding === "base64") {
+          await this.fs.writeFile(path, base64ToBytes(content) as unknown as Buffer);
+        } else {
+          await this.fs.writeFile(path, content);
+        }
         return jsonResponse({
           ok: true,
           data: {

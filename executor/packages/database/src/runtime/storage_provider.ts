@@ -165,6 +165,14 @@ function isReadOnlySql(sql: string): boolean {
     || trimmed.startsWith("with");
 }
 
+function hasMultipleSqlStatements(sql: string): boolean {
+  const statements = sql
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return statements.length > 1;
+}
+
 class AgentFsLocalStorageProvider implements StorageProvider {
   private readonly baseDir: string;
   private readonly instanceWriteLocks = new Map<string, Promise<void>>();
@@ -424,9 +432,14 @@ class AgentFsLocalStorageProvider implements StorageProvider {
       throw new Error("sqlite.query rejected a non-read SQL statement in read mode");
     }
 
+    if (hasMultipleSqlStatements(args.sql)) {
+      throw new Error("sqlite.query rejects multi-statement SQL payloads");
+    }
+
     const normalizedParams = args.params.map(toDbValue);
     if (args.mode === "write") {
       return await this.withDatabase(instance, true, async (db) => {
+        db.exec("PRAGMA query_only = 0");
         db.run(args.sql, normalizedParams);
         const changes = Number(db.getRowsModified());
         return {
@@ -438,13 +451,18 @@ class AgentFsLocalStorageProvider implements StorageProvider {
     }
 
     return await this.withDatabase(instance, false, async (db) => {
-      const rows = rowsFromSqlResult(db.exec(args.sql, normalizedParams));
-      const boundedRows = rows.slice(0, Math.max(1, args.maxRows));
-      return {
-        mode: "read",
-        rows: boundedRows,
-        rowCount: boundedRows.length,
-      };
+      db.exec("PRAGMA query_only = 1");
+      try {
+        const rows = rowsFromSqlResult(db.exec(args.sql, normalizedParams));
+        const boundedRows = rows.slice(0, Math.max(1, args.maxRows));
+        return {
+          mode: "read",
+          rows: boundedRows,
+          rowCount: boundedRows.length,
+        };
+      } finally {
+        db.exec("PRAGMA query_only = 0");
+      }
     });
   }
 

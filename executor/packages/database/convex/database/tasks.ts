@@ -8,7 +8,7 @@ import {
   storageAccessTypeValidator,
   storageScopeTypeValidator,
 } from "../../src/database/validators";
-import { DEFAULT_TASK_TIMEOUT_MS } from "../../src/task/constants";
+import { DEFAULT_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS } from "../../src/task/constants";
 import { isTerminalTaskStatus } from "../../src/task/status";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -42,6 +42,19 @@ function pushUniqueString(items: string[], value: string, maxItems = 50): string
   return next.slice(next.length - maxItems);
 }
 
+function clampTaskTimeout(timeoutMs: number | undefined): number {
+  if (!Number.isFinite(timeoutMs)) {
+    return DEFAULT_TASK_TIMEOUT_MS;
+  }
+
+  const normalized = Math.floor(timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS);
+  if (normalized <= 0) {
+    return DEFAULT_TASK_TIMEOUT_MS;
+  }
+
+  return Math.min(normalized, MAX_TASK_TIMEOUT_MS);
+}
+
 export const createTask = internalMutation({
   args: {
     id: v.string(),
@@ -71,7 +84,7 @@ export const createTask = internalMutation({
       accountId: args.accountId,
       clientId: args.clientId?.trim() || undefined,
       status: "queued",
-      timeoutMs: args.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS,
+      timeoutMs: clampTaskTimeout(args.timeoutMs),
       metadata,
       createdAt: now,
       updatedAt: now,

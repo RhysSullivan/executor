@@ -7,7 +7,7 @@ import {
   canonicalAccountIdForWorkspaceAccess,
   canonicalClientIdForWorkspaceAccess,
 } from "../auth/account_identity";
-import { DEFAULT_TASK_TIMEOUT_MS } from "../task/constants";
+import { DEFAULT_TASK_TIMEOUT_MS, MAX_TASK_TIMEOUT_MS } from "../task/constants";
 import { createTaskEvent } from "../task/events";
 import { markTaskFinished } from "../task/finish";
 import { isTerminalTaskStatus, taskTerminalEventType } from "../task/status";
@@ -29,6 +29,19 @@ function toMetadata(value: unknown): Record<string, any> | undefined {
   }
 
   return {};
+}
+
+function clampTaskTimeout(timeoutMs?: number): number {
+  if (!Number.isFinite(timeoutMs)) {
+    return DEFAULT_TASK_TIMEOUT_MS;
+  }
+
+  const normalized = Math.floor(timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS);
+  if (normalized <= 0) {
+    return DEFAULT_TASK_TIMEOUT_MS;
+  }
+
+  return Math.min(normalized, MAX_TASK_TIMEOUT_MS);
 }
 
 async function createTaskDocument(
@@ -121,7 +134,7 @@ async function createTaskRecord(
     id: taskId,
     code: args.code,
     runtimeId,
-    timeoutMs: args.timeoutMs ?? DEFAULT_TASK_TIMEOUT_MS,
+    timeoutMs: clampTaskTimeout(args.timeoutMs),
     metadata: toMetadata(args.metadata),
     workspaceId: args.workspaceId,
     accountId: args.accountId,

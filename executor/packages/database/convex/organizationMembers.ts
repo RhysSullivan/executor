@@ -19,7 +19,7 @@ export const list = organizationQuery({
     const members = await ctx.db
       .query("organizationMembers")
       .withIndex("by_org", (q) => q.eq("organizationId", ctx.organizationId))
-      .collect();
+      .take(500);
 
     const results = await Promise.all(
       members.map(async (member) => {

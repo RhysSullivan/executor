@@ -47,13 +47,17 @@ export const createTaskEvent = internalMutation({
 });
 
 export const listTaskEvents = internalQuery({
-  args: { taskId: v.string() },
+  args: {
+    taskId: v.string(),
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(1000, Math.floor(args.limit ?? 500)));
     const docs = await ctx.db
       .query("taskEvents")
       .withIndex("by_task_sequence", (q) => q.eq("taskId", args.taskId))
       .order("asc")
-      .collect();
+      .take(limit);
 
     return docs.map(mapTaskEvent);
   },

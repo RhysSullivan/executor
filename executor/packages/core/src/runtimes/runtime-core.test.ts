@@ -351,7 +351,7 @@ test("runs openapi and graphql sourced tools through the runtime", async () => {
     const toolMap = new Map(tools.map((tool) => [tool.path, tool]));
     const result = await runCodeWithAdapter(
       request(`
-        const sum = await tools.calc.math.add_numbers({ a: 2, b: 5 });
+        const sum = await tools.calc.math.add_numbers({ query: { a: 2, b: 5 } });
         const hello = await tools.gql.query.hello({});
         const inc = await tools.gql.graphql({
           query: "mutation($value: Int!) { increment(value: $value) }",

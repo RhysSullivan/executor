@@ -64,7 +64,7 @@ export const listApprovals = internalQuery({
           q.eq("workspaceId", args.workspaceId).eq("status", status),
         )
         .order("desc")
-        .collect();
+        .take(500);
       return docs.map(mapApproval);
     }
 
@@ -86,7 +86,7 @@ export const listPendingApprovals = internalQuery({
         q.eq("workspaceId", args.workspaceId).eq("status", "pending"),
       )
       .order("asc")
-      .collect();
+      .take(500);
 
     const tasks = await Promise.all(docs.map((approval) => getTaskDoc(ctx, approval.taskId)));
 
