@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ToolCallResult } from "./types";
 
 const UNDEFINED_SENTINEL = "__executor_tool_result_undefined__";
@@ -13,6 +14,30 @@ type ToolCallTransportResult =
     }
   | { ok: false; kind: "denied"; error: string }
   | { ok: false; kind: "failed"; error: string };
+
+const toolCallTransportResultSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    valueJson: z.string(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    kind: z.literal("pending"),
+    approvalId: z.string(),
+    retryAfterMs: z.number().optional(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    kind: z.literal("denied"),
+    error: z.string(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    kind: z.literal("failed"),
+    error: z.string(),
+  }),
+]);
 
 function encodeValue(value: unknown): string {
   if (value === undefined) {
@@ -51,7 +76,7 @@ export function encodeToolCallResultForTransport(result: ToolCallResult): string
 }
 
 export function decodeToolCallResultFromTransport(value: unknown): ToolCallResult | null {
-  const parsed: unknown = typeof value === "string"
+  const parsedJson: unknown = typeof value === "string"
     ? (() => {
         try {
           return JSON.parse(value) as unknown;
@@ -61,32 +86,30 @@ export function decodeToolCallResultFromTransport(value: unknown): ToolCallResul
       })()
     : value;
 
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+  const parsed = toolCallTransportResultSchema.safeParse(parsedJson);
+  if (!parsed.success) {
     return null;
   }
 
-  const record = parsed as Record<string, unknown>;
-  if (record.ok === true) {
-    if (typeof record.valueJson !== "string") {
-      return null;
-    }
+  const record = parsed.data;
+  if (record.ok) {
     return {
       ok: true,
       value: decodeValue(record.valueJson),
     };
   }
 
-  if (record.ok === false && record.kind === "pending" && typeof record.approvalId === "string") {
+  if (record.kind === "pending") {
     return {
       ok: false,
       kind: "pending",
       approvalId: record.approvalId,
-      ...(typeof record.retryAfterMs === "number" ? { retryAfterMs: record.retryAfterMs } : {}),
-      ...(typeof record.error === "string" ? { error: record.error } : {}),
+      ...(record.retryAfterMs !== undefined ? { retryAfterMs: record.retryAfterMs } : {}),
+      ...(record.error !== undefined ? { error: record.error } : {}),
     };
   }
 
-  if (record.ok === false && record.kind === "denied" && typeof record.error === "string") {
+  if (record.kind === "denied") {
     return {
       ok: false,
       kind: "denied",
@@ -94,7 +117,7 @@ export function decodeToolCallResultFromTransport(value: unknown): ToolCallResul
     };
   }
 
-  if (record.ok === false && record.kind === "failed" && typeof record.error === "string") {
+  if (record.kind === "failed") {
     return {
       ok: false,
       kind: "failed",
