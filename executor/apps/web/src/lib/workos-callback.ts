@@ -14,45 +14,7 @@ const callbackHandler = handleCallbackRoute({
   },
 });
 
-const WORKOS_CALLBACK_REPLAY_MS = 10 * 60 * 1000;
-const CALLBACK_REPLAY_PRUNE_INTERVAL_MS = 30 * 1000;
-const callbackCodeReplay = new Map<string, number>();
-let nextReplayPruneAt = 0;
-
 type WorkOSCallbackInput = Parameters<typeof callbackHandler>[0];
-
-function pruneCallbackReplays(now = Date.now()): void {
-  if (now < nextReplayPruneAt) {
-    return;
-  }
-
-  callbackCodeReplay.forEach((expiresAt, code) => {
-    if (expiresAt <= now) {
-      callbackCodeReplay.delete(code);
-    }
-  });
-
-  nextReplayPruneAt = now + CALLBACK_REPLAY_PRUNE_INTERVAL_MS;
-}
-
-function isReplayedCode(code: string, now = Date.now()): boolean {
-  pruneCallbackReplays(now);
-  const expiresAt = callbackCodeReplay.get(code);
-
-  if (!expiresAt || expiresAt <= now) {
-    if (expiresAt) {
-      callbackCodeReplay.delete(code);
-    }
-
-    return false;
-  }
-
-  return true;
-}
-
-function markCodeAsReplayed(code: string, now = Date.now()): void {
-  callbackCodeReplay.set(code, now + WORKOS_CALLBACK_REPLAY_MS);
-}
 
 function getSetCookieValues(responseHeaders: Headers): string[] {
   const getSetCookie = (responseHeaders as { getSetCookie?: () => string[] }).getSetCookie;
@@ -121,17 +83,6 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
     });
   }
 
-  if (code && isReplayedCode(code)) {
-    if (isWorkosDebugEnabled()) {
-      logWorkosAuth("callback.replay-blocked", {
-        requestId,
-        code: redactAuthCode(code),
-      });
-    }
-
-    return redirectResponse("/", 302);
-  }
-
   try {
     const response = await callbackHandler(context);
 
@@ -171,8 +122,6 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
     }
 
     if (code && response.status >= 300 && response.status < 400) {
-      markCodeAsReplayed(code);
-
       if (isWorkosDebugEnabled()) {
         logWorkosAuth("callback.code-marked-used", {
           requestId,
@@ -212,8 +161,6 @@ export async function handleWorkOSCallback(context: WorkOSCallbackInput): Promis
     }
 
     if (code && invalidGrant) {
-      markCodeAsReplayed(code);
-
       return redirectResponse("/", 302);
     }
 

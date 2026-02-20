@@ -35,7 +35,7 @@ test("uses explicit WORKOS_REDIRECT_URI when set", () => {
   process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI = "https://public.example.com/callback";
 
   const request = new Request("https://request.example.com/sign-in");
-  expect(resolveWorkosRedirectUri(request)).toBe("https://app.example.com/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("https://app.example.com/api/auth/callback");
 });
 
 test("falls back to NEXT_PUBLIC_WORKOS_REDIRECT_URI when server var is absent", () => {
@@ -45,7 +45,7 @@ test("falls back to NEXT_PUBLIC_WORKOS_REDIRECT_URI when server var is absent", 
   process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI = "https://public.example.com/callback";
 
   const request = new Request("https://request.example.com/sign-in");
-  expect(resolveWorkosRedirectUri(request)).toBe("https://public.example.com/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("https://public.example.com/api/auth/callback");
 });
 
 test("derives from forwarded request origin when not explicitly configured", () => {
@@ -61,7 +61,7 @@ test("derives from forwarded request origin when not explicitly configured", () 
     },
   });
 
-  expect(resolveWorkosRedirectUri(request)).toBe("https://executor.sh/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("https://executor.sh/api/auth/callback");
 });
 
 test("falls back to localhost when host cannot be derived locally", () => {
@@ -76,7 +76,7 @@ test("falls back to localhost when host cannot be derived locally", () => {
   process.env.NODE_ENV = "development";
 
   const request = new Request("http://localhost:1234/sign-in");
-  expect(resolveWorkosRedirectUri(request)).toBe("http://localhost:1234/callback");
+  expect(resolveWorkosRedirectUri(request)).toBe("http://localhost:1234/api/auth/callback");
 });
 
 resetWorkosEnv();
