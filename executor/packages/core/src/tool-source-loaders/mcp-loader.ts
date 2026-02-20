@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { connectMcp, extractMcpResult } from "../mcp-runtime";
-import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
+import { buildCredentialSpec, getCredentialSourceKey } from "../tool/source-auth";
 import { callMcpToolWithReconnect } from "../tool/source-execution";
 import { sanitizeSegment } from "../tool/path-utils";
 import type { McpToolSourceConfig } from "../tool/source-types";
@@ -40,7 +40,7 @@ export async function loadMcpTools(config: McpToolSourceConfig): Promise<ToolDef
       Object.entries(config.queryParams).map(([key, value]) => [key, String(value)]),
     )
       : undefined;
-  const authHeaders = buildStaticAuthHeaders(config.auth);
+  const authHeaders = {};
   const discoveryHeaders = {
     ...authHeaders,
     ...(config.discoveryHeaders ?? {}),

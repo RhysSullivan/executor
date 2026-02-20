@@ -16,7 +16,7 @@ import {
   executeGraphqlRequest,
   type GraphqlExecutionEnvelope,
 } from "../tool/source-execution";
-import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
+import { buildCredentialSpec, getCredentialSourceKey } from "../tool/source-auth";
 import { sanitizeSegment } from "../tool/path-utils";
 import type { GraphqlToolSourceConfig } from "../tool/source-types";
 import { buildPreviewKeys, extractTopLevelRequiredKeys } from "../tool-typing/schema-utils";
@@ -388,7 +388,7 @@ function toGraphqlEnvelope(value: unknown): GraphqlExecutionEnvelope {
 }
 
 export async function loadGraphqlTools(config: GraphqlToolSourceConfig): Promise<ToolDefinition[]> {
-  const authHeaders = buildStaticAuthHeaders(config.auth);
+  const authHeaders = {};
   const sourceKey = `graphql:${config.name}`;
   const credentialSpec = buildCredentialSpec(getCredentialSourceKey(config), config.auth);
   const sourceName = sanitizeSegment(config.name);

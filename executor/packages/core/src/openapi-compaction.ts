@@ -93,11 +93,18 @@ export function compactOpenApiPaths(
           ? toRecordOrEmpty(parsed.data.examples)
           : undefined;
 
+        const parameterSchema = includeParameterSchemas
+          ? parameterSchemaFromEntry(entry)
+          : {};
+        const resolvedParameterSchema = includeParameterSchemas && resolveSchemaRefs
+          ? resolveSchemaRef(parameterSchema, compSchemas)
+          : parameterSchema;
+
         return {
           name: parsed.data.name,
           in: location,
           required: location === "path" ? true : (parsed.data.required ?? false),
-          schema: includeParameterSchemas ? parameterSchemaFromEntry(entry) : {},
+          schema: resolvedParameterSchema,
           ...(description.length > 0 ? { description } : {}),
           ...(parsed.data.deprecated !== undefined ? { deprecated: parsed.data.deprecated } : {}),
           ...(style.length > 0 ? { style } : {}),

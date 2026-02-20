@@ -26,15 +26,6 @@ export { parseGraphqlOperationPaths } from "./graphql/operation-paths";
 export { rehydrateTools, serializeTools, type SerializedTool } from "./tool/source-serialization";
 export { buildOpenApiToolsFromPrepared } from "./openapi/tool-builder";
 
-export interface CompiledToolSourceArtifact {
-  version: "v1";
-  sourceType: ExternalToolSourceConfig["type"];
-  sourceName: string;
-  openApiSourceKey?: string;
-  openApiRefHintTable?: Record<string, string>;
-  tools: SerializedTool[];
-}
-
 const compiledToolSourceArtifactSchema = z.object({
   version: z.literal("v1"),
   sourceType: z.enum(["mcp", "openapi", "graphql"]),
@@ -43,6 +34,12 @@ const compiledToolSourceArtifactSchema = z.object({
   openApiRefHintTable: z.record(z.string()).optional(),
   tools: z.array(z.unknown()),
 });
+
+type CompiledToolSourceArtifactEnvelope = z.infer<typeof compiledToolSourceArtifactSchema>;
+
+export type CompiledToolSourceArtifact = Omit<CompiledToolSourceArtifactEnvelope, "tools"> & {
+  tools: SerializedTool[];
+};
 
 export function parseCompiledToolSourceArtifact(value: unknown): Result<CompiledToolSourceArtifact, Error> {
   const parsedArtifact = compiledToolSourceArtifactSchema.safeParse(value);
@@ -60,11 +57,7 @@ export function parseCompiledToolSourceArtifact(value: unknown): Result<Compiled
   }
 
   return Result.ok({
-    version: parsedArtifact.data.version,
-    sourceType: parsedArtifact.data.sourceType,
-    sourceName: parsedArtifact.data.sourceName,
-    openApiSourceKey: parsedArtifact.data.openApiSourceKey,
-    openApiRefHintTable: parsedArtifact.data.openApiRefHintTable,
+    ...parsedArtifact.data,
     tools,
   });
 }

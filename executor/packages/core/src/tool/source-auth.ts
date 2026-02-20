@@ -1,16 +1,25 @@
 import type { OpenApiAuth } from "./source-types";
-import type { ToolCredentialSpec } from "../types";
+import type { CredentialAdditionalHeader, ToolCredentialAuthType, ToolCredentialSpec } from "../types";
 import { z } from "zod";
 
 export type CredentialHeaderAuthSpec = {
-  authType: "bearer" | "apiKey" | "basic";
+  authType: ToolCredentialAuthType;
   headerName?: string;
 };
 
 const secretRecordSchema = z.record(z.unknown());
-const credentialOverrideHeadersSchema = z.object({
-  headers: z.record(z.coerce.string()).optional(),
-});
+const credentialAdditionalHeadersSchema = z.array(z.object({
+  name: z.string(),
+  value: z.coerce.string(),
+}));
+const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const RESERVED_HEADER_NAMES = new Set([
+  "authorization",
+  "cookie",
+  "host",
+  "content-length",
+  "transfer-encoding",
+]);
 
 function toRecord(value: unknown): Record<string, unknown> {
   const parsed = secretRecordSchema.safeParse(value);
@@ -70,46 +79,43 @@ export function buildCredentialAuthHeaders(
   return { authorization: `Basic ${encoded}` };
 }
 
-export function readCredentialOverrideHeaders(value: unknown): Record<string, string> {
-  const parsed = credentialOverrideHeadersSchema.safeParse(value);
-  const rawHeaders = parsed.success ? (parsed.data.headers ?? {}) : {};
+export function normalizeCredentialAdditionalHeaders(value: unknown): CredentialAdditionalHeader[] {
+  const parsed = credentialAdditionalHeadersSchema.safeParse(value);
+  const rawHeaders = parsed.success ? parsed.data : [];
+
+  const dedupedByName = new Map<string, CredentialAdditionalHeader>();
+  for (const entry of rawHeaders) {
+    const name = entry.name.trim();
+    const value = entry.value.trim();
+    if (!name || !value) continue;
+
+    const normalizedName = name.toLowerCase();
+    if (!HEADER_NAME_PATTERN.test(name)) continue;
+    if (RESERVED_HEADER_NAMES.has(normalizedName)) continue;
+
+    dedupedByName.set(normalizedName, {
+      name,
+      value,
+    });
+  }
+
+  return [...dedupedByName.values()];
+}
+
+export function readCredentialAdditionalHeaders(value: unknown): Record<string, string> {
+  const headers = normalizeCredentialAdditionalHeaders(value);
 
   const normalized: Record<string, string> = {};
-  for (const [rawKey, rawValue] of Object.entries(rawHeaders)) {
-    const key = rawKey.trim();
-    if (!key) continue;
-    normalized[key] = rawValue;
+  for (const header of headers) {
+    normalized[header.name] = header.value;
   }
 
   return normalized;
 }
 
-export function buildStaticAuthHeaders(auth?: OpenApiAuth): Record<string, string> {
-  if (!auth || auth.type === "none") return {};
-  const mode = auth.mode ?? "static";
-  if (mode !== "static") return {};
-
-  if (auth.type === "basic") {
-    const username = auth.username ?? "";
-    const password = auth.password ?? "";
-    if (!username && !password) return {};
-    const encoded = Buffer.from(`${username}:${password}`, "utf8").toString("base64");
-    return { authorization: `Basic ${encoded}` };
-  }
-
-  if (auth.type === "bearer") {
-    if (!auth.token) return {};
-    return { authorization: `Bearer ${auth.token}` };
-  }
-
-  if (!auth.value) return {};
-  return { [auth.header]: auth.value };
-}
-
 export function buildCredentialSpec(sourceKey: string, auth?: OpenApiAuth): ToolCredentialSpec | undefined {
   if (!auth || auth.type === "none") return undefined;
-  const mode = auth.mode ?? "static";
-  if (mode === "static") return undefined;
+  const mode = auth.mode ?? "workspace";
 
   if (auth.type === "bearer") {
     return {

@@ -74,6 +74,11 @@ export type CredentialScope = CredentialScopeType;
 export const CREDENTIAL_PROVIDERS = ["local-convex", "workos-vault"] as const;
 export type CredentialProvider = (typeof CREDENTIAL_PROVIDERS)[number];
 
+export interface CredentialAdditionalHeader {
+  name: string;
+  value: string;
+}
+
 export const TOOL_APPROVAL_MODES = ["auto", "required"] as const;
 export type ToolApprovalMode = (typeof TOOL_APPROVAL_MODES)[number];
 
@@ -255,7 +260,7 @@ export interface CredentialRecord {
   organizationId: Id<"organizations">;
   workspaceId?: Id<"workspaces">;
   sourceKey: string;
-  overridesJson?: Record<string, unknown>;
+  additionalHeaders: CredentialAdditionalHeader[];
   boundAuthFingerprint?: string;
   provider: CredentialProvider;
   secretJson: Record<string, unknown>;
@@ -402,7 +407,6 @@ export interface ToolCredentialSpec {
   mode: CredentialScope;
   authType: ToolCredentialAuthType;
   headerName?: string;
-  staticSecretJson?: Record<string, unknown>;
 }
 
 export interface ResolvedToolCredential {

@@ -4,6 +4,7 @@ import {
   customMutation as convexCustomMutation,
   customQuery as convexCustomQuery,
 } from "convex-helpers/server/customFunctions";
+import type { Id } from "../../database/convex/_generated/dataModel.d.ts";
 import { internal as internalApi } from "../../database/convex/_generated/api";
 import { action, internalQuery, mutation, query } from "../../database/convex/_generated/server";
 import {
@@ -13,6 +14,16 @@ import {
   requireWorkspaceAccessForRequest,
   resolveAccountForRequest,
 } from "./identity";
+
+export type WorkspaceActionContext = {
+  workspaceId: Id<"workspaces">;
+  accountId: Id<"accounts">;
+  provider: string;
+  providerAccountId: string;
+  role: string;
+  sessionId?: string;
+  clientId: "web" | "mcp";
+};
 
 export type OpenApiMethod = "GET" | "POST";
 
@@ -71,6 +82,11 @@ async function requireAccountFromSession(
   return account;
 }
 
+function clientIdForSession(sessionId?: string): "web" | "mcp" {
+  const normalizedSessionId = sessionId?.trim() ?? "";
+  return normalizedSessionId.startsWith("mcp_") ? "mcp" : "web";
+}
+
 export const customQuery = convexCustomQuery(query, {
   args: {},
   input: async (_ctx, _args, _options: QueryMethodOptions) => ({
@@ -112,6 +128,8 @@ export const workspaceAction = convexCustomAction(action, {
       ctx: {
         ...access,
         workspaceId: args.workspaceId,
+        sessionId: args.sessionId,
+        clientId: clientIdForSession(args.sessionId),
       },
       args: {},
     };

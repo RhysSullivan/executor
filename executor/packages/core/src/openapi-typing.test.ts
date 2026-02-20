@@ -196,6 +196,86 @@ describe("OpenAPI schema-first typing", () => {
     expect(fieldsParam?.examples).toEqual({ minimal: { value: ["name"] } });
   });
 
+  test("full profile resolves component refs inside parameter schemas", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Include API", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          IncludeEnum: {
+            type: "string",
+            enum: ["message.input_image.image_url", "message.output_text.logprobs"],
+          },
+        },
+      },
+      paths: {
+        "/conversations/{conversation_id}/items/{item_id}": {
+          get: {
+            operationId: "getConversationItem",
+            tags: ["conversations"],
+            parameters: [
+              { name: "conversation_id", in: "path", required: true, schema: { type: "string" } },
+              { name: "item_id", in: "path", required: true, schema: { type: "string" } },
+              {
+                name: "include",
+                in: "query",
+                schema: {
+                  type: "array",
+                  items: { $ref: "#/components/schemas/IncludeEnum" },
+                },
+              },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        id: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "include", { includeDts: false, profile: "full" });
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "include", spec, baseUrl: "https://api.example.com" },
+      prepared,
+    );
+
+    const getConversationItem = tools.find((tool) => tool.typing?.typedRef?.operationId === "getConversationItem");
+    expect(getConversationItem).toBeDefined();
+
+    const inputSchema = (getConversationItem!.typing?.inputSchema ?? {}) as {
+      properties?: Record<string, {
+        properties?: Record<string, Record<string, unknown>>;
+      }>;
+    };
+    const includeSchema = inputSchema.properties?.query?.properties?.include as {
+      type?: string;
+      items?: {
+        type?: string;
+        enum?: unknown[];
+      };
+    } | undefined;
+
+    expect(includeSchema?.type).toBe("array");
+    expect(includeSchema?.items?.type).toBe("string");
+    expect(includeSchema?.items?.enum).toEqual([
+      "message.input_image.image_url",
+      "message.output_text.logprobs",
+    ]);
+  });
+
   test("full profile with dts sets typedRef for OpenAPI operations", async () => {
     const spec = makeLargeSpec(3);
     const prepared = await prepareOpenApiSpec(spec, "large", { includeDts: true, profile: "full" });
@@ -286,6 +366,112 @@ describe("OpenAPI schema-first typing", () => {
     expect(createContact!.typing?.inputHint).toContain('components["schemas"]["DeepMeta"]');
     expect(createContact!.typing?.refHintKeys).toContain("DeepMeta");
     expect(prepared.refHintTable?.DeepMeta).toContain("field_0");
+  });
+
+  test("full profile resolves nested oneOf component refs for output schemas", async () => {
+    const spec: Record<string, unknown> = {
+      openapi: "3.0.3",
+      info: { title: "Conversation API", version: "1.0.0" },
+      servers: [{ url: "https://api.example.com" }],
+      components: {
+        schemas: {
+          InputTextPart: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["input_text"] },
+              text: { type: "string" },
+            },
+            required: ["type", "text"],
+          },
+          OutputTextPart: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["output_text"] },
+              text: { type: "string" },
+            },
+            required: ["type", "text"],
+          },
+          MessageItem: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["message"] },
+              id: { type: "string" },
+              content: {
+                type: "array",
+                items: {
+                  oneOf: [
+                    { $ref: "#/components/schemas/InputTextPart" },
+                    { $ref: "#/components/schemas/OutputTextPart" },
+                  ],
+                },
+              },
+            },
+            required: ["type", "id", "content"],
+          },
+          FunctionCallItem: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["function_call"] },
+              id: { type: "string" },
+              call_id: { type: "string" },
+            },
+            required: ["type", "id", "call_id"],
+          },
+        },
+      },
+      paths: {
+        "/conversations/{conversation_id}/items/{item_id}": {
+          get: {
+            operationId: "getConversationItem",
+            tags: ["conversations"],
+            parameters: [
+              { name: "conversation_id", in: "path", required: true, schema: { type: "string" } },
+              { name: "item_id", in: "path", required: true, schema: { type: "string" } },
+            ],
+            responses: {
+              "200": {
+                description: "ok",
+                content: {
+                  "application/json": {
+                    schema: {
+                      oneOf: [
+                        { $ref: "#/components/schemas/MessageItem" },
+                        { $ref: "#/components/schemas/FunctionCallItem" },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const prepared = await prepareOpenApiSpec(spec, "conversation", { includeDts: false, profile: "full" });
+    const tools = buildOpenApiToolsFromPrepared(
+      { type: "openapi", name: "conversation", spec, baseUrl: "https://api.example.com" },
+      prepared,
+    );
+
+    const getConversationItem = tools.find((tool) => tool.typing?.typedRef?.operationId === "getConversationItem");
+    expect(getConversationItem).toBeDefined();
+
+    const outputSchema = (getConversationItem!.typing?.outputSchema ?? {}) as {
+      oneOf?: Array<Record<string, unknown>>;
+    };
+    expect(Array.isArray(outputSchema.oneOf)).toBe(true);
+
+    const variants = outputSchema.oneOf ?? [];
+    const variantPropertyLists = variants.map((variant) => Object.keys((variant.properties as Record<string, unknown>) ?? {}));
+    expect(variantPropertyLists.some((keys) => keys.includes("content"))).toBe(true);
+    expect(variantPropertyLists.some((keys) => keys.includes("call_id"))).toBe(true);
+
+    const messageVariant = variants.find((variant) => Object.keys((variant.properties as Record<string, unknown>) ?? {}).includes("content"));
+    const messageProperties = (messageVariant?.properties as Record<string, unknown>) ?? {};
+    const contentProperty = (messageProperties.content as Record<string, unknown>) ?? {};
+    const itemOneOf = (((contentProperty.items as Record<string, unknown>)?.oneOf) ?? []) as Array<Record<string, unknown>>;
+    expect(itemOneOf.some((entry) => Object.keys((entry.properties as Record<string, unknown>) ?? {}).includes("text"))).toBe(true);
   });
 
   test("OpenAPI input hints compact allOf object intersections", async () => {

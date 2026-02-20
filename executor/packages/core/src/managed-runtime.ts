@@ -9,7 +9,7 @@ import { runProcess } from "./managed/runtime-process";
 
 const managedAnonymousAuthEnvFileName = "managed-anonymous-auth.json";
 
-type ManagedAnonymousAuthEnv = {
+export type ManagedAnonymousAuthEnv = {
   ANONYMOUS_AUTH_PRIVATE_KEY_PEM: string;
   ANONYMOUS_AUTH_PUBLIC_KEY_PEM: string;
   MCP_API_KEY_SECRET: string;

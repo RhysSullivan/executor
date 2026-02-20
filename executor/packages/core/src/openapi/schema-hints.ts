@@ -7,6 +7,22 @@ function toRecordOrEmpty(value: unknown): Record<string, unknown> {
 }
 
 const COMPONENT_REF_INLINE_DEPTH = 2;
+const MAX_SCHEMA_REF_RESOLVE_DEPTH = 10;
+const schemaChildKeys = [
+  "items",
+  "additionalItems",
+  "additionalProperties",
+  "contains",
+  "not",
+  "if",
+  "then",
+  "else",
+  "propertyNames",
+  "unevaluatedProperties",
+  "unevaluatedItems",
+] as const;
+const schemaArrayChildKeys = ["allOf", "anyOf", "oneOf", "prefixItems"] as const;
+const schemaMapChildKeys = ["properties", "patternProperties", "dependentSchemas", "definitions", "$defs"] as const;
 const openApiParameterMetadataSchema = z.object({
   type: z.string().optional(),
   enum: z.array(z.unknown()).optional(),
@@ -101,18 +117,72 @@ export function resolveSchemaRef(
   schema: Record<string, unknown>,
   componentSchemas: Record<string, unknown>,
 ): Record<string, unknown> {
-  const ref = typeof schema.$ref === "string" ? schema.$ref : "";
   const prefix = "#/components/schemas/";
-  if (!ref.startsWith(prefix)) {
-    return schema;
-  }
 
-  const key = ref.slice(prefix.length);
-  const resolved = toRecordOrEmpty(componentSchemas[key]);
-  if (Object.keys(resolved).length === 0) {
-    return schema;
-  }
-  return resolved;
+  const resolveNode = (
+    value: unknown,
+    depth: number,
+    activeRefs: Set<string>,
+  ): unknown => {
+    if (!value || typeof value !== "object") {
+      return value;
+    }
+    if (depth > MAX_SCHEMA_REF_RESOLVE_DEPTH) {
+      return value;
+    }
+
+    const shape = toRecordOrEmpty(value);
+    const ref = typeof shape.$ref === "string" ? shape.$ref : "";
+    if (ref.startsWith(prefix) && !activeRefs.has(ref)) {
+      const key = ref.slice(prefix.length);
+      const resolved = toRecordOrEmpty(componentSchemas[key]);
+      if (Object.keys(resolved).length > 0) {
+        const siblingEntries = Object.entries(shape).filter(([entryKey]) => entryKey !== "$ref");
+        const merged = siblingEntries.length > 0
+          ? {
+              ...resolved,
+              ...Object.fromEntries(siblingEntries),
+            }
+          : resolved;
+        const nextRefs = new Set(activeRefs);
+        nextRefs.add(ref);
+        return resolveNode(merged, depth + 1, nextRefs);
+      }
+    }
+
+    const nextShape: Record<string, unknown> = { ...shape };
+
+    for (const key of schemaChildKeys) {
+      const child = shape[key];
+      if (child && typeof child === "object") {
+        nextShape[key] = resolveNode(child, depth + 1, activeRefs);
+      }
+    }
+
+    for (const key of schemaArrayChildKeys) {
+      const child = shape[key];
+      if (Array.isArray(child)) {
+        nextShape[key] = child.map((entry) => resolveNode(entry, depth + 1, activeRefs));
+      }
+    }
+
+    for (const key of schemaMapChildKeys) {
+      const childMap = toRecordOrEmpty(shape[key]);
+      if (Object.keys(childMap).length === 0) {
+        continue;
+      }
+      nextShape[key] = Object.fromEntries(
+        Object.entries(childMap).map(([childKey, childValue]) => [
+          childKey,
+          resolveNode(childValue, depth + 1, activeRefs),
+        ]),
+      );
+    }
+
+    return nextShape;
+  };
+
+  return toRecordOrEmpty(resolveNode(schema, 0, new Set()));
 }
 
 export function resolveRequestBodyRef(

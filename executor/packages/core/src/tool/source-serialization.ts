@@ -90,7 +90,6 @@ const toolCredentialSpecSchema = z.object({
   mode: z.enum(CREDENTIAL_SCOPE_TYPES),
   authType: z.enum(TOOL_CREDENTIAL_AUTH_TYPES),
   headerName: z.string().optional(),
-  staticSecretJson: z.record(z.unknown()).optional(),
 });
 
 const invalidSerializedToolFallbackSchema = z.object({

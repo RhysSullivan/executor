@@ -4,7 +4,7 @@ import path from "node:path";
 import { generateKeyPairSync } from "node:crypto";
 import { z } from "zod";
 
-import type { ManagedRuntimeInfo } from "../managed-runtime";
+import type { ManagedAnonymousAuthEnv, ManagedRuntimeInfo } from "../managed-runtime";
 import { managedRuntimeVersions, pathExists } from "./runtime-info";
 import { ensureConvexCliRuntime } from "./runtime-installation";
 import { runProcess } from "./runtime-process";
@@ -39,12 +39,6 @@ const BOOTSTRAP_REQUIRED_DEPENDENCIES: BootstrapDependency[] = [
 ];
 
 const managedAnonymousAuthEnvFileName = "managed-anonymous-auth.json";
-
-type ManagedAnonymousAuthEnv = {
-  ANONYMOUS_AUTH_PRIVATE_KEY_PEM: string;
-  ANONYMOUS_AUTH_PUBLIC_KEY_PEM: string;
-  MCP_API_KEY_SECRET: string;
-};
 
 function trimEnv(name: string): string | null {
   const value = process.env[name]?.trim();

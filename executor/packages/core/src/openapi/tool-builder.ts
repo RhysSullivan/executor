@@ -8,7 +8,7 @@ import {
   responseTypeHintFromSchema,
 } from "./schema-hints";
 import { buildOpenApiToolPath } from "./tool-path";
-import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
+import { buildCredentialSpec, getCredentialSourceKey } from "../tool/source-auth";
 import { executeOpenApiRequest } from "../tool/source-execution";
 import type { OpenApiToolSourceConfig, PreparedOpenApiSpec } from "../tool/source-types";
 import type { ToolDefinition } from "../types";
@@ -127,7 +127,7 @@ export function buildOpenApiToolsFromPrepared(
   }
 
   const effectiveAuth = config.auth ?? prepared.inferredAuth;
-  const authHeaders = buildStaticAuthHeaders(effectiveAuth);
+  const authHeaders = {};
   const sourceLabel = `openapi:${config.name}`;
   const credentialSourceKey = getCredentialSourceKey(config);
   const credentialSpec = buildCredentialSpec(credentialSourceKey, effectiveAuth);

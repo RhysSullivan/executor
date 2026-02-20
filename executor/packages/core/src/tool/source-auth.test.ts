@@ -2,22 +2,21 @@ import { expect, test } from "bun:test";
 import {
   buildCredentialAuthHeaders,
   buildCredentialSpec,
-  buildStaticAuthHeaders,
-  readCredentialOverrideHeaders,
+  normalizeCredentialAdditionalHeaders,
+  readCredentialAdditionalHeaders,
 } from "./source-auth";
 
-test("buildStaticAuthHeaders returns static bearer header", () => {
-  const headers = buildStaticAuthHeaders({
-    type: "bearer",
-    mode: "static",
-    token: "secret-token",
-  });
-
-  expect(headers).toEqual({ authorization: "Bearer secret-token" });
-});
-
-test("buildCredentialSpec omits static auth and preserves account mode", () => {
+test("buildCredentialSpec defaults mode to workspace and preserves account mode", () => {
   expect(buildCredentialSpec("source:test", { type: "none" })).toBeUndefined();
+  expect(
+    buildCredentialSpec("source:test", {
+      type: "bearer",
+    }),
+  ).toEqual({
+    sourceKey: "source:test",
+    mode: "workspace",
+    authType: "bearer",
+  });
   expect(
     buildCredentialSpec("source:test", {
       type: "apiKey",
@@ -61,17 +60,27 @@ test("buildCredentialAuthHeaders supports basic auth aliases", () => {
   });
 });
 
-test("readCredentialOverrideHeaders trims keys and coerces values", () => {
-  const headers = readCredentialOverrideHeaders({
-    headers: {
-      " x-trace-id ": "trace-1",
-      "": "ignored",
-      "x-retry": 2,
-    },
-  });
+test("readCredentialAdditionalHeaders trims keys and filters reserved names", () => {
+  const headers = readCredentialAdditionalHeaders([
+    { name: " x-trace-id ", value: "trace-1" },
+    { name: "", value: "ignored" },
+    { name: "authorization", value: "blocked" },
+    { name: "x-retry", value: 2 },
+  ]);
 
   expect(headers).toEqual({
     "x-trace-id": "trace-1",
     "x-retry": "2",
   });
+});
+
+test("normalizeCredentialAdditionalHeaders deduplicates by header name", () => {
+  const headers = normalizeCredentialAdditionalHeaders([
+    { name: "x-tenant-id", value: "acme" },
+    { name: "X-TENANT-ID", value: "acme-2" },
+  ]);
+
+  expect(headers).toEqual([
+    { name: "X-TENANT-ID", value: "acme-2" },
+  ]);
 });

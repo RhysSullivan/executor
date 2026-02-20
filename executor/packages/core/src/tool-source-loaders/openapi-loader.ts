@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { buildOpenApiToolsFromPrepared } from "../openapi/tool-builder";
-import { buildCredentialSpec, buildStaticAuthHeaders, getCredentialSourceKey } from "../tool/source-auth";
+import { buildCredentialSpec, getCredentialSourceKey } from "../tool/source-auth";
 import {
   buildPostmanToolPath,
   extractPostmanBody,
@@ -119,7 +119,7 @@ async function loadPostmanCollectionTools(
   }
 
   const sourceLabel = `catalog:${config.name}`;
-  const authHeaders = buildStaticAuthHeaders(config.auth);
+  const authHeaders = {};
   const credentialSourceKey = getCredentialSourceKey(config);
   const credentialSpec = buildCredentialSpec(credentialSourceKey, config.auth);
   const readMethods = new Set(["get", "head", "options"]);
