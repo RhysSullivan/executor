@@ -394,3 +394,103 @@
   border-radius: 0.25rem;
 }
 
+/* ── JSON Viewer (react-json-view-lite custom theme) ───────────────────────── */
+.json-viewer-root {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.65;
+}
+
+.json-viewer-container {
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.json-viewer-child {
+  margin-right: 0;
+}
+
+.json-viewer-label {
+  font-weight: 500;
+  margin-right: 6px;
+  color: var(--foreground);
+}
+
+.json-viewer-clickable-label {
+  cursor: pointer;
+}
+
+.json-viewer-clickable-label:hover {
+  color: var(--primary);
+}
+
+.json-viewer-null {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.json-viewer-undefined {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.json-viewer-number {
+  color: var(--terminal-cyan);
+}
+
+.json-viewer-string {
+  color: var(--terminal-green);
+}
+
+.json-viewer-boolean {
+  color: var(--terminal-amber);
+}
+
+.json-viewer-other {
+  color: var(--terminal-red);
+}
+
+.json-viewer-punctuation {
+  color: var(--muted-foreground);
+}
+
+.json-viewer-expand,
+.json-viewer-collapse {
+  font-size: 0.85em;
+  margin-right: 4px;
+  user-select: none;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.json-viewer-expand:hover,
+.json-viewer-collapse:hover {
+  opacity: 1;
+}
+
+.json-viewer-expand::after {
+  content: '\25B8';
+}
+
+.json-viewer-collapse::after {
+  content: '\25BE';
+}
+
+.json-viewer-collapsed {
+  margin-right: 4px;
+  color: var(--muted-foreground);
+  opacity: 0.5;
+}
+
+.json-viewer-collapsed::after {
+  content: '...';
+  font-size: 0.8em;
+}
+
+.json-viewer-fields {
+  margin: 0;
+  padding: 0 0 0 1rem;
+}
+
