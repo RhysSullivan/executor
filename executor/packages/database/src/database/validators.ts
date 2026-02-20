@@ -1,70 +1,89 @@
 import { v } from "convex/values";
+import { literals } from "convex-helpers/validators";
+import {
+  ACCOUNT_PROVIDERS,
+  ACCOUNT_STATUSES,
+  APPROVAL_STATUSES,
+  ARGUMENT_CONDITION_OPERATORS,
+  BILLING_SUBSCRIPTION_STATUSES,
+  COMPLETED_TASK_STATUSES,
+  CREDENTIAL_PROVIDERS,
+  CREDENTIAL_SCOPE_TYPES,
+  INVITE_STATUSES,
+  ORGANIZATION_MEMBER_STATUSES,
+  ORGANIZATION_ROLES,
+  ORGANIZATION_STATUSES,
+  POLICY_APPROVAL_MODES,
+  POLICY_EFFECTS,
+  POLICY_MATCH_TYPES,
+  POLICY_RESOURCE_TYPES,
+  POLICY_SCOPE_TYPES,
+  STORAGE_ACCESS_TYPES,
+  STORAGE_DURABILITIES,
+  STORAGE_INSTANCE_STATUSES,
+  STORAGE_PROVIDERS,
+  STORAGE_SCOPE_TYPES,
+  TASK_STATUSES,
+  TERMINAL_TOOL_CALL_STATUSES,
+  TOOL_APPROVAL_MODES,
+  TOOL_CALL_STATUSES,
+  TOOL_ROLE_BINDING_STATUSES,
+  TOOL_ROLE_SELECTOR_TYPES,
+  TOOL_SOURCE_SCOPE_TYPES,
+  TOOL_SOURCE_TYPES,
+} from "../../../core/src/types";
+
+// Core enum validators shared by Convex schema and function args.
+export const accountProviderValidator = literals(...ACCOUNT_PROVIDERS);
+export const accountStatusValidator = literals(...ACCOUNT_STATUSES);
+export const organizationStatusValidator = literals(...ORGANIZATION_STATUSES);
+export const orgRoleValidator = literals(...ORGANIZATION_ROLES);
+export const orgMemberStatusValidator = literals(...ORGANIZATION_MEMBER_STATUSES);
+
+export const billingSubscriptionStatusValidator = literals(...BILLING_SUBSCRIPTION_STATUSES);
+
+export const inviteStatusValidator = literals(...INVITE_STATUSES);
+
+export const taskStatusValidator = literals(...TASK_STATUSES);
 
 export const jsonObjectValidator = v.record(v.string(), v.any());
 
-export const completedTaskStatusValidator = v.union(
-  v.literal("completed"),
-  v.literal("failed"),
-  v.literal("timed_out"),
-  v.literal("denied"),
-);
+export const completedTaskStatusValidator = literals(...COMPLETED_TASK_STATUSES);
 
-export const approvalStatusValidator = v.union(v.literal("pending"), v.literal("approved"), v.literal("denied"));
+export const approvalStatusValidator = literals(...APPROVAL_STATUSES);
 
-export const terminalToolCallStatusValidator = v.union(
-  v.literal("completed"),
-  v.literal("failed"),
-  v.literal("denied"),
-);
+export const toolCallStatusValidator = literals(...TOOL_CALL_STATUSES);
 
-export const policyScopeTypeValidator = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
-export const policyResourceTypeValidator = v.union(
-  v.literal("all_tools"),
-  v.literal("source"),
-  v.literal("namespace"),
-  v.literal("tool_path"),
-);
-export const policyMatchTypeValidator = v.union(v.literal("glob"), v.literal("exact"));
-export const policyEffectValidator = v.union(v.literal("allow"), v.literal("deny"));
-export const policyApprovalModeValidator = v.union(v.literal("inherit"), v.literal("auto"), v.literal("required"));
-export const toolRoleSelectorTypeValidator = v.union(
-  v.literal("all"),
-  v.literal("source"),
-  v.literal("namespace"),
-  v.literal("tool_path"),
-);
-export const toolRoleBindingStatusValidator = v.union(v.literal("active"), v.literal("disabled"));
-export const argumentConditionOperatorValidator = v.union(v.literal("equals"), v.literal("contains"), v.literal("starts_with"), v.literal("not_equals"));
+export const toolApprovalModeValidator = literals(...TOOL_APPROVAL_MODES);
+
+export const terminalToolCallStatusValidator = literals(...TERMINAL_TOOL_CALL_STATUSES);
+
+export const policyScopeTypeValidator = literals(...POLICY_SCOPE_TYPES);
+export const policyResourceTypeValidator = literals(...POLICY_RESOURCE_TYPES);
+export const policyMatchTypeValidator = literals(...POLICY_MATCH_TYPES);
+export const policyEffectValidator = literals(...POLICY_EFFECTS);
+export const policyApprovalModeValidator = literals(...POLICY_APPROVAL_MODES);
+export const toolRoleSelectorTypeValidator = literals(...TOOL_ROLE_SELECTOR_TYPES);
+export const toolRoleBindingStatusValidator = literals(...TOOL_ROLE_BINDING_STATUSES);
+export const argumentConditionOperatorValidator = literals(...ARGUMENT_CONDITION_OPERATORS);
 export const argumentConditionValidator = v.object({
   key: v.string(),
   operator: argumentConditionOperatorValidator,
   value: v.string(),
 });
-export const toolSourceScopeTypeValidator = v.union(v.literal("organization"), v.literal("workspace"));
-export const credentialScopeTypeValidator = v.union(v.literal("account"), v.literal("organization"), v.literal("workspace"));
+export const toolSourceScopeTypeValidator = literals(...TOOL_SOURCE_SCOPE_TYPES);
+export const credentialScopeTypeValidator = literals(...CREDENTIAL_SCOPE_TYPES);
 
-export const credentialProviderValidator = v.union(
-  v.literal("local-convex"),
-  v.literal("workos-vault"),
-);
+export const credentialProviderValidator = literals(...CREDENTIAL_PROVIDERS);
 
-export const toolSourceTypeValidator = v.union(v.literal("mcp"), v.literal("openapi"), v.literal("graphql"));
+export const toolSourceTypeValidator = literals(...TOOL_SOURCE_TYPES);
 
-export const storageScopeTypeValidator = v.union(
-  v.literal("scratch"),
-  v.literal("account"),
-  v.literal("workspace"),
-  v.literal("organization"),
-);
+export const storageScopeTypeValidator = literals(...STORAGE_SCOPE_TYPES);
 
-export const storageDurabilityValidator = v.union(v.literal("ephemeral"), v.literal("durable"));
+export const storageDurabilityValidator = literals(...STORAGE_DURABILITIES);
 
-export const storageInstanceStatusValidator = v.union(v.literal("active"), v.literal("closed"), v.literal("deleted"));
+export const storageInstanceStatusValidator = literals(...STORAGE_INSTANCE_STATUSES);
 
-export const storageProviderValidator = v.union(v.literal("agentfs-local"), v.literal("agentfs-cloudflare"));
+export const storageProviderValidator = literals(...STORAGE_PROVIDERS);
 
-export const storageAccessTypeValidator = v.union(
-  v.literal("opened"),
-  v.literal("provided"),
-  v.literal("accessed"),
-);
+export const storageAccessTypeValidator = literals(...STORAGE_ACCESS_TYPES);

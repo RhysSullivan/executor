@@ -1,5 +1,26 @@
 import type { Id } from "@executor/database/convex/_generated/dataModel";
 import type {
+  ApprovalStatus as CoreApprovalStatus,
+  ArgumentConditionOperator as CoreArgumentConditionOperator,
+  CredentialProvider as CoreCredentialProvider,
+  CredentialScope as CoreCredentialScope,
+  CredentialScopeType as CoreCredentialScopeType,
+  PolicyApprovalMode as CorePolicyApprovalMode,
+  PolicyDecision as CorePolicyDecision,
+  PolicyEffect as CorePolicyEffect,
+  PolicyMatchType as CorePolicyMatchType,
+  PolicyScopeType as CorePolicyScopeType,
+  SourceAuthType as CoreSourceAuthType,
+  StorageDurability as CoreStorageDurability,
+  StorageInstanceStatus as CoreStorageInstanceStatus,
+  StorageProvider as CoreStorageProvider,
+  StorageScopeType as CoreStorageScopeType,
+  TaskStatus as CoreTaskStatus,
+  ToolApprovalMode as CoreToolApprovalMode,
+  ToolRoleBindingStatus as CoreToolRoleBindingStatus,
+  ToolRoleSelectorType as CoreToolRoleSelectorType,
+  ToolSourceScopeType as CoreToolSourceScopeType,
+  ToolSourceType as CoreToolSourceType,
   ToolPolicyRecord as CoreToolPolicyRecord,
   ToolPolicyAssignmentRecord as CoreToolPolicyAssignmentRecord,
   ToolPolicySetRecord as CoreToolPolicySetRecord,
@@ -8,34 +29,34 @@ import type {
 
 // ── Shared types (inlined from @executor/contracts) ──────────────────────────
 
-export type TaskStatus = "queued" | "running" | "completed" | "failed" | "timed_out" | "denied";
-export type ApprovalStatus = "pending" | "approved" | "denied";
-export type PolicyDecision = "allow" | "require_approval" | "deny";
-export type PolicyScopeType = "account" | "organization" | "workspace";
-export type PolicyMatchType = "glob" | "exact";
-export type PolicyEffect = "allow" | "deny";
-export type PolicyApprovalMode = "inherit" | "auto" | "required";
-export type ToolRoleSelectorType = "all" | "source" | "namespace" | "tool_path";
-export type ToolRoleBindingStatus = "active" | "disabled";
-export type ArgumentConditionOperator = "equals" | "contains" | "starts_with" | "not_equals";
+export type TaskStatus = CoreTaskStatus;
+export type ApprovalStatus = CoreApprovalStatus;
+export type PolicyDecision = CorePolicyDecision;
+export type PolicyScopeType = CorePolicyScopeType;
+export type PolicyMatchType = CorePolicyMatchType;
+export type PolicyEffect = CorePolicyEffect;
+export type PolicyApprovalMode = CorePolicyApprovalMode;
+export type ToolRoleSelectorType = CoreToolRoleSelectorType;
+export type ToolRoleBindingStatus = CoreToolRoleBindingStatus;
+export type ArgumentConditionOperator = CoreArgumentConditionOperator;
 
 export interface ArgumentCondition {
   key: string;
   operator: ArgumentConditionOperator;
   value: string;
 }
-export type CredentialScope = "account" | "organization" | "workspace";
-export type CredentialProvider = "local-convex" | "workos-vault";
-export type ToolSourceScopeType = "organization" | "workspace";
-export type CredentialScopeType = "account" | "organization" | "workspace";
-export type ToolApprovalMode = "auto" | "required";
-export type ToolSourceType = "mcp" | "openapi" | "graphql";
-export type StorageScopeType = "scratch" | "account" | "workspace" | "organization";
-export type StorageDurability = "ephemeral" | "durable";
-export type StorageInstanceStatus = "active" | "closed" | "deleted";
-export type StorageProvider = "agentfs-local" | "agentfs-cloudflare";
+export type CredentialScope = CoreCredentialScope;
+export type CredentialProvider = CoreCredentialProvider;
+export type ToolSourceScopeType = CoreToolSourceScopeType;
+export type CredentialScopeType = CoreCredentialScopeType;
+export type ToolApprovalMode = CoreToolApprovalMode;
+export type ToolSourceType = CoreToolSourceType;
+export type StorageScopeType = CoreStorageScopeType;
+export type StorageDurability = CoreStorageDurability;
+export type StorageInstanceStatus = CoreStorageInstanceStatus;
+export type StorageProvider = CoreStorageProvider;
 
-export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
+export type SourceAuthType = CoreSourceAuthType;
 
 export interface SourceAuthProfile {
   type: SourceAuthType;
