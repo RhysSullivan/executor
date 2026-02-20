@@ -99,9 +99,10 @@ export function TaskDetail({
     <Card className="bg-card border-border">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium font-mono truncate pr-4">
-            {liveTask.id}
-          </CardTitle>
+          <div className="min-w-0 pr-4">
+            <CardTitle className="truncate text-sm font-semibold">Task details</CardTitle>
+            <p className="truncate text-xs text-muted-foreground">{liveTask.id}</p>
+          </div>
           <Button
             variant="ghost"
             size="icon"
@@ -116,19 +117,19 @@ export function TaskDetail({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: "Status", value: <TaskStatusBadge status={liveTask.status} /> },
-            { label: "Runtime", value: <span className="font-mono text-xs">{runtimeLabel ?? liveTask.runtimeId}</span> },
-            { label: "Duration", value: <span className="font-mono text-xs">{duration}</span> },
+            { label: "Runtime", value: <span className="text-sm">{runtimeLabel ?? liveTask.runtimeId}</span> },
+            { label: "Duration", value: <span className="text-sm">{duration}</span> },
             {
               label: "Exit Code",
               value: (
-                <span className={cn("font-mono text-xs", liveTask.exitCode === 0 ? "text-terminal-green" : liveTask.exitCode ? "text-terminal-red" : "text-muted-foreground")}>
+                <span className={cn("text-sm", liveTask.exitCode === 0 ? "text-primary" : liveTask.exitCode ? "text-destructive" : "text-muted-foreground")}>
                   {liveTask.exitCode ?? "—"}
                 </span>
               ),
             },
           ].map((item) => (
             <div key={item.label}>
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-1">
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">
                 {item.label}
               </span>
               {item.value}
@@ -141,10 +142,10 @@ export function TaskDetail({
             <Separator />
             <div className="space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-widest text-terminal-amber">
+                <span className="text-xs font-medium text-primary">
                   Pending approvals
                 </span>
-                <span className="text-[10px] font-mono bg-terminal-amber/10 text-terminal-amber px-1.5 py-0.5 rounded">
+                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
                   {pendingApprovals.length}
                 </span>
               </div>
@@ -154,14 +155,14 @@ export function TaskDetail({
                 return (
                   <div
                     key={approval.id}
-                    className="rounded-md border border-terminal-amber/30 bg-terminal-amber/6 p-3 space-y-2"
+                    className="space-y-2 rounded-md border border-primary/20 bg-primary/5 p-3"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-xs font-mono text-foreground truncate">
+                        <p className="truncate text-sm font-medium text-foreground">
                           {approval.toolPath}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground">
                           Requested {formatDate(approval.createdAt)}
                         </p>
                       </div>
@@ -169,7 +170,7 @@ export function TaskDetail({
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 text-[11px] border-terminal-green/30 text-terminal-green hover:bg-terminal-green/10"
+                          className="h-7 border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
                           disabled={resolvingApprovalId !== null}
                           onClick={() =>
                             void handleResolveApproval(
@@ -185,7 +186,7 @@ export function TaskDetail({
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 text-[11px] border-terminal-red/30 text-terminal-red hover:bg-terminal-red/10"
+                          className="h-7 border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
                           disabled={resolvingApprovalId !== null}
                           onClick={() =>
                             void handleResolveApproval(
@@ -217,7 +218,7 @@ export function TaskDetail({
         <Separator />
 
         <div>
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-2">
+          <span className="mb-2 block text-xs font-medium text-muted-foreground">
             Code
           </span>
           <FormattedCodeBlock
@@ -229,7 +230,7 @@ export function TaskDetail({
 
         {liveResult && (
           <div>
-            <span className="text-[10px] uppercase tracking-widest text-terminal-green block mb-2">
+            <span className="mb-2 block text-xs font-medium text-primary">
               Result
             </span>
             <FormattedCodeBlock
@@ -242,7 +243,7 @@ export function TaskDetail({
 
         {liveTask.error && (
           <div>
-            <span className="text-[10px] uppercase tracking-widest text-terminal-red block mb-2">
+            <span className="mb-2 block text-xs font-medium text-destructive">
               Error
             </span>
             <FormattedCodeBlock

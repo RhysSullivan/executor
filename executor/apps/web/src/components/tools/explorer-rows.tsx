@@ -25,17 +25,13 @@ export const ToolListItem = memo(function ToolListItem({
   tool,
   label,
   focused,
-  selected,
   onFocus,
-  onSelect,
   depth = 0,
 }: {
   tool: ToolDescriptor;
   label: string;
   focused: boolean;
-  selected: boolean;
   onFocus: (tool: ToolDescriptor) => void;
-  onSelect?: (e: React.MouseEvent) => void;
   depth?: number;
 }) {
   const handleClick = useCallback(() => {
@@ -46,31 +42,13 @@ export const ToolListItem = memo(function ToolListItem({
     <div
       onClick={handleClick}
       className={cn(
-        "flex items-center gap-1.5 px-2 py-1 cursor-pointer transition-colors group/item",
+        "flex items-center gap-1.5 px-2 py-1 cursor-pointer transition-colors",
         focused
           ? "bg-accent/50 border-l-2 border-l-primary"
           : "hover:bg-accent/20 border-l-2 border-l-transparent",
-        selected && !focused && "bg-primary/5",
       )}
       style={{ paddingLeft: `${depth * 14 + 8}px` }}
     >
-      {onSelect ? (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect(e);
-          }}
-          className={cn(
-            "h-3.5 w-3.5 rounded border flex items-center justify-center shrink-0 transition-colors",
-            selected
-              ? "bg-primary border-primary text-primary-foreground"
-              : "border-border/60 opacity-0 group-hover/item:opacity-100",
-          )}
-        >
-          {selected && <Check className="h-2 w-2" />}
-        </button>
-      ) : null}
-
       <Zap className="h-2.5 w-2.5 text-primary/50 shrink-0" />
 
       <span
@@ -92,7 +70,6 @@ export const ToolListItem = memo(function ToolListItem({
   prev.tool === next.tool &&
   prev.label === next.label &&
   prev.focused === next.focused &&
-  prev.selected === next.selected &&
   prev.depth === next.depth,
 );
 
@@ -235,9 +212,7 @@ export const SelectableToolRow = memo(function SelectableToolRow({
 export function ToolListSidebar({
   tools,
   focusedPath,
-  selectedKeys,
   onFocusTool,
-  onSelectTool,
   loadingRows,
   hasMoreTools = false,
   loadingMoreTools = false,
@@ -247,9 +222,7 @@ export function ToolListSidebar({
 }: {
   tools: ToolDescriptor[];
   focusedPath: string | null;
-  selectedKeys: Set<string>;
   onFocusTool: (tool: ToolDescriptor) => void;
-  onSelectTool?: (path: string, e: React.MouseEvent) => void;
   loadingRows?: { source: string; count: number }[];
   hasMoreTools?: boolean;
   loadingMoreTools?: boolean;
@@ -284,13 +257,7 @@ export function ToolListSidebar({
               tool={tool}
               label={toolDisplayPath(tool.path)}
               focused={tool.path === focusedPath}
-              selected={selectedKeys.has(tool.path)}
               onFocus={onFocusTool}
-              onSelect={
-                onSelectTool
-                  ? (e) => onSelectTool(tool.path, e)
-                  : undefined
-              }
             />
           ))}
 

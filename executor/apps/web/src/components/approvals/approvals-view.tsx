@@ -67,25 +67,25 @@ function ApprovalCard({
   );
 
   return (
-    <Card className="rounded-none bg-card/40 border-border/50 border-l-2 border-l-terminal-amber glow-amber">
+    <Card className="rounded-none border-border/50 border-l-2 border-l-primary/40 bg-card/40">
       <CardContent className="p-4 space-y-3">
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-terminal-amber shrink-0" />
-              <span className="text-sm font-mono font-medium text-foreground truncate">
+              <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
+              <span className="truncate text-sm font-medium text-foreground">
                 {approval.toolPath}
               </span>
             </div>
             <div className="flex items-center gap-2 mt-1 pl-6">
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 Task: {approval.taskId}
               </span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 &middot;
               </span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {formatTimeAgo(approval.createdAt)}
               </span>
             </div>
@@ -106,7 +106,7 @@ function ApprovalCard({
         {/* Input */}
         {inputDisplay && (
           <div>
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground block mb-1.5">
+            <span className="mb-1.5 block text-xs font-medium text-muted-foreground">
               Input
             </span>
             <FormattedCodeBlock
@@ -124,7 +124,7 @@ function ApprovalCard({
           <Button
             onClick={() => handleResolve("approved")}
             disabled={resolving !== null}
-            className="flex-1 bg-terminal-green/15 text-terminal-green border border-terminal-green/30 hover:bg-terminal-green/25 h-9"
+            className="h-9 flex-1 border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20"
             variant="outline"
             size="sm"
           >
@@ -134,7 +134,7 @@ function ApprovalCard({
           <Button
             onClick={() => handleResolve("denied")}
             disabled={resolving !== null}
-            className="flex-1 bg-terminal-red/15 text-terminal-red border border-terminal-red/30 hover:bg-terminal-red/25 h-9"
+            className="h-9 flex-1 border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
             variant="outline"
             size="sm"
           >
@@ -158,12 +158,15 @@ export function ApprovalsView() {
 
   if (sessionLoading) {
     return (
-      <div className="p-4 md:p-6 lg:p-8 space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <div className="space-y-4">
+      <div className="flex h-full min-h-0 overflow-hidden bg-background">
+        <div className="w-72 shrink-0 border-r border-border/40 p-3 space-y-3">
+          <Skeleton className="h-8 w-full" />
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-40" />
+            <Skeleton key={i} className="h-16" />
           ))}
+        </div>
+        <div className="flex-1 p-4">
+          <Skeleton className="h-40" />
         </div>
       </div>
     );
@@ -172,40 +175,90 @@ export function ApprovalsView() {
   const count = approvals?.length ?? 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-4 md:p-6 lg:p-8">
-      {approvalsLoading ? (
-        <div className="space-y-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-40" />
-          ))}
-        </div>
-      ) : count === 0 ? (
-        <Card className="rounded-none bg-card/40 border-border/50 flex-1">
-          <CardContent className="flex flex-col items-center justify-center py-20 gap-3">
-            <div className="h-12 w-12 rounded-full bg-terminal-green/10 flex items-center justify-center">
-              <CheckCircle2 className="h-6 w-6 text-terminal-green/60" />
-            </div>
-            <p className="text-sm text-muted-foreground">
-              No pending approvals
-            </p>
-            <p className="text-[11px] text-muted-foreground/60">
-              Tool calls requiring approval will appear here
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col max-w-2xl">
-          <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" />
-            {count} pending approval{count !== 1 ? "s" : ""}
+    <div className="flex h-full min-h-0 overflow-hidden bg-background">
+      {/* ── Left sidebar: approval list ── */}
+      <aside className="flex h-full w-72 shrink-0 flex-col border-r border-border/40 bg-card/30 lg:w-80">
+        {/* Sidebar header */}
+        <div className="shrink-0 border-b border-border/30 px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-medium leading-none">Approvals</h3>
           </div>
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          <p className="text-[10px] text-muted-foreground mt-1">
+            {count} pending
+          </p>
+        </div>
+
+        {/* Approval items in sidebar */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {approvalsLoading ? (
+            <div className="space-y-2 p-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-16" />
+              ))}
+            </div>
+          ) : count === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 px-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+                <CheckCircle2 className="h-5 w-5 text-primary/60" />
+              </div>
+              <p className="text-xs text-muted-foreground text-center">No pending approvals</p>
+              <p className="text-[10px] text-muted-foreground/60 text-center">
+                Tool calls requiring approval will appear here
+              </p>
+            </div>
+          ) : (
+            <div className="p-2 space-y-1">
+              {(approvals ?? []).map((a: PendingApprovalRecord) => (
+                <div
+                  key={a.id}
+                  className="rounded-md border border-border/40 bg-background/70 px-2.5 py-2 transition-colors hover:bg-accent/20"
+                >
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span className="text-xs font-medium truncate">{a.toolPath}</span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 pl-5">
+                    <span className="text-[10px] text-muted-foreground truncate">
+                      {formatTimeAgo(a.createdAt)}
+                    </span>
+                    <TaskStatusBadge status={a.task.status} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* ── Right content: full approval cards ── */}
+      <div className="flex-1 min-w-0 max-h-screen overflow-y-auto bg-background/50">
+        {approvalsLoading ? (
+          <div className="p-4 space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-40" />
+            ))}
+          </div>
+        ) : count === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <div className="text-center space-y-2">
+              <CheckCircle2 className="h-8 w-8 text-primary/40 mx-auto" />
+              <p className="text-sm text-muted-foreground">All clear</p>
+              <p className="text-[11px] text-muted-foreground/60">No approvals waiting for review</p>
+            </div>
+          </div>
+        ) : (
+          <div className="p-4 sm:p-6 space-y-4 max-w-3xl">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
+              <Clock className="h-3.5 w-3.5" />
+              {count} pending approval{count !== 1 ? "s" : ""}
+            </div>
             {(approvals ?? []).map((a: PendingApprovalRecord) => (
               <ApprovalCard key={a.id} approval={a} />
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

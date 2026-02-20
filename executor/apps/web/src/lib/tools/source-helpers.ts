@@ -1,13 +1,15 @@
 import { parse as parseDomain } from "tldts";
 import type {
+  CredentialScope,
   CredentialRecord,
   OpenApiSourceQuality,
   SourceAuthProfile,
+  SourceAuthType as SharedSourceAuthType,
   ToolSourceRecord,
 } from "@/lib/types";
 
-export type SourceAuthType = "none" | "bearer" | "apiKey" | "basic" | "mixed";
-export type SourceAuthMode = "workspace" | "account" | "organization";
+export type SourceAuthType = SharedSourceAuthType;
+export type SourceAuthMode = CredentialScope;
 
 const RAW_HOSTS = new Set([
   "raw.githubusercontent.com",

@@ -130,7 +130,7 @@ export function GroupNode({
 
           <span
             className={cn(
-              "font-mono text-[13px] truncate",
+              "truncate text-sm",
               isSource
                 ? "font-semibold text-foreground"
                 : "font-medium text-foreground/90",
@@ -139,9 +139,9 @@ export function GroupNode({
             {displayLabel}
           </span>
 
-          <span className="text-[10px] font-mono text-muted-foreground/60 ml-auto flex items-center gap-2 shrink-0">
+          <span className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground/70">
             {isSource && group.sourceType && (
-              <span className="uppercase tracking-wider opacity-70">
+              <span className="opacity-80">
                 {group.sourceType}
               </span>
             )}
@@ -226,9 +226,7 @@ export function NavGroupNode({
   onToggle,
   focusedPath,
   focusedSource,
-  selectedKeys,
   onFocusTool,
-  onSelectTool,
   onSourceClick,
   source,
 }: {
@@ -238,9 +236,7 @@ export function NavGroupNode({
   onToggle: (key: string) => void;
   focusedPath: string | null;
   focusedSource?: string | null;
-  selectedKeys: Set<string>;
   onFocusTool: (tool: ToolDescriptor) => void;
-  onSelectTool?: (path: string, e: React.MouseEvent) => void;
   onSourceClick?: (sourceName: string) => void;
   source?: ToolSourceRecord;
 }) {
@@ -316,11 +312,11 @@ export function NavGroupNode({
             )}
           </div>
 
-          <span className="font-mono text-[11px] font-semibold text-foreground/90 truncate">
+          <span className="truncate text-xs font-semibold text-foreground/90">
             {displayLabel}
           </span>
 
-          <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto flex items-center gap-1 shrink-0">
+          <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground/60">
             {isLoading ? (
               <Loader2 className="h-2.5 w-2.5 animate-spin" />
             ) : (
@@ -360,11 +356,11 @@ export function NavGroupNode({
               )}
             </div>
 
-            <span className="font-mono text-[11px] font-medium text-foreground/80 truncate">
+            <span className="truncate text-xs font-medium text-foreground/80">
               {displayLabel}
             </span>
 
-            <span className="text-[9px] font-mono text-muted-foreground/50 ml-auto flex items-center gap-1 shrink-0">
+            <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground/60">
               {group.approvalCount > 0 && (
                 <span className="inline-flex items-center gap-0.5 text-terminal-amber">
                   <ShieldCheck className="h-2 w-2" />
@@ -390,9 +386,7 @@ export function NavGroupNode({
                     onToggle={onToggle}
                     focusedPath={focusedPath}
                     focusedSource={focusedSource}
-                    selectedKeys={selectedKeys}
                     onFocusTool={onFocusTool}
-                    onSelectTool={onSelectTool}
                     onSourceClick={onSourceClick}
                   />
                 );
@@ -404,13 +398,7 @@ export function NavGroupNode({
                   tool={child}
                   label={toolDisplayOperation(child.path)}
                   focused={child.path === focusedPath}
-                  selected={selectedKeys.has(child.path)}
                   onFocus={onFocusTool}
-                  onSelect={
-                    onSelectTool
-                      ? (e) => onSelectTool(child.path, e)
-                      : undefined
-                  }
                   depth={depth + 1}
                 />
               );
@@ -568,7 +556,7 @@ export function SourceSidebar({
     <div className="w-52 shrink-0 border-r border-border/50 pr-0 hidden lg:block">
       <div className="px-3 pb-2 pt-1">
         <div className="flex items-center justify-between">
-          <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground/50">
+          <p className="text-xs font-medium text-muted-foreground/70">
             Sources
           </p>
           {onRegenerate ? (
@@ -597,7 +585,7 @@ export function SourceSidebar({
         </div>
         <p
           className={cn(
-            "mt-1 flex items-center gap-1 text-[10px] font-mono",
+            "mt-1 flex items-center gap-1 text-xs",
             inventoryStatus.tone === "loading"
               ? "text-terminal-amber/90"
               : inventoryStatus.tone === "error"
@@ -644,8 +632,8 @@ export function SourceSidebar({
                     className="h-3 w-3 shrink-0 text-muted-foreground"
                   />
                 )}
-                <span className="font-mono font-medium truncate">{g.name}</span>
-                <span className="ml-auto text-[10px] font-mono tabular-nums opacity-60 flex items-center gap-1">
+                <span className="truncate font-medium">{g.name}</span>
+                <span className="ml-auto flex items-center gap-1 text-xs tabular-nums opacity-70">
                   {g.warningCount > 0 ? (
                     <span
                       className="inline-flex items-center gap-0.5 text-terminal-amber"
@@ -690,12 +678,12 @@ export function SourceSidebar({
 
         {activeSource && activeSourceWarnings.length > 0 ? (
           <div className="mt-2 rounded-md border border-terminal-amber/30 bg-terminal-amber/5 px-2 py-2">
-            <p className="text-[10px] font-mono text-terminal-amber/90">
+            <p className="text-xs font-medium text-terminal-amber/90">
               {activeSourceWarnings.length} warning{activeSourceWarnings.length !== 1 ? "s" : ""}
             </p>
             <div className="mt-1.5 space-y-1">
               {activeSourceWarnings.map((warning, index) => (
-                <p key={`${activeSource}-${index}`} className="text-[10px] leading-4 text-muted-foreground">
+                <p key={`${activeSource}-${index}`} className="text-xs leading-4 text-muted-foreground">
                   {warning}
                 </p>
               ))}

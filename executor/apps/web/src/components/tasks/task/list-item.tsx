@@ -34,15 +34,15 @@ export function TaskListItem({ task, selected, onClick, runtimeLabel = task.runt
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-foreground truncate">
+          <span className="truncate text-sm font-medium text-foreground">
             {task.id}
           </span>
         </div>
         <div className="flex items-center gap-2 mt-0.5">
-          <span className="text-[10px] font-mono text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {runtimeLabel}
           </span>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {formatDate(task.createdAt)}
           </span>
         </div>

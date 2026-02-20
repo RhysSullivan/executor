@@ -252,12 +252,3 @@ export function autoExpandedKeysForSearch(
 
   return allGroupKeys;
 }
-
-export function countSelectedTools(
-  selectedKeys: Set<string>,
-  filteredTools: ToolDescriptor[],
-): number {
-  return Array.from(selectedKeys).filter((key) =>
-    filteredTools.some((tool) => tool.path === key),
-  ).length;
-}

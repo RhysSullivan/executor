@@ -6,6 +6,7 @@ import {
   type SourceAuthType,
 } from "@/lib/tools/source-helpers";
 import type {
+  CredentialAdditionalHeader,
   CredentialScope,
   SourceAuthProfile,
   ToolSourceScopeType,
@@ -72,7 +73,12 @@ export function connectionDisplayName(
   return `${base} ${ownerScopeLabel(connection.scopeType)}`;
 }
 
-export function parseHeaderOverrides(text: string): { value?: Record<string, string>; error?: string } {
+type AdditionalHeadersParseResult = {
+  value?: Record<string, string>;
+  error?: string;
+};
+
+export function parseAdditionalHeadersText(text: string): AdditionalHeadersParseResult {
   const lines = text
     .split("\n")
     .map((line) => line.trim())
@@ -98,12 +104,12 @@ export function parseHeaderOverrides(text: string): { value?: Record<string, str
   return { value: headers };
 }
 
-export type HeaderOverrideEntry = {
+export type AdditionalHeaderEntry = {
   key: string;
   value: string;
 };
 
-export function parseHeaderOverrideEntries(text: string): HeaderOverrideEntry[] {
+export function parseAdditionalHeaderEntries(text: string): AdditionalHeaderEntry[] {
   const rows = text
     .split("\n")
     .map((line) => line.trim())
@@ -126,7 +132,7 @@ export function parseHeaderOverrideEntries(text: string): HeaderOverrideEntry[] 
   });
 }
 
-export function parseHeaderOverrideRows(entries: HeaderOverrideEntry[]): { value?: Record<string, string>; error?: string } {
+export function parseAdditionalHeaderRows(entries: AdditionalHeaderEntry[]): AdditionalHeadersParseResult {
   const headers: Record<string, string> = {};
 
   for (let index = 0; index < entries.length; index += 1) {
@@ -149,7 +155,7 @@ export function parseHeaderOverrideRows(entries: HeaderOverrideEntry[]): { value
   return { value: headers };
 }
 
-export function serializeHeaderOverrideRows(entries: HeaderOverrideEntry[]): string {
+export function serializeAdditionalHeaderRows(entries: AdditionalHeaderEntry[]): string {
   return entries
     .map((entry) => ({
       key: entry.key.trim(),
@@ -160,9 +166,13 @@ export function serializeHeaderOverrideRows(entries: HeaderOverrideEntry[]): str
     .join("\n");
 }
 
-export function formatHeaderOverrides(overrides: Record<string, unknown> | undefined): string {
-  const headers = overrides && typeof overrides.headers === "object" ? (overrides.headers as Record<string, unknown>) : {};
-  return Object.entries(headers)
-    .map(([key, value]) => `${key}: ${String(value)}`)
+export function formatAdditionalHeaders(headers: CredentialAdditionalHeader[] | undefined): string {
+  return (headers ?? [])
+    .map((header) => ({
+      key: header.name.trim(),
+      value: header.value.trim(),
+    }))
+    .filter((entry) => entry.key.length > 0 && entry.value.length > 0)
+    .map((entry) => `${entry.key}: ${entry.value}`)
     .join("\n");
 }

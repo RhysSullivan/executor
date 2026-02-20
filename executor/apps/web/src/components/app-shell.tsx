@@ -117,7 +117,7 @@ function RepoStarLink() {
       href={EXECUTOR_REPO_URL}
       target="_blank"
       rel="noreferrer"
-      className="group flex items-center justify-between px-1 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+      className="group flex items-center justify-between px-1 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
     >
       <span className="flex items-center gap-1.5">
         <Github className="h-3.5 w-3.5" />
@@ -134,7 +134,7 @@ function FeedbackLink() {
       href={TWITTER_FEEDBACK_URL}
       target="_blank"
       rel="noreferrer"
-      className="group flex items-center justify-between px-1 py-1 text-[10px] uppercase tracking-[0.14em] text-muted-foreground transition-colors hover:text-foreground"
+      className="group flex items-center justify-between px-1 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
     >
       <span className="flex items-center gap-1.5">
         <MessageCircle className="h-3.5 w-3.5" />

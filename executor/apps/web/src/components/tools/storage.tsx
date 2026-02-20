@@ -8,6 +8,7 @@ import {
   KeyRound,
   Table,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { StorageDurability, StorageInstanceRecord, StorageScopeType } from "@/lib/types";
 import { convexApi } from "@/lib/convex-api";
@@ -31,6 +32,37 @@ import {
   type StorageSqlObject,
   type StorageSqlResult,
 } from "./storage_panel_shared";
+
+function StorageInspectorSkeleton() {
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center justify-between border-b border-border/40 px-4 py-1.5 bg-card/20">
+        <div className="space-y-1">
+          <Skeleton className="h-3 w-40 rounded" />
+          <Skeleton className="h-2.5 w-56 rounded" />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Skeleton className="h-7 w-12 rounded-md" />
+          <Skeleton className="h-7 w-12 rounded-md" />
+          <Skeleton className="h-7 w-12 rounded-md" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 border-b border-border/30 px-4 py-2 bg-muted/20">
+        <Skeleton className="h-7 flex-1 rounded-md" />
+        <Skeleton className="h-7 w-16 rounded-md" />
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-hidden p-4">
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <Skeleton key={index} className="h-9 w-full rounded-md" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Main Component ─────────────────────────────────────────────────────────
 
@@ -478,6 +510,8 @@ export function StoragePanel({
               onSqlViewModeChange={setSqlViewMode}
             />
           </Tabs>
+        ) : loading ? (
+          <StorageInspectorSkeleton />
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="flex flex-col items-center gap-3">

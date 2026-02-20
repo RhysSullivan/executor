@@ -86,7 +86,7 @@ function ConstraintBadges({ entry }: { entry: SchemaFieldEntry }) {
   return (
     <span className="inline-flex items-center gap-1 ml-0.5">
       {parts.map((p, i) => (
-        <span key={i} className="font-mono text-[9px] text-muted-foreground/65 bg-muted rounded-sm px-1 leading-[1.4]">
+        <span key={i} className="rounded-sm bg-muted px-1 text-[11px] leading-[1.4] text-muted-foreground/70">
           {p}
         </span>
       ))}
@@ -104,7 +104,7 @@ function FieldRow({ entry }: { entry: SchemaFieldEntry }) {
     >
       {/* Name + type line */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="font-mono text-[11px] font-semibold text-foreground leading-tight">
+        <span className="text-sm font-semibold leading-tight text-foreground">
           {entry.path.split(".").pop()}
         </span>
 
@@ -117,7 +117,7 @@ function FieldRow({ entry }: { entry: SchemaFieldEntry }) {
 
         <span
           className={cn(
-            "font-mono text-[10px] leading-none px-1.5 py-0.5 rounded-[3px] border font-medium",
+            "rounded-[3px] border px-1.5 py-0.5 text-[11px] leading-none font-medium",
             typeColorClasses(entry.type),
           )}
         >
@@ -125,7 +125,7 @@ function FieldRow({ entry }: { entry: SchemaFieldEntry }) {
         </span>
 
         {entry.deprecated ? (
-          <span className="font-mono text-[9px] font-medium uppercase tracking-wide text-[oklch(0.6_0.16_75)] dark:text-[oklch(0.78_0.14_75)] bg-[oklch(0.6_0.16_75_/_0.08)] dark:bg-[oklch(0.78_0.14_75_/_0.1)] border border-[oklch(0.6_0.16_75_/_0.18)] dark:border-[oklch(0.78_0.14_75_/_0.2)] rounded-[3px] px-1.5 py-px leading-none">
+          <span className="rounded-[3px] border border-[oklch(0.6_0.16_75_/_0.18)] bg-[oklch(0.6_0.16_75_/_0.08)] px-1.5 py-px text-[10px] font-medium leading-none text-[oklch(0.6_0.16_75)] dark:border-[oklch(0.78_0.14_75_/_0.2)] dark:bg-[oklch(0.78_0.14_75_/_0.1)] dark:text-[oklch(0.78_0.14_75)]">
             deprecated
           </span>
         ) : null}
@@ -135,7 +135,7 @@ function FieldRow({ entry }: { entry: SchemaFieldEntry }) {
 
       {/* Description */}
       {entry.description ? (
-        <div className="text-[11px] leading-relaxed text-muted-foreground [&_p]:m-0 [&_p+p]:mt-0.5 [&_code]:font-mono [&_code]:text-[10px] [&_code]:bg-muted [&_code]:border [&_code]:border-border/70 [&_code]:rounded-sm [&_code]:px-1 [&_code]:py-px [&_code]:text-terminal-cyan [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_a]:decoration-primary/25 hover:[&_a]:decoration-primary/70">
+        <div className="text-xs leading-relaxed text-muted-foreground [&_p]:m-0 [&_p+p]:mt-0.5 [&_code]:font-mono [&_code]:text-[11px] [&_code]:bg-muted [&_code]:border [&_code]:border-border/70 [&_code]:rounded-sm [&_code]:px-1 [&_code]:py-px [&_code]:text-primary [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_a]:decoration-primary/25 hover:[&_a]:decoration-primary/70">
           <Streamdown plugins={{ code: codePlugin }} controls={false}>{entry.description}</Streamdown>
         </div>
       ) : null}
@@ -144,7 +144,7 @@ function FieldRow({ entry }: { entry: SchemaFieldEntry }) {
       {entry.enumValues && entry.enumValues.length > 0 && entry.enumValues.length <= 12 ? (
         <div className="flex flex-wrap gap-1 mt-0.5">
           {entry.enumValues.map((v, i) => (
-            <code key={i} className="font-mono text-[10px] bg-muted border border-border/60 rounded-[3px] px-1.5 py-px text-foreground/80">
+            <code key={i} className="rounded-[3px] border border-border/60 bg-muted px-1.5 py-px font-mono text-[11px] text-foreground/80">
               {v}
             </code>
           ))}
@@ -156,14 +156,14 @@ function FieldRow({ entry }: { entry: SchemaFieldEntry }) {
         <div className="flex flex-wrap gap-2 mt-0.5">
           {entry.example ? (
             <span className="inline-flex items-center gap-1">
-              <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50">example</span>
-              <code className="font-mono text-[10px] text-muted-foreground/85">{entry.example}</code>
+              <span className="text-[11px] text-muted-foreground/60">Example</span>
+              <code className="font-mono text-xs text-muted-foreground/85">{entry.example}</code>
             </span>
           ) : null}
           {entry.defaultValue ? (
             <span className="inline-flex items-center gap-1">
-              <span className="font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50">default</span>
-              <code className="font-mono text-[10px] text-muted-foreground/85">{entry.defaultValue}</code>
+              <span className="text-[11px] text-muted-foreground/60">Default</span>
+              <code className="font-mono text-xs text-muted-foreground/85">{entry.defaultValue}</code>
             </span>
           ) : null}
         </div>
@@ -212,11 +212,11 @@ function SchemaFieldsSection({
     <div className="flex flex-col gap-2">
       {/* Section header */}
       <div className="flex items-baseline gap-2">
-        <span className="font-mono text-[9px] font-medium tracking-wider uppercase text-muted-foreground/60">
+        <span className="text-xs font-medium text-muted-foreground/70">
           {label}
         </span>
         {hasEntries ? (
-          <span className="font-mono text-[10px] text-muted-foreground/50">
+          <span className="text-xs text-muted-foreground/60">
             {entries.length} field{entries.length !== 1 ? "s" : ""}
             {truncated ? "+" : ""}
           </span>
@@ -228,7 +228,7 @@ function SchemaFieldsSection({
         <div className="border border-border rounded-md bg-muted/30 overflow-hidden">
           {collapsedByDefault ? (
             <details open={false}>
-              <summary className="cursor-pointer select-none font-mono text-[10px] text-muted-foreground/60 px-3.5 py-2 block transition-opacity hover:opacity-100">
+              <summary className="block cursor-pointer select-none px-3.5 py-2 text-xs text-muted-foreground/70 transition-opacity hover:opacity-100">
                 Show all fields ({entries.length}{truncated ? "+" : ""})
               </summary>
               <div className="flex flex-col">
@@ -236,7 +236,7 @@ function SchemaFieldsSection({
                   <FieldRow key={`${entry.path}-${i}`} entry={entry} />
                 ))}
                 {truncated ? (
-                  <p className="font-mono text-[10px] text-muted-foreground/50 px-3.5 py-2">
+                  <p className="px-3.5 py-2 text-xs text-muted-foreground/60">
                     Showing first {entries.length} fields...
                   </p>
                 ) : null}
@@ -251,7 +251,7 @@ function SchemaFieldsSection({
           )}
         </div>
       ) : empty ? (
-        <p className="text-[11px] font-mono text-muted-foreground/50 italic pl-0.5">
+        <p className="pl-0.5 text-xs italic text-muted-foreground/60">
           Empty object
         </p>
       ) : schemaJson ? (
@@ -261,7 +261,7 @@ function SchemaFieldsSection({
       {/* Raw schema toggle */}
       {hasEntries && schemaJson ? (
         <details className="mt-1">
-          <summary className="cursor-pointer select-none font-mono text-[9px] uppercase tracking-wider text-muted-foreground/50 transition-opacity hover:opacity-80">
+          <summary className="cursor-pointer select-none text-xs font-medium text-muted-foreground/60 transition-opacity hover:opacity-80">
             Raw schema
           </summary>
           <div className="mt-1.5">
@@ -308,11 +308,11 @@ export function ToolDetailPanel({
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b border-border/40 px-5 py-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <Zap className="h-3.5 w-3.5 text-primary/70 shrink-0" />
-          <h2 className="text-[14px] font-mono font-semibold text-foreground truncate">
+          <h2 className="truncate text-sm font-semibold text-foreground">
             {tool.path}
           </h2>
           {tool.approval === "required" ? (
-            <span className="inline-flex items-center gap-0.5 text-[9px] font-mono uppercase tracking-wider text-terminal-amber bg-terminal-amber/8 px-1.5 py-0.5 rounded border border-terminal-amber/15 shrink-0">
+            <span className="inline-flex shrink-0 items-center gap-0.5 rounded border border-terminal-amber/15 bg-terminal-amber/8 px-1.5 py-0.5 text-xs font-medium text-terminal-amber">
               <ShieldCheck className="h-2.5 w-2.5" />
               gated
             </span>
@@ -322,7 +322,7 @@ export function ToolDetailPanel({
           </div>
         </div>
         {tool.source ? (
-          <p className="mt-0.5 text-[10px] font-mono text-muted-foreground/50 pl-6">
+          <p className="mt-0.5 pl-6 text-xs text-muted-foreground/60">
             {tool.source}
           </p>
         ) : null}
@@ -404,11 +404,11 @@ function ToolDetailContent({
         <div className="space-y-3">
           <Skeleton className="h-3.5 w-72" />
           <div>
-            <p className="font-mono text-[9px] font-medium tracking-wider uppercase text-muted-foreground/60">Arguments</p>
+            <p className="text-xs font-medium text-muted-foreground/70">Arguments</p>
             <Skeleton className="h-20 w-full rounded-md mt-1" />
           </div>
           <div>
-            <p className="font-mono text-[9px] font-medium tracking-wider uppercase text-muted-foreground/60">Returns</p>
+            <p className="text-xs font-medium text-muted-foreground/70">Returns</p>
             <Skeleton className="h-14 w-full rounded-md mt-1" />
           </div>
         </div>

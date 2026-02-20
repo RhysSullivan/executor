@@ -2,6 +2,13 @@ import { Database, Plus, Power, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { StorageDurability, StorageInstanceRecord, StorageScopeType } from "@/lib/types";
@@ -59,7 +66,7 @@ export function StoragePanelSidebar(props: StoragePanelSidebarProps) {
           <Database className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-xs font-medium text-foreground">Instances</span>
           {visibleInstances.length > 0 && (
-            <Badge variant="outline" className="h-4 px-1.5 text-[9px] font-mono text-muted-foreground">
+            <Badge variant="outline" className="h-4 px-1.5 text-xs text-muted-foreground">
               {visibleInstances.length}
             </Badge>
           )}
@@ -78,36 +85,44 @@ export function StoragePanelSidebar(props: StoragePanelSidebarProps) {
         <div className="border-b border-border/40 bg-muted/30 px-3 py-3">
           <div className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
-              <label className="flex flex-col gap-1 text-[10px] text-muted-foreground">
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                 Scope
-                <select
-                  className="h-7 rounded-md border border-border/60 bg-background px-2 text-[11px] text-foreground"
+                <Select
                   value={scopeType}
-                  onChange={(event) => onScopeTypeChange(event.target.value as StorageScopeType)}
+                  onValueChange={(value) => onScopeTypeChange(value as StorageScopeType)}
                 >
-                  <option value="scratch">scratch</option>
-                  <option value="account">account</option>
-                  <option value="workspace">workspace</option>
-                  <option value="organization">organization</option>
-                </select>
+                  <SelectTrigger className="h-8 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="scratch">scratch</SelectItem>
+                    <SelectItem value="account">account</SelectItem>
+                    <SelectItem value="workspace">workspace</SelectItem>
+                    <SelectItem value="organization">organization</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
-              <label className="flex flex-col gap-1 text-[10px] text-muted-foreground">
+              <label className="flex flex-col gap-1 text-xs text-muted-foreground">
                 Durability
-                <select
-                  className="h-7 rounded-md border border-border/60 bg-background px-2 text-[11px] text-foreground"
+                <Select
                   value={durability}
-                  onChange={(event) => onDurabilityChange(event.target.value as StorageDurability)}
+                  onValueChange={(value) => onDurabilityChange(value as StorageDurability)}
                 >
-                  <option value="ephemeral">ephemeral</option>
-                  <option value="durable">durable</option>
-                </select>
+                  <SelectTrigger className="h-8 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ephemeral">ephemeral</SelectItem>
+                    <SelectItem value="durable">durable</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
             </div>
             <Input
               value={purpose}
               onChange={(event) => onPurposeChange(event.target.value)}
               placeholder="Purpose (optional)"
-              className="h-7 rounded-md text-[11px]"
+              className="h-8 rounded-md"
             />
             <div className="flex items-end gap-2">
               <Input
@@ -115,9 +130,9 @@ export function StoragePanelSidebar(props: StoragePanelSidebarProps) {
                 onChange={(event) => onTtlHoursChange(event.target.value)}
                 disabled={durability !== "ephemeral"}
                 placeholder="TTL (hours)"
-                className="h-7 flex-1 rounded-md text-[11px]"
+                className="h-8 flex-1 rounded-md"
               />
-              <Button size="sm" className="h-7 rounded-md px-3 text-[10px]" disabled={creating} onClick={onCreate}>
+              <Button size="sm" className="h-8 rounded-md px-3 text-xs" disabled={creating} onClick={onCreate}>
                 Create
               </Button>
             </div>
@@ -127,9 +142,15 @@ export function StoragePanelSidebar(props: StoragePanelSidebarProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loading ? (
-          <div className="space-y-1 p-2">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-14 rounded-md" />
+          <div className="space-y-1 p-1.5">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="flex items-start gap-2.5 rounded-md px-2.5 py-2">
+                <Skeleton className="mt-0.5 h-6 w-6 shrink-0 rounded-md" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-3 w-24 rounded" />
+                  <Skeleton className="h-2.5 w-36 rounded" />
+                </div>
+              </div>
             ))}
           </div>
         ) : visibleInstances.length === 0 ? (
@@ -139,7 +160,7 @@ export function StoragePanelSidebar(props: StoragePanelSidebarProps) {
             </div>
             <div className="text-center">
               <p className="text-xs font-medium text-muted-foreground">No instances</p>
-              <p className="mt-0.5 text-[10px] text-muted-foreground/60">Create one to get started</p>
+              <p className="mt-0.5 text-xs text-muted-foreground/60">Create one to get started</p>
             </div>
           </div>
         ) : (
@@ -171,21 +192,21 @@ export function StoragePanelSidebar(props: StoragePanelSidebarProps) {
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className={cn(
-                        "truncate text-[11px] font-medium",
+                        "truncate text-xs font-medium",
                         active ? "text-foreground" : "text-foreground/80",
                       )}>
                         {instance.purpose || instance.id.slice(0, 12)}
                       </p>
                       <div className="mt-0.5 flex items-center gap-1.5">
-                        <span className={cn("text-[9px] font-medium uppercase tracking-wider", scopeColor(instance.scopeType))}>
+                        <span className={cn("text-xs font-medium", scopeColor(instance.scopeType))}>
                           {instance.scopeType}
                         </span>
-                        <span className="text-[9px] text-muted-foreground/40">/</span>
-                        <span className="text-[9px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground/40">/</span>
+                        <span className="text-xs text-muted-foreground">
                           {prettyBytes(instance.sizeBytes)}
                         </span>
-                        <span className="text-[9px] text-muted-foreground/40">/</span>
-                        <span className="text-[9px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground/40">/</span>
+                        <span className="text-xs text-muted-foreground">
                           {relativeTime(instance.lastSeenAt)}
                         </span>
                       </div>

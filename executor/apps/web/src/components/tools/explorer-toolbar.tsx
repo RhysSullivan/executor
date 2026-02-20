@@ -1,6 +1,5 @@
 import {
   Search,
-  ShieldCheck,
   Filter,
   Plus,
   X,
@@ -29,13 +28,10 @@ interface ToolExplorerToolbarProps {
   loadingInventory?: boolean;
   filterApproval: FilterApproval;
   activeSource: string | null;
-  selectedToolCount: number;
   onSearchChange: (value: string) => void;
   onClearSearch: () => void;
   onFilterApprovalChange: (filter: FilterApproval) => void;
   onAddSource?: () => void;
-  onSelectAll: () => void;
-  onClearSelection: () => void;
 }
 
 export function ToolExplorerToolbar({
@@ -43,18 +39,13 @@ export function ToolExplorerToolbar({
   filteredToolCount,
   loadingInventory = false,
   filterApproval,
-  selectedToolCount,
   onSearchChange,
   onClearSearch,
   onFilterApprovalChange,
   onAddSource,
-  onSelectAll,
-  onClearSelection,
 }: ToolExplorerToolbarProps) {
-  const hasSelection = selectedToolCount > 0;
-
   return (
-    <div className="shrink-0 relative space-y-1.5">
+    <div className="shrink-0 space-y-1.5">
       {/* Search — own row */}
       <div className="relative">
         <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
@@ -134,46 +125,6 @@ export function ToolExplorerToolbar({
             Add Source
           </Button>
         ) : null}
-      </div>
-
-      <div
-        className={cn(
-          "absolute inset-x-0 top-full mt-1 z-30 transition-opacity duration-150 pointer-events-none",
-          hasSelection ? "opacity-100 pointer-events-auto" : "opacity-0",
-        )}
-        aria-hidden={!hasSelection}
-      >
-        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-primary/5 border border-primary/10">
-          <span className="text-[11px] font-mono text-primary">
-            {selectedToolCount} selected
-          </span>
-          <div className="flex-1" />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-5 text-[10px] text-muted-foreground px-1.5"
-            onClick={onSelectAll}
-          >
-            All ({filteredToolCount})
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-5 text-[10px] text-muted-foreground px-1.5"
-            onClick={onClearSelection}
-          >
-            Clear
-          </Button>
-          <div className="h-3 w-px bg-border/50" />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-5 text-[10px] border-terminal-amber/30 text-terminal-amber hover:bg-terminal-amber/10 px-1.5"
-          >
-            <ShieldCheck className="h-2.5 w-2.5 mr-0.5" />
-            Approval
-          </Button>
-        </div>
       </div>
     </div>
   );

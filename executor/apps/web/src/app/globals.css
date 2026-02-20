@@ -150,6 +150,14 @@
   }
 }
 
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* ── Shiki / Streamdown code block theme overrides ─────────────────────────── */
 /* Light mode: use shiki-light tokens */
 [style*="--shiki-light"] {
@@ -493,4 +501,3 @@
   margin: 0;
   padding: 0 0 0 1rem;
 }
-

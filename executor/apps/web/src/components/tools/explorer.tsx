@@ -12,13 +12,11 @@ import type { ToolDescriptor, ToolSourceRecord } from "@/lib/types";
 import type { SourceAuthProfile } from "@/lib/types";
 import {
   autoExpandedKeysForSearch,
-  countSelectedTools,
   filterToolsBySearch,
   filterToolsBySourceAndApproval,
   treeGroupsForView,
   type FilterApproval,
 } from "./explorer-derived";
-import { collectGroupKeys } from "@/lib/tool/explorer-grouping";
 import { sourceLabel } from "@/lib/tool/source-utils";
 import { traverseSchema } from "@/lib/tool/schema-traverse";
 import {
@@ -79,12 +77,10 @@ interface ToolExplorerProps {
   searchValue: string;
   filterApprovalValue: FilterApproval;
   focusedToolPathValue: string | null;
-  selectedToolPathsValue: string[];
   focusedSourceNameValue: string | null;
   onSearchValueChange: (value: string) => void;
   onFilterApprovalValueChange: (filter: FilterApproval) => void;
   onFocusedToolPathChange: (toolPath: string | null) => void;
-  onSelectedToolPathsChange: (toolPaths: string[]) => void;
   onFocusedSourceNameChange: (sourceName: string | null) => void;
   onSourceAdded?: (source: ToolSourceRecord, options?: SourceAddedOptions) => void;
   sourceDialogMeta?: Record<string, SourceDialogMeta>;
@@ -113,12 +109,10 @@ export function ToolExplorer({
   searchValue,
   filterApprovalValue,
   focusedToolPathValue,
-  selectedToolPathsValue,
   focusedSourceNameValue,
   onSearchValueChange,
   onFilterApprovalValueChange,
   onFocusedToolPathChange,
-  onSelectedToolPathsChange,
   onFocusedSourceNameChange,
   onSourceAdded,
   sourceDialogMeta,
@@ -155,7 +149,6 @@ export function ToolExplorer({
   const searchInput = searchValue;
   const filterApproval = filterApprovalValue;
   const focusedToolPath = focusedToolPathValue;
-  const selectedKeys = useMemo(() => new Set(selectedToolPathsValue), [selectedToolPathsValue]);
   const focusedSourceName = focusedSourceNameValue;
   const search = useDeferredValue(searchInput);
 
@@ -170,10 +163,6 @@ export function ToolExplorer({
   const setFocusedToolPath = useCallback((toolPath: string | null) => {
     onFocusedToolPathChange(toolPath);
   }, [onFocusedToolPathChange]);
-
-  const setSelectedKeys = useCallback((next: Set<string>) => {
-    onSelectedToolPathsChange(Array.from(next));
-  }, [onSelectedToolPathsChange]);
 
   const setFocusedSourceName = useCallback((sourceName: string | null) => {
     onFocusedSourceNameChange(sourceName);
@@ -257,10 +246,6 @@ export function ToolExplorer({
     return filterToolsBySearch(filteredTools, search);
   }, [filteredTools, search]);
 
-  const selectedToolCount = useMemo(() => {
-    return countSelectedTools(selectedKeys, filteredTools);
-  }, [selectedKeys, filteredTools]);
-
   const sidebarExistingSourceNames = useMemo(() => {
     return existingSourceNames ?? new Set(visibleSources.map((source) => source.name));
   }, [existingSourceNames, visibleSources]);
@@ -289,29 +274,6 @@ export function ToolExplorer({
       setFocusedToolPath(null);
     }
   }, [focusedSourceNameValue, formSource, sourceByName, setFocusedToolPath]);
-
-  const toggleSelectTool = useCallback(
-    (path: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      e.preventDefault();
-      const next = new Set(selectedKeys);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      setSelectedKeys(next);
-    },
-    [selectedKeys, setSelectedKeys],
-  );
-
-  const clearSelection = useCallback(() => {
-    setSelectedKeys(new Set());
-  }, []);
-
-  const selectAll = useCallback(() => {
-    setSelectedKeys(new Set(filteredTools.map((t) => t.path)));
-  }, [filteredTools]);
 
   const maybeLoadToolDetails = useCallback(async (tool: ToolDescriptor, expanded: boolean) => {
     if (!expanded || !onLoadToolDetails) {
@@ -459,14 +421,7 @@ export function ToolExplorer({
     });
   }, [searchedTools, loadingSources, visibleSources, sourceCounts, resolvedActiveSource]);
 
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
-    // Start with all source-level groups expanded
-    const keys = new Set<string>();
-    for (const group of treeGroups) {
-      keys.add(group.key);
-    }
-    return keys;
-  });
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   // Auto-expand all groups when search is active
   const searchAutoExpanded = useMemo(
@@ -476,21 +431,6 @@ export function ToolExplorer({
 
   const effectiveExpandedKeys = searchAutoExpanded ?? expandedKeys;
 
-  // When new source groups appear, auto-expand them
-  useEffect(() => {
-    const allKeys = collectGroupKeys(treeGroups);
-    setExpandedKeys((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const key of allKeys) {
-        if (key.startsWith("source:") && !key.includes(":ns:") && !next.has(key)) {
-          next.add(key);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [treeGroups]);
 
   const toggleExpand = useCallback((key: string) => {
     setExpandedKeys((prev) => {
@@ -609,13 +549,10 @@ export function ToolExplorer({
             loadingInventory={awaitingInitialInventory}
             filterApproval={filterApproval}
             activeSource={resolvedActiveSource}
-            selectedToolCount={selectedToolCount}
             onSearchChange={setSearchInput}
             onClearSearch={() => setSearchInput("")}
             onFilterApprovalChange={setFilterApproval}
             onAddSource={handleAddSource}
-            onSelectAll={selectAll}
-            onClearSelection={clearSelection}
           />
         </div>
 
@@ -659,9 +596,7 @@ export function ToolExplorer({
                       onToggle={toggleExpand}
                       focusedPath={focusedToolPath}
                       focusedSource={focusedSourceName}
-                      selectedKeys={selectedKeys}
                       onFocusTool={handleFocusTool}
-                      onSelectTool={toggleSelectTool}
                       onSourceClick={handleSourceClick}
                       source={sourceByName.get(group.label) ?? undefined}
                     />

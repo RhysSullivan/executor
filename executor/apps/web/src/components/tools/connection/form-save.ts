@@ -8,7 +8,6 @@ type BuildSecretJsonParams = {
   basicPassword: string;
   apiKeyValue: string;
   tokenValue: string;
-  parsedHeaders: Record<string, string>;
 };
 
 export function buildSecretJson({
@@ -19,7 +18,6 @@ export function buildSecretJson({
   basicPassword,
   apiKeyValue,
   tokenValue,
-  parsedHeaders,
 }: BuildSecretJsonParams): { secretJson?: Record<string, unknown>; error?: string } {
   const secretJson: Record<string, unknown> = {};
   if (!linkExisting) {
@@ -43,11 +41,6 @@ export function buildSecretJson({
       }
     }
   }
-
-  if (Object.keys(parsedHeaders).length > 0) {
-    secretJson.__headers = parsedHeaders;
-  }
-
   if (Object.keys(secretJson).length === 0 && !editing && !linkExisting) {
     if (selectedAuthType === "basic") {
       return { error: "Username and password are required" };

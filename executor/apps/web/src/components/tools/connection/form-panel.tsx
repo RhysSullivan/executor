@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -15,12 +15,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type {
@@ -45,24 +39,24 @@ import {
   connectionSuccessCopy,
 } from "./form-save";
 
-export function ConnectionFormDialog({
-  open,
-  onOpenChange,
+export function ConnectionFormPanel({
   editing,
   initialSourceKey,
   sources,
   credentials,
   sourceAuthProfiles,
   loadingSourceNames = [],
+  onClose,
+  onSaved,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   editing: CredentialRecord | null;
   initialSourceKey?: string | null;
   sources: ToolSourceRecord[];
   credentials: CredentialRecord[];
   sourceAuthProfiles: Record<string, SourceAuthProfile>;
   loadingSourceNames?: string[];
+  onClose: () => void;
+  onSaved?: () => void;
 }) {
   const { context, clientConfig } = useSession();
   const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
@@ -97,7 +91,7 @@ export function ConnectionFormDialog({
     setAdditionalHeadersText,
     handleSourceKeyChange,
   } = useConnectionFormDialogForm({
-    open,
+    open: true,
     editing,
     initialSourceKey,
     sources,
@@ -121,12 +115,8 @@ export function ConnectionFormDialog({
   const detectedAuthLabel = authDetectionPending ? "Detecting..." : authBadge;
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
-
     setHeaderRows(parseAdditionalHeaderEntries(additionalHeadersText));
-  }, [open, additionalHeadersText]);
+  }, [additionalHeadersText]);
 
   const handleSave = async () => {
     if (!context) {
@@ -216,7 +206,8 @@ export function ConnectionFormDialog({
       });
 
       toast.success(connectionSuccessCopy(Boolean(editing), linkExisting));
-      onOpenChange(false);
+      onSaved?.();
+      onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to save connection");
     } finally {
@@ -250,14 +241,20 @@ export function ConnectionFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-card border-border sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-sm font-medium">
-            {editing ? "Update Connection" : "Connect API"}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
+    <div className="flex h-full flex-col">
+      {/* Panel header */}
+      <div className="shrink-0 flex items-center justify-between gap-3 border-b border-border/30 px-4 py-2.5">
+        <h3 className="text-sm font-medium">
+          {editing ? "Update Connection" : "New Connection"}
+        </h3>
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onClose}>
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {/* Form content */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5">
+        <div className="max-w-lg space-y-4">
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">API Source</Label>
             {sourceOptions.length > 0 ? (
@@ -438,7 +435,7 @@ export function ConnectionFormDialog({
             {connectionSubmitCopy(Boolean(editing), saving, connectionMode)}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }

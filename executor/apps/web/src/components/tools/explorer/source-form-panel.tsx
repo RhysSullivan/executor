@@ -69,9 +69,8 @@ export function SourceFormPanel({
   onClose: () => void;
 }) {
   const { context } = useSession();
-  const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
+  const upsertToolSource = useAction(convexApi.workspace.upsertToolSource);
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
-  const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
   const previewOpenApiSourceUpgrade = useAction(convexApi.executorNode.previewOpenApiSourceUpgrade);
   const credentials = useQuery(
     convexApi.workspace.listCredentials,
@@ -195,7 +194,6 @@ export function SourceFormPanel({
         sourceToEdit,
         credentialsLoading,
         upsertToolSource,
-        upsertCredential,
         form: {
           name: form.name,
           endpoint: form.endpoint,
@@ -336,10 +334,10 @@ export function SourceFormPanel({
             <ArrowLeft className="h-3.5 w-3.5" />
           </button>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[14px] font-mono font-semibold text-foreground">
+            <h2 className="text-sm font-semibold text-foreground">
               {editing ? "Edit source" : "Add source"}
             </h2>
-            <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+            <p className="mt-0.5 text-xs text-muted-foreground/70">
               {editing
                 ? "Update endpoint, auth, and credentials."
                 : "Connect a source and configure credentials."}
@@ -365,7 +363,7 @@ export function SourceFormPanel({
                   <p className="text-[13px] font-medium truncate">
                     {displaySourceName(sourceToEdit.name)}
                   </p>
-                  <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {compactEndpointLabel(sourceToEdit)}
                   </p>
                   <div className="mt-2 flex items-center gap-1.5 flex-wrap">

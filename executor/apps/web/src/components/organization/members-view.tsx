@@ -7,6 +7,13 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSession } from "@/lib/session-context";
 import { convexApi } from "@/lib/convex-api";
 import type { Id } from "@executor/database/convex/_generated/dataModel";
@@ -159,18 +166,22 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
               type="email"
               disabled={!canManageMembers || inviteState === "sending"}
             />
-            <select
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            <Select
               value={inviteRole}
-              onChange={(event) => setInviteRole(event.target.value as Role)}
+              onValueChange={(value) => setInviteRole(value as Role)}
               disabled={!canManageMembers || inviteState === "sending"}
             >
-              {ROLE_OPTIONS.map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-9 min-w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROLE_OPTIONS.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {role}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button
               type="submit"
               disabled={!canManageMembers || inviteState === "sending" || inviteEmail.trim().length === 0}
@@ -207,11 +218,10 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
                     <p className="text-xs text-muted-foreground">Status: {member.status}</p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <select
-                      className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                    <Select
                       value={member.role}
                       disabled={!canManageMembers || busyMemberAccountId === member.accountId}
-                      onChange={async (event) => {
+                      onValueChange={async (value) => {
                         setBusyMemberAccountId(member.accountId);
                         try {
                           if (!typedOrganizationId) {
@@ -220,7 +230,7 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
                           await updateRole({
                             organizationId: typedOrganizationId,
                             accountId: member.accountId,
-                            role: event.target.value as Role,
+                            role: value as Role,
                             sessionId: context?.sessionId ?? undefined,
                           });
                         } finally {
@@ -228,12 +238,17 @@ export function MembersView({ showHeader = true }: MembersViewProps) {
                         }
                       }}
                     >
-                      {ROLE_OPTIONS.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="h-8 min-w-36">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ROLE_OPTIONS.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {role}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
 
                     <Button
                       variant="outline"

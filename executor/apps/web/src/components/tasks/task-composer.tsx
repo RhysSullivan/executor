@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { useAction } from "convex/react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -142,6 +141,8 @@ export function TaskComposer() {
     : runtimeTargets[0]?.id ?? "";
   const selectedRuntime = runtimeTargets.find((runtime) => runtime.id === effectiveRuntimeId);
   const showRuntimeSelector = runtimeTargets.length > 1;
+  const isMac = useMemo(() => typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/.test(navigator.userAgent), []);
+  const modKey = isMac ? "⌘" : "Ctrl";
 
   useEffect(() => {
     const draft = readCodeDraftForWorkspace(storageWorkspaceId);
@@ -178,7 +179,9 @@ export function TaskComposer() {
     };
   }, [codeDraftStorageKey]);
 
-  const handleSubmit = async () => {
+  const handleSubmitRef = useRef<(() => void) | undefined>(undefined);
+
+  const handleSubmit = useCallback(async () => {
     if (!context || !code.trim()) return;
     setSubmitting(true);
     try {
@@ -213,79 +216,91 @@ export function TaskComposer() {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [context, code, effectiveRuntimeId, timeoutMs, createTask, submitting]);
+
+  handleSubmitRef.current = handleSubmit;
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSubmitRef.current?.();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
-    <Card className="bg-card border-border">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium">Editor</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1.5">
-            {showRuntimeSelector ? <Label className="text-xs text-muted-foreground">Runtime</Label> : null}
-            {showRuntimeSelector ? (
-              <Select value={effectiveRuntimeId} onValueChange={setRuntimeId}>
-                <SelectTrigger className="h-8 text-xs font-mono bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {runtimeTargets.map((r: RuntimeTargetDescriptor) => (
-                    <SelectItem key={r.id} value={r.id} className="text-xs">
-                      {r.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-             null
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">
-              Timeout (ms)
-            </Label>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      {/* ── Toolbar ── */}
+      <div className="shrink-0 flex items-center justify-between gap-3 border-b border-border/40 px-4 py-2">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-medium">Editor</h3>
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {loadingTools
+              ? "Loading tool inventory..."
+              : `${tools.length} tool${tools.length === 1 ? "" : "s"} loaded${typesUrl ? ", type defs ready" : ""}`}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          {showRuntimeSelector ? (
+            <Select value={effectiveRuntimeId} onValueChange={setRuntimeId}>
+              <SelectTrigger className="h-7 text-xs font-mono bg-background w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {runtimeTargets.map((r: RuntimeTargetDescriptor) => (
+                  <SelectItem key={r.id} value={r.id} className="text-xs">
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          <div className="flex items-center gap-1.5">
+            <Label className="text-[10px] text-muted-foreground shrink-0">Timeout</Label>
             <Input
               type="number"
               value={timeoutMs}
               onChange={(e) => setTimeoutMs(e.target.value)}
-              className="h-8 text-xs font-mono bg-background"
+              className="h-7 text-xs font-mono bg-background w-[100px]"
             />
           </div>
+          <Button
+            onClick={handleSubmit}
+            disabled={submitting || !code.trim()}
+            className="h-7 bg-primary text-primary-foreground hover:bg-primary/90 text-xs gap-1.5 px-3"
+            size="sm"
+          >
+            <Send className="h-3 w-3" />
+            {submitting ? "Executing..." : "Execute"}
+            <kbd className="ml-1 pointer-events-none inline-flex items-center gap-0.5 rounded border border-primary-foreground/20 bg-primary-foreground/10 px-1 py-0.5 font-mono text-[10px] font-medium text-primary-foreground/70">
+              {modKey}↵
+            </kbd>
+          </Button>
         </div>
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs text-muted-foreground">Code</Label>
-            <span className="text-[10px] font-mono text-muted-foreground">
-              {loadingTools
-                ? "Loading tool inventory..."
-                : `${tools.length} tool${tools.length === 1 ? "" : "s"} loaded${typesUrl ? ", type defs ready" : ""}`}
-            </span>
-          </div>
-          <div className="rounded-md border border-border">
-            <CodeEditor
-              value={code}
-              onChange={handleCodeChange}
-              tools={tools}
-              typesUrl={typesUrl}
-              stateStorageKey={editorViewStateStorageKey}
-              height="400px"
-            />
-          </div>
-        </div>
-        <Button
-          onClick={handleSubmit}
-          disabled={submitting || !code.trim()}
-          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 h-9"
-          size="sm"
-        >
-          <Send className="h-3.5 w-3.5 mr-2" />
-          {submitting ? "Executing..." : "Execute Task"}
-        </Button>
+      </div>
 
+      {/* ── Main content area ── */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Code editor - fills available space */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col" style={{ borderRight: lastExecution ? '1px solid hsl(var(--border) / 0.4)' : undefined }}>
+          <CodeEditor
+            value={code}
+            onChange={handleCodeChange}
+            tools={tools}
+            typesUrl={typesUrl}
+            stateStorageKey={editorViewStateStorageKey}
+            className="h-full"
+            height="100%"
+          />
+        </div>
+
+        {/* Result panel - right side */}
         {lastExecution && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
+          <div className="w-[400px] lg:w-[480px] shrink-0 flex flex-col min-h-0 overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between gap-2 border-b border-border/30 px-3 py-2">
               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Last execution
               </span>
@@ -293,36 +308,36 @@ export function TaskComposer() {
                 {lastExecution.status} - {lastExecution.taskId}
               </span>
             </div>
-
-            {lastExecution.result !== undefined && (
-              <div>
-                <span className="text-[10px] uppercase tracking-widest text-terminal-green block mb-2">
-                  Returned result
-                </span>
-                <FormattedCodeBlock
-                  content={lastExecution.result}
-                  language="json"
-                  className="min-h-40 max-h-[65vh] overflow-auto resize-y"
-                />
-              </div>
-            )}
-
-            {lastExecution.error && (
-              <div>
-                <span className="text-[10px] uppercase tracking-widest text-terminal-red block mb-2">
-                  Error
-                </span>
-                <FormattedCodeBlock
-                  content={lastExecution.error}
-                  language="text"
-                  tone="red"
-                  className="min-h-32 max-h-[50vh] overflow-auto resize-y"
-                />
-              </div>
-            )}
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+              {lastExecution.result !== undefined && (
+                <div>
+                  <span className="text-[10px] uppercase tracking-widest text-terminal-green block mb-2">
+                    Returned result
+                  </span>
+                  <FormattedCodeBlock
+                    content={lastExecution.result}
+                    language="json"
+                    className="min-h-40 max-h-full overflow-auto resize-y"
+                  />
+                </div>
+              )}
+              {lastExecution.error && (
+                <div>
+                  <span className="text-[10px] uppercase tracking-widest text-terminal-red block mb-2">
+                    Error
+                  </span>
+                  <FormattedCodeBlock
+                    content={lastExecution.error}
+                    language="text"
+                    tone="red"
+                    className="min-h-32 max-h-full overflow-auto resize-y"
+                  />
+                </div>
+              )}
+            </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

@@ -1,11 +1,9 @@
 import {
-  parseAsNativeArrayOf,
   parseAsString,
   parseAsStringLiteral,
 } from "nuqs";
 import {
   asTrimmedString,
-  asTrimmedStringArray,
 } from "@/lib/url-state/shared";
 
 export const toolsApprovalValues = ["all", "required", "auto"] as const;
@@ -16,7 +14,6 @@ export const toolsCatalogQueryParsers = {
   q: parseAsString.withDefault(""),
   approval: parseAsStringLiteral(toolsApprovalValues).withDefault("all"),
   tool: parseAsString.withDefault(""),
-  selected: parseAsNativeArrayOf(parseAsString),
   source: parseAsString.withDefault(""),
   sourcePanel: parseAsString.withDefault(""),
 };
@@ -25,7 +22,6 @@ export type ToolsSearch = {
   q?: string;
   approval?: ToolsApproval;
   tool?: string;
-  selected?: string[];
   source?: string;
   sourcePanel?: string;
 };
@@ -42,7 +38,6 @@ export function normalizeToolsSearch(search: Record<string, unknown>): ToolsSear
   const q = asTrimmedString(search.q);
   const approval = normalizeToolsApproval(search.approval);
   const tool = asTrimmedString(search.tool);
-  const selected = asTrimmedStringArray(search.selected);
   const source = asTrimmedString(search.source);
   const sourcePanel = asTrimmedString(search.sourcePanel);
 
@@ -50,7 +45,6 @@ export function normalizeToolsSearch(search: Record<string, unknown>): ToolsSear
     ...(q ? { q } : {}),
     ...(approval === "all" ? {} : { approval }),
     ...(tool ? { tool } : {}),
-    ...(selected ? { selected } : {}),
     ...(source ? { source } : {}),
     ...(sourcePanel ? { sourcePanel } : {}),
   };

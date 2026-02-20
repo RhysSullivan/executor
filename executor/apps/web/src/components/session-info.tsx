@@ -96,7 +96,7 @@ export function SessionInfo() {
   if (loading) {
     return (
       <div className="border-t border-border px-3 py-2">
-        <span className="text-[11px] font-mono text-muted-foreground">Loading session...</span>
+        <span className="text-xs text-muted-foreground">Loading session...</span>
       </div>
     );
   }
@@ -121,7 +121,7 @@ export function SessionInfo() {
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <span className="h-6 w-6 rounded-full border border-border bg-muted text-[10px] font-mono text-muted-foreground flex items-center justify-center">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-muted text-xs text-muted-foreground">
                         {avatarInitial}
                       </span>
                     )}

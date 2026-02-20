@@ -41,7 +41,7 @@ export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   return (
     <Badge
       variant="outline"
-      className={cn("text-[10px] font-mono uppercase tracking-wider", config.className)}
+      className={cn("text-xs font-medium", config.className)}
     >
       {status === "running" && (
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-current mr-1.5 pulse-dot" />

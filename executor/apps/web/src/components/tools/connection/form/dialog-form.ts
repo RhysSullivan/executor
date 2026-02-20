@@ -6,7 +6,7 @@ import type {
   ToolSourceRecord,
 } from "@/lib/types";
 import {
-  formatHeaderOverrides,
+  formatAdditionalHeaders,
   sourceAuthForKey,
 } from "@/lib/credentials/source-helpers";
 import {
@@ -40,7 +40,7 @@ type FormState = {
   apiKeyValue: string;
   basicUsername: string;
   basicPassword: string;
-  customHeadersText: string;
+  additionalHeadersText: string;
 };
 
 type SharingScope = "only_me" | "workspace" | "organization";
@@ -102,7 +102,7 @@ function initialFormState({
       apiKeyValue: "",
       basicUsername: "",
       basicPassword: "",
-      customHeadersText: formatHeaderOverrides(editing.overridesJson),
+      additionalHeadersText: formatAdditionalHeaders(editing.additionalHeaders),
     };
   }
 
@@ -120,7 +120,7 @@ function initialFormState({
     apiKeyValue: "",
     basicUsername: "",
     basicPassword: "",
-    customHeadersText: "",
+    additionalHeadersText: "",
   };
 }
 
@@ -157,7 +157,7 @@ export function useConnectionFormDialogForm({
     apiKeyValue,
     basicUsername,
     basicPassword,
-    customHeadersText,
+    additionalHeadersText,
   } = form;
   const compatibleConnectionOptions = useMemo(
     () => compatibleConnections(connectionOptions, scopeType, scope, accountId),
@@ -253,8 +253,8 @@ export function useConnectionFormDialogForm({
     dispatch({ type: "patch", patch: { basicPassword: nextBasicPassword } });
   };
 
-  const setCustomHeadersText = (nextCustomHeadersText: string) => {
-    dispatch({ type: "patch", patch: { customHeadersText: nextCustomHeadersText } });
+  const setAdditionalHeadersText = (nextAdditionalHeadersText: string) => {
+    dispatch({ type: "patch", patch: { additionalHeadersText: nextAdditionalHeadersText } });
   };
 
   return {
@@ -269,7 +269,7 @@ export function useConnectionFormDialogForm({
     apiKeyValue,
     basicUsername,
     basicPassword,
-    customHeadersText,
+    additionalHeadersText,
     sourceOptions,
     connectionOptions,
     compatibleConnectionOptions,
@@ -283,7 +283,7 @@ export function useConnectionFormDialogForm({
     setApiKeyValue,
     setBasicUsername,
     setBasicPassword,
-    setCustomHeadersText,
+    setAdditionalHeadersText,
     handleSourceKeyChange,
   };
 }

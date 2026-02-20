@@ -577,22 +577,22 @@ function ToolPicker({
           variant="outline"
           role="combobox"
           aria-expanded={open}
-          className="h-9 w-full justify-between text-xs font-mono bg-background hover:bg-muted/50 border-border/70"
+          className="h-9 w-full justify-between bg-background text-sm hover:bg-muted/50 border-border/70"
         >
           <span className="truncate text-left">{selectionSummary}</span>
           <ChevronDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[460px] p-0" align="start">
-        {/* Search input — raw input, deferred for filtering so typing never lags */}
+        {/* Search input — deferred for filtering so typing never lags */}
         <div className="flex h-9 items-center gap-2 border-b px-3">
           <Search className="size-4 shrink-0 opacity-50" />
-          <input
+          <Input
             ref={searchRef}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search tools..."
-            className="flex h-10 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-8 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
           />
           {searchInput && (
             <button
@@ -616,11 +616,11 @@ function ToolPicker({
         {/* Footer */}
         {selectedPaths.length > 0 && (
           <div className="border-t border-border/50 p-2 flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">{selectedPaths.length} selected</span>
+            <span className="text-xs text-muted-foreground">{selectedPaths.length} selected</span>
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 text-[10px] px-2"
+              className="h-6 px-2 text-xs"
               onClick={() => { onSelectionChange([]); onPatternChange("*"); }}
             >
               Clear
@@ -1286,97 +1286,99 @@ export function PoliciesPanel({
   // ── Render ──
 
   return (
-    <section className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col border border-border/50 bg-card/40">
-      <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-        <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <Shield className="h-4 w-4 text-muted-foreground" />
-          <div>
-            <h3 className="text-sm font-medium leading-none">Tool Policies</h3>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Control which tools or sources are approved, gated, or blocked
-            </p>
+    <section className="flex h-full min-h-0 w-full overflow-hidden bg-background">
+      {/* ── Left sidebar ── */}
+      <aside className="flex h-full w-64 shrink-0 flex-col border-r border-border/40 bg-card/30 lg:w-72">
+        {/* Sidebar header */}
+        <div className="shrink-0 border-b border-border/30 px-3 py-2.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-medium leading-none">Policies</h3>
+            </div>
+            <Button
+              onClick={() => { setForm(defaultFormState()); setDialogOpen(true); }}
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0"
+              disabled={!context}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Button>
           </div>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            {policies.length} {policies.length === 1 ? "policy" : "policies"}
+          </p>
         </div>
-        <Button
-          onClick={() => { setForm(defaultFormState()); setDialogOpen(true); }}
-          size="sm"
-          className="h-8 text-xs gap-1.5"
-          disabled={!context}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Quick Policy
-        </Button>
-      </div>
 
-      <Separator className="bg-border/40" />
-
-      {/* Policies list */}
-      {loading || loadingTools ? (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-lg" />
-          ))}
-        </div>
-      ) : policies.length === 0 ? (
-        <div className="rounded-none border border-dashed border-border/50 py-10 flex flex-col items-center gap-2.5">
-          <Shield className="h-8 w-8 text-muted-foreground/30" />
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">No tool policies configured</p>
-            <p className="text-[11px] text-muted-foreground/60 mt-0.5">
-              Tools use default approval behavior. Create a tool policy to customize it.
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-[11px] gap-1 mt-1"
-            onClick={() => { setForm(defaultFormState()); setDialogOpen(true); }}
-          >
-            <Plus className="h-3 w-3" />
-            Create first policy
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {(["deny", "require_approval", "allow"] as const).map((decisionType) => {
-            const group = groupedPolicies[decisionType];
-            if (group.length === 0) return null;
-            const config = DECISION_CONFIG[decisionType];
-            return (
-              <div key={decisionType}>
-                <div className="flex items-center gap-2 mb-2">
-                  <config.icon className={cn("h-3 w-3", config.color)} />
-                  <span className={cn("text-[11px] font-medium uppercase tracking-wider", config.color)}>
-                    {config.label}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground/40">
-                    ({group.length})
-                  </span>
-                </div>
-                <div className="space-y-1.5">
-                  {group.map((policy) => (
-                    <PolicyCard
-                      key={policy.id}
-                      policy={policy}
-                      tools={tools}
-                      currentAccountId={context?.accountId}
-                      onDelete={handleDelete}
-                      canDelete={isDirectToolPolicy(policy)}
-                      deleting={deletingId === policy.id}
-                    />
-                  ))}
-                </div>
+        {/* Sidebar policy list */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {loading || loadingTools ? (
+            <div className="space-y-2 p-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 rounded-md" />
+              ))}
+            </div>
+          ) : policies.length === 0 ? (
+            <div className="flex flex-col items-center gap-2.5 px-4 py-10">
+              <Shield className="h-7 w-7 text-muted-foreground/30" />
+              <div className="text-center">
+                <p className="text-xs text-muted-foreground">No policies</p>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  Create a policy to customize tool approval behavior.
+                </p>
               </div>
-            );
-          })}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px] gap-1 mt-1"
+                onClick={() => { setForm(defaultFormState()); setDialogOpen(true); }}
+              >
+                <Plus className="h-3 w-3" />
+                Create first policy
+              </Button>
+            </div>
+          ) : (
+            <div className="p-2 space-y-3">
+              {(["deny", "require_approval", "allow"] as const).map((decisionType) => {
+                const group = groupedPolicies[decisionType];
+                if (group.length === 0) return null;
+                const config = DECISION_CONFIG[decisionType];
+                return (
+                  <div key={decisionType}>
+                    <div className="flex items-center gap-2 mb-1.5 px-1">
+                      <config.icon className={cn("h-3 w-3", config.color)} />
+                      <span className={cn("text-[10px] font-medium uppercase tracking-wider", config.color)}>
+                        {config.label}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground/40">
+                        ({group.length})
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {group.map((policy) => (
+                        <PolicyCard
+                          key={policy.id}
+                          policy={policy}
+                          tools={tools}
+                          currentAccountId={context?.accountId}
+                          onDelete={handleDelete}
+                          canDelete={isDirectToolPolicy(policy)}
+                          deleting={deletingId === policy.id}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </aside>
 
-      <Separator className="bg-border/40" />
-
+      {/* ── Right content panel ── */}
+      <div className="flex-1 min-w-0 max-h-screen overflow-y-auto bg-background/50">
+        <div className="p-4 sm:p-5 space-y-4">
       <details className="group rounded-none border border-border/60 bg-card/30">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5">
           <div>

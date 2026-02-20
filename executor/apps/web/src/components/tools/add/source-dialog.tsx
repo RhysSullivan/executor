@@ -85,9 +85,8 @@ export function AddSourceDialog({
   trigger?: ReactNode;
 }) {
   const { context } = useSession();
-  const upsertToolSource = useMutation(convexApi.workspace.upsertToolSource);
+  const upsertToolSource = useAction(convexApi.workspace.upsertToolSource);
   const deleteToolSource = useMutation(convexApi.workspace.deleteToolSource);
-  const upsertCredential = useAction(convexApi.credentialsNode.upsertCredential);
   const previewOpenApiSourceUpgrade = useAction(convexApi.executorNode.previewOpenApiSourceUpgrade);
   const credentials = useQuery(
     convexApi.workspace.listCredentials,
@@ -218,7 +217,6 @@ export function AddSourceDialog({
         sourceToEdit,
         credentialsLoading,
         upsertToolSource,
-        upsertCredential,
         form: {
           name: form.name,
           endpoint: form.endpoint,

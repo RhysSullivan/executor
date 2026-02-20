@@ -1,15 +1,19 @@
 import type { Id } from "@executor/database/convex/_generated/dataModel";
 import type {
   ApprovalStatus as CoreApprovalStatus,
+  ArgumentCondition as CoreArgumentCondition,
   ArgumentConditionOperator as CoreArgumentConditionOperator,
+  CredentialAdditionalHeader as CoreCredentialAdditionalHeader,
   CredentialProvider as CoreCredentialProvider,
   CredentialScope as CoreCredentialScope,
   CredentialScopeType as CoreCredentialScopeType,
+  OpenApiSourceQuality as CoreOpenApiSourceQuality,
   PolicyApprovalMode as CorePolicyApprovalMode,
   PolicyDecision as CorePolicyDecision,
   PolicyEffect as CorePolicyEffect,
   PolicyMatchType as CorePolicyMatchType,
   PolicyScopeType as CorePolicyScopeType,
+  SourceAuthProfile as CoreSourceAuthProfile,
   SourceAuthType as CoreSourceAuthType,
   StorageDurability as CoreStorageDurability,
   StorageInstanceStatus as CoreStorageInstanceStatus,
@@ -40,11 +44,8 @@ export type ToolRoleSelectorType = CoreToolRoleSelectorType;
 export type ToolRoleBindingStatus = CoreToolRoleBindingStatus;
 export type ArgumentConditionOperator = CoreArgumentConditionOperator;
 
-export interface ArgumentCondition {
-  key: string;
-  operator: ArgumentConditionOperator;
-  value: string;
-}
+export type ArgumentCondition = CoreArgumentCondition;
+export type CredentialAdditionalHeader = CoreCredentialAdditionalHeader;
 export type CredentialScope = CoreCredentialScope;
 export type CredentialProvider = CoreCredentialProvider;
 export type ToolSourceScopeType = CoreToolSourceScopeType;
@@ -58,12 +59,7 @@ export type StorageProvider = CoreStorageProvider;
 
 export type SourceAuthType = CoreSourceAuthType;
 
-export interface SourceAuthProfile {
-  type: SourceAuthType;
-  mode?: CredentialScope;
-  header?: string;
-  inferred: boolean;
-}
+export type SourceAuthProfile = CoreSourceAuthProfile;
 
 export interface TaskRecord {
   id: string;
@@ -122,7 +118,7 @@ export interface CredentialRecord {
   organizationId?: string;
   workspaceId?: string;
   sourceKey: string;
-  overridesJson?: Record<string, unknown>;
+  additionalHeaders: CredentialAdditionalHeader[];
   boundAuthFingerprint?: string;
   provider: CredentialProvider;
   secretJson: Record<string, unknown>;
@@ -191,17 +187,7 @@ export interface ToolDescriptor {
   };
 }
 
-export interface OpenApiSourceQuality {
-  sourceKey: string;
-  toolCount: number;
-  unknownArgsCount: number;
-  unknownReturnsCount: number;
-  partialUnknownArgsCount: number;
-  partialUnknownReturnsCount: number;
-  argsQuality: number;
-  returnsQuality: number;
-  overallQuality: number;
-}
+export type OpenApiSourceQuality = CoreOpenApiSourceQuality;
 
 export interface AnonymousContext {
   sessionId: string;

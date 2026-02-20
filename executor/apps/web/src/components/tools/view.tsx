@@ -8,7 +8,6 @@ import { ToolExplorer } from "@/components/tools/explorer";
 import { TaskComposer } from "@/components/tasks/task-composer";
 
 import { CredentialsPanel } from "@/components/tools/credentials";
-import { ConnectionFormDialog } from "@/components/tools/connection/form-dialog";
 import { PoliciesPanel } from "@/components/tools/policies";
 import { StoragePanel } from "@/components/tools/storage";
 import { useSession } from "@/lib/session-context";
@@ -34,6 +33,13 @@ import { toolsCatalogQueryParsers } from "@/lib/url-state/tools";
 
 type ToolsTab = "catalog" | "connections" | "policies" | "storage" | "editor";
 const INVENTORY_REGENERATION_TOAST_ID = "tool-inventory-regeneration";
+const TAB_USES_OWN_LOADING_STATE: Record<ToolsTab, boolean> = {
+  catalog: true,
+  connections: true,
+  policies: true,
+  storage: true,
+  editor: true,
+};
 
 function parseToolsTab(pathname: string): ToolsTab {
   const segments = pathname.split("/").filter(Boolean);
@@ -76,17 +82,10 @@ export function ToolsView() {
   const catalogFilterValue = catalogQueryState.approval as FilterApproval;
   const catalogSourceValue = useMemo(() => mapEmptyQueryValueToNull(catalogQueryState.source), [catalogQueryState.source]);
   const catalogActiveToolPath = mapEmptyQueryValueToNull(catalogQueryState.tool);
-  const catalogSelectedToolPaths = useMemo(
-    () => catalogQueryState.selected ?? [],
-    [catalogQueryState.selected],
-  );
   const catalogFocusedSourceName = useMemo(
     () => mapEmptyQueryValueToNull(catalogQueryState.sourcePanel),
     [catalogQueryState.sourcePanel],
   );
-  const [connectionDialogOpen, setConnectionDialogOpen] = useState(false);
-  const [connectionDialogEditing, setConnectionDialogEditing] = useState<CredentialRecord | null>(null);
-  const [connectionDialogSourceKey, setConnectionDialogSourceKey] = useState<string | null>(null);
   const [storageMutationBusyId, setStorageMutationBusyId] = useState<string | undefined>(undefined);
   const [storageCreateBusy, setStorageCreateBusy] = useState(false);
   const [regenerationInFlight, setRegenerationInFlight] = useState(false);
@@ -207,6 +206,11 @@ export function ToolsView() {
   const credentialsLoading = !!context && credentials === undefined;
   const storageItems = storageInstances ?? [];
   const storageLoading = !!context && storageInstances === undefined;
+  const catalogPanelLoading = sessionLoading || loadingTools;
+  const connectionsPanelLoading = sessionLoading || credentialsLoading || sourcesLoading;
+  const policiesPanelLoading = sessionLoading || loadingTools;
+  const storagePanelLoading = sessionLoading || storageLoading;
+  const shouldRenderShellSkeleton = sessionLoading && !TAB_USES_OWN_LOADING_STATE[activeTab];
 
   const globalWarnings = useMemo(
     () => warnings.filter((warning) => !parseWarningSourceName(warning)),
@@ -330,14 +334,6 @@ export function ToolsView() {
     });
   }, [setCatalogQueryState]);
 
-  const setCatalogSelectedToolPaths = useCallback((toolPaths: string[]) => {
-    void setCatalogQueryState({
-      selected: toolPaths,
-    }, {
-      history: "replace",
-    });
-  }, [setCatalogQueryState]);
-
   const setCatalogFocusedSourceName = useCallback((sourceName: string | null) => {
     void setCatalogQueryState({
       sourcePanel: sourceName ?? "",
@@ -367,26 +363,6 @@ export function ToolsView() {
       setRegenerationInFlight(false);
     }
   }, [context, rebuildInventoryNow, regenerationInFlight, showRegenerationToast]);
-  const openConnectionCreate = (sourceKey?: string) => {
-    setConnectionDialogEditing(null);
-    setConnectionDialogSourceKey(sourceKey ?? null);
-    setConnectionDialogOpen(true);
-  };
-
-  const openConnectionEdit = (credential: CredentialRecord) => {
-    setConnectionDialogEditing(credential);
-    setConnectionDialogSourceKey(null);
-    setConnectionDialogOpen(true);
-  };
-
-  const handleConnectionDialogOpenChange = (open: boolean) => {
-    setConnectionDialogOpen(open);
-    if (!open) {
-      setConnectionDialogEditing(null);
-      setConnectionDialogSourceKey(null);
-    }
-  };
-
   const handleCreateStorageInstance = useCallback(async (args: {
     scopeType: StorageScopeType;
     durability: StorageDurability;
@@ -455,7 +431,7 @@ export function ToolsView() {
     }
   }, [context, deleteStorageInstance, storageMutationBusyId]);
 
-  if (sessionLoading) {
+  if (shouldRenderShellSkeleton) {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex flex-1 min-h-0 rounded-none border border-border/50 p-4">
@@ -487,7 +463,7 @@ export function ToolsView() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {activeTab === "editor" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <div className="flex-1 min-h-0 overflow-hidden p-0">
           <TaskComposer />
         </div>
       ) : null}
@@ -506,7 +482,7 @@ export function ToolsView() {
             sourceHasMoreTools={sourceHasMoreTools}
             sourceLoadingMoreTools={sourceLoadingMoreTools}
             onLoadMoreToolsForSource={loadMoreToolsForSource}
-            loading={loadingTools}
+            loading={catalogPanelLoading}
             sourceDialogMeta={sourceDialogMeta}
             sourceAuthProfiles={sourceAuthProfiles}
             existingSourceNames={existingSourceNames}
@@ -517,12 +493,10 @@ export function ToolsView() {
             searchValue={catalogSearchValue}
             filterApprovalValue={catalogFilterValue}
             focusedToolPathValue={catalogActiveToolPath}
-            selectedToolPathsValue={catalogSelectedToolPaths}
             focusedSourceNameValue={catalogFocusedSourceName}
             onSearchValueChange={setCatalogSearch}
             onFilterApprovalValueChange={setCatalogApprovalFilter}
             onFocusedToolPathChange={setCatalogActiveToolPath}
-            onSelectedToolPathsChange={setCatalogSelectedToolPaths}
             onFocusedSourceNameChange={setCatalogFocusedSourceName}
             onRegenerate={handleRegenerateInventory}
             inventoryState={inventoryStatus?.state}
@@ -537,22 +511,22 @@ export function ToolsView() {
       ) : null}
 
       {activeTab === "connections" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <div className="flex-1 min-h-0 overflow-hidden p-0">
           <CredentialsPanel
             sources={sourceItems}
             credentials={credentialItems}
-            loading={credentialsLoading || sourcesLoading}
-            onCreateConnection={openConnectionCreate}
-            onEditConnection={openConnectionEdit}
+            loading={connectionsPanelLoading}
+            sourceAuthProfiles={sourceAuthProfiles}
+            loadingSourceNames={visibleLoadingSources}
           />
         </div>
       ) : null}
 
       {activeTab === "policies" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <div className="flex-1 min-h-0 overflow-hidden p-0">
           <PoliciesPanel
             tools={visibleTools}
-            loadingTools={loadingTools}
+            loadingTools={policiesPanelLoading}
           />
         </div>
       ) : null}
@@ -563,7 +537,7 @@ export function ToolsView() {
             workspaceId={context?.workspaceId}
             sessionId={context?.sessionId}
             instances={storageItems}
-            loading={storageLoading}
+            loading={storagePanelLoading}
             creating={storageCreateBusy}
             busyInstanceId={storageMutationBusyId}
             onCreate={handleCreateStorageInstance}
@@ -573,16 +547,6 @@ export function ToolsView() {
         </div>
       ) : null}
 
-      <ConnectionFormDialog
-        open={connectionDialogOpen}
-        onOpenChange={handleConnectionDialogOpenChange}
-        editing={connectionDialogEditing}
-        initialSourceKey={connectionDialogSourceKey}
-        sources={sourceItems}
-        credentials={credentialItems}
-        sourceAuthProfiles={sourceAuthProfiles}
-        loadingSourceNames={visibleLoadingSources}
-      />
     </div>
   );
 }

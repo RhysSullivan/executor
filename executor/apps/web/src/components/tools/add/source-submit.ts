@@ -1,4 +1,3 @@
-import { sourceKeyForSource } from "@/lib/tools/source-helpers";
 import type {
   AnonymousContext,
   CredentialRecord,
@@ -18,16 +17,12 @@ type UpsertToolSourceFn = (args: {
   name: string;
   type: SourceType;
   config: Record<string, unknown>;
-}) => Promise<unknown>;
-
-type UpsertCredentialFn = (args: {
-  id?: CredentialRecord["id"];
-  workspaceId: AnonymousContext["workspaceId"];
-  sessionId: AnonymousContext["sessionId"];
-  scopeType?: CredentialScope;
-  sourceKey: string;
-  accountId?: AnonymousContext["accountId"];
-  secretJson: Record<string, unknown>;
+  credential?: {
+    id?: CredentialRecord["id"];
+    scopeType?: CredentialScope;
+    accountId?: AnonymousContext["accountId"];
+    secretJson: Record<string, unknown>;
+  };
 }) => Promise<unknown>;
 
 type SaveFormSnapshot = {
@@ -63,18 +58,62 @@ export async function saveSourceWithCredentials({
   form,
   credentialsLoading,
   upsertToolSource,
-  upsertCredential,
 }: {
   context: AnonymousContext;
   sourceToEdit?: ToolSourceRecord;
   form: SaveFormSnapshot;
   credentialsLoading: boolean;
   upsertToolSource: UpsertToolSourceFn;
-  upsertCredential: UpsertCredentialFn;
 }): Promise<{ source: ToolSourceRecord; connected: boolean }> {
   const authConfig = form.type === "openapi" || form.type === "graphql" || form.type === "mcp"
     ? form.buildAuthConfig()
     : undefined;
+
+  let linkedCredential = false;
+  let credentialPayload:
+    | {
+      id?: CredentialRecord["id"];
+      scopeType: CredentialScope;
+      accountId?: AnonymousContext["accountId"];
+      secretJson: Record<string, unknown>;
+    }
+    | undefined;
+
+  if ((form.type === "openapi" || form.type === "graphql" || form.type === "mcp") && form.authType !== "none") {
+    const credentialScopeType = credentialScopeTypeForAuthScope(form.authScope, form.scopeType);
+
+    if (form.authScope === "account" && !context.accountId) {
+      throw new Error("Account credentials require an authenticated account");
+    }
+
+    const enteredCredential = form.hasCredentialInput();
+    if (!enteredCredential && credentialsLoading) {
+      throw new Error("Loading existing connections, try again in a moment");
+    }
+
+    if (enteredCredential) {
+      const secret = form.buildSecretJson();
+      if (!secret.value) {
+        throw new Error(secret.error ?? "Credential values are required");
+      }
+
+      credentialPayload = {
+        ...(form.existingScopedCredential ? { id: form.existingScopedCredential.id } : {}),
+        scopeType: credentialScopeType,
+        ...(credentialScopeType === "account" ? { accountId: context.accountId } : {}),
+        secretJson: secret.value,
+      };
+      linkedCredential = true;
+    } else if (form.existingScopedCredential) {
+      if (!existingCredentialMatchesAuthType(form.existingScopedCredential, form.authType)) {
+        linkedCredential = false;
+      } else {
+        linkedCredential = true;
+      }
+    } else {
+      linkedCredential = false;
+    }
+  }
 
   const config = createCustomSourceConfig({
     type: form.type,
@@ -93,55 +132,8 @@ export async function saveSourceWithCredentials({
     name: form.name.trim(),
     type: form.type,
     config,
+    ...(credentialPayload ? { credential: credentialPayload } : {}),
   }) as ToolSourceRecord;
-
-  let linkedCredential = false;
-
-  if ((form.type === "openapi" || form.type === "graphql" || form.type === "mcp") && form.authType !== "none") {
-    const credentialScopeType = credentialScopeTypeForAuthScope(form.authScope, form.scopeType);
-    const sourceKey = sourceKeyForSource(created);
-    if (!sourceKey) {
-      throw new Error("Failed to resolve source key for credentials");
-    }
-
-    if (form.authScope === "account" && !context.accountId) {
-      throw new Error("Account credentials require an authenticated account");
-    }
-
-    const enteredCredential = form.hasCredentialInput();
-    if (!enteredCredential && credentialsLoading) {
-      throw new Error("Loading existing connections, try again in a moment");
-    }
-
-    if (enteredCredential) {
-      const secret = form.buildSecretJson();
-      if (!secret.value) {
-        throw new Error(secret.error ?? "Credential values are required");
-      }
-
-      await upsertCredential({
-        ...(form.existingScopedCredential ? { id: form.existingScopedCredential.id } : {}),
-        workspaceId: context.workspaceId,
-        sessionId: context.sessionId,
-        scopeType: credentialScopeType,
-        sourceKey,
-        ...(credentialScopeType === "account" ? { accountId: context.accountId } : {}),
-        secretJson: secret.value,
-      });
-      linkedCredential = true;
-    } else if (form.existingScopedCredential) {
-      if (!existingCredentialMatchesAuthType(form.existingScopedCredential, form.authType)) {
-        // Existing credential doesn't match — save source without credentials.
-        linkedCredential = false;
-      } else {
-        linkedCredential = true;
-      }
-    } else {
-      // No credentials entered and none saved — save source without credentials.
-      // The caller will show a warning toast.
-      linkedCredential = false;
-    }
-  }
 
   return {
     source: created,
