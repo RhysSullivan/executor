@@ -3,10 +3,12 @@ import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { issueMcpApiKey, verifyMcpApiKey } from "./mcp_api_key";
 
 const originalMcpApiKeySecret = process.env.MCP_API_KEY_SECRET;
+const originalMcpApiKeyTtl = process.env.MCP_API_KEY_TTL_SECONDS;
 const originalAnonymousPrivateKey = process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM;
 
 afterEach(() => {
   process.env.MCP_API_KEY_SECRET = originalMcpApiKeySecret;
+  process.env.MCP_API_KEY_TTL_SECONDS = originalMcpApiKeyTtl;
   process.env.ANONYMOUS_AUTH_PRIVATE_KEY_PEM = originalAnonymousPrivateKey;
 });
 
@@ -61,4 +63,19 @@ test("does not fall back to anonymous private key", async () => {
   });
 
   expect(apiKey).toBeNull();
+});
+
+test("verifyMcpApiKey rejects expired token", async () => {
+  process.env.MCP_API_KEY_SECRET = "test-secret";
+  process.env.MCP_API_KEY_TTL_SECONDS = "1";
+
+  const apiKey = await issueMcpApiKey({
+    workspaceId: "workspace_expired" as Id<"workspaces">,
+    accountId: "account_expired" as Id<"accounts">,
+  });
+
+  expect(apiKey).toBeTruthy();
+  await new Promise((resolve) => setTimeout(resolve, 1_200));
+  const verified = await verifyMcpApiKey(apiKey);
+  expect(verified).toBeNull();
 });

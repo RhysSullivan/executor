@@ -5,6 +5,7 @@ import { getAnonymousAuthIssuer } from "./anonymous";
 export const MCP_API_KEY_ENV_NAME = "API_KEY";
 const MCP_API_KEY_AUDIENCE = "executor-mcp";
 const MCP_API_KEY_ALGORITHM = "HS256";
+const DEFAULT_MCP_API_KEY_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 export type VerifiedMcpApiKey = {
   workspaceId: Id<"workspaces">;
@@ -37,6 +38,15 @@ function getSecretBytes(secret: string): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
+function getMcpApiKeyTtlSeconds(): number {
+  const raw = process.env.MCP_API_KEY_TTL_SECONDS;
+  const parsed = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_MCP_API_KEY_TTL_SECONDS;
+  }
+  return parsed;
+}
+
 export function isMcpApiKeyConfigured(): boolean {
   return Boolean(getConfiguredSecret());
 }
@@ -51,8 +61,7 @@ export async function issueMcpApiKey(input: {
   }
 
   const issuer = getIssuer();
-  // TODO(security): Add explicit key expiration + revocation support once
-  // anonymous MCP key lifecycle management is implemented.
+  const ttlSeconds = getMcpApiKeyTtlSeconds();
   let jwt = new SignJWT({
     workspaceId: input.workspaceId,
     accountId: input.accountId,
@@ -60,7 +69,8 @@ export async function issueMcpApiKey(input: {
     .setProtectedHeader({ alg: MCP_API_KEY_ALGORITHM, typ: "JWT" })
     .setAudience(MCP_API_KEY_AUDIENCE)
     .setSubject(input.accountId)
-    .setIssuedAt();
+    .setIssuedAt()
+    .setExpirationTime(`${ttlSeconds}s`);
 
   if (issuer) {
     jwt = jwt.setIssuer(issuer);
