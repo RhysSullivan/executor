@@ -74,3 +74,50 @@ test("convex-test keeps GitHub inventory build warm-cache fast", async () => {
   expect(coldMs).toBeLessThan(12_000);
   expect(coldMs).toBeGreaterThan(warmMs * 3);
 }, 240_000);
+
+test("convex-test reuses shared OpenAPI artifact cache across workspaces", async () => {
+  const t = setup();
+
+  const first = await t.mutation(internal.database.bootstrapAnonymousSession, {});
+  await t.mutation(internal.database.upsertToolSource, {
+    workspaceId: first.workspaceId,
+    name: "github-profile",
+    type: "openapi",
+    config: {
+      spec: GITHUB_OPENAPI_SPEC_URL,
+    },
+  });
+
+  const firstStart = performance.now();
+  await t.action(internal.executorNode.rebuildToolInventoryInternal, {
+    workspaceId: first.workspaceId,
+    accountId: first.accountId,
+    clientId: first.clientId,
+  });
+  const firstMs = performance.now() - firstStart;
+
+  const second = await t.mutation(internal.database.bootstrapAnonymousSession, {});
+  await t.mutation(internal.database.upsertToolSource, {
+    workspaceId: second.workspaceId,
+    name: "github-profile",
+    type: "openapi",
+    config: {
+      spec: GITHUB_OPENAPI_SPEC_URL,
+    },
+  });
+
+  const secondStart = performance.now();
+  await t.action(internal.executorNode.rebuildToolInventoryInternal, {
+    workspaceId: second.workspaceId,
+    accountId: second.accountId,
+    clientId: second.clientId,
+  });
+  const secondMs = performance.now() - secondStart;
+
+  console.log(
+    `github openapi shared-artifact profile: first=${firstMs.toFixed(0)}ms second=${secondMs.toFixed(0)}ms`,
+  );
+
+  expect(firstMs).toBeLessThan(12_000);
+  expect(secondMs).toBeLessThan(firstMs * 0.75);
+}, 240_000);
