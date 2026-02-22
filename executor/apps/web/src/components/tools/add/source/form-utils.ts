@@ -25,6 +25,7 @@ export type SourceFormValues = {
   apiKeyValue: string;
   basicUsername: string;
   basicPassword: string;
+  useCredentialedFetch: boolean;
 };
 
 export function createDefaultFormValues(): SourceFormValues {
@@ -42,6 +43,7 @@ export function createDefaultFormValues(): SourceFormValues {
     apiKeyValue: "",
     basicUsername: "",
     basicPassword: "",
+    useCredentialedFetch: false,
   };
 }
 
@@ -176,6 +178,7 @@ export function sourceToFormValues(source: ToolSourceRecord): SourceFormValues {
     apiKeyValue: "",
     basicUsername: "",
     basicPassword: "",
+    useCredentialedFetch: false,
   };
 }
 

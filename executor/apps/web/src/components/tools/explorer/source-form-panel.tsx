@@ -580,11 +580,13 @@ export function SourceFormPanel({
                   apiKeyValue: form.apiKeyValue,
                   basicUsername: form.basicUsername,
                   basicPassword: form.basicPassword,
+                  useCredentialedFetch: form.useCredentialedFetch,
                   hasExistingCredential: Boolean(form.existingScopedCredential),
                 }}
                 onAuthTypeChange={form.handleAuthTypeChange}
                 onScopeChange={form.handleScopePresetChange}
                 onFieldChange={form.handleAuthFieldChange}
+                onUseCredentialedFetchChange={form.handleUseCredentialedFetchChange}
                 onMcpOAuthConnect={form.type === "mcp" ? handleMcpOAuthConnect : undefined}
                 onOpenApiSpecRetry={form.type === "openapi" ? form.retryOpenApiSpec : undefined}
                 openApiSpecRetrying={form.type === "openapi" && form.specStatus === "detecting"}

@@ -324,6 +324,10 @@ export function useAddSourceFormState({
   };
 
   const buildSpecFetchHeaders = (): Record<string, string> => {
+    if (!values.useCredentialedFetch) {
+      return {};
+    }
+
     if (values.authType === "bearer") {
       const token = values.tokenValue.trim();
       if (token) {
@@ -378,7 +382,7 @@ export function useAddSourceFormState({
     && detectionEndpoint.length > 0;
 
   const typeDetectionQuery = useTanstackQuery({
-    queryKey: ["source-type-detect", detectionEndpoint, ui.authRevision],
+    queryKey: ["source-type-detect", detectionEndpoint, ui.authRevision, values.useCredentialedFetch],
     queryFn: () => detectSourceType(detectionEndpoint, { headers: buildSpecFetchHeaders() }),
     enabled: typeDetectionEnabled,
     retry: false,
@@ -470,6 +474,7 @@ export function useAddSourceFormState({
       ui.authRevision,
       existingScopedCredential?.id,
       existingScopedCredential?.updatedAt,
+      values.useCredentialedFetch,
     ],
     queryFn: async () => fetchAndInspectOpenApiSpec({ specUrl: inspectionEndpoint, headers: buildSpecFetchHeaders() }),
     enabled: inspectionEnabled,
@@ -707,6 +712,7 @@ export function useAddSourceFormState({
     apiKeyValue: values.apiKeyValue,
     basicUsername: values.basicUsername,
     basicPassword: values.basicPassword,
+    useCredentialedFetch: values.useCredentialedFetch,
     existingScopedCredential,
     handleEndpointChange,
     handleNameChange,
@@ -718,6 +724,8 @@ export function useAddSourceFormState({
     handleAuthScopeChange,
     handleScopePresetChange: (scopePreset: SharingScope) => applySharingScope(form, scopePreset),
     handleAuthFieldChange,
+    handleUseCredentialedFetchChange: (enabled: boolean) =>
+      form.setValue("useCredentialedFetch", enabled, { shouldDirty: true, shouldTouch: true }),
     markMcpOAuthLinked: (endpoint: string) =>
       patchUi(setUi, {
         mcpOAuthLinkedEndpoint: normalizeSourceEndpoint(endpoint),

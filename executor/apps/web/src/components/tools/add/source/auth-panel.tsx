@@ -48,6 +48,7 @@ export type SourceAuthPanelModel = {
   apiKeyValue: string;
   basicUsername: string;
   basicPassword: string;
+  useCredentialedFetch: boolean;
   hasExistingCredential: boolean;
 };
 
@@ -75,6 +76,7 @@ export function SourceAuthPanel({
   onAuthTypeChange,
   onScopeChange,
   onFieldChange,
+  onUseCredentialedFetchChange,
   onMcpOAuthConnect,
   onOpenApiSpecRetry,
   openApiSpecRetrying = false,
@@ -85,6 +87,7 @@ export function SourceAuthPanel({
   onAuthTypeChange: (value: Exclude<SourceAuthType, "mixed">) => void;
   onScopeChange: (value: SharingScope) => void;
   onFieldChange: (field: SourceAuthPanelEditableField, value: string) => void;
+  onUseCredentialedFetchChange: (enabled: boolean) => void;
   onMcpOAuthConnect?: () => void;
   onOpenApiSpecRetry?: () => void;
   openApiSpecRetrying?: boolean;
@@ -106,6 +109,7 @@ export function SourceAuthPanel({
     apiKeyValue,
     basicUsername,
     basicPassword,
+    useCredentialedFetch,
     hasExistingCredential,
   } = model;
 
@@ -166,6 +170,20 @@ export function SourceAuthPanel({
         <p className="text-[10px] text-muted-foreground">
           Spec check reruns automatically when auth values change. You can also retry manually.
         </p>
+      ) : null}
+
+      {sourceType === "openapi" ? (
+        <label className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
+          <input
+            type="checkbox"
+            checked={useCredentialedFetch}
+            onChange={(event) => onUseCredentialedFetchChange(event.target.checked)}
+            className="h-3.5 w-3.5"
+          />
+          <span className="text-[11px] text-muted-foreground">
+            Use credentials while detecting/fetching spec (off by default for shared cache speed)
+          </span>
+        </label>
       ) : null}
 
       {sourceType === "mcp" && mcpOAuthStatus === "checking" ? (
