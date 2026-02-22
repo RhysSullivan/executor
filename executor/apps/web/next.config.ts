@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_WORKOS_CLIENT_ID: process.env.WORKOS_CLIENT_ID,
     NEXT_PUBLIC_STRIPE_PRICE_ID: process.env.STRIPE_PRICE_ID,
   },
+  experimental: {
+    turbopackFileSystemCacheForDev: true,
+  },
   async redirects() {
     return [
       {
