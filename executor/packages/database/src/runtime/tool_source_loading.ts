@@ -5,7 +5,7 @@ import { internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel.d.ts";
 import { resolveCredentialPayloadResult } from "../../../core/src/credential-providers";
 import { buildOpenApiToolsFromPrepared } from "../../../core/src/openapi/tool-builder";
-import { serializeTools } from "../../../core/src/tool/source-serialization";
+import { parseSerializedTool, serializeTools } from "../../../core/src/tool/source-serialization";
 import {
   buildCredentialAuthHeaders,
   type CredentialHeaderAuthSpec,
@@ -31,7 +31,9 @@ const OPENAPI_SPEC_CACHE_TTL_MS = 5 * 60 * 60_000;
 const OPENAPI_PREPARE_MAX_ATTEMPTS = 3;
 const OPENAPI_PREPARE_RETRY_BASE_DELAY_MS = 1_500;
 
-const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v9";
+const OPENAPI_PREPARED_CACHE_VERSION = "openapi_v11";
+const OPENAPI_ARTIFACT_CACHE_VERSION = "openapi_artifact_v1";
+const OPENAPI_ARTIFACT_CACHE_TTL_MS = 24 * 60 * 60_000;
 
 const openApiAuthModeSchema = z.enum(["account", "workspace", "organization"]);
 
@@ -77,6 +79,132 @@ const preparedOpenApiEnvelopeSchema = z.object({
   storageId: z.string(),
   sizeBytes: z.number().optional(),
 });
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function sharedOpenApiArtifactCacheKey(source: OpenApiToolSourceConfig): string {
+  return `openapi-artifact:${stableStringify({
+    name: source.name,
+    spec: source.spec,
+    baseUrl: source.baseUrl,
+    auth: source.auth,
+    defaultReadApproval: source.defaultReadApproval,
+    defaultWriteApproval: source.defaultWriteApproval,
+    overrides: source.overrides,
+  })}`;
+}
+
+function canUseSharedOpenApiArtifactCache(source: OpenApiToolSourceConfig): boolean {
+  return typeof source.spec === "string";
+}
+
+function rebindOpenApiArtifactToSource(
+  artifact: CompiledToolSourceArtifact,
+  source: OpenApiToolSourceConfig,
+): CompiledToolSourceArtifact {
+  const sourceKey = source.sourceKey ?? `source:${source.name}`;
+
+  const reboundTools = artifact.tools.map((rawTool) => {
+    const parsed = parseSerializedTool(rawTool);
+    if (parsed.isErr()) {
+      return rawTool;
+    }
+
+    const tool = parsed.value;
+    return {
+      ...tool,
+      ...(tool.typing?.typedRef?.kind === "openapi_operation"
+        ? {
+          typing: {
+            ...tool.typing,
+            typedRef: {
+              ...tool.typing.typedRef,
+              sourceKey,
+            },
+          },
+        }
+        : {}),
+      ...(tool.credential
+        ? {
+          credential: {
+            ...tool.credential,
+            sourceKey,
+          },
+        }
+        : {}),
+    };
+  });
+
+  return {
+    ...artifact,
+    sourceName: source.name,
+    openApiSourceKey: sourceKey,
+    tools: reboundTools,
+  };
+}
+
+async function loadSharedOpenApiArtifactCache(
+  ctx: ActionCtx,
+  key: string,
+): Promise<CompiledToolSourceArtifact | null> {
+  try {
+    const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
+      specUrl: key,
+      version: OPENAPI_ARTIFACT_CACHE_VERSION,
+      maxAgeMs: OPENAPI_ARTIFACT_CACHE_TTL_MS,
+    });
+
+    if (!entry) {
+      return null;
+    }
+
+    const blob = await ctx.storage.get(entry.storageId);
+    if (!blob) {
+      return null;
+    }
+
+    const payload = JSON.parse(await blob.text());
+    const parsed = parseCompiledToolSourceArtifact(payload);
+    if (parsed.isErr()) {
+      return null;
+    }
+
+    return parsed.value;
+  } catch {
+    return null;
+  }
+}
+
+async function putSharedOpenApiArtifactCache(
+  ctx: ActionCtx,
+  key: string,
+  artifact: CompiledToolSourceArtifact,
+): Promise<void> {
+  try {
+    const json = JSON.stringify(artifact);
+    const storageId = await ctx.storage.store(new Blob([json], { type: "application/json" }));
+    await ctx.runMutation(internal.openApiSpecCache.putEntry, {
+      specUrl: key,
+      version: OPENAPI_ARTIFACT_CACHE_VERSION,
+      storageId,
+      sizeBytes: json.length,
+    });
+  } catch {
+    // Best-effort cache write.
+  }
+}
 
 function toPreparedOpenApiSpec(value: unknown): PreparedOpenApiSpec | null {
   const parsed = preparedOpenApiSpecSchema.safeParse(value);
@@ -418,8 +546,29 @@ export async function loadSourceArtifact(
 
   if (source.type === "openapi" && typeof source.spec === "string") {
     try {
+      const sharedArtifactCacheEligible = canUseSharedOpenApiArtifactCache(source);
+      const sharedArtifactCacheKey = sharedArtifactCacheEligible
+        ? sharedOpenApiArtifactCacheKey(source)
+        : undefined;
+
+      if (sharedArtifactCacheEligible && sharedArtifactCacheKey) {
+        const cachedArtifact = await loadSharedOpenApiArtifactCache(ctx, sharedArtifactCacheKey);
+        if (cachedArtifact) {
+          return {
+            artifact: rebindOpenApiArtifactToSource(cachedArtifact, source),
+            warnings: [],
+            openApiSourceKey: source.sourceKey ?? `openapi:${source.name}`,
+          };
+        }
+      }
+
       const prepared = await loadCachedOpenApiSpec(ctx, source.spec, source.name, includeDts);
       const artifact = compileOpenApiArtifactFromPrepared(source, prepared);
+
+      if (sharedArtifactCacheEligible && sharedArtifactCacheKey) {
+        await putSharedOpenApiArtifactCache(ctx, sharedArtifactCacheKey, artifact);
+      }
+
       const warnings = (prepared.warnings ?? []).map(
         (warning) => `Source '${source.name}': ${warning}`,
       );
