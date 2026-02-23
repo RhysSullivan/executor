@@ -392,6 +392,41 @@ export const resolveCredential = internalQuery({
     }
 
     const organizationId = workspace.organizationId;
+    const sourceId = sourceIdFromSourceKey(args.sourceKey);
+    if (sourceId) {
+      const source = await ctx.db
+        .query("toolSources")
+        .withIndex("by_source_id", (q) => q.eq("sourceId", sourceId))
+        .unique();
+
+      if (source) {
+        if (source.organizationId !== organizationId) {
+          return null;
+        }
+
+        if (source.scopeType === "workspace" && source.workspaceId !== args.workspaceId) {
+          return null;
+        }
+      }
+    }
+
+    if (args.scopeType === "account") {
+      const accountId = args.accountId;
+      if (!accountId) {
+        return null;
+      }
+
+      const membership = await ctx.db
+        .query("organizationMembers")
+        .withIndex("by_org_account", (q) =>
+          q.eq("organizationId", organizationId).eq("accountId", accountId),
+        )
+        .unique();
+
+      if (!membership || membership.status !== "active") {
+        return null;
+      }
+    }
 
     const tryWorkspace = async () => {
       return await ctx.db

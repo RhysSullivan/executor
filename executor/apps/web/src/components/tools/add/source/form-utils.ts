@@ -178,7 +178,7 @@ export function sourceToFormValues(source: ToolSourceRecord): SourceFormValues {
     apiKeyValue: "",
     basicUsername: "",
     basicPassword: "",
-    useCredentialedFetch: false,
+    useCredentialedFetch: source.config.useCredentialedFetch === true,
   };
 }
 

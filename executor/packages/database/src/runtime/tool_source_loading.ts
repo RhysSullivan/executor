@@ -105,6 +105,7 @@ async function loadPreparedOpenApiSpecFromExternalGenerate(
   specUrl: string,
   sourceName: string,
   includeDts: boolean,
+  headers?: Record<string, string>,
 ): Promise<PreparedOpenApiSpec | null> {
   const endpoint = resolveExternalGenerateEndpoint();
   if (!endpoint) {
@@ -119,6 +120,9 @@ async function loadPreparedOpenApiSpecFromExternalGenerate(
     url.searchParams.set("specUrl", specUrl);
     url.searchParams.set("sourceName", sourceName);
     url.searchParams.set("includeDts", includeDts ? "1" : "0");
+    if (headers && Object.keys(headers).length > 0) {
+      url.searchParams.set("headers", JSON.stringify(headers));
+    }
 
     const response = await fetch(url.toString(), {
       method: "GET",
@@ -353,6 +357,7 @@ export function normalizeExternalToolSource(raw: {
       sourceId: normalizedRaw.id,
       sourceKey: `source:${normalizedRaw.id}`,
       url: config.url,
+      useCredentialedFetch: config.useCredentialedFetch,
       auth: config.auth,
       transport: config.transport,
       queryParams: config.queryParams,
@@ -376,6 +381,7 @@ export function normalizeExternalToolSource(raw: {
       sourceId: normalizedRaw.id,
       sourceKey: `source:${normalizedRaw.id}`,
       endpoint: config.endpoint,
+      useCredentialedFetch: config.useCredentialedFetch,
       schema: config.schema,
       auth: config.auth,
       defaultQueryApproval: config.defaultQueryApproval,
@@ -399,6 +405,7 @@ export function normalizeExternalToolSource(raw: {
     sourceId: normalizedRaw.id,
     sourceKey: `source:${normalizedRaw.id}`,
     spec: config.spec,
+    useCredentialedFetch: config.useCredentialedFetch,
     collectionUrl: config.collectionUrl,
     postmanProxyUrl: config.postmanProxyUrl,
     baseUrl: config.baseUrl,
@@ -500,12 +507,91 @@ async function resolveMcpDiscoveryHeaders(
   return { headers, warnings: [] };
 }
 
+async function resolveOpenApiFetchHeaders(
+  ctx: ActionCtx,
+  source: OpenApiToolSourceConfig,
+  workspaceId: Id<"workspaces">,
+  accountId?: Id<"accounts">,
+): Promise<{ headers: Record<string, string>; warnings: string[] }> {
+  if (!source.useCredentialedFetch) {
+    return { headers: {}, warnings: [] };
+  }
+
+  const auth = source.auth;
+  if (!auth || auth.type === "none") {
+    return { headers: {}, warnings: [] };
+  }
+
+  const mode = auth.mode ?? "workspace";
+
+  if (!source.sourceKey) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': missing source key for OpenAPI credentialed fetch`],
+    };
+  }
+
+  const record = await ctx.runQuery(internal.database.resolveCredential, {
+    workspaceId,
+    sourceKey: source.sourceKey,
+    scopeType: mode,
+    accountId,
+  });
+
+  if (!record) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': missing ${mode} credential for OpenAPI fetch`],
+    };
+  }
+
+  const readSecretResult = await resolveCredentialPayloadResult(record, {
+    readVaultObject: async (input) => await readWorkosVaultObjectViaAction(ctx, input),
+  });
+  if (readSecretResult.isErr()) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': failed to resolve OpenAPI credential: ${readSecretResult.error.message}`],
+    };
+  }
+
+  const secret = readSecretResult.value;
+  if (!secret) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': credential payload unavailable for OpenAPI fetch`],
+    };
+  }
+
+  const authSpec = toCredentialHeaderSpec(auth);
+  if (!authSpec) {
+    return { headers: {}, warnings: [] };
+  }
+
+  const headers = buildCredentialAuthHeaders(authSpec, secret);
+  const additionalHeaders = readCredentialAdditionalHeaders(record.additionalHeaders);
+  for (const [key, value] of Object.entries(additionalHeaders)) {
+    headers[key] = value;
+  }
+
+  if (Object.keys(headers).length === 0) {
+    return {
+      headers: {},
+      warnings: [`Source '${source.name}': credential did not produce OpenAPI auth headers`],
+    };
+  }
+
+  return { headers, warnings: [] };
+}
+
 async function loadCachedOpenApiSpec(
   ctx: ActionCtx,
   specUrl: string,
   sourceName: string,
   includeDts: boolean,
+  headers?: Record<string, string>,
 ): Promise<PreparedOpenApiSpec> {
+  const hasHeaders = Boolean(headers && Object.keys(headers).length > 0);
   const getDtsStatus = (prepared: PreparedOpenApiSpec): "ready" | "failed" | "skipped" => {
     if (prepared.dtsStatus) {
       return prepared.dtsStatus;
@@ -513,44 +599,49 @@ async function loadCachedOpenApiSpec(
     return prepared.dts ? "ready" : "failed";
   };
 
-  try {
-    const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
-      specUrl,
-      version: OPENAPI_PREPARED_CACHE_VERSION,
-      maxAgeMs: OPENAPI_SPEC_CACHE_TTL_MS,
-    });
+  if (!hasHeaders) {
+    try {
+      const entry = await ctx.runQuery(internal.openApiSpecCache.getEntry, {
+        specUrl,
+        version: OPENAPI_PREPARED_CACHE_VERSION,
+        maxAgeMs: OPENAPI_SPEC_CACHE_TTL_MS,
+      });
 
-    if (entry) {
-      const blob = await ctx.storage.get(entry.storageId);
-      if (blob) {
-        const json = await blob.text();
-        let parsedJson: unknown;
-        try {
-          parsedJson = JSON.parse(json);
-        } catch {
-          parsedJson = undefined;
-        }
+      if (entry) {
+        const blob = await ctx.storage.get(entry.storageId);
+        if (blob) {
+          const json = await blob.text();
+          let parsedJson: unknown;
+          try {
+            parsedJson = JSON.parse(json);
+          } catch {
+            parsedJson = undefined;
+          }
 
-        if (parsedJson !== undefined) {
-          const prepared = toPreparedOpenApiSpec(parsedJson);
-          if (prepared && (!includeDts || getDtsStatus(prepared) !== "skipped")) {
-            return prepared;
+          if (parsedJson !== undefined) {
+            const prepared = toPreparedOpenApiSpec(parsedJson);
+            if (prepared && (!includeDts || getDtsStatus(prepared) !== "skipped")) {
+              return prepared;
+            }
           }
         }
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
     }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`[executor] OpenAPI cache read failed for '${sourceName}': ${message}`);
   }
 
   const externalPrepared = await loadPreparedOpenApiSpecFromExternalGenerate(
     specUrl,
     sourceName,
     includeDts,
+    headers,
   );
   if (externalPrepared) {
-    await cachePreparedOpenApiSpec(ctx, specUrl, sourceName, externalPrepared);
+    if (!hasHeaders) {
+      await cachePreparedOpenApiSpec(ctx, specUrl, sourceName, externalPrepared);
+    }
     return externalPrepared;
   }
 
@@ -615,14 +706,16 @@ async function loadCachedOpenApiSpec(
     throw new Error(`Prepared OpenAPI payload for '${sourceName}' was invalid`);
   }
 
-  await cachePreparedOpenApiSpec(
-    ctx,
-    specUrl,
-    sourceName,
-    prepared,
-    preparedStorageId,
-    preparedSizeBytes,
-  );
+  if (!hasHeaders) {
+    await cachePreparedOpenApiSpec(
+      ctx,
+      specUrl,
+      sourceName,
+      prepared,
+      preparedStorageId,
+      preparedSizeBytes,
+    );
+  }
 
   return prepared;
 }
@@ -636,7 +729,15 @@ export async function loadSourceArtifact(
 
   if (source.type === "openapi" && typeof source.spec === "string") {
     try {
-      const sharedArtifactCacheEligible = canUseSharedOpenApiArtifactCache(source);
+      const resolvedOpenApiHeaders = await resolveOpenApiFetchHeaders(
+        ctx,
+        source,
+        options.workspaceId,
+        options.accountId,
+      );
+
+      const sharedArtifactCacheEligible = canUseSharedOpenApiArtifactCache(source)
+        && Object.keys(resolvedOpenApiHeaders.headers).length === 0;
       const sharedArtifactCacheKey = sharedArtifactCacheEligible
         ? sharedOpenApiArtifactCacheKey(source)
         : undefined;
@@ -652,16 +753,25 @@ export async function loadSourceArtifact(
         }
       }
 
-      const prepared = await loadCachedOpenApiSpec(ctx, source.spec, source.name, includeDts);
+      const prepared = await loadCachedOpenApiSpec(
+        ctx,
+        source.spec,
+        source.name,
+        includeDts,
+        resolvedOpenApiHeaders.headers,
+      );
       const artifact = compileOpenApiArtifactFromPrepared(source, prepared);
 
       if (sharedArtifactCacheEligible && sharedArtifactCacheKey) {
         await putSharedOpenApiArtifactCache(ctx, sharedArtifactCacheKey, artifact);
       }
 
-      const warnings = (prepared.warnings ?? []).map(
+      const warnings = [
+        ...resolvedOpenApiHeaders.warnings,
+        ...(prepared.warnings ?? []).map(
         (warning) => `Source '${source.name}': ${warning}`,
-      );
+        ),
+      ];
       return {
         artifact,
         warnings,

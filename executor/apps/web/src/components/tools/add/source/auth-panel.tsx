@@ -172,19 +172,17 @@ export function SourceAuthPanel({
         </p>
       ) : null}
 
-      {sourceType === "openapi" ? (
-        <label className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
-          <input
-            type="checkbox"
-            checked={useCredentialedFetch}
-            onChange={(event) => onUseCredentialedFetchChange(event.target.checked)}
-            className="h-3.5 w-3.5"
-          />
-          <span className="text-[11px] text-muted-foreground">
-            Use credentials while detecting/fetching spec (off by default for shared cache speed)
-          </span>
-        </label>
-      ) : null}
+      <label className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2.5 py-2">
+        <input
+          type="checkbox"
+          checked={useCredentialedFetch}
+          onChange={(event) => onUseCredentialedFetchChange(event.target.checked)}
+          className="h-3.5 w-3.5"
+        />
+        <span className="text-[11px] text-muted-foreground">
+          Use credentials while fetching source metadata
+        </span>
+      </label>
 
       {sourceType === "mcp" && mcpOAuthStatus === "checking" ? (
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">

@@ -42,6 +42,7 @@ export function createCustomSourceConfig({
   endpoint,
   baseUrl,
   auth,
+  useCredentialedFetch,
   mcpTransport,
   accountId,
 }: {
@@ -49,6 +50,7 @@ export function createCustomSourceConfig({
   endpoint: string;
   baseUrl: string;
   auth?: Record<string, unknown>;
+  useCredentialedFetch: boolean;
   mcpTransport: "auto" | "streamable-http" | "sse";
   accountId?: string;
 }): Record<string, unknown> {
@@ -57,6 +59,7 @@ export function createCustomSourceConfig({
   if (type === "mcp") {
     return {
       url: normalizedEndpoint,
+      useCredentialedFetch,
       ...(auth ? { auth } : {}),
       ...(mcpTransport !== "auto" ? { transport: mcpTransport } : {}),
       ...(accountId
@@ -68,6 +71,7 @@ export function createCustomSourceConfig({
   if (type === "graphql") {
     return {
       endpoint: normalizedEndpoint,
+      useCredentialedFetch,
       ...(auth ? { auth } : {}),
     };
   }
@@ -75,6 +79,7 @@ export function createCustomSourceConfig({
   return {
     spec: normalizedEndpoint,
     specUrl: normalizedEndpoint,
+    useCredentialedFetch,
     ...(baseUrl ? { baseUrl } : {}),
     ...(auth ? { auth } : {}),
   };

@@ -6,6 +6,7 @@ export interface McpToolSourceConfig {
   sourceId?: string;
   sourceKey?: string;
   url: string;
+  useCredentialedFetch?: boolean;
   auth?: OpenApiAuth;
   discoveryHeaders?: Record<string, string>;
   transport?: "sse" | "streamable-http";
@@ -26,6 +27,7 @@ export interface OpenApiToolSourceConfig {
   sourceId?: string;
   sourceKey?: string;
   spec: string | Record<string, unknown>;
+  useCredentialedFetch?: boolean;
   collectionUrl?: string;
   postmanProxyUrl?: string;
   baseUrl?: string;
@@ -41,6 +43,7 @@ export interface GraphqlToolSourceConfig {
   sourceId?: string;
   sourceKey?: string;
   endpoint: string;
+  useCredentialedFetch?: boolean;
   schema?: Record<string, unknown>;
   auth?: OpenApiAuth;
   defaultQueryApproval?: ToolApprovalMode;

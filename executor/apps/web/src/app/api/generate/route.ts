@@ -1,9 +1,7 @@
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { unstable_cache } from "next/cache";
 import { prepareOpenApiSpec } from "@executor/core/openapi-prepare";
 
-const GENERATED_SPEC_REVALIDATE_SECONDS = 60 * 60;
 const HEADER_FETCH_TIMEOUT_MS = 12_000;
 
 const querySchema = z.object({
@@ -25,17 +23,6 @@ const blockedForwardedHeaderNames = new Set([
   "origin",
   "referer",
 ]);
-
-const generatePreparedSpecCached = unstable_cache(
-  async (specUrl: string, includeDts: boolean) => {
-    return await prepareOpenApiSpec(specUrl, "openapi", {
-      includeDts,
-      profile: "inventory",
-    });
-  },
-  ["openapi-generate-v1"],
-  { revalidate: GENERATED_SPEC_REVALIDATE_SECONDS },
-);
 
 function jsonResponse(
   payload: unknown,
@@ -172,7 +159,10 @@ export async function GET(request: Request): Promise<Response> {
     const forwardedHeaders = sanitizeForwardHeaders(parseHeadersQueryValue(parsed.data.headers));
 
     const prepared = Object.keys(forwardedHeaders).length === 0
-      ? await generatePreparedSpecCached(parsed.data.specUrl, includeDts)
+      ? await prepareOpenApiSpec(parsed.data.specUrl, sourceName, {
+        includeDts,
+        profile: "inventory",
+      })
       : await prepareWithForwardedHeaders(
         parsed.data.specUrl,
         sourceName,

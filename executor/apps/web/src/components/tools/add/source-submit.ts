@@ -35,6 +35,7 @@ type SaveFormSnapshot = {
   authType: Exclude<SourceAuthType, "mixed">;
   authScope: CredentialScope;
   apiKeyHeader: string;
+  useCredentialedFetch: boolean;
   existingScopedCredential: CredentialRecord | null;
   buildAuthConfig: () => Record<string, unknown> | undefined;
   hasCredentialInput: () => boolean;
@@ -120,6 +121,7 @@ export async function saveSourceWithCredentials({
     endpoint: form.endpoint.trim(),
     baseUrl: form.baseUrl,
     auth: authConfig,
+    useCredentialedFetch: form.useCredentialedFetch,
     mcpTransport: form.mcpTransport,
     accountId: context.accountId,
   });

@@ -182,6 +182,7 @@ export function SourceFormPanel({
         endpoint: form.endpoint.trim(),
         baseUrl: form.baseUrl,
         auth: form.buildAuthConfig(),
+        useCredentialedFetch: form.useCredentialedFetch,
         mcpTransport: form.mcpTransport,
         accountId: context.accountId,
       });
@@ -264,6 +265,7 @@ export function SourceFormPanel({
           authType: form.authType,
           authScope: form.authScope,
           apiKeyHeader: form.apiKeyHeader,
+          useCredentialedFetch: form.useCredentialedFetch,
           existingScopedCredential: form.existingScopedCredential,
           buildAuthConfig: form.buildAuthConfig,
           hasCredentialInput: form.hasCredentialInput,

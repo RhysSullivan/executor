@@ -13,17 +13,17 @@ export const TOOL_SOURCE_CONFIG_VERSION = 1;
 
 export type NormalizedMcpToolSourceConfig = Pick<
   McpToolSourceConfig,
-  "url" | "auth" | "discoveryHeaders" | "transport" | "queryParams" | "defaultApproval" | "overrides"
+  "url" | "useCredentialedFetch" | "auth" | "discoveryHeaders" | "transport" | "queryParams" | "defaultApproval" | "overrides"
 >;
 
 export type NormalizedGraphqlToolSourceConfig = Pick<
   GraphqlToolSourceConfig,
-  "endpoint" | "schema" | "auth" | "defaultQueryApproval" | "defaultMutationApproval" | "overrides"
+  "endpoint" | "useCredentialedFetch" | "schema" | "auth" | "defaultQueryApproval" | "defaultMutationApproval" | "overrides"
 >;
 
 export type NormalizedOpenApiToolSourceConfig = Pick<
   OpenApiToolSourceConfig,
-  "spec" | "collectionUrl" | "postmanProxyUrl" | "baseUrl" | "auth" | "defaultReadApproval" | "defaultWriteApproval" | "overrides"
+  "spec" | "useCredentialedFetch" | "collectionUrl" | "postmanProxyUrl" | "baseUrl" | "auth" | "defaultReadApproval" | "defaultWriteApproval" | "overrides"
 >;
 
 export type NormalizedToolSourceConfig =
@@ -315,6 +315,7 @@ export function normalizeToolSourceConfig(
 
     return Result.ok({
       url: urlResult.value,
+      useCredentialedFetch: config.useCredentialedFetch === true,
       transport,
       auth: authResult.value,
       queryParams: queryParamsResult.value,
@@ -361,6 +362,7 @@ export function normalizeToolSourceConfig(
 
     return Result.ok({
       endpoint: endpointResult.value,
+      useCredentialedFetch: config.useCredentialedFetch === true,
       schema: Object.keys(schema).length > 0 ? schema : undefined,
       auth: authResult.value,
       defaultQueryApproval: defaultQueryApprovalResult.value,
@@ -402,6 +404,7 @@ export function normalizeToolSourceConfig(
 
   return Result.ok({
     spec: specResult.value,
+    useCredentialedFetch: config.useCredentialedFetch === true,
     collectionUrl: optionalTrimmedString(config.collectionUrl),
     postmanProxyUrl: optionalTrimmedString(config.postmanProxyUrl),
     baseUrl: optionalTrimmedString(config.baseUrl),
