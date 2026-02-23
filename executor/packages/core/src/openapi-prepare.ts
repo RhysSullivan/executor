@@ -8,7 +8,7 @@ import { extractOperationIdsFromDts } from "./openapi/schema-hints";
 import type { PreparedOpenApiSpec } from "./tool/source-types";
 import { toPlainObject } from "./utils";
 
-const unknownRecordSchema = z.record(z.unknown());
+const unknownRecordSchema = z.record(z.string(), z.unknown());
 const OPENAPI_JSON_FETCH_TIMEOUT_MS = 45_000;
 
 const openApiDocumentSchema = z.object({

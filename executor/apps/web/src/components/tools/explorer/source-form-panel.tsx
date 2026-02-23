@@ -61,7 +61,7 @@ type SourceProgressState = {
 function progressStepStates(sourceType: ToolSourceRecord["type"], progress?: SourceProgressState) {
   const isOpenApi = sourceType === "openapi";
   const labels = isOpenApi
-    ? ["Download spec", "Extract operations", "Index tools"]
+    ? ["Downloading & Extracting Operations", "Index tools"]
     : ["Connect", "Discover tools", "Index tools"];
 
   const defaultSteps = labels.map((label, index) => ({
@@ -80,24 +80,23 @@ function progressStepStates(sourceType: ToolSourceRecord["type"], progress?: Sou
 
   if (progress.state === "indexing") {
     return defaultSteps.map((step) => {
-      if (step.id < 3) return { ...step, status: "done" as const };
-      return { ...step, status: "active" as const };
+      if (step.id === 1) return { ...step, status: "done" as const };
+      if (step.id === 2) return { ...step, status: "active" as const };
+      return step;
     });
   }
 
   if (progress.state === "loading") {
-    const message = progress.message?.toLowerCase() ?? "";
-    const activeStep = message.includes("download") ? 1 : 2;
     return defaultSteps.map((step) => {
-      if (step.id < activeStep) return { ...step, status: "done" as const };
-      if (step.id === activeStep) return { ...step, status: "active" as const };
+      if (step.id === 1) return { ...step, status: "active" as const };
       return step;
     });
   }
 
   if (progress.state === "failed") {
-    const message = progress.message?.toLowerCase() ?? "";
-    const failedStep = message.includes("index") ? 3 : message.includes("download") ? 1 : 2;
+    const failedStep = sourceType === "openapi"
+      ? (typeof progress.processedTools === "number" && progress.toolCount > 0 ? 2 : 1)
+      : (progress.message?.toLowerCase().includes("index") ? 3 : 2);
     return defaultSteps.map((step) => {
       if (step.id < failedStep) return { ...step, status: "done" as const };
       if (step.id === failedStep) return { ...step, status: "failed" as const };
