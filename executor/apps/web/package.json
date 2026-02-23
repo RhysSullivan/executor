@@ -42,7 +42,8 @@
     "streamdown": "^2.1.0",
     "tailwind-merge": "^3.4.0",
     "tldts": "^7.0.22",
-    "yaml": "^2.8.1"
+    "yaml": "^2.8.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
