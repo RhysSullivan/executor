@@ -13,6 +13,7 @@
     "clean": "rm -rf node_modules .next .turbo"
   },
   "dependencies": {
+    "@executor/core": "workspace:*",
     "@executor/database": "workspace:*",
     "@executor/ui": "workspace:*",
     "@monaco-editor/react": "^4.7.0",

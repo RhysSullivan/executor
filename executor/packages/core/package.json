@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./openapi-helper-types": "./src/openapi/helper-types.ts"
+    "./openapi-helper-types": "./src/openapi/helper-types.ts",
+    "./openapi-prepare": "./src/openapi-prepare.ts"
   },
   "scripts": {
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit",

@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
     // Type checking is handled separately via `bun run typecheck`.
     ignoreBuildErrors: true,
   },
-  transpilePackages: ["@executor/database", "@executor/ui"],
+  transpilePackages: ["@executor/core", "@executor/database", "@executor/ui"],
   env: {
     NEXT_PUBLIC_CONVEX_URL: process.env.EXECUTOR_WEB_CONVEX_URL ?? process.env.CONVEX_URL,
     NEXT_PUBLIC_CONVEX_SITE_URL:

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { prepareOpenApiSpec } from "../../../../../../packages/core/src/openapi-prepare";
+import { prepareOpenApiSpec } from "@executor/core/openapi-prepare";
 
 const requestSchema = z.object({
   specUrl: z.string().trim().min(1),
