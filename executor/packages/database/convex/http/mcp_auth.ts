@@ -167,7 +167,6 @@ export async function verifyMcpToken(
         issuer: config.authorizationServer,
         audience: deriveMcpAudiences(request),
       });
-
       if (typeof payload.sub === "string" && payload.sub.length > 0) {
         const providerClaim = typeof payload.provider === "string" ? payload.provider : undefined;
         if (providerClaim !== "anonymous") {
@@ -177,8 +176,22 @@ export async function verifyMcpToken(
           };
         }
       }
-    } catch {
-      // Token did not verify against configured auth server.
+    } catch (error) {
+      // Decode the token payload (without verification) to log what we received vs expected
+      try {
+        const [, payloadB64] = token.split(".");
+        if (payloadB64) {
+          const decoded = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+          console.error("MCP token verification failed:", error instanceof Error ? error.message : String(error), {
+            tokenIssuer: decoded.iss,
+            tokenAudience: decoded.aud,
+            expectedIssuer: config.authorizationServer,
+            expectedAudiences: deriveMcpAudiences(request),
+          });
+        }
+      } catch {
+        console.error("MCP token verification failed:", error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
