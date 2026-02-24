@@ -22,7 +22,6 @@ import { handleExternalToolCallRequest } from "../src/runtime/external_tool_call
 import { jsonObjectValidator } from "../src/database/validators";
 import { workspaceAction, type WorkspaceActionContext } from "../../core/src/function-builders";
 import { encodeToolCallResultForTransport } from "../../core/src/tool-call-result-transport";
-import { previewOpenApiSourceUpgradeForContext, type OpenApiUpgradeDiffPreview } from "../src/runtime/tool_upgrade";
 import { getStorageProvider, type StorageEncoding, type StorageProvider } from "../src/runtime/storage_provider";
 import { shouldTouchStorageOnRead } from "../src/runtime/storage_touch_policy";
 import { shouldRefreshStorageUsage } from "../src/runtime/storage_usage_refresh";
@@ -207,33 +206,6 @@ export const rebuildToolInventoryInternal = internalAction({
     return {
       rebuilt: result.rebuilt,
     };
-  },
-});
-
-export const previewOpenApiSourceUpgrade = workspaceAction({
-  method: "POST",
-  args: {
-    accountId: v.optional(vv.id("accounts")),
-    sourceId: v.string(),
-    name: v.string(),
-    config: jsonObjectValidator,
-  },
-  handler: async (ctx, args): Promise<OpenApiUpgradeDiffPreview> => {
-    assertMatchesCanonicalAccountId(args.accountId, ctx.accountId);
-
-    return await previewOpenApiSourceUpgradeForContext(
-      ctx,
-        {
-          workspaceId: ctx.workspaceId,
-          accountId: ctx.accountId,
-          clientId: ctx.clientId,
-        },
-      {
-        sourceId: args.sourceId,
-        name: args.name,
-        config: args.config,
-      },
-    );
   },
 });
 

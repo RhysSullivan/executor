@@ -38,29 +38,9 @@ function mcpAuthRequired(): boolean {
   return isTruthyEnvValue(process.env.EXECUTOR_ENFORCE_MCP_AUTH);
 }
 
-function configuredMcpAudiences(): string[] {
-  const raw = (process.env.MCP_AUTH_AUDIENCE ?? "").trim();
-  if (!raw) {
-    return [];
-  }
-
-  return raw
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-}
-
-function deriveMcpAudiences(request: Request): string[] {
-  const url = new URL(request.url);
-  const derived = [
-    new URL(MCP_PATH, url.origin).toString(),
-    new URL(LEGACY_MCP_PATH, url.origin).toString(),
-  ];
-
-  const configured = configuredMcpAudiences();
-  const merged = [...configured, ...derived];
-  return Array.from(new Set(merged));
-}
+// WorkOS AuthKit tokens use the requesting MCP client's client ID as the
+// audience, which varies per client. Per WorkOS docs, only issuer + signature
+// verification is required — audience checks are intentionally omitted.
 
 function parseWorkspaceId(raw: string): Id<"workspaces"> {
   return raw as Id<"workspaces">;
@@ -165,7 +145,6 @@ export async function verifyMcpToken(
     try {
       const { payload } = await jwtVerify(token, config.jwks, {
         issuer: config.authorizationServer,
-        audience: deriveMcpAudiences(request),
       });
       if (typeof payload.sub === "string" && payload.sub.length > 0) {
         const providerClaim = typeof payload.provider === "string" ? payload.provider : undefined;
@@ -177,21 +156,7 @@ export async function verifyMcpToken(
         }
       }
     } catch (error) {
-      // Decode the token payload (without verification) to log what we received vs expected
-      try {
-        const [, payloadB64] = token.split(".");
-        if (payloadB64) {
-          const decoded = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
-          console.error("MCP token verification failed:", error instanceof Error ? error.message : String(error), {
-            tokenIssuer: decoded.iss,
-            tokenAudience: decoded.aud,
-            expectedIssuer: config.authorizationServer,
-            expectedAudiences: deriveMcpAudiences(request),
-          });
-        }
-      } catch {
-        console.error("MCP token verification failed:", error instanceof Error ? error.message : String(error));
-      }
+      console.error("MCP token verification failed:", error instanceof Error ? error.message : String(error));
     }
   }
 

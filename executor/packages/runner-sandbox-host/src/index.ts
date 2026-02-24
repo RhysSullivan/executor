@@ -148,20 +148,9 @@ export class AgentFSStorageObject extends DurableObject<Env> {
       throw new Error("sqlite.query rejects multi-statement SQL payloads");
     }
 
-    if (mode === "read") {
-      this.ctx.storage.sql.exec("PRAGMA query_only = 1");
-      try {
-        const cursor = this.ctx.storage.sql.exec(sql, ...params);
-        const rows = cursor.toArray().slice(0, Math.max(1, Math.floor(maxRows))) as Record<string, unknown>[];
-        return {
-          mode,
-          rows,
-          rowCount: rows.length,
-        };
-      } finally {
-        this.ctx.storage.sql.exec("PRAGMA query_only = 0");
-      }
-    }
+    // Note: We rely on the application-level isReadOnlySql() check above
+    // instead of PRAGMA query_only, because Cloudflare Durable Object SQLite
+    // restricts PRAGMA usage and throws SQLITE_AUTH when setting query_only.
 
     const cursor = this.ctx.storage.sql.exec(sql, ...params);
     if (mode === "write") {
@@ -172,10 +161,12 @@ export class AgentFSStorageObject extends DurableObject<Env> {
       };
     }
 
+    // read mode: return rows
+    const rows = cursor.toArray().slice(0, Math.max(1, Math.floor(maxRows))) as Record<string, unknown>[];
     return {
       mode,
-      rows: [],
-      rowCount: 0,
+      rows,
+      rowCount: rows.length,
     };
   }
 
