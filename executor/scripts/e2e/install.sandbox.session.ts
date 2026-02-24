@@ -265,8 +265,8 @@ try {
   console.log(`Web UI: ${webUrl}`);
   console.log(`Convex API: ${convexUrl}`);
   console.log(`Convex Site: ${convexSiteUrl}`);
-  console.log(`MCP (auth): ${convexSiteUrl}/mcp`);
-  console.log(`MCP (anonymous): ${convexSiteUrl}/mcp/anonymous`);
+  console.log(`MCP (auth): ${convexSiteUrl}/v1/mcp`);
+  console.log(`MCP (anonymous): ${convexSiteUrl}/v1/mcp/anonymous`);
   console.log("Tip: open Web UI and create an anonymous organization to get workspace context + API key.");
   console.log("");
   console.log("The sandbox is left running so you can test from your machine.");

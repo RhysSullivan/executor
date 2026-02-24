@@ -409,7 +409,7 @@ async function runDoctor(args: string[]): Promise<number> {
   } else {
     console.log("Functions: check failed");
   }
-  console.log(`MCP endpoint: ${info.convexSiteUrl}/mcp`);
+  console.log(`MCP endpoint: ${info.convexSiteUrl}/v1/mcp`);
 
   if (!backendRunning) {
     console.log("Next step: run `executor up`");
@@ -719,7 +719,7 @@ async function bootstrapClaudeContext(convexUrl: string, convexSiteUrl: string, 
     throw new Error(mcpApiKey.error ?? "MCP API key is not available");
   }
 
-  const mcpUrl = new URL("/mcp/anonymous", convexSiteUrl);
+  const mcpUrl = new URL("/v1/mcp/anonymous", convexSiteUrl);
   mcpUrl.searchParams.set("workspaceId", anonymousContext.workspaceId);
 
   return {

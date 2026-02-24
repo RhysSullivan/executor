@@ -62,7 +62,7 @@ export function McpSetupCard({
 
   const mcpUrl = useMemo(() => {
     const isAnonymousSession = isAnonymousSessionId(sessionId)
-    const mcpPath = isAnonymousSession ? "/mcp/anonymous" : "/mcp"
+    const mcpPath = isAnonymousSession ? "/v1/mcp/anonymous" : "/v1/mcp"
     const base = origin ? new URL(mcpPath, origin) : new URL(`http://localhost${mcpPath}`)
     if (workspaceId) base.searchParams.set("workspaceId", workspaceId)
     if (!origin) {
