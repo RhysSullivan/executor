@@ -6,7 +6,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bunx vitest run --no-watch src/tool-artifact-store.test.ts",
+    "test": "bunx vitest run --no-watch src/*.test.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

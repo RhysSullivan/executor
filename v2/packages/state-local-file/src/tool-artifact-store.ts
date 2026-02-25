@@ -1,5 +1,4 @@
 import * as FileSystem from "@effect/platform/FileSystem";
-import * as PlatformError from "@effect/platform/Error";
 import * as Path from "@effect/platform/Path";
 import {
   ToolArtifactStoreError,
@@ -15,11 +14,18 @@ import {
 import * as Effect from "effect/Effect";
 import { pipe } from "effect/Function";
 import * as Option from "effect/Option";
-import * as ParseResult from "effect/ParseResult";
+import type * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 import * as Layer from "effect/Layer";
 import * as STM from "effect/STM";
 import * as TSemaphore from "effect/TSemaphore";
+
+import {
+  type PersistenceErrorData,
+  toSchemaPersistenceError,
+  withNotFoundFallback,
+  withPlatformPersistenceError,
+} from "./persistence-error";
 
 const ToolArtifactListSchema = Schema.Array(ToolArtifactSchema);
 const ToolArtifactListFromJsonSchema = Schema.parseJson(ToolArtifactListSchema);
@@ -33,58 +39,26 @@ export type LocalToolArtifactStoreOptions = {
 const defaultArtifactsFilePath = (path: Path.Path, rootDir: string): string =>
   path.resolve(rootDir, "tool-artifacts.json");
 
-const toSystemPersistenceError = (
-  operation: string,
-  filePath: string,
-  cause: PlatformError.SystemError,
-): ToolArtifactStoreError =>
-  new ToolArtifactStoreError({
-    operation,
-    filePath,
-    message: cause.message,
-    reason: cause.reason,
-    details: cause.description ?? null,
-  });
+const makeToolArtifactStoreError = (
+  data: PersistenceErrorData,
+): ToolArtifactStoreError => new ToolArtifactStoreError(data);
 
-const toBadArgumentPersistenceError = (
-  operation: string,
-  filePath: string,
-  cause: PlatformError.BadArgument,
-): ToolArtifactStoreError =>
-  new ToolArtifactStoreError({
-    operation,
-    filePath,
-    message: cause.message,
-    reason: null,
-    details: cause.description ?? null,
-  });
+const mapPlatformToolArtifactStoreError = withPlatformPersistenceError(
+  makeToolArtifactStoreError,
+);
 
-const withPlatformPersistenceError =
-  <A>(operation: string, filePath: string) =>
-  (
-    self: Effect.Effect<A, PlatformError.PlatformError>,
-  ): Effect.Effect<A, ToolArtifactStoreError> =>
-    pipe(
-      self,
-      Effect.catchTags({
-        SystemError: (cause) =>
-          Effect.fail(toSystemPersistenceError(operation, filePath, cause)),
-        BadArgument: (cause) =>
-          Effect.fail(toBadArgumentPersistenceError(operation, filePath, cause)),
-      }),
-    );
-const toSchemaPersistenceError = (
+const toSchemaToolArtifactStoreError = (
   operation: string,
   filePath: string,
   cause: ParseResult.ParseError,
 ): ToolArtifactStoreError =>
-  new ToolArtifactStoreError({
+  toSchemaPersistenceError(
+    makeToolArtifactStoreError,
     operation,
     filePath,
-    message: "Invalid persisted tool artifact payload",
-    reason: "InvalidData",
-    details: ParseResult.TreeFormatter.formatErrorSync(cause),
-  });
+    "Invalid persisted tool artifact payload",
+    cause,
+  );
 
 const artifactStoreKey = (artifact: ToolArtifact): string =>
   `${artifact.workspaceId}:${artifact.sourceId}`;
@@ -103,15 +77,15 @@ const readArtifacts = (
 ): Effect.Effect<Array<ToolArtifact>, ToolArtifactStoreError> =>
   pipe(
     fileSystem.readFileString(filePath),
-    Effect.catchTag("SystemError", (cause) =>
-      cause.reason === "NotFound" ? Effect.succeed("[]") : Effect.fail(cause),
-    ),
-    withPlatformPersistenceError("read", filePath),
+    withNotFoundFallback("[]"),
+    mapPlatformToolArtifactStoreError("read", filePath),
     Effect.flatMap((rawJson) =>
       pipe(
         decodeArtifactsFromJson(rawJson.trim().length === 0 ? "[]" : rawJson),
         Effect.map((artifacts) => dedupeArtifacts(Array.from(artifacts))),
-        Effect.mapError((cause) => toSchemaPersistenceError("decode", filePath, cause)),
+        Effect.mapError((cause) =>
+          toSchemaToolArtifactStoreError("decode", filePath, cause),
+        ),
       ),
     ),
   );
@@ -126,11 +100,13 @@ const writeArtifacts = (
 
   return pipe(
     fileSystem.makeDirectory(directoryPath, { recursive: true }),
-    withPlatformPersistenceError("mkdir", directoryPath),
+    mapPlatformToolArtifactStoreError("mkdir", directoryPath),
     Effect.flatMap(() =>
       pipe(
         encodeArtifactsToJson(artifacts),
-        Effect.mapError((cause) => toSchemaPersistenceError("encode", filePath, cause)),
+        Effect.mapError((cause) =>
+          toSchemaToolArtifactStoreError("encode", filePath, cause),
+        ),
       ),
     ),
     Effect.flatMap((payload) =>
@@ -139,15 +115,15 @@ const writeArtifacts = (
           directory: directoryPath,
           prefix: `${path.basename(filePath)}.tmp-`,
         }),
-        withPlatformPersistenceError("makeTempFile", directoryPath),
+        mapPlatformToolArtifactStoreError("makeTempFile", directoryPath),
         Effect.flatMap((tempPath) =>
           pipe(
             fileSystem.writeFileString(tempPath, payload),
-            withPlatformPersistenceError("write", tempPath),
+            mapPlatformToolArtifactStoreError("write", tempPath),
             Effect.flatMap(() =>
               pipe(
                 fileSystem.rename(tempPath, filePath),
-                withPlatformPersistenceError("rename", filePath),
+                mapPlatformToolArtifactStoreError("rename", filePath),
               ),
             ),
           ),
