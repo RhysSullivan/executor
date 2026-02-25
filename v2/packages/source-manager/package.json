@@ -2,7 +2,15 @@
   "name": "@executor-v2/source-manager",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor-v2/persistence-ports": "workspace:*",
+    "@executor-v2/schema": "workspace:*",
+    "effect": "^3.19.8"
   }
 }

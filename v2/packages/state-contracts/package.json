@@ -1,8 +1,15 @@
 {
-  "name": "@executor-v2/state-contracts",
+  "name": "@executor-v2/persistence-ports",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor-v2/schema": "workspace:*",
+    "effect": "^3.19.8"
   }
 }
