@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "memory-approval-demo": {
+      "command": "bun",
+      "args": [
+        "run",
+        "/home/rhys/assistant/experiemental/mcp-memory-approvals.ts"
+      ]
+    }
+  }
+}

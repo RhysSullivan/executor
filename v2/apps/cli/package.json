@@ -1,0 +1,8 @@
+{
+  "name": "@executor-v2/app-cli",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  }
+}

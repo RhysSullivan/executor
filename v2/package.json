@@ -1,0 +1,13 @@
+{
+  "name": "executor-v2",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.2.22",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit"
+  }
+}
