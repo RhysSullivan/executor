@@ -1,5 +1,4 @@
 import { existsSync } from "node:fs";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import type { Source } from "@executor-v2/schema";
@@ -14,6 +13,7 @@ import {
   type CanonicalToolDescriptor,
   type ToolProviderError,
 } from "./tool-providers";
+import { spawnDenoWorkerProcess } from "./deno-worker-process";
 
 export class DenoSubprocessRunnerError extends Data.TaggedError(
   "DenoSubprocessRunnerError",
@@ -265,57 +265,30 @@ export const executeJavaScriptInDenoSubprocess = (
     const runPromise = Runtime.runPromise(runtime);
     const toolBindings = yield* buildToolBindings(input.tools);
     const toolIds = Array.from(toolBindings.keys()).sort();
-
     const denoExecutable = input.denoExecutable ?? defaultDenoExecutable();
     const timeoutMs = Math.max(100, input.timeoutMs ?? 30_000);
-
     return yield* Effect.tryPromise({
       try: () =>
         new Promise<unknown>((resolve, reject) => {
-          const child = spawn(
-            denoExecutable,
-            [
-              "run",
-              "--quiet",
-              "--no-prompt",
-              "--no-check",
-              workerScriptPath,
-            ],
-            {
-              stdio: ["pipe", "pipe", "pipe"],
-            },
-          );
-
           let settled = false;
-          let stdoutBuffer = "";
           let stderrBuffer = "";
-
+          let worker: ReturnType<typeof spawnDenoWorkerProcess> | null = null;
           const finish = (result: { ok: true; value: unknown } | { ok: false; error: Error }) => {
             if (settled) {
               return;
             }
-
             settled = true;
             clearTimeout(timeout);
-            child.stdout?.removeAllListeners();
-            child.stderr?.removeAllListeners();
-            child.removeAllListeners();
-
-            if (!child.killed) {
-              child.kill("SIGKILL");
-            }
-
+            worker?.dispose();
             if (result.ok) {
               resolve(result.value);
             } else {
               reject(result.error);
             }
           };
-
           const fail = (error: DenoSubprocessRunnerError) => {
             finish({ ok: false, error });
           };
-
           const timeout = setTimeout(() => {
             fail(
               workerProcessError(
@@ -325,8 +298,103 @@ export const executeJavaScriptInDenoSubprocess = (
               ),
             );
           }, timeoutMs);
+          const handleStdoutLine = (rawLine: string) => {
+            const line = rawLine.trim();
+            if (line.length === 0 || !line.startsWith(IPC_PREFIX)) {
+              return;
+            }
 
-          child.on("error", (cause) => {
+            const payload = line.slice(IPC_PREFIX.length);
+            let message: WorkerToHostMessage;
+            try {
+              message = decodeWorkerMessageLine(payload);
+            } catch (cause) {
+              fail(parseWorkerMessageError(payload, cause));
+              return;
+            }
+            if (message.type === "tool_call") {
+              if (!worker) {
+                fail(
+                  workerProcessError(
+                    "invoke_tool",
+                    "Deno subprocess unavailable while handling worker tool_call",
+                    null,
+                  ),
+                );
+                return;
+              }
+
+              runPromise(
+                handleToolCall(
+                  message,
+                  toolBindings,
+                  runPromise,
+                  (invokeInput) => registry.invoke(invokeInput),
+                  worker.stdin,
+                ),
+              ).catch((cause) => {
+                fail(
+                  cause instanceof DenoSubprocessRunnerError
+                    ? cause
+                    : workerProcessError(
+                        "handle_tool_call",
+                        "Failed handling worker tool_call",
+                        String(cause),
+                      ),
+                );
+              });
+              return;
+            }
+            if (message.type === "completed") {
+              finish({ ok: true, value: message.result });
+              return;
+            }
+
+            fail(
+              workerProcessError(
+                "worker_failed",
+                "Deno subprocess returned failed terminal message",
+                message.error,
+              ),
+            );
+          };
+
+          try {
+            worker = spawnDenoWorkerProcess(
+              {
+                executable: denoExecutable,
+                scriptPath: workerScriptPath,
+              },
+              {
+                onStdoutLine: handleStdoutLine,
+                onStderr: (chunk) => {
+                  stderrBuffer += chunk;
+                },
+                onError: (cause) => {
+                  fail(
+                    workerProcessError(
+                      "spawn",
+                      "Failed to spawn Deno subprocess",
+                      cause.message,
+                    ),
+                  );
+                },
+                onExit: (code, signal) => {
+                  if (settled) {
+                    return;
+                  }
+
+                  fail(
+                    workerProcessError(
+                      "process_exit",
+                      "Deno subprocess exited before returning terminal message",
+                      `code=${String(code)} signal=${String(signal)} stderr=${stderrBuffer}`,
+                    ),
+                  );
+                },
+              },
+            );
+          } catch (cause) {
             fail(
               workerProcessError(
                 "spawn",
@@ -334,103 +402,11 @@ export const executeJavaScriptInDenoSubprocess = (
                 cause instanceof Error ? cause.message : String(cause),
               ),
             );
-          });
-
-          child.on("exit", (code, signal) => {
-            if (settled) {
-              return;
-            }
-
-            fail(
-              workerProcessError(
-                "process_exit",
-                "Deno subprocess exited before returning terminal message",
-                `code=${String(code)} signal=${String(signal)} stderr=${stderrBuffer}`,
-              ),
-            );
-          });
-
-          if (child.stderr) {
-            child.stderr.setEncoding("utf8");
-            child.stderr.on("data", (chunk: string) => {
-              stderrBuffer += chunk;
-            });
-          }
-
-          if (child.stdout) {
-            child.stdout.setEncoding("utf8");
-            child.stdout.on("data", (chunk: string) => {
-              stdoutBuffer += chunk;
-
-              while (true) {
-                const newlineIndex = stdoutBuffer.indexOf("\n");
-                if (newlineIndex === -1) {
-                  break;
-                }
-
-                const line = stdoutBuffer.slice(0, newlineIndex).trim();
-                stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-
-                if (line.length === 0) {
-                  continue;
-                }
-
-                if (!line.startsWith(IPC_PREFIX)) {
-                  continue;
-                }
-
-                const payload = line.slice(IPC_PREFIX.length);
-
-                let message: WorkerToHostMessage;
-                try {
-                  message = decodeWorkerMessageLine(payload);
-                } catch (cause) {
-                  fail(parseWorkerMessageError(payload, cause));
-                  return;
-                }
-
-                if (message.type === "tool_call") {
-                  runPromise(
-                    handleToolCall(
-                      message,
-                      toolBindings,
-                      runPromise,
-                      (invokeInput) => registry.invoke(invokeInput),
-                      child.stdin,
-                    ),
-                  ).catch((cause) => {
-                    fail(
-                      cause instanceof DenoSubprocessRunnerError
-                        ? cause
-                        : workerProcessError(
-                            "handle_tool_call",
-                            "Failed handling worker tool_call",
-                            String(cause),
-                          ),
-                    );
-                  });
-                  continue;
-                }
-
-                if (message.type === "completed") {
-                  finish({ ok: true, value: message.result });
-                  return;
-                }
-
-                fail(
-                  workerProcessError(
-                    "worker_failed",
-                    "Deno subprocess returned failed terminal message",
-                    message.error,
-                  ),
-                );
-                return;
-              }
-            });
+            return;
           }
 
           runPromise(
-            writeMessage(child.stdin, {
+            writeMessage(worker.stdin, {
               type: "start",
               code: input.code,
               toolIds,
