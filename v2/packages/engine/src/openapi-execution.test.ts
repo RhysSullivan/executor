@@ -241,4 +241,128 @@ return await tools.getUser({
       expect(testServer.requests[0]?.apiKey).toBe("sk_test");
     }),
   );
+
+  it.scoped("uses configured source credentials when required header arg is omitted", () =>
+    Effect.gen(function* () {
+      const testServer = yield* makeTestServer;
+
+      const openApiSpec = {
+        openapi: "3.1.0",
+        paths: {
+          "/users/{userId}": {
+            get: {
+              operationId: "getUser",
+              parameters: [
+                {
+                  name: "userId",
+                  in: "path",
+                  required: true,
+                },
+                {
+                  name: "verbose",
+                  in: "query",
+                },
+                {
+                  name: "x-api-key",
+                  in: "header",
+                  required: true,
+                },
+              ],
+            },
+          },
+        },
+      };
+
+      const source: Source = decodeSource({
+        id: "src_openapi",
+        workspaceId: "ws_local",
+        name: "local-openapi",
+        kind: "openapi",
+        endpoint: testServer.baseUrl,
+        status: "connected",
+        enabled: true,
+        configJson: JSON.stringify({
+          type: "openapi",
+          auth: {
+            mode: "api_key",
+            headerName: "x-api-key",
+            value: "sk_from_config",
+          },
+        }),
+        sourceHash: null,
+        lastError: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      const artifactsByKey = new Map<string, ToolArtifact>();
+      const artifactStore: ToolArtifactStore = {
+        getBySource: (workspaceId: Source["workspaceId"], sourceId: Source["id"]) =>
+          Effect.succeed(
+            Option.fromNullable(artifactsByKey.get(`${workspaceId}:${sourceId}`)),
+          ),
+        upsert: (artifact: ToolArtifact) =>
+          Effect.sync(() => {
+            artifactsByKey.set(
+              `${artifact.workspaceId}:${artifact.sourceId}`,
+              artifact,
+            );
+          }),
+      };
+      const sourceManager = makeSourceManagerService(artifactStore);
+
+      const refreshResult = yield* sourceManager.refreshOpenApiArtifact({
+        source,
+        openApiSpec,
+      });
+
+      const tools = yield* openApiToolDescriptorsFromManifest(
+        source,
+        refreshResult.artifact.manifestJson,
+      );
+
+      const getUserTool = tools.find((tool) => tool.toolId === "getUser");
+      if (!getUserTool) {
+        throw new Error("expected getUser tool");
+      }
+
+      const registry = makeToolProviderRegistry([makeOpenApiToolProvider()]);
+
+      const executionResult = yield* executeJavaScriptWithTools({
+        code: `
+return await tools.getUser({
+  userId: "u123",
+  verbose: "true"
+});
+`,
+        tools: [
+          {
+            descriptor: getUserTool,
+            source,
+          },
+        ],
+      }).pipe(
+        Effect.provideService(ToolProviderRegistryService, registry),
+      );
+
+      const output = executionResult as {
+        status: number;
+        body: {
+          id: string;
+          verbose: boolean;
+          apiKey: string | null;
+        };
+      };
+
+      expect(output.status).toBe(200);
+      expect(output.body.id).toBe("u123");
+      expect(output.body.verbose).toBe(true);
+      expect(output.body.apiKey).toBe("sk_from_config");
+
+      expect(testServer.requests).toHaveLength(1);
+      expect(testServer.requests[0]?.path).toBe("/users/u123");
+      expect(testServer.requests[0]?.query).toBe("?verbose=true");
+      expect(testServer.requests[0]?.apiKey).toBe("sk_from_config");
+    }),
+  );
 });

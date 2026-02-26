@@ -35,6 +35,18 @@ const sumToolDescriptor: CanonicalToolDescriptor = decodeCanonicalToolDescriptor
   providerPayload: null,
 });
 
+const failToolDescriptor: CanonicalToolDescriptor = decodeCanonicalToolDescriptor({
+  providerKind: "in_memory",
+  sourceId: null,
+  workspaceId: null,
+  toolId: "fail",
+  name: "fail",
+  description: null,
+  invocationMode: "in_memory",
+  availability: "local_only",
+  providerPayload: null,
+});
+
 describe("runtime adapters", () => {
   it.effect("executes with local-inproc adapter via runtime registry", () =>
     Effect.gen(function* () {
@@ -64,6 +76,47 @@ describe("runtime adapters", () => {
         .pipe(Effect.provideService(ToolProviderRegistryService, toolRegistry));
 
       expect(result).toBe(6);
+    }),
+  );
+
+  it.effect("surfaces tool-provider error output details for local-inproc", () =>
+    Effect.gen(function* () {
+      const failingProvider: ToolProvider = {
+        kind: "in_memory",
+        invoke: () =>
+          Effect.succeed({
+            output: {
+              status: 400,
+              body: {
+                message: "domain is required",
+              },
+            },
+            isError: true,
+          } as const),
+      };
+
+      const toolRegistry = makeToolProviderRegistry([failingProvider]);
+      const runtimeRegistry = makeRuntimeAdapterRegistry([
+        makeLocalInProcessRuntimeAdapter(),
+      ]);
+
+      const result = yield* Effect.either(
+        runtimeRegistry
+          .execute({
+            runtimeKind: "local-inproc",
+            code: "return await tools.fail({});",
+            tools: [{ descriptor: failToolDescriptor, source: null }],
+          })
+          .pipe(Effect.provideService(ToolProviderRegistryService, toolRegistry)),
+      );
+
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        if ("details" in result.left && typeof result.left.details === "string") {
+          expect(result.left.details).toContain("Tool call returned error: fail");
+          expect(result.left.details).toContain("domain is required");
+        }
+      }
     }),
   );
 

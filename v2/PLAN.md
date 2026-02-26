@@ -410,23 +410,25 @@ Implemented in `v2` so far:
 - Deno subprocess runtime path with IPC tool-call proxying and tests
 - runtime adapter contract + registry scaffold in `engine` with mapped adapters (`local-inproc`, `deno-subprocess`, `cloudflare-worker-loader`)
 - minimal PM execute lifecycle wired through MCP `executor.execute` -> runtime adapter registry (single run, no persisted run state yet)
+- PM source control path wired through execute-time tools namespace (`tools.executor.sources.add/list/remove`) with local file persistence and OpenAPI probe/extraction
+- source credential-aware OpenAPI invocation support via source config (`api_key`/`bearer` modes)
 - vertical test: OpenAPI spec -> manifest -> execute code -> HTTP tool call
 - service-first wiring (`Context.Tag` + Layer) across source manager and persistence/local runtime orchestration
 
 Not implemented yet:
-- `tools.executor.sources.add/list/remove` end-to-end PM + MCP gateway wiring
 - approval adapter/state machine integration (pending/resume/deny persistence) in v2 runtime path
 - provider/runtime conformance suite beyond current baseline tests (timeouts, cancellation, pending approval)
 - Cloudflare worker loader adapter execution integration (current adapter is explicit scaffold/not-implemented)
 - MCP/GraphQL provider implementations
+- secure secret-store-backed credential persistence (current local MVP stores credential value in source config)
 - full rpc/sdk adapter wiring and sync engine
 
 ---
 
 ## 19) Immediate next steps
 
-1. Add first `tools.executor.sources.add/list/remove` control operations end-to-end in PM + MCP gateway.
-2. Implement approval adapter contract with persisted pending/resume/deny flow for runtime tool calls.
-3. Add provider/runtime conformance tests (invoke success/failure, timeout, pending approval, cancel).
-4. Add Cloudflare worker loader adapter integration against the runtime adapter contract.
+1. Implement approval adapter contract with persisted pending/resume/deny flow for runtime tool calls.
+2. Add provider/runtime conformance tests (invoke success/failure, timeout, pending approval, cancel).
+3. Add Cloudflare worker loader adapter integration against the runtime adapter contract.
+4. Move source credential persistence to secure store-backed refs (remove raw credential values from source config).
 5. Extend PM execute lifecycle from single-run scaffold to persisted run state + streaming status.

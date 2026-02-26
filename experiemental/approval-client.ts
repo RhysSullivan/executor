@@ -25,6 +25,7 @@ interface ParsedArgs {
 }
 
 const DEFAULT_MCP_CONFIG_PATH = path.resolve(import.meta.dir, "claude-mcp-demo.json");
+const DEFAULT_PM_MCP_CONFIG_PATH = path.resolve(import.meta.dir, "claude-mcp-pm.json");
 const HOME_DIR = process.env.HOME ?? ".";
 const STATE_PATH = path.join(HOME_DIR, ".executor-lite-approvals", "mcp-state.json");
 
@@ -45,6 +46,11 @@ function defaultAgentCommand(session: string): string {
   if (session === "claude") {
     const allowedTools = "mcp__memory-approval-demo__dangerous_action";
     return `claude --strict-mcp-config --mcp-config ${shellQuote(DEFAULT_MCP_CONFIG_PATH)} --allowedTools ${shellQuote(allowedTools)} --permission-mode bypassPermissions`;
+  }
+
+  if (session === "claude-pm") {
+    const allowedTools = "mcp__executor-v2-local__executor.execute";
+    return `claude --strict-mcp-config --mcp-config ${shellQuote(DEFAULT_PM_MCP_CONFIG_PATH)} --allowedTools ${shellQuote(allowedTools)} --permission-mode bypassPermissions`;
   }
 
   return session;

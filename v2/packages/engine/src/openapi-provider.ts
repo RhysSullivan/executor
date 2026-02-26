@@ -1,9 +1,11 @@
 import {
   OpenApiInvocationPayloadSchema,
+  OpenApiSourceConfigSchema,
   OpenApiToolManifestSchema,
   type CanonicalToolDescriptor,
   type OpenApiCanonicalToolDescriptor,
   type OpenApiInvocationPayload,
+  type OpenApiSourceConfig,
   type OpenApiToolManifest,
   type Source,
 } from "@executor-v2/schema";
@@ -26,6 +28,9 @@ const decodeOpenApiManifestJson = Schema.decodeUnknown(
 );
 const decodeOpenApiInvocationPayload = Schema.decodeUnknown(
   OpenApiInvocationPayloadSchema,
+);
+const decodeOpenApiSourceConfigSync = Schema.decodeUnknownSync(
+  OpenApiSourceConfigSchema,
 );
 const decodeOpenApiToolArgs = Schema.decodeUnknown(OpenApiToolArgsSchema);
 const encodeUnknownToJson = Schema.encode(Schema.parseJson(Schema.Unknown));
@@ -62,6 +67,72 @@ const argsValueToString = (value: unknown): string => {
 
   return String(value);
 };
+
+const parseOpenApiSourceConfig = (source: Source): OpenApiSourceConfig | null => {
+  const trimmed = source.configJson.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return decodeOpenApiSourceConfigSync(parsed);
+  } catch {
+    return null;
+  }
+};
+
+const hasHeaderCaseInsensitive = (headers: Headers, headerName: string): boolean => {
+  const target = headerName.toLowerCase();
+
+  for (const [key] of headers.entries()) {
+    if (key.toLowerCase() === target) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const applySourceConfiguredHeaders = (
+  source: Source,
+  headers: Headers,
+): Effect.Effect<void, ToolProviderError> =>
+  Effect.gen(function* () {
+    const config = parseOpenApiSourceConfig(source);
+    if (!config) {
+      return;
+    }
+
+    if (config.staticHeaders) {
+      for (const [key, value] of Object.entries(config.staticHeaders)) {
+        headers.set(key, value);
+      }
+    }
+
+    const auth = config.auth;
+    if (!auth || auth.mode === "none") {
+      return;
+    }
+
+    const credentialValue = auth.value?.trim();
+    if (!credentialValue) {
+      return yield* new ToolProviderError({
+        operation: "invoke.auth",
+        providerKind: "openapi",
+        message: "Configured source credential is missing a value",
+        details: source.id,
+      });
+    }
+
+    if (auth.mode === "api_key") {
+      const headerName = auth.headerName?.trim() || "x-api-key";
+      headers.set(headerName, credentialValue);
+      return;
+    }
+
+    headers.set("authorization", `Bearer ${credentialValue}`);
+  });
 
 const replacePathTemplate = (
   pathTemplate: string,
@@ -118,6 +189,7 @@ const buildFetchRequest = (
     const url = new URL(resolvedPath, source.endpoint);
 
     const headers = new Headers();
+    yield* applySourceConfiguredHeaders(source, headers);
     const cookieParts: Array<string> = [];
 
     for (const parameter of payload.parameters) {
@@ -128,6 +200,13 @@ const buildFetchRequest = (
       const parameterValue = args[parameter.name];
       if (parameterValue === undefined || parameterValue === null) {
         if (parameter.required) {
+          if (
+            parameter.location === "header" &&
+            hasHeaderCaseInsensitive(headers, parameter.name)
+          ) {
+            continue;
+          }
+
           return yield* new ToolProviderError({
             operation: "invoke.validate_args",
             providerKind: "openapi",

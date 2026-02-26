@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "executor-v2-local": {
+      "type": "http",
+      "url": "http://127.0.0.1:8787/mcp"
+    }
+  }
+}

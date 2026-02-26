@@ -102,12 +102,36 @@ const missingToolBindingError = (toolId: string): DenoSubprocessRunnerError =>
     details: null,
   });
 
-const toolCallFailedError = (toolId: string): DenoSubprocessRunnerError =>
-  new DenoSubprocessRunnerError({
+const formatToolErrorDetails = (output: unknown): string | null => {
+  if (output === undefined) {
+    return null;
+  }
+
+  if (typeof output === "string") {
+    return output;
+  }
+
+  try {
+    const serialized = JSON.stringify(output, null, 2);
+    return typeof serialized === "string" ? serialized : String(output);
+  } catch {
+    return String(output);
+  }
+};
+
+const toolCallFailedError = (
+  toolId: string,
+  output: unknown,
+): DenoSubprocessRunnerError => {
+  const details = formatToolErrorDetails(output);
+  const baseMessage = `Tool call returned error: ${toolId}`;
+
+  return new DenoSubprocessRunnerError({
     operation: "invoke_tool",
-    message: `Tool call returned error: ${toolId}`,
-    details: null,
+    message: details ? `${baseMessage}\n${details}` : baseMessage,
+    details,
   });
+};
 
 const parseWorkerMessageError = (
   line: string,
@@ -231,11 +255,12 @@ const handleToolCall = (
     });
 
     if (invokeResult.isError) {
+      const error = toolCallFailedError(message.toolId, invokeResult.output);
       yield* writeMessage(stdin, {
         type: "tool_result",
         requestId: message.requestId,
         ok: false,
-        error: toolCallFailedError(message.toolId).message,
+        error: error.message,
       });
       return;
     }

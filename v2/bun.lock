@@ -25,8 +25,13 @@
     "apps/pm": {
       "name": "@executor-v2/app-pm",
       "dependencies": {
+        "@effect/platform-bun": "^0.86.0",
         "@executor-v2/engine": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
+        "@executor-v2/persistence-local": "workspace:*",
+        "@executor-v2/persistence-ports": "workspace:*",
+        "@executor-v2/schema": "workspace:*",
+        "@executor-v2/source-manager": "workspace:*",
         "effect": "^3.19.8",
       },
     },

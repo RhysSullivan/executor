@@ -30,10 +30,37 @@ const createToolCaller = (toolId) => (args) =>
     });
   });
 
+const assignToolCaller = (toolsRoot, toolId, callTool) => {
+  toolsRoot[toolId] = callTool;
+
+  const segments = toolId.split(".").filter((segment) => segment.length > 0);
+  if (segments.length <= 1) {
+    return;
+  }
+
+  let cursor = toolsRoot;
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    const current = cursor[segment];
+
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      const next = Object.create(null);
+      cursor[segment] = next;
+      cursor = next;
+      continue;
+    }
+
+    cursor = current;
+  }
+
+  const leafSegment = segments[segments.length - 1];
+  cursor[leafSegment] = callTool;
+};
+
 const runUserCode = async (code, toolIds) => {
   const tools = Object.create(null);
   for (const toolId of toolIds) {
-    tools[toolId] = createToolCaller(toolId);
+    assignToolCaller(tools, toolId, createToolCaller(toolId));
   }
 
   const execute = new Function(
