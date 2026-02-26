@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./local-runner": "./src/local-runner.ts",
+    "./tool-providers": "./src/tool-providers.ts"
   },
   "scripts": {
     "test": "bunx vitest run --no-watch src/*.test.ts",

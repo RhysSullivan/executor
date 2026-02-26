@@ -7,6 +7,7 @@ Current scaffold includes:
 - health endpoint at `GET /healthz`
 - MCP tool routing via `@executor-v2/mcp-gateway`
 - local runtime adapter injection (`makeLocalInProcessRuntimeAdapter()` in entry wiring)
+ runtime callback endpoint at `POST /runtime/tool-call`
 
 App wiring is now split by responsibility:
 - `src/config.ts`: Effect config service (`PORT`)

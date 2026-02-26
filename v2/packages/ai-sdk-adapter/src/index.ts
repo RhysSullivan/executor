@@ -27,6 +27,7 @@ export type ToAiSdkToolsOptions<TTool> = {
     timeoutMs?: number;
   };
 };
+
 const withDefaults = (
   input: ExecuteToolInput,
   defaults?: {

@@ -40,7 +40,7 @@ listEndpoint.implement(() =>
 const getEndpoint = factory.query({
 	payload: { id: Schema.String },
 	success: Schema.Struct({ author: Schema.String, message: Schema.String }),
-	error: Schema.Struct({ _tag: Schema.Literal("NotFound") }),
+	error: Schema.TaggedStruct("NotFound", {}),
 });
 getEndpoint.implement((payload) =>
 	Effect.gen(function* () {

@@ -2,10 +2,12 @@ import * as Effect from "effect/Effect";
 
 import { PmConfig } from "./config";
 import { PmMcpHandler } from "./mcp-handler";
+import { PmToolCallHttpHandler } from "./tool-call-handler";
 
 export const startPmHttpServer = Effect.fn("@executor-v2/app-pm/http.start")(function* () {
   const { port } = yield* PmConfig;
   const { handleMcp } = yield* PmMcpHandler;
+  const { handleToolCallHttp } = yield* PmToolCallHttpHandler;
 
   const server = Bun.serve({
     port,
@@ -22,6 +24,12 @@ export const startPmHttpServer = Effect.fn("@executor-v2/app-pm/http.start")(fun
         GET: handleMcp,
         POST: handleMcp,
         DELETE: handleMcp,
+      },
+      "/runtime/tool-call": {
+        POST: handleToolCallHttp,
+      },
+      "/v1/runtime/tool-call": {
+        POST: handleToolCallHttp,
       },
     },
   });

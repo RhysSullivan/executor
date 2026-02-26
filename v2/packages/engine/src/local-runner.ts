@@ -14,7 +14,8 @@ export class LocalCodeRunnerError extends Data.TaggedError("LocalCodeRunnerError
   operation: string;
   message: string;
   details: string | null;
-}> {}
+}> {
+}
 
 export type RunnableTool = {
   descriptor: CanonicalToolDescriptor;
@@ -63,7 +64,7 @@ const buildToolBindings = (
 
     return byToolId;
   });
-
+// todo: run in sandbox
 const runJavaScript = (
   code: string,
   toolsObject: Record<string, (args: unknown) => Promise<unknown>>,
@@ -74,7 +75,7 @@ const runJavaScript = (
         "tools",
         `"use strict"; return (async () => {\n${code}\n})();`,
       ) as (tools: Record<string, (args: unknown) => Promise<unknown>>) =>
-        Promise<unknown>;
+          Promise<unknown>;
 
       return await execute(toolsObject);
     },

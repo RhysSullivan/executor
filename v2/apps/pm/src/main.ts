@@ -10,6 +10,10 @@ import {
   PmRunExecutorLive,
   PmToolProviderRegistryLive,
 } from "./run-executor";
+import {
+  PmToolCallHandlerLive,
+  PmToolCallHttpHandlerLive,
+} from "./tool-call-handler";
 
 const runtimeAdapter = makeLocalInProcessRuntimeAdapter();
 const PmMcpDependenciesLive = Layer.merge(
@@ -17,9 +21,14 @@ const PmMcpDependenciesLive = Layer.merge(
   PmToolProviderRegistryLive,
 );
 
-const PmAppLive = Layer.merge(
+const PmToolCallDependenciesLive = PmToolCallHttpHandlerLive.pipe(
+  Layer.provide(PmToolCallHandlerLive),
+);
+
+const PmAppLive = Layer.mergeAll(
   PmConfigLive,
   PmMcpHandlerLive.pipe(Layer.provide(PmMcpDependenciesLive)),
+  PmToolCallDependenciesLive,
 );
 
 const program = startPmHttpServer().pipe(Effect.provide(PmAppLive));

@@ -15,10 +15,10 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "ai": "^6.0.0",
-    "effect": "catalog:",
     "@effect/vitest": "catalog:",
     "@executor-v2/engine": "workspace:*",
+    "ai": "^6.0.0",
+    "effect": "catalog:",
     "vitest": "catalog:"
   }
 }

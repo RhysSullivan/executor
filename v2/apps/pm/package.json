@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "bun --watch src/main.ts",
     "start": "bun src/main.ts",
+    "test": "bunx vitest run --no-watch src/*.test.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -12,5 +13,9 @@
     "@executor-v2/mcp-gateway": "workspace:*",
     "@executor-v2/sdk": "workspace:*",
     "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
   }
 }

@@ -26,5 +26,8 @@
     "@types/bun": "^1.2.22",
     "@types/node": "catalog:",
     "typescript": "catalog:"
+  },
+  "dependencies": {
+    "vercel": "^50.23.2"
   }
 }

@@ -1,1 +1,3 @@
 .reference/
+.vercel
+.env*.local

@@ -8,8 +8,13 @@
  * @module
  */
 
+import type * as executor from "../executor.js";
 import type * as http from "../http.js";
 import type * as mcp from "../mcp.js";
+import type * as rpc_exit from "../rpc_exit.js";
+import type * as run_executor from "../run_executor.js";
+import type * as runtimeCallbacks from "../runtimeCallbacks.js";
+import type * as runtime_adapter from "../runtime_adapter.js";
 
 import type {
   ApiFromModules,
@@ -18,8 +23,13 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  executor: typeof executor;
   http: typeof http;
   mcp: typeof mcp;
+  rpc_exit: typeof rpc_exit;
+  run_executor: typeof run_executor;
+  runtimeCallbacks: typeof runtimeCallbacks;
+  runtime_adapter: typeof runtime_adapter;
 }>;
 
 /**
