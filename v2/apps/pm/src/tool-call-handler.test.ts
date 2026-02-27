@@ -1,7 +1,9 @@
-import { ToolInvocationServiceUnwiredLive } from "@executor-v2/domain";
+import { ToolInvocationServiceLive } from "@executor-v2/domain";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
+import { PmCredentialResolverLive } from "./credential-resolver";
 import { handleToolCallBody } from "./tool-call-handler";
 
 describe("PM runtime tool-call handling", () => {
@@ -19,6 +21,12 @@ describe("PM runtime tool-call handling", () => {
         expect(result.kind).toBe("failed");
         expect(result.error).toContain("tools.example.weather");
       }
-    }).pipe(Effect.provide(ToolInvocationServiceUnwiredLive("pm"))),
+    }).pipe(
+      Effect.provide(
+        ToolInvocationServiceLive("pm").pipe(
+          Layer.provide(PmCredentialResolverLive),
+        ),
+      ),
+    ),
   );
 });

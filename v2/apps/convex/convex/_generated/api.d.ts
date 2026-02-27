@@ -13,6 +13,7 @@ import type * as control_plane_errors from "../control_plane/errors.js";
 import type * as control_plane_http from "../control_plane/http.js";
 import type * as control_plane_service from "../control_plane/service.js";
 import type * as control_plane_sources from "../control_plane/sources.js";
+import type * as credential_resolver from "../credential_resolver.js";
 import type * as executor from "../executor.js";
 import type * as http from "../http.js";
 import type * as mcp from "../mcp.js";
@@ -32,6 +33,7 @@ declare const fullApi: ApiFromModules<{
   "control_plane/http": typeof control_plane_http;
   "control_plane/service": typeof control_plane_service;
   "control_plane/sources": typeof control_plane_sources;
+  credential_resolver: typeof credential_resolver;
   executor: typeof executor;
   http: typeof http;
   mcp: typeof mcp;
