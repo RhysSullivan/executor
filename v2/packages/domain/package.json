@@ -6,11 +6,16 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "test": "bunx vitest run --no-watch",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@executor-v2/schema": "workspace:*",
     "@executor-v2/sdk": "workspace:*",
     "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "vitest": "catalog:"
   }
 }

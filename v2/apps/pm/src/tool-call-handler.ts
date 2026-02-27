@@ -13,6 +13,13 @@ class PmToolCallHttpRequestError extends Data.TaggedError(
   details: string | null;
 }> {}
 
+const RuntimeToolCallCredentialContextSchema = Schema.Struct({
+  workspaceId: Schema.String,
+  sourceKey: Schema.String,
+  organizationId: Schema.optional(Schema.NullOr(Schema.String)),
+  accountId: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
 const RuntimeToolCallRequestSchema = Schema.Struct({
   runId: Schema.String,
   callId: Schema.String,
@@ -23,6 +30,7 @@ const RuntimeToolCallRequestSchema = Schema.Struct({
       value: Schema.Unknown,
     }),
   ),
+  credentialContext: Schema.optional(RuntimeToolCallCredentialContextSchema),
 });
 
 const decodeRuntimeToolCallRequest = Schema.decodeUnknown(RuntimeToolCallRequestSchema);

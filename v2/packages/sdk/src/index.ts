@@ -22,11 +22,19 @@ export interface ExecutorRunClient {
   execute(input: ExecuteRunInput): Promise<ExecuteRunResult>;
 }
 
+export type RuntimeToolCallCredentialContext = {
+  workspaceId: string;
+  sourceKey: string;
+  organizationId?: string | null;
+  accountId?: string | null;
+};
+
 export type RuntimeToolCallRequest = {
   runId: string;
   callId: string;
   toolPath: string;
   input?: Record<string, unknown>;
+  credentialContext?: RuntimeToolCallCredentialContext;
 };
 
 export type RuntimeToolCallResult =

@@ -125,6 +125,10 @@
         "@executor-v2/sdk": "workspace:*",
         "effect": "catalog:",
       },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "vitest": "catalog:",
+      },
     },
     "packages/engine": {
       "name": "@executor-v2/engine",

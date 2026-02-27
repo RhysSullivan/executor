@@ -10,7 +10,7 @@ import * as Layer from "effect/Layer";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 
-import { httpAction } from "./_generated/server";
+import { httpAction, type ActionCtx } from "./_generated/server";
 import { ConvexCredentialResolverLive } from "./credential_resolver";
 
 class RuntimeToolCallBadRequestError extends Data.TaggedError(
@@ -19,6 +19,13 @@ class RuntimeToolCallBadRequestError extends Data.TaggedError(
   message: string;
   details: string;
 }> {}
+
+const RuntimeToolCallCredentialContextSchema = Schema.Struct({
+  workspaceId: Schema.String,
+  sourceKey: Schema.String,
+  organizationId: Schema.optional(Schema.NullOr(Schema.String)),
+  accountId: Schema.optional(Schema.NullOr(Schema.String)),
+});
 
 const RuntimeToolCallRequestSchema = Schema.Struct({
   runId: Schema.String,
@@ -30,16 +37,10 @@ const RuntimeToolCallRequestSchema = Schema.Struct({
       value: Schema.Unknown,
     }),
   ),
+  credentialContext: Schema.optional(RuntimeToolCallCredentialContextSchema),
 });
 
 const decodeRuntimeToolCallRequest = Schema.decodeUnknown(RuntimeToolCallRequestSchema);
-
-const toolInvocationLive: Layer.Layer<ToolInvocationService, never, CredentialResolver> =
-  ToolInvocationServiceLive("convex");
-
-const toolInvocationWithResolverLive = toolInvocationLive.pipe(
-  Layer.provide(ConvexCredentialResolverLive),
-);
 
 const badRequest = (message: string): Response =>
   Response.json(
@@ -57,9 +58,17 @@ const formatBadRequestMessage = (error: RuntimeToolCallBadRequestError): string 
 const formatUnknownDetails = (cause: unknown): string => String(cause);
 
 const handleToolCallHttpEffect = (
+  ctx: ActionCtx,
   request: Request,
-): Effect.Effect<Response, never> =>
-  Effect.gen(function* () {
+): Effect.Effect<Response, never> => {
+  const toolInvocationLive: Layer.Layer<ToolInvocationService, never, CredentialResolver> =
+    ToolInvocationServiceLive("convex");
+
+  const toolInvocationWithResolverLive = toolInvocationLive.pipe(
+    Layer.provide(ConvexCredentialResolverLive(ctx)),
+  );
+
+  return Effect.gen(function* () {
     const body = yield* Effect.tryPromise({
       try: () => request.json(),
       catch: (cause) =>
@@ -89,7 +98,8 @@ const handleToolCallHttpEffect = (
       Effect.succeed(badRequest(formatBadRequestMessage(error))),
     ),
   );
+};
 
-export const handleToolCallHttp = httpAction((_ctx, request) =>
-  Effect.runPromise(handleToolCallHttpEffect(request)),
+export const handleToolCallHttp = httpAction((ctx, request) =>
+  Effect.runPromise(handleToolCallHttpEffect(ctx, request)),
 );

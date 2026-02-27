@@ -10,10 +10,15 @@ export {
 } from "./auth";
 
 export {
+  buildCredentialHeaders,
   CredentialResolver,
   CredentialResolverError,
   CredentialResolverNoneLive,
+  extractCredentialResolutionContext,
   makeCredentialResolver,
+  selectCredentialBinding,
+  selectOAuthAccessToken,
+  sourceIdFromSourceKey,
   type CredentialResolverShape,
   type ResolvedToolCredentials,
 } from "./credential-resolver";
