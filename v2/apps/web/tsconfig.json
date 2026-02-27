@@ -7,7 +7,6 @@
       "esnext"
     ],
     "jsx": "preserve",
-    "incremental": true,
     "plugins": [
       {
         "name": "next"
@@ -20,12 +19,13 @@
       "node"
     ],
     "allowJs": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "incremental": true
   },
   "include": [
-    "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    "next-env.d.ts",
     ".next/types/**/*.ts"
   ],
   "exclude": [

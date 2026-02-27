@@ -6,7 +6,7 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck": "next typegen && bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@effect-atom/atom": "^0.4.11",
