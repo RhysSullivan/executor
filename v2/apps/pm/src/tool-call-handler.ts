@@ -2,11 +2,11 @@ import type {
   RuntimeToolCallRequest,
   RuntimeToolCallResult,
 } from "@executor-v2/sdk";
+import { HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
 
 export type PmToolCallHandlerService = {
@@ -77,48 +77,31 @@ export const PmToolCallHandlerLive = Layer.succeed(
   }),
 );
 
-export type PmToolCallHttpHandlerService = {
-  handleToolCallHttp: (request: Request) => Promise<Response>;
-};
+export const handleToolCallBody = Effect.fn(
+  "@executor-v2/app-pm/tool-call.handle-body",
+)(function* (body: unknown) {
+  const handler = yield* PmToolCallHandler;
+  const input = yield* decodeRuntimeToolCallRequest(body).pipe(
+    Effect.mapError(decodeRequestBodyError),
+  );
 
-export class PmToolCallHttpHandler extends Context.Tag("@executor-v2/app-pm/PmToolCallHttpHandler")<
-  PmToolCallHttpHandler,
-  PmToolCallHttpHandlerService
->() {}
+  return yield* handler.handleToolCall(input);
+});
 
-export const PmToolCallHttpHandlerLive = Layer.effect(
-  PmToolCallHttpHandler,
-  Effect.gen(function* () {
-    const handler = yield* PmToolCallHandler;
-    const runtime = yield* Effect.runtime<never>();
-    const runPromise = Runtime.runPromise(runtime);
+export const handleToolCallHttp = Effect.gen(function* () {
+  const body = yield* HttpServerRequest.schemaBodyJson(Schema.Unknown);
+  const result = yield* handleToolCallBody(body);
 
-    const handleToolCallHttp = (request: Request): Promise<Response> =>
-      runPromise(
-        Effect.tryPromise({
-          try: () => request.json(),
-          catch: decodeRequestBodyError,
-        }).pipe(
-          Effect.flatMap((body) => decodeRuntimeToolCallRequest(body)),
-          Effect.flatMap((input) => handler.handleToolCall(input)),
-          Effect.map((result) => Response.json(result, { status: 200 })),
-          Effect.catchAll((error) =>
-            Effect.succeed(
-              Response.json(
-                {
-                  ok: false,
-                  kind: "failed",
-                  error: errorToText(error),
-                } satisfies RuntimeToolCallResult,
-                { status: 400 },
-              ),
-            ),
-          ),
-        ),
-      );
-
-    return PmToolCallHttpHandler.of({
-      handleToolCallHttp,
-    });
-  }),
+  return yield* HttpServerResponse.json(result, { status: 200 });
+}).pipe(
+  Effect.catchAll((error) =>
+    HttpServerResponse.json(
+      {
+        ok: false,
+        kind: "failed",
+        error: errorToText(error),
+      } satisfies RuntimeToolCallResult,
+      { status: 400 },
+    ),
+  ),
 );

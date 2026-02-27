@@ -13,5 +13,5 @@ App wiring is now split by responsibility:
 - `src/config.ts`: Effect config service (`PORT`)
 - `src/run-executor.ts`: run execution service for an injected runtime adapter
 - `src/mcp-handler.ts`: MCP transport wiring to run client
-- `src/http-server.ts`: Bun server startup
+- `src/http-server.ts`: Effect HTTP server startup
 - `src/main.ts`: Layer composition + process entrypoint

@@ -1,40 +1,45 @@
+import {
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
+import { BunHttpServer, BunHttpServerRequest } from "@effect/platform-bun";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
 import { PmConfig } from "./config";
 import { PmMcpHandler } from "./mcp-handler";
-import { PmToolCallHttpHandler } from "./tool-call-handler";
+import { handleToolCallHttp } from "./tool-call-handler";
+
+const fromWebHandler = (handler: (request: Request) => Promise<Response>) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const response = yield* Effect.promise(() =>
+      handler(BunHttpServerRequest.toRequest(request))
+    );
+
+    return HttpServerResponse.raw(response);
+  });
 
 export const startPmHttpServer = Effect.fn("@executor-v2/app-pm/http.start")(function* () {
   const { port } = yield* PmConfig;
   const { handleMcp } = yield* PmMcpHandler;
-  const { handleToolCallHttp } = yield* PmToolCallHttpHandler;
 
-  const server = Bun.serve({
-    port,
-    routes: {
-      "/healthz": {
-        GET: () => Response.json({ ok: true, service: "pm" }, { status: 200 }),
-      },
-      "/mcp": {
-        GET: handleMcp,
-        POST: handleMcp,
-        DELETE: handleMcp,
-      },
-      "/v1/mcp": {
-        GET: handleMcp,
-        POST: handleMcp,
-        DELETE: handleMcp,
-      },
-      "/runtime/tool-call": {
-        POST: handleToolCallHttp,
-      },
-      "/v1/runtime/tool-call": {
-        POST: handleToolCallHttp,
-      },
-    },
-  });
+  const httpLive = HttpRouter.empty.pipe(
+    HttpRouter.get("/healthz", HttpServerResponse.json({ ok: true, service: "pm" })),
+    HttpRouter.get("/mcp", fromWebHandler(handleMcp)),
+    HttpRouter.post("/mcp", fromWebHandler(handleMcp)),
+    HttpRouter.del("/mcp", fromWebHandler(handleMcp)),
+    HttpRouter.get("/v1/mcp", fromWebHandler(handleMcp)),
+    HttpRouter.post("/v1/mcp", fromWebHandler(handleMcp)),
+    HttpRouter.del("/v1/mcp", fromWebHandler(handleMcp)),
+    HttpRouter.post("/runtime/tool-call", handleToolCallHttp),
+    HttpRouter.post("/v1/runtime/tool-call", handleToolCallHttp),
+    HttpServer.serve(),
+    HttpServer.withLogAddress,
+    Layer.provide(BunHttpServer.layer({ port })),
+  );
 
-  yield* Effect.logInfo(`executor-v2 PM listening on http://127.0.0.1:${server.port}`);
-
-  return server;
+  return yield* Layer.launch(httpLive);
 });
