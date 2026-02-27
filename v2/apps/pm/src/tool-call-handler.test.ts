@@ -1,4 +1,7 @@
-import { ToolInvocationServiceLive } from "@executor-v2/domain";
+import {
+  RuntimeToolInvokerUnimplementedLive,
+  ToolInvocationServiceLive,
+} from "@executor-v2/domain";
 import { LocalStateStoreService } from "@executor-v2/persistence-local";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -32,7 +35,8 @@ describe("PM runtime tool-call handling", () => {
       }
     }).pipe(
       Effect.provide(
-        ToolInvocationServiceLive("pm").pipe(
+        ToolInvocationServiceLive.pipe(
+          Layer.provide(RuntimeToolInvokerUnimplementedLive("pm")),
           Layer.provide(
             PmCredentialResolverLive.pipe(Layer.provide(EmptyLocalStateStoreLive)),
           ),

@@ -1,46 +1,15 @@
 import {
-  LocalCodeRunnerError,
-  executeJavaScriptWithTools,
-} from "@executor-v2/engine/local-runner";
-import {
-  ToolProviderError,
-  ToolProviderRegistryError,
-  ToolProviderRegistryService,
-  type CanonicalToolDescriptor,
-} from "@executor-v2/engine/tool-providers";
-import type { Source } from "@executor-v2/schema";
-import * as Effect from "effect/Effect";
+  makeLocalInProcessRuntimeAdapter as makeEngineLocalInProcessRuntimeAdapter,
+  type RuntimeAdapter as EngineRuntimeAdapter,
+  type RuntimeExecuteError as EngineRuntimeExecuteError,
+  type RuntimeExecuteInput as EngineRuntimeExecuteInput,
+  type RuntimeRunnableTool as EngineRuntimeRunnableTool,
+} from "@executor-v2/engine";
 
-export type RuntimeRunnableTool = {
-  descriptor: CanonicalToolDescriptor;
-  source: Source | null;
-};
+export type RuntimeRunnableTool = EngineRuntimeRunnableTool;
+export type RuntimeExecuteInput = EngineRuntimeExecuteInput;
+export type RuntimeExecuteError = EngineRuntimeExecuteError;
+export type RuntimeAdapter = EngineRuntimeAdapter;
 
-export type RuntimeExecuteInput = {
-  code: string;
-  tools: ReadonlyArray<RuntimeRunnableTool>;
-  timeoutMs?: number;
-};
-
-export type RuntimeExecuteError =
-  | LocalCodeRunnerError
-  | ToolProviderRegistryError
-  | ToolProviderError;
-
-export type RuntimeAdapter = {
-  kind: "local-inproc";
-  isAvailable: () => Effect.Effect<boolean>;
-  execute: (
-    input: RuntimeExecuteInput,
-  ) => Effect.Effect<unknown, RuntimeExecuteError, ToolProviderRegistryService>;
-};
-
-export const makeLocalInProcessRuntimeAdapter = (): RuntimeAdapter => ({
-  kind: "local-inproc",
-  isAvailable: () => Effect.succeed(true),
-  execute: (input) =>
-    executeJavaScriptWithTools({
-      code: input.code,
-      tools: input.tools,
-    }),
-});
+export const makeLocalInProcessRuntimeAdapter =
+  makeEngineLocalInProcessRuntimeAdapter;

@@ -1,83 +1,46 @@
 import {
+  RunExecutionService,
+  RunExecutionServiceLive,
+} from "@executor-v2/domain";
+import {
+  RuntimeAdapterRegistryLive,
   ToolProviderRegistryService,
+  makeLocalInProcessRuntimeAdapter,
   makeToolProviderRegistry,
-} from "@executor-v2/engine/tool-providers";
+} from "@executor-v2/engine";
 import type { ExecuteRunInput, ExecuteRunResult } from "@executor-v2/sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import {
-  makeLocalInProcessRuntimeAdapter,
-  type RuntimeExecuteError,
-} from "./runtime_adapter";
-
 export type ConvexRunExecutorService = {
-  executeRun: (
-    input: ExecuteRunInput,
-  ) => Effect.Effect<ExecuteRunResult, never, ToolProviderRegistryService>;
+  executeRun: (input: ExecuteRunInput) => Effect.Effect<ExecuteRunResult>;
 };
 
 export class ConvexRunExecutor extends Context.Tag(
   "@executor-v2/app-convex/ConvexRunExecutor",
 )<ConvexRunExecutor, ConvexRunExecutorService>() {}
 
-const runtimeAdapter = makeLocalInProcessRuntimeAdapter();
-
-const formatRuntimeExecuteError = (error: RuntimeExecuteError): string => {
-  switch (error._tag) {
-    case "LocalCodeRunnerError":
-    case "ToolProviderError":
-      return error.details ? `${error.message}: ${error.details}` : error.message;
-    case "ToolProviderRegistryError":
-      return error.message;
-  }
-};
-
-const executeRun = Effect.fn(
-  "@executor-v2/app-convex/run-executor.executeRun",
-)(function* (input: ExecuteRunInput) {
-  const runId = `run_${crypto.randomUUID()}`;
-
-  const isAvailable = yield* runtimeAdapter.isAvailable();
-  if (!isAvailable) {
-    return {
-      runId,
-      status: "failed",
-      error: `Runtime '${runtimeAdapter.kind}' is not available in this Convex process.`,
-    } satisfies ExecuteRunResult;
-  }
-
-  return yield* runtimeAdapter
-    .execute({
-      code: input.code,
-      timeoutMs: input.timeoutMs,
-      tools: [],
-    })
-    .pipe(
-      Effect.map(
-        (result): ExecuteRunResult => ({
-          runId,
-          status: "completed",
-          result,
-        }),
-      ),
-      Effect.catchAll((error) =>
-        Effect.succeed({
-          runId,
-          status: "failed",
-          error: formatRuntimeExecuteError(error),
-        } satisfies ExecuteRunResult),
-      ),
-    );
-});
-
-export const ConvexRunExecutorLive = Layer.succeed(
-  ConvexRunExecutor,
-  ConvexRunExecutor.of({
-    executeRun,
-  }),
+const ConvexRuntimeExecutionDependenciesLive = Layer.merge(
+  RuntimeAdapterRegistryLive([makeLocalInProcessRuntimeAdapter()]),
+  Layer.succeed(ToolProviderRegistryService, makeToolProviderRegistry([])),
 );
+
+const ConvexRunExecutionLive = RunExecutionServiceLive({
+  target: "convex",
+  defaultRuntimeKind: "local-inproc",
+}).pipe(Layer.provide(ConvexRuntimeExecutionDependenciesLive));
+
+export const ConvexRunExecutorLive = Layer.effect(
+  ConvexRunExecutor,
+  Effect.gen(function* () {
+    const runExecutionService = yield* RunExecutionService;
+
+    return ConvexRunExecutor.of({
+      executeRun: (input) => runExecutionService.executeRun(input),
+    });
+  }),
+).pipe(Layer.provide(ConvexRunExecutionLive));
 
 export const ConvexToolProviderRegistryLive = Layer.succeed(
   ToolProviderRegistryService,

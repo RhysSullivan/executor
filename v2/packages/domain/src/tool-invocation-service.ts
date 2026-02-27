@@ -9,9 +9,13 @@ import * as Layer from "effect/Layer";
 
 import {
   CredentialResolver,
-  CredentialResolverError,
   type CredentialResolverShape,
 } from "./credential-resolver";
+import {
+  RuntimeToolInvoker,
+  RuntimeToolInvokerError,
+  type RuntimeToolInvokerShape,
+} from "./runtime-tool-invoker";
 
 export class ToolInvocationServiceError extends Data.TaggedError(
   "ToolInvocationServiceError",
@@ -42,53 +46,55 @@ const toFailedResult = (
     : `${error.message} [tool=${input.toolPath}]`,
 });
 
-const toResolverError = (cause: CredentialResolverError): ToolInvocationServiceError =>
+const toResolverError = (message: string, details: string | null) =>
   new ToolInvocationServiceError({
     operation: "resolve_credentials",
+    message,
+    details,
+  });
+
+const toInvokerError = (cause: RuntimeToolInvokerError) =>
+  new ToolInvocationServiceError({
+    operation: "invoke_runtime_tool",
     message: cause.message,
     details: cause.details,
   });
 
-const makeUnwiredRuntimeToolCallMessage = (
-  target: string,
-  input: RuntimeToolCallRequest,
-  resolvedHeaderCount: number,
-): RuntimeToolCallResult => ({
-  ok: false,
-  kind: "failed",
-  error: `${target} runtime callback received tool '${input.toolPath}', resolved ${resolvedHeaderCount} credential headers, but tool invocation pipeline is not wired yet`,
-});
-
 export const makeToolInvocationService = (
-  target: string,
   credentialResolver: CredentialResolverShape,
+  runtimeToolInvoker: RuntimeToolInvokerShape,
 ): ToolInvocationServiceShape => ({
   invokeRuntimeToolCall: (input) =>
-    credentialResolver.resolveForToolCall(input).pipe(
-      Effect.mapError(toResolverError),
-      Effect.map((credentials) =>
-        makeUnwiredRuntimeToolCallMessage(
-          target,
-          input,
-          Object.keys(credentials.headers).length,
-        ),
-      ),
+    Effect.gen(function* () {
+      const credentials = yield* credentialResolver.resolveForToolCall(input).pipe(
+        Effect.mapError((cause) => toResolverError(cause.message, cause.details)),
+      );
+
+      return yield* runtimeToolInvoker
+        .invokeRuntimeToolCall({
+          request: input,
+          credentials,
+        })
+        .pipe(Effect.mapError(toInvokerError));
+    }).pipe(
       Effect.catchTag("ToolInvocationServiceError", (error) =>
         Effect.succeed(toFailedResult(input, error)),
       ),
     ),
 });
 
-export const ToolInvocationServiceLive = (
-  target: string,
-): Layer.Layer<ToolInvocationService, never, CredentialResolver> =>
-  Layer.effect(
-    ToolInvocationService,
-    Effect.gen(function* () {
-      const credentialResolver = yield* CredentialResolver;
+export const ToolInvocationServiceLive: Layer.Layer<
+  ToolInvocationService,
+  never,
+  CredentialResolver | RuntimeToolInvoker
+> = Layer.effect(
+  ToolInvocationService,
+  Effect.gen(function* () {
+    const credentialResolver = yield* CredentialResolver;
+    const runtimeToolInvoker = yield* RuntimeToolInvoker;
 
-      return ToolInvocationService.of(
-        makeToolInvocationService(target, credentialResolver),
-      );
-    }),
-  );
+    return ToolInvocationService.of(
+      makeToolInvocationService(credentialResolver, runtimeToolInvoker),
+    );
+  }),
+);

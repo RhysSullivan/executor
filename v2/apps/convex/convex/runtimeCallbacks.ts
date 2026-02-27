@@ -1,4 +1,5 @@
 import {
+  RuntimeToolInvokerUnimplementedLive,
   ToolInvocationService,
   ToolInvocationServiceLive,
   type CredentialResolver,
@@ -62,7 +63,9 @@ const handleToolCallHttpEffect = (
   request: Request,
 ): Effect.Effect<Response, never> => {
   const toolInvocationLive: Layer.Layer<ToolInvocationService, never, CredentialResolver> =
-    ToolInvocationServiceLive("convex");
+    ToolInvocationServiceLive.pipe(
+      Layer.provide(RuntimeToolInvokerUnimplementedLive("convex")),
+    );
 
   const toolInvocationWithResolverLive = toolInvocationLive.pipe(
     Layer.provide(ConvexCredentialResolverLive(ctx)),
