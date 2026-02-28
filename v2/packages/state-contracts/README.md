@@ -1,3 +1,7 @@
-# state-contracts
+# persistence-ports
 
-Storage and repository interface scaffold for Executor v2.
+Persistence port interface scaffold for Executor v2.
+
+Current scaffold includes:
+- `ProfileStore` in `src/profiles.ts`
+- `ToolArtifactStore` in `src/tool-artifacts.ts`

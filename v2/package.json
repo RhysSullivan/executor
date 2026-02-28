@@ -8,6 +8,11 @@
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "bunx tsc --noEmit"
+    "prepare": "effect-language-service patch",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.76.0",
+    "typescript": "^5.9.3"
   }
 }

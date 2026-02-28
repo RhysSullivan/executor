@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor-v2/mcp-gateway": "workspace:*"
   }
 }

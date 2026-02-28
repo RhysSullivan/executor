@@ -1,65 +1,69 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 type ApprovalStatus = "pending" | "approved" | "denied";
 
 interface ApprovalItem {
   id: string;
-  title: string;
-  details: string;
-  status: ApprovalStatus;
+  action: string;
+  justification: string;
   createdAt: number;
+  status: ApprovalStatus;
+  decidedAt: number | null;
 }
 
-function parseArgs(argv: string[]): { session: string; inline: boolean; tmuxSession: string; agentCommand: string } {
-  const session = argv[0] && !argv[0].startsWith("-") ? argv[0] : "claude";
-  const inline = argv.includes("--inline");
-
-  const tmuxSessionFlagIndex = argv.indexOf("--tmux-session");
-  const tmuxSession = tmuxSessionFlagIndex >= 0 && argv[tmuxSessionFlagIndex + 1]
-    ? String(argv[tmuxSessionFlagIndex + 1])
-    : "executor-approvals";
-
-  const agentCommandFlagIndex = argv.indexOf("--agent-cmd");
-  const agentCommand = agentCommandFlagIndex >= 0 && argv[agentCommandFlagIndex + 1]
-    ? String(argv[agentCommandFlagIndex + 1])
-    : session;
-
-  return { session, inline, tmuxSession, agentCommand };
+interface PersistedState {
+  approvals: ApprovalItem[];
 }
 
-function hasTmuxBinary(): boolean {
-  const result = Bun.spawnSync({ cmd: ["tmux", "-V"] });
-  return result.exitCode === 0;
+interface ParsedArgs {
+  session: string;
+  inline: boolean;
+  tmuxSession: string;
+  agentCommand: string;
+  approvalId: string | null;
 }
 
-function getTmuxClients(): string[] {
-  const result = Bun.spawnSync({ cmd: ["tmux", "list-clients", "-F", "#{client_name}"] });
-  if (result.exitCode !== 0) return [];
+const DEFAULT_MCP_CONFIG_PATH = path.resolve(import.meta.dir, "claude-mcp-demo.json");
+const HOME_DIR = process.env.HOME ?? ".";
+const STATE_PATH = path.join(HOME_DIR, ".executor-lite-approvals", "mcp-state.json");
 
-  return Buffer.from(result.stdout)
-    .toString("utf8")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && line !== "no current client");
-}
-
-async function launchTmuxPopup(session: string, clientTarget: string): Promise<void> {
-  const scriptPath = path.resolve(import.meta.dir, "approval-client.ts");
-  const command = `bun run ${scriptPath} ${session} --inline`;
-  Bun.spawnSync({
-    cmd: ["tmux", "display-popup", "-t", clientTarget, "-E", "-w", "82%", "-h", "70%", command],
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-}
+mkdirSync(path.dirname(STATE_PATH), { recursive: true });
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
-function tmuxSessionExists(tmuxSession: string): boolean {
-  const result = Bun.spawnSync({ cmd: ["tmux", "has-session", "-t", tmuxSession] });
+function getFlag(argv: string[], name: string): string | null {
+  const index = argv.indexOf(name);
+  if (index < 0) return null;
+  const value = argv[index + 1];
+  return typeof value === "string" ? value : null;
+}
+
+function defaultAgentCommand(session: string): string {
+  if (session === "claude") {
+    const allowedTools = "mcp__memory-approval-demo__dangerous_action";
+    return `claude --strict-mcp-config --mcp-config ${shellQuote(DEFAULT_MCP_CONFIG_PATH)} --allowedTools ${shellQuote(allowedTools)} --permission-mode bypassPermissions`;
+  }
+
+  return session;
+}
+
+function parseArgs(argv: string[]): ParsedArgs {
+  const positionalSession = argv[0] && !argv[0].startsWith("-") ? argv[0] : "claude";
+  const session = getFlag(argv, "--session") ?? positionalSession;
+  const inline = argv.includes("--inline");
+
+  const tmuxSession = getFlag(argv, "--tmux-session") ?? "executor-approvals";
+  const agentCommand = getFlag(argv, "--agent-cmd") ?? defaultAgentCommand(session);
+  const approvalId = getFlag(argv, "--approval-id");
+
+  return { session, inline, tmuxSession, agentCommand, approvalId };
+}
+
+function hasTmuxBinary(): boolean {
+  const result = Bun.spawnSync({ cmd: ["tmux", "-V"] });
   return result.exitCode === 0;
 }
 
@@ -73,32 +77,24 @@ function runTmuxCommand(cmd: string[]): boolean {
   return result.exitCode === 0;
 }
 
+function tmuxSessionExists(tmuxSession: string): boolean {
+  const result = Bun.spawnSync({ cmd: ["tmux", "has-session", "-t", tmuxSession] });
+  return result.exitCode === 0;
+}
+
 function ensureSessionUiOptions(tmuxSession: string): void {
   runTmuxCommand(["tmux", "set-option", "-t", tmuxSession, "mouse", "on"]);
   runTmuxCommand(["tmux", "set-option", "-t", tmuxSession, "pane-border-status", "top"]);
   runTmuxCommand(["tmux", "set-option", "-t", tmuxSession, "pane-border-format", "#{pane_index}: #{pane_title}"]);
 }
 
-function setPaneTitles(windowTarget: string): void {
-  runTmuxCommand(["tmux", "select-pane", "-t", `${windowTarget}.0`, "-T", "Claude"]);
-  runTmuxCommand(["tmux", "select-pane", "-t", `${windowTarget}.1`, "-T", "Approvals"]);
-}
-
-async function launchManagedTmuxWorkspace(session: string, tmuxSession: string, agentCommand: string): Promise<boolean> {
-  const scriptPath = path.resolve(import.meta.dir, "approval-client.ts");
-  const approvalCommand = `bun run ${shellQuote(scriptPath)} ${shellQuote(session)} --inline`;
-
+async function launchManagedTmuxWorkspace(tmuxSession: string, agentCommand: string): Promise<boolean> {
   if (!tmuxSessionExists(tmuxSession)) {
     const created = runTmuxCommand(["tmux", "new-session", "-d", "-s", tmuxSession, agentCommand]);
     if (!created) return false;
 
     ensureSessionUiOptions(tmuxSession);
-
-    const split = runTmuxCommand(["tmux", "split-window", "-t", `${tmuxSession}:0`, "-v", "-p", "30", approvalCommand]);
-    if (!split) return false;
-
-    setPaneTitles(`${tmuxSession}:0`);
-    runTmuxCommand(["tmux", "select-pane", "-t", `${tmuxSession}:0.0`]);
+    runTmuxCommand(["tmux", "select-pane", "-t", `${tmuxSession}:0.0`, "-T", "Claude"]);
     return runTmuxCommand(["tmux", "attach-session", "-t", tmuxSession]);
   }
 
@@ -109,83 +105,95 @@ async function launchManagedTmuxWorkspace(session: string, tmuxSession: string, 
   const createdWindow = runTmuxCommand(["tmux", "new-window", "-t", `${tmuxSession}:`, "-n", windowName, agentCommand]);
   if (!createdWindow) return false;
 
-  const splitWindow = runTmuxCommand(["tmux", "split-window", "-t", windowTarget, "-v", "-p", "30", approvalCommand]);
-  if (!splitWindow) return false;
-
-  setPaneTitles(windowTarget);
-  runTmuxCommand(["tmux", "select-pane", "-t", `${windowTarget}.0`]);
+  runTmuxCommand(["tmux", "select-pane", "-t", `${windowTarget}.0`, "-T", "Claude"]);
+  runTmuxCommand(["tmux", "select-window", "-t", windowTarget]);
   return runTmuxCommand(["tmux", "attach-session", "-t", tmuxSession]);
 }
 
-function makeApproval(session: string, index: number): ApprovalItem {
-  const actions = [
-    "Write DNS record",
-    "Delete production file",
-    "Rotate API token",
-    "Deploy migration",
-    "Run destructive cleanup",
-  ];
+function loadState(): PersistedState {
+  if (!existsSync(STATE_PATH)) return { approvals: [] };
 
-  const title = actions[index % actions.length] ?? "Tool action";
-  const id = `appr_${crypto.randomUUID().slice(0, 8)}`;
+  try {
+    const text = readFileSync(STATE_PATH, "utf8");
+    const parsed = JSON.parse(text) as Partial<PersistedState>;
+    if (!parsed || !Array.isArray(parsed.approvals)) {
+      return { approvals: [] };
+    }
 
-  return {
-    id,
-    title,
-    details: `Session: ${session} -> tools.example.action()`,
-    status: "pending",
-    createdAt: Date.now(),
-  };
+    return {
+      approvals: parsed.approvals.filter((entry): entry is ApprovalItem => {
+        return (
+          Boolean(entry) &&
+          typeof entry.id === "string" &&
+          typeof entry.action === "string" &&
+          typeof entry.justification === "string" &&
+          typeof entry.createdAt === "number" &&
+          (entry.status === "pending" || entry.status === "approved" || entry.status === "denied")
+        );
+      }),
+    };
+  } catch {
+    return { approvals: [] };
+  }
 }
 
-function statusMarker(status: ApprovalStatus): string {
-  if (status === "approved") return "[approved]";
-  if (status === "denied") return "[denied]";
-  return "[pending]";
+function saveState(state: PersistedState): void {
+  const tempPath = `${STATE_PATH}.tmp`;
+  writeFileSync(tempPath, JSON.stringify(state, null, 2));
+  renameSync(tempPath, STATE_PATH);
 }
 
-function clearAndRender(session: string, approvals: ApprovalItem[], selected: number): void {
+function findApproval(state: PersistedState, approvalId: string | null): ApprovalItem | null {
+  if (approvalId) {
+    return state.approvals.find((item) => item.id === approvalId) ?? null;
+  }
+
+  return state.approvals.find((item) => item.status === "pending") ?? null;
+}
+
+function decideApproval(approvalId: string, status: ApprovalStatus): ApprovalItem | null {
+  const state = loadState();
+  const target = state.approvals.find((item) => item.id === approvalId);
+  if (!target || target.status !== "pending") return null;
+
+  target.status = status;
+  target.decidedAt = Date.now();
+  saveState(state);
+  return target;
+}
+
+function renderInline(session: string, current: ApprovalItem | null): void {
   process.stdout.write("\x1Bc");
-  process.stdout.write("Approval Popup Demo\n");
+  process.stdout.write("Approval Pane (MCP-driven)\n");
   process.stdout.write(`Session: ${session}\n`);
-  process.stdout.write("Controls: j/k move  a approve  d deny  n new request  q quit\n");
-  process.stdout.write("tmux tip: Ctrl+b then o to switch panes (mouse is enabled).\n");
-  process.stdout.write("-".repeat(72) + "\n");
+  process.stdout.write("Controls: a approve  d deny  q quit\n");
+  process.stdout.write("This pane only appears when an MCP approval is pending.\n");
+  process.stdout.write("-".repeat(84) + "\n");
 
-  if (approvals.length === 0) {
-    process.stdout.write("No approvals. Press n to enqueue one.\n");
+  if (!current) {
+    process.stdout.write("No pending approval. Closing...\n");
     return;
   }
 
-  approvals.forEach((item, idx) => {
-    const pointer = idx === selected ? ">" : " ";
-    const time = new Date(item.createdAt).toLocaleTimeString();
-    process.stdout.write(`${pointer} ${statusMarker(item.status)} ${item.id}  ${item.title}  (${time})\n`);
-    process.stdout.write(`    ${item.details}\n`);
-  });
+  const created = new Date(current.createdAt).toLocaleTimeString();
+  process.stdout.write(`[pending] ${current.id}\n`);
+  process.stdout.write(`action: ${current.action}\n`);
+  process.stdout.write(`created: ${created}\n`);
+  if (current.justification.trim().length > 0) {
+    process.stdout.write(`justification: ${current.justification}\n`);
+  }
 }
 
-async function runInlineUi(session: string): Promise<number> {
-  const approvals: ApprovalItem[] = [makeApproval(session, 0)];
-  let selected = 0;
-  let sequence = 1;
-
-  const enqueueTimer = setInterval(() => {
-    approvals.unshift(makeApproval(session, sequence));
-    sequence += 1;
-    selected = 0;
-    clearAndRender(session, approvals, selected);
-  }, 12000);
+async function runInlineUi(session: string, approvalId: string | null): Promise<number> {
+  let current = findApproval(loadState(), approvalId);
+  renderInline(session, current);
 
   const cleanup = (): void => {
-    clearInterval(enqueueTimer);
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
     }
     process.stdin.pause();
   };
-
-  clearAndRender(session, approvals, selected);
 
   return await new Promise<number>((resolve) => {
     if (process.stdin.isTTY) {
@@ -200,59 +208,46 @@ async function runInlineUi(session: string): Promise<number> {
       resolve(code);
     };
 
+    const poll = setInterval(() => {
+      current = findApproval(loadState(), approvalId);
+      if (!current) {
+        clearInterval(poll);
+        renderInline(session, null);
+        setTimeout(() => finish(0), 250);
+        return;
+      }
+      renderInline(session, current);
+    }, 500);
+
     process.stdin.on("data", (chunk) => {
       const key = typeof chunk === "string" ? chunk : chunk.toString("utf8");
 
       if (key === "\u0003" || key === "q") {
+        clearInterval(poll);
         finish(0);
         return;
       }
 
-      if (key === "j" || key === "\u001B[B") {
-        if (approvals.length > 0) {
-          selected = Math.min(approvals.length - 1, selected + 1);
-        }
-        clearAndRender(session, approvals, selected);
-        return;
-      }
-
-      if (key === "k" || key === "\u001B[A") {
-        if (approvals.length > 0) {
-          selected = Math.max(0, selected - 1);
-        }
-        clearAndRender(session, approvals, selected);
-        return;
-      }
-
-      if (key === "n") {
-        approvals.unshift(makeApproval(session, sequence));
-        sequence += 1;
-        selected = 0;
-        clearAndRender(session, approvals, selected);
-        return;
-      }
-
-      const current = approvals[selected];
-      if (!current || current.status !== "pending") {
-        return;
-      }
+      if (!current) return;
 
       if (key === "a") {
-        current.status = "approved";
-        clearAndRender(session, approvals, selected);
+        decideApproval(current.id, "approved");
+        clearInterval(poll);
+        finish(0);
         return;
       }
 
       if (key === "d") {
-        current.status = "denied";
-        clearAndRender(session, approvals, selected);
+        decideApproval(current.id, "denied");
+        clearInterval(poll);
+        finish(0);
       }
     });
   });
 }
 
 async function main(): Promise<number> {
-  const { session, inline, tmuxSession, agentCommand } = parseArgs(process.argv.slice(2));
+  const { session, inline, tmuxSession, agentCommand, approvalId } = parseArgs(process.argv.slice(2));
 
   if (!inline) {
     if (!hasTmuxBinary()) {
@@ -261,25 +256,16 @@ async function main(): Promise<number> {
       return 1;
     }
 
-    const clients = getTmuxClients();
-    const target = clients[0];
-    if (target) {
-      await launchTmuxPopup(session, target);
-      return 0;
-    }
-
-    console.log(`No active tmux clients. Launching '${agentCommand}' with approvals in session '${tmuxSession}'...`);
-    const started = await launchManagedTmuxWorkspace(session, tmuxSession, agentCommand);
-    if (started) {
-      return 0;
-    }
+    console.log(`Launching '${agentCommand}' in tmux session '${tmuxSession}'...`);
+    const started = await launchManagedTmuxWorkspace(tmuxSession, agentCommand);
+    if (started) return 0;
 
     console.error("Unable to launch managed tmux workspace.");
-    console.error("You can still run the inline demo with --inline.");
+    console.error("You can still run the inline pane with --inline.");
     return 1;
   }
 
-  return await runInlineUi(session);
+  return await runInlineUi(session, approvalId);
 }
 
 const code = await main();

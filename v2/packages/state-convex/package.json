@@ -1,8 +1,17 @@
 {
-  "name": "@executor-v2/state-convex",
+  "name": "@executor-v2/persistence-convex",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor-v2/confect": "workspace:*",
+    "@executor-v2/schema": "workspace:*",
+    "@executor-v2/persistence-ports": "workspace:*",
+    "effect": "^3.19.8"
   }
 }
