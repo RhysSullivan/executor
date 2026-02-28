@@ -14,4 +14,3 @@ export * from "./models/task-run";
 export * from "./models/sync-state";
 export * from "./models/event-envelope";
 
-export * from "./snapshot";

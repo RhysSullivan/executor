@@ -164,7 +164,8 @@ Current scaffold includes:
   - policy, approval
   - task run, sync state
   - event envelope
-- snapshot/event schemas
+- event envelope schema
+- local snapshot/WAL schemas in `persistence-local`
 
 ### Convex ID compatibility
 
