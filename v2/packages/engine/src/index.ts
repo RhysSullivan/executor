@@ -1,4 +1,14 @@
 export {
+  executeJavaScriptWithTools,
+  LocalCodeRunnerError,
+  type ExecuteJavaScriptInput,
+  type RunnableTool,
+} from "./local-runner";
+export {
+  makeOpenApiToolProvider,
+  openApiToolDescriptorsFromManifest,
+} from "./openapi-provider";
+export {
   ToolProviderRegistryLive,
   ToolProviderRegistryError,
   ToolProviderRegistryService,

@@ -6,10 +6,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "test": "bun test src/*.test.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@executor-v2/persistence-ports": "workspace:*",
     "@executor-v2/schema": "workspace:*",
     "effect": "^3.19.8"
+  },
+  "devDependencies": {
+    "@executor-v2/source-manager": "workspace:*"
   }
 }
