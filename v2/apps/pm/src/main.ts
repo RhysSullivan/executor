@@ -1,5 +1,6 @@
 import * as BunContext from "@effect/platform-bun/BunContext";
 import { ControlPlaneServiceLive } from "@executor-v2/control-plane";
+import { ToolInvocationServiceUnwiredLive } from "@executor-v2/domain";
 import { makeLocalInProcessRuntimeAdapter } from "@executor-v2/engine";
 import { LocalSourceStoreLive } from "@executor-v2/persistence-local";
 
@@ -13,7 +14,6 @@ import {
   PmRunExecutorLive,
   PmToolProviderRegistryLive,
 } from "./run-executor";
-import { PmToolCallHandlerLive } from "./tool-call-handler";
 
 const runtimeAdapter = makeLocalInProcessRuntimeAdapter();
 const PmMcpDependenciesLive = Layer.merge(
@@ -32,7 +32,7 @@ const PmControlPlaneDependenciesLive = ControlPlaneServiceLive.pipe(
 const PmAppLive = Layer.mergeAll(
   PmConfigLive,
   PmMcpHandlerLive.pipe(Layer.provide(PmMcpDependenciesLive)),
-  PmToolCallHandlerLive,
+  ToolInvocationServiceUnwiredLive("pm"),
   PmControlPlaneDependenciesLive,
 );
 

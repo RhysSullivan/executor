@@ -1,23 +1,10 @@
-import type {
-  RuntimeToolCallRequest,
-  RuntimeToolCallResult,
-} from "@executor-v2/sdk";
+import { ToolInvocationService } from "@executor-v2/domain";
+import type { RuntimeToolCallResult } from "@executor-v2/sdk";
 import { HttpServerRequest, HttpServerResponse } from "@effect/platform";
-import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Layer from "effect/Layer";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
-
-export type PmToolCallHandlerService = {
-  handleToolCall: (input: RuntimeToolCallRequest) => Effect.Effect<RuntimeToolCallResult>;
-};
-
-export class PmToolCallHandler extends Context.Tag("@executor-v2/app-pm/PmToolCallHandler")<
-  PmToolCallHandler,
-  PmToolCallHandlerService
->() {}
 
 class PmToolCallHttpRequestError extends Data.TaggedError(
   "PmToolCallHttpRequestError",
@@ -30,10 +17,12 @@ const RuntimeToolCallRequestSchema = Schema.Struct({
   runId: Schema.String,
   callId: Schema.String,
   toolPath: Schema.String,
-  input: Schema.optional(Schema.Record({
-    key: Schema.String,
-    value: Schema.Unknown,
-  })),
+  input: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.Unknown,
+    }),
+  ),
 });
 
 const decodeRuntimeToolCallRequest = Schema.decodeUnknown(RuntimeToolCallRequestSchema);
@@ -57,32 +46,15 @@ const formatHttpRequestError = (error: PmToolCallHttpRequestError): string =>
     ? `${error.message}: ${error.details}`
     : error.message;
 
-const handleToolCall = Effect.fn("@executor-v2/app-pm/tool-call.handle")(function* (
-  input: RuntimeToolCallRequest,
-) {
-  return {
-    ok: false,
-    kind: "failed",
-    error: `PM runtime callback received tool '${input.toolPath}', but callback invocation is not wired yet.`,
-  } satisfies RuntimeToolCallResult;
-});
-
-export const PmToolCallHandlerLive = Layer.succeed(
-  PmToolCallHandler,
-  PmToolCallHandler.of({
-    handleToolCall,
-  }),
-);
-
 export const handleToolCallBody = Effect.fn(
   "@executor-v2/app-pm/tool-call.handle-body",
 )(function* (body: unknown) {
-  const handler = yield* PmToolCallHandler;
+  const toolInvocationService = yield* ToolInvocationService;
   const input = yield* decodeRuntimeToolCallRequest(body).pipe(
     Effect.mapError(decodeRequestPayloadError),
   );
 
-  return yield* handler.handleToolCall(input);
+  return yield* toolInvocationService.invokeRuntimeToolCall(input);
 });
 
 export const handleToolCallHttp = Effect.gen(function* () {

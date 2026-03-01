@@ -2,7 +2,14 @@
   "name": "@executor-v2/domain",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor-v2/sdk": "workspace:*",
+    "effect": "catalog:"
   }
 }
