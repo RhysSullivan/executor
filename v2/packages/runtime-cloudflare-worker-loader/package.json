@@ -7,7 +7,9 @@
   },
   "scripts": {
     "test": "bunx vitest run --no-watch src/*.integration.test.ts",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "worker:dev": "bunx wrangler dev --local --config worker/wrangler.jsonc",
+    "worker:deploy": "bunx wrangler deploy --config worker/wrangler.jsonc"
   },
   "dependencies": {
     "@effect/platform": "catalog:",

@@ -70,4 +70,77 @@ describe("extractOpenApiManifest invocation metadata", () => {
       });
     }),
   );
+
+  it.effect("extracts typing payload and ref hint table from schemas", () =>
+    Effect.gen(function* () {
+      const openApiSpec = {
+        openapi: "3.1.0",
+        paths: {
+          "/repos/{owner}/{repo}": {
+            get: {
+              operationId: "getRepo",
+              parameters: [
+                {
+                  name: "owner",
+                  in: "path",
+                  required: true,
+                  schema: { type: "string" },
+                },
+                {
+                  name: "repo",
+                  in: "path",
+                  required: true,
+                  schema: { type: "string" },
+                },
+              ],
+              responses: {
+                "200": {
+                  description: "ok",
+                  content: {
+                    "application/json": {
+                      schema: { $ref: "#/components/schemas/Repo" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        components: {
+          schemas: {
+            Repo: {
+              type: "object",
+              properties: {
+                id: { type: "number" },
+                owner: { $ref: "#/components/schemas/User" },
+              },
+            },
+            User: {
+              type: "object",
+              properties: {
+                login: { type: "string" },
+              },
+            },
+          },
+        },
+      };
+
+      const manifest = yield* extractOpenApiManifest("test-source", openApiSpec);
+      const tool = manifest.tools.find((candidate) => candidate.toolId === "getRepo");
+      const repoSchemaJson =
+        '{"properties":{"id":{"type":"number"},"owner":{"$ref":"#/components/schemas/User"}},"type":"object"}';
+      const userSchemaJson =
+        '{"properties":{"login":{"type":"string"}},"type":"object"}';
+
+      expect(tool?.typing?.inputSchemaJson).toBeDefined();
+      expect(tool?.typing?.outputSchemaJson).toBeDefined();
+      expect(tool?.typing?.refHintKeys).toEqual([
+        "#/components/schemas/Repo",
+      ]);
+      expect(manifest.refHintTable).toEqual({
+        "#/components/schemas/Repo": repoSchemaJson,
+        "#/components/schemas/User": userSchemaJson,
+      });
+    }),
+  );
 });

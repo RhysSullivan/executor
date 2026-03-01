@@ -18,6 +18,7 @@ export {
 } from "./run-client";
 
 export {
+  createRuntimeToolCallResultHandler,
   createRuntimeToolCallService,
   createStaticToolRegistry,
   type InMemorySandboxTool,

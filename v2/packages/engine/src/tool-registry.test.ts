@@ -9,6 +9,9 @@ import {
 describe("tool registry", () => {
   it.effect("supports callTool plus discover and catalog", () =>
     Effect.gen(function* () {
+      const repoRefSchemaJson =
+        '{"properties":{"id":{"type":"number"}},"type":"object"}';
+
       const registry = createStaticToolRegistry({
         tools: {
           search_docs: {
@@ -17,10 +20,20 @@ describe("tool registry", () => {
           },
           "github.repos.get": {
             description: "Get repository",
+            typing: {
+              inputSchemaJson:
+                '{"properties":{"owner":{"type":"string"},"repo":{"type":"string"}},"title":"GetRepoInput","type":"object"}',
+              outputSchemaJson:
+                '{"properties":{"full_name":{"type":"string"}},"type":"object"}',
+              refHintKeys: ["#/components/schemas/Repo"],
+            },
             execute: (input: { owner: string; repo: string }) => ({
               full_name: `${input.owner}/${input.repo}`,
             }),
           },
+        },
+        refHintTable: {
+          "#/components/schemas/Repo": repoRefSchemaJson,
         },
       });
 
@@ -29,6 +42,29 @@ describe("tool registry", () => {
       expect(discovered.results.some((entry) => entry.path === "github.repos.get")).toBe(
         true,
       );
+      expect(discovered.results[0]?.typing).toBeUndefined();
+      expect(discovered.results[0]?.inputHint).toBe("GetRepoInput");
+      expect(discovered.refHintTable).toBeUndefined();
+
+      const discoveredWithSchemas = yield* registry.discover({
+        query: "github",
+        includeSchemas: true,
+      });
+      expect(discoveredWithSchemas.results[0]?.typing?.refHintKeys).toEqual([
+        "#/components/schemas/Repo",
+      ]);
+      expect(discoveredWithSchemas.refHintTable).toEqual({
+        "#/components/schemas/Repo": repoRefSchemaJson,
+      });
+
+      const compactDiscovered = yield* registry.discover({
+        query: "github",
+        compact: true,
+        includeSchemas: true,
+      });
+      expect(compactDiscovered.results[0]?.description).toBeUndefined();
+      expect(compactDiscovered.results[0]?.inputHint).toBeUndefined();
+      expect(compactDiscovered.results[0]?.outputHint).toBeUndefined();
 
       const namespaces = yield* registry.catalogNamespaces({});
       expect(namespaces.namespaces.map((namespace) => namespace.namespace)).toEqual([
@@ -50,7 +86,10 @@ describe("tool registry", () => {
         },
       });
       expect(callResult).toEqual({
-        full_name: "octocat/hello-world",
+        ok: true,
+        value: {
+          full_name: "octocat/hello-world",
+        },
       });
     }),
   );

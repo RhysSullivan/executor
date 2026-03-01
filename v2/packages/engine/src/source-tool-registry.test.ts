@@ -226,6 +226,23 @@ describe("source tool registry", () => {
 
       expect(discovered.bestPath).not.toBeNull();
       expect(discovered.results.length).toBeGreaterThan(0);
+      expect(discovered.results[0]?.typing).toBeUndefined();
+
+      const discoveredWithSchemas = yield* toolRegistry.discover({
+        query: "repo",
+        includeSchemas: true,
+      });
+      expect(discoveredWithSchemas.results[0]?.typing?.inputSchemaJson).toBeDefined();
+      expect(discoveredWithSchemas.results[0]?.inputHint).toContain("object");
+
+      const compactDiscovered = yield* toolRegistry.discover({
+        query: "repo",
+        compact: true,
+        includeSchemas: true,
+      });
+      expect(compactDiscovered.results[0]?.description).toBeUndefined();
+      expect(compactDiscovered.results[0]?.inputHint).toBeUndefined();
+      expect(compactDiscovered.results[0]?.outputHint).toBeUndefined();
 
       const bestPath = discovered.bestPath;
       if (!bestPath) {
@@ -243,10 +260,13 @@ describe("source tool registry", () => {
       });
 
       expect(invocationResult).toMatchObject({
-        status: 200,
-        body: {
-          full_name: "octocat/hello-world",
-          stargazers_count: 42,
+        ok: true,
+        value: {
+          status: 200,
+          body: {
+            full_name: "octocat/hello-world",
+            stargazers_count: 42,
+          },
         },
       });
 

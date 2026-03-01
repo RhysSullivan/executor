@@ -13,6 +13,7 @@ import {
   OpenApiToolParameterSchema,
   OpenApiToolRequestBodySchema,
   ToolArtifactIdSchema,
+  type DiscoveryTypingPayload,
   type OpenApiExtractedTool,
   type OpenApiHttpMethod,
   type OpenApiInvocationPayload,
@@ -56,6 +57,7 @@ type ExtractedToolRequestBody = OpenApiToolRequestBody;
 type ExtractedToolInvocation = OpenApiInvocationPayload;
 type ExtractedTool = OpenApiExtractedTool;
 type ToolManifest = OpenApiToolManifest;
+type DiscoveryTyping = DiscoveryTypingPayload;
 
 const ToolManifestFromJsonSchema = Schema.parseJson(ToolManifestSchema);
 const encodeManifestToJson = Schema.encode(ToolManifestFromJsonSchema);
@@ -194,6 +196,266 @@ const buildInvocationMetadata = (
   parameters: mergeParameters(pathItem, operation),
   requestBody: extractRequestBody(operation),
 });
+
+const collectRefKeys = (value: unknown, refs: Set<string>): void => {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectRefKeys(item, refs);
+    }
+    return;
+  }
+
+  if (!isUnknownRecord(value)) {
+    return;
+  }
+
+  const reference = value.$ref;
+  if (typeof reference === "string" && reference.startsWith("#/")) {
+    refs.add(reference);
+  }
+
+  for (const nestedValue of Object.values(value)) {
+    collectRefKeys(nestedValue, refs);
+  }
+};
+
+const resolveJsonPointer = (
+  root: UnknownRecord,
+  pointer: string,
+): unknown | null => {
+  if (!pointer.startsWith("#/")) {
+    return null;
+  }
+
+  const parts = pointer
+    .slice(2)
+    .split("/")
+    .map((part) => part.replaceAll("~1", "/").replaceAll("~0", "~"));
+
+  let current: unknown = root;
+
+  for (const part of parts) {
+    if (!isUnknownRecord(current)) {
+      return null;
+    }
+
+    current = current[part];
+    if (current === undefined) {
+      return null;
+    }
+  }
+
+  return current;
+};
+
+const pickSchemaFromContent = (content: unknown): unknown | null => {
+  if (!isUnknownRecord(content)) {
+    return null;
+  }
+
+  const preferred = ["application/json", ...Object.keys(content).sort()];
+  const seen = new Set<string>();
+
+  for (const mediaType of preferred) {
+    if (seen.has(mediaType)) {
+      continue;
+    }
+    seen.add(mediaType);
+
+    const mediaTypeValue = content[mediaType];
+    if (!isUnknownRecord(mediaTypeValue)) {
+      continue;
+    }
+
+    if (mediaTypeValue.schema !== undefined) {
+      return mediaTypeValue.schema;
+    }
+  }
+
+  return null;
+};
+
+const extractRequestBodySchema = (operation: UnknownRecord): unknown | null => {
+  const requestBody = operation.requestBody;
+  if (!isOpenApiRequestBodyInput(requestBody)) {
+    return null;
+  }
+
+  return pickSchemaFromContent(requestBody.content);
+};
+
+const responseStatusRank = (statusCode: string): number => {
+  if (/^2\d\d$/.test(statusCode)) {
+    return 0;
+  }
+
+  if (statusCode === "default") {
+    return 1;
+  }
+
+  return 2;
+};
+
+const extractResponseSchema = (operation: UnknownRecord): unknown | null => {
+  if (!isUnknownRecord(operation.responses)) {
+    return null;
+  }
+
+  const responseCodes = Object.keys(operation.responses).sort(
+    (left, right) => responseStatusRank(left) - responseStatusRank(right),
+  );
+
+  for (const responseCode of responseCodes) {
+    const response = operation.responses[responseCode];
+    if (!isUnknownRecord(response)) {
+      continue;
+    }
+
+    const schema = pickSchemaFromContent(response.content);
+    if (schema !== null) {
+      return schema;
+    }
+  }
+
+  return null;
+};
+
+const collectParameterSchemaByKey = (
+  pathItem: UnknownRecord,
+  operation: UnknownRecord,
+): Map<string, unknown> => {
+  const schemasByKey = new Map<string, unknown>();
+
+  const addParameters = (candidate: unknown) => {
+    if (!Array.isArray(candidate)) {
+      return;
+    }
+
+    for (const item of candidate) {
+      if (!isUnknownRecord(item)) {
+        continue;
+      }
+
+      const parameter = toExtractedToolParameter(item);
+      if (!parameter || item.schema === undefined) {
+        continue;
+      }
+
+      schemasByKey.set(`${parameter.location}:${parameter.name}`, item.schema);
+    }
+  };
+
+  addParameters(pathItem.parameters);
+  addParameters(operation.parameters);
+
+  return schemasByKey;
+};
+
+const buildInputSchema = (
+  pathItem: UnknownRecord,
+  operation: UnknownRecord,
+  invocation: ExtractedToolInvocation,
+): unknown | null => {
+  const parameterSchemaByKey = collectParameterSchemaByKey(pathItem, operation);
+
+  const properties: Record<string, unknown> = {};
+  const required = new Set<string>();
+
+  for (const parameter of invocation.parameters) {
+    const key = `${parameter.location}:${parameter.name}`;
+    properties[parameter.name] = parameterSchemaByKey.get(key) ?? { type: "string" };
+    if (parameter.required) {
+      required.add(parameter.name);
+    }
+  }
+
+  const requestBodySchema = extractRequestBodySchema(operation);
+  if (requestBodySchema !== null) {
+    properties.body = requestBodySchema;
+    if (invocation.requestBody?.required) {
+      required.add("body");
+    }
+  }
+
+  if (Object.keys(properties).length === 0) {
+    return null;
+  }
+
+  return {
+    type: "object",
+    properties,
+    required: [...required].sort(),
+    additionalProperties: false,
+  };
+};
+
+const encodeStableJson = (value: unknown): string =>
+  JSON.stringify(toStableValue(value));
+
+const buildToolTyping = (
+  pathItem: UnknownRecord,
+  operation: UnknownRecord,
+  invocation: ExtractedToolInvocation,
+): DiscoveryTyping | undefined => {
+  const inputSchema = buildInputSchema(pathItem, operation, invocation);
+  const outputSchema = extractResponseSchema(operation);
+
+  if (inputSchema === null && outputSchema === null) {
+    return undefined;
+  }
+
+  const refs = new Set<string>();
+  if (inputSchema !== null) {
+    collectRefKeys(inputSchema, refs);
+  }
+
+  if (outputSchema !== null) {
+    collectRefKeys(outputSchema, refs);
+  }
+
+  const refHintKeys = [...refs].sort();
+
+  return {
+    inputSchemaJson: inputSchema ? encodeStableJson(inputSchema) : undefined,
+    outputSchemaJson: outputSchema ? encodeStableJson(outputSchema) : undefined,
+    refHintKeys: refHintKeys.length > 0 ? refHintKeys : undefined,
+  };
+};
+
+const buildRefHintTable = (
+  openApiSpec: UnknownRecord,
+  initialRefKeys: ReadonlyArray<string>,
+): Record<string, string> => {
+  const queue = [...new Set(initialRefKeys)];
+  const seen = new Set<string>();
+  const table: Record<string, string> = {};
+
+  while (queue.length > 0) {
+    const refKey = queue.shift();
+    if (!refKey || seen.has(refKey)) {
+      continue;
+    }
+
+    seen.add(refKey);
+
+    const resolved = resolveJsonPointer(openApiSpec, refKey);
+    if (resolved === null) {
+      continue;
+    }
+
+    table[refKey] = encodeStableJson(resolved);
+
+    const nested = new Set<string>();
+    collectRefKeys(resolved, nested);
+    for (const nestedRef of nested) {
+      if (!seen.has(nestedRef)) {
+        queue.push(nestedRef);
+      }
+    }
+  }
+
+  return table;
+};
 
 const toStableValue = (value: unknown): unknown => {
   if (Array.isArray(value)) {
@@ -348,6 +610,7 @@ export const extractOpenApiManifest = (
           pathItem,
           operation,
         );
+        const typing = buildToolTyping(pathItem, operation, invocation);
 
         tools.push({
           toolId: buildToolId(method, pathValue, operation),
@@ -362,6 +625,7 @@ export const extractOpenApiManifest = (
             operation,
             invocation,
           }),
+          typing,
         });
       }
     }
@@ -369,10 +633,16 @@ export const extractOpenApiManifest = (
     tools.sort((left, right) => left.toolId.localeCompare(right.toolId));
     yield* ensureUniqueToolIds(sourceName, tools);
 
+    const directRefKeys = tools.flatMap(
+      (tool) => tool.typing?.refHintKeys ?? [],
+    );
+    const refHintTable = buildRefHintTable(specRecord, directRefKeys);
+
     return {
       version: 1 as const,
       sourceHash: hashUnknown(openApiSpec),
       tools,
+      refHintTable: Object.keys(refHintTable).length > 0 ? refHintTable : undefined,
     };
   }).pipe(Effect.mapError((cause) => toExtractionError(sourceName, "extract", cause)));
 

@@ -1,3 +1,8 @@
+import type {
+  RuntimeToolCallRequest,
+  RuntimeToolCallResult,
+} from "@executor-v2/sdk";
+import type { DiscoveryTypingPayload } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 
 import {
@@ -36,12 +41,16 @@ export type ToolRegistryToolSummary = {
   source?: string;
   approval: "auto" | "required";
   description?: string;
+  inputHint?: string;
+  outputHint?: string;
+  typing?: DiscoveryTypingPayload;
 };
 
 export type ToolRegistryDiscoverOutput = {
   bestPath: string | null;
   results: Array<ToolRegistryToolSummary>;
   total: number;
+  refHintTable?: Record<string, string>;
 };
 
 export type ToolRegistryCatalogNamespacesOutput = {
@@ -56,10 +65,13 @@ export type ToolRegistryCatalogNamespacesOutput = {
 export type ToolRegistryCatalogToolsOutput = {
   results: Array<ToolRegistryToolSummary>;
   total: number;
+  refHintTable?: Record<string, string>;
 };
 
 export type ToolRegistry = {
-  callTool: (input: ToolRegistryCallInput) => Effect.Effect<unknown, RuntimeAdapterError>;
+  callTool: (
+    input: ToolRegistryCallInput,
+  ) => Effect.Effect<RuntimeToolCallResult, RuntimeAdapterError>;
   discover: (
     input: ToolRegistryDiscoverInput,
   ) => Effect.Effect<ToolRegistryDiscoverOutput, RuntimeAdapterError>;
@@ -74,15 +86,18 @@ export type ToolRegistry = {
 export type InMemorySandboxTool = {
   description?: string | null;
   execute?: (...args: Array<any>) => Promise<any> | any;
+  typing?: DiscoveryTypingPayload;
 };
 
 export type InMemorySandboxToolMap = Record<string, InMemorySandboxTool>;
 
 type StaticToolRegistryOptions = {
   tools: InMemorySandboxToolMap;
+  refHintTable?: Record<string, string>;
 };
 
 const staticToolRegistryRuntimeKind = "static-tool-registry";
+const runtimeToolCallServiceRuntimeKind = "tool-registry-runtime-tool-call-service";
 
 const toRuntimeAdapterError = (
   operation: string,
@@ -136,19 +151,149 @@ const normalizeCatalogToolsInput = (input: unknown): ToolRegistryCatalogToolsInp
   };
 };
 
-const asToolSummaries = (
-  tools: InMemorySandboxToolMap,
-): Array<ToolRegistryToolSummary> =>
+const parseJson = (value: string): unknown | null => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const deriveHintFromSchemaJson = (
+  schemaJson: string | undefined,
+  fallback: string,
+): string => {
+  if (!schemaJson) {
+    return fallback;
+  }
+
+  const schema = parseJson(schemaJson);
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return fallback;
+  }
+
+  const schemaRecord = schema as Record<string, unknown>;
+  const title = schemaRecord.title;
+  if (typeof title === "string" && title.trim().length > 0) {
+    return title.trim();
+  }
+
+  const type = schemaRecord.type;
+  if (type === "object") {
+    const properties = schemaRecord.properties;
+    if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+      const keys = Object.keys(properties);
+      if (keys.length > 0) {
+        const shown = keys.slice(0, 3).join(", ");
+        return keys.length <= 3
+          ? `object { ${shown} }`
+          : `object { ${shown}, ... }`;
+      }
+    }
+
+    return "object";
+  }
+
+  if (type === "array") {
+    return "array";
+  }
+
+  if (typeof type === "string") {
+    return type;
+  }
+
+  return fallback;
+};
+
+const includeTyping = (
+  typing: DiscoveryTypingPayload | undefined,
+  includeSchemas: boolean,
+): DiscoveryTypingPayload | undefined => {
+  if (!includeSchemas) {
+    return undefined;
+  }
+
+  return typing;
+};
+
+const summarizeTool = (
+  path: string,
+  source: string,
+  description: string | undefined,
+  typing: DiscoveryTypingPayload | undefined,
+  includeSchemas: boolean,
+  compact: boolean,
+): ToolRegistryToolSummary => ({
+  path,
+  source,
+  approval: "auto",
+  description: compact ? undefined : description,
+  inputHint: compact
+    ? undefined
+    : deriveHintFromSchemaJson(typing?.inputSchemaJson, "input"),
+  outputHint: compact
+    ? undefined
+    : deriveHintFromSchemaJson(typing?.outputSchemaJson, "output"),
+  typing: includeTyping(typing, includeSchemas),
+});
+
+const collectRequestedRefKeys = (
+  results: ReadonlyArray<ToolRegistryToolSummary>,
+): Array<string> => {
+  const set = new Set<string>();
+  for (const result of results) {
+    for (const key of result.typing?.refHintKeys ?? []) {
+      set.add(key);
+    }
+  }
+
+  return [...set].sort();
+};
+
+const selectRefHintTable = (
+  refHintTable: Record<string, string> | undefined,
+  results: ReadonlyArray<ToolRegistryToolSummary>,
+  includeSchemas: boolean,
+): Record<string, string> | undefined => {
+  if (!includeSchemas || !refHintTable) {
+    return undefined;
+  }
+
+  const keys = collectRequestedRefKeys(results);
+  if (keys.length === 0) {
+    return undefined;
+  }
+
+  const filtered: Record<string, string> = {};
+  for (const key of keys) {
+    const value = refHintTable[key];
+    if (value !== undefined) {
+      filtered[key] = value;
+    }
+  }
+
+  return Object.keys(filtered).length > 0 ? filtered : undefined;
+};
+
+type StaticToolEntry = {
+  path: string;
+  description: string | undefined;
+  typing: DiscoveryTypingPayload | undefined;
+};
+
+const asStaticEntries = (tools: InMemorySandboxToolMap): Array<StaticToolEntry> =>
   Object.entries(tools)
     .sort(([leftPath], [rightPath]) => leftPath.localeCompare(rightPath))
     .map(([path, tool]) => ({
       path,
-      source: "in-memory",
-      approval: "auto" as const,
       description: tool.description ?? undefined,
+      typing: tool.typing,
     }));
 
-const scorePath = (entry: ToolRegistryToolSummary, query: string): number => {
+const scorePath = (
+  entry: { path: string; description?: string },
+  query: string,
+): number => {
   if (query.length === 0) {
     return 1;
   }
@@ -178,12 +323,15 @@ const scorePath = (entry: ToolRegistryToolSummary, query: string): number => {
 
 const inMemoryDiscover = (
   tools: InMemorySandboxToolMap,
+  refHintTable: Record<string, string> | undefined,
   input: ToolRegistryDiscoverInput,
 ): ToolRegistryDiscoverOutput => {
   const limit = Math.max(1, Math.min(50, input.limit ?? 8));
   const query = (input.query ?? "").trim().toLowerCase();
+  const includeSchemas = input.includeSchemas === true;
+  const compact = input.compact === true;
 
-  const ranked = asToolSummaries(tools)
+  const ranked = asStaticEntries(tools)
     .map((entry) => ({
       entry,
       score: scorePath(entry, query),
@@ -191,12 +339,22 @@ const inMemoryDiscover = (
     .filter((item) => item.score > 0)
     .sort((left, right) => right.score - left.score)
     .slice(0, limit)
-    .map((item) => item.entry);
+    .map((item) =>
+      summarizeTool(
+        item.entry.path,
+        "in-memory",
+        item.entry.description,
+        item.entry.typing,
+        includeSchemas,
+        compact,
+      ),
+    );
 
   return {
     bestPath: ranked[0]?.path ?? null,
     results: ranked,
     total: ranked.length,
+    refHintTable: selectRefHintTable(refHintTable, ranked, includeSchemas),
   };
 };
 
@@ -230,13 +388,16 @@ const inMemoryCatalogNamespaces = (
 
 const inMemoryCatalogTools = (
   tools: InMemorySandboxToolMap,
+  refHintTable: Record<string, string> | undefined,
   input: ToolRegistryCatalogToolsInput,
 ): ToolRegistryCatalogToolsOutput => {
   const limit = Math.max(1, Math.min(200, input.limit ?? 50));
   const query = (input.query ?? "").trim().toLowerCase();
   const namespace = (input.namespace ?? "").trim().toLowerCase();
+  const includeSchemas = input.includeSchemas === true;
+  const compact = input.compact === true;
 
-  const filtered = asToolSummaries(tools)
+  const filtered = asStaticEntries(tools)
     .filter((entry) => {
       if (namespace.length > 0) {
         const entryNamespace = entry.path.split(".")[0]?.toLowerCase() ?? "";
@@ -247,11 +408,22 @@ const inMemoryCatalogTools = (
 
       return scorePath(entry, query) > 0;
     })
-    .slice(0, limit);
+    .slice(0, limit)
+    .map((entry) =>
+      summarizeTool(
+        entry.path,
+        "in-memory",
+        entry.description,
+        entry.typing,
+        includeSchemas,
+        compact,
+      ),
+    );
 
   return {
     results: filtered,
     total: filtered.length,
+    refHintTable: selectRefHintTable(refHintTable, filtered, includeSchemas),
   };
 };
 
@@ -261,20 +433,18 @@ export const createStaticToolRegistry = (
   callTool: (input) => {
     const implementation = options.tools[input.toolPath];
     if (!implementation) {
-      return new RuntimeAdapterError({
-        operation: "call_tool",
-        runtimeKind: staticToolRegistryRuntimeKind,
-        message: `Unknown in-memory tool: ${input.toolPath}`,
-        details: null,
+      return Effect.succeed<RuntimeToolCallResult>({
+        ok: false,
+        kind: "failed",
+        error: `Unknown in-memory tool: ${input.toolPath}`,
       });
     }
 
     if (!implementation.execute) {
-      return new RuntimeAdapterError({
-        operation: "call_tool",
-        runtimeKind: staticToolRegistryRuntimeKind,
-        message: `In-memory tool '${input.toolPath}' has no execute function`,
-        details: null,
+      return Effect.succeed<RuntimeToolCallResult>({
+        ok: false,
+        kind: "failed",
+        error: `In-memory tool '${input.toolPath}' has no execute function`,
       });
     }
 
@@ -286,13 +456,62 @@ export const createStaticToolRegistry = (
           `In-memory tool invocation failed: ${input.toolPath}`,
           String(cause),
         ),
-    });
+    }).pipe(
+      Effect.map(
+        (value): RuntimeToolCallResult => ({
+          ok: true,
+          value,
+        }),
+      ),
+    );
   },
-  discover: (input) => Effect.succeed(inMemoryDiscover(options.tools, input)),
+  discover: (input) =>
+    Effect.succeed(inMemoryDiscover(options.tools, options.refHintTable, input)),
   catalogNamespaces: (input) =>
     Effect.succeed(inMemoryCatalogNamespaces(options.tools, input)),
-  catalogTools: (input) => Effect.succeed(inMemoryCatalogTools(options.tools, input)),
+  catalogTools: (input) =>
+    Effect.succeed(inMemoryCatalogTools(options.tools, options.refHintTable, input)),
 });
+
+export const createRuntimeToolCallResultHandler = (
+  request: RuntimeToolCallRequest,
+  result: RuntimeToolCallResult,
+): Effect.Effect<unknown, RuntimeAdapterError> => {
+  if (result.ok) {
+    return Effect.succeed(result.value);
+  }
+
+  if (result.kind === "pending") {
+    return Effect.fail(
+      new RuntimeAdapterError({
+        operation: "call_tool",
+        runtimeKind: runtimeToolCallServiceRuntimeKind,
+        message: result.error ?? `Tool call requires approval: ${request.toolPath}`,
+        details: `approvalId=${result.approvalId} retryAfterMs=${result.retryAfterMs}`,
+      }),
+    );
+  }
+
+  if (result.kind === "denied") {
+    return Effect.fail(
+      new RuntimeAdapterError({
+        operation: "call_tool",
+        runtimeKind: runtimeToolCallServiceRuntimeKind,
+        message: result.error,
+        details: `Tool call denied: ${request.toolPath}`,
+      }),
+    );
+  }
+
+  return Effect.fail(
+    new RuntimeAdapterError({
+      operation: "call_tool",
+      runtimeKind: runtimeToolCallServiceRuntimeKind,
+      message: result.error,
+      details: `Tool call failed: ${request.toolPath}`,
+    }),
+  );
+};
 
 export const createRuntimeToolCallService = (
   toolRegistry: ToolRegistry,
@@ -312,6 +531,8 @@ export const createRuntimeToolCallService = (
       return toolRegistry.catalogTools(normalizeCatalogToolsInput(input.input));
     }
 
-    return toolRegistry.callTool(input);
+    return toolRegistry
+      .callTool(input)
+      .pipe(Effect.flatMap((result) => createRuntimeToolCallResultHandler(input, result)));
   },
 });
