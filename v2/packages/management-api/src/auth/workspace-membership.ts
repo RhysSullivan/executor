@@ -65,23 +65,21 @@ export const deriveWorkspaceMembershipsForPrincipal = (input: {
     });
   }
 
-  if (input.workspace.organizationId !== null) {
-    for (const membership of input.organizationMemberships) {
-      if (membership.accountId !== input.principalAccountId) {
-        continue;
-      }
-
-      if (membership.organizationId !== input.workspace.organizationId) {
-        continue;
-      }
-
-      candidates.push({
-        role: membership.role,
-        status: toWorkspaceMembershipStatus(membership.status),
-        grantedAt: membership.joinedAt ?? membership.createdAt,
-        updatedAt: membership.updatedAt,
-      });
+  for (const membership of input.organizationMemberships) {
+    if (membership.accountId !== input.principalAccountId) {
+      continue;
     }
+
+    if (membership.organizationId !== input.workspace.organizationId) {
+      continue;
+    }
+
+    candidates.push({
+      role: membership.role,
+      status: toWorkspaceMembershipStatus(membership.status),
+      grantedAt: membership.joinedAt ?? membership.createdAt,
+      updatedAt: membership.updatedAt,
+    });
   }
 
   const activeCandidates = candidates.filter(

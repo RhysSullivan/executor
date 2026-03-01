@@ -60,6 +60,17 @@ const defaultWorkspaceForm = (): WorkspaceForm => ({
   organizationId: "",
 });
 
+const createOrganizationId = (): Organization["id"] =>
+  `org_${crypto.randomUUID()}` as Organization["id"];
+
+const createWorkspaceId = (): Workspace["id"] =>
+  `ws_${crypto.randomUUID()}` as Workspace["id"];
+
+const errorMessage = (cause: unknown, fallback: string): string =>
+  cause instanceof Error && cause.message.trim().length > 0
+    ? cause.message
+    : fallback;
+
 const organizationStatusVariant = (
   status: Organization["status"],
 ): "approved" | "pending" | "denied" | "outline" => {
@@ -106,7 +117,7 @@ export default function SettingsView() {
       ...current,
       id: currentWorkspace.id,
       name: currentWorkspace.name,
-      organizationId: currentWorkspace.organizationId ?? "",
+      organizationId: currentWorkspace.organizationId,
     }));
   }, [workspaceId, workspaceForm.name, workspaces.items]);
 
@@ -116,7 +127,7 @@ export default function SettingsView() {
     }
 
     const currentWorkspace = workspaces.items.find((workspace) => workspace.id === workspaceId);
-    if (!currentWorkspace?.organizationId) {
+    if (!currentWorkspace) {
       return;
     }
 
@@ -141,6 +152,9 @@ export default function SettingsView() {
     const slug = organizationForm.slug.trim();
     const name = organizationForm.name.trim();
     const inputId = organizationForm.id.trim();
+    const organizationId = inputId.length > 0
+      ? (inputId as Organization["id"])
+      : createOrganizationId();
 
     if (slug.length === 0 || name.length === 0) {
       setOrganizationStatusText("Organization slug and name are required.");
@@ -148,7 +162,7 @@ export default function SettingsView() {
     }
 
     const payload = toOrganizationUpsertPayload({
-      id: inputId.length > 0 ? (inputId as Organization["id"]) : undefined,
+      id: organizationId,
       slug,
       name,
       status: organizationForm.status,
@@ -164,8 +178,8 @@ export default function SettingsView() {
           status: organization.status,
         });
       })
-      .catch(() => {
-        setOrganizationStatusText("Organization save failed.");
+      .catch((cause) => {
+        setOrganizationStatusText(errorMessage(cause, "Organization save failed."));
       });
   };
 
@@ -175,16 +189,24 @@ export default function SettingsView() {
     const name = workspaceForm.name.trim();
     const inputId = workspaceForm.id.trim();
     const organizationId = workspaceForm.organizationId.trim();
+    const workspaceId = inputId.length > 0
+      ? (inputId as Workspace["id"])
+      : createWorkspaceId();
 
     if (name.length === 0) {
       setWorkspaceStatusText("Workspace name is required.");
       return;
     }
 
+    if (organizationId.length === 0) {
+      setWorkspaceStatusText("Workspace organization is required.");
+      return;
+    }
+
     const payload = toWorkspaceUpsertPayload({
-      id: inputId.length > 0 ? (inputId as Workspace["id"]) : undefined,
+      id: workspaceId,
       name,
-      organizationId: organizationId.length > 0 ? (organizationId as Workspace["organizationId"]) : null,
+      organizationId: organizationId as Workspace["organizationId"],
     });
 
     void runUpsertWorkspace({ payload })
@@ -193,12 +215,12 @@ export default function SettingsView() {
         setWorkspaceForm({
           id: workspace.id,
           name: workspace.name,
-          organizationId: workspace.organizationId ?? "",
+          organizationId: workspace.organizationId,
         });
         setWorkspaceId(workspace.id);
       })
-      .catch(() => {
-        setWorkspaceStatusText("Workspace save failed.");
+      .catch((cause) => {
+        setWorkspaceStatusText(errorMessage(cause, "Workspace save failed."));
       });
   };
 
@@ -216,7 +238,7 @@ export default function SettingsView() {
     setWorkspaceForm({
       id: workspace.id,
       name: workspace.name,
-      organizationId: workspace.organizationId ?? "",
+      organizationId: workspace.organizationId,
     });
     setWorkspaceId(workspace.id);
     setWorkspaceStatusText(`Loaded workspace ${workspace.id}.`);
@@ -376,7 +398,7 @@ export default function SettingsView() {
             <CardHeader className="pb-3">
               <CardTitle>Workspace Profile</CardTitle>
               <CardDescription>
-                Create or update workspace records and their optional organization id.
+                Create or update workspace records scoped to an organization.
               </CardDescription>
             </CardHeader>
 
@@ -413,9 +435,9 @@ export default function SettingsView() {
                 </div>
                 <div className="grid gap-1.5">
                   <label className="text-xs text-muted-foreground" htmlFor="workspace-organization-id">
-                    Organization ID
+                    Organization
                   </label>
-                  <Input
+                  <Select
                     id="workspace-organization-id"
                     value={workspaceForm.organizationId}
                     onChange={(event) =>
@@ -424,9 +446,15 @@ export default function SettingsView() {
                         organizationId: event.target.value,
                       }))
                     }
-                    placeholder="org_local (optional)"
                     disabled={workspacesLoading}
-                  />
+                  >
+                    <option value="">Select organization</option>
+                    {organizations.items.map((organization) => (
+                      <option key={organization.id} value={organization.id}>
+                        {organization.name}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
 
                 <div className="flex gap-2">
@@ -466,7 +494,7 @@ export default function SettingsView() {
                             <p className="truncate text-sm font-medium">{workspace.name}</p>
                             <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                               <span className="break-all">{workspace.id}</span>
-                              <span className="break-all">org {workspace.organizationId ?? "-"}</span>
+                              <span className="break-all">org {workspace.organizationId}</span>
                             </div>
                           </div>
                           <Button

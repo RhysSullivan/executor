@@ -42,7 +42,7 @@
         "@executor-v2/management-api": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
         "@executor-v2/persistence-ports": "workspace:*",
-        "@executor-v2/runtime-local-inproc": "workspace:*",
+        "@executor-v2/runtime-cloudflare-worker-loader": "workspace:*",
         "@executor-v2/schema": "workspace:*",
         "@executor-v2/sdk": "workspace:*",
         "convex": "catalog:",
@@ -183,6 +183,7 @@
         "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/schema": "workspace:*",
         "@executor-v2/sdk": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.26.0",
         "effect": "catalog:",
       },
       "devDependencies": {

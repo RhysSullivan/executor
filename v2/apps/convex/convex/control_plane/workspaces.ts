@@ -44,7 +44,7 @@ export const upsertWorkspace = mutation({
   args: {
     payload: v.object({
       id: v.optional(v.string()),
-      organizationId: v.optional(v.union(v.string(), v.null())),
+      organizationId: v.string(),
       name: v.string(),
     }),
   },
@@ -60,10 +60,7 @@ export const upsertWorkspace = mutation({
 
     const nextWorkspace = decodeWorkspace({
       id: workspaceId,
-      organizationId:
-        payload.organizationId !== undefined
-          ? payload.organizationId
-          : existing?.organizationId ?? null,
+      organizationId: payload.organizationId,
       name: payload.name,
       createdByAccountId: existing?.createdByAccountId ?? null,
       createdAt: existing?.createdAt ?? now,

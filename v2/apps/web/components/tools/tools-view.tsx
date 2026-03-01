@@ -65,6 +65,9 @@ type SourceGroup = {
   toolCount: number;
 };
 
+const configuredControlPlaneBaseUrl =
+  process.env.NEXT_PUBLIC_CONTROL_PLANE_BASE_URL?.trim() ?? "";
+
 // ---------------------------------------------------------------------------
 // Search helpers (ported from old executor explorer-derived.ts)
 // ---------------------------------------------------------------------------
@@ -317,7 +320,9 @@ const TOOL_DESCRIPTION_CLASSES = [
 // ToolsView (main export)
 // ---------------------------------------------------------------------------
 
-export function ToolsView() {
+export function ToolsView(props: {
+  mcpBaseUrl: string | null;
+}) {
   const { workspaceId } = useWorkspace();
 
   // --- Data ---
@@ -366,14 +371,28 @@ export function ToolsView() {
   const totalToolCount = workspaceTools.items.length;
 
   const mcpUrl = useMemo(() => {
-    if (typeof window === "undefined") {
-      return `/v1/mcp?workspaceId=${encodeURIComponent(workspaceId)}`;
+    if (props.mcpBaseUrl) {
+      const configured = new URL(props.mcpBaseUrl);
+      configured.pathname = "/v1/mcp";
+      configured.searchParams.set("workspaceId", workspaceId);
+      return configured.toString();
     }
 
-    const url = new URL("/v1/mcp", window.location.origin);
+    if (configuredControlPlaneBaseUrl.length > 0 && /^https?:\/\//i.test(configuredControlPlaneBaseUrl)) {
+      const configured = new URL(configuredControlPlaneBaseUrl);
+      configured.pathname = "/v1/mcp";
+      configured.searchParams.set("workspaceId", workspaceId);
+      return configured.toString();
+    }
+
+    if (typeof window === "undefined") {
+      return `http://127.0.0.1:8788/v1/mcp?workspaceId=${encodeURIComponent(workspaceId)}`;
+    }
+
+    const url = new URL("/v1/mcp", "http://127.0.0.1:8788");
     url.searchParams.set("workspaceId", workspaceId);
     return url.toString();
-  }, [workspaceId]);
+  }, [props.mcpBaseUrl, workspaceId]);
 
   const installConfig = useMemo(
     () => getAddMcpInstallConfig(mcpUrl, inferServerName(workspaceId)),

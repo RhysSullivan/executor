@@ -113,10 +113,7 @@ export const createPmWorkspacesService = (
 
         const nextWorkspace: Workspace = {
           id: existing?.id ?? (input.payload.id ?? (`ws_${crypto.randomUUID()}` as Workspace["id"])),
-          organizationId:
-            input.payload.organizationId !== undefined
-              ? input.payload.organizationId
-              : existing?.organizationId ?? null,
+          organizationId: input.payload.organizationId,
           name: input.payload.name,
           createdByAccountId: existing?.createdByAccountId ?? null,
           createdAt: existing?.createdAt ?? now,

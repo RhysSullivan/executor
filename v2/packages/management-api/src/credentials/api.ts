@@ -18,7 +18,13 @@ const RequiredUpsertCredentialBindingPayloadSchema = SourceCredentialBindingSche
 );
 
 const OptionalUpsertCredentialBindingPayloadSchema = SourceCredentialBindingSchema.pipe(
-  Schema.pick("id", "accountId", "additionalHeadersJson", "boundAuthFingerprint"),
+  Schema.pick(
+    "id",
+    "accountId",
+    "secretProvider",
+    "additionalHeadersJson",
+    "boundAuthFingerprint",
+  ),
   Schema.partialWith({ exact: true }),
 );
 

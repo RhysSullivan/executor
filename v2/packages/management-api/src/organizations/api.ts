@@ -14,7 +14,7 @@ const RequiredUpsertOrganizationPayloadSchema = OrganizationSchema.pipe(
 );
 
 const OptionalUpsertOrganizationPayloadSchema = OrganizationSchema.pipe(
-  Schema.pick("id", "status"),
+  Schema.pick("id", "status", "createdByAccountId"),
   Schema.partialWith({ exact: true }),
 );
 

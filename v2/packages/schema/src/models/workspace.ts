@@ -5,7 +5,7 @@ import { AccountIdSchema, OrganizationIdSchema, WorkspaceIdSchema } from "../ids
 
 export const WorkspaceSchema = Schema.Struct({
   id: WorkspaceIdSchema,
-  organizationId: Schema.NullOr(OrganizationIdSchema),
+  organizationId: OrganizationIdSchema,
   name: Schema.String,
   createdByAccountId: Schema.NullOr(AccountIdSchema),
   createdAt: TimestampMsSchema,

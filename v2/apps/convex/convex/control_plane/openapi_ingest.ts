@@ -1049,7 +1049,7 @@ const ingestGraphqlSource = (
       headers: Record<string, string>;
     }>(
       () =>
-        ctx.runQuery(runtimeInternal.control_plane.credentials.resolveSourceCredentialHeadersForIngest, {
+        ctx.runAction(runtimeInternal.control_plane.credentials.resolveSourceCredentialHeadersForIngest, {
           workspaceId: source.workspaceId,
           sourceId: source.id,
           sourceName: source.name,
@@ -1206,7 +1206,7 @@ const ingestMcpSource = (
       headers: Record<string, string>;
     }>(
       () =>
-        ctx.runQuery(runtimeInternal.control_plane.credentials.resolveSourceCredentialHeadersForIngest, {
+        ctx.runAction(runtimeInternal.control_plane.credentials.resolveSourceCredentialHeadersForIngest, {
           workspaceId: source.workspaceId,
           sourceId: source.id,
           sourceName: source.name,

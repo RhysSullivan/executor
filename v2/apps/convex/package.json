@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bunx convex dev",
-    "test": "bunx vitest run --no-watch convex/*.test.ts",
+    "dev": "CREDENTIAL_ENCRYPTION_KEY=dev-credential-encryption-key bunx convex dev",
+    "test": "CREDENTIAL_ENCRYPTION_KEY=test-credential-encryption-key bunx vitest run --no-watch convex/*.test.ts",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "convex:codegen": "bunx convex codegen"
   },
@@ -16,7 +16,7 @@
     "@executor-v2/management-api": "workspace:*",
     "@executor-v2/mcp-gateway": "workspace:*",
     "@executor-v2/persistence-ports": "workspace:*",
-    "@executor-v2/runtime-local-inproc": "workspace:*",
+    "@executor-v2/runtime-cloudflare-worker-loader": "workspace:*",
     "@executor-v2/schema": "workspace:*",
     "@executor-v2/sdk": "workspace:*",
     "convex": "catalog:",

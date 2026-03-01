@@ -29,7 +29,7 @@ const createTestSnapshot = (): LocalStateSnapshot =>
     workspaces: [
       {
         id: "ws_local",
-        organizationId: null,
+        organizationId: "org_local",
         name: "Local Workspace",
         createdByAccountId: null,
         createdAt: Date.now(),

@@ -268,7 +268,7 @@ const resolveSourceCredentialHeadersForInvocation = async (
   source: Source,
 ): Promise<Record<string, string>> => {
   try {
-    const resolved = (await ctx.runQuery(
+    const resolved = (await ctx.runAction(
       runtimeInternal.control_plane.credentials.resolveSourceCredentialHeadersForIngest,
       {
         workspaceId: source.workspaceId,

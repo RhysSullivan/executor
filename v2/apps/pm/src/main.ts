@@ -10,6 +10,8 @@ import {
 } from "@executor-v2/management-api";
 import {
   RuntimeAdapterError,
+  makeGraphqlToolProvider,
+  makeMcpToolProvider,
   createRunExecutor,
   createSourceToolRegistry,
   defaultExecuteToolExposureMode,
@@ -175,7 +177,11 @@ const controlPlaneWebHandler = makeControlPlaneWebHandler(
   PmActorLive(localStateStore),
 );
 
-const toolProviderRegistry = makeToolProviderRegistry([makeOpenApiToolProvider()]);
+const toolProviderRegistry = makeToolProviderRegistry([
+  makeOpenApiToolProvider(),
+  makeMcpToolProvider(),
+  makeGraphqlToolProvider(),
+]);
 const persistentApprovalPolicy = createPmPersistentToolApprovalPolicy(localStateStore, {
   requireApprovals: requireToolApprovals,
 });

@@ -12,6 +12,9 @@
   "scripts": {
     "with-env": "bun run --env-file=.env --",
     "dev": "bun run dev.ts",
+    "workos:vault:write": "bun run with-env bun run executor/scripts/workos-vault/write.ts",
+    "workos:vault:read": "bun run with-env bun run executor/scripts/workos-vault/read.ts",
+    "workos:vault:latency": "bun run with-env bun run executor/scripts/workos-vault/latency.ts",
     "test": "bun run test:executor && bun run test:assistant",
     "test:executor": "bun run --cwd executor test",
     "test:executor:integration": "bun run --cwd executor test:integration",

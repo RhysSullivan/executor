@@ -10,11 +10,11 @@ import {
 } from "../errors";
 
 const RequiredUpsertWorkspacePayloadSchema = WorkspaceSchema.pipe(
-  Schema.pick("name"),
+  Schema.pick("name", "organizationId"),
 );
 
 const OptionalUpsertWorkspacePayloadSchema = WorkspaceSchema.pipe(
-  Schema.pick("id", "organizationId"),
+  Schema.pick("id"),
   Schema.partialWith({ exact: true }),
 );
 

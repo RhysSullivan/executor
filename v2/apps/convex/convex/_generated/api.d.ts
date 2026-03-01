@@ -23,6 +23,7 @@ import type * as control_plane_storage from "../control_plane/storage.js";
 import type * as control_plane_tool_registry from "../control_plane/tool_registry.js";
 import type * as control_plane_tools from "../control_plane/tools.js";
 import type * as control_plane_workspaces from "../control_plane/workspaces.js";
+import type * as credential_crypto from "../credential_crypto.js";
 import type * as credential_resolver from "../credential_resolver.js";
 import type * as executor from "../executor.js";
 import type * as http from "../http.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   "control_plane/tool_registry": typeof control_plane_tool_registry;
   "control_plane/tools": typeof control_plane_tools;
   "control_plane/workspaces": typeof control_plane_workspaces;
+  credential_crypto: typeof credential_crypto;
   credential_resolver: typeof credential_resolver;
   executor: typeof executor;
   http: typeof http;

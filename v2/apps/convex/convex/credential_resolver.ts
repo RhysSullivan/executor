@@ -20,6 +20,7 @@ import * as Schema from "effect/Schema";
 
 import { api } from "./_generated/api";
 import { query, type ActionCtx } from "./_generated/server";
+import { decryptSecretValue } from "./credential_crypto";
 
 const decodeSourceCredentialBinding = Schema.decodeUnknownSync(
   SourceCredentialBindingSchema,
@@ -114,6 +115,16 @@ const runQueryEffect = <T>(
       ),
   });
 
+const requireLocalSecretProvider = (
+  secretProvider: SourceCredentialBinding["secretProvider"],
+): "local" => {
+  if (secretProvider !== "local") {
+    throw new Error("Convex credentials require secretProvider 'local'");
+  }
+
+  return "local";
+};
+
 export const createConvexResolveToolCredentials = (
   ctx: ActionCtx,
 ): ResolveToolCredentials =>
@@ -160,10 +171,28 @@ export const createConvexResolveToolCredentials = (
             )
           : null;
 
+      requireLocalSecretProvider(binding.secretProvider);
+
+      const secretRef = yield* Effect.tryPromise({
+        try: () => decryptSecretValue(binding.secretRef),
+        catch: (cause) =>
+          toCredentialResolverError(
+            "decrypt_credential_secret",
+            "Convex credential decryption failed",
+            String(cause),
+          ),
+      });
+
       return {
-        headers: buildCredentialHeaders(binding, {
-          oauthAccessToken,
-        }),
+        headers: buildCredentialHeaders(
+          {
+            ...binding,
+            secretRef,
+          },
+          {
+            oauthAccessToken,
+          },
+        ),
       };
     }),
   );

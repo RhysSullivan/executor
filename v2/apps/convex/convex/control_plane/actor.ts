@@ -33,6 +33,17 @@ const stripConvexSystemFields = (
   return rest;
 };
 
+const toOrganizationSlug = (accountId: string): string => {
+  const slug = accountId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+
+  return slug.length > 0 ? `acct-${slug}` : `acct-${crypto.randomUUID().slice(0, 8)}`;
+};
+
 export const getWorkspaceForActor = internalQuery({
   args: {
     workspaceId: v.string(),
@@ -107,6 +118,49 @@ export const ensureWorkspaceForActor = internalMutation({
   handler: async (ctx, args): Promise<Workspace> => {
     const now = Date.now();
 
+    const ensureOrganizationMembership = async (organizationId: string) => {
+      const existingOrganization = await ctx.db
+        .query("organizations")
+        .withIndex("by_domainId", (q) => q.eq("id", organizationId))
+        .first();
+
+      if (existingOrganization === null) {
+        await ctx.db.insert("organizations", {
+          id: organizationId,
+          slug: toOrganizationSlug(args.accountId),
+          name: `${args.accountId} Organization`,
+          status: "active",
+          createdByAccountId: args.accountId,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      const existingMembership = await ctx.db
+        .query("organizationMemberships")
+        .withIndex("by_organizationId_accountId", (q) =>
+          q.eq("organizationId", organizationId).eq("accountId", args.accountId)
+        )
+        .first();
+
+      if (existingMembership !== null) {
+        return;
+      }
+
+      await ctx.db.insert("organizationMemberships", {
+        id: `org_member_${crypto.randomUUID()}`,
+        organizationId,
+        accountId: args.accountId,
+        role: "owner",
+        status: "active",
+        billable: false,
+        invitedByAccountId: null,
+        joinedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    };
+
     const existing = await ctx.db
       .query("workspaces")
       .withIndex("by_domainId", (q) => q.eq("id", args.workspaceId))
@@ -116,6 +170,8 @@ export const ensureWorkspaceForActor = internalMutation({
       const existingWorkspace = decodeWorkspace(
         stripConvexSystemFields(existing as unknown as Record<string, unknown>),
       );
+
+      await ensureOrganizationMembership(existingWorkspace.organizationId);
 
       if (existingWorkspace.createdByAccountId !== null) {
         return existingWorkspace;
@@ -133,9 +189,12 @@ export const ensureWorkspaceForActor = internalMutation({
       });
     }
 
+    const organizationId = `org_${args.accountId}`;
+    await ensureOrganizationMembership(organizationId);
+
     await ctx.db.insert("workspaces", {
       id: args.workspaceId,
-      organizationId: null,
+      organizationId,
       name: args.workspaceId,
       createdByAccountId: args.accountId,
       createdAt: now,
@@ -144,7 +203,7 @@ export const ensureWorkspaceForActor = internalMutation({
 
     return decodeWorkspace({
       id: args.workspaceId,
-      organizationId: null,
+      organizationId,
       name: args.workspaceId,
       createdByAccountId: args.accountId,
       createdAt: now,
