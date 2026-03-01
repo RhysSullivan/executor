@@ -6,6 +6,7 @@
     "dev": "bun --hot server.ts",
     "start": "bun server.ts",
     "sync": "bun server.ts --sync-only",
+    "scrape:composio": "bun composio-scrape/scrape.ts",
     "typecheck": "bunx --package @typescript/native-preview tsgo --noEmit -p tsconfig.json",
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json",
     "clean": "rm -rf node_modules .turbo"

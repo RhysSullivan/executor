@@ -45,6 +45,9 @@ sources/data/*.sqlite
 sources/data/*.sqlite-shm
 sources/data/*.sqlite-wal
 
+# Composio toolkit scrape outputs
+sources/composio-scrape/data/
+
 # Cloudflare Workers local state
 .wrangler/
 .dev.vars
