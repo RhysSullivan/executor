@@ -1,11 +1,13 @@
 import { defineSchema, defineTable, type TablesFromSchemaDefinition } from "@executor-v2/confect";
 import {
   ApprovalSchema,
-  CredentialRefSchema,
   EventEnvelopeSchema,
   OAuthTokenSchema,
+  OrganizationMembershipSchema,
+  OrganizationSchema,
   PolicySchema,
   ProfileSchema,
+  SourceCredentialBindingSchema,
   SourceSchema,
   SyncStateSchema,
   TaskRunSchema,
@@ -15,9 +17,17 @@ import {
 
 export const executorConfectSchema = defineSchema({
   profiles: defineTable(ProfileSchema).index("by_domainId", ["id"]),
+  organizations: defineTable(OrganizationSchema)
+    .index("by_domainId", ["id"])
+    .index("by_slug", ["slug"]),
+  organizationMemberships: defineTable(OrganizationMembershipSchema)
+    .index("by_domainId", ["id"])
+    .index("by_organizationId", ["organizationId"])
+    .index("by_accountId", ["accountId"])
+    .index("by_organizationId_accountId", ["organizationId", "accountId"]),
   workspaces: defineTable(WorkspaceSchema)
     .index("by_domainId", ["id"])
-    .index("by_profileId", ["profileId"]),
+    .index("by_organizationId", ["organizationId"]),
   sources: defineTable(SourceSchema)
     .index("by_domainId", ["id"])
     .index("by_workspaceId", ["workspaceId"]),
@@ -25,13 +35,18 @@ export const executorConfectSchema = defineSchema({
     .index("by_domainId", ["id"])
     .index("by_workspaceId", ["workspaceId"])
     .index("by_sourceId", ["sourceId"]),
-  credentialRefs: defineTable(CredentialRefSchema)
+  sourceCredentialBindings: defineTable(SourceCredentialBindingSchema)
     .index("by_domainId", ["id"])
+    .index("by_credentialId", ["credentialId"])
     .index("by_workspaceId", ["workspaceId"])
-    .index("by_sourceId", ["sourceId"]),
+    .index("by_organizationId", ["organizationId"])
+    .index("by_accountId", ["accountId"])
+    .index("by_sourceKey", ["sourceKey"]),
   oauthTokens: defineTable(OAuthTokenSchema)
     .index("by_domainId", ["id"])
     .index("by_workspaceId", ["workspaceId"])
+    .index("by_organizationId", ["organizationId"])
+    .index("by_accountId", ["accountId"])
     .index("by_sourceId", ["sourceId"]),
   policies: defineTable(PolicySchema)
     .index("by_domainId", ["id"])

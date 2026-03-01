@@ -1,11 +1,19 @@
 import { Schema } from "effect";
 
 import { TimestampMsSchema } from "../common";
-import { OAuthTokenIdSchema, SourceIdSchema, WorkspaceIdSchema } from "../ids";
+import {
+  AccountIdSchema,
+  OAuthTokenIdSchema,
+  OrganizationIdSchema,
+  SourceIdSchema,
+  WorkspaceIdSchema,
+} from "../ids";
 
 export const OAuthTokenSchema = Schema.Struct({
   id: OAuthTokenIdSchema,
   workspaceId: WorkspaceIdSchema,
+  organizationId: Schema.NullOr(OrganizationIdSchema),
+  accountId: Schema.NullOr(AccountIdSchema),
   sourceId: SourceIdSchema,
   issuer: Schema.String,
   accessTokenRef: Schema.String,

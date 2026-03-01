@@ -1,22 +1,17 @@
-import type {
-  RuntimeToolCallRequest,
-  RuntimeToolCallResult,
-} from "@executor-v2/sdk";
+import {
+  ToolInvocationService,
+  ToolInvocationServiceLive,
+  type CredentialResolver,
+} from "@executor-v2/domain";
+import type { RuntimeToolCallResult } from "@executor-v2/sdk";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 
 import { httpAction } from "./_generated/server";
-
-export const handleToolCallImpl = (
-  input: RuntimeToolCallRequest,
-): Effect.Effect<RuntimeToolCallResult> =>
-  Effect.succeed({
-    ok: false,
-    kind: "failed",
-    error: `Convex runtime callback received tool '${input.toolPath}', but callback invocation is not wired yet.`,
-  });
+import { ConvexCredentialResolverLive } from "./credential_resolver";
 
 class RuntimeToolCallBadRequestError extends Data.TaggedError(
   "RuntimeToolCallBadRequestError",
@@ -38,6 +33,13 @@ const RuntimeToolCallRequestSchema = Schema.Struct({
 });
 
 const decodeRuntimeToolCallRequest = Schema.decodeUnknown(RuntimeToolCallRequestSchema);
+
+const toolInvocationLive: Layer.Layer<ToolInvocationService, never, CredentialResolver> =
+  ToolInvocationServiceLive("convex");
+
+const toolInvocationWithResolverLive = toolInvocationLive.pipe(
+  Layer.provide(ConvexCredentialResolverLive),
+);
 
 const badRequest = (message: string): Response =>
   Response.json(
@@ -77,9 +79,12 @@ const handleToolCallHttpEffect = (
       ),
     );
 
-    const result = yield* handleToolCallImpl(input);
+    const toolInvocationService = yield* ToolInvocationService;
+    const result = yield* toolInvocationService.invokeRuntimeToolCall(input);
+
     return Response.json(result, { status: 200 });
   }).pipe(
+    Effect.provide(toolInvocationWithResolverLive),
     Effect.catchTag("RuntimeToolCallBadRequestError", (error) =>
       Effect.succeed(badRequest(formatBadRequestMessage(error))),
     ),

@@ -1,12 +1,13 @@
 import { Schema } from "effect";
 
 import { TimestampMsSchema } from "../common";
-import { ProfileIdSchema, WorkspaceIdSchema } from "../ids";
+import { AccountIdSchema, OrganizationIdSchema, WorkspaceIdSchema } from "../ids";
 
 export const WorkspaceSchema = Schema.Struct({
   id: WorkspaceIdSchema,
-  profileId: ProfileIdSchema,
+  organizationId: Schema.NullOr(OrganizationIdSchema),
   name: Schema.String,
+  createdByAccountId: Schema.NullOr(AccountIdSchema),
   createdAt: TimestampMsSchema,
   updatedAt: TimestampMsSchema,
 });

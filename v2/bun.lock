@@ -23,6 +23,7 @@
       "dependencies": {
         "@executor-v2/confect": "workspace:*",
         "@executor-v2/control-plane": "workspace:*",
+        "@executor-v2/domain": "workspace:*",
         "@executor-v2/engine": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
         "@executor-v2/schema": "workspace:*",
@@ -120,6 +121,7 @@
     "packages/domain": {
       "name": "@executor-v2/domain",
       "dependencies": {
+        "@executor-v2/schema": "workspace:*",
         "@executor-v2/sdk": "workspace:*",
         "effect": "catalog:",
       },
