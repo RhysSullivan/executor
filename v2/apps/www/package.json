@@ -7,11 +7,13 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "typecheck": "astro check"
+    "typecheck": "astro check",
+    "generate-types": "bun run scripts/generate-types.ts"
   },
   "dependencies": {
     "@astrojs/react": "^4.2.1",
     "@astrojs/tailwind": "^6.0.2",
+    "@monaco-editor/react": "^4.7.0",
     "astro": "^5.10.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

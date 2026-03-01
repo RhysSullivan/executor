@@ -2,9 +2,8 @@
 import Base from "../layouts/Base.astro";
 import Hero from "../components/Hero.astro";
 import Section from "../components/Section.astro";
-import { AddSources } from "../components/AddSources";
+import { SandboxEditor } from "../components/SandboxEditor";
 import { SystemPrompt } from "../components/SystemPrompt";
-import { CodeEditor } from "../components/CodeEditor";
 import { ExampleQueries } from "../components/ExampleQueries";
 import { ApprovalFlow } from "../components/ApprovalFlow";
 import { UsageCards } from "../components/UsageCards";
@@ -33,20 +32,15 @@ import { UsageCards } from "../components/UsageCards";
       </p>
 
       <!-- ======================================================
-           ADD SOURCES
+           SANDBOX EDITOR — Sources + Monaco with real types
            ====================================================== -->
-      <h2>Add any API as a source</h2>
+      <h2>Add sources, get real types</h2>
       <p>
-        Connect OpenAPI specs, MCP servers, or GraphQL endpoints. Each source is compiled into typed, discoverable tools — not raw schema definitions pasted into context.
+        Connect OpenAPI specs, MCP servers, or GraphQL endpoints. Each source is compiled into a full TypeScript type bundle — real types from the real spec, loaded into a real editor. Toggle sources and see the types update live.
       </p>
 
-      <div class="my-8 bg-surface-elevated border border-white/[0.08] rounded-lg overflow-hidden">
-        <div class="px-5 py-4 bg-white/[0.02] border-b border-white/[0.06]">
-          <h4 class="font-serif text-lg font-normal m-0">Add sources</h4>
-        </div>
-        <div class="p-5">
-          <AddSources client:visible />
-        </div>
+      <div class="my-8">
+        <SandboxEditor client:only="react" />
       </div>
 
       <!-- ======================================================
@@ -59,18 +53,6 @@ import { UsageCards } from "../components/UsageCards";
 
       <div class="my-8">
         <SystemPrompt client:visible />
-      </div>
-
-      <!-- ======================================================
-           CODE EDITOR
-           ====================================================== -->
-      <h2>Your agent writes code, not JSON</h2>
-      <p>
-        Instead of rigid JSON tool calls that fail on the first typo, your agent writes TypeScript in a sandboxed runtime. It gets autocomplete-style discovery, can chain multiple operations, handle errors, and return structured results — all in a single execution.
-      </p>
-
-      <div class="my-8">
-        <CodeEditor client:visible />
       </div>
 
       <blockquote>
