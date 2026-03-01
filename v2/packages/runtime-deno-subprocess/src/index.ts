@@ -1,19 +1,14 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import type { Source } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
 
 import {
   RuntimeAdapterError,
-  type CanonicalToolDescriptor,
   type RuntimeAdapter,
-  type RuntimeAdapterKind,
   type RuntimeRunnableTool,
-  type ToolProviderError,
-  type ToolProviderRegistryError,
   ToolProviderRegistryService,
 } from "@executor-v2/engine";
 import { spawnDenoWorkerProcess } from "./deno-worker-process";
@@ -23,14 +18,11 @@ const runtimeKind = "deno-subprocess";
 export const DenoSubprocessRunnerError = RuntimeAdapterError;
 export type DenoSubprocessRunnerError = RuntimeAdapterError;
 
-export type DenoRunnableTool = {
-  descriptor: CanonicalToolDescriptor;
-  source: Source | null;
-};
+export type DenoRunnableTool = RuntimeRunnableTool;
 
 export type ExecuteJavaScriptInDenoInput = {
   code: string;
-  tools: ReadonlyArray<DenoRunnableTool>;
+  tools: ReadonlyArray<RuntimeRunnableTool>;
   timeoutMs?: number;
   denoExecutable?: string;
 };
@@ -199,13 +191,10 @@ const handleToolCall = (
   toolBindings: ReadonlyMap<string, DenoRunnableTool>,
   runPromise: <A, E>(effect: Effect.Effect<A, E, never>) => Promise<A>,
   invokeTool: (input: {
-    source: Source | null;
-    tool: CanonicalToolDescriptor;
+    source: RuntimeRunnableTool["source"];
+    tool: RuntimeRunnableTool["descriptor"];
     args: unknown;
-  }) => Effect.Effect<
-    { output: unknown; isError: boolean },
-    ToolProviderRegistryError | ToolProviderError
-  >,
+  }) => Effect.Effect<{ output: unknown; isError: boolean }, unknown>,
   stdin: NodeJS.WritableStream,
 ): Effect.Effect<void, DenoSubprocessRunnerError> =>
   Effect.gen(function* () {
@@ -260,11 +249,7 @@ export const isDenoSubprocessRuntimeAvailable = (
 
 export const executeJavaScriptInDenoSubprocess = (
   input: ExecuteJavaScriptInDenoInput,
-): Effect.Effect<
-  unknown,
-  DenoSubprocessRunnerError | ToolProviderRegistryError | ToolProviderError,
-  ToolProviderRegistryService
-> =>
+): Effect.Effect<unknown, DenoSubprocessRunnerError, ToolProviderRegistryService> =>
   Effect.gen(function* () {
     const registry = yield* ToolProviderRegistryService;
     const runtime = yield* Effect.runtime<never>();
@@ -440,17 +425,6 @@ export const executeJavaScriptInDenoSubprocess = (
     });
   });
 
-const toRuntimeAdapterError = (
-  runtimeKind: RuntimeAdapterKind,
-  error: DenoSubprocessRunnerError | ToolProviderRegistryError | ToolProviderError,
-): RuntimeAdapterError =>
-  new RuntimeAdapterError({
-    operation: error.operation,
-    runtimeKind,
-    message: error.message,
-    details: "details" in error ? error.details : null,
-  });
-
 export const makeDenoSubprocessRuntimeAdapter = (
   options: DenoSubprocessRuntimeAdapterOptions = {},
 ): RuntimeAdapter => ({
@@ -459,12 +433,10 @@ export const makeDenoSubprocessRuntimeAdapter = (
   execute: (input) =>
     executeJavaScriptInDenoSubprocess({
       code: input.code,
-      tools: input.tools as ReadonlyArray<DenoRunnableTool>,
+      tools: input.tools,
       timeoutMs: input.timeoutMs ?? options.defaultTimeoutMs,
       denoExecutable: options.denoExecutable,
-    }).pipe(
-      Effect.mapError((error) => toRuntimeAdapterError("deno-subprocess", error)),
-    ),
+    }),
 });
 
 export type { RuntimeRunnableTool };

@@ -2,10 +2,6 @@ import {
   RunExecutionService,
   RunExecutionServiceLive,
 } from "@executor-v2/domain";
-import {
-  ToolProviderRegistryService,
-  makeToolProviderRegistry,
-} from "@executor-v2/engine";
 import type { ExecuteRunInput, ExecuteRunResult } from "@executor-v2/sdk";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -36,7 +32,3 @@ export const ConvexRunExecutorLive = Layer.effect(
   }),
 ).pipe(Layer.provide(ConvexRunExecutionLive));
 
-export const ConvexToolProviderRegistryLive = Layer.succeed(
-  ToolProviderRegistryService,
-  makeToolProviderRegistry([]),
-);

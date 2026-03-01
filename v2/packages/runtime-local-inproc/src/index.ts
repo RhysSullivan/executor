@@ -1,10 +1,8 @@
-import type { Source } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 import * as Runtime from "effect/Runtime";
 
 import {
   RuntimeAdapterError,
-  type CanonicalToolDescriptor,
   type RuntimeAdapter,
   type RuntimeRunnableTool,
   ToolProviderRegistryService,
@@ -12,14 +10,9 @@ import {
 
 const runtimeKind = "local-inproc";
 
-export type RunnableTool = {
-  descriptor: CanonicalToolDescriptor;
-  source: Source | null;
-};
-
 export type ExecuteJavaScriptInput = {
   code: string;
-  tools: ReadonlyArray<RunnableTool>;
+  tools: ReadonlyArray<RuntimeRunnableTool>;
 };
 
 const runtimeError = (
@@ -56,10 +49,10 @@ const toExecutionError = (cause: unknown): RuntimeAdapterError =>
       );
 
 const buildToolBindings = (
-  tools: ReadonlyArray<RunnableTool>,
-): Effect.Effect<Map<string, RunnableTool>, RuntimeAdapterError> =>
+  tools: ReadonlyArray<RuntimeRunnableTool>,
+): Effect.Effect<Map<string, RuntimeRunnableTool>, RuntimeAdapterError> =>
   Effect.gen(function* () {
-    const byToolId = new Map<string, RunnableTool>();
+    const byToolId = new Map<string, RuntimeRunnableTool>();
 
     for (const tool of tools) {
       const toolId = tool.descriptor.toolId;
@@ -129,7 +122,7 @@ export const makeLocalInProcessRuntimeAdapter = (): RuntimeAdapter => ({
   execute: (input) =>
     executeJavaScriptWithTools({
       code: input.code,
-      tools: input.tools as ReadonlyArray<RunnableTool>,
+      tools: input.tools,
     }),
 });
 

@@ -3,13 +3,18 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import type { ToolProviderRegistryService } from "./tool-providers";
+import type { Source } from "@executor-v2/schema";
+
+import type {
+  CanonicalToolDescriptor,
+  ToolProviderRegistryService,
+} from "./tool-providers";
 
 export type RuntimeAdapterKind = string;
 
 export type RuntimeRunnableTool = {
-  descriptor: unknown;
-  source: unknown | null;
+  descriptor: CanonicalToolDescriptor;
+  source: Source | null;
 };
 
 export type RuntimeExecuteInput = {

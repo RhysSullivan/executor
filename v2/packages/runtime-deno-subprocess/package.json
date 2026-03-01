@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@executor-v2/engine": "workspace:*",
-    "@executor-v2/schema": "workspace:*",
     "effect": "catalog:"
   }
 }

@@ -14,6 +14,7 @@
     "@executor-v2/domain": "workspace:*",
     "@executor-v2/engine": "workspace:*",
     "@executor-v2/mcp-gateway": "workspace:*",
+    "@executor-v2/persistence-ports": "workspace:*",
     "@executor-v2/runtime-local-inproc": "workspace:*",
     "@executor-v2/schema": "workspace:*",
     "@executor-v2/sdk": "workspace:*",

@@ -26,6 +26,7 @@
         "@executor-v2/domain": "workspace:*",
         "@executor-v2/engine": "workspace:*",
         "@executor-v2/mcp-gateway": "workspace:*",
+        "@executor-v2/persistence-ports": "workspace:*",
         "@executor-v2/runtime-local-inproc": "workspace:*",
         "@executor-v2/schema": "workspace:*",
         "@executor-v2/sdk": "workspace:*",
@@ -56,6 +57,7 @@
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
+        "@modelcontextprotocol/sdk": "^1.26.0",
         "vitest": "catalog:",
       },
     },
@@ -174,7 +176,6 @@
       "name": "@executor-v2/runtime-deno-subprocess",
       "dependencies": {
         "@executor-v2/engine": "workspace:*",
-        "@executor-v2/schema": "workspace:*",
         "effect": "catalog:",
       },
     },
@@ -182,7 +183,6 @@
       "name": "@executor-v2/runtime-local-inproc",
       "dependencies": {
         "@executor-v2/engine": "workspace:*",
-        "@executor-v2/schema": "workspace:*",
         "effect": "catalog:",
       },
     },
