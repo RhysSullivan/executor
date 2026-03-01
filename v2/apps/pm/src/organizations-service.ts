@@ -8,7 +8,10 @@ import {
   type LocalStateStore,
   type LocalStateStoreError,
 } from "@executor-v2/persistence-local";
-import { type Organization } from "@executor-v2/schema";
+import {
+  type Organization,
+  type OrganizationMembership,
+} from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
@@ -70,6 +73,15 @@ const appendOrganization = (
   organizations: [...snapshot.organizations, organization],
 });
 
+const appendOrganizationMembership = (
+  snapshot: LocalStateSnapshot,
+  membership: OrganizationMembership,
+): LocalStateSnapshot => ({
+  ...snapshot,
+  generatedAt: Date.now(),
+  organizationMemberships: [...snapshot.organizationMemberships, membership],
+});
+
 export const createPmOrganizationsService = (
   localStateStore: LocalStateStore,
 ): ControlPlaneOrganizationsServiceShape =>
@@ -122,14 +134,40 @@ export const createPmOrganizationsService = (
           slug: input.payload.slug,
           name: input.payload.name,
           status: input.payload.status ?? existing?.status ?? "active",
-          createdByAccountId: existing?.createdByAccountId ?? null,
+          createdByAccountId:
+            existing?.createdByAccountId
+            ?? input.payload.createdByAccountId
+            ?? null,
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
         };
 
-        const nextSnapshot = existingIndex >= 0
+        let nextSnapshot = existingIndex >= 0
           ? replaceOrganizationAt(snapshot, existingIndex, nextOrganization)
           : appendOrganization(snapshot, nextOrganization);
+
+        if (existing === null && nextOrganization.createdByAccountId !== null) {
+          const existingMembership = nextSnapshot.organizationMemberships.find(
+            (membership) =>
+              membership.organizationId === nextOrganization.id
+              && membership.accountId === nextOrganization.createdByAccountId,
+          );
+
+          if (!existingMembership) {
+            nextSnapshot = appendOrganizationMembership(nextSnapshot, {
+              id: `org_member_${crypto.randomUUID()}` as OrganizationMembership["id"],
+              organizationId: nextOrganization.id,
+              accountId: nextOrganization.createdByAccountId,
+              role: "owner",
+              status: "active",
+              billable: false,
+              invitedByAccountId: null,
+              joinedAt: now,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+        }
 
         yield* localStateStore.writeSnapshot(nextSnapshot).pipe(
           Effect.mapError((error) =>

@@ -127,7 +127,7 @@ const resolveConfig = (
   const callbackInternalSecret =
     options.callbackInternalSecret ??
     normalizeString(
-      env.CLOUDFLARE_SANDBOX_CALLBACK_INTERNAL_SECRET ??
+      env.CLOUDFLARE_SANDBOX_CALLBACK_SECRET ??
         env.EXECUTOR_INTERNAL_TOKEN,
     ) ??
     null;

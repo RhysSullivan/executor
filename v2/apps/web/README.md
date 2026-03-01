@@ -4,15 +4,20 @@ Basic Next.js frontend for Executor v2 control plane.
 
 - Uses `@executor-v2/control-plane` Effect HttpApi client
 - Uses Effect Atom (`@effect-atom/atom`, `@effect-atom/atom-react`) for query state
-- Proxies backend calls through `/api/control-plane/*` via `next.config.ts` rewrites
 
 Run:
 
 - `bun run --cwd apps/web dev`
 - Open `http://127.0.0.1:3000`
 
-By default, control-plane proxy target is `http://127.0.0.1:8788`.
-Override with `CONTROL_PLANE_UPSTREAM_URL`.
+By default, control-plane API calls go directly to `http://127.0.0.1:8788`.
+Override with `NEXT_PUBLIC_CONTROL_PLANE_BASE_URL` (and optionally `CONTROL_PLANE_SERVER_BASE_URL` for SSR).
+
+MCP install URL generation:
+
+- Derives from existing control-plane/frontend config.
+- Prioritizes server-side `CONTROL_PLANE_UPSTREAM_URL` (or server/base control-plane URL) when available.
+- In local dev, defaults to direct Convex MCP URL: `http://127.0.0.1:8788/v1/mcp?...`
 
 WorkOS auth setup (optional but recommended):
 

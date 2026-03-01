@@ -124,8 +124,22 @@ export const ControlPlaneOrganizationsLive = HttpApiBuilder.group(
             });
           }
 
+          const payloadWithCreator = {
+            ...payload,
+            createdByAccountId: actor.principal.accountId,
+          };
+
+          const existingOrganizations = yield* service.listOrganizations();
+          const organizationExists = existingOrganizations.some(
+            (organization) => organization.id === payload.id,
+          );
+
+          if (!organizationExists) {
+            return yield* service.upsertOrganization({ payload: payloadWithCreator });
+          }
+
           return yield* withPolicy(requireManageOrganization(payload.id))(
-            service.upsertOrganization({ payload }),
+            service.upsertOrganization({ payload: payloadWithCreator }),
           ).pipe(Effect.provideService(Actor, actor));
         }).pipe(
           Effect.catchTag("ActorUnauthenticatedError", (cause) =>

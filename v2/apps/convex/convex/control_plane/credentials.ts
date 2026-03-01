@@ -12,13 +12,20 @@ import {
 import { v } from "convex/values";
 import * as Schema from "effect/Schema";
 
+import { internal } from "../_generated/api";
+import { decryptSecretValue, encryptSecretValue } from "../credential_crypto";
 import {
+  action,
+  internalAction,
+  internalMutation,
   internalQuery,
   mutation,
   query,
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
+
+const runtimeInternal = internal as any;
 
 const decodeSourceCredentialBinding = Schema.decodeUnknownSync(
   SourceCredentialBindingSchema,
@@ -44,11 +51,26 @@ const credentialProviderValidator = v.union(
   v.literal("custom"),
 );
 
+const credentialSecretProviderValidator = v.literal("local");
+
 const credentialScopeTypeValidator = v.union(
   v.literal("workspace"),
   v.literal("organization"),
   v.literal("account"),
 );
+
+const sourceCredentialBindingPayloadValidator = v.object({
+  id: v.optional(v.string()),
+  credentialId: v.string(),
+  scopeType: credentialScopeTypeValidator,
+  sourceKey: v.string(),
+  provider: credentialProviderValidator,
+  secretProvider: v.optional(credentialSecretProviderValidator),
+  secretRef: v.string(),
+  accountId: v.optional(v.union(v.string(), v.null())),
+  additionalHeadersJson: v.optional(v.union(v.string(), v.null())),
+  boundAuthFingerprint: v.optional(v.union(v.string(), v.null())),
+});
 
 const sortSourceCredentialBindings = (
   bindings: ReadonlyArray<SourceCredentialBinding>,
@@ -73,11 +95,11 @@ const resolveWorkspaceOrganizationId = async (
     .withIndex("by_domainId", (q) => q.eq("id", workspaceId))
     .unique();
 
-  if (workspace?.organizationId !== null && workspace?.organizationId !== undefined) {
-    return workspace.organizationId;
+  if (!workspace) {
+    throw new Error(`Workspace not found: ${workspaceId}`);
   }
 
-  return `org_${workspaceId}`;
+  return workspace.organizationId;
 };
 
 const canAccessSourceCredentialBinding = (
@@ -197,7 +219,134 @@ const selectBestIngestBinding = (
   return ranked[0]?.binding ?? null;
 };
 
-export const resolveSourceCredentialHeadersForIngest = internalQuery({
+const requireLocalSecretProvider = (
+  secretProvider: SourceCredentialBinding["secretProvider"],
+): "local" => {
+  if (secretProvider !== "local") {
+    throw new Error("Convex credentials require secretProvider 'local'");
+  }
+
+  return "local";
+};
+
+const defaultSecretProvider = (): "local" => "local";
+
+const resolveSecretRefForHeaders = async (
+  binding: SourceCredentialBinding,
+): Promise<string> => {
+  requireLocalSecretProvider(binding.secretProvider);
+  return await decryptSecretValue(binding.secretRef);
+};
+
+const resolveIngestSelection = async (
+  ctx: QueryCtx,
+  args: {
+    workspaceId: string;
+    sourceId: string;
+    sourceName: string;
+    sourceEndpoint: string;
+  },
+): Promise<{
+  binding: SourceCredentialBinding | null;
+  oauthAccessToken: string | null;
+}> => {
+  const organizationId = await resolveWorkspaceOrganizationId(ctx, args.workspaceId);
+  const sourceKeys = sourceKeyCandidatesForIngest({
+    sourceId: args.sourceId,
+    sourceName: args.sourceName,
+    sourceEndpoint: args.sourceEndpoint,
+  });
+
+  const candidateRows = await Promise.all(
+    sourceKeys.map((sourceKey) =>
+      ctx.db
+        .query("sourceCredentialBindings")
+        .withIndex("by_sourceKey", (q) => q.eq("sourceKey", sourceKey))
+        .collect()
+        .then((rows) =>
+          rows.map((row) => ({
+            binding: toSourceCredentialBinding(row as unknown as Record<string, unknown>),
+            sourceKey,
+          })),
+        ),
+    ),
+  );
+
+  const flattened = candidateRows.flat();
+  const dedupedById = new Map<string, { binding: SourceCredentialBinding; sourceKey: string }>();
+  for (const candidate of flattened) {
+    if (!dedupedById.has(candidate.binding.id)) {
+      dedupedById.set(candidate.binding.id, candidate);
+    }
+  }
+
+  const sourceKeyRankByKey = new Map<string, number>();
+  sourceKeys.forEach((sourceKey, index) => {
+    sourceKeyRankByKey.set(sourceKey, sourceKeys.length - index);
+  });
+
+  const binding = selectBestIngestBinding(
+    [...dedupedById.values()].map((candidate) => ({
+      binding: candidate.binding,
+      sourceKeyRank: sourceKeyRankByKey.get(candidate.sourceKey) ?? 0,
+    })),
+    {
+      workspaceId: args.workspaceId,
+      organizationId,
+    },
+  );
+
+  if (!binding || !canAccessSourceCredentialBinding(binding, { workspaceId: args.workspaceId, organizationId })) {
+    return {
+      binding: null,
+      oauthAccessToken: null,
+    };
+  }
+
+  const oauthTokens = binding.provider === "oauth2"
+    ? (await ctx.db
+        .query("oauthTokens")
+        .withIndex("by_sourceId", (q) => q.eq("sourceId", args.sourceId))
+        .collect()).map((row) => toOAuthToken(row as unknown as Record<string, unknown>))
+    : [];
+
+  const oauthAccessToken = binding.provider === "oauth2"
+    ? selectOAuthAccessToken(oauthTokens, {
+        workspaceId: args.workspaceId,
+        organizationId,
+        accountId: null,
+        sourceKey: binding.sourceKey,
+      }, args.sourceId)
+    : null;
+
+  return {
+    binding,
+    oauthAccessToken,
+  };
+};
+
+const withDecryptedSecret = async (
+  binding: SourceCredentialBinding,
+): Promise<SourceCredentialBinding> => {
+  const secretRef = await resolveSecretRefForHeaders(binding);
+  return {
+    ...binding,
+    secretProvider: "local",
+    secretRef,
+  };
+};
+
+export const resolveSourceCredentialSelectionForIngest = internalQuery({
+  args: {
+    workspaceId: v.string(),
+    sourceId: v.string(),
+    sourceName: v.string(),
+    sourceEndpoint: v.string(),
+  },
+  handler: async (ctx, args) => resolveIngestSelection(ctx, args),
+});
+
+export const resolveSourceCredentialHeadersForIngest = internalAction({
   args: {
     workspaceId: v.string(),
     sourceId: v.string(),
@@ -207,73 +356,25 @@ export const resolveSourceCredentialHeadersForIngest = internalQuery({
   handler: async (ctx, args): Promise<{
     headers: Record<string, string>;
   }> => {
-    const organizationId = await resolveWorkspaceOrganizationId(ctx, args.workspaceId);
-    const sourceKeys = sourceKeyCandidatesForIngest({
-      sourceId: args.sourceId,
-      sourceName: args.sourceName,
-      sourceEndpoint: args.sourceEndpoint,
-    });
+    const selected = await ctx.runQuery(
+      runtimeInternal.control_plane.credentials.resolveSourceCredentialSelectionForIngest,
+      args,
+    ) as {
+      binding: SourceCredentialBinding | null;
+      oauthAccessToken: string | null;
+    };
 
-    const candidateRows = await Promise.all(
-      sourceKeys.map((sourceKey) =>
-        ctx.db
-          .query("sourceCredentialBindings")
-          .withIndex("by_sourceKey", (q) => q.eq("sourceKey", sourceKey))
-          .collect()
-          .then((rows) =>
-            rows.map((row) => ({
-              binding: toSourceCredentialBinding(row as unknown as Record<string, unknown>),
-              sourceKey,
-            })),
-          ),
-      ),
-    );
-
-    const flattened = candidateRows.flat();
-    const dedupedById = new Map<string, { binding: SourceCredentialBinding; sourceKey: string }>();
-    for (const candidate of flattened) {
-      if (!dedupedById.has(candidate.binding.id)) {
-        dedupedById.set(candidate.binding.id, candidate);
-      }
+    if (!selected.binding) {
+      return {
+        headers: {},
+      };
     }
 
-    const sourceKeyRankByKey = new Map<string, number>();
-    sourceKeys.forEach((sourceKey, index) => {
-      sourceKeyRankByKey.set(sourceKey, sourceKeys.length - index);
+    const decrypted = await withDecryptedSecret(selected.binding);
+
+    const headers = buildCredentialHeaders(decrypted, {
+      oauthAccessToken: selected.oauthAccessToken,
     });
-
-    const binding = selectBestIngestBinding(
-      [...dedupedById.values()].map((candidate) => ({
-        binding: candidate.binding,
-        sourceKeyRank: sourceKeyRankByKey.get(candidate.sourceKey) ?? 0,
-      })),
-      {
-        workspaceId: args.workspaceId,
-        organizationId,
-      },
-    );
-
-    if (!binding || !canAccessSourceCredentialBinding(binding, { workspaceId: args.workspaceId, organizationId })) {
-      return { headers: {} };
-    }
-
-    const oauthTokens = binding.provider === "oauth2"
-      ? (await ctx.db
-          .query("oauthTokens")
-          .withIndex("by_sourceId", (q) => q.eq("sourceId", args.sourceId))
-          .collect()).map((row) => toOAuthToken(row as unknown as Record<string, unknown>))
-      : [];
-
-    const oauthAccessToken = binding.provider === "oauth2"
-      ? selectOAuthAccessToken(oauthTokens, {
-          workspaceId: args.workspaceId,
-          organizationId,
-          accountId: null,
-          sourceKey: binding.sourceKey,
-        }, args.sourceId)
-      : null;
-
-    const headers = buildCredentialHeaders(binding, { oauthAccessToken });
 
     return { headers };
   },
@@ -311,24 +412,18 @@ export const listCredentialBindings = query({
       new Map(bindings.map((binding) => [binding.id, binding])).values(),
     );
 
-    return sortSourceCredentialBindings(uniqueBindings);
+    const decryptedBindings = await Promise.all(
+      uniqueBindings.map((binding) => withDecryptedSecret(binding)),
+    );
+
+    return sortSourceCredentialBindings(decryptedBindings);
   },
 });
 
-export const upsertCredentialBinding = mutation({
+export const upsertCredentialBindingRecord = internalMutation({
   args: {
     workspaceId: v.string(),
-    payload: v.object({
-      id: v.optional(v.string()),
-      credentialId: v.string(),
-      scopeType: credentialScopeTypeValidator,
-      sourceKey: v.string(),
-      provider: credentialProviderValidator,
-      secretRef: v.string(),
-      accountId: v.optional(v.union(v.string(), v.null())),
-      additionalHeadersJson: v.optional(v.union(v.string(), v.null())),
-      boundAuthFingerprint: v.optional(v.union(v.string(), v.null())),
-    }),
+    payload: sourceCredentialBindingPayloadValidator,
   },
   handler: async (ctx, args): Promise<SourceCredentialBinding> => {
     const payload = args.payload as UpsertCredentialBindingPayload;
@@ -360,6 +455,12 @@ export const upsertCredentialBinding = mutation({
       throw new Error(`Credential binding not found: ${bindingId}`);
     }
 
+    const secretProvider = requireLocalSecretProvider(
+      payload.secretProvider
+      ?? existingBinding?.secretProvider
+      ?? defaultSecretProvider(),
+    );
+
     const nextBinding = decodeSourceCredentialBinding({
       id: bindingId,
       credentialId: payload.credentialId,
@@ -369,6 +470,7 @@ export const upsertCredentialBinding = mutation({
       scopeType: payload.scopeType,
       sourceKey: payload.sourceKey,
       provider: payload.provider,
+      secretProvider,
       secretRef: payload.secretRef,
       additionalHeadersJson: payload.additionalHeadersJson ?? null,
       boundAuthFingerprint: payload.boundAuthFingerprint ?? null,
@@ -383,6 +485,40 @@ export const upsertCredentialBinding = mutation({
     }
 
     return nextBinding;
+  },
+});
+
+export const upsertCredentialBinding = action({
+  args: {
+    workspaceId: v.string(),
+    payload: sourceCredentialBindingPayloadValidator,
+  },
+  handler: async (ctx, args): Promise<SourceCredentialBinding> => {
+    const payload = args.payload as UpsertCredentialBindingPayload;
+    const requestedSecretRef = payload.secretRef.trim();
+    if (requestedSecretRef.length === 0) {
+      throw new Error("Credential secret is required");
+    }
+
+    const encryptedSecretRef = await encryptSecretValue(requestedSecretRef);
+
+    const written = await ctx.runMutation(
+      runtimeInternal.control_plane.credentials.upsertCredentialBindingRecord,
+      {
+        workspaceId: args.workspaceId,
+        payload: {
+          ...payload,
+          secretProvider: "local",
+          secretRef: encryptedSecretRef,
+        },
+      },
+    ) as SourceCredentialBinding;
+
+    return {
+      ...written,
+      secretProvider: "local",
+      secretRef: requestedSecretRef,
+    };
   },
 });
 

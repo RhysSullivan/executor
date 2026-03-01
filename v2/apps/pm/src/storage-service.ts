@@ -97,13 +97,12 @@ const resolveWorkspaceOrganizationId = (
   workspaceId: WorkspaceId,
 ): OrganizationId => {
   const workspace = snapshot.workspaces.find((item) => item.id === workspaceId);
-  const organizationId = workspace?.organizationId;
 
-  if (organizationId !== null && organizationId !== undefined) {
-    return organizationId;
+  if (!workspace) {
+    throw new Error(`Workspace not found: ${workspaceId}`);
   }
 
-  return (`org_${workspaceId}`) as OrganizationId;
+  return workspace.organizationId;
 };
 
 const canAccessStorageInstance = (

@@ -17,7 +17,6 @@ import {
 import * as Effect from "effect/Effect";
 
 import {
-  ControlPlaneBadRequestError,
   ControlPlaneForbiddenError,
   ControlPlaneStorageError,
   ControlPlaneUnauthorizedError,
@@ -102,13 +101,10 @@ const filterVisibleWorkspaces = (
       permission: "workspace:read",
       workspaceId: workspace.id,
     })
-    || (
-      workspace.organizationId !== null
-      && actor.hasPermission({
-        permission: "workspace:read",
-        organizationId: workspace.organizationId,
-      })
-    )
+    || actor.hasPermission({
+      permission: "workspace:read",
+      organizationId: workspace.organizationId,
+    })
   );
 
 export const ControlPlaneWorkspacesLive = HttpApiBuilder.group(
@@ -143,32 +139,12 @@ export const ControlPlaneWorkspacesLive = HttpApiBuilder.group(
           const service = yield* ControlPlaneService;
           const actor = yield* resolveActor;
 
-          const workspacePolicy = (() => {
-            if (payload.id && payload.organizationId !== null && payload.organizationId !== undefined) {
-              return any([
+          const workspacePolicy = payload.id
+            ? any([
                 requireManageWorkspace(payload.id),
                 requireManageWorkspaceInOrganization(payload.organizationId),
-              ]);
-            }
-
-            if (payload.id) {
-              return requireManageWorkspace(payload.id);
-            }
-
-            if (payload.organizationId !== null && payload.organizationId !== undefined) {
-              return requireManageWorkspaceInOrganization(payload.organizationId);
-            }
-
-            return null;
-          })();
-
-          if (!workspacePolicy) {
-            return yield* new ControlPlaneBadRequestError({
-              operation: "workspaces.upsert",
-              message: "workspace id or organizationId is required",
-              details: "payload.id or payload.organizationId must be provided for scoped authorization",
-            });
-          }
+              ])
+            : requireManageWorkspaceInOrganization(payload.organizationId);
 
           return yield* withPolicy(workspacePolicy)(
             service.upsertWorkspace({ payload }),

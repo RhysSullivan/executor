@@ -119,11 +119,11 @@ const resolveWorkspaceOrganizationId = async (
     .withIndex("by_domainId", (q) => q.eq("id", workspaceId))
     .unique();
 
-  if (workspace?.organizationId !== null && workspace?.organizationId !== undefined) {
-    return workspace.organizationId;
+  if (!workspace) {
+    throw new Error(`Workspace not found: ${workspaceId}`);
   }
 
-  return `org_${workspaceId}`;
+  return workspace.organizationId;
 };
 
 const canAccessStorageInstance = (

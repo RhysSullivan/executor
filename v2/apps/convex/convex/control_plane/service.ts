@@ -50,7 +50,7 @@ export const makeConvexControlPlaneService = (
     upsertCredentialBinding: (input) =>
       Effect.tryPromise({
         try: () =>
-          ctx.runMutation(api.controlPlane.upsertCredentialBinding, {
+          ctx.runAction(api.controlPlane.upsertCredentialBinding, {
             workspaceId: input.workspaceId,
             payload: input.payload,
           }),

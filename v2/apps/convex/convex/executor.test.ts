@@ -27,15 +27,91 @@ const setup = () =>
     "./_generated/api.js": () => import("./_generated/api.js"),
   });
 
+const ensureWorkspace = async (
+  t: ReturnType<typeof setup>,
+  workspaceId: string,
+  organizationId: string,
+): Promise<void> => {
+  await t.mutation(api.controlPlane.upsertWorkspace, {
+    payload: {
+      id: workspaceId,
+      organizationId,
+      name: workspaceId,
+    },
+  });
+};
+
 describe("Convex executor and control-plane", () => {
   it.effect("executes code via executeRunImpl", () =>
     Effect.gen(function* () {
-      const result = yield* executeRunImpl({
-        code: "return 6 * 7;",
-      });
+      const originalEnv = {
+        runUrl: process.env.CLOUDFLARE_SANDBOX_RUN_URL,
+        authToken: process.env.CLOUDFLARE_SANDBOX_AUTH_TOKEN,
+        callbackUrl: process.env.CLOUDFLARE_SANDBOX_CALLBACK_URL,
+      };
+      const originalFetch = globalThis.fetch;
 
-      expect(result.status).toBe("completed");
-      expect(result.result).toBe(42);
+      try {
+        process.env.CLOUDFLARE_SANDBOX_RUN_URL = "https://sandbox.local/run";
+        process.env.CLOUDFLARE_SANDBOX_AUTH_TOKEN = "sandbox-token";
+        process.env.CLOUDFLARE_SANDBOX_CALLBACK_URL = "https://convex.local/callback";
+
+        globalThis.fetch = (async (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => {
+          const url = typeof input === "string" ? input : input.toString();
+          if (url !== "https://sandbox.local/run") {
+            throw new Error(`Unexpected URL: ${url}`);
+          }
+
+          expect(init?.method).toBe("POST");
+          const headers = new Headers(init?.headers as HeadersInit | undefined);
+          expect(headers.get("authorization")).toBe(
+            "Bearer sandbox-token",
+          );
+
+          return new Response(
+            JSON.stringify({
+              status: "completed",
+              result: 42,
+            }),
+            {
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          );
+        }) as unknown as typeof fetch;
+
+        const result = yield* executeRunImpl({
+          code: "return 6 * 7;",
+        });
+
+        expect(result.status).toBe("completed");
+        expect(result.result).toBe(42);
+      } finally {
+        globalThis.fetch = originalFetch;
+
+        if (originalEnv.runUrl === undefined) {
+          delete process.env.CLOUDFLARE_SANDBOX_RUN_URL;
+        } else {
+          process.env.CLOUDFLARE_SANDBOX_RUN_URL = originalEnv.runUrl;
+        }
+
+        if (originalEnv.authToken === undefined) {
+          delete process.env.CLOUDFLARE_SANDBOX_AUTH_TOKEN;
+        } else {
+          process.env.CLOUDFLARE_SANDBOX_AUTH_TOKEN = originalEnv.authToken;
+        }
+
+        if (originalEnv.callbackUrl === undefined) {
+          delete process.env.CLOUDFLARE_SANDBOX_CALLBACK_URL;
+        } else {
+          process.env.CLOUDFLARE_SANDBOX_CALLBACK_URL = originalEnv.callbackUrl;
+        }
+      }
     }),
   );
 
@@ -44,7 +120,7 @@ describe("Convex executor and control-plane", () => {
       const t = setup();
 
       const added = (yield* Effect.tryPromise(() =>
-        t.action(api.controlPlane.upsertSource, {
+        t.action(api.controlPlane.upsertSource as any, {
           workspaceId: "ws_1",
           payload: {
             id: "src_1",
@@ -106,8 +182,10 @@ describe("Convex executor and control-plane", () => {
     Effect.gen(function* () {
       const t = setup();
 
+      yield* Effect.tryPromise(() => ensureWorkspace(t, "ws_1", "org_1"));
+
       const addedCredential = (yield* Effect.tryPromise(() =>
-        t.mutation(api.controlPlane.upsertCredentialBinding, {
+        t.action(api.controlPlane.upsertCredentialBinding, {
           workspaceId: "ws_1",
           payload: {
             id: "credential_binding_1",
@@ -448,7 +526,7 @@ describe("Convex executor and control-plane", () => {
         }),
       )) as {
         id: string;
-        organizationId: string | null;
+        organizationId: string;
       };
 
       expect(workspace.id).toBe("ws_1");
@@ -559,6 +637,7 @@ describe("Convex executor and control-plane", () => {
           rows: manifest.tools.map((tool) => ({
             toolId: tool.toolId,
             protocol: "openapi",
+            method: tool.method,
             path: `weather_api_src_1.${tool.toolId}`,
             name: tool.name,
             description: tool.description,
@@ -683,6 +762,7 @@ describe("Convex executor and control-plane", () => {
             {
               toolId: "linear.graphql",
               protocol: "graphql",
+              method: "post",
               path: "linear_api_phql_1.linear.graphql",
               name: "Linear GraphQL",
               description: "Run raw GraphQL queries against Linear",
@@ -694,6 +774,7 @@ describe("Convex executor and control-plane", () => {
             {
               toolId: "linear.query.viewer",
               protocol: "graphql",
+              method: "post",
               path: "linear_api_phql_1.linear.query.viewer",
               name: "viewer",
               description: "Current viewer",
@@ -811,6 +892,7 @@ describe("Convex executor and control-plane", () => {
             {
               toolId: "deepwiki.mcp.search_docs",
               protocol: "mcp",
+              method: "post",
               path: "deepwiki_mcp_1.deepwiki.mcp.search_docs",
               name: "search_docs",
               description: "Search docs",
@@ -862,6 +944,8 @@ describe("Convex executor and control-plane", () => {
     Effect.gen(function* () {
       const t = setup();
       const originalFetch = globalThis.fetch;
+
+      yield* Effect.tryPromise(() => ensureWorkspace(t, "ws_auth", "org_auth"));
 
       globalThis.fetch = (async () =>
         new Response(
@@ -931,6 +1015,8 @@ describe("Convex executor and control-plane", () => {
     Effect.gen(function* () {
       const t = setup();
       const originalFetch = globalThis.fetch;
+
+      yield* Effect.tryPromise(() => ensureWorkspace(t, "ws_cred", "org_cred"));
 
       globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
         const authHeader = new Headers(init?.headers).get("authorization");
@@ -1026,7 +1112,7 @@ describe("Convex executor and control-plane", () => {
         const now = Date.now();
 
         yield* Effect.tryPromise(() =>
-          t.mutation(api.controlPlane.upsertCredentialBinding, {
+          t.action(api.controlPlane.upsertCredentialBinding, {
             workspaceId: "ws_cred",
             payload: {
               id: "credential_binding_linear",
@@ -1101,6 +1187,10 @@ describe("Convex executor and control-plane", () => {
     Effect.gen(function* () {
       const t = setup();
       const originalFetch = globalThis.fetch;
+
+      yield* Effect.tryPromise(() =>
+        ensureWorkspace(t, "ws_mcp_ingest", "org_mcp_ingest")
+      );
 
       globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
         const authHeader = new Headers(init?.headers).get("authorization");
@@ -1215,7 +1305,7 @@ describe("Convex executor and control-plane", () => {
         const now = Date.now();
 
         yield* Effect.tryPromise(() =>
-          t.mutation(api.controlPlane.upsertCredentialBinding, {
+          t.action(api.controlPlane.upsertCredentialBinding, {
             workspaceId: "ws_mcp_ingest",
             payload: {
               id: "credential_binding_mcp",

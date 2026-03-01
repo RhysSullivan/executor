@@ -66,6 +66,8 @@ export {
   makeOpenApiToolProvider,
   openApiToolDescriptorsFromManifest,
 } from "./openapi-provider";
+export { makeMcpToolProvider, type MakeMcpToolProviderOptions } from "./mcp-provider";
+export { makeGraphqlToolProvider } from "./graphql-provider";
 
 export {
   ToolProviderRegistryLive,

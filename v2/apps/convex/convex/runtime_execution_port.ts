@@ -8,12 +8,8 @@ import {
   makeRuntimeAdapterRegistry,
   type RuntimeExecuteError,
 } from "@executor-v2/engine";
-import { makeLocalInProcessRuntimeAdapter } from "@executor-v2/runtime-local-inproc";
+import { makeCloudflareWorkerLoaderRuntimeAdapter } from "@executor-v2/runtime-cloudflare-worker-loader";
 import * as Effect from "effect/Effect";
-
-const convexRuntimeAdapter = makeLocalInProcessRuntimeAdapter();
-
-const runtimeAdapters = makeRuntimeAdapterRegistry([convexRuntimeAdapter]);
 
 export type ConvexRuntimeExecutionPortOptions = {
   toolRegistry?: ToolRegistry;
@@ -22,6 +18,9 @@ export type ConvexRuntimeExecutionPortOptions = {
 export const createExecuteRuntimeRunInConvex = (
   options: ConvexRuntimeExecutionPortOptions = {},
 ): ExecuteRuntimeRun => {
+  const convexRuntimeAdapter = makeCloudflareWorkerLoaderRuntimeAdapter();
+  const runtimeAdapters = makeRuntimeAdapterRegistry([convexRuntimeAdapter]);
+
   const toolRegistry =
     options.toolRegistry ??
     createStaticToolRegistry({
@@ -46,8 +45,9 @@ export const createExecuteRuntimeRunInConvex = (
       if (!isAvailable) {
         return yield* new RuntimeExecutionPortError({
           operation: "runtime_available",
-          message: `Runtime '${convexRuntimeAdapter.kind}' is not available in this convex process.`,
-          details: null,
+          message: `Runtime '${convexRuntimeAdapter.kind}' is not configured in this convex process.`,
+          details:
+            "Set CLOUDFLARE_SANDBOX_RUN_URL, CLOUDFLARE_SANDBOX_AUTH_TOKEN, and CLOUDFLARE_SANDBOX_CALLBACK_URL.",
         });
       }
 

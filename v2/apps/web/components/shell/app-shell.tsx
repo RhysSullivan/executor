@@ -128,18 +128,10 @@ export function AppShell({
       {/* ---- Sidebar ---- */}
       <aside className="flex w-[220px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         {/* Logo / brand */}
-        <div className="flex h-12 items-center gap-2 border-b border-sidebar-border px-4">
-          <div className="flex size-6 items-center justify-center rounded bg-primary/90 text-[10px] font-bold text-primary-foreground">
-            Ex
+        <div className="border-b border-sidebar-border px-3 py-2">
+          <div className="min-w-0">
+            <WorkspaceSelector />
           </div>
-          <span className="text-[13px] font-semibold tracking-tight text-sidebar-foreground">
-            Executor v2
-          </span>
-        </div>
-
-        {/* Workspace selector */}
-        <div className="border-b border-sidebar-border px-3 py-2.5">
-          <WorkspaceSelector />
         </div>
 
         {/* Nav items */}

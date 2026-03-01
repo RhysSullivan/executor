@@ -66,11 +66,11 @@ export const upsertWorkspace = controlPlaneClient.mutation("workspaces", "upsert
 
 export const toWorkspaceUpsertPayload = (input: {
   id?: Workspace["id"];
-  organizationId?: Workspace["organizationId"];
+  organizationId: Workspace["organizationId"];
   name: string;
 }): UpsertWorkspacePayload => ({
   ...(input.id ? { id: input.id } : {}),
-  ...(input.organizationId !== undefined ? { organizationId: input.organizationId } : {}),
+  organizationId: input.organizationId,
   name: input.name,
 });
 

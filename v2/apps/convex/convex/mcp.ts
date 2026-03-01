@@ -71,7 +71,7 @@ const hasWorkspaceAccess = async (
       runtimeInternal.control_plane.actor.getWorkspaceForActor,
       { workspaceId },
     )) as {
-      organizationId: string | null;
+      organizationId: string;
       createdByAccountId: string | null;
     } | null;
 
@@ -81,10 +81,6 @@ const hasWorkspaceAccess = async (
 
     if (workspace.createdByAccountId === accountId) {
       return true;
-    }
-
-    if (!workspace.organizationId) {
-      return false;
     }
 
     const memberships = (await ctx.runQuery(
