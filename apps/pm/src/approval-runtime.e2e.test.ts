@@ -153,7 +153,7 @@ const setupApprovalRuntimeHarness = (runId: string) =>
 
     const persistence = yield* Effect.acquireRelease(
       makeSqlControlPlanePersistence({
-        sqlitePath: path.resolve(stateDir, "control-plane.sqlite"),
+        localDataDir: path.resolve(stateDir, "control-plane-pgdata"),
       }),
       (resource) => Effect.promise(() => resource.close()).pipe(Effect.orDie),
     );

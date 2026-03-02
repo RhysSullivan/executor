@@ -25,8 +25,8 @@ import { createRowOperations } from "./row-operations";
 import { createRowsEffectApi } from "./rows-effect-api";
 import {
   createDrizzleContext,
+  createPGliteAdapter,
   createPostgresAdapter,
-  createSqliteAdapter,
   runMigrations,
   type SqlBackend,
 } from "./sql-internals";
@@ -34,7 +34,7 @@ import { createSourceAndArtifactStores } from "./source-artifact-stores";
 
 export type SqlControlPlanePersistenceOptions = {
   databaseUrl?: string;
-  sqlitePath?: string;
+  localDataDir?: string;
   postgresApplicationName?: string;
 };
 
@@ -141,20 +141,20 @@ export const makeSqlControlPlanePersistence = (
   Effect.tryPromise({
     try: async () => {
       const databaseUrl = trim(options.databaseUrl);
-      const sqlitePath = path.resolve(
-        options.sqlitePath ?? ".executor-v2/control-plane.sqlite",
+      const localDataDir = path.resolve(
+        options.localDataDir ?? ".executor-v2/control-plane-pgdata",
       );
       const backend: SqlBackend =
         databaseUrl && (databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://"))
           ? "postgres"
-          : "sqlite";
+          : "pglite";
 
       const adapter =
         backend === "postgres"
           ? await createPostgresAdapter(databaseUrl!, trim(options.postgresApplicationName))
-          : await createSqliteAdapter(sqlitePath);
+          : await createPGliteAdapter(localDataDir);
 
-      await runMigrations(backend, adapter);
+      await runMigrations(adapter);
       const drizzleContext = createDrizzleContext(adapter);
       const { db, tables } = drizzleContext;
 

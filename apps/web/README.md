@@ -21,10 +21,10 @@ Database selection priority:
 - `DATABASE_URL`
 - `POSTGRES_URL`
 
-If none are set, fallback is local SQLite at:
+If none are set, fallback is local PGlite data at:
 
-- `CONTROL_PLANE_SQLITE_PATH`
-- default: `.executor-v2/web-state/control-plane.sqlite`
+- `CONTROL_PLANE_DATA_DIR`
+- default: `.executor-v2/web-state/control-plane-pgdata`
 
 If needed, `NEXT_PUBLIC_CONTROL_PLANE_BASE_URL` can override the browser base URL.
 
@@ -32,7 +32,7 @@ MCP install URL generation:
 
 - Derives from existing control-plane/frontend config.
 - Prioritizes server-side `CONTROL_PLANE_UPSTREAM_URL` (or server/base control-plane URL) when available.
-- In local dev with no DB URL, defaults to local SQLite-backed control-plane in this Next.js app.
+- In local dev with no DB URL, defaults to local PGlite-backed control-plane in this Next.js app.
 
 WorkOS auth setup (optional but recommended):
 

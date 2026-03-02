@@ -179,9 +179,9 @@ const defaultRuntimeKind =
 const persistence: SqlControlPlanePersistence = await Effect.runPromise(
   makeSqlControlPlanePersistence({
     databaseUrl: process.env.PM_CONTROL_PLANE_DATABASE_URL,
-    sqlitePath:
-      process.env.PM_CONTROL_PLANE_SQLITE_PATH
-      ?? path.resolve(pmStateRootDir, "control-plane.sqlite"),
+    localDataDir:
+      process.env.PM_CONTROL_PLANE_DATA_DIR
+      ?? path.resolve(pmStateRootDir, "control-plane-pgdata"),
     postgresApplicationName: "executor-v2-pm",
   }),
 );

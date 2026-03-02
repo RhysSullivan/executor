@@ -1,11 +1,13 @@
 import { defineConfig } from "drizzle-kit";
 
+const databaseUrl = process.env.DATABASE_URL ?? "postgres://localhost:5432/executor_v2";
+
 export default defineConfig({
-  dialect: "sqlite",
+  dialect: "postgresql",
   schema: "./src/schema.ts",
-  out: "./drizzle/sqlite",
+  out: "./drizzle",
   dbCredentials: {
-    url: "./.executor-v2/control-plane.sqlite",
+    url: databaseUrl,
   },
   strict: true,
   verbose: true,

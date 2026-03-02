@@ -40,7 +40,7 @@ const trim = (value: string | undefined): string | undefined => {
 };
 
 const defaultControlPlaneStateRootDir = ".executor-v2/web-state";
-const defaultControlPlaneSqliteFile = `${defaultControlPlaneStateRootDir}/control-plane.sqlite`;
+const defaultControlPlaneDataDir = `${defaultControlPlaneStateRootDir}/control-plane-pgdata`;
 
 type ControlPlaneRuntime = {
   persistence: SqlControlPlanePersistence;
@@ -91,8 +91,8 @@ const resolveDatabaseUrl = (): string | undefined => {
   return undefined;
 };
 
-const resolveSqlitePath = (): string =>
-  trim(process.env.CONTROL_PLANE_SQLITE_PATH) ?? defaultControlPlaneSqliteFile;
+const resolveControlPlaneDataDir = (): string =>
+  trim(process.env.CONTROL_PLANE_DATA_DIR) ?? defaultControlPlaneDataDir;
 
 const resolveStateRootDir = (): string =>
   trim(process.env.CONTROL_PLANE_STATE_ROOT_DIR) ?? defaultControlPlaneStateRootDir;
@@ -184,7 +184,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
   const persistence = await Effect.runPromise(
     makeSqlControlPlanePersistence({
       databaseUrl: resolveDatabaseUrl(),
-      sqlitePath: resolveSqlitePath(),
+      localDataDir: resolveControlPlaneDataDir(),
       postgresApplicationName: "executor-v2-web",
     }),
   );

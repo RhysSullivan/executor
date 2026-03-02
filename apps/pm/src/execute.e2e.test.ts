@@ -95,7 +95,7 @@ const withStateDir = Effect.acquireRelease(
     ),
 );
 
-const withPmProcess = (port: number, sqlitePath: string) =>
+const withPmProcess = (port: number, localDataDir: string) =>
   Effect.acquireRelease(
     Effect.sync(() =>
       spawn("bun", ["src/main.ts"], {
@@ -103,7 +103,7 @@ const withPmProcess = (port: number, sqlitePath: string) =>
         env: {
           ...process.env,
           PORT: String(port),
-          PM_CONTROL_PLANE_SQLITE_PATH: sqlitePath,
+          PM_CONTROL_PLANE_DATA_DIR: localDataDir,
         },
         stdio: "pipe",
       }),
@@ -153,9 +153,9 @@ describe("PM execute E2E", () => {
         Effect.gen(function* () {
           const port = yield* findFreePort;
           const stateDir = yield* withStateDir;
-          const sqlitePath = path.resolve(stateDir, "control-plane.sqlite");
+          const localDataDir = path.resolve(stateDir, "control-plane-pgdata");
 
-          yield* withPmProcess(port, sqlitePath);
+          yield* withPmProcess(port, localDataDir);
           yield* waitForHealth(port);
 
           const { client } = yield* withMcpClient(port);

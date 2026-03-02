@@ -8,14 +8,12 @@
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "db:generate": "drizzle-kit generate --config drizzle.config.ts",
-    "db:generate:pg": "drizzle-kit generate --config drizzle.config.pg.ts",
     "db:check": "drizzle-kit check --config drizzle.config.ts",
-    "db:check:pg": "drizzle-kit check --config drizzle.config.pg.ts",
     "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
-    "db:migrate:pg": "drizzle-kit migrate --config drizzle.config.pg.ts",
     "db:studio": "drizzle-kit studio --config drizzle.config.ts"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.3.10",
     "@executor-v2/persistence-ports": "workspace:*",
     "@executor-v2/schema": "workspace:*",
     "drizzle-orm": "^0.44.7",
