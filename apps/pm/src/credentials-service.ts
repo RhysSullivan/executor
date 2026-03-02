@@ -1,22 +1,33 @@
-import { SourceStoreError } from "@executor-v2/persistence-ports";
 import { type SqlControlPlanePersistence } from "@executor-v2/persistence-sql";
 import {
   makeControlPlaneCredentialsService,
   type ControlPlaneCredentialsServiceShape,
-  type UpsertCredentialBindingPayload,
 } from "@executor-v2/management-api";
 import {
   type AuthConnection,
-  type AuthConnectionStrategy,
   type AuthMaterial,
   type OAuthState,
-  type OrganizationId,
   type SourceAuthBinding,
   type SourceCredentialBinding,
-  type Workspace,
   type WorkspaceId,
 } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
+
+import {
+  createSqlSourceStoreErrorMapper,
+  resolveWorkspaceOrganizationId,
+} from "./control-plane-row-helpers";
+import {
+  buildOAuthRefreshConfigFromPayload,
+  encodeOAuthRefreshConfig,
+  normalizeString,
+  parseOAuthRefreshConfig,
+  sortCredentialBindings,
+  sourceIdFromSourceKey,
+  sourceKeyFromSourceId,
+  strategyFromProvider,
+  toCompatSourceCredentialBinding,
+} from "./credentials-helpers";
 
 type CredentialRows = Pick<
   SqlControlPlanePersistence["rows"],
@@ -27,213 +38,7 @@ type CredentialRows = Pick<
   | "oauthStates"
 >;
 
-const toSourceStoreError = (
-  operation: string,
-  message: string,
-  details: string | null,
-): SourceStoreError =>
-  new SourceStoreError({
-    operation,
-    backend: "sql",
-    location: "credentials",
-    message,
-    reason: null,
-    details,
-  });
-
-const toSourceStoreErrorFromRowStore = (
-  operation: string,
-  error: { message: string; details: string | null; reason: string | null },
-): SourceStoreError =>
-  toSourceStoreError(operation, error.message, error.details ?? error.reason ?? null);
-
-const resolveWorkspaceOrganizationId = (
-  workspaces: ReadonlyArray<Workspace>,
-  workspaceId: WorkspaceId,
-): OrganizationId => {
-  const workspace = workspaces.find((item) => item.id === workspaceId);
-
-  if (!workspace) {
-    throw new Error(`Workspace not found: ${workspaceId}`);
-  }
-
-  return workspace.organizationId;
-};
-
-const normalizeString = (value: unknown): string | null => {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-};
-
-const sourceIdFromSourceKey = (sourceKey: string): string | null => {
-  const trimmed = sourceKey.trim();
-  if (!trimmed.startsWith("source:")) {
-    return null;
-  }
-
-  const sourceId = trimmed.slice("source:".length).trim();
-  return sourceId.length > 0 ? sourceId : null;
-};
-
-const sourceKeyFromSourceId = (sourceId: string): string => `source:${sourceId}`;
-
-const strategyFromProvider = (
-  provider: SourceCredentialBinding["provider"],
-): AuthConnectionStrategy => {
-  if (provider === "api_key") return "api_key";
-  if (provider === "bearer") return "bearer";
-  if (provider === "oauth2") return "oauth2";
-  if (provider === "basic") return "basic";
-  return "custom";
-};
-
-const providerFromStrategy = (
-  strategy: AuthConnectionStrategy,
-): SourceCredentialBinding["provider"] => {
-  if (strategy === "api_key") return "api_key";
-  if (strategy === "bearer") return "bearer";
-  if (strategy === "oauth2") return "oauth2";
-  if (strategy === "basic") return "basic";
-  return "custom";
-};
-
-const maskedSecretRef = (connection: AuthConnection): string => {
-  if (connection.strategy === "oauth2") {
-    if (connection.status === "reauth_required") {
-      return "oauth2://reauth_required";
-    }
-
-    if (connection.status === "active") {
-      return "oauth2://connected";
-    }
-  }
-
-  return "********";
-};
-
-const toCompatSourceCredentialBinding = (
-  binding: SourceAuthBinding,
-  connection: AuthConnection,
-): SourceCredentialBinding => ({
-  id: binding.id as unknown as SourceCredentialBinding["id"],
-  credentialId: connection.id as unknown as SourceCredentialBinding["credentialId"],
-  organizationId: binding.organizationId,
-  workspaceId: binding.workspaceId,
-  accountId: binding.accountId,
-  scopeType: binding.scopeType,
-  sourceKey: sourceKeyFromSourceId(binding.sourceId),
-  provider: providerFromStrategy(connection.strategy),
-  secretProvider: "local",
-  secretRef: maskedSecretRef(connection),
-  additionalHeadersJson: connection.additionalHeadersJson,
-  boundAuthFingerprint: null,
-  createdAt: binding.createdAt,
-  updatedAt: Math.max(binding.updatedAt, connection.updatedAt),
-});
-
-const sortCredentialBindings = (
-  bindings: ReadonlyArray<SourceCredentialBinding>,
-): Array<SourceCredentialBinding> =>
-  [...bindings].sort((left, right) => {
-    const leftKey = `${left.sourceKey}:${left.provider}:${left.id}`.toLowerCase();
-    const rightKey = `${right.sourceKey}:${right.provider}:${right.id}`.toLowerCase();
-    return leftKey.localeCompare(rightKey);
-  });
-
-const parseJsonObject = (value: string | null | undefined): Record<string, unknown> => {
-  if (!value) {
-    return {};
-  }
-
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-
-    return parsed as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-};
-
-type OAuthRefreshConfig = {
-  tokenEndpoint?: string;
-  authorizationServer?: string;
-  clientId?: string;
-  clientSecretCiphertext?: string;
-  sourceUrl?: string;
-  clientInformationJson?: string;
-};
-
-const parseOAuthRefreshConfig = (value: string | null): OAuthRefreshConfig => {
-  if (!value) {
-    return {};
-  }
-
-  const parsed = parseJsonObject(value);
-  return {
-    ...(normalizeString(parsed.tokenEndpoint)
-      ? { tokenEndpoint: normalizeString(parsed.tokenEndpoint)! }
-      : {}),
-    ...(normalizeString(parsed.authorizationServer)
-      ? { authorizationServer: normalizeString(parsed.authorizationServer)! }
-      : {}),
-    ...(normalizeString(parsed.clientId)
-      ? { clientId: normalizeString(parsed.clientId)! }
-      : {}),
-    ...(normalizeString(parsed.clientSecretCiphertext)
-      ? { clientSecretCiphertext: normalizeString(parsed.clientSecretCiphertext)! }
-      : {}),
-    ...(normalizeString(parsed.sourceUrl)
-      ? { sourceUrl: normalizeString(parsed.sourceUrl)! }
-      : {}),
-    ...(normalizeString(parsed.clientInformationJson)
-      ? { clientInformationJson: normalizeString(parsed.clientInformationJson)! }
-      : {}),
-  };
-};
-
-const encodeOAuthRefreshConfig = (config: OAuthRefreshConfig): string | null => {
-  const payload: Record<string, string> = {};
-
-  if (config.tokenEndpoint) payload.tokenEndpoint = config.tokenEndpoint;
-  if (config.authorizationServer) payload.authorizationServer = config.authorizationServer;
-  if (config.clientId) payload.clientId = config.clientId;
-  if (config.clientSecretCiphertext) payload.clientSecretCiphertext = config.clientSecretCiphertext;
-  if (config.sourceUrl) payload.sourceUrl = config.sourceUrl;
-  if (config.clientInformationJson) payload.clientInformationJson = config.clientInformationJson;
-
-  if (Object.keys(payload).length === 0) {
-    return null;
-  }
-
-  return JSON.stringify(payload);
-};
-
-const buildOAuthRefreshConfigFromPayload = (
-  payload: UpsertCredentialBindingPayload,
-  existing: OAuthRefreshConfig,
-): OAuthRefreshConfig => ({
-  tokenEndpoint:
-    normalizeString(payload.oauthTokenEndpoint)
-    ?? existing.tokenEndpoint,
-  authorizationServer:
-    normalizeString(payload.oauthAuthorizationServer)
-    ?? existing.authorizationServer,
-  clientId: normalizeString(payload.oauthClientId) ?? existing.clientId,
-  clientSecretCiphertext:
-    normalizeString(payload.oauthClientSecret)
-    ?? existing.clientSecretCiphertext,
-  sourceUrl: normalizeString(payload.oauthSourceUrl) ?? existing.sourceUrl,
-  clientInformationJson:
-    normalizeString(payload.oauthClientInformationJson)
-    ?? existing.clientInformationJson,
-});
+const sourceStoreError = createSqlSourceStoreErrorMapper("credentials");
 
 export const createPmCredentialsService = (
   rows: CredentialRows,
@@ -244,17 +49,17 @@ export const createPmCredentialsService = (
         const [bindings, connections, workspaces] = yield* Effect.all([
           rows.sourceAuthBindings.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.bindings.list", error),
+              sourceStoreError.fromRowStore("credentials.bindings.list", error),
             ),
           ),
           rows.authConnections.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.connections.list", error),
+              sourceStoreError.fromRowStore("credentials.connections.list", error),
             ),
           ),
           rows.workspaces.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.workspaces.list", error),
+              sourceStoreError.fromRowStore("credentials.workspaces.list", error),
             ),
           ),
         ]);
@@ -289,33 +94,33 @@ export const createPmCredentialsService = (
         const [bindings, connections, materials, oauthStates, workspaces] = yield* Effect.all([
           rows.sourceAuthBindings.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.bindings.list", error),
+              sourceStoreError.fromRowStore("credentials.bindings.list", error),
             ),
           ),
           rows.authConnections.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.connections.list", error),
+              sourceStoreError.fromRowStore("credentials.connections.list", error),
             ),
           ),
           rows.authMaterials.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.materials.list", error),
+              sourceStoreError.fromRowStore("credentials.materials.list", error),
             ),
           ),
           rows.oauthStates.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.oauth_states.list", error),
+              sourceStoreError.fromRowStore("credentials.oauth_states.list", error),
             ),
           ),
           rows.workspaces.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.workspaces.list", error),
+              sourceStoreError.fromRowStore("credentials.workspaces.list", error),
             ),
           ),
         ]);
 
         if (input.payload.scopeType === "account" && input.payload.accountId === null) {
-          return yield* toSourceStoreError(
+          return yield* sourceStoreError.fromMessage(
             "credentials.upsert",
             "Account scope credentials require accountId",
             `workspace=${input.workspaceId}`,
@@ -324,7 +129,7 @@ export const createPmCredentialsService = (
 
         const sourceId = sourceIdFromSourceKey(input.payload.sourceKey);
         if (!sourceId) {
-          return yield* toSourceStoreError(
+          return yield* sourceStoreError.fromMessage(
             "credentials.upsert",
             "Credentials require sourceKey in the form 'source:<id>'",
             `workspace=${input.workspaceId}`,
@@ -363,7 +168,7 @@ export const createPmCredentialsService = (
         ) ?? null;
 
         if (existingConnection && existingConnection.organizationId !== organizationId) {
-          return yield* toSourceStoreError(
+          return yield* sourceStoreError.fromMessage(
             "credentials.upsert",
             "Connection id belongs to another organization",
             `workspace=${input.workspaceId}`,
@@ -418,7 +223,7 @@ export const createPmCredentialsService = (
           rows.sourceAuthBindings.upsert(nextBinding),
         ]).pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("credentials.upsert_rows", error),
+            sourceStoreError.fromRowStore("credentials.upsert_rows", error),
           ),
         );
 
@@ -473,7 +278,7 @@ export const createPmCredentialsService = (
             rows.authMaterials.removeByConnectionId(requestedConnectionId),
           ]).pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.upsert_oauth", error),
+              sourceStoreError.fromRowStore("credentials.upsert_oauth", error),
             ),
           );
         } else {
@@ -497,7 +302,7 @@ export const createPmCredentialsService = (
             rows.oauthStates.removeByConnectionId(requestedConnectionId),
           ]).pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.upsert_secret", error),
+              sourceStoreError.fromRowStore("credentials.upsert_secret", error),
             ),
           );
         }
@@ -510,12 +315,12 @@ export const createPmCredentialsService = (
         const [bindings, workspaces] = yield* Effect.all([
           rows.sourceAuthBindings.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.bindings.list", error),
+              sourceStoreError.fromRowStore("credentials.bindings.list", error),
             ),
           ),
           rows.workspaces.list().pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.workspaces.list", error),
+              sourceStoreError.fromRowStore("credentials.workspaces.list", error),
             ),
           ),
         ]);
@@ -540,7 +345,7 @@ export const createPmCredentialsService = (
           .removeById(binding.id)
           .pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.remove_binding", error),
+              sourceStoreError.fromRowStore("credentials.remove_binding", error),
             ),
           );
 
@@ -562,7 +367,7 @@ export const createPmCredentialsService = (
             rows.oauthStates.removeByConnectionId(binding.connectionId),
           ]).pipe(
             Effect.mapError((error) =>
-              toSourceStoreErrorFromRowStore("credentials.remove_connection_data", error),
+              sourceStoreError.fromRowStore("credentials.remove_connection_data", error),
             ),
           );
         }

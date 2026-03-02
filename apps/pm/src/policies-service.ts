@@ -1,4 +1,3 @@
-import { SourceStoreError } from "@executor-v2/persistence-ports";
 import { type SqlControlPlanePersistence } from "@executor-v2/persistence-sql";
 import {
   makeControlPlanePoliciesService,
@@ -7,27 +6,11 @@ import {
 import { type Policy } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 
+import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
+
 type PolicyRows = Pick<SqlControlPlanePersistence["rows"], "policies">;
 
-const toSourceStoreError = (
-  operation: string,
-  message: string,
-  details: string | null,
-): SourceStoreError =>
-  new SourceStoreError({
-    operation,
-    backend: "sql",
-    location: "policies",
-    message,
-    reason: null,
-    details,
-  });
-
-const toSourceStoreErrorFromRowStore = (
-  operation: string,
-  error: { message: string; details: string | null; reason: string | null },
-): SourceStoreError =>
-  toSourceStoreError(operation, error.message, error.details ?? error.reason ?? null);
+const sourceStoreError = createSqlSourceStoreErrorMapper("policies");
 
 const sortPolicies = (policies: ReadonlyArray<Policy>): Array<Policy> =>
   [...policies].sort((left, right) => {
@@ -48,7 +31,7 @@ export const createPmPoliciesService = (
       Effect.gen(function* () {
         const policies = yield* rows.policies.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("policies.list", error),
+            sourceStoreError.fromRowStore("policies.list", error),
           ),
         );
 
@@ -61,7 +44,7 @@ export const createPmPoliciesService = (
       Effect.gen(function* () {
         const policies = yield* rows.policies.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("policies.upsert", error),
+            sourceStoreError.fromRowStore("policies.upsert", error),
           ),
         );
 
@@ -88,7 +71,7 @@ export const createPmPoliciesService = (
 
         yield* rows.policies.upsert(nextPolicy).pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("policies.upsert_write", error),
+            sourceStoreError.fromRowStore("policies.upsert_write", error),
           ),
         );
 
@@ -99,7 +82,7 @@ export const createPmPoliciesService = (
       Effect.gen(function* () {
         const policies = yield* rows.policies.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("policies.remove", error),
+            sourceStoreError.fromRowStore("policies.remove", error),
           ),
         );
 
@@ -115,7 +98,7 @@ export const createPmPoliciesService = (
 
         const removed = yield* rows.policies.removeById(input.policyId).pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("policies.remove_write", error),
+            sourceStoreError.fromRowStore("policies.remove_write", error),
           ),
         );
 

@@ -17,6 +17,7 @@ import {
   type ToolArtifactStore,
 } from "@executor-v2/persistence-ports";
 import {
+  type Profile,
   type Organization,
   type OrganizationMembership,
   type Workspace,
@@ -165,8 +166,8 @@ const ensurePrincipalProvisioned = (
       || existingProfile.displayName !== (principal.displayName ?? existingProfile.displayName)
     ) {
       yield* persistence.rows.profile.upsert({
-        id: existingProfile?.id ?? ("profile_local" as any),
-        defaultWorkspaceId: principal.workspaceId as any,
+        id: existingProfile?.id ?? ("profile_local" as Profile["id"]),
+        defaultWorkspaceId: principal.workspaceId as Profile["defaultWorkspaceId"],
         displayName: principal.displayName ?? existingProfile?.displayName ?? "Local",
         runtimeMode: existingProfile?.runtimeMode ?? "local",
         createdAt: existingProfile?.createdAt ?? now,

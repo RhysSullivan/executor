@@ -1,4 +1,3 @@
-import { SourceStoreError } from "@executor-v2/persistence-ports";
 import { type SqlControlPlanePersistence } from "@executor-v2/persistence-sql";
 import {
   makeControlPlaneWorkspacesService,
@@ -7,27 +6,11 @@ import {
 import { type Workspace } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 
+import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
+
 type WorkspaceRows = Pick<SqlControlPlanePersistence["rows"], "workspaces">;
 
-const toSourceStoreError = (
-  operation: string,
-  message: string,
-  details: string | null,
-): SourceStoreError =>
-  new SourceStoreError({
-    operation,
-    backend: "sql",
-    location: "workspaces",
-    message,
-    reason: null,
-    details,
-  });
-
-const toSourceStoreErrorFromRowStore = (
-  operation: string,
-  error: { message: string; details: string | null; reason: string | null },
-): SourceStoreError =>
-  toSourceStoreError(operation, error.message, error.details ?? error.reason ?? null);
+const sourceStoreError = createSqlSourceStoreErrorMapper("workspaces");
 
 const sortWorkspaces = (workspaces: ReadonlyArray<Workspace>): Array<Workspace> =>
   [...workspaces].sort((left, right) => {
@@ -49,7 +32,7 @@ export const createPmWorkspacesService = (
       Effect.gen(function* () {
         const workspaces = yield* rows.workspaces.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("workspaces.list", error),
+            sourceStoreError.fromRowStore("workspaces.list", error),
           ),
         );
 
@@ -60,7 +43,7 @@ export const createPmWorkspacesService = (
       Effect.gen(function* () {
         const workspaces = yield* rows.workspaces.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("workspaces.upsert", error),
+            sourceStoreError.fromRowStore("workspaces.upsert", error),
           ),
         );
 
@@ -81,7 +64,7 @@ export const createPmWorkspacesService = (
 
         yield* rows.workspaces.upsert(nextWorkspace).pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("workspaces.upsert_write", error),
+            sourceStoreError.fromRowStore("workspaces.upsert_write", error),
           ),
         );
 

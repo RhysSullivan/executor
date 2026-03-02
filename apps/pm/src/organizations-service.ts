@@ -1,4 +1,3 @@
-import { SourceStoreError } from "@executor-v2/persistence-ports";
 import { type SqlControlPlanePersistence } from "@executor-v2/persistence-sql";
 import {
   makeControlPlaneOrganizationsService,
@@ -10,30 +9,14 @@ import {
 } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 
+import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
+
 type OrganizationRows = Pick<
   SqlControlPlanePersistence["rows"],
   "organizations" | "organizationMemberships"
 >;
 
-const toSourceStoreError = (
-  operation: string,
-  message: string,
-  details: string | null,
-): SourceStoreError =>
-  new SourceStoreError({
-    operation,
-    backend: "sql",
-    location: "organizations",
-    message,
-    reason: null,
-    details,
-  });
-
-const toSourceStoreErrorFromRowStore = (
-  operation: string,
-  error: { message: string; details: string | null; reason: string | null },
-): SourceStoreError =>
-  toSourceStoreError(operation, error.message, error.details ?? error.reason ?? null);
+const sourceStoreError = createSqlSourceStoreErrorMapper("organizations");
 
 const sortOrganizations = (
   organizations: ReadonlyArray<Organization>,
@@ -57,7 +40,7 @@ export const createPmOrganizationsService = (
       Effect.gen(function* () {
         const organizations = yield* rows.organizations.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("organizations.list", error),
+            sourceStoreError.fromRowStore("organizations.list", error),
           ),
         );
 
@@ -68,13 +51,13 @@ export const createPmOrganizationsService = (
       Effect.gen(function* () {
         const organizations = yield* rows.organizations.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("organizations.upsert", error),
+            sourceStoreError.fromRowStore("organizations.upsert", error),
           ),
         );
 
         const memberships = yield* rows.organizationMemberships.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore(
+            sourceStoreError.fromRowStore(
               "organizations.memberships.list",
               error,
             ),
@@ -106,7 +89,7 @@ export const createPmOrganizationsService = (
 
         yield* rows.organizations.upsert(nextOrganization).pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("organizations.upsert_write", error),
+            sourceStoreError.fromRowStore("organizations.upsert_write", error),
           ),
         );
 
@@ -133,7 +116,7 @@ export const createPmOrganizationsService = (
 
             yield* rows.organizationMemberships.upsert(membership).pipe(
               Effect.mapError((error) =>
-                toSourceStoreErrorFromRowStore(
+                sourceStoreError.fromRowStore(
                   "organizations.membership_upsert_write",
                   error,
                 ),

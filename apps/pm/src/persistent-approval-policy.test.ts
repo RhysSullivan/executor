@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import { type Approval } from "@executor-v2/schema";
+import { type Approval, type WorkspaceId } from "@executor-v2/schema";
 
 import {
   createPmApprovalsService,
@@ -81,7 +81,7 @@ describe("PM persistent approval policy", () => {
       }
 
       yield* approvalsService.resolveApproval({
-        workspaceId: "ws_local" as any,
+        workspaceId: "ws_local" as WorkspaceId,
         approvalId: createdApproval.id,
         payload: {
           status: "approved",

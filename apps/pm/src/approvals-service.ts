@@ -5,7 +5,6 @@ import {
   type PersistentToolApprovalStore,
   type ToolApprovalPolicy,
 } from "@executor-v2/engine";
-import { SourceStoreError } from "@executor-v2/persistence-ports";
 import { type SqlControlPlanePersistence } from "@executor-v2/persistence-sql";
 import {
   makeControlPlaneApprovalsService,
@@ -14,27 +13,11 @@ import {
 import { type Approval } from "@executor-v2/schema";
 import * as Effect from "effect/Effect";
 
+import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
+
 type ApprovalRows = Pick<SqlControlPlanePersistence["rows"], "approvals">;
 
-const toSourceStoreError = (
-  operation: string,
-  message: string,
-  details: string | null,
-): SourceStoreError =>
-  new SourceStoreError({
-    operation,
-    backend: "sql",
-    location: "approvals",
-    message,
-    reason: null,
-    details,
-  });
-
-const toSourceStoreErrorFromRowStore = (
-  operation: string,
-  error: { message: string; details: string | null; reason: string | null },
-): SourceStoreError =>
-  toSourceStoreError(operation, error.message, error.details ?? error.reason ?? null);
+const sourceStoreError = createSqlSourceStoreErrorMapper("approvals");
 
 const findApprovalIndex = (
   approvals: ReadonlyArray<Approval>,
@@ -147,7 +130,7 @@ export const createPmApprovalsService = (
       Effect.gen(function* () {
         const approvals = yield* rows.approvals.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("approvals.list", error),
+            sourceStoreError.fromRowStore("approvals.list", error),
           ),
         );
 
@@ -162,7 +145,7 @@ export const createPmApprovalsService = (
       Effect.gen(function* () {
         const approvals = yield* rows.approvals.list().pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("approvals.resolve", error),
+            sourceStoreError.fromRowStore("approvals.resolve", error),
           ),
         );
 
@@ -173,7 +156,7 @@ export const createPmApprovalsService = (
         );
 
         if (index < 0) {
-          return yield* toSourceStoreError(
+          return yield* sourceStoreError.fromMessage(
             "approvals.resolve",
             "Approval not found",
             `workspace=${input.workspaceId} approval=${input.approvalId}`,
@@ -182,7 +165,7 @@ export const createPmApprovalsService = (
 
         const approval = approvals[index];
         if (approval.status !== "pending") {
-          return yield* toSourceStoreError(
+          return yield* sourceStoreError.fromMessage(
             "approvals.resolve",
             "Approval is not pending",
             `approval=${input.approvalId} status=${approval.status}`,
@@ -198,7 +181,7 @@ export const createPmApprovalsService = (
 
         yield* rows.approvals.upsert(resolvedApproval).pipe(
           Effect.mapError((error) =>
-            toSourceStoreErrorFromRowStore("approvals.resolve_write", error),
+            sourceStoreError.fromRowStore("approvals.resolve_write", error),
           ),
         );
 

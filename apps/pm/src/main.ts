@@ -24,6 +24,13 @@ import {
   makeSqlControlPlanePersistence,
   type SqlControlPlanePersistence,
 } from "@executor-v2/persistence-sql";
+import {
+  type AccountId,
+  type OrganizationId,
+  type OrganizationMemberId,
+  type ProfileId,
+  type WorkspaceId,
+} from "@executor-v2/schema";
 import { type RuntimeToolCallResult } from "@executor-v2/sdk";
 import { makeCloudflareWorkerLoaderRuntimeAdapter } from "@executor-v2/runtime-cloudflare-worker-loader";
 import { makeDenoSubprocessRuntimeAdapter } from "@executor-v2/runtime-deno-subprocess";
@@ -64,9 +71,9 @@ const readConfiguredRuntimeKind = (value: string | undefined): string | undefine
   return normalized.length > 0 ? normalized : undefined;
 };
 
-const readConfiguredWorkspaceId = (value: string | undefined): string => {
+const readConfiguredWorkspaceId = (value: string | undefined): WorkspaceId => {
   const normalized = value?.trim();
-  return normalized && normalized.length > 0 ? normalized : "ws_local";
+  return (normalized && normalized.length > 0 ? normalized : "ws_local") as WorkspaceId;
 };
 
 const readBooleanFlag = (value: string | undefined): boolean => {
@@ -102,16 +109,16 @@ const ensurePmBootstrap = (
       persistence.rows.profile.get(),
     ]);
 
-    const organizationId = "org_local";
-    const accountId = "acct_local";
+    const organizationId = "org_local" as OrganizationId;
+    const accountId = "acct_local" as AccountId;
 
     if (organizations.find((item) => item.id === organizationId) === undefined) {
       yield* persistence.rows.organizations.upsert({
-        id: organizationId as any,
+        id: organizationId,
         slug: organizationId,
         name: "Local Organization",
         status: "active",
-        createdByAccountId: accountId as any,
+        createdByAccountId: accountId,
         createdAt: now,
         updatedAt: now,
       });
@@ -123,9 +130,9 @@ const ensurePmBootstrap = (
       ) === undefined
     ) {
       yield* persistence.rows.organizationMemberships.upsert({
-        id: "org_member_local" as any,
-        organizationId: organizationId as any,
-        accountId: accountId as any,
+        id: "org_member_local" as OrganizationMemberId,
+        organizationId,
+        accountId,
         role: "owner",
         status: "active",
         billable: false,
@@ -138,10 +145,10 @@ const ensurePmBootstrap = (
 
     if (workspaces.find((item) => item.id === workspaceId) === undefined) {
       yield* persistence.rows.workspaces.upsert({
-        id: workspaceId as any,
-        organizationId: organizationId as any,
+        id: workspaceId,
+        organizationId,
         name: "Local Workspace",
-        createdByAccountId: accountId as any,
+        createdByAccountId: accountId,
         createdAt: now,
         updatedAt: now,
       });
@@ -149,8 +156,8 @@ const ensurePmBootstrap = (
 
     if (profileOption._tag === "None") {
       yield* persistence.rows.profile.upsert({
-        id: "profile_local" as any,
-        defaultWorkspaceId: workspaceId as any,
+        id: "profile_local" as ProfileId,
+        defaultWorkspaceId: workspaceId,
         displayName: "Local",
         runtimeMode: "local",
         createdAt: now,

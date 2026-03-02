@@ -1,6 +1,6 @@
 import {
-  SourceStoreError,
-  ToolArtifactStoreError,
+  type SourceStoreError,
+  type ToolArtifactStoreError,
   type SourceStore,
   type ToolArtifactStore,
 } from "@executor-v2/persistence-ports";
@@ -22,33 +22,30 @@ import * as Option from "effect/Option";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 
-const decodeOpenApiToolManifest = Schema.decodeUnknown(OpenApiToolManifestSchema);
+import { createSqlSourceStoreErrorMapper } from "./control-plane-row-helpers";
 
-const toSourceStoreError = (
-  operation: string,
-  message: string,
-  details: string | null,
-): SourceStoreError =>
-  new SourceStoreError({
-    operation,
-    backend: "sql",
-    location: "tool_artifacts",
-    message,
-    reason: null,
-    details,
-  });
+const decodeOpenApiToolManifest = Schema.decodeUnknown(OpenApiToolManifestSchema);
+const sourceStoreError = createSqlSourceStoreErrorMapper("tool_artifacts");
 
 const toSourceStoreErrorFromSourceStore = (
   operation: string,
   error: SourceStoreError,
 ): SourceStoreError =>
-  toSourceStoreError(operation, error.message, error.details ?? error.reason ?? null);
+  sourceStoreError.fromMessage(
+    operation,
+    error.message,
+    error.details ?? error.reason ?? null,
+  );
 
 const toSourceStoreErrorFromToolArtifactStore = (
   operation: string,
   error: ToolArtifactStoreError,
 ): SourceStoreError =>
-  toSourceStoreError(operation, error.message, error.details ?? error.reason ?? null);
+  sourceStoreError.fromMessage(
+    operation,
+    error.message,
+    error.details ?? error.reason ?? null,
+  );
 
 const parseArtifactManifest = (
   source: Source,
@@ -57,7 +54,7 @@ const parseArtifactManifest = (
   Effect.try({
     try: () => JSON.parse(artifact.manifestJson) as unknown,
     catch: (cause) =>
-      toSourceStoreError(
+      sourceStoreError.fromMessage(
         "tools.decode_manifest_json",
         cause instanceof Error ? cause.message : String(cause),
         `sourceId=${source.id}`,
@@ -66,7 +63,7 @@ const parseArtifactManifest = (
     Effect.flatMap((manifestJson) =>
       decodeOpenApiToolManifest(manifestJson).pipe(
         Effect.mapError((cause) =>
-          toSourceStoreError(
+          sourceStoreError.fromMessage(
             "tools.decode_manifest",
             "Unable to decode OpenAPI manifest",
             ParseResult.TreeFormatter.formatErrorSync(cause),
