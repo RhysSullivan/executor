@@ -9,7 +9,6 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { and, asc, eq } from "drizzle-orm";
 
-import { SourceJson, ToolArtifactJson } from "./persistence-codecs";
 import {
   toSourceStoreError,
   toToolArtifactStoreError,
@@ -47,6 +46,34 @@ const sortSources = (sources: ReadonlyArray<Source>): Array<Source> =>
     return leftName.localeCompare(rightName);
   });
 
+const toSource = (row: DrizzleTables["sourcesTable"]["$inferSelect"]): Source => ({
+  id: row.sourceId as Source["id"],
+  workspaceId: row.workspaceId as Source["workspaceId"],
+  name: row.name,
+  kind: row.kind as Source["kind"],
+  endpoint: row.endpoint,
+  status: row.status as Source["status"],
+  enabled: row.enabled,
+  configJson: row.configJson,
+  sourceHash: row.sourceHash,
+  lastError: row.lastError,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const toToolArtifact = (
+  row: DrizzleTables["toolArtifactsTable"]["$inferSelect"],
+): ToolArtifact => ({
+  id: row.id as ToolArtifact["id"],
+  workspaceId: row.workspaceId as ToolArtifact["workspaceId"],
+  sourceId: row.sourceId as ToolArtifact["sourceId"],
+  sourceHash: row.sourceHash,
+  toolCount: row.toolCount,
+  manifestJson: row.manifestJson,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
 export const createSourceAndArtifactStores = ({
   backend,
   adapter,
@@ -61,23 +88,19 @@ export const createSourceAndArtifactStores = ({
     getById: (workspaceId: WorkspaceId, sourceId: SourceId) =>
       Effect.tryPromise({
         try: async () => {
-          const rows = await db
-            .select({ payloadJson: tables.sourcesTable.payloadJson })
-            .from(tables.sourcesTable)
-            .where(
-              and(
-                eq(tables.sourcesTable.workspaceId, workspaceId),
-                eq(tables.sourcesTable.sourceId, sourceId),
-              ),
-            )
-            .limit(1);
+          const rows = await db.select().from(tables.sourcesTable).where(
+            and(
+              eq(tables.sourcesTable.workspaceId, workspaceId),
+              eq(tables.sourcesTable.sourceId, sourceId),
+            ),
+          ).limit(1);
 
           const row = rows[0];
           if (!row) {
             return Option.none<Source>();
           }
 
-          return Option.some(SourceJson.decode(row.payloadJson));
+          return Option.some(toSource(row));
         },
         catch: (cause) =>
           toSourceStoreError(backend, "get_by_id", tableNames.sources, cause),
@@ -87,12 +110,12 @@ export const createSourceAndArtifactStores = ({
       Effect.tryPromise({
         try: async () => {
           const rows = await db
-            .select({ payloadJson: tables.sourcesTable.payloadJson })
+            .select()
             .from(tables.sourcesTable)
             .where(eq(tables.sourcesTable.workspaceId, workspaceId))
             .orderBy(asc(tables.sourcesTable.name), asc(tables.sourcesTable.sourceId));
 
-          return sortSources(rows.map((row) => SourceJson.decode(row.payloadJson)));
+          return sortSources(rows.map(toSource));
         },
         catch: (cause) =>
           toSourceStoreError(backend, "list_by_workspace", tableNames.sources, cause),
@@ -104,8 +127,6 @@ export const createSourceAndArtifactStores = ({
           await writeLocked(async () => {
             await adapter.transaction(async (transaction) => {
               const transactionContext = createDrizzleContext(transaction);
-              const payloadJson = SourceJson.encode(source);
-              const updatedAt = Date.now();
 
               await transactionContext.db
                 .insert(transactionContext.tables.sourcesTable)
@@ -113,8 +134,15 @@ export const createSourceAndArtifactStores = ({
                   workspaceId: source.workspaceId,
                   sourceId: source.id,
                   name: source.name,
-                  payloadJson,
-                  updatedAt,
+                  kind: source.kind,
+                  endpoint: source.endpoint,
+                  status: source.status,
+                  enabled: source.enabled,
+                  configJson: source.configJson,
+                  sourceHash: source.sourceHash,
+                  lastError: source.lastError,
+                  createdAt: source.createdAt,
+                  updatedAt: source.updatedAt,
                 })
                 .onConflictDoUpdate({
                   target: [
@@ -123,8 +151,15 @@ export const createSourceAndArtifactStores = ({
                   ],
                   set: {
                     name: source.name,
-                    payloadJson,
-                    updatedAt,
+                    kind: source.kind,
+                    endpoint: source.endpoint,
+                    status: source.status,
+                    enabled: source.enabled,
+                    configJson: source.configJson,
+                    sourceHash: source.sourceHash,
+                    lastError: source.lastError,
+                    createdAt: source.createdAt,
+                    updatedAt: source.updatedAt,
                   },
                 });
             });
@@ -177,7 +212,7 @@ export const createSourceAndArtifactStores = ({
       Effect.tryPromise({
         try: async () => {
           const rows = await db
-            .select({ payloadJson: tables.toolArtifactsTable.payloadJson })
+            .select()
             .from(tables.toolArtifactsTable)
             .where(
               and(
@@ -192,7 +227,7 @@ export const createSourceAndArtifactStores = ({
             return Option.none<ToolArtifact>();
           }
 
-          return Option.some(ToolArtifactJson.decode(row.payloadJson));
+          return Option.some(toToolArtifact(row));
         },
         catch: (cause) =>
           toToolArtifactStoreError(
@@ -209,16 +244,18 @@ export const createSourceAndArtifactStores = ({
           await writeLocked(async () => {
             await adapter.transaction(async (transaction) => {
               const transactionContext = createDrizzleContext(transaction);
-              const payloadJson = ToolArtifactJson.encode(artifact);
-              const updatedAt = Date.now();
 
               await transactionContext.db
                 .insert(transactionContext.tables.toolArtifactsTable)
                 .values({
+                  id: artifact.id,
                   workspaceId: artifact.workspaceId,
                   sourceId: artifact.sourceId,
-                  payloadJson,
-                  updatedAt,
+                  sourceHash: artifact.sourceHash,
+                  toolCount: artifact.toolCount,
+                  manifestJson: artifact.manifestJson,
+                  createdAt: artifact.createdAt,
+                  updatedAt: artifact.updatedAt,
                 })
                 .onConflictDoUpdate({
                   target: [
@@ -226,8 +263,12 @@ export const createSourceAndArtifactStores = ({
                     transactionContext.tables.toolArtifactsTable.sourceId,
                   ],
                   set: {
-                    payloadJson,
-                    updatedAt,
+                    id: artifact.id,
+                    sourceHash: artifact.sourceHash,
+                    toolCount: artifact.toolCount,
+                    manifestJson: artifact.manifestJson,
+                    createdAt: artifact.createdAt,
+                    updatedAt: artifact.updatedAt,
                   },
                 });
             });

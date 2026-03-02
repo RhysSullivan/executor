@@ -7,18 +7,14 @@ import {
   type StorageInstance,
   type Workspace,
 } from "@executor-v2/schema";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 
 import {
-  ApprovalJson,
-  OrganizationJson,
-  OrganizationMembershipJson,
-  PolicyJson,
-  ProfileJson,
-  StorageInstanceJson,
-  WorkspaceJson,
-} from "./persistence-codecs";
-import { createDrizzleContext, type DrizzleDb, type DrizzleTables, type SqlAdapter } from "./sql-internals";
+  createDrizzleContext,
+  type DrizzleDb,
+  type DrizzleTables,
+  type SqlAdapter,
+} from "./sql-internals";
 
 type WriteLocked = <A>(run: () => Promise<A>) => Promise<A>;
 
@@ -29,6 +25,103 @@ type CoreOperationsInput = {
   writeLocked: WriteLocked;
 };
 
+const toOrganization = (
+  row: DrizzleTables["organizationsTable"]["$inferSelect"],
+): Organization => ({
+  id: row.id as Organization["id"],
+  slug: row.slug,
+  name: row.name,
+  status: row.status as Organization["status"],
+  createdByAccountId: row.createdByAccountId as Organization["createdByAccountId"],
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const toOrganizationMembership = (
+  row: DrizzleTables["organizationMembershipsTable"]["$inferSelect"],
+): OrganizationMembership => ({
+  id: row.id as OrganizationMembership["id"],
+  organizationId: row.organizationId as OrganizationMembership["organizationId"],
+  accountId: row.accountId as OrganizationMembership["accountId"],
+  role: row.role as OrganizationMembership["role"],
+  status: row.status as OrganizationMembership["status"],
+  billable: row.billable,
+  invitedByAccountId:
+    row.invitedByAccountId as OrganizationMembership["invitedByAccountId"],
+  joinedAt: row.joinedAt,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const toWorkspace = (
+  row: DrizzleTables["workspacesTable"]["$inferSelect"],
+): Workspace => ({
+  id: row.id as Workspace["id"],
+  organizationId: row.organizationId as Workspace["organizationId"],
+  name: row.name,
+  createdByAccountId: row.createdByAccountId as Workspace["createdByAccountId"],
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const toStorageInstance = (
+  row: DrizzleTables["storageInstancesTable"]["$inferSelect"],
+): StorageInstance => ({
+  id: row.id as StorageInstance["id"],
+  scopeType: row.scopeType as StorageInstance["scopeType"],
+  durability: row.durability as StorageInstance["durability"],
+  status: row.status as StorageInstance["status"],
+  provider: row.provider as StorageInstance["provider"],
+  backendKey: row.backendKey,
+  organizationId: row.organizationId as StorageInstance["organizationId"],
+  workspaceId: row.workspaceId as StorageInstance["workspaceId"],
+  accountId: row.accountId as StorageInstance["accountId"],
+  createdByAccountId: row.createdByAccountId as StorageInstance["createdByAccountId"],
+  purpose: row.purpose,
+  sizeBytes: row.sizeBytes,
+  fileCount: row.fileCount,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+  lastSeenAt: row.lastSeenAt,
+  closedAt: row.closedAt,
+  expiresAt: row.expiresAt,
+});
+
+const toPolicy = (
+  row: DrizzleTables["policiesTable"]["$inferSelect"],
+): Policy => ({
+  id: row.id as Policy["id"],
+  workspaceId: row.workspaceId as Policy["workspaceId"],
+  toolPathPattern: row.toolPathPattern,
+  decision: row.decision as Policy["decision"],
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+const toApproval = (
+  row: DrizzleTables["approvalsTable"]["$inferSelect"],
+): Approval => ({
+  id: row.id as Approval["id"],
+  workspaceId: row.workspaceId as Approval["workspaceId"],
+  taskRunId: row.taskRunId as Approval["taskRunId"],
+  callId: row.callId,
+  toolPath: row.toolPath,
+  status: row.status as Approval["status"],
+  inputPreviewJson: row.inputPreviewJson,
+  reason: row.reason,
+  requestedAt: row.requestedAt,
+  resolvedAt: row.resolvedAt,
+});
+
+const toProfile = (row: DrizzleTables["profileTable"]["$inferSelect"]): Profile => ({
+  id: row.id as Profile["id"],
+  defaultWorkspaceId: row.defaultWorkspaceId as Profile["defaultWorkspaceId"],
+  displayName: row.displayName,
+  runtimeMode: row.runtimeMode as Profile["runtimeMode"],
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
 export const createCoreRowOperations = ({
   adapter,
   db,
@@ -36,38 +129,39 @@ export const createCoreRowOperations = ({
   writeLocked,
 }: CoreOperationsInput) => {
   const listOrganizationsRows = async (): Promise<Array<Organization>> => {
-    const rows = await db
-      .select({ payloadJson: tables.organizationsTable.payloadJson })
-      .from(tables.organizationsTable)
-      .orderBy(
-        asc(tables.organizationsTable.updatedAt),
-        asc(tables.organizationsTable.id),
-      );
+    const rows = await db.select().from(tables.organizationsTable).orderBy(
+      asc(tables.organizationsTable.updatedAt),
+      asc(tables.organizationsTable.id),
+    );
 
-    return rows.map((row) => OrganizationJson.decode(row.payloadJson));
+    return rows.map(toOrganization);
   };
 
-  const upsertOrganizationRow = async (
-    organization: Organization,
-  ): Promise<void> => {
+  const upsertOrganizationRow = async (organization: Organization): Promise<void> => {
     await writeLocked(async () => {
       await adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
-        const payloadJson = OrganizationJson.encode(organization);
-        const now = Date.now();
 
         await transactionContext.db
           .insert(transactionContext.tables.organizationsTable)
           .values({
             id: organization.id,
-            payloadJson,
-            updatedAt: now,
+            slug: organization.slug,
+            name: organization.name,
+            status: organization.status,
+            createdByAccountId: organization.createdByAccountId,
+            createdAt: organization.createdAt,
+            updatedAt: organization.updatedAt,
           })
           .onConflictDoUpdate({
             target: transactionContext.tables.organizationsTable.id,
             set: {
-              payloadJson,
-              updatedAt: now,
+              slug: organization.slug,
+              name: organization.name,
+              status: organization.status,
+              createdByAccountId: organization.createdByAccountId,
+              createdAt: organization.createdAt,
+              updatedAt: organization.updatedAt,
             },
           });
       });
@@ -77,15 +171,12 @@ export const createCoreRowOperations = ({
   const listOrganizationMembershipRows = async (): Promise<
     Array<OrganizationMembership>
   > => {
-    const rows = await db
-      .select({ payloadJson: tables.organizationMembershipsTable.payloadJson })
-      .from(tables.organizationMembershipsTable)
-      .orderBy(
-        asc(tables.organizationMembershipsTable.updatedAt),
-        asc(tables.organizationMembershipsTable.id),
-      );
+    const rows = await db.select().from(tables.organizationMembershipsTable).orderBy(
+      asc(tables.organizationMembershipsTable.updatedAt),
+      asc(tables.organizationMembershipsTable.id),
+    );
 
-    return rows.map((row) => OrganizationMembershipJson.decode(row.payloadJson));
+    return rows.map(toOrganizationMembership);
   };
 
   const upsertOrganizationMembershipRow = async (
@@ -94,23 +185,33 @@ export const createCoreRowOperations = ({
     await writeLocked(async () => {
       await adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
-        const payloadJson = OrganizationMembershipJson.encode(membership);
-        const now = Date.now();
 
         await transactionContext.db
           .insert(transactionContext.tables.organizationMembershipsTable)
           .values({
             id: membership.id,
-            workspaceId: null,
-            payloadJson,
-            updatedAt: now,
+            organizationId: membership.organizationId,
+            accountId: membership.accountId,
+            role: membership.role,
+            status: membership.status,
+            billable: membership.billable,
+            invitedByAccountId: membership.invitedByAccountId,
+            joinedAt: membership.joinedAt,
+            createdAt: membership.createdAt,
+            updatedAt: membership.updatedAt,
           })
           .onConflictDoUpdate({
             target: transactionContext.tables.organizationMembershipsTable.id,
             set: {
-              workspaceId: null,
-              payloadJson,
-              updatedAt: now,
+              organizationId: membership.organizationId,
+              accountId: membership.accountId,
+              role: membership.role,
+              status: membership.status,
+              billable: membership.billable,
+              invitedByAccountId: membership.invitedByAccountId,
+              joinedAt: membership.joinedAt,
+              createdAt: membership.createdAt,
+              updatedAt: membership.updatedAt,
             },
           });
       });
@@ -118,38 +219,37 @@ export const createCoreRowOperations = ({
   };
 
   const listWorkspaceRows = async (): Promise<Array<Workspace>> => {
-    const rows = await db
-      .select({ payloadJson: tables.workspacesTable.payloadJson })
-      .from(tables.workspacesTable)
-      .orderBy(
-        asc(tables.workspacesTable.updatedAt),
-        asc(tables.workspacesTable.id),
-      );
+    const rows = await db.select().from(tables.workspacesTable).orderBy(
+      asc(tables.workspacesTable.updatedAt),
+      asc(tables.workspacesTable.id),
+    );
 
-    return rows.map((row) => WorkspaceJson.decode(row.payloadJson));
+    return rows.map(toWorkspace);
   };
 
   const upsertWorkspaceRow = async (workspace: Workspace): Promise<void> => {
     await writeLocked(async () => {
       await adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
-        const payloadJson = WorkspaceJson.encode(workspace);
-        const now = Date.now();
 
         await transactionContext.db
           .insert(transactionContext.tables.workspacesTable)
           .values({
             id: workspace.id,
-            workspaceId: workspace.organizationId,
-            payloadJson,
-            updatedAt: now,
+            organizationId: workspace.organizationId,
+            name: workspace.name,
+            createdByAccountId: workspace.createdByAccountId,
+            createdAt: workspace.createdAt,
+            updatedAt: workspace.updatedAt,
           })
           .onConflictDoUpdate({
             target: transactionContext.tables.workspacesTable.id,
             set: {
-              workspaceId: workspace.organizationId,
-              payloadJson,
-              updatedAt: now,
+              organizationId: workspace.organizationId,
+              name: workspace.name,
+              createdByAccountId: workspace.createdByAccountId,
+              createdAt: workspace.createdAt,
+              updatedAt: workspace.updatedAt,
             },
           });
       });
@@ -157,15 +257,12 @@ export const createCoreRowOperations = ({
   };
 
   const listStorageInstanceRows = async (): Promise<Array<StorageInstance>> => {
-    const rows = await db
-      .select({ payloadJson: tables.storageInstancesTable.payloadJson })
-      .from(tables.storageInstancesTable)
-      .orderBy(
-        asc(tables.storageInstancesTable.updatedAt),
-        asc(tables.storageInstancesTable.id),
-      );
+    const rows = await db.select().from(tables.storageInstancesTable).orderBy(
+      asc(tables.storageInstancesTable.updatedAt),
+      asc(tables.storageInstancesTable.id),
+    );
 
-    return rows.map((row) => StorageInstanceJson.decode(row.payloadJson));
+    return rows.map(toStorageInstance);
   };
 
   const upsertStorageInstanceRow = async (
@@ -174,23 +271,49 @@ export const createCoreRowOperations = ({
     await writeLocked(async () => {
       await adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
-        const payloadJson = StorageInstanceJson.encode(storageInstance);
-        const now = Date.now();
 
         await transactionContext.db
           .insert(transactionContext.tables.storageInstancesTable)
           .values({
             id: storageInstance.id,
+            scopeType: storageInstance.scopeType,
+            durability: storageInstance.durability,
+            status: storageInstance.status,
+            provider: storageInstance.provider,
+            backendKey: storageInstance.backendKey,
+            organizationId: storageInstance.organizationId,
             workspaceId: storageInstance.workspaceId,
-            payloadJson,
-            updatedAt: now,
+            accountId: storageInstance.accountId,
+            createdByAccountId: storageInstance.createdByAccountId,
+            purpose: storageInstance.purpose,
+            sizeBytes: storageInstance.sizeBytes,
+            fileCount: storageInstance.fileCount,
+            createdAt: storageInstance.createdAt,
+            updatedAt: storageInstance.updatedAt,
+            lastSeenAt: storageInstance.lastSeenAt,
+            closedAt: storageInstance.closedAt,
+            expiresAt: storageInstance.expiresAt,
           })
           .onConflictDoUpdate({
             target: transactionContext.tables.storageInstancesTable.id,
             set: {
+              scopeType: storageInstance.scopeType,
+              durability: storageInstance.durability,
+              status: storageInstance.status,
+              provider: storageInstance.provider,
+              backendKey: storageInstance.backendKey,
+              organizationId: storageInstance.organizationId,
               workspaceId: storageInstance.workspaceId,
-              payloadJson,
-              updatedAt: now,
+              accountId: storageInstance.accountId,
+              createdByAccountId: storageInstance.createdByAccountId,
+              purpose: storageInstance.purpose,
+              sizeBytes: storageInstance.sizeBytes,
+              fileCount: storageInstance.fileCount,
+              createdAt: storageInstance.createdAt,
+              updatedAt: storageInstance.updatedAt,
+              lastSeenAt: storageInstance.lastSeenAt,
+              closedAt: storageInstance.closedAt,
+              expiresAt: storageInstance.expiresAt,
             },
           });
       });
@@ -222,43 +345,45 @@ export const createCoreRowOperations = ({
     );
 
   const listPolicyRows = async (): Promise<Array<Policy>> => {
-    const rows = await db
-      .select({ payloadJson: tables.policiesTable.payloadJson })
-      .from(tables.policiesTable)
-      .orderBy(asc(tables.policiesTable.updatedAt), asc(tables.policiesTable.id));
+    const rows = await db.select().from(tables.policiesTable).orderBy(
+      asc(tables.policiesTable.updatedAt),
+      asc(tables.policiesTable.id),
+    );
 
-    return rows.map((row) => PolicyJson.decode(row.payloadJson));
+    return rows.map(toPolicy);
   };
 
   const upsertPolicyRow = async (policy: Policy): Promise<void> => {
     await writeLocked(async () => {
       await adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
-        const payloadJson = PolicyJson.encode(policy);
-        const now = Date.now();
 
         await transactionContext.db
           .insert(transactionContext.tables.policiesTable)
           .values({
             id: policy.id,
             workspaceId: policy.workspaceId,
-            payloadJson,
-            updatedAt: now,
+            toolPathPattern: policy.toolPathPattern,
+            decision: policy.decision,
+            createdAt: policy.createdAt,
+            updatedAt: policy.updatedAt,
           })
           .onConflictDoUpdate({
             target: transactionContext.tables.policiesTable.id,
             set: {
               workspaceId: policy.workspaceId,
-              payloadJson,
-              updatedAt: now,
+              toolPathPattern: policy.toolPathPattern,
+              decision: policy.decision,
+              createdAt: policy.createdAt,
+              updatedAt: policy.updatedAt,
             },
           });
       });
     });
   };
 
-  const removePolicyRowById = async (policyId: Policy["id"]): Promise<boolean> => {
-    return writeLocked(async () =>
+  const removePolicyRowById = async (policyId: Policy["id"]): Promise<boolean> =>
+    writeLocked(async () =>
       adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
 
@@ -279,38 +404,47 @@ export const createCoreRowOperations = ({
         return true;
       })
     );
-  };
 
   const listApprovalRows = async (): Promise<Array<Approval>> => {
-    const rows = await db
-      .select({ payloadJson: tables.approvalsTable.payloadJson })
-      .from(tables.approvalsTable)
-      .orderBy(asc(tables.approvalsTable.updatedAt), asc(tables.approvalsTable.id));
+    const rows = await db.select().from(tables.approvalsTable).orderBy(
+      asc(tables.approvalsTable.requestedAt),
+      asc(tables.approvalsTable.id),
+    );
 
-    return rows.map((row) => ApprovalJson.decode(row.payloadJson));
+    return rows.map(toApproval);
   };
 
   const upsertApprovalRow = async (approval: Approval): Promise<void> => {
     await writeLocked(async () => {
       await adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
-        const payloadJson = ApprovalJson.encode(approval);
-        const now = Date.now();
 
         await transactionContext.db
           .insert(transactionContext.tables.approvalsTable)
           .values({
             id: approval.id,
             workspaceId: approval.workspaceId,
-            payloadJson,
-            updatedAt: now,
+            taskRunId: approval.taskRunId,
+            callId: approval.callId,
+            toolPath: approval.toolPath,
+            status: approval.status,
+            inputPreviewJson: approval.inputPreviewJson,
+            reason: approval.reason,
+            requestedAt: approval.requestedAt,
+            resolvedAt: approval.resolvedAt,
           })
           .onConflictDoUpdate({
             target: transactionContext.tables.approvalsTable.id,
             set: {
               workspaceId: approval.workspaceId,
-              payloadJson,
-              updatedAt: now,
+              taskRunId: approval.taskRunId,
+              callId: approval.callId,
+              toolPath: approval.toolPath,
+              status: approval.status,
+              inputPreviewJson: approval.inputPreviewJson,
+              reason: approval.reason,
+              requestedAt: approval.requestedAt,
+              resolvedAt: approval.resolvedAt,
             },
           });
       });
@@ -318,49 +452,42 @@ export const createCoreRowOperations = ({
   };
 
   const getProfileRow = async (): Promise<Profile | null> => {
-    const rows = await db
-      .select({ profileJson: tables.profileTable.profileJson })
-      .from(tables.profileTable)
-      .where(eq(tables.profileTable.id, 1))
-      .limit(1);
+    const rows = await db.select().from(tables.profileTable).orderBy(
+      desc(tables.profileTable.updatedAt),
+      asc(tables.profileTable.id),
+    ).limit(1);
 
     const row = rows[0];
     if (!row) {
       return null;
     }
 
-    return ProfileJson.decode(row.profileJson);
+    return toProfile(row);
   };
 
   const upsertProfileRow = async (profile: Profile): Promise<void> => {
     await writeLocked(async () => {
       await adapter.transaction(async (transaction) => {
         const transactionContext = createDrizzleContext(transaction);
-        const currentRows = await transactionContext.db
-          .select({ schemaVersion: transactionContext.tables.profileTable.schemaVersion })
-          .from(transactionContext.tables.profileTable)
-          .where(eq(transactionContext.tables.profileTable.id, 1))
-          .limit(1);
-
-        const schemaVersion = currentRows[0]?.schemaVersion ?? 1;
-        const now = Date.now();
-        const profileJson = ProfileJson.encode(profile);
 
         await transactionContext.db
           .insert(transactionContext.tables.profileTable)
           .values({
-            id: 1,
-            schemaVersion,
-            generatedAt: now,
-            profileJson,
-            updatedAt: now,
+            id: profile.id,
+            defaultWorkspaceId: profile.defaultWorkspaceId,
+            displayName: profile.displayName,
+            runtimeMode: profile.runtimeMode,
+            createdAt: profile.createdAt,
+            updatedAt: profile.updatedAt,
           })
           .onConflictDoUpdate({
             target: transactionContext.tables.profileTable.id,
             set: {
-              profileJson,
-              generatedAt: now,
-              updatedAt: now,
+              defaultWorkspaceId: profile.defaultWorkspaceId,
+              displayName: profile.displayName,
+              runtimeMode: profile.runtimeMode,
+              createdAt: profile.createdAt,
+              updatedAt: profile.updatedAt,
             },
           });
       });

@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it } from "@effect/vitest";
@@ -84,7 +87,15 @@ const waitForHealth = (port: number) =>
     });
   });
 
-const withPmProcess = (port: number) =>
+const withStateDir = Effect.acquireRelease(
+  Effect.promise(() => mkdtemp(path.join(tmpdir(), "executor-v2-pm-e2e-"))),
+  (directory) =>
+    Effect.promise(() => rm(directory, { recursive: true, force: true })).pipe(
+      Effect.orDie,
+    ),
+);
+
+const withPmProcess = (port: number, sqlitePath: string) =>
   Effect.acquireRelease(
     Effect.sync(() =>
       spawn("bun", ["src/main.ts"], {
@@ -92,6 +103,7 @@ const withPmProcess = (port: number) =>
         env: {
           ...process.env,
           PORT: String(port),
+          PM_CONTROL_PLANE_SQLITE_PATH: sqlitePath,
         },
         stdio: "pipe",
       }),
@@ -140,7 +152,10 @@ describe("PM execute E2E", () => {
       Effect.scoped(
         Effect.gen(function* () {
           const port = yield* findFreePort;
-          yield* withPmProcess(port);
+          const stateDir = yield* withStateDir;
+          const sqlitePath = path.resolve(stateDir, "control-plane.sqlite");
+
+          yield* withPmProcess(port, sqlitePath);
           yield* waitForHealth(port);
 
           const { client } = yield* withMcpClient(port);

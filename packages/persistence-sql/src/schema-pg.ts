@@ -1,50 +1,35 @@
 import {
+  bigint,
+  boolean,
   index,
-  integer,
+  pgTable,
   primaryKey,
-  sqliteTable,
   text,
   uniqueIndex,
-} from "drizzle-orm/sqlite-core";
+} from "drizzle-orm/pg-core";
 
-export const tableNames = {
-  profile: "profile",
-  organizations: "organizations",
-  organizationMemberships: "organization_memberships",
-  workspaces: "workspaces",
-  sources: "sources",
-  toolArtifacts: "tool_artifacts",
-  authConnections: "auth_connections",
-  sourceAuthBindings: "source_auth_bindings",
-  authMaterials: "auth_materials",
-  oauthStates: "oauth_states",
-  policies: "policies",
-  approvals: "approvals",
-  taskRuns: "task_runs",
-  storageInstances: "storage_instances",
-  syncStates: "sync_states",
-} as const;
+import { tableNames } from "./schema";
 
-export const profileTable = sqliteTable(tableNames.profile, {
+export const profileTable = pgTable(tableNames.profile, {
   id: text("id").notNull().primaryKey(),
   defaultWorkspaceId: text("default_workspace_id"),
   displayName: text("display_name").notNull(),
   runtimeMode: text("runtime_mode").notNull(),
-  createdAt: integer("created_at", { mode: "number" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const organizationsTable = sqliteTable(tableNames.organizations, {
+export const organizationsTable = pgTable(tableNames.organizations, {
   id: text("id").notNull().primaryKey(),
   slug: text("slug").notNull(),
   name: text("name").notNull(),
   status: text("status").notNull(),
   createdByAccountId: text("created_by_account_id"),
-  createdAt: integer("created_at", { mode: "number" }).notNull(),
-  updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
-export const organizationMembershipsTable = sqliteTable(
+export const organizationMembershipsTable = pgTable(
   tableNames.organizationMemberships,
   {
     id: text("id").notNull().primaryKey(),
@@ -52,11 +37,11 @@ export const organizationMembershipsTable = sqliteTable(
     accountId: text("account_id").notNull(),
     role: text("role").notNull(),
     status: text("status").notNull(),
-    billable: integer("billable", { mode: "boolean" }).notNull(),
+    billable: boolean("billable").notNull(),
     invitedByAccountId: text("invited_by_account_id"),
-    joinedAt: integer("joined_at", { mode: "number" }),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    joinedAt: bigint("joined_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("organization_memberships_org_idx").on(table.organizationId),
@@ -64,22 +49,22 @@ export const organizationMembershipsTable = sqliteTable(
   ],
 );
 
-export const workspacesTable = sqliteTable(
+export const workspacesTable = pgTable(
   tableNames.workspaces,
   {
     id: text("id").notNull().primaryKey(),
     organizationId: text("organization_id").notNull(),
     name: text("name").notNull(),
     createdByAccountId: text("created_by_account_id"),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("workspaces_org_idx").on(table.organizationId),
   ],
 );
 
-export const sourcesTable = sqliteTable(
+export const sourcesTable = pgTable(
   tableNames.sources,
   {
     workspaceId: text("workspace_id").notNull(),
@@ -88,12 +73,12 @@ export const sourcesTable = sqliteTable(
     kind: text("kind").notNull(),
     endpoint: text("endpoint").notNull(),
     status: text("status").notNull(),
-    enabled: integer("enabled", { mode: "boolean" }).notNull(),
+    enabled: boolean("enabled").notNull(),
     configJson: text("config_json").notNull(),
     sourceHash: text("source_hash"),
     lastError: text("last_error"),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -103,17 +88,17 @@ export const sourcesTable = sqliteTable(
   ],
 );
 
-export const toolArtifactsTable = sqliteTable(
+export const toolArtifactsTable = pgTable(
   tableNames.toolArtifacts,
   {
     id: text("id").notNull(),
     workspaceId: text("workspace_id").notNull(),
     sourceId: text("source_id").notNull(),
     sourceHash: text("source_hash").notNull(),
-    toolCount: integer("tool_count", { mode: "number" }).notNull(),
+    toolCount: bigint("tool_count", { mode: "number" }).notNull(),
     manifestJson: text("manifest_json").notNull(),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     primaryKey({
@@ -123,7 +108,7 @@ export const toolArtifactsTable = sqliteTable(
   ],
 );
 
-export const authConnectionsTable = sqliteTable(
+export const authConnectionsTable = pgTable(
   tableNames.authConnections,
   {
     id: text("id").notNull().primaryKey(),
@@ -139,9 +124,9 @@ export const authConnectionsTable = sqliteTable(
     metadataJson: text("metadata_json"),
     additionalHeadersJson: text("additional_headers_json"),
     createdByAccountId: text("created_by_account_id"),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
-    lastUsedAt: integer("last_used_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+    lastUsedAt: bigint("last_used_at", { mode: "number" }),
   },
   (table) => [
     index("auth_connections_org_idx").on(table.organizationId),
@@ -150,7 +135,7 @@ export const authConnectionsTable = sqliteTable(
   ],
 );
 
-export const sourceAuthBindingsTable = sqliteTable(
+export const sourceAuthBindingsTable = pgTable(
   tableNames.sourceAuthBindings,
   {
     id: text("id").notNull().primaryKey(),
@@ -161,9 +146,9 @@ export const sourceAuthBindingsTable = sqliteTable(
     accountId: text("account_id"),
     scopeType: text("scope_type").notNull(),
     selector: text("selector"),
-    enabled: integer("enabled", { mode: "boolean" }).notNull(),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    enabled: boolean("enabled").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("source_auth_bindings_source_idx").on(table.sourceId),
@@ -174,22 +159,22 @@ export const sourceAuthBindingsTable = sqliteTable(
   ],
 );
 
-export const authMaterialsTable = sqliteTable(
+export const authMaterialsTable = pgTable(
   tableNames.authMaterials,
   {
     id: text("id").notNull().primaryKey(),
     connectionId: text("connection_id").notNull(),
     ciphertext: text("ciphertext").notNull(),
     keyVersion: text("key_version").notNull(),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("auth_materials_connection_idx").on(table.connectionId),
   ],
 );
 
-export const oauthStatesTable = sqliteTable(
+export const oauthStatesTable = pgTable(
   tableNames.oauthStates,
   {
     id: text("id").notNull().primaryKey(),
@@ -197,43 +182,43 @@ export const oauthStatesTable = sqliteTable(
     accessTokenCiphertext: text("access_token_ciphertext").notNull(),
     refreshTokenCiphertext: text("refresh_token_ciphertext"),
     keyVersion: text("key_version").notNull(),
-    expiresAt: integer("expires_at", { mode: "number" }),
+    expiresAt: bigint("expires_at", { mode: "number" }),
     scope: text("scope"),
     tokenType: text("token_type"),
     issuer: text("issuer"),
     refreshConfigJson: text("refresh_config_json"),
-    tokenVersion: integer("token_version", { mode: "number" }).notNull(),
+    tokenVersion: bigint("token_version", { mode: "number" }).notNull(),
     leaseHolder: text("lease_holder"),
-    leaseExpiresAt: integer("lease_expires_at", { mode: "number" }),
-    leaseFence: integer("lease_fence", { mode: "number" }).notNull(),
-    lastRefreshAt: integer("last_refresh_at", { mode: "number" }),
+    leaseExpiresAt: bigint("lease_expires_at", { mode: "number" }),
+    leaseFence: bigint("lease_fence", { mode: "number" }).notNull(),
+    lastRefreshAt: bigint("last_refresh_at", { mode: "number" }),
     lastRefreshErrorClass: text("last_refresh_error_class"),
     lastRefreshError: text("last_refresh_error"),
-    reauthRequiredAt: integer("reauth_required_at", { mode: "number" }),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    reauthRequiredAt: bigint("reauth_required_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("oauth_states_connection_idx").on(table.connectionId),
   ],
 );
 
-export const policiesTable = sqliteTable(
+export const policiesTable = pgTable(
   tableNames.policies,
   {
     id: text("id").notNull().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
     toolPathPattern: text("tool_path_pattern").notNull(),
     decision: text("decision").notNull(),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("policies_workspace_idx").on(table.workspaceId),
   ],
 );
 
-export const approvalsTable = sqliteTable(
+export const approvalsTable = pgTable(
   tableNames.approvals,
   {
     id: text("id").notNull().primaryKey(),
@@ -244,8 +229,8 @@ export const approvalsTable = sqliteTable(
     status: text("status").notNull(),
     inputPreviewJson: text("input_preview_json").notNull(),
     reason: text("reason"),
-    requestedAt: integer("requested_at", { mode: "number" }).notNull(),
-    resolvedAt: integer("resolved_at", { mode: "number" }),
+    requestedAt: bigint("requested_at", { mode: "number" }).notNull(),
+    resolvedAt: bigint("resolved_at", { mode: "number" }),
   },
   (table) => [
     index("approvals_workspace_idx").on(table.workspaceId),
@@ -253,7 +238,7 @@ export const approvalsTable = sqliteTable(
   ],
 );
 
-export const taskRunsTable = sqliteTable(
+export const taskRunsTable = pgTable(
   tableNames.taskRuns,
   {
     id: text("id").notNull().primaryKey(),
@@ -263,9 +248,9 @@ export const taskRunsTable = sqliteTable(
     runtimeId: text("runtime_id").notNull(),
     codeHash: text("code_hash").notNull(),
     status: text("status").notNull(),
-    startedAt: integer("started_at", { mode: "number" }),
-    completedAt: integer("completed_at", { mode: "number" }),
-    exitCode: integer("exit_code", { mode: "number" }),
+    startedAt: bigint("started_at", { mode: "number" }),
+    completedAt: bigint("completed_at", { mode: "number" }),
+    exitCode: bigint("exit_code", { mode: "number" }),
     error: text("error"),
   },
   (table) => [
@@ -273,7 +258,7 @@ export const taskRunsTable = sqliteTable(
   ],
 );
 
-export const storageInstancesTable = sqliteTable(
+export const storageInstancesTable = pgTable(
   tableNames.storageInstances,
   {
     id: text("id").notNull().primaryKey(),
@@ -287,13 +272,13 @@ export const storageInstancesTable = sqliteTable(
     accountId: text("account_id"),
     createdByAccountId: text("created_by_account_id"),
     purpose: text("purpose"),
-    sizeBytes: integer("size_bytes", { mode: "number" }),
-    fileCount: integer("file_count", { mode: "number" }),
-    createdAt: integer("created_at", { mode: "number" }).notNull(),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
-    lastSeenAt: integer("last_seen_at", { mode: "number" }).notNull(),
-    closedAt: integer("closed_at", { mode: "number" }),
-    expiresAt: integer("expires_at", { mode: "number" }),
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    fileCount: bigint("file_count", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+    lastSeenAt: bigint("last_seen_at", { mode: "number" }).notNull(),
+    closedAt: bigint("closed_at", { mode: "number" }),
+    expiresAt: bigint("expires_at", { mode: "number" }),
   },
   (table) => [
     index("storage_instances_org_idx").on(table.organizationId),
@@ -301,7 +286,7 @@ export const storageInstancesTable = sqliteTable(
   ],
 );
 
-export const syncStatesTable = sqliteTable(
+export const syncStatesTable = pgTable(
   tableNames.syncStates,
   {
     id: text("id").notNull().primaryKey(),
@@ -310,8 +295,8 @@ export const syncStatesTable = sqliteTable(
     targetUrl: text("target_url").notNull(),
     linkedSubject: text("linked_subject"),
     cursor: text("cursor"),
-    lastSyncAt: integer("last_sync_at", { mode: "number" }),
-    updatedAt: integer("updated_at", { mode: "number" }).notNull(),
+    lastSyncAt: bigint("last_sync_at", { mode: "number" }),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
     index("sync_states_workspace_idx").on(table.workspaceId),

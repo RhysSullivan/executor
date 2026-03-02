@@ -6,7 +6,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "db:generate:pg": "drizzle-kit generate --config drizzle.config.pg.ts",
+    "db:check": "drizzle-kit check --config drizzle.config.ts",
+    "db:check:pg": "drizzle-kit check --config drizzle.config.pg.ts",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.ts",
+    "db:migrate:pg": "drizzle-kit migrate --config drizzle.config.pg.ts",
+    "db:studio": "drizzle-kit studio --config drizzle.config.ts"
   },
   "dependencies": {
     "@executor-v2/persistence-ports": "workspace:*",
@@ -14,5 +21,8 @@
     "drizzle-orm": "^0.44.7",
     "effect": "catalog:",
     "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.9"
   }
 }
