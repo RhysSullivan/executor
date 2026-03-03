@@ -25,12 +25,11 @@ export const parseOpenApiDocument = (input: string): unknown => {
   }
 };
 
-export const fetchOpenApiDocument = async (url: string): Promise<unknown> => {
+export const fetchOpenApiDocument = async (url: string): Promise<string> => {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed fetching OpenAPI spec (${response.status})`);
   }
 
-  const bodyText = await response.text();
-  return parseOpenApiDocument(bodyText);
+  return response.text();
 };

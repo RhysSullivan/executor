@@ -17,7 +17,8 @@
     "./workspaces/api": "./src/workspaces/api.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "extractor:build": "../../tools/openapi-extractor-rs/build-wasm.sh"
   },
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

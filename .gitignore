@@ -1,58 +1,58 @@
-.reference/
-.vercel
+# Environment variables
+.env
+.env.*
+!.env.example
 .env*.local
+
+# Vercel
+.vercel
+
+# Next.js
 .next/
+
+# Turbo
 .turbo/
+.turbo-prune-check/
+
+# Executor
 .executor-v2/
 
-# Local runtime artifacts
+# Cloudflare Workers local state
 **/.wrangler/
 **/.dev.vars
 
-# Local package manager caches and test outputs
+# Dependencies
 **/node_modules/
-node_modules/.bun/
-apps/convex/node_modules/.vite/
-apps/convex/node_modules/@convex-dev/action-cache
-*.tsbuildinfo
-tsconfig.tsbuildinfo
-personal-notes/
-# dependencies (bun install)
-node_modules
-executor/bun.lock
 
-# output
+# TypeScript build info
+*.tsbuildinfo
+
+# Output / build artifacts
 out
 dist
 *.tgz
 
-# code coverage
+# Rust / Cargo build artifacts
+**/target/
+tools/openapi-extractor-rs/pkg-*/
+
+# Code coverage
 coverage
 *.lcov
 
-# logs
+# Logs
 logs
 *.log
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-# dotenv environment variable files
-.env
-.env.production
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
-
-# caches
+# Caches
 .eslintcache
 .cache
-*.tsbuildinfo
-.reference/
 
 # IntelliJ based IDEs
 .idea
 
-# Finder (MacOS) folder config
+# Finder (macOS)
 .DS_Store
 
 # Convex local backend state
@@ -67,17 +67,13 @@ sources/data/*.sqlite-wal
 # Composio toolkit scrape outputs
 sources/composio-scrape/data/
 
-# Cloudflare Workers local state
-.wrangler/
-.dev.vars
-
-# Generated push env file
-executor/.env.executor-push
-
 # Dev runner PID file
 .dev.pids
-*.har
-.vercel
-.env*.local
-.chat-links.json
 
+# Misc
+*.har
+.chat-links.json
+.reference/
+personal-notes/
+.tmp/
+executor/.env.executor-push
