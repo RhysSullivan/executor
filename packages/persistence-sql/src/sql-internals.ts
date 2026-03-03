@@ -27,6 +27,7 @@ import {
   syncStatesTable,
   taskRunsTable,
   toolArtifactsTable,
+  toolManifestsTable,
   workspacesTable,
 } from "./schema";
 
@@ -43,6 +44,7 @@ const drizzleSchema = {
   organizationMembershipsTable,
   workspacesTable,
   sourcesTable,
+  toolManifestsTable,
   toolArtifactsTable,
   authConnectionsTable,
   sourceAuthBindingsTable,

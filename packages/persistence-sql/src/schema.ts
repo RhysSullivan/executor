@@ -1,12 +1,14 @@
 import {
   bigint,
   boolean,
+  check,
   index,
   pgTable,
   primaryKey,
   text,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const tableNames = {
   profile: "profile",
@@ -14,6 +16,7 @@ export const tableNames = {
   organizationMemberships: "organization_memberships",
   workspaces: "workspaces",
   sources: "sources",
+  toolManifests: "tool_manifests",
   toolArtifacts: "tool_artifacts",
   authConnections: "auth_connections",
   sourceAuthBindings: "source_auth_bindings",
@@ -26,15 +29,6 @@ export const tableNames = {
   syncStates: "sync_states",
 } as const;
 
-export const profileTable = pgTable(tableNames.profile, {
-  id: text("id").notNull().primaryKey(),
-  defaultWorkspaceId: text("default_workspace_id"),
-  displayName: text("display_name").notNull(),
-  runtimeMode: text("runtime_mode").notNull(),
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
-
 export const organizationsTable = pgTable(tableNames.organizations, {
   id: text("id").notNull().primaryKey(),
   slug: text("slug").notNull(),
@@ -43,7 +37,35 @@ export const organizationsTable = pgTable(tableNames.organizations, {
   createdByAccountId: text("created_by_account_id"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
+}, (table) => [
+  uniqueIndex("organizations_slug_idx").on(table.slug),
+  index("organizations_updated_idx").on(table.updatedAt, table.id),
+  check(
+    "organizations_status_check",
+    sql`${table.status} in ('active', 'suspended', 'archived')`,
+  ),
+]);
+
+export const workspacesTable = pgTable(
+  tableNames.workspaces,
+  {
+    id: text("id").notNull().primaryKey(),
+    organizationId: text("organization_id").notNull(),
+    name: text("name").notNull(),
+    createdByAccountId: text("created_by_account_id"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("workspaces_org_idx").on(table.organizationId),
+    index("workspaces_org_updated_idx").on(
+      table.organizationId,
+      table.updatedAt,
+      table.id,
+    ),
+    uniqueIndex("workspaces_org_name_idx").on(table.organizationId, table.name),
+  ],
+);
 
 export const organizationMembershipsTable = pgTable(
   tableNames.organizationMemberships,
@@ -62,23 +84,45 @@ export const organizationMembershipsTable = pgTable(
   (table) => [
     index("organization_memberships_org_idx").on(table.organizationId),
     index("organization_memberships_account_idx").on(table.accountId),
+    index("organization_memberships_org_updated_idx").on(
+      table.organizationId,
+      table.updatedAt,
+      table.id,
+    ),
+    index("organization_memberships_account_updated_idx").on(
+      table.accountId,
+      table.updatedAt,
+      table.id,
+    ),
+    uniqueIndex("organization_memberships_org_account_idx").on(
+      table.organizationId,
+      table.accountId,
+    ),
+    check(
+      "organization_memberships_role_check",
+      sql`${table.role} in ('viewer', 'editor', 'admin', 'owner')`,
+    ),
+    check(
+      "organization_memberships_status_check",
+      sql`${table.status} in ('invited', 'active', 'suspended', 'removed')`,
+    ),
   ],
 );
 
-export const workspacesTable = pgTable(
-  tableNames.workspaces,
-  {
-    id: text("id").notNull().primaryKey(),
-    organizationId: text("organization_id").notNull(),
-    name: text("name").notNull(),
-    createdByAccountId: text("created_by_account_id"),
-    createdAt: bigint("created_at", { mode: "number" }).notNull(),
-    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-  },
-  (table) => [
-    index("workspaces_org_idx").on(table.organizationId),
-  ],
-);
+export const profileTable = pgTable(tableNames.profile, {
+  id: text("id").notNull().primaryKey(),
+  defaultWorkspaceId: text("default_workspace_id"),
+  displayName: text("display_name").notNull(),
+  runtimeMode: text("runtime_mode").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => [
+  index("profile_updated_idx").on(table.updatedAt, table.id),
+  check(
+    "profile_runtime_mode_check",
+    sql`${table.runtimeMode} in ('local', 'linked', 'remote')`,
+  ),
+]);
 
 export const sourcesTable = pgTable(
   tableNames.sources,
@@ -100,7 +144,35 @@ export const sourcesTable = pgTable(
     primaryKey({
       columns: [table.workspaceId, table.sourceId],
     }),
-    index("sources_workspace_name_idx").on(table.workspaceId, table.name),
+    uniqueIndex("sources_source_id_idx").on(table.sourceId),
+    uniqueIndex("sources_workspace_name_idx").on(table.workspaceId, table.name),
+    index("sources_workspace_name_source_idx").on(
+      table.workspaceId,
+      table.name,
+      table.sourceId,
+    ),
+    check(
+      "sources_kind_check",
+      sql`${table.kind} in ('mcp', 'openapi', 'graphql', 'internal')`,
+    ),
+    check(
+      "sources_status_check",
+      sql`${table.status} in ('draft', 'probing', 'auth_required', 'connected', 'error')`,
+    ),
+  ],
+);
+
+export const toolManifestsTable = pgTable(
+  tableNames.toolManifests,
+  {
+    sourceHash: text("source_hash").notNull().primaryKey(),
+    toolCount: bigint("tool_count", { mode: "number" }).notNull(),
+    manifestJson: text("manifest_json").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    check("tool_manifests_tool_count_nonnegative", sql`${table.toolCount} >= 0`),
   ],
 );
 
@@ -111,8 +183,6 @@ export const toolArtifactsTable = pgTable(
     workspaceId: text("workspace_id").notNull(),
     sourceId: text("source_id").notNull(),
     sourceHash: text("source_hash").notNull(),
-    toolCount: bigint("tool_count", { mode: "number" }).notNull(),
-    manifestJson: text("manifest_json").notNull(),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
@@ -121,6 +191,7 @@ export const toolArtifactsTable = pgTable(
       columns: [table.workspaceId, table.sourceId],
     }),
     uniqueIndex("tool_artifacts_id_idx").on(table.id),
+    index("tool_artifacts_source_hash_idx").on(table.sourceHash),
   ],
 );
 
@@ -148,6 +219,31 @@ export const authConnectionsTable = pgTable(
     index("auth_connections_org_idx").on(table.organizationId),
     index("auth_connections_workspace_idx").on(table.workspaceId),
     index("auth_connections_account_idx").on(table.accountId),
+    index("auth_connections_org_updated_idx").on(
+      table.organizationId,
+      table.updatedAt,
+      table.id,
+    ),
+    check(
+      "auth_connections_owner_type_check",
+      sql`${table.ownerType} in ('organization', 'workspace', 'account')`,
+    ),
+    check(
+      "auth_connections_strategy_check",
+      sql`${table.strategy} in ('oauth2', 'api_key', 'bearer', 'basic', 'custom')`,
+    ),
+    check(
+      "auth_connections_status_check",
+      sql`${table.status} in ('active', 'reauth_required', 'revoked', 'disabled', 'error')`,
+    ),
+    check(
+      "auth_connections_owner_scope_check",
+      sql`(
+        (${table.ownerType} = 'organization' AND ${table.workspaceId} IS NULL AND ${table.accountId} IS NULL)
+        OR (${table.ownerType} = 'workspace' AND ${table.workspaceId} IS NOT NULL AND ${table.accountId} IS NULL)
+        OR (${table.ownerType} = 'account' AND ${table.workspaceId} IS NULL AND ${table.accountId} IS NOT NULL)
+      )`,
+    ),
   ],
 );
 
@@ -168,10 +264,32 @@ export const sourceAuthBindingsTable = pgTable(
   },
   (table) => [
     index("source_auth_bindings_source_idx").on(table.sourceId),
-    index("source_auth_bindings_connection_idx").on(table.connectionId),
+    index("source_auth_bindings_connection_idx").on(
+      table.connectionId,
+      table.updatedAt,
+      table.id,
+    ),
     index("source_auth_bindings_org_idx").on(table.organizationId),
     index("source_auth_bindings_workspace_idx").on(table.workspaceId),
     index("source_auth_bindings_account_idx").on(table.accountId),
+    index("source_auth_bindings_workspace_scope_idx")
+      .on(table.workspaceId, table.updatedAt, table.createdAt)
+      .where(sql`${table.workspaceId} is not null`),
+    index("source_auth_bindings_org_scope_idx")
+      .on(table.organizationId, table.updatedAt, table.createdAt)
+      .where(sql`${table.workspaceId} is null`),
+    check(
+      "source_auth_bindings_scope_type_check",
+      sql`${table.scopeType} in ('workspace', 'organization', 'account')`,
+    ),
+    check(
+      "source_auth_bindings_scope_shape_check",
+      sql`(
+        (${table.scopeType} = 'organization' AND ${table.workspaceId} IS NULL AND ${table.accountId} IS NULL)
+        OR (${table.scopeType} = 'workspace' AND ${table.workspaceId} IS NOT NULL AND ${table.accountId} IS NULL)
+        OR (${table.scopeType} = 'account' AND ${table.workspaceId} IS NULL AND ${table.accountId} IS NOT NULL)
+      )`,
+    ),
   ],
 );
 
@@ -186,7 +304,7 @@ export const authMaterialsTable = pgTable(
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("auth_materials_connection_idx").on(table.connectionId),
+    uniqueIndex("auth_materials_connection_idx").on(table.connectionId),
   ],
 );
 
@@ -215,7 +333,9 @@ export const oauthStatesTable = pgTable(
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("oauth_states_connection_idx").on(table.connectionId),
+    uniqueIndex("oauth_states_connection_idx").on(table.connectionId),
+    check("oauth_states_token_version_nonnegative", sql`${table.tokenVersion} >= 0`),
+    check("oauth_states_lease_fence_nonnegative", sql`${table.leaseFence} >= 0`),
   ],
 );
 
@@ -230,27 +350,15 @@ export const policiesTable = pgTable(
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (table) => [
-    index("policies_workspace_idx").on(table.workspaceId),
-  ],
-);
-
-export const approvalsTable = pgTable(
-  tableNames.approvals,
-  {
-    id: text("id").notNull().primaryKey(),
-    workspaceId: text("workspace_id").notNull(),
-    taskRunId: text("task_run_id").notNull(),
-    callId: text("call_id").notNull(),
-    toolPath: text("tool_path").notNull(),
-    status: text("status").notNull(),
-    inputPreviewJson: text("input_preview_json").notNull(),
-    reason: text("reason"),
-    requestedAt: bigint("requested_at", { mode: "number" }).notNull(),
-    resolvedAt: bigint("resolved_at", { mode: "number" }),
-  },
-  (table) => [
-    index("approvals_workspace_idx").on(table.workspaceId),
-    index("approvals_task_run_idx").on(table.taskRunId),
+    index("policies_workspace_idx").on(table.workspaceId, table.updatedAt, table.id),
+    uniqueIndex("policies_workspace_tool_path_idx").on(
+      table.workspaceId,
+      table.toolPathPattern,
+    ),
+    check(
+      "policies_decision_check",
+      sql`${table.decision} in ('allow', 'require_approval', 'deny')`,
+    ),
   ],
 );
 
@@ -271,6 +379,40 @@ export const taskRunsTable = pgTable(
   },
   (table) => [
     index("task_runs_workspace_idx").on(table.workspaceId),
+    check(
+      "task_runs_status_check",
+      sql`${table.status} in ('queued', 'running', 'completed', 'failed', 'timed_out', 'denied')`,
+    ),
+  ],
+);
+
+export const approvalsTable = pgTable(
+  tableNames.approvals,
+  {
+    id: text("id").notNull().primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    taskRunId: text("task_run_id").notNull(),
+    callId: text("call_id").notNull(),
+    toolPath: text("tool_path").notNull(),
+    status: text("status").notNull(),
+    inputPreviewJson: text("input_preview_json").notNull(),
+    reason: text("reason"),
+    requestedAt: bigint("requested_at", { mode: "number" }).notNull(),
+    resolvedAt: bigint("resolved_at", { mode: "number" }),
+  },
+  (table) => [
+    index("approvals_workspace_idx").on(table.workspaceId, table.requestedAt, table.id),
+    index("approvals_task_run_idx").on(table.taskRunId),
+    index("approvals_lookup_idx").on(
+      table.workspaceId,
+      table.taskRunId,
+      table.callId,
+      table.requestedAt,
+    ),
+    check(
+      "approvals_status_check",
+      sql`${table.status} in ('pending', 'approved', 'denied', 'expired')`,
+    ),
   ],
 );
 
@@ -299,6 +441,40 @@ export const storageInstancesTable = pgTable(
   (table) => [
     index("storage_instances_org_idx").on(table.organizationId),
     index("storage_instances_workspace_idx").on(table.workspaceId),
+    index("storage_instances_workspace_scope_idx")
+      .on(table.workspaceId, table.updatedAt, table.id)
+      .where(sql`${table.workspaceId} is not null`),
+    index("storage_instances_org_scope_idx")
+      .on(table.organizationId, table.updatedAt, table.id)
+      .where(sql`${table.workspaceId} is null`),
+    uniqueIndex("storage_instances_provider_backend_idx").on(
+      table.provider,
+      table.backendKey,
+    ),
+    check(
+      "storage_instances_scope_type_check",
+      sql`${table.scopeType} in ('scratch', 'account', 'workspace', 'organization')`,
+    ),
+    check(
+      "storage_instances_durability_check",
+      sql`${table.durability} in ('ephemeral', 'durable')`,
+    ),
+    check(
+      "storage_instances_status_check",
+      sql`${table.status} in ('active', 'closed', 'deleted')`,
+    ),
+    check(
+      "storage_instances_provider_check",
+      sql`${table.provider} in ('agentfs-local', 'agentfs-cloudflare')`,
+    ),
+    check(
+      "storage_instances_size_nonnegative",
+      sql`${table.sizeBytes} is null or ${table.sizeBytes} >= 0`,
+    ),
+    check(
+      "storage_instances_file_count_nonnegative",
+      sql`${table.fileCount} is null or ${table.fileCount} >= 0`,
+    ),
   ],
 );
 
@@ -316,5 +492,11 @@ export const syncStatesTable = pgTable(
   },
   (table) => [
     index("sync_states_workspace_idx").on(table.workspaceId),
+    uniqueIndex("sync_states_workspace_target_url_idx").on(
+      table.workspaceId,
+      table.target,
+      table.targetUrl,
+    ),
+    check("sync_states_target_check", sql`${table.target} in ('remote')`),
   ],
 );

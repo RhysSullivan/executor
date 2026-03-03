@@ -26,20 +26,6 @@ type CreateStoresInput = {
   tables: DrizzleTables;
 };
 
-const sourceStoreKey = (source: Source): string => `${source.workspaceId}:${source.id}`;
-
-const sortSources = (sources: ReadonlyArray<Source>): Array<Source> =>
-  [...sources].sort((left, right) => {
-    const leftName = left.name.toLowerCase();
-    const rightName = right.name.toLowerCase();
-
-    if (leftName === rightName) {
-      return sourceStoreKey(left).localeCompare(sourceStoreKey(right));
-    }
-
-    return leftName.localeCompare(rightName);
-  });
-
 const toSource = (row: DrizzleTables["sourcesTable"]["$inferSelect"]): Source => ({
   id: row.sourceId as Source["id"],
   workspaceId: row.workspaceId as Source["workspaceId"],
@@ -55,9 +41,16 @@ const toSource = (row: DrizzleTables["sourcesTable"]["$inferSelect"]): Source =>
   updatedAt: row.updatedAt,
 });
 
-const toToolArtifact = (
-  row: DrizzleTables["toolArtifactsTable"]["$inferSelect"],
-): ToolArtifact => ({
+const toToolArtifact = (row: {
+  id: string;
+  workspaceId: string;
+  sourceId: string;
+  sourceHash: string;
+  toolCount: number;
+  manifestJson: string;
+  createdAt: number;
+  updatedAt: number;
+}): ToolArtifact => ({
   id: row.id as ToolArtifact["id"],
   workspaceId: row.workspaceId as ToolArtifact["workspaceId"],
   sourceId: row.sourceId as ToolArtifact["sourceId"],
@@ -105,9 +98,9 @@ export const createSourceAndArtifactStores = ({
             .select()
             .from(tables.sourcesTable)
             .where(eq(tables.sourcesTable.workspaceId, workspaceId))
-            .orderBy(asc(tables.sourcesTable.name), asc(tables.sourcesTable.sourceId));
+            .orderBy(sql`lower(${tables.sourcesTable.name})`, asc(tables.sourcesTable.sourceId));
 
-          return sortSources(rows.map(toSource));
+          return rows.map(toSource);
         },
         catch: (cause) =>
           toSourceStoreError(backend, "list_by_workspace", tableNames.sources, cause),
@@ -146,7 +139,6 @@ export const createSourceAndArtifactStores = ({
                 configJson: source.configJson,
                 sourceHash: source.sourceHash,
                 lastError: source.lastError,
-                createdAt: source.createdAt,
                 updatedAt: source.updatedAt,
               },
             });
@@ -158,31 +150,17 @@ export const createSourceAndArtifactStores = ({
     removeById: (workspaceId: WorkspaceId, sourceId: SourceId) =>
       Effect.tryPromise({
         try: async () => {
-          const existing = await db
-            .select({ sourceId: tables.sourcesTable.sourceId })
-            .from(tables.sourcesTable)
-            .where(
-              and(
-                eq(tables.sourcesTable.workspaceId, workspaceId),
-                eq(tables.sourcesTable.sourceId, sourceId),
-              ),
-            )
-            .limit(1);
-
-          if (existing.length === 0) {
-            return false;
-          }
-
-          await db
+          const deleted = await db
             .delete(tables.sourcesTable)
             .where(
               and(
                 eq(tables.sourcesTable.workspaceId, workspaceId),
                 eq(tables.sourcesTable.sourceId, sourceId),
               ),
-            );
+            )
+            .returning();
 
-          return true;
+          return deleted.length > 0;
         },
         catch: (cause) =>
           toSourceStoreError(backend, "remove_by_id", tableNames.sources, cause),
@@ -194,8 +172,21 @@ export const createSourceAndArtifactStores = ({
       Effect.tryPromise({
         try: async () => {
           const rows = await db
-            .select()
+            .select({
+              id: tables.toolArtifactsTable.id,
+              workspaceId: tables.toolArtifactsTable.workspaceId,
+              sourceId: tables.toolArtifactsTable.sourceId,
+              sourceHash: tables.toolArtifactsTable.sourceHash,
+              toolCount: tables.toolManifestsTable.toolCount,
+              manifestJson: tables.toolManifestsTable.manifestJson,
+              createdAt: tables.toolArtifactsTable.createdAt,
+              updatedAt: tables.toolArtifactsTable.updatedAt,
+            })
             .from(tables.toolArtifactsTable)
+            .innerJoin(
+              tables.toolManifestsTable,
+              eq(tables.toolArtifactsTable.sourceHash, tables.toolManifestsTable.sourceHash),
+            )
             .where(
               and(
                 eq(tables.toolArtifactsTable.workspaceId, workspaceId),
@@ -223,6 +214,37 @@ export const createSourceAndArtifactStores = ({
     upsert: (artifact: ToolArtifact) =>
       Effect.tryPromise({
         try: async () => {
+          const existing = await db
+            .select({ sourceHash: tables.toolArtifactsTable.sourceHash })
+            .from(tables.toolArtifactsTable)
+            .where(
+              and(
+                eq(tables.toolArtifactsTable.workspaceId, artifact.workspaceId),
+                eq(tables.toolArtifactsTable.sourceId, artifact.sourceId),
+              ),
+            )
+            .limit(1);
+
+          const previousSourceHash = existing[0]?.sourceHash;
+
+          await db
+            .insert(tables.toolManifestsTable)
+            .values({
+              sourceHash: artifact.sourceHash,
+              toolCount: artifact.toolCount,
+              manifestJson: artifact.manifestJson,
+              createdAt: artifact.createdAt,
+              updatedAt: artifact.updatedAt,
+            })
+            .onConflictDoUpdate({
+              target: tables.toolManifestsTable.sourceHash,
+              set: {
+                toolCount: sql`excluded.tool_count`,
+                manifestJson: sql`excluded.manifest_json`,
+                updatedAt: sql`excluded.updated_at`,
+              },
+            });
+
           await db
             .insert(tables.toolArtifactsTable)
             .values({
@@ -230,8 +252,6 @@ export const createSourceAndArtifactStores = ({
               workspaceId: artifact.workspaceId,
               sourceId: artifact.sourceId,
               sourceHash: artifact.sourceHash,
-              toolCount: artifact.toolCount,
-              manifestJson: artifact.manifestJson,
               createdAt: artifact.createdAt,
               updatedAt: artifact.updatedAt,
             })
@@ -243,11 +263,21 @@ export const createSourceAndArtifactStores = ({
               set: {
                 id: sql`excluded.id`,
                 sourceHash: sql`excluded.source_hash`,
-                toolCount: sql`excluded.tool_count`,
-                manifestJson: sql`excluded.manifest_json`,
                 updatedAt: sql`excluded.updated_at`,
               },
             });
+
+          if (previousSourceHash && previousSourceHash !== artifact.sourceHash) {
+            await db.execute(sql`
+              delete from ${tables.toolManifestsTable}
+              where ${tables.toolManifestsTable.sourceHash} = ${previousSourceHash}
+                and not exists (
+                  select 1
+                  from ${tables.toolArtifactsTable}
+                  where ${tables.toolArtifactsTable.sourceHash} = ${previousSourceHash}
+                )
+            `);
+          }
         },
         catch: (cause) =>
           toToolArtifactStoreError(backend, "upsert", tableNames.toolArtifacts, cause),

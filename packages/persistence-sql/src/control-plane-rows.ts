@@ -31,6 +31,10 @@ type CreateControlPlaneRowsInput = {
 
 const asDomain = <A>(value: unknown): A => value as A;
 const asDomainArray = <A>(value: ReadonlyArray<unknown>): Array<A> => value as Array<A>;
+const withoutCreatedAt = <A extends { createdAt: unknown }>(value: A): Omit<A, "createdAt"> => {
+  const { createdAt: _createdAt, ...rest } = value;
+  return rest;
+};
 
 const rowEffect = <A>(
   backend: SqlBackend,
@@ -67,7 +71,7 @@ export const createControlPlaneRows = ({
           .values(profile)
           .onConflictDoUpdate({
             target: tables.profileTable.id,
-            set: profile,
+            set: withoutCreatedAt(profile),
           });
       }),
   },
@@ -121,7 +125,7 @@ export const createControlPlaneRows = ({
           .values(organization)
           .onConflictDoUpdate({
             target: tables.organizationsTable.id,
-            set: organization,
+            set: withoutCreatedAt(organization),
           });
       }),
   },
@@ -220,7 +224,7 @@ export const createControlPlaneRows = ({
             .values(membership)
             .onConflictDoUpdate({
               target: tables.organizationMembershipsTable.id,
-              set: membership,
+              set: withoutCreatedAt(membership),
             });
         },
       ),
@@ -277,7 +281,7 @@ export const createControlPlaneRows = ({
           .values(workspace)
           .onConflictDoUpdate({
             target: tables.workspacesTable.id,
-            set: workspace,
+            set: withoutCreatedAt(workspace),
           });
       }),
   },
@@ -343,7 +347,7 @@ export const createControlPlaneRows = ({
             .values(connection)
             .onConflictDoUpdate({
               target: tables.authConnectionsTable.id,
-              set: connection,
+              set: withoutCreatedAt(connection),
             });
         },
       ),
@@ -354,21 +358,12 @@ export const createControlPlaneRows = ({
         "rows.auth_connections.remove",
         tableNames.authConnections,
         async () => {
-          const row = await db
-            .select({ id: tables.authConnectionsTable.id })
-            .from(tables.authConnectionsTable)
-            .where(eq(tables.authConnectionsTable.id, connectionId))
-            .limit(1);
-
-          if (row.length === 0) {
-            return false;
-          }
-
-          await db
+          const deleted = await db
             .delete(tables.authConnectionsTable)
-            .where(eq(tables.authConnectionsTable.id, connectionId));
+            .where(eq(tables.authConnectionsTable.id, connectionId))
+            .returning();
 
-          return true;
+          return deleted.length > 0;
         },
       ),
   },
@@ -470,7 +465,7 @@ export const createControlPlaneRows = ({
             .values(binding)
             .onConflictDoUpdate({
               target: tables.sourceAuthBindingsTable.id,
-              set: binding,
+              set: withoutCreatedAt(binding),
             });
         },
       ),
@@ -481,21 +476,12 @@ export const createControlPlaneRows = ({
         "rows.source_auth_bindings.remove",
         tableNames.sourceAuthBindings,
         async () => {
-          const row = await db
-            .select({ id: tables.sourceAuthBindingsTable.id })
-            .from(tables.sourceAuthBindingsTable)
-            .where(eq(tables.sourceAuthBindingsTable.id, bindingId))
-            .limit(1);
-
-          if (row.length === 0) {
-            return false;
-          }
-
-          await db
+          const deleted = await db
             .delete(tables.sourceAuthBindingsTable)
-            .where(eq(tables.sourceAuthBindingsTable.id, bindingId));
+            .where(eq(tables.sourceAuthBindingsTable.id, bindingId))
+            .returning();
 
-          return true;
+          return deleted.length > 0;
         },
       ),
   },
@@ -540,7 +526,7 @@ export const createControlPlaneRows = ({
             .values(material)
             .onConflictDoUpdate({
               target: tables.authMaterialsTable.id,
-              set: material,
+              set: withoutCreatedAt(material),
             });
         },
       ),
@@ -594,7 +580,7 @@ export const createControlPlaneRows = ({
           .values(state)
           .onConflictDoUpdate({
             target: tables.oauthStatesTable.id,
-            set: state,
+            set: withoutCreatedAt(state),
           });
       }),
 
@@ -686,7 +672,7 @@ export const createControlPlaneRows = ({
             .values(storageInstance)
             .onConflictDoUpdate({
               target: tables.storageInstancesTable.id,
-              set: storageInstance,
+              set: withoutCreatedAt(storageInstance),
             });
         },
       ),
@@ -697,21 +683,12 @@ export const createControlPlaneRows = ({
         "rows.storage_instances.remove",
         tableNames.storageInstances,
         async () => {
-          const row = await db
-            .select({ id: tables.storageInstancesTable.id })
-            .from(tables.storageInstancesTable)
-            .where(eq(tables.storageInstancesTable.id, storageInstanceId))
-            .limit(1);
-
-          if (row.length === 0) {
-            return false;
-          }
-
-          await db
+          const deleted = await db
             .delete(tables.storageInstancesTable)
-            .where(eq(tables.storageInstancesTable.id, storageInstanceId));
+            .where(eq(tables.storageInstancesTable.id, storageInstanceId))
+            .returning();
 
-          return true;
+          return deleted.length > 0;
         },
       ),
   },
@@ -761,24 +738,18 @@ export const createControlPlaneRows = ({
           .values(policy)
           .onConflictDoUpdate({
             target: tables.policiesTable.id,
-            set: policy,
+            set: withoutCreatedAt(policy),
           });
       }),
 
     removeById: (policyId: Policy["id"]) =>
       rowEffect(backend, "rows.policies.remove", tableNames.policies, async () => {
-        const row = await db
-          .select({ id: tables.policiesTable.id })
-          .from(tables.policiesTable)
+        const deleted = await db
+          .delete(tables.policiesTable)
           .where(eq(tables.policiesTable.id, policyId))
-          .limit(1);
+          .returning();
 
-        if (row.length === 0) {
-          return false;
-        }
-
-        await db.delete(tables.policiesTable).where(eq(tables.policiesTable.id, policyId));
-        return true;
+        return deleted.length > 0;
       }),
   },
 
