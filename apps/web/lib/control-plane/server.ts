@@ -273,9 +273,9 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
   const sourceStore = persistence.sourceStore;
   const toolArtifactStore = persistence.toolArtifactStore;
   const runtimeAdapterList = [
-    makeLocalInProcessRuntimeAdapter(),
-    makeDenoSubprocessRuntimeAdapter(),
+    // makeLocalInProcessRuntimeAdapter(),
     makeCloudflareWorkerLoaderRuntimeAdapter(),
+    makeDenoSubprocessRuntimeAdapter(),
   ];
   const runtimeAdapters = makeRuntimeAdapterRegistry(runtimeAdapterList);
   const defaultRuntimeKind =
