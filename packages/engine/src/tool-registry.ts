@@ -49,7 +49,7 @@ export type ToolRegistryCatalogToolsInput = {
 export type ToolRegistryToolSummary = {
   path: string;
   source?: string;
-  approval: "auto" | "required";
+  interaction: "auto" | "required";
   description?: string;
   inputHint?: string;
   outputHint?: string;
@@ -107,25 +107,28 @@ export type ToolRegistry = {
   ) => Effect.Effect<ToolRegistryCatalogToolsOutput, RuntimeAdapterError>;
 };
 
-export type ToolApprovalMode = "auto" | "required";
+export type ToolInteractionMode = "auto" | "required";
 
-export type ToolApprovalRequest = {
+export type ToolInteractionRequest = {
   runId: string;
   callId: string;
   toolPath: string;
   input?: Record<string, unknown>;
   workspaceId?: string;
   source?: string;
-  defaultMode: ToolApprovalMode;
+  defaultMode: ToolInteractionMode;
+  interactionKind?: "approval" | "source_oauth_signin" | "provide_secret";
+  interactionTitle?: string;
+  interactionRequestJson?: string | null;
 };
 
-export type ToolApprovalDecision =
+export type ToolInteractionDecision =
   | {
       kind: "approved";
     }
   | {
       kind: "pending";
-      approvalId: string;
+      interactionId: string;
       retryAfterMs?: number;
       error?: string;
     }
@@ -134,21 +137,21 @@ export type ToolApprovalDecision =
       error: string;
     };
 
-export type ToolApprovalPolicy = {
+export type ToolInteractionPolicy = {
   evaluate: (
-    input: ToolApprovalRequest,
-  ) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
+    input: ToolInteractionRequest,
+  ) => ToolInteractionDecision | Promise<ToolInteractionDecision>;
 };
 
-export type CreateInMemoryToolApprovalPolicyOptions = {
+export type CreateInMemoryToolInteractionPolicyOptions = {
   decide: (
-    input: ToolApprovalRequest,
-  ) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
+    input: ToolInteractionRequest,
+  ) => ToolInteractionDecision | Promise<ToolInteractionDecision>;
 };
 
 export type InMemorySandboxTool = {
   description?: string | null;
-  approval?: ToolApprovalMode;
+  interaction?: ToolInteractionMode;
   execute?: (...args: Array<any>) => Promise<any> | any;
   typing?: DiscoveryTypingPayload;
 };
@@ -159,7 +162,7 @@ type StaticToolRegistryOptions = {
   tools: InMemorySandboxToolMap;
   refHintTable?: Record<string, string>;
   workspaceId?: string;
-  approvalPolicy?: ToolApprovalPolicy;
+  interactionPolicy?: ToolInteractionPolicy;
 };
 
 const staticToolRegistryRuntimeKind = "static-tool-registry";
@@ -198,15 +201,15 @@ const normalizeDeniedError = (value: string | undefined, toolPath: string): stri
   return `Tool call denied: ${toolPath}`;
 };
 
-const evaluateToolApproval = (
-  request: ToolApprovalRequest,
-  policy: ToolApprovalPolicy | undefined,
-): Effect.Effect<ToolApprovalDecision, RuntimeAdapterError> => {
+const evaluateToolInteraction = (
+  request: ToolInteractionRequest,
+  policy: ToolInteractionPolicy | undefined,
+): Effect.Effect<ToolInteractionDecision, RuntimeAdapterError> => {
   if (!policy) {
     if (request.defaultMode === "required") {
       return Effect.succeed({
         kind: "denied",
-        error: `Tool requires approval but no approval policy is configured: ${request.toolPath}`,
+        error: `Tool requires interaction gating but no interaction policy is configured: ${request.toolPath}`,
       });
     }
 
@@ -217,16 +220,16 @@ const evaluateToolApproval = (
     try: () => Promise.resolve(policy.evaluate(request)),
     catch: (cause) =>
       toRuntimeAdapterError(
-        "evaluate_approval",
-        `Tool approval evaluation failed: ${request.toolPath}`,
+        "evaluate_interaction",
+        `Tool interaction evaluation failed: ${request.toolPath}`,
         String(cause),
       ),
   });
 };
 
 const toToolCallResultFromDecision = (
-  decision: ToolApprovalDecision,
-  request: ToolApprovalRequest,
+  decision: ToolInteractionDecision,
+  request: ToolInteractionRequest,
 ): RuntimeToolCallResult => {
   if (decision.kind === "approved") {
     return {
@@ -239,7 +242,7 @@ const toToolCallResultFromDecision = (
     return {
       ok: false,
       kind: "pending",
-      approvalId: decision.approvalId,
+      interactionId: decision.interactionId,
       retryAfterMs: normalizePendingRetryAfterMs(decision.retryAfterMs),
       error: decision.error,
     };
@@ -252,9 +255,9 @@ const toToolCallResultFromDecision = (
   };
 };
 
-export const createInMemoryToolApprovalPolicy = (
-  options: CreateInMemoryToolApprovalPolicyOptions,
-): ToolApprovalPolicy => ({
+export const createInMemoryToolInteractionPolicy = (
+  options: CreateInMemoryToolInteractionPolicyOptions,
+): ToolInteractionPolicy => ({
   evaluate: (input) => options.decide(input),
 });
 
@@ -430,7 +433,7 @@ const summarizeTool = (
 ): ToolRegistryToolSummary => ({
   path,
   source,
-  approval: "auto",
+  interaction: "auto",
   description: compact ? undefined : description,
   inputHint: compact
     ? undefined
@@ -826,20 +829,20 @@ export const createStaticToolRegistry = (
       });
     }
 
-    const approvalRequest: ToolApprovalRequest = {
+    const interactionRequest: ToolInteractionRequest = {
       runId: input.runId,
       callId: input.callId,
       toolPath: input.toolPath,
       input: input.input,
       workspaceId: options.workspaceId,
       source: "in-memory",
-      defaultMode: implementation.approval ?? "auto",
+      defaultMode: implementation.interaction ?? "auto",
     };
 
-    return evaluateToolApproval(approvalRequest, options.approvalPolicy).pipe(
+    return evaluateToolInteraction(interactionRequest, options.interactionPolicy).pipe(
       Effect.flatMap((decision) => {
         if (decision.kind !== "approved") {
-          return Effect.succeed(toToolCallResultFromDecision(decision, approvalRequest));
+          return Effect.succeed(toToolCallResultFromDecision(decision, interactionRequest));
         }
 
         return Effect.tryPromise({
@@ -878,14 +881,18 @@ export const createRuntimeToolCallResultHandler = (
   }
 
   if (result.kind === "pending") {
-    return Effect.fail(
-      new RuntimeAdapterError({
-        operation: "call_tool",
-        runtimeKind: runtimeToolCallServiceRuntimeKind,
-        message: result.error ?? `Tool call requires approval: ${request.toolPath}`,
-        details: `approvalId=${result.approvalId} retryAfterMs=${result.retryAfterMs}`,
-      }),
-    );
+      return Effect.fail(
+        new RuntimeAdapterError({
+          operation: "call_tool_pending",
+          runtimeKind: runtimeToolCallServiceRuntimeKind,
+          message: result.error ?? `Tool call requires interaction resolution: ${request.toolPath}`,
+          details: JSON.stringify({
+            interactionId: result.interactionId,
+            retryAfterMs: result.retryAfterMs,
+            toolPath: request.toolPath,
+          }),
+        }),
+      );
   }
 
   if (result.kind === "denied") {
@@ -955,7 +962,34 @@ export const createRuntimeToolCallService = (
   toolRegistry: ToolRegistry,
 ): RuntimeToolCallService => ({
   callTool: (input) =>
-    invokeRuntimeToolCallResult(toolRegistry, input).pipe(
-      Effect.flatMap((result) => createRuntimeToolCallResultHandler(input, result)),
-    ),
+    Effect.gen(function* () {
+      while (true) {
+        const result = yield* invokeRuntimeToolCallResult(toolRegistry, input);
+
+        if (result.ok) {
+          return result.value;
+        }
+
+        if (result.kind === "pending") {
+          yield* Effect.sleep(Math.max(1, result.retryAfterMs));
+          continue;
+        }
+
+        if (result.kind === "denied") {
+          return yield* new RuntimeAdapterError({
+            operation: "call_tool",
+            runtimeKind: runtimeToolCallServiceRuntimeKind,
+            message: result.error,
+            details: `Tool call denied: ${input.toolPath}`,
+          });
+        }
+
+        return yield* new RuntimeAdapterError({
+          operation: "call_tool",
+          runtimeKind: runtimeToolCallServiceRuntimeKind,
+          message: result.error,
+          details: `Tool call failed: ${input.toolPath}`,
+        });
+      }
+    }),
 });

@@ -5,6 +5,7 @@ export type RunTerminalStatus =
   | "denied";
 
 export type ExecuteRunInput = {
+  runId?: string;
   code: string;
   timeoutMs?: number;
   context?: {
@@ -14,11 +15,12 @@ export type ExecuteRunInput = {
 
 export type ExecuteRunResult = {
   runId: string;
-  status: RunTerminalStatus;
+  status: RunTerminalStatus | "waiting_for_interaction";
   result?: unknown;
   error?: string;
   exitCode?: number;
   durationMs?: number;
+  interactionId?: string;
 };
 
 export interface ExecutorRunClient {
@@ -48,7 +50,7 @@ export type RuntimeToolCallResult =
   | {
       ok: false;
       kind: "pending";
-      approvalId: string;
+      interactionId: string;
       retryAfterMs: number;
       error?: string;
     }
@@ -77,4 +79,3 @@ export const createExecutorRunClient = (
 ): ExecutorRunClient => ({
   execute,
 });
-

@@ -38,6 +38,23 @@ type WorkspaceRecord = {
   id: string;
 };
 
+type InteractionRecord = {
+  id: string;
+  workspaceId: string;
+  taskRunId: string;
+  callId: string;
+  toolPath: string;
+  kind: "approval" | "source_oauth_signin" | "provide_secret";
+  status: "pending" | "resolved" | "denied" | "expired" | "failed";
+  title: string;
+  requestJson: string;
+  resultJson: string | null;
+  reason: string | null;
+  requestedAt: number;
+  resolvedAt: number | null;
+  expiresAt: number | null;
+};
+
 type McpToolsListTool = {
   name?: string;
   description?: string;
@@ -1124,6 +1141,143 @@ const workspaceCommand = Command.make("workspace").pipe(
   Command.withDescription("Current workspace settings"),
 );
 
+const buildInteractionPageUrl = (input: {
+  controlPlaneBaseUrl: string;
+  workspaceId: string;
+  interactionId: string;
+}): string => {
+  const controlPlaneBase = input.controlPlaneBaseUrl.replace(/\/$/, "");
+  const interactionUiBase = controlPlaneBase.replace(/\/api\/control-plane$/, "");
+
+  return `${interactionUiBase}/interactions/${encodeURIComponent(input.workspaceId)}/${encodeURIComponent(input.interactionId)}`;
+};
+
+const waitForInteractionResolution = async (input: {
+  client: ExecutorServerClient;
+  workspaceId: string;
+  interactionId: string;
+}): Promise<InteractionRecord> => {
+  const timeoutAt = Date.now() + 10 * 60_000;
+
+  while (Date.now() < timeoutAt) {
+    const interaction = await input.client.request<InteractionRecord>({
+      method: "GET",
+      path: `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/interactions/${encodeURIComponent(input.interactionId)}`,
+    });
+
+    if (interaction.status !== "pending") {
+      return interaction;
+    }
+
+    await sleep(1_000);
+  }
+
+  throw new Error(`Timed out waiting for interaction resolution: ${input.interactionId}`);
+};
+
+const resolvePendingInteraction = async (input: {
+  client: ExecutorServerClient;
+  workspaceId: string;
+  interaction: InteractionRecord;
+  controlPlaneBaseUrl: string;
+}): Promise<void> => {
+  const interaction = input.interaction;
+  const interactionUrl = buildInteractionPageUrl({
+    controlPlaneBaseUrl: input.controlPlaneBaseUrl,
+    workspaceId: input.workspaceId,
+    interactionId: interaction.id,
+  });
+
+  stdout.write(`\nInteraction required: ${interaction.title}\n`);
+  stdout.write(`Resolve it in browser:\n${interactionUrl}\n`);
+
+  if (stdin.isTTY && stdout.isTTY) {
+    openInBrowser(interactionUrl);
+  }
+
+  const resolved = await waitForInteractionResolution({
+    client: input.client,
+    workspaceId: input.workspaceId,
+    interactionId: interaction.id,
+  });
+
+  if (resolved.status === "denied" || resolved.status === "failed" || resolved.status === "expired") {
+    throw new Error(
+      resolved.reason
+      ?? `Interaction was not resolved successfully (${resolved.status}): ${interaction.id}`,
+    );
+  }
+};
+
+const runExecuteWithInteractionLoop = async (input: {
+  client: ExecutorServerClient;
+  workspaceId: string;
+  code: string;
+  timeoutMs: number | undefined;
+  controlPlaneBaseUrl: string;
+}): Promise<unknown> => {
+  const runId = `run_${crypto.randomUUID()}`;
+  let handled = new Set<string>();
+
+  const executePromise = input.client.request<unknown>({
+    method: "POST",
+    path: `/execute?workspaceId=${encodeURIComponent(input.workspaceId)}`,
+    headers: {
+      [ExecutorControlPlaneBaseUrlHeader]: input.controlPlaneBaseUrl,
+    },
+    body: {
+      runId,
+      code: input.code,
+      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    },
+  });
+
+  let settled = false;
+  let executeError: unknown = undefined;
+
+  void executePromise.then(() => {
+    settled = true;
+  }).catch((error) => {
+    settled = true;
+    executeError = error;
+  });
+
+  while (!settled) {
+    await sleep(750);
+
+    let interactions: Array<InteractionRecord> = [];
+    try {
+      interactions = await input.client.request<Array<InteractionRecord>>({
+        method: "GET",
+        path: `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/runs/${encodeURIComponent(runId)}/interactions`,
+      });
+    } catch {
+      continue;
+    }
+
+    const pending = interactions.filter((interaction) => interaction.status === "pending");
+    for (const interaction of pending) {
+      if (handled.has(interaction.id)) {
+        continue;
+      }
+
+      handled.add(interaction.id);
+      await resolvePendingInteraction({
+        client: input.client,
+        workspaceId: input.workspaceId,
+        interaction,
+        controlPlaneBaseUrl: input.controlPlaneBaseUrl,
+      });
+    }
+  }
+
+  if (executeError) {
+    throw executeError;
+  }
+
+  return await executePromise;
+};
+
 const runExecuteCommand = Command.make(
   "execute",
   {
@@ -1157,23 +1311,14 @@ const runExecuteCommand = Command.make(
 
         await withClient(common, async ({ client, config, workspaceOverride, asJson }) => {
           const controlPlaneBaseUrl = await client.resolveBaseUrl();
-          const workspaceId = workspaceOverride?.trim().length
-            ? workspaceOverride.trim()
-            : (config.workspaceId?.trim().length ? config.workspaceId.trim() : undefined);
-          const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+          const workspaceId = await ensureWorkspaceId(client, config, workspaceOverride);
 
-          const result = await client.request<unknown>({
-            method: "POST",
-            path: `/execute${query}`,
-            headers: {
-              [ExecutorControlPlaneBaseUrlHeader]: controlPlaneBaseUrl,
-            },
-            body: {
-              code,
-              ...(Option.isSome(input.timeoutMs)
-                ? { timeoutMs: input.timeoutMs.value }
-                : {}),
-            },
+          const result = await runExecuteWithInteractionLoop({
+            client,
+            workspaceId,
+            code,
+            timeoutMs: Option.isSome(input.timeoutMs) ? input.timeoutMs.value : undefined,
+            controlPlaneBaseUrl,
           });
 
           printOutput(result, asJson);

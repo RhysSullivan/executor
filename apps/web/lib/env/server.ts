@@ -10,11 +10,10 @@ const webServerEnvConfig = configSchema("WebServerEnvironment", {
   }),
   executorRuntimeKind: server({ env: "EXECUTOR_RUNTIME_KIND", optional: true }),
   legacyPmRuntimeKind: server({ env: "PM_RUNTIME_KIND", optional: true }),
-  executorRuntimeRequireToolApprovals: server({
-    env: "EXECUTOR_RUNTIME_REQUIRE_TOOL_APPROVALS",
+  executorRuntimeRequireToolInteractions: server({
+    env: "EXECUTOR_RUNTIME_REQUIRE_TOOL_INTERACTIONS",
     optional: true,
   }),
-  legacyPmRequireToolApprovals: server({ env: "PM_REQUIRE_TOOL_APPROVALS", optional: true }),
   executorRuntimeToolExposureMode: server({
     env: "EXECUTOR_RUNTIME_TOOL_EXPOSURE_MODE",
     optional: true,
@@ -45,16 +44,14 @@ const webServerEnvConfig = configSchema("WebServerEnvironment", {
 });
 
 const env = webServerEnvConfig.server;
-const executorRuntimeRequireToolApprovalsRaw =
-  trim(env.executorRuntimeRequireToolApprovals)
-  ?? trim(env.legacyPmRequireToolApprovals);
+const executorRuntimeRequireToolInteractionsRaw = trim(env.executorRuntimeRequireToolInteractions);
 
 export const webServerEnvironment = {
   nodeEnv: trim(env.nodeEnv) ?? "development",
   databaseUrl: trim(env.databaseUrl),
   controlPlanePostgresConnectionTarget: trim(env.controlPlanePostgresConnectionTarget)?.toLowerCase(),
   executorRuntimeKind: trim(env.executorRuntimeKind) ?? trim(env.legacyPmRuntimeKind),
-  executorRuntimeRequireToolApprovals: isTruthy(executorRuntimeRequireToolApprovalsRaw),
+  executorRuntimeRequireToolInteractions: isTruthy(executorRuntimeRequireToolInteractionsRaw),
   executorRuntimeToolExposureMode:
     trim(env.executorRuntimeToolExposureMode) ?? trim(env.legacyPmToolExposureMode),
   cloudflareSandboxCallbackSecret: trim(env.cloudflareSandboxCallbackSecret),

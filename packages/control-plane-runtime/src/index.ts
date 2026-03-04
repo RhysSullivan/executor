@@ -1,8 +1,8 @@
 export { RuntimeHostActorLive } from "./actor";
 export {
-  createRuntimeHostApprovalsService,
-  createRuntimeHostPersistentToolApprovalPolicy,
-} from "./approvals-service";
+  createRuntimeHostInteractionsService,
+  createRuntimeHostPersistentToolInteractionPolicy,
+} from "./interactions-service";
 export { createRuntimeHostResolveToolCredentials } from "./credential-resolver";
 export { createRuntimeHostCredentialsService } from "./credentials-service";
 export { createRuntimeHostMcpHandler } from "./mcp-handler";

@@ -3,7 +3,7 @@ import { Schema } from "effect";
 const permissionDomainActions = {
   sources: ["read", "write", "manage"],
   policies: ["read", "write", "manage"],
-  approvals: ["read", "resolve", "manage"],
+  interactions: ["read", "resolve", "manage"],
   runs: ["read", "cancel", "manage"],
   credentials: ["read", "write", "manage"],
   storage: ["read", "write", "manage"],

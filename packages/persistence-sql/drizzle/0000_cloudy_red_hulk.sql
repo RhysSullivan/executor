@@ -1,15 +1,20 @@
-CREATE TABLE "approvals" (
+CREATE TABLE "interactions" (
 	"id" text PRIMARY KEY NOT NULL,
 	"workspace_id" text NOT NULL,
 	"task_run_id" text NOT NULL,
 	"call_id" text NOT NULL,
 	"tool_path" text NOT NULL,
+	"kind" text NOT NULL,
 	"status" text NOT NULL,
-	"input_preview_json" text NOT NULL,
+	"title" text NOT NULL,
+	"request_json" text NOT NULL,
+	"result_json" text,
 	"reason" text,
 	"requested_at" bigint NOT NULL,
 	"resolved_at" bigint,
-	CONSTRAINT "approvals_status_check" CHECK ("approvals"."status" in ('pending', 'approved', 'denied', 'expired'))
+	"expires_at" bigint,
+	CONSTRAINT "interactions_kind_check" CHECK ("interactions"."kind" in ('approval', 'source_oauth_signin', 'provide_secret')),
+	CONSTRAINT "interactions_status_check" CHECK ("interactions"."status" in ('pending', 'resolved', 'denied', 'expired', 'failed'))
 );
 --> statement-breakpoint
 CREATE TABLE "auth_connections" (
@@ -223,7 +228,7 @@ CREATE TABLE "task_runs" (
 	"completed_at" bigint,
 	"exit_code" bigint,
 	"error" text,
-	CONSTRAINT "task_runs_status_check" CHECK ("task_runs"."status" in ('queued', 'running', 'completed', 'failed', 'timed_out', 'denied'))
+	CONSTRAINT "task_runs_status_check" CHECK ("task_runs"."status" in ('queued', 'running', 'waiting_for_interaction', 'completed', 'failed', 'timed_out', 'denied'))
 );
 --> statement-breakpoint
 CREATE TABLE "tool_artifacts" (
@@ -254,9 +259,9 @@ CREATE TABLE "workspaces" (
 	"updated_at" bigint NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX "approvals_workspace_idx" ON "approvals" USING btree ("workspace_id","requested_at","id");--> statement-breakpoint
-CREATE INDEX "approvals_task_run_idx" ON "approvals" USING btree ("task_run_id");--> statement-breakpoint
-CREATE INDEX "approvals_lookup_idx" ON "approvals" USING btree ("workspace_id","task_run_id","call_id","requested_at");--> statement-breakpoint
+CREATE INDEX "interactions_workspace_idx" ON "interactions" USING btree ("workspace_id","requested_at","id");--> statement-breakpoint
+CREATE INDEX "interactions_task_run_idx" ON "interactions" USING btree ("task_run_id");--> statement-breakpoint
+CREATE INDEX "interactions_lookup_idx" ON "interactions" USING btree ("workspace_id","task_run_id","call_id","requested_at");--> statement-breakpoint
 CREATE INDEX "auth_connections_org_idx" ON "auth_connections" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "auth_connections_workspace_idx" ON "auth_connections" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "auth_connections_account_idx" ON "auth_connections" USING btree ("account_id");--> statement-breakpoint

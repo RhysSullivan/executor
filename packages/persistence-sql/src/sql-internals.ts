@@ -13,7 +13,7 @@ import postgres from "postgres";
 import { readPersistenceSqlEnvironment } from "./config";
 
 import {
-  approvalsTable,
+  interactionsTable,
   authConnectionsTable,
   authMaterialsTable,
   oauthStatesTable,
@@ -53,7 +53,7 @@ const drizzleSchema = {
   oauthStatesTable,
   secretMaterialsTable,
   policiesTable,
-  approvalsTable,
+  interactionsTable,
   taskRunsTable,
   storageInstancesTable,
   syncStatesTable,

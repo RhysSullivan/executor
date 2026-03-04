@@ -18,18 +18,18 @@ export {
 } from "./run-client";
 
 export {
-  createInMemoryToolApprovalPolicy,
+  createInMemoryToolInteractionPolicy,
   createRuntimeToolCallResultHandler,
   createRuntimeToolCallService,
   createStaticToolRegistry,
   invokeRuntimeToolCallResult,
-  type CreateInMemoryToolApprovalPolicyOptions,
+  type CreateInMemoryToolInteractionPolicyOptions,
   type InMemorySandboxTool,
   type InMemorySandboxToolMap,
-  type ToolApprovalDecision,
-  type ToolApprovalMode,
-  type ToolApprovalPolicy,
-  type ToolApprovalRequest,
+  type ToolInteractionDecision,
+  type ToolInteractionMode,
+  type ToolInteractionPolicy,
+  type ToolInteractionRequest,
   type ToolRegistry,
   type ToolRegistryCallInput,
   type ToolRegistryCatalogNamespacesInput,
@@ -57,13 +57,13 @@ export {
 } from "./execute-tool-description";
 
 export {
-  PersistentToolApprovalPolicyStoreError,
-  createPersistentToolApprovalPolicy,
-  type CreatePersistentToolApprovalPolicyOptions,
-  type PersistentToolApprovalRecord,
-  type PersistentToolApprovalStatus,
-  type PersistentToolApprovalStore,
-} from "./persistent-tool-approval-policy";
+  PersistentToolInteractionPolicyStoreError,
+  createPersistentToolInteractionPolicy,
+  type CreatePersistentToolInteractionPolicyOptions,
+  type PersistentToolInteractionRecord,
+  type PersistentToolInteractionStatus,
+  type PersistentToolInteractionStore,
+} from "./persistent-tool-interaction-policy";
 
 export {
   makeOpenApiToolProvider,

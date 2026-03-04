@@ -1,5 +1,5 @@
 import {
-  type Approval,
+  type Interaction,
   type AuthConnection,
   type AuthMaterial,
   type OAuthState,
@@ -817,83 +817,112 @@ export const createControlPlaneRows = ({
       }),
   },
 
-  approvals: {
+  interactions: {
     list: () =>
-      rowEffect(backend, "rows.approvals.list", tableNames.approvals, async () => {
+      rowEffect(backend, "rows.interactions.list", tableNames.interactions, async () => {
         const rows = await db
           .select()
-          .from(tables.approvalsTable)
-          .orderBy(desc(tables.approvalsTable.requestedAt), desc(tables.approvalsTable.id));
+          .from(tables.interactionsTable)
+          .orderBy(desc(tables.interactionsTable.requestedAt), desc(tables.interactionsTable.id));
 
-        return asDomainArray<Approval>(rows);
+        return asDomainArray<Interaction>(rows);
       }),
 
-    listByWorkspaceId: (workspaceId: Approval["workspaceId"]) =>
+    listByWorkspaceId: (workspaceId: Interaction["workspaceId"]) =>
       rowEffect(
         backend,
-        "rows.approvals.list_by_workspace",
-        tableNames.approvals,
+        "rows.interactions.list_by_workspace",
+        tableNames.interactions,
         async () => {
           const rows = await db
             .select()
-            .from(tables.approvalsTable)
-            .where(eq(tables.approvalsTable.workspaceId, workspaceId))
-            .orderBy(desc(tables.approvalsTable.requestedAt), desc(tables.approvalsTable.id));
+            .from(tables.interactionsTable)
+            .where(eq(tables.interactionsTable.workspaceId, workspaceId))
+            .orderBy(desc(tables.interactionsTable.requestedAt), desc(tables.interactionsTable.id));
 
-          return asDomainArray<Approval>(rows);
+          return asDomainArray<Interaction>(rows);
         },
       ),
 
-    getById: (approvalId: Approval["id"]) =>
-      rowEffect(backend, "rows.approvals.get_by_id", tableNames.approvals, async () => {
-        const row = await db
-          .select()
-          .from(tables.approvalsTable)
-          .where(eq(tables.approvalsTable.id, approvalId))
-          .limit(1);
-
-        return row[0]
-          ? Option.some(asDomain<Approval>(row[0]))
-          : Option.none<Approval>();
-      }),
-
-    findByRunAndCall: (
-      workspaceId: Approval["workspaceId"],
-      taskRunId: Approval["taskRunId"],
-      callId: Approval["callId"],
+    listByRunId: (
+      workspaceId: Interaction["workspaceId"],
+      taskRunId: Interaction["taskRunId"],
     ) =>
       rowEffect(
         backend,
-        "rows.approvals.find_by_run_and_call",
-        tableNames.approvals,
+        "rows.interactions.list_by_run",
+        tableNames.interactions,
         async () => {
-          const row = await db
+          const rows = await db
             .select()
-            .from(tables.approvalsTable)
+            .from(tables.interactionsTable)
             .where(
               and(
-                eq(tables.approvalsTable.workspaceId, workspaceId),
-                eq(tables.approvalsTable.taskRunId, taskRunId),
-                eq(tables.approvalsTable.callId, callId),
+                eq(tables.interactionsTable.workspaceId, workspaceId),
+                eq(tables.interactionsTable.taskRunId, taskRunId),
               ),
             )
-            .orderBy(desc(tables.approvalsTable.requestedAt))
-            .limit(1);
+            .orderBy(desc(tables.interactionsTable.requestedAt), desc(tables.interactionsTable.id));
 
-          return row[0]
-            ? Option.some(asDomain<Approval>(row[0]))
-            : Option.none<Approval>();
+          return asDomainArray<Interaction>(rows);
         },
       ),
 
-    upsert: (approval: Approval) =>
-      rowEffect(backend, "rows.approvals.upsert", tableNames.approvals, async () => {
+    getById: (interactionId: Interaction["id"]) =>
+      rowEffect(
+        backend,
+        "rows.interactions.get_by_id",
+        tableNames.interactions,
+        async () => {
+          const row = await db
+            .select()
+            .from(tables.interactionsTable)
+            .where(eq(tables.interactionsTable.id, interactionId))
+            .limit(1);
+
+          return row[0]
+            ? Option.some(asDomain<Interaction>(row[0]))
+            : Option.none<Interaction>();
+        },
+      ),
+
+    findByRunAndCall: (
+      workspaceId: Interaction["workspaceId"],
+      taskRunId: Interaction["taskRunId"],
+      callId: Interaction["callId"],
+    ) =>
+      rowEffect(
+        backend,
+        "rows.interactions.find_by_run_and_call",
+        tableNames.interactions,
+        async () => {
+          const row = await db
+            .select()
+            .from(tables.interactionsTable)
+            .where(
+              and(
+                eq(tables.interactionsTable.workspaceId, workspaceId),
+                eq(tables.interactionsTable.taskRunId, taskRunId),
+                eq(tables.interactionsTable.callId, callId),
+              ),
+            )
+            .orderBy(desc(tables.interactionsTable.requestedAt))
+            .limit(1);
+
+          return row[0]
+            ? Option.some(asDomain<Interaction>(row[0]))
+            : Option.none<Interaction>();
+        },
+      ),
+
+    upsert: (interaction: Interaction) =>
+      rowEffect(backend, "rows.interactions.upsert", tableNames.interactions, async () => {
         await db
-          .insert(tables.approvalsTable)
-          .values(approval)
+          .insert(tables.interactionsTable)
+          .values(interaction)
           .onConflictDoUpdate({
-            target: tables.approvalsTable.id,
-            set: approval,
+            target: tables.interactionsTable.id,
+            set: interaction,
           });
       }),
   },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import {
-  createInMemoryToolApprovalPolicy,
+  createInMemoryToolInteractionPolicy,
   createRuntimeRunClient,
   createStaticToolRegistry,
 } from "@executor-v2/engine";
@@ -129,17 +129,17 @@ describe("toAiSdkTools", () => {
     }),
   );
 
-  it.effect("supports in-memory approval callbacks in local runtime usage", () =>
+  it.effect("supports in-memory interaction callbacks in local runtime usage", () =>
     Effect.gen(function* () {
       const runtimeAdapter = makeLocalInProcessRuntimeAdapter();
-      const approvals: Array<{ toolPath: string; confirm?: unknown }> = [];
+      const interactions: Array<{ toolPath: string; confirm?: unknown }> = [];
 
       const runClient = createRuntimeRunClient({
         runtimeAdapter,
         toolRegistry: createStaticToolRegistry({
-          approvalPolicy: createInMemoryToolApprovalPolicy({
+          interactionPolicy: createInMemoryToolInteractionPolicy({
             decide: (input) => {
-              approvals.push({
+              interactions.push({
                 toolPath: input.toolPath,
                 confirm: input.input?.confirm,
               });
@@ -156,7 +156,7 @@ describe("toAiSdkTools", () => {
           }),
           tools: {
             "admin.delete": {
-              approval: "required",
+              interaction: "required",
               execute: () => ({ ok: true }),
             },
           },
@@ -185,7 +185,7 @@ describe("toAiSdkTools", () => {
 
       expect(approved.status).toBe("completed");
       expect(approved.result).toEqual({ ok: true });
-      expect(approvals).toEqual([
+      expect(interactions).toEqual([
         { toolPath: "admin.delete", confirm: "no" },
         { toolPath: "admin.delete", confirm: "yes" },
       ]);

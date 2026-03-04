@@ -25,7 +25,7 @@ import * as Schema from "effect/Schema";
 import { makeOpenApiToolProvider } from "./openapi-provider";
 import { makeToolProviderRegistry } from "./tool-providers";
 import { createSourceToolRegistry } from "./source-tool-registry";
-import { createInMemoryToolApprovalPolicy } from "./tool-registry";
+import { createInMemoryToolInteractionPolicy } from "./tool-registry";
 
 const decodeSource = Schema.decodeUnknownSync(SourceSchema);
 
@@ -320,7 +320,7 @@ describe("source tool registry", () => {
     }),
   );
 
-  it.scoped("supports approval policy callbacks without persistence", () =>
+  it.scoped("supports interaction policy callbacks without persistence", () =>
     Effect.gen(function* () {
       const server = yield* makeTestServer;
 
@@ -382,10 +382,10 @@ describe("source tool registry", () => {
         sourceStore,
         toolArtifactStore,
         toolProviderRegistry,
-        approvalPolicy: createInMemoryToolApprovalPolicy({
+        interactionPolicy: createInMemoryToolInteractionPolicy({
           decide: () => ({
             kind: "pending",
-            approvalId: "approval_source_1",
+            interactionId: "interaction_source_1",
             retryAfterMs: 250,
           }),
         }),
@@ -406,7 +406,7 @@ describe("source tool registry", () => {
       expect(pending).toEqual({
         ok: false,
         kind: "pending",
-        approvalId: "approval_source_1",
+        interactionId: "interaction_source_1",
         retryAfterMs: 250,
         error: undefined,
       });

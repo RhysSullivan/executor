@@ -32,6 +32,11 @@ Control-plane management from CLI should happen through `run execute` and discov
 source tool paths (for example, add Executor's own OpenAPI source, then call its
 tool paths to manage other sources).
 
+`run execute` now polls pending run interactions (`approval`, `source_oauth_signin`,
+`provide_secret`) and resolves them through the control-plane interaction endpoints.
+When an interaction is pending, CLI opens `${baseUrl}/interactions/<workspace>/<interaction>`
+for browser-based resolution and waits for completion.
+
 Run locally:
 
 - `bun run --cwd apps/cli start -- target show`

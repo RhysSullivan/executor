@@ -60,21 +60,21 @@ const resolveWorkspaceActor = (workspaceId: WorkspaceId) =>
     });
   });
 
-const requireReadApprovals = (workspaceId: WorkspaceId) =>
+const requireReadInteractions = (workspaceId: WorkspaceId) =>
   requirePermission({
-    permission: "approvals:read",
+    permission: "interactions:read",
     workspaceId,
   });
 
-const requireResolveApprovals = (workspaceId: WorkspaceId) =>
+const requireResolveInteractions = (workspaceId: WorkspaceId) =>
   requirePermission({
-    permission: "approvals:resolve",
+    permission: "interactions:resolve",
     workspaceId,
   });
 
-export const ControlPlaneApprovalsLive = HttpApiBuilder.group(
+export const ControlPlaneInteractionsLive = HttpApiBuilder.group(
   ControlPlaneApi,
-  "approvals",
+  "interactions",
   (handlers) =>
     handlers
       .handle("list", ({ path }) =>
@@ -82,18 +82,64 @@ export const ControlPlaneApprovalsLive = HttpApiBuilder.group(
           const service = yield* ControlPlaneService;
           const actor = yield* resolveWorkspaceActor(path.workspaceId);
 
-          return yield* withPolicy(requireReadApprovals(path.workspaceId))(
-            service.listApprovals(path.workspaceId),
+          return yield* withPolicy(requireReadInteractions(path.workspaceId))(
+            service.listInteractions(path.workspaceId),
           ).pipe(Effect.provideService(Actor, actor));
         }).pipe(
           Effect.catchTag("ActorUnauthenticatedError", (cause) =>
-            toUnauthorizedError("approvals.list", cause),
+            toUnauthorizedError("interactions.list", cause),
           ),
           Effect.catchTag("ActorForbiddenError", (cause) =>
-            toForbiddenError("approvals.list", cause),
+            toForbiddenError("interactions.list", cause),
           ),
           Effect.catchTag("SourceStoreError", (cause) =>
-            toStorageError("approvals.list", cause),
+            toStorageError("interactions.list", cause),
+          ),
+        ),
+      )
+      .handle("list-run", ({ path }) =>
+        Effect.gen(function* () {
+          const service = yield* ControlPlaneService;
+          const actor = yield* resolveWorkspaceActor(path.workspaceId);
+
+          return yield* withPolicy(requireReadInteractions(path.workspaceId))(
+            service.listRunInteractions({
+              workspaceId: path.workspaceId,
+              runId: path.runId,
+            }),
+          ).pipe(Effect.provideService(Actor, actor));
+        }).pipe(
+          Effect.catchTag("ActorUnauthenticatedError", (cause) =>
+            toUnauthorizedError("interactions.list_run", cause),
+          ),
+          Effect.catchTag("ActorForbiddenError", (cause) =>
+            toForbiddenError("interactions.list_run", cause),
+          ),
+          Effect.catchTag("SourceStoreError", (cause) =>
+            toStorageError("interactions.list_run", cause),
+          ),
+        ),
+      )
+      .handle("get", ({ path }) =>
+        Effect.gen(function* () {
+          const service = yield* ControlPlaneService;
+          const actor = yield* resolveWorkspaceActor(path.workspaceId);
+
+          return yield* withPolicy(requireReadInteractions(path.workspaceId))(
+            service.getInteraction({
+              workspaceId: path.workspaceId,
+              interactionId: path.interactionId,
+            }),
+          ).pipe(Effect.provideService(Actor, actor));
+        }).pipe(
+          Effect.catchTag("ActorUnauthenticatedError", (cause) =>
+            toUnauthorizedError("interactions.get", cause),
+          ),
+          Effect.catchTag("ActorForbiddenError", (cause) =>
+            toForbiddenError("interactions.get", cause),
+          ),
+          Effect.catchTag("SourceStoreError", (cause) =>
+            toStorageError("interactions.get", cause),
           ),
         ),
       )
@@ -102,22 +148,22 @@ export const ControlPlaneApprovalsLive = HttpApiBuilder.group(
           const service = yield* ControlPlaneService;
           const actor = yield* resolveWorkspaceActor(path.workspaceId);
 
-          return yield* withPolicy(requireResolveApprovals(path.workspaceId))(
-            service.resolveApproval({
+          return yield* withPolicy(requireResolveInteractions(path.workspaceId))(
+            service.resolveInteraction({
               workspaceId: path.workspaceId,
-              approvalId: path.approvalId,
+              interactionId: path.interactionId,
               payload,
             }),
           ).pipe(Effect.provideService(Actor, actor));
         }).pipe(
           Effect.catchTag("ActorUnauthenticatedError", (cause) =>
-            toUnauthorizedError("approvals.resolve", cause),
+            toUnauthorizedError("interactions.resolve", cause),
           ),
           Effect.catchTag("ActorForbiddenError", (cause) =>
-            toForbiddenError("approvals.resolve", cause),
+            toForbiddenError("interactions.resolve", cause),
           ),
           Effect.catchTag("SourceStoreError", (cause) =>
-            toStorageError("approvals.resolve", cause),
+            toStorageError("interactions.resolve", cause),
           ),
         ),
       ),

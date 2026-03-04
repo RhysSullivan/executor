@@ -57,7 +57,11 @@ export const createRuntimeHostExecuteRuntimeRun = (
               new RuntimeExecutionPortError({
                 operation: "runtime_execute",
                 message: error.message,
-                details: error.details,
+                details: JSON.stringify({
+                  runtimeOperation: error.operation,
+                  runtimeKind: error.runtimeKind,
+                  details: error.details,
+                }),
               }),
           ),
         );

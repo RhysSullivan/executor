@@ -2,7 +2,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 
 import { run } from "./user-code.js";
 
-const APPROVAL_DENIED_PREFIX = "APPROVAL_DENIED:";
+const INTERACTION_DENIED_PREFIX = "INTERACTION_DENIED:";
 
 function isObjectRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -27,13 +27,13 @@ function decodeToolBridgeResult(rawResult) {
   if (
     rawResult.ok === false
     && rawResult.kind === "pending"
-    && typeof rawResult.approvalId === "string"
+    && typeof rawResult.interactionId === "string"
     && typeof rawResult.retryAfterMs === "number"
   ) {
     return {
       ok: false,
       kind: "pending",
-      approvalId: rawResult.approvalId,
+      interactionId: rawResult.interactionId,
       retryAfterMs: rawResult.retryAfterMs,
       ...(typeof rawResult.error === "string" ? { error: rawResult.error } : {}),
     };
@@ -153,12 +153,12 @@ function createToolsProxy(bridge, path = []) {
 
       if (result.kind === "pending") {
         throw new Error(
-          `Tool call is unexpectedly pending approval (${result.approvalId})`,
+          `Tool call is unexpectedly pending interaction (${result.interactionId})`,
         );
       }
 
       if (result.kind === "denied") {
-        throw new Error(APPROVAL_DENIED_PREFIX + result.error);
+        throw new Error(INTERACTION_DENIED_PREFIX + result.error);
       }
 
       const errorText = typeof result.error === "string" ? result.error.trim() : "";
@@ -208,8 +208,8 @@ export default class SandboxHarness extends WorkerEntrypoint {
     } catch (error) {
       const message = describeExecutionError(error);
 
-      if (message.startsWith(APPROVAL_DENIED_PREFIX)) {
-        const denied = message.replace(APPROVAL_DENIED_PREFIX, "").trim();
+      if (message.startsWith(INTERACTION_DENIED_PREFIX)) {
+        const denied = message.replace(INTERACTION_DENIED_PREFIX, "").trim();
         return {
           status: "denied",
           error: denied,

@@ -37,6 +37,7 @@ export {
 } from "./tools";
 
 export {
+  type ApprovalItem,
   approvalsResultByWorkspace,
   approvalsByWorkspace,
   approvalPendingByWorkspace,

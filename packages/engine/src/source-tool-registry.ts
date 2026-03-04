@@ -27,9 +27,9 @@ import type {
   ToolProviderRegistryError,
 } from "./tool-providers";
 import type {
-  ToolApprovalDecision,
-  ToolApprovalPolicy,
-  ToolApprovalRequest,
+  ToolInteractionDecision,
+  ToolInteractionPolicy,
+  ToolInteractionRequest,
   ToolRegistry,
   ToolRegistryCatalogNamespacesInput,
   ToolRegistryCatalogNamespacesOutput,
@@ -50,7 +50,7 @@ type SourceToolRegistryOptions = {
   sourceStore: SourceStore;
   toolArtifactStore: ToolArtifactStore;
   toolProviderRegistry: ToolProviderRegistry;
-  approvalPolicy?: ToolApprovalPolicy;
+  interactionPolicy?: ToolInteractionPolicy;
 };
 
 type SourceToolEntry = {
@@ -104,10 +104,10 @@ const normalizeDeniedError = (value: string | undefined, toolPath: string): stri
   return `Tool call denied: ${toolPath}`;
 };
 
-const evaluateToolApproval = (
-  request: ToolApprovalRequest,
-  policy: ToolApprovalPolicy | undefined,
-): Effect.Effect<ToolApprovalDecision, RuntimeAdapterError> => {
+const evaluateToolInteraction = (
+  request: ToolInteractionRequest,
+  policy: ToolInteractionPolicy | undefined,
+): Effect.Effect<ToolInteractionDecision, RuntimeAdapterError> => {
   if (!policy) {
     return Effect.succeed({ kind: "approved" });
   }
@@ -116,16 +116,16 @@ const evaluateToolApproval = (
     try: () => Promise.resolve(policy.evaluate(request)),
     catch: (cause) =>
       toRuntimeAdapterError(
-        "evaluate_approval",
-        `Tool approval evaluation failed: ${request.toolPath}`,
+        "evaluate_interaction",
+        `Tool interaction evaluation failed: ${request.toolPath}`,
         String(cause),
       ),
   });
 };
 
 const toToolCallResultFromDecision = (
-  decision: ToolApprovalDecision,
-  request: ToolApprovalRequest,
+  decision: ToolInteractionDecision,
+  request: ToolInteractionRequest,
 ): RuntimeToolCallResult => {
   if (decision.kind === "approved") {
     return {
@@ -138,7 +138,7 @@ const toToolCallResultFromDecision = (
     return {
       ok: false,
       kind: "pending",
-      approvalId: decision.approvalId,
+      interactionId: decision.interactionId,
       retryAfterMs: normalizePendingRetryAfterMs(decision.retryAfterMs),
       error: decision.error,
     };
@@ -495,7 +495,7 @@ const summarizeEntry = (
 ): ToolRegistryToolSummary => ({
   path: entry.path,
   source: entry.source.name,
-  approval: "auto",
+  interaction: "auto",
   description: compact ? undefined : entry.descriptor.description ?? undefined,
   inputHint: compact
     ? undefined
@@ -1005,6 +1005,55 @@ export const createSourceToolRegistry = (
       const entry = resolved.entry;
 
       if (!entry) {
+        const sourceId = sourceIdFromToolPath(input.toolPath);
+        if (sourceId) {
+          const sourceOption = yield* options.sourceStore
+            .getById(options.workspaceId as WorkspaceId, sourceId as Source["id"])
+            .pipe(
+              Effect.mapError((cause) =>
+                sourceStoreErrorToRuntimeAdapterError("get_source", cause),
+              ),
+            );
+
+          const source = Option.getOrNull(sourceOption);
+          if (source && source.status !== "connected") {
+            const authInteractionKind = source.kind === "mcp"
+              ? "source_oauth_signin"
+              : "provide_secret";
+
+            const connectRequest: ToolInteractionRequest = {
+              runId: input.runId,
+              callId: input.callId,
+              toolPath: input.toolPath,
+              input: normalizeToolCallInput(input.input),
+              workspaceId: options.workspaceId,
+              source: source.name,
+              defaultMode: "required",
+              interactionKind: authInteractionKind,
+              interactionTitle: authInteractionKind === "source_oauth_signin"
+                ? `Sign in to source: ${source.name}`
+                : `Provide secret for source: ${source.name}`,
+              interactionRequestJson: JSON.stringify({
+                sourceId: source.id,
+                sourceName: source.name,
+                sourceKind: source.kind,
+                endpoint: source.endpoint,
+                desiredToolPath: input.toolPath,
+                kind: authInteractionKind,
+              }),
+            };
+
+            const connectDecision = yield* evaluateToolInteraction(
+              connectRequest,
+              options.interactionPolicy,
+            );
+
+            if (connectDecision.kind !== "approved") {
+              return toToolCallResultFromDecision(connectDecision, connectRequest);
+            }
+          }
+        }
+
         return {
           ok: false,
           kind: "failed",
@@ -1012,7 +1061,44 @@ export const createSourceToolRegistry = (
         } satisfies RuntimeToolCallResult;
       }
 
-      const approvalRequest: ToolApprovalRequest = {
+      if (entry.source.status !== "connected") {
+        const authInteractionKind = entry.source.kind === "mcp"
+          ? "source_oauth_signin"
+          : "provide_secret";
+
+        const connectRequest: ToolInteractionRequest = {
+          runId: input.runId,
+          callId: input.callId,
+          toolPath: entry.path,
+          input: normalizeToolCallInput(input.input),
+          workspaceId: options.workspaceId,
+          source: entry.source.name,
+          defaultMode: "required",
+          interactionKind: authInteractionKind,
+          interactionTitle: authInteractionKind === "source_oauth_signin"
+            ? `Sign in to source: ${entry.source.name}`
+            : `Provide secret for source: ${entry.source.name}`,
+          interactionRequestJson: JSON.stringify({
+            sourceId: entry.source.id,
+            sourceName: entry.source.name,
+            sourceKind: entry.source.kind,
+            endpoint: entry.source.endpoint,
+            desiredToolPath: entry.path,
+            kind: authInteractionKind,
+          }),
+        };
+
+        const connectDecision = yield* evaluateToolInteraction(
+          connectRequest,
+          options.interactionPolicy,
+        );
+
+        if (connectDecision.kind !== "approved") {
+          return toToolCallResultFromDecision(connectDecision, connectRequest);
+        }
+      }
+
+      const interactionRequest: ToolInteractionRequest = {
         runId: input.runId,
         callId: input.callId,
         toolPath: entry.path,
@@ -1020,22 +1106,30 @@ export const createSourceToolRegistry = (
         workspaceId: options.workspaceId,
         source: entry.source.name,
         defaultMode: "auto",
+        interactionKind: "approval",
+        interactionTitle: `Approve tool call: ${entry.path}`,
+        interactionRequestJson: JSON.stringify({
+          toolPath: entry.path,
+          sourceId: entry.source.id,
+          sourceName: entry.source.name,
+          input: normalizeToolCallInput(input.input),
+        }),
       };
 
-      const approvalDecision = yield* evaluateToolApproval(
-        approvalRequest,
-        options.approvalPolicy,
+      const interactionDecision = yield* evaluateToolInteraction(
+        interactionRequest,
+        options.interactionPolicy,
       );
 
-      if (approvalDecision.kind !== "approved") {
-        return toToolCallResultFromDecision(approvalDecision, approvalRequest);
+      if (interactionDecision.kind !== "approved") {
+        return toToolCallResultFromDecision(interactionDecision, interactionRequest);
       }
 
       const invocation = yield* options.toolProviderRegistry
         .invoke({
           source: entry.source,
           tool: entry.descriptor,
-          args: approvalRequest.input ?? {},
+          args: interactionRequest.input ?? {},
           credentialHeaders: input.credentialHeaders,
         })
         .pipe(

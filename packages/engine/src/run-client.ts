@@ -11,11 +11,12 @@ export type RuntimeRunClientExecuteInput = {
 
 export type RuntimeRunClientExecuteResult = {
   runId: string;
-  status: "completed" | "failed" | "timed_out" | "denied";
+  status: "completed" | "failed" | "timed_out" | "denied" | "waiting_for_interaction";
   result?: unknown;
   error?: string;
   exitCode?: number;
   durationMs?: number;
+  interactionId?: string;
 };
 
 export type RuntimeRunClient = {
@@ -95,5 +96,4 @@ export const createRuntimeRunClient = (
     },
   };
 };
-
 

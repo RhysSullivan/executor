@@ -1,7 +1,7 @@
 import * as Context from "effect/Context";
 
-import { type ControlPlaneApprovalsServiceShape } from "./approvals/service";
 import { type ControlPlaneCredentialsServiceShape } from "./credentials/service";
+import { type ControlPlaneInteractionsServiceShape } from "./interactions/service";
 import { type ControlPlaneOrganizationsServiceShape } from "./organizations/service";
 import { type ControlPlanePoliciesServiceShape } from "./policies/service";
 import { type ControlPlaneStorageServiceShape } from "./storage/service";
@@ -16,7 +16,7 @@ export type ControlPlaneServiceShape = ControlPlaneSourcesServiceShape &
   ControlPlaneWorkspacesServiceShape &
   ControlPlaneToolsServiceShape &
   ControlPlaneStorageServiceShape &
-  ControlPlaneApprovalsServiceShape;
+  ControlPlaneInteractionsServiceShape;
 
 export class ControlPlaneService extends Context.Tag("@executor-v2/management-api/ControlPlaneService")<
   ControlPlaneService,
@@ -31,7 +31,7 @@ export const makeControlPlaneService = (services: {
   workspaces: ControlPlaneWorkspacesServiceShape;
   tools: ControlPlaneToolsServiceShape;
   storage: ControlPlaneStorageServiceShape;
-  approvals: ControlPlaneApprovalsServiceShape;
+  interactions: ControlPlaneInteractionsServiceShape;
 }): ControlPlaneServiceShape => ({
   ...services.sources,
   ...services.credentials,
@@ -40,5 +40,5 @@ export const makeControlPlaneService = (services: {
   ...services.workspaces,
   ...services.tools,
   ...services.storage,
-  ...services.approvals,
+  ...services.interactions,
 });

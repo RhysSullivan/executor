@@ -23,7 +23,7 @@ export const OrganizationMemberIdSchema = Schema.String.pipe(
   Schema.brand("OrganizationMemberId"),
 );
 export const PolicyIdSchema = Schema.String.pipe(Schema.brand("PolicyId"));
-export const ApprovalIdSchema = Schema.String.pipe(Schema.brand("ApprovalId"));
+export const InteractionIdSchema = Schema.String.pipe(Schema.brand("InteractionId"));
 export const TaskRunIdSchema = Schema.String.pipe(Schema.brand("TaskRunId"));
 export const SyncStateIdSchema = Schema.String.pipe(Schema.brand("SyncStateId"));
 export const StorageInstanceIdSchema = Schema.String.pipe(
@@ -44,7 +44,7 @@ export type OAuthStateId = typeof OAuthStateIdSchema.Type;
 export type AuthAuditEventId = typeof AuthAuditEventIdSchema.Type;
 export type OrganizationMemberId = typeof OrganizationMemberIdSchema.Type;
 export type PolicyId = typeof PolicyIdSchema.Type;
-export type ApprovalId = typeof ApprovalIdSchema.Type;
+export type InteractionId = typeof InteractionIdSchema.Type;
 export type TaskRunId = typeof TaskRunIdSchema.Type;
 export type SyncStateId = typeof SyncStateIdSchema.Type;
 export type StorageInstanceId = typeof StorageInstanceIdSchema.Type;

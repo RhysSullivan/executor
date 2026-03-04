@@ -24,7 +24,7 @@ export const tableNames = {
   oauthStates: "oauth_states",
   secretMaterials: "secret_materials",
   policies: "policies",
-  approvals: "approvals",
+  interactions: "interactions",
   taskRuns: "task_runs",
   storageInstances: "storage_instances",
   syncStates: "sync_states",
@@ -409,37 +409,45 @@ export const taskRunsTable = pgTable(
     index("task_runs_workspace_idx").on(table.workspaceId),
     check(
       "task_runs_status_check",
-      sql`${table.status} in ('queued', 'running', 'completed', 'failed', 'timed_out', 'denied')`,
+      sql`${table.status} in ('queued', 'running', 'waiting_for_interaction', 'completed', 'failed', 'timed_out', 'denied')`,
     ),
   ],
 );
 
-export const approvalsTable = pgTable(
-  tableNames.approvals,
+export const interactionsTable = pgTable(
+  tableNames.interactions,
   {
     id: text("id").notNull().primaryKey(),
     workspaceId: text("workspace_id").notNull(),
     taskRunId: text("task_run_id").notNull(),
     callId: text("call_id").notNull(),
     toolPath: text("tool_path").notNull(),
+    kind: text("kind").notNull(),
     status: text("status").notNull(),
-    inputPreviewJson: text("input_preview_json").notNull(),
+    title: text("title").notNull(),
+    requestJson: text("request_json").notNull(),
+    resultJson: text("result_json"),
     reason: text("reason"),
     requestedAt: bigint("requested_at", { mode: "number" }).notNull(),
     resolvedAt: bigint("resolved_at", { mode: "number" }),
+    expiresAt: bigint("expires_at", { mode: "number" }),
   },
   (table) => [
-    index("approvals_workspace_idx").on(table.workspaceId, table.requestedAt, table.id),
-    index("approvals_task_run_idx").on(table.taskRunId),
-    index("approvals_lookup_idx").on(
+    index("interactions_workspace_idx").on(table.workspaceId, table.requestedAt, table.id),
+    index("interactions_task_run_idx").on(table.taskRunId),
+    index("interactions_lookup_idx").on(
       table.workspaceId,
       table.taskRunId,
       table.callId,
       table.requestedAt,
     ),
     check(
-      "approvals_status_check",
-      sql`${table.status} in ('pending', 'approved', 'denied', 'expired')`,
+      "interactions_kind_check",
+      sql`${table.kind} in ('approval', 'source_oauth_signin', 'provide_secret')`,
+    ),
+    check(
+      "interactions_status_check",
+      sql`${table.status} in ('pending', 'resolved', 'denied', 'expired', 'failed')`,
     ),
   ],
 );

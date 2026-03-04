@@ -14,7 +14,7 @@ export * from "./models/oauth-state";
 export * from "./models/secret-material";
 export * from "./models/auth-audit-event";
 export * from "./models/policy";
-export * from "./models/approval";
+export * from "./models/interaction";
 export * from "./models/task-run";
 export * from "./models/sync-state";
 export * from "./models/storage-instance";

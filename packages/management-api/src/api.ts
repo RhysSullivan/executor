@@ -1,7 +1,7 @@
 import { HttpApi, OpenApi } from "@effect/platform";
 
-import { ApprovalsApi } from "./approvals/api";
 import { CredentialsApi } from "./credentials/api";
+import { InteractionsApi } from "./interactions/api";
 import { OrganizationsApi } from "./organizations/api";
 import { PoliciesApi } from "./policies/api";
 import { StorageApi } from "./storage/api";
@@ -78,10 +78,10 @@ export {
 } from "./storage/api";
 
 export {
-  ResolveApprovalPayloadSchema,
-  ResolveApprovalStatusSchema,
-  type ResolveApprovalPayload,
-} from "./approvals/api";
+  ResolveInteractionPayloadSchema,
+  ResolveInteractionStatusSchema,
+  type ResolveInteractionPayload,
+} from "./interactions/api";
 
 export class ControlPlaneApi extends HttpApi.make("controlPlane")
   .add(SourcesApi)
@@ -91,7 +91,7 @@ export class ControlPlaneApi extends HttpApi.make("controlPlane")
   .add(WorkspacesApi)
   .add(ToolsApi)
   .add(StorageApi)
-  .add(ApprovalsApi)
+  .add(InteractionsApi)
   .annotateContext(
     OpenApi.annotations({
       title: "Executor v2 Management API",

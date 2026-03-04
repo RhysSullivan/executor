@@ -2,39 +2,39 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 import type {
-  ToolApprovalDecision,
-  ToolApprovalPolicy,
-  ToolApprovalRequest,
+  ToolInteractionDecision,
+  ToolInteractionPolicy,
+  ToolInteractionRequest,
 } from "./tool-registry";
 
-export type PersistentToolApprovalStatus = "pending" | "approved" | "denied" | "expired";
+export type PersistentToolInteractionStatus = "pending" | "resolved" | "denied" | "expired";
 
-export type PersistentToolApprovalRecord = {
-  approvalId: string;
+export type PersistentToolInteractionRecord = {
+  interactionId: string;
   workspaceId: string;
   runId: string;
   callId: string;
   toolPath: string;
-  status: PersistentToolApprovalStatus;
+  status: PersistentToolInteractionStatus;
   reason: string | null;
 };
 
-export class PersistentToolApprovalPolicyStoreError extends Data.TaggedError(
-  "PersistentToolApprovalPolicyStoreError",
+export class PersistentToolInteractionPolicyStoreError extends Data.TaggedError(
+  "PersistentToolInteractionPolicyStoreError",
 )<{
   operation: string;
   message: string;
   details: string | null;
 }> {}
 
-export type PersistentToolApprovalStore = {
+export type PersistentToolInteractionStore = {
   findByRunAndCall: (input: {
     workspaceId: string;
     runId: string;
     callId: string;
   }) => Effect.Effect<
-    PersistentToolApprovalRecord | null,
-    PersistentToolApprovalPolicyStoreError
+    PersistentToolInteractionRecord | null,
+    PersistentToolInteractionPolicyStoreError
   >;
   createPending: (input: {
     workspaceId: string;
@@ -42,18 +42,21 @@ export type PersistentToolApprovalStore = {
     callId: string;
     toolPath: string;
     inputPreviewJson: string;
-  }) => Effect.Effect<PersistentToolApprovalRecord, PersistentToolApprovalPolicyStoreError>;
+    interactionKind: ToolInteractionRequest["interactionKind"];
+    interactionTitle: string | undefined;
+    interactionRequestJson: string | null;
+  }) => Effect.Effect<PersistentToolInteractionRecord, PersistentToolInteractionPolicyStoreError>;
 };
 
-export type CreatePersistentToolApprovalPolicyOptions = {
-  store: PersistentToolApprovalStore;
-  requireApprovals?: boolean;
+export type CreatePersistentToolInteractionPolicyOptions = {
+  store: PersistentToolInteractionStore;
+  requireInteractions?: boolean;
   retryAfterMs?: number;
   serializeInputPreview?: (input: Record<string, unknown> | undefined) => string;
   onStoreError?: (
-    error: PersistentToolApprovalPolicyStoreError,
-    request: ToolApprovalRequest,
-  ) => ToolApprovalDecision;
+    error: PersistentToolInteractionPolicyStoreError,
+    request: ToolInteractionRequest,
+  ) => ToolInteractionDecision;
 };
 
 const defaultPendingRetryAfterMs = 1_000;
@@ -74,13 +77,13 @@ const defaultSerializeInputPreview = (input: Record<string, unknown> | undefined
   }
 };
 
-const deniedMessageFromRecord = (record: PersistentToolApprovalRecord): string =>
+const deniedMessageFromRecord = (record: PersistentToolInteractionRecord): string =>
   record.reason ?? `Tool call denied: ${record.toolPath}`;
 
 const defaultStoreErrorDecision = (
-  error: PersistentToolApprovalPolicyStoreError,
-  request: ToolApprovalRequest,
-): ToolApprovalDecision => ({
+  error: PersistentToolInteractionPolicyStoreError,
+  request: ToolInteractionRequest,
+): ToolInteractionDecision => ({
   kind: "denied",
   error:
     error.details && error.details.length > 0
@@ -88,10 +91,10 @@ const defaultStoreErrorDecision = (
       : `${error.message} [tool=${request.toolPath}]`,
 });
 
-export const createPersistentToolApprovalPolicy = (
-  options: CreatePersistentToolApprovalPolicyOptions,
-): ToolApprovalPolicy => {
-  const requireApprovals = options.requireApprovals === true;
+export const createPersistentToolInteractionPolicy = (
+  options: CreatePersistentToolInteractionPolicyOptions,
+): ToolInteractionPolicy => {
+  const requireInteractions = options.requireInteractions === true;
   const retryAfterMs = normalizePendingRetryAfterMs(options.retryAfterMs);
   const serializeInputPreview = options.serializeInputPreview ?? defaultSerializeInputPreview;
   const onStoreError = options.onStoreError ?? defaultStoreErrorDecision;
@@ -99,18 +102,18 @@ export const createPersistentToolApprovalPolicy = (
   return {
     evaluate: (input) =>
       Effect.gen(function* () {
-        const shouldRequireApproval = requireApprovals || input.defaultMode === "required";
-        if (!shouldRequireApproval) {
+        const shouldRequireInteraction = requireInteractions || input.defaultMode === "required";
+        if (!shouldRequireInteraction) {
           return {
             kind: "approved",
-          } satisfies ToolApprovalDecision;
+          } satisfies ToolInteractionDecision;
         }
 
         if (!input.workspaceId) {
           return {
             kind: "denied",
-            error: `Tool approval requires workspaceId for ${input.toolPath}`,
-          } satisfies ToolApprovalDecision;
+            error: `Tool interaction requires workspaceId for ${input.toolPath}`,
+          } satisfies ToolInteractionDecision;
         }
 
         const existing = yield* options.store.findByRunAndCall({
@@ -120,25 +123,25 @@ export const createPersistentToolApprovalPolicy = (
         });
 
         if (existing !== null) {
-          if (existing.status === "approved") {
+          if (existing.status === "resolved") {
             return {
               kind: "approved",
-            } satisfies ToolApprovalDecision;
+            } satisfies ToolInteractionDecision;
           }
 
           if (existing.status === "pending") {
             return {
               kind: "pending",
-              approvalId: existing.approvalId,
+              interactionId: existing.interactionId,
               retryAfterMs,
               error: existing.reason ?? undefined,
-            } satisfies ToolApprovalDecision;
+            } satisfies ToolInteractionDecision;
           }
 
           return {
             kind: "denied",
             error: deniedMessageFromRecord(existing),
-          } satisfies ToolApprovalDecision;
+          } satisfies ToolInteractionDecision;
         }
 
         const pending = yield* options.store.createPending({
@@ -147,15 +150,18 @@ export const createPersistentToolApprovalPolicy = (
           callId: input.callId,
           toolPath: input.toolPath,
           inputPreviewJson: serializeInputPreview(input.input),
+          interactionKind: input.interactionKind,
+          interactionTitle: input.interactionTitle,
+          interactionRequestJson: input.interactionRequestJson ?? null,
         });
 
         return {
           kind: "pending",
-          approvalId: pending.approvalId,
+          interactionId: pending.interactionId,
           retryAfterMs,
-        } satisfies ToolApprovalDecision;
+        } satisfies ToolInteractionDecision;
       }).pipe(
-        Effect.catchTag("PersistentToolApprovalPolicyStoreError", (error) =>
+        Effect.catchTag("PersistentToolInteractionPolicyStoreError", (error) =>
           Effect.succeed(onStoreError(error, input)),
         ),
         Effect.runPromise,

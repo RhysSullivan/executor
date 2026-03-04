@@ -13,8 +13,8 @@ export {
   RemovePolicyResultSchema,
   RemoveSourceResultSchema,
   RemoveStorageInstanceResultSchema,
-  ResolveApprovalPayloadSchema,
-  ResolveApprovalStatusSchema,
+  ResolveInteractionPayloadSchema,
+  ResolveInteractionStatusSchema,
   SourceToolDetailSchema,
   SourceToolSummarySchema,
   UpsertCredentialBindingPayloadSchema,
@@ -36,7 +36,7 @@ export {
   type RemovePolicyResult,
   type RemoveSourceResult,
   type RemoveStorageInstanceResult,
-  type ResolveApprovalPayload,
+  type ResolveInteractionPayload,
   type SourceToolDetail,
   type SourceToolSummary,
   type UpsertCredentialBindingPayload,
@@ -136,11 +136,11 @@ export {
 } from "./storage";
 
 export {
-  ControlPlaneApprovalsLive,
-  makeControlPlaneApprovalsService,
-  type ControlPlaneApprovalsServiceShape,
-  type ResolveApprovalInput,
-} from "./approvals";
+  ControlPlaneInteractionsLive,
+  makeControlPlaneInteractionsService,
+  type ControlPlaneInteractionsServiceShape,
+  type ResolveInteractionInput,
+} from "./interactions";
 
 export {
   createControlPlaneAtomClient,
@@ -180,4 +180,3 @@ export {
   resolveSchemaJsonWithRefHints,
   resolveTypingSchemasWithRefHints,
 } from "./openapi-schema-refs";
-

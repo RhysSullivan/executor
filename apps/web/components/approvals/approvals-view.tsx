@@ -1,12 +1,12 @@
 "use client";
 
 import { useAtomSet, useAtomValue } from "@effect-atom/atom-react";
-import type { Approval, ApprovalId } from "@executor-v2/schema";
 import { useMemo, useState } from "react";
 
 import { useWorkspace } from "../../lib/hooks/use-workspace";
 import {
   approvalsByWorkspace,
+  type ApprovalItem,
   optimisticResolveApproval,
   resolveApproval,
   toResolveApprovalRequest,
@@ -30,7 +30,7 @@ import { StatusMessage } from "../shared/status-message";
 type ApprovalFilterValue = "pending" | "resolved" | "all";
 
 const statusBadgeVariant = (
-  status: Approval["status"],
+  status: ApprovalItem["status"],
 ): "pending" | "approved" | "denied" | "outline" => {
   if (status === "pending") {
     return "pending";
@@ -77,9 +77,9 @@ export function ApprovalsView() {
   const [approvalSearchQuery, setApprovalSearchQuery] = useState("");
   const [approvalStatusText, setApprovalStatusText] = useState<string | null>(null);
   const [approvalStatusVariant, setApprovalStatusVariant] = useState<"info" | "error">("info");
-  const [approvalBusyId, setApprovalBusyId] = useState<ApprovalId | null>(null);
+  const [approvalBusyId, setApprovalBusyId] = useState<string | null>(null);
   const [optimisticApprovals, setOptimisticApprovals] = useState<
-    ReadonlyArray<Approval> | null
+    ReadonlyArray<ApprovalItem> | null
   >(null);
 
   const approvalsState = useAtomValue(approvalsByWorkspace(workspaceId));
@@ -121,7 +121,7 @@ export function ApprovalsView() {
     setApprovalStatusVariant(variant);
   };
 
-  const handleResolveApproval = (approvalId: ApprovalId, status: "approved" | "denied") => {
+  const handleResolveApproval = (approvalId: string, status: "approved" | "denied") => {
     if (approvalBusyId !== null) {
       return;
     }

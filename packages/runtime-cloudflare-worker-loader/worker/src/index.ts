@@ -13,7 +13,7 @@ type RuntimeToolCallResult =
   | {
       ok: false;
       kind: "pending";
-      approvalId: string;
+      interactionId: string;
       retryAfterMs: number;
       error?: string;
     }
@@ -96,7 +96,7 @@ const isRuntimeToolCallResult = (value: unknown): value is RuntimeToolCallResult
 
   if (value.ok === false && value.kind === "pending") {
     return (
-      typeof value.approvalId === "string" &&
+      typeof value.interactionId === "string" &&
       typeof value.retryAfterMs === "number"
     );
   }

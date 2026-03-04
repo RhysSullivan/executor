@@ -1,4 +1,7 @@
 import {
+  ExecutorControlPlaneBaseUrlHeader,
+} from "@executor-v2/api-http";
+import {
   ControlPlaneAuthHeaders,
   ControlPlaneService,
   controlPlaneOpenApiSpec,
@@ -11,7 +14,6 @@ import {
 } from "@executor-v2/management-api";
 import {
   RuntimeToolInvokerError,
-  createStaticToolRegistry,
   createRuntimeToolCallHandler,
   createRunExecutor,
   createSourceToolRegistry,
@@ -24,21 +26,16 @@ import {
   makeToolProviderRegistry,
   parseExecuteToolExposureMode,
   sourceIdFromToolPath,
-  type ToolRegistry,
-  type ToolRegistryCallInput,
-  type ToolRegistryCatalogNamespacesOutput,
-  type ToolRegistryCatalogToolsOutput,
-  type ToolRegistryDiscoverOutput,
 } from "@executor-v2/engine";
 import {
   RuntimeHostActorLive,
   createKeychainSecretMaterialStore,
-  createRuntimeHostApprovalsService,
+  createRuntimeHostInteractionsService,
   createRuntimeHostCredentialsService,
   createRuntimeHostExecuteRuntimeRun,
   createRuntimeHostMcpHandler,
   createRuntimeHostOrganizationsService,
-  createRuntimeHostPersistentToolApprovalPolicy,
+  createRuntimeHostPersistentToolInteractionPolicy,
   createRuntimeHostPoliciesService,
   createRuntimeHostResolveToolCredentials,
   createRuntimeHostStorageService,
@@ -159,7 +156,7 @@ type RuntimeToolCallResult =
   | {
       ok: false;
       kind: "pending";
-      approvalId: string;
+      interactionId: string;
       retryAfterMs: number;
       error?: string;
     }
@@ -250,6 +247,17 @@ const buildRuntimeExecutorSource = (
   };
 };
 
+const resolveControlPlaneBaseUrlForRequest = (request: Request): string | null => {
+  const fromHeader = normalizeHttpBaseUrl(
+    request.headers.get(ExecutorControlPlaneBaseUrlHeader) ?? undefined,
+  );
+  if (fromHeader) {
+    return fromHeader;
+  }
+
+  return normalizeHttpBaseUrl(new URL(request.url).origin);
+};
+
 const formatCause = (cause: unknown): string => {
   if (cause && typeof cause === "object") {
     const maybeError = cause as {
@@ -308,202 +316,6 @@ const normalizeRuntimeToolCallInput = (
 
   return {};
 };
-
-const asRecord = (value: unknown): Record<string, unknown> =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-
-const readOptionalString = (
-  input: Record<string, unknown>,
-  ...keys: Array<string>
-): string | undefined => {
-  for (const key of keys) {
-    const raw = input[key];
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      if (trimmed.length > 0) {
-        return trimmed;
-      }
-    }
-  }
-
-  return undefined;
-};
-
-const readOptionalBoolean = (
-  input: Record<string, unknown>,
-  ...keys: Array<string>
-): boolean | undefined => {
-  for (const key of keys) {
-    const raw = input[key];
-    if (typeof raw === "boolean") {
-      return raw;
-    }
-  }
-
-  return undefined;
-};
-
-const dedupeToolSummariesByPath = <T extends { path: string }>(
-  values: ReadonlyArray<T>,
-): Array<T> => {
-  const byPath = new Map<string, T>();
-  for (const value of values) {
-    if (!byPath.has(value.path)) {
-      byPath.set(value.path, value);
-    }
-  }
-
-  return [...byPath.values()];
-};
-
-const mergeDiscoverOutput = (
-  left: ToolRegistryDiscoverOutput,
-  right: ToolRegistryDiscoverOutput,
-  limit: number | undefined,
-): ToolRegistryDiscoverOutput => {
-  const mergedResults = dedupeToolSummariesByPath([
-    ...left.results,
-    ...right.results,
-  ]);
-  const boundedResults =
-    typeof limit === "number" && Number.isFinite(limit)
-      ? mergedResults.slice(0, Math.max(1, Math.floor(limit)))
-      : mergedResults;
-
-  const mergedPerQuery = left.perQuery.map((entry, index) => {
-    const rightEntry = right.perQuery[index];
-    if (!rightEntry) {
-      return entry;
-    }
-
-    const merged = dedupeToolSummariesByPath([
-      ...entry.results,
-      ...rightEntry.results,
-    ]);
-    const bounded =
-      typeof limit === "number" && Number.isFinite(limit)
-        ? merged.slice(0, Math.max(1, Math.floor(limit)))
-        : merged;
-
-    return {
-      ...entry,
-      bestPath: entry.bestPath ?? rightEntry.bestPath ?? bounded[0]?.path ?? null,
-      results: bounded,
-      total: merged.length,
-    };
-  });
-
-  return {
-    bestPath: left.bestPath ?? right.bestPath ?? boundedResults[0]?.path ?? null,
-    results: boundedResults,
-    total: mergedResults.length,
-    perQuery: mergedPerQuery,
-    refHintTable: {
-      ...(left.refHintTable ?? {}),
-      ...(right.refHintTable ?? {}),
-    },
-  };
-};
-
-const mergeCatalogNamespacesOutput = (
-  left: ToolRegistryCatalogNamespacesOutput,
-  right: ToolRegistryCatalogNamespacesOutput,
-): ToolRegistryCatalogNamespacesOutput => {
-  const merged = new Map<string, ToolRegistryCatalogNamespacesOutput["namespaces"][number]>();
-
-  for (const namespace of [...left.namespaces, ...right.namespaces]) {
-    const existing = merged.get(namespace.namespace);
-    if (!existing) {
-      merged.set(namespace.namespace, {
-        ...namespace,
-        samplePaths: [...namespace.samplePaths],
-      });
-      continue;
-    }
-
-    const samplePaths = [...new Set([...existing.samplePaths, ...namespace.samplePaths])]
-      .sort((a, b) => a.localeCompare(b))
-      .slice(0, 3);
-
-    merged.set(namespace.namespace, {
-      ...existing,
-      toolCount: existing.toolCount + namespace.toolCount,
-      samplePaths,
-      source: existing.source ?? namespace.source,
-      sourceKey: existing.sourceKey ?? namespace.sourceKey,
-      description: existing.description ?? namespace.description,
-    });
-  }
-
-  const namespaces = [...merged.values()].sort((a, b) =>
-    a.namespace.localeCompare(b.namespace),
-  );
-
-  return {
-    namespaces,
-    total: namespaces.length,
-  };
-};
-
-const mergeCatalogToolsOutput = (
-  left: ToolRegistryCatalogToolsOutput,
-  right: ToolRegistryCatalogToolsOutput,
-  limit: number | undefined,
-): ToolRegistryCatalogToolsOutput => {
-  const mergedResults = dedupeToolSummariesByPath([
-    ...left.results,
-    ...right.results,
-  ]);
-  const boundedResults =
-    typeof limit === "number" && Number.isFinite(limit)
-      ? mergedResults.slice(0, Math.max(1, Math.floor(limit)))
-      : mergedResults;
-
-  return {
-    results: boundedResults,
-    total: mergedResults.length,
-    refHintTable: {
-      ...(left.refHintTable ?? {}),
-      ...(right.refHintTable ?? {}),
-    },
-  };
-};
-
-const createCompositeToolRegistry = (
-  executorRegistry: ToolRegistry,
-  sourceRegistry: ToolRegistry,
-): ToolRegistry => ({
-  callTool: (input: ToolRegistryCallInput) =>
-    input.toolPath.startsWith("executor.")
-      ? executorRegistry.callTool(input)
-      : sourceRegistry.callTool(input),
-
-  discover: (input) =>
-    Effect.zip(executorRegistry.discover(input), sourceRegistry.discover(input)).pipe(
-      Effect.map(([executorOutput, sourceOutput]) =>
-        mergeDiscoverOutput(executorOutput, sourceOutput, input.limit),
-      ),
-    ),
-
-  catalogNamespaces: (input) =>
-    Effect.zip(
-      executorRegistry.catalogNamespaces(input),
-      sourceRegistry.catalogNamespaces(input),
-    ).pipe(
-      Effect.map(([executorOutput, sourceOutput]) =>
-        mergeCatalogNamespacesOutput(executorOutput, sourceOutput),
-      ),
-    ),
-
-  catalogTools: (input) =>
-    Effect.zip(executorRegistry.catalogTools(input), sourceRegistry.catalogTools(input)).pipe(
-      Effect.map(([executorOutput, sourceOutput]) =>
-        mergeCatalogToolsOutput(executorOutput, sourceOutput, input.limit),
-      ),
-    ),
-});
 
 const parseRuntimeToolCallRequest = async (
   request: Request,
@@ -639,7 +451,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     webServerEnvironment.executorRuntimeKind
     ?? runtimeAdapterList[0]?.kind
     ?? "local-inproc";
-  const requireToolApprovals = webServerEnvironment.executorRuntimeRequireToolApprovals;
+  const requireToolInteractions = webServerEnvironment.executorRuntimeRequireToolInteractions;
   const defaultToolExposureMode =
     parseExecuteToolExposureMode(webServerEnvironment.executorRuntimeToolExposureMode)
     ?? defaultExecuteToolExposureMode;
@@ -648,10 +460,10 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     makeMcpToolProvider(),
     makeGraphqlToolProvider(),
   ]);
-  const persistentApprovalPolicy = createRuntimeHostPersistentToolApprovalPolicy(
+  const persistentInteractionPolicy = createRuntimeHostPersistentToolInteractionPolicy(
     persistence.rows,
     {
-      requireApprovals: requireToolApprovals,
+      requireInteractions: requireToolInteractions,
     },
   );
   const resolveCredentials = createRuntimeHostResolveToolCredentials(
@@ -670,6 +482,10 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
   const sourceCatalog = makeSourceCatalogService(sourceStore);
   const sourceManager = makeSourceManagerService(toolArtifactStore);
   const baseSourcesService = makeControlPlaneSourcesService(sourceCatalog);
+  const credentialsService = createRuntimeHostCredentialsService(
+    persistence.rows,
+    secretMaterialStore,
+  );
 
   const fetchOpenApiSpec = (endpoint: string) =>
     Effect.tryPromise({
@@ -773,7 +589,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
 
   const controlPlaneService = makeControlPlaneService({
     sources: sourcesService,
-    credentials: createRuntimeHostCredentialsService(persistence.rows, secretMaterialStore),
+    credentials: credentialsService,
     policies: createRuntimeHostPoliciesService(persistence.rows),
     organizations: createRuntimeHostOrganizationsService(persistence.rows),
     workspaces: createRuntimeHostWorkspacesService(persistence.rows),
@@ -781,7 +597,11 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     storage: createRuntimeHostStorageService(persistence.rows, {
       stateRootDir,
     }),
-    approvals: createRuntimeHostApprovalsService(persistence.rows),
+    interactions: createRuntimeHostInteractionsService(
+      persistence.rows,
+      sourceStore,
+      credentialsService,
+    ),
   });
 
   const controlPlaneWebHandler = makeControlPlaneWebHandler(
@@ -840,7 +660,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
       sourceStore,
       toolArtifactStore,
       toolProviderRegistry,
-      approvalPolicy: persistentApprovalPolicy,
+      interactionPolicy: persistentInteractionPolicy,
     });
     const runExecutor = createWorkspaceRunExecutor(workspaceId, toolRegistry);
     const next = createRuntimeHostMcpHandler(runExecutor.executeRun, {
@@ -887,12 +707,12 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     return session;
   };
 
-  const resolveExecuteToolRegistry = async (
+  const resolveToolRegistryForContext = async (
     workspaceId: string,
-    input: ExecuteRunInput,
+    context: ExecuteRunInput["context"] | undefined,
     fallback: ReturnType<typeof createSourceToolRegistry>,
   ): Promise<ReturnType<typeof createSourceToolRegistry>> => {
-    const controlPlaneBaseUrl = normalizeHttpBaseUrl(input.context?.controlPlaneBaseUrl);
+    const controlPlaneBaseUrl = normalizeHttpBaseUrl(context?.controlPlaneBaseUrl);
     if (!controlPlaneBaseUrl) {
       return fallback;
     }
@@ -967,7 +787,7 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
       sourceStore: overlaySourceStore,
       toolArtifactStore: overlayToolArtifactStore,
       toolProviderRegistry,
-      approvalPolicy: persistentApprovalPolicy,
+      interactionPolicy: persistentInteractionPolicy,
     });
   };
 
@@ -979,13 +799,31 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     handleControlPlane: controlPlaneWebHandler.handler,
     handleMcp: async (request, workspaceId) => {
       const session = resolveMcpSession(workspaceId);
-      return session.handler(request);
+      const toolRegistry = await resolveToolRegistryForContext(
+        workspaceId,
+        {
+          controlPlaneBaseUrl: resolveControlPlaneBaseUrlForRequest(request) ?? undefined,
+        },
+        session.toolRegistry,
+      );
+
+      if (toolRegistry === session.toolRegistry) {
+        return session.handler(request);
+      }
+
+      const runExecutor = createWorkspaceRunExecutor(workspaceId, toolRegistry);
+      const dynamicHandler = createRuntimeHostMcpHandler(runExecutor.executeRun, {
+        toolRegistry,
+        defaultToolExposureMode,
+      });
+
+      return dynamicHandler(request);
     },
     executeRun: async (input, workspaceId) => {
       const session = resolveMcpSession(workspaceId);
-      const toolRegistry = await resolveExecuteToolRegistry(
+      const toolRegistry = await resolveToolRegistryForContext(
         workspaceId,
-        input,
+        input.context,
         session.toolRegistry,
       );
 

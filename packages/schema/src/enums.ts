@@ -4,8 +4,27 @@ export const RuntimeModeSchema = Schema.Literal("local", "linked", "remote");
 export const SourceKindSchema = Schema.Literal("mcp", "openapi", "graphql", "internal");
 export const SourceStatusSchema = Schema.Literal("draft", "probing", "auth_required", "connected", "error");
 export const PolicyDecisionSchema = Schema.Literal("allow", "require_approval", "deny");
-export const ApprovalStatusSchema = Schema.Literal("pending", "approved", "denied", "expired");
-export const TaskRunStatusSchema = Schema.Literal("queued", "running", "completed", "failed", "timed_out", "denied");
+export const InteractionKindSchema = Schema.Literal(
+  "approval",
+  "source_oauth_signin",
+  "provide_secret",
+);
+export const InteractionStatusSchema = Schema.Literal(
+  "pending",
+  "resolved",
+  "denied",
+  "expired",
+  "failed",
+);
+export const TaskRunStatusSchema = Schema.Literal(
+  "queued",
+  "running",
+  "waiting_for_interaction",
+  "completed",
+  "failed",
+  "timed_out",
+  "denied",
+);
 export const CredentialModeSchema = Schema.Literal("none", "api_key", "bearer", "oauth2", "custom");
 export const CredentialProviderSchema = Schema.Literal(
   "api_key",
@@ -84,7 +103,8 @@ export type RuntimeMode = typeof RuntimeModeSchema.Type;
 export type SourceKind = typeof SourceKindSchema.Type;
 export type SourceStatus = typeof SourceStatusSchema.Type;
 export type PolicyDecision = typeof PolicyDecisionSchema.Type;
-export type ApprovalStatus = typeof ApprovalStatusSchema.Type;
+export type InteractionKind = typeof InteractionKindSchema.Type;
+export type InteractionStatus = typeof InteractionStatusSchema.Type;
 export type TaskRunStatus = typeof TaskRunStatusSchema.Type;
 export type CredentialMode = typeof CredentialModeSchema.Type;
 export type CredentialProvider = typeof CredentialProviderSchema.Type;

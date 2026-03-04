@@ -109,7 +109,12 @@ const parseExecuteRequest = async (request: Request): Promise<ExecuteRunInput | 
       ? Math.max(1, Math.floor(record.timeoutMs))
       : undefined;
 
+  const runId = typeof record.runId === "string" && record.runId.trim().length > 0
+    ? record.runId.trim()
+    : undefined;
+
   return {
+    ...(runId ? { runId } : {}),
     code: record.code,
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   };
