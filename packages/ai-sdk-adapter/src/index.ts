@@ -9,10 +9,13 @@ import {
   type CodeExecutor,
   type CodeToolOutput,
   type ExecutableTool,
+  type OnElicitation,
+  type OnToolInteraction,
   type ToolMap,
 } from "@executor-v3/codemode-core";
 
 export {
+  allowAllToolInteractions,
   buildExecuteDescription,
   createDiscoveryPrimitives,
   createDynamicDiscovery,
@@ -23,6 +26,8 @@ export {
   mergeToolMaps,
   toExecutorTool,
   toTool,
+  ToolInteractionDeniedError,
+  ToolInteractionPendingError,
   toolDescriptorsFromTools,
   wrapTool,
   type CatalogPrimitive,
@@ -42,6 +47,8 @@ export {
   type ToolDescriptor,
   type ToolDirectory,
   type ToolInput,
+  type OnElicitation,
+  type OnToolInteraction,
   type ToolInvocationInput,
   type ToolInvoker,
   type ToolMap,
@@ -70,6 +77,8 @@ export function createToolsFromAiSdkTools(input: {
 export function createCodeTool(input: {
   tools: ToolMap;
   executor: CodeExecutor;
+  onToolInteraction?: OnToolInteraction;
+  onElicitation?: OnElicitation;
   description?: string;
 }) {
   return tool({
@@ -86,6 +95,8 @@ export function createCodeTool(input: {
           code,
           tools: input.tools,
           executor: input.executor,
+          onToolInteraction: input.onToolInteraction,
+          onElicitation: input.onElicitation,
         }),
       ),
   });

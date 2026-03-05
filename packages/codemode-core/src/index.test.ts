@@ -1,8 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/TestClock";
 
 import {
+  allowAllToolInteractions,
   createDynamicDiscovery,
   createStaticDiscoveryFromTools,
   createSystemToolMap,
@@ -10,6 +14,8 @@ import {
   makeToolInvokerFromTools,
   mergeToolMaps,
   standardSchemaFromJsonSchema,
+  ToolInteractionDeniedError,
+  ToolInteractionPendingError,
   toTool,
   type CodeExecutor,
   type ToolDescriptor,
@@ -80,6 +86,155 @@ describe("codemode-core", () => {
     }),
   );
 
+
+  it.effect("returns pending interaction error for required tools", () =>
+    Effect.gen(function* () {
+      const invoker = makeToolInvokerFromTools({
+        tools: {
+          "issues.create": toTool({
+            tool: {
+              inputSchema: titleInputSchema,
+              execute: ({ title }: { title: string }) => ({ id: "issue_1", title }),
+            },
+            metadata: {
+              interaction: "required",
+            },
+          }),
+        },
+      });
+
+      const pendingError = yield* Effect.flip(
+        invoker.invoke({
+          path: "issues.create",
+          args: { title: "hello" },
+        }),
+      );
+
+      expect(pendingError).toBeInstanceOf(ToolInteractionPendingError);
+      if (pendingError instanceof ToolInteractionPendingError) {
+        expect(pendingError.path).toBe("issues.create");
+        expect(pendingError.elicitation.mode).toBe("form");
+      }
+    }),
+  );
+
+  it.effect("waits for elicitation response and executes when accepted", () =>
+    Effect.gen(function* () {
+      const invoker = makeToolInvokerFromTools({
+        tools: {
+          "issues.create": toTool({
+            tool: {
+              inputSchema: titleInputSchema,
+              execute: ({ title }: { title: string }) => ({ id: "issue_1", title }),
+            },
+            metadata: {
+              interaction: "required",
+            },
+          }),
+        },
+        onElicitation: () =>
+          Effect.succeed({
+            action: "accept" as const,
+          }),
+      });
+
+      const output = yield* invoker.invoke({
+        path: "issues.create",
+        args: { title: "hello" },
+        context: { runId: "run_1", callId: "call_1" },
+      });
+
+      expect(output).toEqual({ id: "issue_1", title: "hello" });
+    }),
+  );
+
+  it.effect("waits through polling-style elicitation callback and then executes", () =>
+    Effect.gen(function* () {
+      let pollingSleeps = 0;
+
+      const invoker = makeToolInvokerFromTools({
+        tools: {
+          "issues.create": toTool({
+            tool: {
+              inputSchema: titleInputSchema,
+              execute: ({ title }: { title: string }) => ({ id: "issue_1", title }),
+            },
+            metadata: {
+              interaction: "required",
+            },
+          }),
+        },
+        onElicitation: () =>
+          Effect.gen(function* () {
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+              pollingSleeps += 1;
+              yield* Effect.sleep("200 seconds");
+            }
+
+            return {
+              action: "accept" as const,
+            };
+          }),
+      });
+
+      const fiber = yield* invoker.invoke({
+        path: "issues.create",
+        args: { title: "hello" },
+        context: { runId: "run_poll", callId: "call_poll" },
+      }).pipe(Effect.fork);
+
+      yield* TestClock.adjust("200 seconds");
+      const firstPoll = yield* Fiber.poll(fiber);
+      expect(Option.isNone(firstPoll)).toBe(true);
+
+      yield* TestClock.adjust("200 seconds");
+      const secondPoll = yield* Fiber.poll(fiber);
+      expect(Option.isNone(secondPoll)).toBe(true);
+
+      yield* TestClock.adjust("200 seconds");
+      const output = yield* Fiber.join(fiber);
+
+      expect(output).toEqual({ id: "issue_1", title: "hello" });
+      expect(pollingSleeps).toBe(3);
+    }),
+  );
+
+  it.effect("fails when elicitation is declined", () =>
+    Effect.gen(function* () {
+      const invoker = makeToolInvokerFromTools({
+        tools: {
+          "issues.create": toTool({
+            tool: {
+              inputSchema: titleInputSchema,
+              execute: ({ title }: { title: string }) => ({ id: "issue_1", title }),
+            },
+            metadata: {
+              interaction: "required",
+            },
+          }),
+        },
+        onElicitation: () =>
+          Effect.succeed({
+            action: "decline" as const,
+            content: {
+              reason: "User declined tool execution",
+            },
+          }),
+      });
+
+      const declinedError = yield* Effect.flip(
+        invoker.invoke({
+          path: "issues.create",
+          args: { title: "hello" },
+        }),
+      );
+
+      expect(declinedError).toBeInstanceOf(ToolInteractionDeniedError);
+      if (declinedError instanceof ToolInteractionDeniedError) {
+        expect(declinedError.reason).toContain("User declined");
+      }
+    }),
+  );
 
   it.effect("builds Standard Schema validators from JSON Schema", () =>
     Effect.gen(function* () {
@@ -278,6 +433,7 @@ describe("codemode-core", () => {
         code: "return await tools.math.add({ a: 2, b: 3 });",
         tools,
         executor,
+        onToolInteraction: allowAllToolInteractions,
       });
 
       expect(output.code).toContain("tools.math.add");

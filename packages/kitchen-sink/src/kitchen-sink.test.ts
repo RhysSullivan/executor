@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import {
+  allowAllToolInteractions,
   createCodeTool,
   executeCodeWithTools,
   makeToolInvokerFromTools,
@@ -55,6 +56,7 @@ describe("kitchen-sink", () => {
         ].join("\n"),
         tools,
         executor,
+        onToolInteraction: allowAllToolInteractions,
       });
 
       expect(output.result).toEqual({ sum: 42 });

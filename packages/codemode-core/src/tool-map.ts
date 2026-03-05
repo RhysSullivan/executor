@@ -1,11 +1,20 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 import type {
+  ElicitationRequest,
+  ElicitationResponse,
   ExecutableTool,
+  OnElicitation,
+  OnToolInteraction,
   ToolDefinition,
   ToolDescriptor,
+  ToolElicitationRequest,
   ToolInput,
+  ToolInteractionDecision,
+  ToolInteractionRequest,
+  ToolInvocationContext,
   ToolInvoker,
   ToolMap,
   ToolMetadata,
@@ -98,6 +107,216 @@ const parseInput = (input: {
   );
 };
 
+const defaultRequiredElicitation = (path: string): ElicitationRequest => ({
+  mode: "form",
+  message: `Approval required before invoking ${path}`,
+  requestedSchema: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+});
+
+const executeDecision: ToolInteractionDecision = { kind: "execute" };
+
+const toElicitationDecision = (input: {
+  metadata?: ToolMetadata;
+  path: string;
+}): ToolInteractionDecision | null => {
+  if (input.metadata?.elicitation) {
+    return {
+      kind: "elicit",
+      elicitation: input.metadata.elicitation,
+    };
+  }
+
+  if (input.metadata?.interaction === "required") {
+    return {
+      kind: "elicit",
+      elicitation: defaultRequiredElicitation(input.path),
+    };
+  }
+
+  return null;
+};
+
+const defaultInteractionDecision = (input: {
+  metadata?: ToolMetadata;
+  path: string;
+}): ToolInteractionDecision =>
+  toElicitationDecision(input) ?? executeDecision;
+
+export class ToolInteractionPendingError extends Data.TaggedError(
+  "ToolInteractionPendingError",
+)<{
+  readonly path: string;
+  readonly elicitation: ElicitationRequest;
+  readonly interactionId?: string;
+}> {}
+
+export class ToolInteractionDeniedError extends Data.TaggedError(
+  "ToolInteractionDeniedError",
+)<{
+  readonly path: string;
+  readonly reason: string;
+}> {}
+
+export const allowAllToolInteractions: OnToolInteraction = () =>
+  Effect.succeed(executeDecision);
+
+const evaluateInteractionDecision = (input: {
+  path: ToolPath;
+  args: unknown;
+  metadata?: ToolMetadata;
+  sourceKey: string;
+  context?: ToolInvocationContext;
+  onToolInteraction?: OnToolInteraction;
+}): Effect.Effect<ToolInteractionDecision, unknown> => {
+  const defaultDecision = defaultInteractionDecision({
+    metadata: input.metadata,
+    path: input.path,
+  });
+
+  if (!input.onToolInteraction) {
+    return Effect.succeed(defaultDecision);
+  }
+
+  const request: ToolInteractionRequest = {
+    path: input.path,
+    sourceKey: input.sourceKey,
+    args: input.args,
+    metadata: input.metadata,
+    context: input.context,
+    defaultElicitation:
+      defaultDecision.kind === "elicit"
+        ? defaultDecision.elicitation
+        : null,
+  };
+
+  return input.onToolInteraction(request);
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const mergeAcceptedElicitationContent = (input: {
+  path: ToolPath;
+  args: unknown;
+  response: ElicitationResponse;
+  inputSchema: unknown;
+}): Effect.Effect<unknown, Error> => {
+  if (!input.response.content) {
+    return Effect.succeed(input.args);
+  }
+
+  if (!isRecord(input.args)) {
+    return Effect.fail(
+      new Error(
+        `Tool ${input.path} cannot merge elicitation content into non-object arguments`,
+      ),
+    );
+  }
+
+  const merged = {
+    ...input.args,
+    ...input.response.content,
+  };
+
+  return parseInput({
+    schema: input.inputSchema,
+    value: merged,
+    path: input.path,
+  });
+};
+
+const declineReasonFromResponse = (input: {
+  path: ToolPath;
+  response: ElicitationResponse;
+}): string => {
+  const reason =
+    input.response.content
+    && typeof input.response.content.reason === "string"
+    && input.response.content.reason.trim().length > 0
+      ? input.response.content.reason.trim()
+      : null;
+
+  if (reason) {
+    return reason;
+  }
+
+  return input.response.action === "cancel"
+    ? `Interaction cancelled for ${input.path}`
+    : `Interaction declined for ${input.path}`;
+};
+
+const resolveInteractionDecision = (input: {
+  path: ToolPath;
+  args: unknown;
+  inputSchema: unknown;
+  metadata?: ToolMetadata;
+  sourceKey: string;
+  context?: ToolInvocationContext;
+  decision: ToolInteractionDecision;
+  interactionId: string;
+  onElicitation?: OnElicitation;
+}): Effect.Effect<unknown, ToolInteractionPendingError | ToolInteractionDeniedError | Error> => {
+  if (input.decision.kind === "execute") {
+    return Effect.succeed(input.args);
+  }
+
+  if (input.decision.kind === "decline") {
+    return Effect.fail(
+      new ToolInteractionDeniedError({
+        path: input.path,
+        reason: input.decision.reason,
+      }),
+    );
+  }
+
+  if (!input.onElicitation) {
+    return Effect.fail(
+      new ToolInteractionPendingError({
+        path: input.path,
+        elicitation: input.decision.elicitation,
+        interactionId: input.interactionId,
+      }),
+    );
+  }
+
+  const elicitationRequest: ToolElicitationRequest = {
+    interactionId: input.interactionId,
+    path: input.path,
+    sourceKey: input.sourceKey,
+    args: input.args,
+    metadata: input.metadata,
+    context: input.context,
+    elicitation: input.decision.elicitation,
+  };
+
+  return input.onElicitation(elicitationRequest).pipe(
+    Effect.mapError(toError),
+    Effect.flatMap((response) => {
+      if (response.action !== "accept") {
+        return Effect.fail(
+          new ToolInteractionDeniedError({
+            path: input.path,
+            reason: declineReasonFromResponse({
+              path: input.path,
+              response,
+            }),
+          }),
+        );
+      }
+
+      return mergeAcceptedElicitationContent({
+        path: input.path,
+        args: input.args,
+        response,
+        inputSchema: input.inputSchema,
+      });
+    }),
+  );
+};
 
 export function wrapTool(input: {
   tool: ExecutableTool;
@@ -241,6 +460,7 @@ export function toolDescriptorsFromTools(input: {
       sourceKey: metadata?.sourceKey ?? "in_memory.tools",
       description: definition.description,
       interaction: metadata?.interaction,
+      elicitation: metadata?.elicitation,
       inputHint:
         metadata?.inputHint ?? inferHintFromSchemaJson(inputSchemaJson, "input"),
       outputHint:
@@ -252,18 +472,43 @@ export function toolDescriptorsFromTools(input: {
   });
 }
 
+const asInteractionIdPart = (value: string): string =>
+  value.replace(/[^a-zA-Z0-9._-]/g, "_");
+
+const createInteractionIdFactory = () => {
+  let sequence = 0;
+
+  return (input: { path: ToolPath; context?: ToolInvocationContext }): string => {
+    sequence += 1;
+
+    const runId =
+      typeof input.context?.runId === "string" && input.context.runId.length > 0
+        ? input.context.runId
+        : "run";
+    const callId =
+      typeof input.context?.callId === "string" && input.context.callId.length > 0
+        ? input.context.callId
+        : `call_${String(sequence)}`;
+
+    return `${asInteractionIdPart(runId)}:${asInteractionIdPart(callId)}:${asInteractionIdPart(String(input.path))}:${String(sequence)}`;
+  };
+};
+
 export const makeToolInvokerFromTools = (input: {
   tools: ToolMap;
   sourceKey?: string;
+  onToolInteraction?: OnToolInteraction;
+  onElicitation?: OnElicitation;
 }): ToolInvoker => {
   const resolvedTools = resolveToolsFromMap({
     tools: input.tools,
     sourceKey: input.sourceKey,
   });
   const byPath = new Map(resolvedTools.map((entry) => [entry.path as string, entry]));
+  const nextInteractionId = createInteractionIdFactory();
 
   return {
-    invoke: ({ path, args }) =>
+    invoke: ({ path, args, context }) =>
       Effect.gen(function* () {
         const entry = byPath.get(path);
         if (!entry) {
@@ -276,8 +521,34 @@ export const makeToolInvokerFromTools = (input: {
           path,
         });
 
+        const decision = yield* evaluateInteractionDecision({
+          path: entry.path,
+          args: parsedInput,
+          metadata: entry.metadata,
+          sourceKey: entry.metadata?.sourceKey ?? "in_memory.tools",
+          context,
+          onToolInteraction: input.onToolInteraction,
+        });
+
+        const interactionId =
+          decision.kind === "elicit" && decision.interactionId
+            ? decision.interactionId
+            : nextInteractionId({ path: entry.path, context });
+
+        const executableInput = yield* resolveInteractionDecision({
+          path: entry.path,
+          args: parsedInput,
+          inputSchema: entry.tool.inputSchema,
+          metadata: entry.metadata,
+          sourceKey: entry.metadata?.sourceKey ?? "in_memory.tools",
+          context,
+          decision,
+          interactionId,
+          onElicitation: input.onElicitation,
+        });
+
         return yield* Effect.tryPromise({
-          try: () => Promise.resolve(entry.tool.execute(parsedInput)),
+          try: () => Promise.resolve(entry.tool.execute(executableInput)),
           catch: toError,
         });
       }),

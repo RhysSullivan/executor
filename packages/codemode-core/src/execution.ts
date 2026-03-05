@@ -4,6 +4,8 @@ import { makeToolInvokerFromTools } from "./tool-map";
 import type {
   CodeExecutor,
   CodeToolOutput,
+  OnElicitation,
+  OnToolInteraction,
   ToolInvoker,
   ToolMap,
 } from "./types";
@@ -16,6 +18,8 @@ export const executeCodeWithTools = (input: {
   executor: CodeExecutor;
   tools?: ToolMap;
   sourceKey?: string;
+  onToolInteraction?: OnToolInteraction;
+  onElicitation?: OnElicitation;
   toolInvoker?: ToolInvoker;
 }): Effect.Effect<CodeToolOutput, Error> =>
   Effect.gen(function* () {
@@ -24,6 +28,8 @@ export const executeCodeWithTools = (input: {
         ? makeToolInvokerFromTools({
             tools: input.tools,
             sourceKey: input.sourceKey,
+            onToolInteraction: input.onToolInteraction,
+            onElicitation: input.onElicitation,
           })
         : null);
 
