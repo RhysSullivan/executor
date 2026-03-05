@@ -1,0 +1,79 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+.env*.local
+
+# Vercel
+.vercel
+
+# Next.js
+.next/
+
+# Turbo
+.turbo/
+.turbo-prune-check/
+
+# Executor
+.executor-v2/
+
+# Cloudflare Workers local state
+**/.wrangler/
+**/.dev.vars
+
+# Dependencies
+**/node_modules/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Output / build artifacts
+out
+dist
+*.tgz
+
+# Rust / Cargo build artifacts
+**/target/
+tools/openapi-extractor-rs/pkg-*/
+
+# Code coverage
+coverage
+*.lcov
+
+# Logs
+logs
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Caches
+.eslintcache
+.cache
+
+# IntelliJ based IDEs
+.idea
+
+# Finder (macOS)
+.DS_Store
+
+# Convex local backend state
+convex_local_backend.sqlite3
+convex_local_storage/
+
+# Local OpenAPI sources service state
+sources/data/*.sqlite
+sources/data/*.sqlite-shm
+sources/data/*.sqlite-wal
+
+# Composio toolkit scrape outputs
+sources/composio-scrape/data/
+
+# Dev runner PID file
+.dev.pids
+
+# Misc
+*.har
+.chat-links.json
+.reference/
+personal-notes/
+.tmp/
+executor/.env.executor-push
