@@ -27,7 +27,7 @@ import { matchState } from "../shared/match-state";
 import { PageHeader } from "../shared/page-header";
 import { StatusMessage } from "../shared/status-message";
 
-type ApprovalFilterValue = "pending" | "resolved" | "all";
+type ApprovalFilterValue = "pending" | "completed" | "all";
 
 const statusBadgeVariant = (
   status: ApprovalItem["status"],
@@ -36,11 +36,11 @@ const statusBadgeVariant = (
     return "pending";
   }
 
-  if (status === "approved") {
+  if (status === "accepted") {
     return "approved";
   }
 
-  if (status === "denied") {
+  if (status === "declined" || status === "cancelled" || status === "failed") {
     return "denied";
   }
 
@@ -95,10 +95,7 @@ export function ApprovalsView() {
         return false;
       }
 
-      if (
-        approvalFilter === "resolved" &&
-        (approval.status === "pending" || approval.status === "expired")
-      ) {
+      if (approvalFilter === "completed" && approval.status === "pending") {
         return false;
       }
 
@@ -121,7 +118,7 @@ export function ApprovalsView() {
     setApprovalStatusVariant(variant);
   };
 
-  const handleResolveApproval = (approvalId: string, status: "approved" | "denied") => {
+  const handleResolveApproval = (approvalId: string, action: "accept" | "decline") => {
     if (approvalBusyId !== null) {
       return;
     }
@@ -131,7 +128,7 @@ export function ApprovalsView() {
     const nextOptimistic = optimisticResolveApproval(approvalItems, {
       approvalId,
       payload: {
-        status,
+        action,
         reason: null,
       },
     });
@@ -142,12 +139,12 @@ export function ApprovalsView() {
       workspaceId,
       approvalId,
       payload: {
-        status,
+        action,
         reason: null,
       },
     }))
       .then(() => {
-        setStatus(status === "approved" ? "Approval granted." : "Approval denied.");
+        setStatus(action === "accept" ? "Approval granted." : "Approval denied.");
         setOptimisticApprovals(null);
       })
       .catch(() => {
@@ -183,7 +180,7 @@ export function ApprovalsView() {
                 }
               >
                 <option value="pending">pending</option>
-                <option value="resolved">resolved</option>
+                <option value="completed">completed</option>
                 <option value="all">all</option>
               </Select>
             </div>
@@ -249,7 +246,7 @@ export function ApprovalsView() {
                               type="button"
                               size="sm"
                               variant="outline"
-                              onClick={() => handleResolveApproval(approval.id, "approved")}
+                              onClick={() => handleResolveApproval(approval.id, "accept")}
                               disabled={isBusy}
                             >
                               {isBusy ? "Working..." : "Approve"}
@@ -258,7 +255,7 @@ export function ApprovalsView() {
                               type="button"
                               size="sm"
                               variant="destructive"
-                              onClick={() => handleResolveApproval(approval.id, "denied")}
+                              onClick={() => handleResolveApproval(approval.id, "decline")}
                               disabled={isBusy}
                             >
                               {isBusy ? "Working..." : "Deny"}

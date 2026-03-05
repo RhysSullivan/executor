@@ -13,7 +13,7 @@ export type ApprovalItem = {
   taskRunId: string;
   callId: string;
   toolPath: string;
-  status: "pending" | "approved" | "denied" | "expired";
+  status: Interaction["status"];
   inputPreviewJson: string;
   reason: string | null;
   requestedAt: number;
@@ -38,12 +38,36 @@ const toApproval = (item: Interaction): ApprovalItem => ({
   taskRunId: item.taskRunId,
   callId: item.callId,
   toolPath: item.toolPath,
-  status: item.status === "resolved" ? "approved" : (item.status as ApprovalItem["status"]),
+  status: item.status,
   inputPreviewJson: item.requestJson,
   reason: item.reason,
   requestedAt: item.requestedAt,
   resolvedAt: item.resolvedAt,
 });
+
+const parseJsonRecord = (raw: string): Record<string, unknown> | null => {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const readString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const isApprovalInteraction = (item: Interaction): boolean => {
+  if (item.mode !== "form") {
+    return false;
+  }
+
+  const request = parseJsonRecord(item.requestJson);
+  const purpose = readString(request?.purpose);
+  return purpose === "tool_execution_gate";
+};
 
 // ---------------------------------------------------------------------------
 // Derived state
@@ -62,7 +86,7 @@ export const approvalsByWorkspace = Atom.family((workspaceId: WorkspaceId) =>
   Atom.make((get): EntityState<ApprovalItem> => {
     const result = get(approvalsResultByWorkspace(workspaceId));
     const mapped = Result.map(result, (items) =>
-      items.filter((item) => item.kind === "approval").map(toApproval));
+      items.filter(isApprovalInteraction).map(toApproval));
 
     return stateFromResult(mapped, (items) => [...items].sort(sortApprovals));
   }));
@@ -83,14 +107,14 @@ export const resolveApproval = controlPlaneClient.mutation("interactions", "reso
 export const toResolveApprovalRequest = (input: {
   workspaceId: WorkspaceId;
   approvalId: string;
-  payload: { status: "approved" | "denied"; reason?: string | null };
+  payload: { action: "accept" | "decline"; reason?: string | null };
 }) => ({
   path: {
     workspaceId: input.workspaceId,
     interactionId: input.approvalId as unknown as InteractionId,
   },
   payload: {
-    status: input.payload.status === "approved" ? "resolved" : "denied",
+    action: input.payload.action,
     reason: input.payload.reason,
   } satisfies ResolveInteractionPayload,
   reactivityKeys: approvalsMutationKeys(input.workspaceId),
@@ -104,14 +128,18 @@ export const optimisticResolveApproval = (
   currentApprovals: ReadonlyArray<ApprovalItem>,
   input: {
     approvalId: string;
-    payload: { status: "approved" | "denied"; reason?: string | null };
+    payload: { action: "accept" | "decline"; reason?: string | null };
   },
 ): ReadonlyArray<ApprovalItem> =>
   [...currentApprovals.map((approval) => {
     if (approval.id !== input.approvalId) return approval;
+
+    const nextStatus: ApprovalItem["status"] =
+      input.payload.action === "accept" ? "accepted" : "declined";
+
     return {
       ...approval,
-      status: input.payload.status,
+      status: nextStatus,
       reason: input.payload.reason === undefined ? approval.reason : input.payload.reason,
       resolvedAt: Date.now(),
     };

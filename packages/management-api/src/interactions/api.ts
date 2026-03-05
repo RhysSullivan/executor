@@ -1,5 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
+  InteractionActionSchema,
   InteractionIdSchema,
   InteractionSchema,
   TaskRunIdSchema,
@@ -14,12 +15,10 @@ import {
   ControlPlaneUnauthorizedError,
 } from "../errors";
 
-export const ResolveInteractionStatusSchema = Schema.Literal("resolved", "denied");
-
 export const ResolveInteractionPayloadSchema = Schema.Struct({
-  status: ResolveInteractionStatusSchema,
+  action: InteractionActionSchema,
   reason: Schema.optional(Schema.NullOr(Schema.String)),
-  resultJson: Schema.optional(Schema.NullOr(Schema.String)),
+  contentJson: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 export type ResolveInteractionPayload = typeof ResolveInteractionPayloadSchema.Type;

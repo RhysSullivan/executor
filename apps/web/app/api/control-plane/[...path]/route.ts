@@ -158,6 +158,7 @@ const handle = async (request: NextRequest, context: RouteContext): Promise<Resp
       handlers: {
         handleControlPlane: runtime.handleControlPlane,
         handleMcp: runtime.handleMcp,
+        handleAdminMcp: runtime.handleAdminMcp,
         handleRuntimeToolCall: runtime.handleRuntimeToolCall,
         executeRun: runtime.executeRun,
       },

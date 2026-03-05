@@ -4,15 +4,13 @@ export const RuntimeModeSchema = Schema.Literal("local", "linked", "remote");
 export const SourceKindSchema = Schema.Literal("mcp", "openapi", "graphql", "internal");
 export const SourceStatusSchema = Schema.Literal("draft", "probing", "auth_required", "connected", "error");
 export const PolicyDecisionSchema = Schema.Literal("allow", "require_approval", "deny");
-export const InteractionKindSchema = Schema.Literal(
-  "approval",
-  "source_oauth_signin",
-  "provide_secret",
-);
+export const InteractionModeSchema = Schema.Literal("form", "url");
+export const InteractionActionSchema = Schema.Literal("accept", "decline", "cancel");
 export const InteractionStatusSchema = Schema.Literal(
   "pending",
-  "resolved",
-  "denied",
+  "accepted",
+  "declined",
+  "cancelled",
   "expired",
   "failed",
 );
@@ -103,7 +101,8 @@ export type RuntimeMode = typeof RuntimeModeSchema.Type;
 export type SourceKind = typeof SourceKindSchema.Type;
 export type SourceStatus = typeof SourceStatusSchema.Type;
 export type PolicyDecision = typeof PolicyDecisionSchema.Type;
-export type InteractionKind = typeof InteractionKindSchema.Type;
+export type InteractionMode = typeof InteractionModeSchema.Type;
+export type InteractionAction = typeof InteractionActionSchema.Type;
 export type InteractionStatus = typeof InteractionStatusSchema.Type;
 export type TaskRunStatus = typeof TaskRunStatusSchema.Type;
 export type CredentialMode = typeof CredentialModeSchema.Type;

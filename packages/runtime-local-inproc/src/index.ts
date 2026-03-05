@@ -1,5 +1,8 @@
 import * as Effect from "effect/Effect";
 import * as Runtime from "effect/Runtime";
+import * as Exit from "effect/Exit";
+import * as Cause from "effect/Cause";
+import * as Option from "effect/Option";
 
 import {
   RuntimeAdapterError,
@@ -8,6 +11,7 @@ import {
 } from "@executor-v2/engine";
 
 const runtimeKind = "local-inproc";
+const runCallResultCache = new Map<string, unknown>();
 
 export type ExecuteJavaScriptInput = {
   runId: string;
@@ -34,9 +38,37 @@ const missingToolCallServiceError = (toolPath: string): RuntimeAdapterError =>
     null,
   );
 
+const isRuntimeAdapterErrorLike = (
+  cause: unknown,
+): cause is {
+  operation: string;
+  runtimeKind: string;
+  details: string | null;
+  _tag?: string;
+} => {
+  if (!cause || typeof cause !== "object") {
+    return false;
+  }
+
+  const record = cause as Record<string, unknown>;
+  return (record._tag === "RuntimeAdapterError" || record.name === "RuntimeAdapterError")
+    && typeof record.operation === "string"
+    && typeof record.runtimeKind === "string"
+    && (typeof record.details === "string" || record.details === null || record.details === undefined);
+};
+
 const toExecutionError = (cause: unknown): RuntimeAdapterError =>
   cause instanceof RuntimeAdapterError
     ? cause
+    : isRuntimeAdapterErrorLike(cause)
+      ? new RuntimeAdapterError({
+        operation: cause.operation,
+        runtimeKind: cause.runtimeKind,
+        message: cause instanceof Error && cause.message.length > 0
+          ? cause.message
+          : "Runtime adapter error",
+        details: cause.details ?? null,
+      })
     : runtimeError(
         "execute",
         "JavaScript execution failed",
@@ -53,6 +85,7 @@ const normalizeToolInput = (args: unknown): Record<string, unknown> | undefined 
 
 const invokeTool = (
   runId: string,
+  callId: string,
   toolPath: string,
   args: unknown,
   toolCallService: RuntimeToolCallService | undefined,
@@ -62,18 +95,50 @@ const invokeTool = (
       return yield* missingToolCallServiceError(toolPath);
     }
 
-    return yield* toolCallService.callTool({
+    const cacheKey = `${runId}:${callId}`;
+    if (runCallResultCache.has(cacheKey)) {
+      return runCallResultCache.get(cacheKey);
+    }
+
+    const result = yield* toolCallService.callTool({
       runId,
-      callId: `call_${crypto.randomUUID()}`,
+      callId,
       toolPath,
       input: normalizeToolInput(args),
     });
+
+    runCallResultCache.set(cacheKey, result);
+    return result;
   });
+
+const nextDeterministicCallId = (counter: { value: number }): string => {
+  const callId = `call_${String(counter.value).padStart(6, "0")}`;
+  counter.value += 1;
+  return callId;
+};
+
+const runPromiseWithTypedError = (
+  runtime: Runtime.Runtime<never>,
+): (<A, E>(effect: Effect.Effect<A, E>) => Promise<A>) =>
+  async <A, E>(effect: Effect.Effect<A, E>): Promise<A> => {
+    const exit = await Runtime.runPromiseExit(runtime)(effect);
+    if (Exit.isSuccess(exit)) {
+      return exit.value;
+    }
+
+    const failure = Cause.failureOption(exit.cause);
+    if (Option.isSome(failure)) {
+      throw failure.value;
+    }
+
+    throw new Error(Cause.pretty(exit.cause));
+  };
 
 const createToolsProxy = (
   runId: string,
   runPromise: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>,
   toolCallService: RuntimeToolCallService | undefined,
+  callCounter: { value: number },
   path: ReadonlyArray<string> = [],
 ): unknown => {
   const callable = () => undefined;
@@ -88,7 +153,7 @@ const createToolsProxy = (
         return undefined;
       }
 
-      return createToolsProxy(runId, runPromise, toolCallService, [...path, prop]);
+      return createToolsProxy(runId, runPromise, toolCallService, callCounter, [...path, prop]);
     },
     apply(_target, _thisArg, args) {
       const toolPath = path.join(".");
@@ -97,7 +162,8 @@ const createToolsProxy = (
       }
 
       const toolArgs = args.length > 0 ? args[0] : undefined;
-      return runPromise(invokeTool(runId, toolPath, toolArgs, toolCallService));
+      const callId = nextDeterministicCallId(callCounter);
+      return runPromise(invokeTool(runId, callId, toolPath, toolArgs, toolCallService));
     },
   });
 };
@@ -123,11 +189,13 @@ export const executeJavaScriptWithTools = (
 ): Effect.Effect<unknown, RuntimeAdapterError> =>
   Effect.gen(function* () {
     const runtime = yield* Effect.runtime<never>();
-    const runPromise = Runtime.runPromise(runtime);
+    const runPromise = runPromiseWithTypedError(runtime);
+    const callCounter = { value: 0 };
     const toolsProxy = createToolsProxy(
       input.runId,
       runPromise,
       input.toolCallService,
+      callCounter,
     );
 
     return yield* runJavaScript(input.code, toolsProxy);

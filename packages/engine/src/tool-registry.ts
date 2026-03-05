@@ -117,8 +117,10 @@ export type ToolInteractionRequest = {
   workspaceId?: string;
   source?: string;
   defaultMode: ToolInteractionMode;
-  interactionKind?: "approval" | "source_oauth_signin" | "provide_secret";
-  interactionTitle?: string;
+  interactionMode?: "form" | "url";
+  interactionMessage?: string;
+  interactionRequestedSchemaJson?: string | null;
+  interactionUrl?: string | null;
   interactionRequestJson?: string | null;
 };
 
@@ -962,34 +964,47 @@ export const createRuntimeToolCallService = (
   toolRegistry: ToolRegistry,
 ): RuntimeToolCallService => ({
   callTool: (input) =>
-    Effect.gen(function* () {
-      while (true) {
-        const result = yield* invokeRuntimeToolCallResult(toolRegistry, input);
-
+    invokeRuntimeToolCallResult(toolRegistry, input).pipe(
+      Effect.flatMap((result) => {
         if (result.ok) {
-          return result.value;
+          return Effect.succeed(result.value);
         }
 
         if (result.kind === "pending") {
-          yield* Effect.sleep(Math.max(1, result.retryAfterMs));
-          continue;
+          return Effect.fail(
+            new RuntimeAdapterError({
+              operation: "call_tool_pending",
+              runtimeKind: runtimeToolCallServiceRuntimeKind,
+              message: result.error
+                ?? `Tool call requires interaction resolution: ${input.toolPath} [interactionId=${result.interactionId}]`,
+              details: JSON.stringify({
+                interactionId: result.interactionId,
+                retryAfterMs: result.retryAfterMs,
+                toolPath: input.toolPath,
+              }),
+            }),
+          );
         }
 
         if (result.kind === "denied") {
-          return yield* new RuntimeAdapterError({
+          return Effect.fail(
+            new RuntimeAdapterError({
+              operation: "call_tool",
+              runtimeKind: runtimeToolCallServiceRuntimeKind,
+              message: result.error,
+              details: `Tool call denied: ${input.toolPath}`,
+            }),
+          );
+        }
+
+        return Effect.fail(
+          new RuntimeAdapterError({
             operation: "call_tool",
             runtimeKind: runtimeToolCallServiceRuntimeKind,
             message: result.error,
-            details: `Tool call denied: ${input.toolPath}`,
-          });
-        }
-
-        return yield* new RuntimeAdapterError({
-          operation: "call_tool",
-          runtimeKind: runtimeToolCallServiceRuntimeKind,
-          message: result.error,
-          details: `Tool call failed: ${input.toolPath}`,
-        });
-      }
-    }),
+            details: `Tool call failed: ${input.toolPath}`,
+          }),
+        );
+      }),
+    ),
 });

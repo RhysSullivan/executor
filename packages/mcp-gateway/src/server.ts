@@ -24,6 +24,18 @@ const toGatewayExecuteResult = (
     };
   }
 
+  if (result.status === "waiting_for_interaction") {
+    return {
+      isError: false,
+      output: {
+        status: "interaction_required",
+        runId: result.runId,
+        interactionId: result.interactionId ?? null,
+        message: result.error ?? "Run paused pending interaction",
+      },
+    };
+  }
+
   return {
     isError: true,
     error: result.error ?? `Run ${result.runId} ended with status ${result.status}`,
@@ -33,8 +45,9 @@ const toGatewayExecuteResult = (
 export type McpGatewayOptions = {
   serverName?: string;
   serverVersion?: string;
-  runClient: ExecutorRunClient;
+  runClient?: ExecutorRunClient;
   executeToolDescription?: string;
+  registerTools?: (server: McpServer) => void;
 };
 const DEFAULT_SERVER_NAME = "executor-v2";
 const DEFAULT_SERVER_VERSION = "0.0.0";
@@ -67,47 +80,53 @@ const createMcpServer = (options: McpGatewayOptions): McpServer => {
     version: options.serverVersion ?? DEFAULT_SERVER_VERSION,
   });
 
-  mcp.registerTool(
-    EXECUTE_TOOL_NAME,
-    {
-      description:
-        options.executeToolDescription ??
-        "Execute JavaScript against configured runtime",
-      inputSchema: ExecuteToolInputSchema,
-    },
-    async (input: ExecuteToolInput) => {
-      try {
-        const result = toGatewayExecuteResult(
-          await options.runClient.execute({
-            code: input.code,
-            timeoutMs: input.timeoutMs,
-          }),
-        );
+  if (options.runClient) {
+    const runClient = options.runClient;
 
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: result.isError
-                ? result.error ?? "Execution failed"
-                : contentText(result.output),
-            },
-          ],
-          isError: result.isError,
-        };
-      } catch (cause) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: cause instanceof Error ? cause.message : String(cause),
-            },
-          ],
-          isError: true,
-        };
-      }
-    },
-  );
+    mcp.registerTool(
+      EXECUTE_TOOL_NAME,
+      {
+        description:
+          options.executeToolDescription ??
+          "Execute JavaScript against configured runtime",
+        inputSchema: ExecuteToolInputSchema,
+      },
+      async (input: ExecuteToolInput) => {
+        try {
+          const result = toGatewayExecuteResult(
+            await runClient.execute({
+              code: input.code,
+              timeoutMs: input.timeoutMs,
+            }),
+          );
+
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: result.isError
+                  ? result.error ?? "Execution failed"
+                  : contentText(result.output),
+              },
+            ],
+            isError: result.isError,
+          };
+        } catch (cause) {
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: cause instanceof Error ? cause.message : String(cause),
+              },
+            ],
+            isError: true,
+          };
+        }
+      },
+    );
+  }
+
+  options.registerTools?.(mcp);
 
   return mcp;
 };

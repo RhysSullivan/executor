@@ -29,6 +29,7 @@ import {
 } from "@executor-v2/engine";
 import {
   RuntimeHostActorLive,
+  createRuntimeHostAdminMcpHandler,
   createKeychainSecretMaterialStore,
   createRuntimeHostInteractionsService,
   createRuntimeHostCredentialsService,
@@ -126,6 +127,7 @@ type ControlPlaneRuntime = {
   fetchOpenApiDocument: typeof fetchOpenApiDocument;
   handleControlPlane: (request: Request) => Promise<Response>;
   handleMcp: (request: Request, workspaceId: string) => Promise<Response>;
+  handleAdminMcp: (request: Request, workspaceId: string) => Promise<Response>;
   handleRuntimeToolCall: (request: Request) => Promise<Response>;
   executeRun: (input: ExecuteRunInput, workspaceId: string) => Promise<ExecuteRunResult>;
   dispose: () => Promise<void>;
@@ -587,6 +589,12 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
       }),
   };
 
+  const interactionsService = createRuntimeHostInteractionsService(
+    persistence.rows,
+    sourceStore,
+    credentialsService,
+  );
+
   const controlPlaneService = makeControlPlaneService({
     sources: sourcesService,
     credentials: credentialsService,
@@ -597,17 +605,16 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
     storage: createRuntimeHostStorageService(persistence.rows, {
       stateRootDir,
     }),
-    interactions: createRuntimeHostInteractionsService(
-      persistence.rows,
-      sourceStore,
-      credentialsService,
-    ),
+    interactions: interactionsService,
   });
 
   const controlPlaneWebHandler = makeControlPlaneWebHandler(
     Layer.succeed(ControlPlaneService, controlPlaneService),
     RuntimeHostActorLive(persistence.rows),
   );
+  const adminMcpHandler = createRuntimeHostAdminMcpHandler({
+    interactions: interactionsService,
+  });
 
   const rememberRunWorkspace = (runId: string, workspaceId: string): void => {
     workspaceByRunId.set(runId, workspaceId);
@@ -818,6 +825,9 @@ const createControlPlaneRuntime = async (): Promise<ControlPlaneRuntime> => {
       });
 
       return dynamicHandler(request);
+    },
+    handleAdminMcp: async (request, _workspaceId) => {
+      return adminMcpHandler(request);
     },
     executeRun: async (input, workspaceId) => {
       const session = resolveMcpSession(workspaceId);

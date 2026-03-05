@@ -4,23 +4,35 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { startMcpOAuthPopup } from "../../../../lib/mcp/oauth-popup";
 
-type InteractionStatus = "pending" | "resolved" | "denied" | "expired" | "failed";
-type InteractionKind = "approval" | "source_oauth_signin" | "provide_secret";
+type InteractionStatus =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "cancelled"
+  | "expired"
+  | "failed";
 
 type InteractionRecord = {
   id: string;
   workspaceId: string;
   taskRunId: string;
+  originServer: string;
+  originRequestId: string;
   callId: string;
   toolPath: string;
-  kind: InteractionKind;
+  mode: "form" | "url";
+  elicitationId: string | null;
+  message: string;
+  requestedSchemaJson: string | null;
+  url: string | null;
   status: InteractionStatus;
-  title: string;
   requestJson: string;
-  resultJson: string | null;
+  responseAction: "accept" | "decline" | "cancel" | null;
+  responseContentJson: string | null;
   reason: string | null;
   requestedAt: number;
   resolvedAt: number | null;
+  completionNotifiedAt: number | null;
   expiresAt: number | null;
 };
 
@@ -31,7 +43,11 @@ type PageProps = {
   };
 };
 
-const parseRequestJson = (raw: string): Record<string, unknown> | null => {
+const parseJsonRecord = (raw: string | null): Record<string, unknown> | null => {
+  if (!raw) {
+    return null;
+  }
+
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -46,6 +62,19 @@ const parseRequestJson = (raw: string): Record<string, unknown> | null => {
 
 const readString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const prettyJson = (raw: string | null): string => {
+  if (!raw || raw.trim().length === 0) {
+    return "{}";
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return raw;
+  }
+};
 
 export default function InteractionPage({ params }: PageProps) {
   const workspaceId = params.workspaceId;
@@ -92,6 +121,7 @@ export default function InteractionPage({ params }: PageProps) {
         if (!active) {
           return;
         }
+
         setError(nextError instanceof Error ? nextError.message : "Failed to load interaction");
       }
     };
@@ -108,9 +138,9 @@ export default function InteractionPage({ params }: PageProps) {
   }, [workspaceId, interactionId, fetchInteraction]);
 
   const resolveInteraction = useCallback(async (input: {
-    status: "resolved" | "denied";
+    action: "accept" | "decline" | "cancel";
     reason?: string | null;
-    resultJson?: string | null;
+    contentJson?: string | null;
   }): Promise<void> => {
     if (!workspaceId || !interactionId) {
       return;
@@ -130,9 +160,9 @@ export default function InteractionPage({ params }: PageProps) {
           },
           credentials: "same-origin",
           body: JSON.stringify({
-            status: input.status,
+            action: input.action,
             reason: input.reason ?? null,
-            resultJson: input.resultJson ?? null,
+            contentJson: input.contentJson ?? null,
           }),
         },
       );
@@ -143,7 +173,13 @@ export default function InteractionPage({ params }: PageProps) {
       }
 
       setInteraction(payload as InteractionRecord);
-      setStatusText(input.status === "resolved" ? "Interaction resolved" : "Interaction denied");
+      setStatusText(
+        input.action === "accept"
+          ? "Interaction accepted"
+          : input.action === "decline"
+            ? "Interaction declined"
+            : "Interaction cancelled",
+      );
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to resolve interaction");
     } finally {
@@ -152,11 +188,18 @@ export default function InteractionPage({ params }: PageProps) {
   }, [workspaceId, interactionId]);
 
   const requestPayload = useMemo(
-    () => (interaction ? parseRequestJson(interaction.requestJson) : null),
+    () => (interaction ? parseJsonRecord(interaction.requestJson) : null),
     [interaction],
   );
 
-  const sourceEndpoint = readString(requestPayload?.endpoint);
+  const requestPurpose = readString(requestPayload?.purpose);
+  const sourceEndpoint = readString(requestPayload?.endpoint) ?? interaction?.url ?? null;
+  const canProvideSecret =
+    interaction?.status === "pending" && requestPurpose === "source_connect_secret";
+  const canStartOAuth =
+    interaction?.status === "pending"
+    && requestPurpose === "source_connect_oauth2"
+    && sourceEndpoint !== null;
 
   const handleStartOAuth = useCallback(async (): Promise<void> => {
     if (!interaction || !sourceEndpoint) {
@@ -170,8 +213,8 @@ export default function InteractionPage({ params }: PageProps) {
     try {
       const oauthResult = await startMcpOAuthPopup(sourceEndpoint);
       await resolveInteraction({
-        status: "resolved",
-        resultJson: JSON.stringify({
+        action: "accept",
+        contentJson: JSON.stringify({
           accessToken: oauthResult.accessToken,
           refreshToken: oauthResult.refreshToken ?? null,
           scope: oauthResult.scope ?? null,
@@ -194,8 +237,8 @@ export default function InteractionPage({ params }: PageProps) {
     }
 
     await resolveInteraction({
-      status: "resolved",
-      resultJson: JSON.stringify({
+      action: "accept",
+      contentJson: JSON.stringify({
         secret: secretValue.trim(),
         provider: providerValue,
       }),
@@ -210,37 +253,32 @@ export default function InteractionPage({ params }: PageProps) {
         <p className="text-sm text-muted-foreground">Loading interaction...</p>
       ) : (
         <div className="rounded-lg border border-border bg-card p-4">
-          <p className="text-sm font-medium">{interaction.title}</p>
-          <p className="mt-1 text-xs text-muted-foreground">kind: {interaction.kind}</p>
+          <p className="text-sm font-medium">{interaction.message}</p>
+          <p className="mt-1 text-xs text-muted-foreground">mode: {interaction.mode}</p>
           <p className="text-xs text-muted-foreground">status: {interaction.status}</p>
           <p className="mt-1 break-all text-xs text-muted-foreground">tool: {interaction.toolPath}</p>
 
-          {interaction.kind === "approval" && interaction.status === "pending" ? (
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                className="rounded border border-border px-3 py-1.5 text-sm"
-                disabled={busy}
-                onClick={() => {
-                  void resolveInteraction({ status: "resolved" });
-                }}
-              >
-                Approve
-              </button>
-              <button
-                type="button"
-                className="rounded border border-border px-3 py-1.5 text-sm"
-                disabled={busy}
-                onClick={() => {
-                  void resolveInteraction({ status: "denied", reason: "Denied in interaction UI" });
-                }}
-              >
-                Deny
-              </button>
+          {interaction.url ? (
+            <p className="mt-1 break-all text-xs text-muted-foreground">url: {interaction.url}</p>
+          ) : null}
+
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">request</p>
+            <pre className="max-h-64 overflow-auto rounded border border-border bg-muted/45 p-3 text-xs leading-5 text-muted-foreground">
+              {prettyJson(interaction.requestJson)}
+            </pre>
+          </div>
+
+          {interaction.requestedSchemaJson ? (
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">requested schema</p>
+              <pre className="max-h-56 overflow-auto rounded border border-border bg-muted/45 p-3 text-xs leading-5 text-muted-foreground">
+                {prettyJson(interaction.requestedSchemaJson)}
+              </pre>
             </div>
           ) : null}
 
-          {interaction.kind === "provide_secret" && interaction.status === "pending" ? (
+          {canProvideSecret ? (
             <div className="mt-4 space-y-2">
               <label className="flex flex-col gap-1 text-sm">
                 Provider
@@ -281,21 +319,61 @@ export default function InteractionPage({ params }: PageProps) {
             </div>
           ) : null}
 
-          {interaction.kind === "source_oauth_signin" && interaction.status === "pending" ? (
+          {canStartOAuth ? (
             <div className="mt-4 space-y-2">
-              <p className="text-xs text-muted-foreground break-all">
-                source endpoint: {sourceEndpoint ?? "(missing endpoint in interaction payload)"}
-              </p>
               <button
                 type="button"
                 className="rounded border border-border px-3 py-1.5 text-sm"
-                disabled={busy || !sourceEndpoint}
+                disabled={busy}
                 onClick={() => {
                   void handleStartOAuth();
                 }}
               >
                 Start OAuth Sign-In
               </button>
+            </div>
+          ) : null}
+
+          {interaction.status === "pending" && !canStartOAuth && !canProvideSecret ? (
+            <div className="mt-4 space-y-2">
+              {interaction.url ? (
+                <button
+                  type="button"
+                  className="rounded border border-border px-3 py-1.5 text-sm"
+                  disabled={busy}
+                  onClick={() => {
+                    window.open(interaction.url!, "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  Open Interaction URL
+                </button>
+              ) : null}
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-border px-3 py-1.5 text-sm"
+                  disabled={busy}
+                  onClick={() => {
+                    void resolveInteraction({ action: "accept" });
+                  }}
+                >
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-border px-3 py-1.5 text-sm"
+                  disabled={busy}
+                  onClick={() => {
+                    void resolveInteraction({
+                      action: "decline",
+                      reason: "Declined in interaction UI",
+                    });
+                  }}
+                >
+                  Deny
+                </button>
+              </div>
             </div>
           ) : null}
 

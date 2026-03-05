@@ -7,7 +7,12 @@ import type {
   ToolInteractionRequest,
 } from "./tool-registry";
 
-export type PersistentToolInteractionStatus = "pending" | "resolved" | "denied" | "expired";
+export type PersistentToolInteractionStatus =
+  | "pending"
+  | "accepted"
+  | "declined"
+  | "cancelled"
+  | "expired";
 
 export type PersistentToolInteractionRecord = {
   interactionId: string;
@@ -42,8 +47,10 @@ export type PersistentToolInteractionStore = {
     callId: string;
     toolPath: string;
     inputPreviewJson: string;
-    interactionKind: ToolInteractionRequest["interactionKind"];
-    interactionTitle: string | undefined;
+    interactionMode: ToolInteractionRequest["interactionMode"];
+    interactionMessage: string | undefined;
+    interactionRequestedSchemaJson: string | null | undefined;
+    interactionUrl: string | null | undefined;
     interactionRequestJson: string | null;
   }) => Effect.Effect<PersistentToolInteractionRecord, PersistentToolInteractionPolicyStoreError>;
 };
@@ -123,7 +130,7 @@ export const createPersistentToolInteractionPolicy = (
         });
 
         if (existing !== null) {
-          if (existing.status === "resolved") {
+          if (existing.status === "accepted") {
             return {
               kind: "approved",
             } satisfies ToolInteractionDecision;
@@ -150,8 +157,10 @@ export const createPersistentToolInteractionPolicy = (
           callId: input.callId,
           toolPath: input.toolPath,
           inputPreviewJson: serializeInputPreview(input.input),
-          interactionKind: input.interactionKind,
-          interactionTitle: input.interactionTitle,
+          interactionMode: input.interactionMode,
+          interactionMessage: input.interactionMessage,
+          interactionRequestedSchemaJson: input.interactionRequestedSchemaJson,
+          interactionUrl: input.interactionUrl,
           interactionRequestJson: input.interactionRequestJson ?? null,
         });
 

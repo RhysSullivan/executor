@@ -14,7 +14,6 @@ export {
   RemoveSourceResultSchema,
   RemoveStorageInstanceResultSchema,
   ResolveInteractionPayloadSchema,
-  ResolveInteractionStatusSchema,
   SourceToolDetailSchema,
   SourceToolSummarySchema,
   UpsertCredentialBindingPayloadSchema,

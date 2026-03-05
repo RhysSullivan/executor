@@ -26,16 +26,19 @@ Supported commands:
 - `executor workspace use <workspace-id>`
 - `executor run execute --code ...`
 - `executor run execute --file ...`
+- `executor run resume --run-id ...` (uses cached script from prior execute)
+- `executor run resume --run-id ... --file ...` (explicit script)
 - `executor run describe`
 
 Control-plane management from CLI should happen through `run execute` and discovered
 source tool paths (for example, add Executor's own OpenAPI source, then call its
 tool paths to manage other sources).
 
-`run execute` now polls pending run interactions (`approval`, `source_oauth_signin`,
-`provide_secret`) and resolves them through the control-plane interaction endpoints.
-When an interaction is pending, CLI opens `${baseUrl}/interactions/<workspace>/<interaction>`
-for browser-based resolution and waits for completion.
+`run execute` and `run resume` support `--interaction-mode auto|user|agent`:
+
+- `auto` (default): uses `user` for TTY, otherwise `agent`.
+- `user`: opens `${baseUrl}/interactions/<workspace>/<interaction>` in browser and waits.
+- `agent`: returns a structured `interaction_required` payload and exits with code `20`.
 
 Run locally:
 

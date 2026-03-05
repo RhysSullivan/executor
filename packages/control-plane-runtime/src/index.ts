@@ -6,6 +6,7 @@ export {
 export { createRuntimeHostResolveToolCredentials } from "./credential-resolver";
 export { createRuntimeHostCredentialsService } from "./credentials-service";
 export { createRuntimeHostMcpHandler } from "./mcp-handler";
+export { createRuntimeHostAdminMcpHandler } from "./admin-mcp-handler";
 export { createRuntimeHostOrganizationsService } from "./organizations-service";
 export { createRuntimeHostPoliciesService } from "./policies-service";
 export { createRuntimeHostExecuteRuntimeRun } from "./runtime-execution-port";

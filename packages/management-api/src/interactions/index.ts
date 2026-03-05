@@ -1,7 +1,6 @@
 export {
   InteractionsApi,
   ResolveInteractionPayloadSchema,
-  ResolveInteractionStatusSchema,
   type ResolveInteractionPayload,
 } from "./api";
 

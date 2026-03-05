@@ -1,22 +1,3 @@
-CREATE TABLE "interactions" (
-	"id" text PRIMARY KEY NOT NULL,
-	"workspace_id" text NOT NULL,
-	"task_run_id" text NOT NULL,
-	"call_id" text NOT NULL,
-	"tool_path" text NOT NULL,
-	"kind" text NOT NULL,
-	"status" text NOT NULL,
-	"title" text NOT NULL,
-	"request_json" text NOT NULL,
-	"result_json" text,
-	"reason" text,
-	"requested_at" bigint NOT NULL,
-	"resolved_at" bigint,
-	"expires_at" bigint,
-	CONSTRAINT "interactions_kind_check" CHECK ("interactions"."kind" in ('approval', 'source_oauth_signin', 'provide_secret')),
-	CONSTRAINT "interactions_status_check" CHECK ("interactions"."status" in ('pending', 'resolved', 'denied', 'expired', 'failed'))
-);
---> statement-breakpoint
 CREATE TABLE "auth_connections" (
 	"id" text PRIMARY KEY NOT NULL,
 	"organization_id" text NOT NULL,
@@ -51,6 +32,33 @@ CREATE TABLE "auth_materials" (
 	"material_handle" text NOT NULL,
 	"created_at" bigint NOT NULL,
 	"updated_at" bigint NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "interactions" (
+	"id" text PRIMARY KEY NOT NULL,
+	"workspace_id" text NOT NULL,
+	"task_run_id" text NOT NULL,
+	"origin_server" text NOT NULL,
+	"origin_request_id" text NOT NULL,
+	"call_id" text NOT NULL,
+	"tool_path" text NOT NULL,
+	"mode" text NOT NULL,
+	"elicitation_id" text,
+	"message" text NOT NULL,
+	"requested_schema_json" text,
+	"url" text,
+	"status" text NOT NULL,
+	"request_json" text NOT NULL,
+	"response_action" text,
+	"response_content_json" text,
+	"reason" text,
+	"requested_at" bigint NOT NULL,
+	"resolved_at" bigint,
+	"completion_notified_at" bigint,
+	"expires_at" bigint,
+	CONSTRAINT "interactions_mode_check" CHECK ("interactions"."mode" in ('form', 'url')),
+	CONSTRAINT "interactions_status_check" CHECK ("interactions"."status" in ('pending', 'accepted', 'declined', 'cancelled', 'expired', 'failed')),
+	CONSTRAINT "interactions_response_action_check" CHECK ("interactions"."response_action" is null or "interactions"."response_action" in ('accept', 'decline', 'cancel'))
 );
 --> statement-breakpoint
 CREATE TABLE "oauth_states" (
@@ -259,15 +267,17 @@ CREATE TABLE "workspaces" (
 	"updated_at" bigint NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX "interactions_workspace_idx" ON "interactions" USING btree ("workspace_id","requested_at","id");--> statement-breakpoint
-CREATE INDEX "interactions_task_run_idx" ON "interactions" USING btree ("task_run_id");--> statement-breakpoint
-CREATE INDEX "interactions_lookup_idx" ON "interactions" USING btree ("workspace_id","task_run_id","call_id","requested_at");--> statement-breakpoint
 CREATE INDEX "auth_connections_org_idx" ON "auth_connections" USING btree ("organization_id");--> statement-breakpoint
 CREATE INDEX "auth_connections_workspace_idx" ON "auth_connections" USING btree ("workspace_id");--> statement-breakpoint
 CREATE INDEX "auth_connections_account_idx" ON "auth_connections" USING btree ("account_id");--> statement-breakpoint
 CREATE INDEX "auth_connections_org_updated_idx" ON "auth_connections" USING btree ("organization_id","updated_at","id");--> statement-breakpoint
 CREATE UNIQUE INDEX "auth_materials_connection_idx" ON "auth_materials" USING btree ("connection_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "auth_materials_material_handle_idx" ON "auth_materials" USING btree ("material_handle");--> statement-breakpoint
+CREATE INDEX "interactions_workspace_idx" ON "interactions" USING btree ("workspace_id","requested_at","id");--> statement-breakpoint
+CREATE INDEX "interactions_task_run_idx" ON "interactions" USING btree ("task_run_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "interactions_origin_request_idx" ON "interactions" USING btree ("origin_server","origin_request_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "interactions_url_elicitation_idx" ON "interactions" USING btree ("origin_server","elicitation_id") WHERE "interactions"."elicitation_id" is not null;--> statement-breakpoint
+CREATE INDEX "interactions_lookup_idx" ON "interactions" USING btree ("workspace_id","task_run_id","call_id","requested_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "oauth_states_connection_idx" ON "oauth_states" USING btree ("connection_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "oauth_states_access_token_handle_idx" ON "oauth_states" USING btree ("access_token_handle");--> statement-breakpoint
 CREATE INDEX "organization_memberships_org_idx" ON "organization_memberships" USING btree ("organization_id");--> statement-breakpoint

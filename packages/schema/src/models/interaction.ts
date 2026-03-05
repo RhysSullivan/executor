@@ -1,23 +1,34 @@
 import { Schema } from "effect";
 
 import { TimestampMsSchema } from "../common";
-import { InteractionKindSchema, InteractionStatusSchema } from "../enums";
+import {
+  InteractionActionSchema,
+  InteractionModeSchema,
+  InteractionStatusSchema,
+} from "../enums";
 import { InteractionIdSchema, TaskRunIdSchema, WorkspaceIdSchema } from "../ids";
 
 export const InteractionSchema = Schema.Struct({
   id: InteractionIdSchema,
   workspaceId: WorkspaceIdSchema,
   taskRunId: TaskRunIdSchema,
+  originServer: Schema.String,
+  originRequestId: Schema.String,
   callId: Schema.String,
   toolPath: Schema.String,
-  kind: InteractionKindSchema,
+  mode: InteractionModeSchema,
+  elicitationId: Schema.NullOr(Schema.String),
+  message: Schema.String,
+  requestedSchemaJson: Schema.NullOr(Schema.String),
+  url: Schema.NullOr(Schema.String),
   status: InteractionStatusSchema,
-  title: Schema.String,
   requestJson: Schema.String,
-  resultJson: Schema.NullOr(Schema.String),
+  responseAction: Schema.NullOr(InteractionActionSchema),
+  responseContentJson: Schema.NullOr(Schema.String),
   reason: Schema.NullOr(Schema.String),
   requestedAt: TimestampMsSchema,
   resolvedAt: Schema.NullOr(TimestampMsSchema),
+  completionNotifiedAt: Schema.NullOr(TimestampMsSchema),
   expiresAt: Schema.NullOr(TimestampMsSchema),
 });
 

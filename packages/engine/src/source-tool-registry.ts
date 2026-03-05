@@ -211,6 +211,38 @@ const sourceToolPath = (
   descriptor: CanonicalToolDescriptor,
 ): string => `${sourceNamespace(source)}.${descriptor.toolId}`;
 
+const openApiInvocationFromDescriptor = (
+  descriptor: CanonicalToolDescriptor,
+): { method: string; pathTemplate: string } | null => {
+  if (descriptor.providerKind !== "openapi") {
+    return null;
+  }
+
+  const payload = descriptor.providerPayload as {
+    method?: unknown;
+    pathTemplate?: unknown;
+  };
+
+  return typeof payload.method === "string" && typeof payload.pathTemplate === "string"
+    ? {
+      method: payload.method,
+      pathTemplate: payload.pathTemplate,
+    }
+    : null;
+};
+
+const approvalMessageForDescriptor = (
+  descriptor: CanonicalToolDescriptor,
+  toolPath: string,
+): string => {
+  const invocation = openApiInvocationFromDescriptor(descriptor);
+  if (invocation) {
+    return `Allow ${invocation.method.toUpperCase()} ${invocation.pathTemplate}?`;
+  }
+
+  return `Allow tool call: ${toolPath}?`;
+};
+
 const describeSource = (source: Source): string => {
   const kind = source.kind.toUpperCase();
   return `${kind} source at ${source.endpoint}`;
@@ -1017,9 +1049,9 @@ export const createSourceToolRegistry = (
 
           const source = Option.getOrNull(sourceOption);
           if (source && source.status !== "connected") {
-            const authInteractionKind = source.kind === "mcp"
-              ? "source_oauth_signin"
-              : "provide_secret";
+            const authPurpose = source.kind === "mcp"
+              ? "source_connect_oauth2"
+              : "source_connect_secret";
 
             const connectRequest: ToolInteractionRequest = {
               runId: input.runId,
@@ -1029,17 +1061,33 @@ export const createSourceToolRegistry = (
               workspaceId: options.workspaceId,
               source: source.name,
               defaultMode: "required",
-              interactionKind: authInteractionKind,
-              interactionTitle: authInteractionKind === "source_oauth_signin"
+              interactionMode: authPurpose === "source_connect_oauth2" ? "url" : "form",
+              interactionMessage: authPurpose === "source_connect_oauth2"
                 ? `Sign in to source: ${source.name}`
                 : `Provide secret for source: ${source.name}`,
+              interactionRequestedSchemaJson: authPurpose === "source_connect_secret"
+                ? JSON.stringify({
+                  type: "object",
+                  properties: {
+                    provider: {
+                      type: "string",
+                      enum: ["api_key", "bearer", "basic", "custom"],
+                    },
+                    secret: { type: "string" },
+                  },
+                  required: ["secret"],
+                })
+                : null,
+              interactionUrl: authPurpose === "source_connect_oauth2"
+                ? source.endpoint
+                : null,
               interactionRequestJson: JSON.stringify({
+                purpose: authPurpose,
                 sourceId: source.id,
                 sourceName: source.name,
                 sourceKind: source.kind,
                 endpoint: source.endpoint,
                 desiredToolPath: input.toolPath,
-                kind: authInteractionKind,
               }),
             };
 
@@ -1062,9 +1110,9 @@ export const createSourceToolRegistry = (
       }
 
       if (entry.source.status !== "connected") {
-        const authInteractionKind = entry.source.kind === "mcp"
-          ? "source_oauth_signin"
-          : "provide_secret";
+        const authPurpose = entry.source.kind === "mcp"
+          ? "source_connect_oauth2"
+          : "source_connect_secret";
 
         const connectRequest: ToolInteractionRequest = {
           runId: input.runId,
@@ -1074,17 +1122,33 @@ export const createSourceToolRegistry = (
           workspaceId: options.workspaceId,
           source: entry.source.name,
           defaultMode: "required",
-          interactionKind: authInteractionKind,
-          interactionTitle: authInteractionKind === "source_oauth_signin"
+          interactionMode: authPurpose === "source_connect_oauth2" ? "url" : "form",
+          interactionMessage: authPurpose === "source_connect_oauth2"
             ? `Sign in to source: ${entry.source.name}`
             : `Provide secret for source: ${entry.source.name}`,
+          interactionRequestedSchemaJson: authPurpose === "source_connect_secret"
+            ? JSON.stringify({
+              type: "object",
+              properties: {
+                provider: {
+                  type: "string",
+                  enum: ["api_key", "bearer", "basic", "custom"],
+                },
+                secret: { type: "string" },
+              },
+              required: ["secret"],
+            })
+            : null,
+          interactionUrl: authPurpose === "source_connect_oauth2"
+            ? entry.source.endpoint
+            : null,
           interactionRequestJson: JSON.stringify({
+            purpose: authPurpose,
             sourceId: entry.source.id,
             sourceName: entry.source.name,
             sourceKind: entry.source.kind,
             endpoint: entry.source.endpoint,
             desiredToolPath: entry.path,
-            kind: authInteractionKind,
           }),
         };
 
@@ -1106,12 +1170,14 @@ export const createSourceToolRegistry = (
         workspaceId: options.workspaceId,
         source: entry.source.name,
         defaultMode: "auto",
-        interactionKind: "approval",
-        interactionTitle: `Approve tool call: ${entry.path}`,
+        interactionMode: "form",
+        interactionMessage: approvalMessageForDescriptor(entry.descriptor, entry.path),
         interactionRequestJson: JSON.stringify({
+          purpose: "tool_execution_gate",
           toolPath: entry.path,
           sourceId: entry.source.id,
           sourceName: entry.source.name,
+          invocation: openApiInvocationFromDescriptor(entry.descriptor),
           input: normalizeToolCallInput(input.input),
         }),
       };

@@ -3,6 +3,7 @@ import {
   createPersistentToolInteractionPolicy,
   type PersistentToolInteractionRecord,
   type PersistentToolInteractionStore,
+  type ToolInteractionRequest,
   type ToolInteractionPolicy,
 } from "@executor-v2/engine";
 import { type SourceStore } from "@executor-v2/persistence-ports";
@@ -13,7 +14,10 @@ import {
   type ControlPlaneInteractionsServiceShape,
 } from "@executor-v2/management-api";
 import {
+  type InteractionAction,
+  type InteractionMode,
   type Interaction,
+  type InteractionStatus,
   type Source,
   type SourceCredentialBinding,
 } from "@executor-v2/schema";
@@ -49,11 +53,85 @@ const toPersistentInteractionRecord = (interaction: Interaction): PersistentTool
   runId: interaction.taskRunId,
   callId: interaction.callId,
   toolPath: interaction.toolPath,
-  status: interaction.status === "resolved"
-    ? "resolved"
+  status: interaction.status === "accepted"
+    ? "accepted"
     : (interaction.status as PersistentToolInteractionRecord["status"]),
   reason: interaction.reason,
 });
+
+const parseJsonRecord = (raw: string | null): Record<string, unknown> | null => {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const readString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const interactionModeFromRequest = (
+  interactionMode: ToolInteractionRequest["interactionMode"],
+  request: Record<string, unknown> | null,
+): InteractionMode => {
+  if (interactionMode === "form" || interactionMode === "url") {
+    return interactionMode;
+  }
+
+  const rawMode = readString(request?.mode);
+  if (rawMode === "form" || rawMode === "url") {
+    return rawMode;
+  }
+
+  return "form";
+};
+
+const interactionMessageFromRequest = (
+  request: Record<string, unknown> | null,
+  fallback: string,
+): string => {
+  const direct = readString(request?.message);
+  if (direct) {
+    return direct;
+  }
+
+  return fallback;
+};
+
+const interactionUrlFromRequest = (
+  request: Record<string, unknown> | null,
+): string | null => {
+  const explicit = readString(request?.url);
+  if (explicit) {
+    return explicit;
+  }
+
+  const endpoint = readString(request?.endpoint);
+  if (endpoint) {
+    return endpoint;
+  }
+
+  return null;
+};
+
+const statusFromAction = (action: InteractionAction): InteractionStatus => {
+  if (action === "accept") {
+    return "accepted";
+  }
+
+  if (action === "decline") {
+    return "declined";
+  }
+
+  return "cancelled";
+};
 
 export type RuntimeHostPersistentToolInteractionPolicyOptions = {
   requireInteractions?: boolean;
@@ -87,20 +165,42 @@ export const createRuntimeHostPersistentToolInteractionPolicy = (
     createPending: (input) =>
       Effect.gen(function* () {
         const now = Date.now();
+        const requestPayload = parseJsonRecord(input.interactionRequestJson ?? null);
+        const mode = interactionModeFromRequest(input.interactionMode, requestPayload);
         const pendingInteraction: Interaction = {
           id: `int_${crypto.randomUUID()}` as Interaction["id"],
           workspaceId: input.workspaceId as Interaction["workspaceId"],
           taskRunId: input.runId as Interaction["taskRunId"],
+          originServer: "runtime-mcp",
+          originRequestId: `${input.runId}:${input.callId}`,
           callId: input.callId,
           toolPath: input.toolPath,
-          kind: input.interactionKind ?? "approval",
+          mode,
+          elicitationId: mode === "url" ? `eli_${crypto.randomUUID()}` : null,
+          message: interactionMessageFromRequest(
+            requestPayload,
+            input.interactionMessage ?? `Interaction required for ${input.toolPath}`,
+          ),
+          requestedSchemaJson: mode === "form"
+            ? (typeof input.interactionRequestedSchemaJson === "string"
+              ? input.interactionRequestedSchemaJson
+              : (typeof requestPayload?.requestedSchemaJson === "string"
+                ? requestPayload.requestedSchemaJson
+                : null))
+            : null,
+          url: mode === "url"
+            ? (typeof input.interactionUrl === "string" && input.interactionUrl.trim().length > 0
+              ? input.interactionUrl
+              : interactionUrlFromRequest(requestPayload))
+            : null,
           status: "pending",
-          title: input.interactionTitle ?? `Interaction required for ${input.toolPath}`,
           requestJson: input.interactionRequestJson ?? input.inputPreviewJson,
-          resultJson: null,
+          responseAction: null,
+          responseContentJson: null,
           reason: null,
           requestedAt: now,
           resolvedAt: null,
+          completionNotifiedAt: null,
           expiresAt: null,
         };
 
@@ -127,33 +227,17 @@ const maybeUpdateSourceAfterResolution = (
   interaction: Interaction,
 ): Effect.Effect<void, never> =>
   Effect.gen(function* () {
-    if (
-      interaction.status !== "resolved"
-      || (interaction.kind !== "source_oauth_signin" && interaction.kind !== "provide_secret")
-    ) {
+    if (interaction.status !== "accepted" || interaction.responseAction !== "accept") {
       return;
     }
 
-    const parseJsonRecord = (raw: string | null): Record<string, unknown> | null => {
-      if (!raw) {
-        return null;
-      }
-
-      try {
-        const parsed = JSON.parse(raw) as unknown;
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-          ? parsed as Record<string, unknown>
-          : null;
-      } catch {
-        return null;
-      }
-    };
-
-    const readString = (value: unknown): string | null =>
-      typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-
     const requestPayload = parseJsonRecord(interaction.requestJson);
-    const resultPayload = parseJsonRecord(interaction.resultJson);
+    const resultPayload = parseJsonRecord(interaction.responseContentJson);
+
+    const purpose = readString(requestPayload?.purpose);
+    if (purpose !== "source_connect_oauth2" && purpose !== "source_connect_secret") {
+      return;
+    }
 
     const sourceIdRaw = requestPayload?.sourceId;
     if (typeof sourceIdRaw !== "string" || sourceIdRaw.trim().length === 0) {
@@ -174,7 +258,7 @@ const maybeUpdateSourceAfterResolution = (
         Effect.orElseSucceed(() => null),
       );
 
-    if (interaction.kind === "source_oauth_signin") {
+    if (purpose === "source_connect_oauth2") {
       const accessToken = readString(resultPayload?.accessToken ?? resultPayload?.secret);
       if (!accessToken) {
         return;
@@ -212,7 +296,7 @@ const maybeUpdateSourceAfterResolution = (
       shouldConnectSource = true;
     }
 
-    if (interaction.kind === "provide_secret") {
+    if (purpose === "source_connect_secret") {
       const secret = readString(resultPayload?.secret ?? resultPayload?.apiKey ?? resultPayload?.token);
       if (!secret) {
         return;
@@ -339,9 +423,10 @@ export const createRuntimeHostInteractionsService = (
 
         const resolved: Interaction = {
           ...interaction,
-          status: input.payload.status,
+          status: statusFromAction(input.payload.action),
+          responseAction: input.payload.action,
           reason: input.payload.reason ?? interaction.reason ?? null,
-          resultJson: input.payload.resultJson ?? interaction.resultJson ?? null,
+          responseContentJson: input.payload.contentJson ?? interaction.responseContentJson ?? null,
           resolvedAt: Date.now(),
         };
 

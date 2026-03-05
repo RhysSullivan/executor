@@ -25,6 +25,7 @@ type ExecutorCliConfig = {
   cloudAuthClientId?: string;
   cloudAuthBaseUrl?: string;
   workspaceId?: string;
+  runScripts?: Record<string, string>;
 };
 
 type RequestOptions = {
@@ -42,16 +43,23 @@ type InteractionRecord = {
   id: string;
   workspaceId: string;
   taskRunId: string;
+  originServer: string;
+  originRequestId: string;
   callId: string;
   toolPath: string;
-  kind: "approval" | "source_oauth_signin" | "provide_secret";
-  status: "pending" | "resolved" | "denied" | "expired" | "failed";
-  title: string;
+  mode: "form" | "url";
+  elicitationId: string | null;
+  message: string;
+  requestedSchemaJson: string | null;
+  url: string | null;
+  status: "pending" | "accepted" | "declined" | "cancelled" | "expired" | "failed";
   requestJson: string;
-  resultJson: string | null;
+  responseAction: "accept" | "decline" | "cancel" | null;
+  responseContentJson: string | null;
   reason: string | null;
   requestedAt: number;
   resolvedAt: number | null;
+  completionNotifiedAt: number | null;
   expiresAt: number | null;
 };
 
@@ -95,6 +103,29 @@ type CommonTargetOptions = {
   json: boolean;
 };
 
+type InteractionModeOption = "auto" | "user" | "agent";
+
+type ExecuteRunResponse = {
+  runId: string;
+  status: "completed" | "failed" | "timed_out" | "denied" | "waiting_for_interaction";
+  result?: unknown;
+  error?: string;
+  exitCode?: number;
+  durationMs?: number;
+  interactionId?: string;
+};
+
+type InteractionRequiredEnvelope = {
+  status: "interaction_required";
+  runId: string;
+  interactionId: string;
+  mode: InteractionRecord["mode"];
+  message: string;
+  url: string | null;
+  expiresAt: number | null;
+  resumeCommand: string;
+};
+
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:8788";
 const DEFAULT_WORKOS_AUTH_BASE_URL = "https://api.workos.com";
 const CONFIG_PATH = join(homedir(), ".config", "executor", "cli.json");
@@ -128,6 +159,14 @@ const sleep = (ms: number): Promise<void> =>
 
 const optionToUndefined = <A>(option: Option.Option<A>): A | undefined =>
   Option.getOrUndefined(option);
+
+const resolveInteractionMode = (value: InteractionModeOption | undefined): "user" | "agent" => {
+  if (value === "user" || value === "agent") {
+    return value;
+  }
+
+  return stdin.isTTY && stdout.isTTY ? "user" : "agent";
+};
 
 const tokenExpiresAtEpochSeconds = (token: string): number | null => {
   const parts = token.split(".");
@@ -217,6 +256,47 @@ const safeParseJson = (text: string): unknown => {
 const isTarget = (value: string | undefined): value is ExecutorTarget =>
   value === "local" || value === "cloud";
 
+const normalizeRunScripts = (value: unknown): Record<string, string> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const output: Record<string, string> = {};
+  for (const [runId, script] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof runId !== "string" || typeof script !== "string") {
+      continue;
+    }
+
+    const trimmedRunId = runId.trim();
+    const trimmedScript = script.trim();
+    if (trimmedRunId.length === 0 || trimmedScript.length === 0) {
+      continue;
+    }
+
+    output[trimmedRunId] = trimmedScript;
+  }
+
+  return output;
+};
+
+const rememberRunScript = (config: ExecutorCliConfig, runId: string, code: string): void => {
+  const trimmedRunId = runId.trim();
+  if (trimmedRunId.length === 0) {
+    return;
+  }
+
+  const trimmedCode = code.trim();
+  if (trimmedCode.length === 0) {
+    return;
+  }
+
+  const existing = normalizeRunScripts(config.runScripts);
+  config.runScripts = {
+    ...existing,
+    [trimmedRunId]: trimmedCode,
+  };
+};
+
 const loadConfig = async (): Promise<ExecutorCliConfig> => {
   const file = Bun.file(CONFIG_PATH);
   if (!(await file.exists())) {
@@ -241,6 +321,9 @@ const loadConfig = async (): Promise<ExecutorCliConfig> => {
         ? { cloudAuthBaseUrl: parsed.cloudAuthBaseUrl }
         : {}),
       ...(typeof parsed.workspaceId === "string" ? { workspaceId: parsed.workspaceId } : {}),
+      ...(typeof parsed.runScripts === "object"
+        ? { runScripts: normalizeRunScripts(parsed.runScripts) }
+        : {}),
     };
   } catch {
     return {};
@@ -827,6 +910,7 @@ const startEmbeddedLocalServer = async (port: number): Promise<void> => {
     handlers: {
       handleControlPlane: runtime.handleControlPlane,
       handleMcp: runtime.handleMcp,
+      handleAdminMcp: runtime.handleAdminMcp,
       handleRuntimeToolCall: runtime.handleRuntimeToolCall,
       executeRun: runtime.executeRun,
     },
@@ -1145,8 +1229,13 @@ const buildInteractionPageUrl = (input: {
   controlPlaneBaseUrl: string;
   workspaceId: string;
   interactionId: string;
-}): string => {
+}): string | null => {
   const controlPlaneBase = input.controlPlaneBaseUrl.replace(/\/$/, "");
+
+  if (!controlPlaneBase.endsWith("/api/control-plane")) {
+    return null;
+  }
+
   const interactionUiBase = controlPlaneBase.replace(/\/api\/control-plane$/, "");
 
   return `${interactionUiBase}/interactions/${encodeURIComponent(input.workspaceId)}/${encodeURIComponent(input.interactionId)}`;
@@ -1188,7 +1277,15 @@ const resolvePendingInteraction = async (input: {
     interactionId: interaction.id,
   });
 
-  stdout.write(`\nInteraction required: ${interaction.title}\n`);
+  stdout.write(`\nInteraction required: ${interaction.message}\n`);
+  stdout.write(`Tool: ${interaction.toolPath}\n`);
+
+  if (!interactionUrl) {
+    throw new Error(
+      `Cannot open browser interaction page from base URL '${input.controlPlaneBaseUrl}'. Use a web control-plane base like 'http://localhost:3000/api/control-plane' or run with --interaction-mode agent.`,
+    );
+  }
+
   stdout.write(`Resolve it in browser:\n${interactionUrl}\n`);
 
   if (stdin.isTTY && stdout.isTTY) {
@@ -1201,7 +1298,12 @@ const resolvePendingInteraction = async (input: {
     interactionId: interaction.id,
   });
 
-  if (resolved.status === "denied" || resolved.status === "failed" || resolved.status === "expired") {
+  if (
+    resolved.status === "declined"
+    || resolved.status === "cancelled"
+    || resolved.status === "failed"
+    || resolved.status === "expired"
+  ) {
     throw new Error(
       resolved.reason
       ?? `Interaction was not resolved successfully (${resolved.status}): ${interaction.id}`,
@@ -1212,70 +1314,99 @@ const resolvePendingInteraction = async (input: {
 const runExecuteWithInteractionLoop = async (input: {
   client: ExecutorServerClient;
   workspaceId: string;
+  runId?: string;
   code: string;
   timeoutMs: number | undefined;
   controlPlaneBaseUrl: string;
+  interactionMode: InteractionModeOption | undefined;
 }): Promise<unknown> => {
-  const runId = `run_${crypto.randomUUID()}`;
-  let handled = new Set<string>();
+  const runId = input.runId ?? `run_${crypto.randomUUID()}`;
+  const resolvedMode = resolveInteractionMode(input.interactionMode);
 
-  const executePromise = input.client.request<unknown>({
-    method: "POST",
-    path: `/execute?workspaceId=${encodeURIComponent(input.workspaceId)}`,
-    headers: {
-      [ExecutorControlPlaneBaseUrlHeader]: input.controlPlaneBaseUrl,
-    },
-    body: {
-      runId,
-      code: input.code,
-      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
-    },
-  });
+  while (true) {
+    const result = await input.client.request<ExecuteRunResponse>({
+      method: "POST",
+      path: `/execute?workspaceId=${encodeURIComponent(input.workspaceId)}`,
+      headers: {
+        [ExecutorControlPlaneBaseUrlHeader]: input.controlPlaneBaseUrl,
+      },
+      body: {
+        runId,
+        code: input.code,
+        ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      },
+    });
 
-  let settled = false;
-  let executeError: unknown = undefined;
+    if (result.status !== "waiting_for_interaction") {
+      return result;
+    }
 
-  void executePromise.then(() => {
-    settled = true;
-  }).catch((error) => {
-    settled = true;
-    executeError = error;
-  });
-
-  while (!settled) {
-    await sleep(750);
-
-    let interactions: Array<InteractionRecord> = [];
-    try {
-      interactions = await input.client.request<Array<InteractionRecord>>({
+    let interactionId = result.interactionId;
+    if (!interactionId) {
+      const runInteractions = await input.client.request<Array<InteractionRecord>>({
         method: "GET",
         path: `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/runs/${encodeURIComponent(runId)}/interactions`,
       });
-    } catch {
-      continue;
-    }
 
-    const pending = interactions.filter((interaction) => interaction.status === "pending");
-    for (const interaction of pending) {
-      if (handled.has(interaction.id)) {
-        continue;
+      const pending = runInteractions.find((item) => item.status === "pending");
+      if (!pending) {
+        throw new Error(`Run is waiting for interaction but no pending interactions were found: ${runId}`);
       }
 
-      handled.add(interaction.id);
-      await resolvePendingInteraction({
-        client: input.client,
-        workspaceId: input.workspaceId,
-        interaction,
-        controlPlaneBaseUrl: input.controlPlaneBaseUrl,
-      });
+      interactionId = pending.id;
     }
+
+    const interaction = await input.client.request<InteractionRecord>({
+      method: "GET",
+      path: `/v1/workspaces/${encodeURIComponent(input.workspaceId)}/interactions/${encodeURIComponent(interactionId)}`,
+    });
+
+    if (resolvedMode === "agent") {
+      const resumeCommand =
+        `executor run resume --run-id ${runId} --workspace ${input.workspaceId}`;
+
+      return {
+        status: "interaction_required",
+        runId,
+        interactionId,
+        mode: interaction.mode,
+        message: interaction.message,
+        url: interaction.url,
+        expiresAt: interaction.expiresAt,
+        resumeCommand,
+      } satisfies InteractionRequiredEnvelope;
+    }
+
+    await resolvePendingInteraction({
+      client: input.client,
+      workspaceId: input.workspaceId,
+      interaction,
+      controlPlaneBaseUrl: input.controlPlaneBaseUrl,
+    });
+  }
+};
+
+const resolveCodeFromInput = async (input: {
+  code: Option.Option<string>;
+  file: Option.Option<string>;
+  fallbackCode?: string;
+}): Promise<string> => {
+  const codeFromFlag = optionToUndefined(input.code)?.trim();
+  const filePath = optionToUndefined(input.file)?.trim();
+  const codeFromFile = filePath && filePath.length > 0
+    ? (await Bun.file(filePath).text()).trim()
+    : undefined;
+  const code = codeFromFile && codeFromFile.length > 0
+    ? codeFromFile
+    : (codeFromFlag && codeFromFlag.length > 0
+      ? codeFromFlag
+      : (input.fallbackCode?.trim().length ? input.fallbackCode.trim() : undefined));
+
+  if (!code) {
+    throw new Error("Run execution requires --code or --file.");
   }
 
-  if (executeError) {
-    throw executeError;
-  }
-
-  return await executePromise;
+  return code;
 };
 
 const runExecuteCommand = Command.make(
@@ -1285,22 +1416,14 @@ const runExecuteCommand = Command.make(
     code: Options.text("code").pipe(Options.optional),
     file: Options.text("file").pipe(Options.optional),
     timeoutMs: Options.integer("timeout-ms").pipe(Options.optional),
+    interactionMode: Options.choice("interaction-mode", ["auto", "user", "agent"] as const).pipe(
+      Options.optional,
+    ),
   },
   (input) =>
     Effect.tryPromise({
       try: async () => {
-        const codeFromFlag = optionToUndefined(input.code)?.trim();
-        const filePath = optionToUndefined(input.file)?.trim();
-        const codeFromFile = filePath && filePath.length > 0
-          ? (await Bun.file(filePath).text()).trim()
-          : undefined;
-        const code = codeFromFile && codeFromFile.length > 0
-          ? codeFromFile
-          : (codeFromFlag && codeFromFlag.length > 0 ? codeFromFlag : undefined);
-
-        if (!code) {
-          throw new Error("Run execution requires --code or --file.");
-        }
+        const code = await resolveCodeFromInput(input);
 
         const common: CommonTargetOptions = {
           target: input.target,
@@ -1319,15 +1442,104 @@ const runExecuteCommand = Command.make(
             code,
             timeoutMs: Option.isSome(input.timeoutMs) ? input.timeoutMs.value : undefined,
             controlPlaneBaseUrl,
+            interactionMode: optionToUndefined(input.interactionMode),
           });
 
+          if (
+            typeof result === "object"
+            && result !== null
+            && typeof (result as { runId?: unknown }).runId === "string"
+          ) {
+            rememberRunScript(config, (result as { runId: string }).runId, code);
+            await saveConfig(config);
+          }
+
           printOutput(result, asJson);
+
+          if (
+            typeof result === "object"
+            && result !== null
+            && (result as { status?: unknown }).status === "interaction_required"
+          ) {
+            process.exitCode = 20;
+          }
         });
       },
       catch: toErrorMessage,
     }),
 ).pipe(
   Command.withDescription("Execute JavaScript against configured runtime"),
+);
+
+const runResumeCommand = Command.make(
+  "resume",
+  {
+    ...commonTargetOptions(),
+    runId: Options.text("run-id"),
+    code: Options.text("code").pipe(Options.optional),
+    file: Options.text("file").pipe(Options.optional),
+    timeoutMs: Options.integer("timeout-ms").pipe(Options.optional),
+    interactionMode: Options.choice("interaction-mode", ["auto", "user", "agent"] as const).pipe(
+      Options.optional,
+    ),
+  },
+  (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const runId = input.runId.trim();
+        if (runId.length === 0) {
+          throw new Error("Run resume requires --run-id.");
+        }
+
+        const common: CommonTargetOptions = {
+          target: input.target,
+          workspace: input.workspace,
+          baseUrl: input.baseUrl,
+          json: input.json,
+        };
+
+        await withClient(common, async ({ client, config, workspaceOverride, asJson }) => {
+          const code = await resolveCodeFromInput({
+            ...input,
+            fallbackCode: config.runScripts?.[runId],
+          });
+          const controlPlaneBaseUrl = await client.resolveBaseUrl();
+          const workspaceId = await ensureWorkspaceId(client, config, workspaceOverride);
+
+          const result = await runExecuteWithInteractionLoop({
+            client,
+            workspaceId,
+            runId,
+            code,
+            timeoutMs: Option.isSome(input.timeoutMs) ? input.timeoutMs.value : undefined,
+            controlPlaneBaseUrl,
+            interactionMode: optionToUndefined(input.interactionMode),
+          });
+
+          if (
+            typeof result === "object"
+            && result !== null
+            && typeof (result as { runId?: unknown }).runId === "string"
+          ) {
+            rememberRunScript(config, (result as { runId: string }).runId, code);
+            await saveConfig(config);
+          }
+
+          printOutput(result, asJson);
+
+          if (
+            typeof result === "object"
+            && result !== null
+            && (result as { status?: unknown }).status === "interaction_required"
+          ) {
+            process.exitCode = 20;
+          }
+        });
+      },
+      catch: toErrorMessage,
+    }),
+).pipe(
+  Command.withDescription("Resume a paused run by re-invoking with the same run id"),
 );
 
 const runDescribeCommand = Command.make(
@@ -1411,7 +1623,7 @@ const runDescribeCommand = Command.make(
 );
 
 const runCommand = Command.make("run").pipe(
-  Command.withSubcommands([runExecuteCommand, runDescribeCommand] as any),
+  Command.withSubcommands([runExecuteCommand, runResumeCommand, runDescribeCommand] as any),
   Command.withDescription("Code execution commands"),
 );
 

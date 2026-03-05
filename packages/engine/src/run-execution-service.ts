@@ -49,6 +49,15 @@ export const executeRun = (
         }
       }
 
+      if (!waitingForInteraction) {
+        const combinedErrorText = `${error.message}\n${error.details ?? ""}`;
+        const interactionIdMatch = /interactionId=([A-Za-z0-9_-]+)/.exec(combinedErrorText);
+        if (combinedErrorText.includes("requires interaction resolution")) {
+          interactionId = interactionIdMatch?.[1];
+          waitingForInteraction = true;
+        }
+      }
+
       if (waitingForInteraction && interactionId) {
         return {
           runId,

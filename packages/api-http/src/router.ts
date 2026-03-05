@@ -20,6 +20,7 @@ export const ExecutorControlPlaneBaseUrlHeader =
 export type ExecutorApiHandlers = {
   handleControlPlane: (request: Request) => Promise<Response>;
   handleMcp: (request: Request, workspaceId: string) => Promise<Response>;
+  handleAdminMcp?: (request: Request, workspaceId: string) => Promise<Response>;
   handleRuntimeToolCall: (request: Request) => Promise<Response>;
   executeRun: (input: ExecuteRunInput, workspaceId: string) => Promise<ExecuteRunResult>;
 };
@@ -207,6 +208,40 @@ export const createExecutorApiFetchHandler = (
       const requestWithPrincipal = applyPrincipalHeaders(request, principalResult);
 
       return options.handlers.handleMcp(
+        requestWithPrincipal,
+        resolveMcpWorkspaceId(
+          request,
+          principalResult,
+          options.defaultMcpWorkspaceId,
+        ),
+      );
+    }
+
+    if (pathname === "/v1/mcp/admin") {
+      if (
+        request.method !== "GET"
+        && request.method !== "POST"
+        && request.method !== "DELETE"
+      ) {
+        return methodNotAllowed("GET, POST, DELETE");
+      }
+
+      if (!options.handlers.handleAdminMcp) {
+        return notFound();
+      }
+
+      const principalResult = await options.resolvePrincipal(request);
+      if (principalResult instanceof Response) {
+        return principalResult;
+      }
+
+      if (options.ensurePrincipal) {
+        await options.ensurePrincipal(principalResult);
+      }
+
+      const requestWithPrincipal = applyPrincipalHeaders(request, principalResult);
+
+      return options.handlers.handleAdminMcp(
         requestWithPrincipal,
         resolveMcpWorkspaceId(
           request,
