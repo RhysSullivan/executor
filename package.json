@@ -1,0 +1,15 @@
+{
+  "name": "executor-v3",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.2.22",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "bun run --filter='*' typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
