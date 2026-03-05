@@ -1,0 +1,33 @@
+{
+  "name": "@executor-v3/control-plane",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "imports": {
+    "#schema": "./src/schema/index.ts",
+    "#domain": "./src/domain/index.ts",
+    "#persistence": "./src/persistence/index.ts",
+    "#api": "./src/api/index.ts",
+    "#runtime": "./src/runtime/index.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@effect/platform": "^0.94.5",
+    "@electric-sql/pglite": "^0.3.12",
+    "drizzle-orm": "1.0.0-beta.15-859cf75",
+    "effect": "^3.19.19",
+    "postgres": "^3.4.7"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.27.0",
+    "@types/node": "^24.3.1",
+    "bun-types": "^1.2.22",
+    "vitest": "^3.2.4"
+  }
+}
