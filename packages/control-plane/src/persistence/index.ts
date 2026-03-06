@@ -5,10 +5,13 @@ import {
   createControlPlaneRows,
   type SqlControlPlaneRows,
 } from "./control-plane-rows";
+import { createDrizzleClient } from "./client";
 import {
   createDrizzleContext,
   createSqlRuntime,
+  runMigrations,
   type CreateSqlRuntimeOptions,
+  type DrizzleDb,
   type SqlBackend,
 } from "./sql-runtime";
 
@@ -16,13 +19,16 @@ export { tableNames, type DrizzleTables } from "./schema";
 export {
   ControlPlanePersistenceError,
   toPersistenceError,
+  type PersistenceErrorKind,
 } from "./persistence-errors";
+export { createDrizzleClient, type DrizzleClient } from "./client";
 export {
   createSqlRuntime,
   createDrizzleContext,
-  ensureSchema,
+  runMigrations,
   type SqlRuntime,
   type SqlBackend,
+  type DrizzleDb,
   type CreateSqlRuntimeOptions,
 } from "./sql-runtime";
 export {
@@ -32,7 +38,7 @@ export {
 
 export type SqlControlPlanePersistence = {
   backend: SqlBackend;
-  db: any;
+  db: DrizzleDb;
   rows: SqlControlPlaneRows;
   close: () => Promise<void>;
 };
@@ -50,10 +56,14 @@ export const makeSqlControlPlanePersistence = (
   Effect.tryPromise({
     try: async () => {
       const runtime = await createSqlRuntime(options);
+      await runMigrations(runtime, { migrationsFolder: options.migrationsFolder });
       const drizzleContext = createDrizzleContext(runtime.db);
-      const rows = createControlPlaneRows({
+      const client = createDrizzleClient({
         backend: runtime.backend,
         db: drizzleContext.db,
+      });
+      const rows = createControlPlaneRows({
+        client,
         tables: drizzleContext.tables,
       });
 

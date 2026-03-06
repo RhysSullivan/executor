@@ -140,7 +140,6 @@ export const StoredSourceRecordSchema = Schema.transform(
       authKind: source.authKind,
       authHeaderName: source.authHeaderName,
       authPrefix: source.authPrefix,
-      configJson: "{}",
       sourceHash: source.sourceHash,
       lastError: source.lastError,
       createdAt: source.createdAt,

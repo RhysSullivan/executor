@@ -128,7 +128,6 @@ export const sourcesTable = pgTable(
     authKind: text("auth_kind").notNull(),
     authHeaderName: text("auth_header_name"),
     authPrefix: text("auth_prefix"),
-    configJson: text("config_json").notNull().default("{}"),
     sourceHash: text("source_hash"),
     lastError: text("last_error"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),

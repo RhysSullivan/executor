@@ -66,8 +66,24 @@ const storageFromPersistence = (
     details: error.details ?? "Persistence operation failed",
   });
 
-const isUniqueViolation = (details: string | null): boolean =>
-  details?.toLowerCase().includes("unique") ?? false;
+const toUnknownPersistenceError = (
+  operation: string,
+  cause: unknown,
+  details: string,
+): ControlPlanePersistenceError =>
+  new ControlPlanePersistenceError({
+    operation,
+    message: cause instanceof Error ? cause.message : String(cause),
+    details,
+    code: null,
+    constraint: null,
+    table: null,
+    kind: "unknown",
+    cause,
+  });
+
+const isUniqueViolation = (error: ControlPlanePersistenceError): boolean =>
+  error.kind === "unique_violation";
 
 const mapPersistenceError = <A>(
   operation: string,
@@ -75,7 +91,7 @@ const mapPersistenceError = <A>(
 ): Effect.Effect<A, ControlPlaneBadRequestError | ControlPlaneStorageError> =>
   effect.pipe(
     Effect.mapError((error) =>
-      isUniqueViolation(error.details)
+      isUniqueViolation(error)
         ? badRequest(operation, "Unique constraint violation", error.details ?? "duplicate key")
         : storageFromPersistence(operation, error),
     ),
@@ -581,11 +597,14 @@ export const makeRuntimeSourcesService = (
           credentialBindings,
         }).pipe(
           Effect.mapError((error) =>
-            storageFromPersistence("sources.list", new ControlPlanePersistenceError({
-              operation: "sources.list",
-              message: error instanceof Error ? error.message : String(error),
-              details: "Failed projecting stored sources",
-            })),
+            storageFromPersistence(
+              "sources.list",
+              toUnknownPersistenceError(
+                "sources.list",
+                error,
+                "Failed projecting stored sources",
+              ),
+            ),
           ),
         );
       }),
@@ -667,11 +686,11 @@ export const makeRuntimeSourcesService = (
           Effect.mapError((cause) =>
             storageFromPersistence(
               "sources.get",
-              new ControlPlanePersistenceError({
-                operation: "sources.get",
-                message: cause instanceof Error ? cause.message : String(cause),
-                details: "Failed projecting stored source",
-              }),
+              toUnknownPersistenceError(
+                "sources.get",
+                cause,
+                "Failed projecting stored source",
+              ),
             ),
           ),
         );
@@ -706,11 +725,11 @@ export const makeRuntimeSourcesService = (
           Effect.mapError((cause) =>
             storageFromPersistence(
               "sources.update",
-              new ControlPlanePersistenceError({
-                operation: "sources.update",
-                message: cause instanceof Error ? cause.message : String(cause),
-                details: "Failed projecting stored source",
-              }),
+              toUnknownPersistenceError(
+                "sources.update",
+                cause,
+                "Failed projecting stored source",
+              ),
             ),
           ),
         );

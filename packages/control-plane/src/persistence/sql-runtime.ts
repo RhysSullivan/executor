@@ -1,10 +1,12 @@
 import { PGlite } from "@electric-sql/pglite";
-import { sql } from "drizzle-orm";
 import { drizzle as drizzlePGlite } from "drizzle-orm/pglite";
+import { migrate as migratePGlite } from "drizzle-orm/pglite/migrator";
 import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
-import { existsSync } from "node:fs";
+import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
 import { drizzleSchema, type DrizzleTables } from "./schema";
@@ -15,16 +17,27 @@ export type CreateSqlRuntimeOptions = {
   databaseUrl?: string;
   localDataDir?: string;
   postgresApplicationName?: string;
+  migrationsFolder?: string;
 };
+
+const createPGliteDb = (client: PGlite) =>
+  drizzlePGlite({ client, schema: drizzleSchema });
+
+const createPostgresDb = (client: postgres.Sql) =>
+  drizzlePostgres({ client, schema: drizzleSchema });
+
+export type PGliteDb = ReturnType<typeof createPGliteDb>;
+export type PostgresDb = ReturnType<typeof createPostgresDb>;
+export type DrizzleDb = PGliteDb | PostgresDb;
 
 export type SqlRuntime = {
   backend: SqlBackend;
-  db: any;
+  db: DrizzleDb;
   close: () => Promise<void>;
 };
 
 export type DrizzleContext = {
-  db: any;
+  db: DrizzleDb;
   tables: DrizzleTables;
 };
 
@@ -50,7 +63,7 @@ const createPGliteRuntime = async (localDataDir: string): Promise<SqlRuntime> =>
     client = new PGlite(resolvedDataDir);
   }
 
-  const db = drizzlePGlite({ client, schema: drizzleSchema });
+  const db = createPGliteDb(client);
 
   return {
     backend: "pglite",
@@ -72,7 +85,7 @@ const createPostgresRuntime = async (
       ? { connection: { application_name: applicationName } }
       : {}),
   });
-  const db = drizzlePostgres({ client, schema: drizzleSchema });
+  const db = createPostgresDb(client);
 
   return {
     backend: "postgres",
@@ -83,194 +96,60 @@ const createPostgresRuntime = async (
   };
 };
 
-const ddlStatements = [
-  `
-create table if not exists accounts (
-  id text primary key,
-  provider text not null,
-  subject text not null,
-  email text,
-  display_name text,
-  created_at bigint not null,
-  updated_at bigint not null,
-  constraint accounts_provider_check check (provider in ('local', 'workos', 'service'))
-);
-`,
-  "create unique index if not exists accounts_provider_subject_idx on accounts (provider, subject);",
-  "create index if not exists accounts_updated_idx on accounts (updated_at, id);",
-  `
-create table if not exists organizations (
-  id text primary key,
-  slug text not null,
-  name text not null,
-  status text not null,
-  created_by_account_id text,
-  created_at bigint not null,
-  updated_at bigint not null,
-  constraint organizations_status_check check (status in ('active', 'suspended', 'archived'))
-);
-`,
-  "create unique index if not exists organizations_slug_idx on organizations (slug);",
-  "create index if not exists organizations_updated_idx on organizations (updated_at, id);",
-  `
-create table if not exists organization_memberships (
-  id text primary key,
-  organization_id text not null,
-  account_id text not null,
-  role text not null,
-  status text not null,
-  billable boolean not null,
-  invited_by_account_id text,
-  joined_at bigint,
-  created_at bigint not null,
-  updated_at bigint not null,
-  constraint organization_memberships_role_check check (role in ('viewer', 'editor', 'admin', 'owner')),
-  constraint organization_memberships_status_check check (status in ('invited', 'active', 'suspended', 'removed'))
-);
-`,
-  "create index if not exists organization_memberships_org_idx on organization_memberships (organization_id);",
-  "create index if not exists organization_memberships_account_idx on organization_memberships (account_id);",
-  "create unique index if not exists organization_memberships_org_account_idx on organization_memberships (organization_id, account_id);",
-  `
-create table if not exists workspaces (
-  id text primary key,
-  organization_id text not null,
-  name text not null,
-  created_by_account_id text,
-  created_at bigint not null,
-  updated_at bigint not null
-);
-`,
-  "create index if not exists workspaces_org_idx on workspaces (organization_id);",
-  "create unique index if not exists workspaces_org_name_idx on workspaces (organization_id, name);",
-  `
-create table if not exists sources (
-  workspace_id text not null,
-  source_id text not null,
-  name text not null,
-  kind text not null,
-  endpoint text not null,
-  status text not null,
-  enabled boolean not null,
-  namespace text,
-  transport text,
-  query_params_json text,
-  headers_json text,
-  spec_url text,
-  default_headers_json text,
-  auth_kind text not null default 'none',
-  auth_header_name text,
-  auth_prefix text,
-  config_json text not null default '{}',
-  source_hash text,
-  last_error text,
-  created_at bigint not null,
-  updated_at bigint not null,
-  primary key (workspace_id, source_id),
-  constraint sources_kind_check check (kind in ('mcp', 'openapi', 'graphql', 'internal')),
-  constraint sources_status_check check (status in ('draft', 'probing', 'auth_required', 'connected', 'error')),
-  constraint sources_transport_check check (transport is null or transport in ('auto', 'streamable-http', 'sse')),
-  constraint sources_auth_kind_check check (auth_kind in ('none', 'bearer', 'oauth2'))
-);
-`,
-  "create unique index if not exists sources_workspace_name_idx on sources (workspace_id, name);",
-  "alter table sources add column if not exists namespace text;",
-  "alter table sources add column if not exists transport text;",
-  "alter table sources add column if not exists query_params_json text;",
-  "alter table sources add column if not exists headers_json text;",
-  "alter table sources add column if not exists spec_url text;",
-  "alter table sources add column if not exists default_headers_json text;",
-  "alter table sources add column if not exists auth_kind text;",
-  "alter table sources add column if not exists auth_header_name text;",
-  "alter table sources add column if not exists auth_prefix text;",
-  "alter table sources alter column config_json set default '{}';",
-  "update sources set config_json = '{}' where config_json is null;",
-  "update sources set auth_kind = 'none' where auth_kind is null;",
-  `
-create table if not exists source_credential_bindings (
-  workspace_id text not null,
-  source_id text not null,
-  token_provider_id text,
-  token_handle text,
-  refresh_token_provider_id text,
-  refresh_token_handle text,
-  created_at bigint not null,
-  updated_at bigint not null,
-  primary key (workspace_id, source_id)
-);
-`,
-  "create index if not exists source_credential_bindings_workspace_idx on source_credential_bindings (workspace_id, updated_at, source_id);",
-  `
-create table if not exists policies (
-  id text primary key,
-  workspace_id text not null,
-  target_account_id text,
-  client_id text,
-  resource_type text not null,
-  resource_pattern text not null,
-  match_type text not null,
-  effect text not null,
-  approval_mode text not null,
-  argument_conditions_json text,
-  priority bigint not null,
-  enabled boolean not null,
-  created_at bigint not null,
-  updated_at bigint not null,
-  constraint policies_resource_type_check check (resource_type in ('all_tools', 'source', 'namespace', 'tool_path')),
-  constraint policies_match_type_check check (match_type in ('glob', 'exact')),
-  constraint policies_effect_check check (effect in ('allow', 'deny')),
-  constraint policies_approval_mode_check check (approval_mode in ('auto', 'required'))
-);
-`,
-  "create index if not exists policies_workspace_idx on policies (workspace_id, updated_at, id);",
-  `
-create table if not exists local_installations (
-  id text primary key,
-  account_id text not null,
-  organization_id text not null,
-  workspace_id text not null,
-  created_at bigint not null,
-  updated_at bigint not null
-);
-`,
-  `
-create table if not exists executions (
-  id text primary key,
-  workspace_id text not null,
-  created_by_account_id text not null,
-  status text not null,
-  code text not null,
-  result_json text,
-  error_text text,
-  logs_json text,
-  started_at bigint,
-  completed_at bigint,
-  created_at bigint not null,
-  updated_at bigint not null,
-  constraint executions_status_check check (status in ('pending', 'running', 'waiting_for_interaction', 'completed', 'failed', 'cancelled'))
-);
-`,
-  "create index if not exists executions_workspace_idx on executions (workspace_id, updated_at, id);",
-  `
-create table if not exists execution_interactions (
-  id text primary key,
-  execution_id text not null,
-  status text not null,
-  kind text not null,
-  payload_json text not null,
-  response_json text,
-  created_at bigint not null,
-  updated_at bigint not null,
-  constraint execution_interactions_status_check check (status in ('pending', 'resolved', 'cancelled'))
-);
-`,
-  "create index if not exists execution_interactions_execution_idx on execution_interactions (execution_id, updated_at, id);",
-];
-
-export const ensureSchema = async (db: any): Promise<void> => {
-  for (const statement of ddlStatements) {
-    await db.execute(sql.raw(statement));
+const resolveMigrationsFolder = (explicit: string | undefined): string => {
+  const explicitTrimmed = trim(explicit);
+  if (explicitTrimmed) {
+    return path.resolve(explicitTrimmed);
   }
+
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const packageRoot = path.resolve(moduleDir, "../..");
+  const cwd = process.cwd();
+  const candidates = [
+    path.resolve(packageRoot, "drizzle"),
+    path.resolve(cwd, "packages/control-plane/drizzle"),
+    path.resolve(cwd, "drizzle"),
+  ];
+
+  const hasModernMigrations = (candidate: string): boolean => {
+    if (!existsSync(candidate)) {
+      return false;
+    }
+
+    const entries = readdirSync(candidate, { withFileTypes: true });
+    return entries.some(
+      (entry) =>
+        entry.isDirectory()
+        && existsSync(path.join(candidate, entry.name, "migration.sql")),
+    );
+  };
+
+  for (const candidate of candidates) {
+    if (
+      existsSync(path.join(candidate, "meta", "_journal.json"))
+      || hasModernMigrations(candidate)
+    ) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    "Unable to resolve Drizzle migrations folder for control-plane persistence",
+  );
+};
+
+export const runMigrations = async (
+  runtime: SqlRuntime,
+  options?: { migrationsFolder?: string },
+): Promise<void> => {
+  const migrationsFolder = resolveMigrationsFolder(options?.migrationsFolder);
+
+  if (runtime.backend === "pglite") {
+    await migratePGlite(runtime.db as PGliteDb, { migrationsFolder });
+    return;
+  }
+
+  await migratePostgres(runtime.db as PostgresDb, { migrationsFolder });
 };
 
 export const createSqlRuntime = async (
@@ -279,14 +158,18 @@ export const createSqlRuntime = async (
   const databaseUrl = trim(options.databaseUrl);
   const runtime =
     databaseUrl && isPostgresUrl(databaseUrl)
-      ? await createPostgresRuntime(databaseUrl, trim(options.postgresApplicationName))
-      : await createPGliteRuntime(options.localDataDir ?? ".executor-v3/control-plane-pgdata");
+      ? await createPostgresRuntime(
+          databaseUrl,
+          trim(options.postgresApplicationName),
+        )
+      : await createPGliteRuntime(
+          options.localDataDir ?? ".executor-v3/control-plane-pgdata",
+        );
 
-  await ensureSchema(runtime.db);
   return runtime;
 };
 
-export const createDrizzleContext = (db: any): DrizzleContext => ({
+export const createDrizzleContext = (db: DrizzleDb): DrizzleContext => ({
   db,
   tables: drizzleSchema,
 });

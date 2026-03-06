@@ -15,7 +15,10 @@
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
+    "db:migrate": "bunx drizzle-kit migrate --config drizzle.config.ts",
+    "db:studio": "bunx drizzle-kit studio --config drizzle.config.ts"
   },
   "dependencies": {
     "@effect/platform": "catalog:",
@@ -34,6 +37,7 @@
     "@effect/platform-node": "catalog:",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "bun-types": "catalog:",
+    "drizzle-kit": "1.0.0-beta.15-859cf75",
     "vitest": "catalog:",
     "zod": "catalog:"
   }
