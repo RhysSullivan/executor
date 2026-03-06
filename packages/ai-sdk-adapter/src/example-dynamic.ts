@@ -1,25 +1,32 @@
 import * as Effect from "effect/Effect";
 
 import {
-  type SearchProvider,
-  type ToolDirectory,
+  type ToolCatalog,
   type ToolPath,
-  createDynamicDiscovery,
+  createToolCatalogDiscovery,
 } from "@executor-v3/codemode-core";
 
 const asToolPath = (value: string): ToolPath => value as ToolPath;
 
-const directory: ToolDirectory = {
+const catalog: ToolCatalog = {
   listNamespaces() {
     return Effect.succeed([
-      { namespace: "source.src_api", toolCount: 6800 },
-      { namespace: "source.src_mcp", toolCount: 3200 },
+      { namespace: "src_api", displayName: "API Sources", toolCount: 6800 },
+      { namespace: "src_mcp", displayName: "MCP Sources", toolCount: 3200 },
     ]);
   },
-  listTools() {
-    return Effect.succeed([{ path: asToolPath("source.src_api.github.issues.list") }]);
+  listTools({ namespace }) {
+    return Effect.succeed([
+      {
+        path: asToolPath("source.src_api.github.issues.list"),
+        sourceKey: "source.src_api",
+        description: "Hydrated metadata for selected path",
+        inputHint: "object",
+        outputHint: "object",
+      },
+    ].filter((tool) => !namespace || tool.path.startsWith(`source.${namespace}.`)));
   },
-  getByPath({ path }: { path: ToolPath; includeSchemas: boolean }) {
+  getToolByPath({ path }) {
     return Effect.succeed({
       path,
       sourceKey: "source.src_api",
@@ -28,29 +35,16 @@ const directory: ToolDirectory = {
       outputHint: "object",
     });
   },
-  getByPaths({ paths }: { paths: readonly ToolPath[]; includeSchemas: boolean }) {
+  searchTools({ limit }) {
     return Effect.succeed(
-      paths.map((path) => ({
-        path,
-        sourceKey: "source.src_api",
-        description: "Hydrated from metadata store",
-        inputHint: "object",
-        outputHint: "object",
-      })),
+      [
+        { path: asToolPath("source.src_api.github.issues.list"), score: 0.99 },
+        { path: asToolPath("source.src_api.github.issues.create"), score: 0.92 },
+      ].slice(0, limit),
     );
   },
 };
 
-const search: SearchProvider = {
-  search({ limit }) {
-    return Effect.succeed([
-      { path: asToolPath("source.src_api.github.issues.list"), score: 0.99 },
-      { path: asToolPath("source.src_api.github.issues.create"), score: 0.92 },
-    ].slice(0, limit));
-  },
-};
-
-export const dynamicDemo = createDynamicDiscovery({
-  directory,
-  search,
+export const dynamicDemo = createToolCatalogDiscovery({
+  catalog,
 });

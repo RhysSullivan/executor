@@ -134,52 +134,55 @@ export type ToolDescriptor = {
   refHintKeys?: readonly string[];
 };
 
+export type ToolNamespace = {
+  namespace: string;
+  displayName?: string;
+  toolCount?: number;
+};
+
 export type SearchHit = {
   path: ToolPath;
   score: number;
 };
 
-export interface SearchProvider {
-  search(input: {
-    query: string;
-    limit: number;
-  }): Effect.Effect<readonly SearchHit[], unknown>;
-}
-
-export interface ToolDirectory {
+export interface ToolCatalog {
   listNamespaces(input: {
     limit: number;
-  }): Effect.Effect<readonly { namespace: string; toolCount: number }[], unknown>;
+  }): Effect.Effect<readonly ToolNamespace[], unknown>;
 
   listTools(input: {
     namespace?: string;
     query?: string;
     limit: number;
-  }): Effect.Effect<readonly { path: ToolPath }[], unknown>;
+    includeSchemas?: boolean;
+  }): Effect.Effect<readonly ToolDescriptor[], unknown>;
 
-  getByPath(input: {
+  getToolByPath(input: {
     path: ToolPath;
     includeSchemas: boolean;
   }): Effect.Effect<ToolDescriptor | null, unknown>;
 
-  getByPaths(input: {
-    paths: readonly ToolPath[];
-    includeSchemas: boolean;
-  }): Effect.Effect<readonly ToolDescriptor[], unknown>;
+  searchTools(input: {
+    query: string;
+    namespace?: string;
+    limit: number;
+  }): Effect.Effect<readonly SearchHit[], unknown>;
 }
 
 export type CatalogPrimitive = {
   namespaces(input: {
     limit?: number;
   }): Effect.Effect<
-    { namespaces: readonly { namespace: string; toolCount: number }[] },
+    { namespaces: readonly ToolNamespace[] },
     unknown
   >;
+
   tools(input: {
     namespace?: string;
     query?: string;
     limit?: number;
-  }): Effect.Effect<{ results: readonly { path: ToolPath }[] }, unknown>;
+    includeSchemas?: boolean;
+  }): Effect.Effect<{ results: readonly ToolDescriptor[] }, unknown>;
 };
 
 export type DescribePrimitive = {
@@ -189,23 +192,22 @@ export type DescribePrimitive = {
   }): Effect.Effect<ToolDescriptor | null, unknown>;
 };
 
-export type DiscoverPrimitive = {
-  run(input: {
-    query: string;
-    limit?: number;
-    includeSchemas?: boolean;
-  }): Effect.Effect<
-    {
-      bestPath: ToolPath | null;
-      results: readonly (Record<string, unknown> & {
-        path: ToolPath;
-        score: number;
-      })[];
-      total: number;
-    },
-    unknown
-  >;
-};
+export type DiscoverPrimitive = (input: {
+  query: string;
+  sourceKey?: string;
+  limit?: number;
+  includeSchemas?: boolean;
+}) => Effect.Effect<
+  {
+    bestPath: ToolPath | null;
+    results: readonly (Record<string, unknown> & {
+      path: ToolPath;
+      score: number;
+    })[];
+    total: number;
+  },
+  unknown
+>;
 
 export type DiscoveryPrimitives = {
   catalog?: CatalogPrimitive;

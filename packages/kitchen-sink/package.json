@@ -13,6 +13,7 @@
     "@executor-v3/ai-sdk-adapter": "workspace:*",
     "@executor-v3/codemode-core": "workspace:*",
     "@executor-v3/codemode-openapi": "workspace:*",
+    "@executor-v3/control-plane": "workspace:*",
     "@executor-v3/runtime-local-inproc": "workspace:*",
     "effect": "catalog:"
   },

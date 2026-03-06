@@ -1,12 +1,11 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { createDiscoveryPrimitives } from "./discovery";
+import { createDiscoveryPrimitivesFromToolCatalog } from "./discovery";
 import { toTool } from "./tool-map";
 import type {
   DiscoveryPrimitives,
-  SearchProvider,
-  ToolDirectory,
+  ToolCatalog,
   ToolMap,
   ToolPath,
 } from "./types";
@@ -24,7 +23,8 @@ const catalogNamespacesOutputSchema = Schema.standardSchemaV1(
     namespaces: Schema.Array(
       Schema.Struct({
         namespace: Schema.String,
-        toolCount: Schema.Number,
+        displayName: Schema.optional(Schema.String),
+        toolCount: Schema.optional(Schema.Number),
       }),
     ),
   }),
@@ -35,6 +35,7 @@ const catalogToolsInputSchema = Schema.standardSchemaV1(
     namespace: Schema.optional(Schema.String),
     query: Schema.optional(Schema.String),
     limit: Schema.optional(Schema.Number),
+    includeSchemas: Schema.optional(Schema.Boolean),
   }),
 );
 
@@ -43,6 +44,14 @@ const catalogToolsOutputSchema = Schema.standardSchemaV1(
     results: Schema.Array(
       Schema.Struct({
         path: Schema.String,
+        sourceKey: Schema.String,
+        description: Schema.optional(Schema.String),
+        interaction: Schema.optional(Schema.String),
+        inputHint: Schema.optional(Schema.String),
+        outputHint: Schema.optional(Schema.String),
+        inputSchemaJson: Schema.optional(Schema.String),
+        outputSchemaJson: Schema.optional(Schema.String),
+        refHintKeys: Schema.optional(Schema.Array(Schema.String)),
       }),
     ),
   }),
@@ -88,28 +97,24 @@ const discoverOutputSchema = Schema.standardSchemaV1(
 );
 
 export type CreateSystemToolMapInput = {
-  primitives?: DiscoveryPrimitives;
-  directory?: ToolDirectory;
-  search?: SearchProvider;
+  catalog: ToolCatalog;
   sourceKey?: string;
 };
 
 export const createSystemToolMap = (
-  input: CreateSystemToolMapInput = {},
+  input: CreateSystemToolMapInput,
 ): ToolMap => {
   const sourceKey = input.sourceKey ?? "system";
-  const primitives = input.primitives
-    ?? createDiscoveryPrimitives({
-      directory: input.directory,
-      search: input.search,
-    });
+  const primitives: DiscoveryPrimitives = createDiscoveryPrimitivesFromToolCatalog({
+    catalog: input.catalog,
+  });
 
   const tools: ToolMap = {};
 
   if (primitives.catalog) {
     tools["catalog.namespaces"] = toTool({
       tool: {
-        description: "List available namespaces with tool counts",
+        description: "List available namespaces with display names and tool counts",
         inputSchema: catalogNamespacesInputSchema,
         outputSchema: catalogNamespacesOutputSchema,
         execute: ({ limit }: { limit?: number }) =>
@@ -127,17 +132,25 @@ export const createSystemToolMap = (
 
     tools["catalog.tools"] = toTool({
       tool: {
-        description: "List tool paths with optional namespace/query filters",
+        description: "List tools with optional namespace and query filters",
         inputSchema: catalogToolsInputSchema,
         outputSchema: catalogToolsOutputSchema,
         execute: (
-          input: { namespace?: string; query?: string; limit?: number },
+          input: {
+            namespace?: string;
+            query?: string;
+            limit?: number;
+            includeSchemas?: boolean;
+          },
         ) =>
           Effect.runPromise(
             primitives.catalog!.tools({
               ...(input.namespace !== undefined ? { namespace: input.namespace } : {}),
               ...(input.query !== undefined ? { query: input.query } : {}),
               ...(input.limit !== undefined ? { limit: input.limit } : {}),
+              ...(input.includeSchemas !== undefined
+                ? { includeSchemas: input.includeSchemas }
+                : {}),
             }),
           ),
       },
@@ -176,10 +189,14 @@ export const createSystemToolMap = (
         inputSchema: discoverInputSchema,
         outputSchema: discoverOutputSchema,
         execute: (
-          input: { query: string; limit?: number; includeSchemas?: boolean },
+          input: {
+            query: string;
+            limit?: number;
+            includeSchemas?: boolean;
+          },
         ) =>
           Effect.runPromise(
-            primitives.discover!.run({
+            primitives.discover!({
               query: input.query,
               ...(input.limit !== undefined ? { limit: input.limit } : {}),
               ...(input.includeSchemas !== undefined

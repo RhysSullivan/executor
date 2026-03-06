@@ -1,13 +1,6 @@
-export type ToolPath = string & { readonly __toolPath: unique symbol };
-export type SourceKey = string & { readonly __sourceKey: unique symbol };
+import type { ToolInvocationContext, ToolPath } from "@executor-v3/codemode-core";
 
-export type ToolInvocationContext = {
-  runId?: string;
-  workspaceId?: string;
-  accountId?: string;
-  actorId?: string;
-  [key: string]: unknown;
-};
+export type SourceKey = string & { readonly __sourceKey: unique symbol };
 
 export type SourceAuthScheme =
   | { kind: "none" }
@@ -107,36 +100,6 @@ export interface SourceLoader {
   }): Promise<readonly ToolArtifact[]>;
 }
 
-export interface SourceRegistry {
-  registerSource?(input: {
-    source: SourceDefinition;
-  }): Promise<void>;
-  listSources(input?: {
-    limit?: number;
-  }): Promise<
-    readonly {
-      sourceKey: SourceKey;
-      displayName: string;
-    }[]
-  >;
-  getByKey(input: {
-    sourceKey: SourceKey;
-  }): Promise<SourceDefinition | null>;
-  listTools(input?: {
-    sourceKey?: SourceKey;
-    query?: string;
-    limit?: number;
-  }): Promise<readonly ToolArtifact[]>;
-  getToolByPath(input: {
-    path: ToolPath;
-  }): Promise<ToolArtifact | null>;
-  searchTools(input: {
-    query: string;
-    sourceKey?: SourceKey;
-    limit?: number;
-  }): Promise<readonly { path: ToolPath; score: number }[]>;
-}
-
 export interface ToolArtifactStore {
   putArtifacts(input: {
     sourceKey: SourceKey;
@@ -205,5 +168,4 @@ export interface ToolCallOrchestrator {
   }): Promise<unknown>;
 }
 
-export const asToolPath = (value: string): ToolPath => value as ToolPath;
 export const asSourceKey = (value: string): SourceKey => value as SourceKey;

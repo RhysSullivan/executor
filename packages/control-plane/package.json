@@ -20,6 +20,7 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@electric-sql/pglite": "^0.3.12",
+    "@executor-v3/codemode-core": "workspace:*",
     "drizzle-orm": "1.0.0-beta.15-859cf75",
     "effect": "catalog:",
     "postgres": "^3.4.7"

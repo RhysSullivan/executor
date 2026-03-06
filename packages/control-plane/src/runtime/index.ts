@@ -35,6 +35,7 @@ export {
 };
 
 export type { SecretHandle, SecretProvider, SecretStore } from "./secret-store";
+export * from "./source-runtime";
 
 export type RuntimeControlPlaneInput = {
   persistence: SqlControlPlanePersistence;

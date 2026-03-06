@@ -7,7 +7,8 @@ import * as TestClock from "effect/TestClock";
 
 import {
   allowAllToolInteractions,
-  createDynamicDiscovery,
+  createToolCatalogDiscovery,
+  createToolCatalogFromTools,
   createStaticDiscoveryFromTools,
   createSystemToolMap,
   makeToolInvokerFromTools,
@@ -16,6 +17,7 @@ import {
   ToolInteractionDeniedError,
   ToolInteractionPendingError,
   toTool,
+  type ToolCatalog,
   type CodeExecutor,
   type ToolDescriptor,
   type ToolMap,
@@ -70,18 +72,25 @@ describe("codemode-core", () => {
         sourceKey: "api.demo",
       });
 
-      expect(staticDiscovery.primitives.catalog).toBeUndefined();
-      expect(staticDiscovery.preloadedTools.map((tool) => tool.path)).toEqual([
+      expect(staticDiscovery.tools.map((tool) => tool.path)).toEqual([
         "issues.create",
         "math.add",
       ]);
 
-      const createIssueDescriptor = staticDiscovery.preloadedTools.find(
+      const createIssueDescriptor = staticDiscovery.tools.find(
         (tool) => tool.path === "issues.create",
       );
       expect(createIssueDescriptor?.interaction).toBe("required");
       expect(createIssueDescriptor?.sourceKey).toBe("api.demo");
-      expect(staticDiscovery.executeDescription).toContain("issues.create");
+      expect(yield* staticDiscovery.executeDescription).toBe(
+        [
+          "Execute TypeScript in sandbox; call tools directly.",
+          "Available tools:",
+          "- issues.create: Create issue",
+          "- math.add: Add two numbers",
+          "Do not use fetch; use tools.* only.",
+        ].join("\n"),
+      );
     }),
   );
 
@@ -278,7 +287,7 @@ describe("codemode-core", () => {
     }),
   );
 
-  it.effect("hydrates dynamic discover results via search + directory", () =>
+  it.effect("hydrates dynamic discover results via tool catalog", () =>
     Effect.gen(function* () {
       const descriptors: Record<string, ToolDescriptor> = {
         "source.docs.search": {
@@ -298,37 +307,51 @@ describe("codemode-core", () => {
         },
       };
 
-      const directory = {
+      const catalog: ToolCatalog = {
         listNamespaces: () =>
           Effect.succeed([
-            { namespace: "source.docs", toolCount: 1 },
-            { namespace: "source.issues", toolCount: 1 },
+            {
+              namespace: "docs",
+              displayName: "Docs",
+              toolCount: 1,
+            },
+            {
+              namespace: "issues",
+              displayName: "Issues",
+              toolCount: 1,
+            },
           ]),
-        listTools: () =>
-          Effect.succeed([
-            { path: asToolPath("source.docs.search") },
-            { path: asToolPath("source.issues.create") },
-          ]),
-        getByPath: ({ path }: { path: ToolPath; includeSchemas: boolean }) =>
+        listTools: ({ namespace, limit, includeSchemas = false }) =>
+          Effect.succeed(
+            Object.values(descriptors)
+              .filter((descriptor) =>
+                !namespace
+                  || descriptor.path.startsWith(`${namespace}.`)
+                  || descriptor.path.startsWith(`source.${namespace}.`)
+              )
+              .slice(0, limit)
+              .map((descriptor) => ({
+                ...descriptor,
+                inputSchemaJson: includeSchemas ? descriptor.inputSchemaJson : undefined,
+                outputSchemaJson: includeSchemas ? descriptor.outputSchemaJson : undefined,
+                refHintKeys: includeSchemas ? descriptor.refHintKeys : undefined,
+              })),
+          ),
+        getToolByPath: ({ path }) =>
           Effect.succeed(descriptors[path] ?? null),
-        getByPaths: ({ paths }: { paths: readonly ToolPath[]; includeSchemas: boolean }) =>
-          Effect.succeed(paths.map((path) => descriptors[path]).filter(Boolean)),
-      };
-
-      const search = {
-        search: () =>
+        searchTools: () =>
           Effect.succeed([
             { path: asToolPath("source.issues.create"), score: 0.93 },
             { path: asToolPath("source.docs.search"), score: 0.72 },
           ]),
       };
 
-      const dynamic = createDynamicDiscovery({ directory, search });
+      const dynamic = createToolCatalogDiscovery({ catalog });
 
       const namespaces = yield* dynamic.primitives.catalog!.namespaces({ limit: 10 });
       expect(namespaces.namespaces).toHaveLength(2);
 
-      const discovered = yield* dynamic.primitives.discover!.run({
+      const discovered = yield* dynamic.primitives.discover!({
         query: "create issue",
         limit: 5,
       });
@@ -341,36 +364,24 @@ describe("codemode-core", () => {
 
   it.effect("system tools can be composed as normal tools", () =>
     Effect.gen(function* () {
-      const descriptors: Record<string, ToolDescriptor> = {
-        "source.issues.create": {
-          path: asToolPath("source.issues.create"),
-          sourceKey: "source.issues",
-          description: "Create issue",
-          interaction: "required",
-          inputHint: "object",
-          outputHint: "object",
+      const catalog = createToolCatalogFromTools({
+        tools: {
+          "source.issues.create": toTool({
+            tool: {
+              description: "Create issue",
+              inputSchema: titleInputSchema,
+              execute: ({ title }: { title: string }) => ({ id: "issue_1", title }),
+            },
+            metadata: {
+              interaction: "required",
+              sourceKey: "source.issues",
+            },
+          }),
         },
-      };
+        defaultNamespace: "issues",
+      });
 
-      const directory = {
-        listNamespaces: () =>
-          Effect.succeed([{ namespace: "source.issues", toolCount: 1 }]),
-        listTools: () =>
-          Effect.succeed([{ path: asToolPath("source.issues.create") }]),
-        getByPath: ({ path }: { path: ToolPath; includeSchemas: boolean }) =>
-          Effect.succeed(descriptors[path] ?? null),
-        getByPaths: ({ paths }: { paths: readonly ToolPath[]; includeSchemas: boolean }) =>
-          Effect.succeed(paths.map((path) => descriptors[path]).filter(Boolean)),
-      };
-
-      const search = {
-        search: () =>
-          Effect.succeed([
-            { path: asToolPath("source.issues.create"), score: 0.93 },
-          ]),
-      };
-
-      const systemTools = createSystemToolMap({ directory, search });
+      const systemTools = createSystemToolMap({ catalog });
       const allTools = mergeToolMaps([
         {
           "math.add": {
@@ -390,6 +401,20 @@ describe("codemode-core", () => {
       expect(discovered).toMatchObject({
         bestPath: "source.issues.create",
         total: 1,
+      });
+
+      const namespaces = yield* invoker.invoke({
+        path: "catalog.namespaces",
+        args: { limit: 10 },
+      });
+
+      expect(namespaces).toEqual({
+        namespaces: [
+          {
+            namespace: "issues",
+            toolCount: 1,
+          },
+        ],
       });
     }),
   );

@@ -13,34 +13,33 @@ import * as Schema from "effect/Schema";
 import { Schema as EffectSchema } from "effect";
 
 import {
+  createToolCatalogDiscovery,
+  createToolCatalogFromTools,
   createSystemToolMap,
   makeToolInvokerFromTools,
   mergeToolMaps,
-  toolDescriptorsFromTools,
-  type SearchProvider,
-  type ToolDirectory,
+  type ToolCatalog,
   type ToolMap,
+  type ToolPath,
+  type ToolInvocationContext,
   type ToolInvoker,
 } from "@executor-v3/codemode-core";
-import { createOpenApiToolsFromSpec } from "@executor-v3/codemode-openapi";
-import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
-
 import {
-  asSourceKey,
-  asToolPath,
   type CredentialBinding,
   type ProviderInvoker,
-  type SecretMaterialProvider,
   type SecretMaterialRegistry,
+  type SecretMaterialProvider,
   type SourceCallContext,
   type SourceDefinition,
   type SourceKey,
   type SourceRuntimeResolver,
   type ToolArtifact,
-  type ToolInvocationContext,
-  type ToolPath,
-  type SourceRegistry,
-} from "./source-runtime-interfaces";
+  asSourceKey,
+} from "@executor-v3/control-plane";
+import { createOpenApiToolsFromSpec } from "@executor-v3/codemode-openapi";
+import { makeInProcessExecutor } from "@executor-v3/runtime-local-inproc";
+
+const asToolPath = (value: string): ToolPath => value as ToolPath;
 
 type WorkspaceScopedSourceStore = {
   registerSource(input: {
@@ -70,7 +69,6 @@ type WorkspaceScopedToolStore = {
   list(input: {
     workspaceId: string;
     sourceKey?: SourceKey;
-    namespace?: string;
     query?: string;
     limit?: number;
   }): Promise<readonly ToolArtifact[]>;
@@ -78,11 +76,6 @@ type WorkspaceScopedToolStore = {
     workspaceId: string;
     path: ToolPath;
   }): Promise<ToolArtifact | null>;
-  search(input: {
-    workspaceId: string;
-    query: string;
-    limit?: number;
-  }): Promise<readonly { path: ToolPath; score: number }[]>;
 };
 
 type WorkspaceScopedBindingStore = {
@@ -155,14 +148,9 @@ const createInMemoryToolStore = (): WorkspaceScopedToolStore => {
         workspace.set(artifact.path, artifact);
       }
     },
-    async list({ workspaceId, sourceKey, namespace, query, limit = 200 }) {
+    async list({ workspaceId, sourceKey, query, limit = 200 }) {
       return [...getWorkspaceMap(workspaceId).values()]
         .filter((artifact) => !sourceKey || artifact.sourceKey === sourceKey)
-        .filter((artifact) =>
-          !namespace
-            || artifact.search.namespace === namespace
-            || artifact.path.startsWith(`${namespace}.`)
-        )
         .filter((artifact) =>
           !query
             || [
@@ -180,34 +168,6 @@ const createInMemoryToolStore = (): WorkspaceScopedToolStore => {
     },
     async getByPath({ workspaceId, path }) {
       return getWorkspaceMap(workspaceId).get(path) ?? null;
-    },
-    async search({ workspaceId, query, limit = 5 }) {
-      const queryTokens = query.toLowerCase().split(/\s+/).filter(Boolean);
-      const artifacts = [...getWorkspaceMap(workspaceId).values()];
-
-      return artifacts
-        .map((artifact) => {
-          const haystack = [
-            artifact.path,
-            artifact.title ?? "",
-            artifact.description ?? "",
-            artifact.search.namespace,
-            ...artifact.search.keywords,
-          ].join(" ").toLowerCase();
-
-          const score = queryTokens.reduce(
-            (total, token) => total + (haystack.includes(token) ? 1 : 0),
-            0,
-          );
-
-          return {
-            path: artifact.path,
-            score,
-          };
-        })
-        .filter((hit) => hit.score > 0)
-        .sort((left, right) => right.score - left.score)
-        .slice(0, limit);
     },
   };
 };
@@ -361,167 +321,100 @@ const createProviderInvoker = (): ProviderInvoker => ({
   },
 });
 
-const createWorkspaceSourceRegistry = (input: {
+const createWorkspaceToolCatalog = (input: {
   workspaceId: string;
   sourceStore: WorkspaceScopedSourceStore;
   toolStore: WorkspaceScopedToolStore;
-}): SourceRegistry => ({
-  async listSources({ limit = 200 } = {}) {
-    const sources = await input.sourceStore.listSources({
-      workspaceId: input.workspaceId,
-      limit,
-    });
-    return sources;
-  },
-  listTools({ sourceKey, query, limit = 200 } = {}) {
-    return input.toolStore.list({
-      workspaceId: input.workspaceId,
-      sourceKey,
-      query,
-      limit,
-    });
-  },
-  getToolByPath({ path }) {
-    return input.toolStore.getByPath({
-      workspaceId: input.workspaceId,
-      path,
-    });
-  },
-  searchTools({ query, sourceKey, limit }) {
-    return input.toolStore.list({
-      workspaceId: input.workspaceId,
-      sourceKey,
-      query,
-      limit: 500,
-    }).then((artifacts) => {
-      const queryTokens = query.toLowerCase().split(/\s+/).filter(Boolean);
-
-      return artifacts
-        .map((artifact) => {
-          const haystack = [
-            artifact.path,
-            artifact.title ?? "",
-            artifact.description ?? "",
-            artifact.search.namespace,
-            ...artifact.search.keywords,
-          ].join(" ").toLowerCase();
-
-          const score = queryTokens.reduce(
-            (total, token) => total + (haystack.includes(token) ? 1 : 0),
-            0,
-          );
-
-          return {
-            path: artifact.path,
-            score,
-          };
-        })
-        .filter((hit) => hit.score > 0)
-        .sort((left, right) => right.score - left.score)
-        .slice(0, limit ?? 12);
-    });
-  },
-  getByKey({ sourceKey }) {
-    return input.sourceStore.getByKey({ sourceKey });
-  },
-});
-
-const createToolDirectoryFromSourceRegistry = (registry: SourceRegistry): ToolDirectory => ({
+}): ToolCatalog => ({
   listNamespaces: ({ limit }) =>
-    Effect.promise(async () => {
-      const sources = await registry.listSources({ limit });
-      return Promise.all(
-        sources.map(async (source) => ({
-          namespace: source.displayName,
-          toolCount: (await registry.listTools({ sourceKey: source.sourceKey })).length,
-        })),
-      );
-    }),
-  listTools: ({ namespace, query, limit }) =>
-    Effect.promise(async () => {
-      const sources = await registry.listSources();
-      const filteredSources = namespace
-        ? sources.filter((source) => source.displayName === namespace)
-        : sources;
-      const tools = (
-        await Promise.all(
-          filteredSources.map((source) =>
-            registry.listTools({
-              sourceKey: source.sourceKey,
-              query,
-              limit,
-            })
-          ),
-        )
-      ).flat();
-
-      return tools.map((tool) => ({ path: tool.path as any }));
-    }),
-  getByPath: ({ path, includeSchemas }) =>
     Effect.promise(() =>
-      registry.getToolByPath({ path: path as any }).then((tool) =>
-        tool
+      input.sourceStore.listSources({
+        workspaceId: input.workspaceId,
+        limit,
+      }).then((sources) =>
+        sources.map((source) => ({
+          namespace: source.sourceKey as string,
+          displayName: source.displayName,
+          toolCount: undefined,
+        }))
+      )
+    ),
+  listTools: ({ namespace, query, limit, includeSchemas = false }) =>
+    Effect.promise(() =>
+      input.toolStore.list({
+        workspaceId: input.workspaceId,
+        ...(namespace !== undefined ? { sourceKey: namespace as SourceKey } : {}),
+        ...(query !== undefined ? { query } : {}),
+        limit,
+      }).then((artifacts) =>
+        artifacts.map((artifact) => ({
+          path: artifact.path as any,
+          sourceKey: artifact.sourceKey,
+          description: artifact.description ?? artifact.title,
+          interaction: "auto" as const,
+          inputHint: includeSchemas && artifact.inputSchemaJson ? "object" : undefined,
+          outputHint: includeSchemas && artifact.outputSchemaJson ? "output" : undefined,
+          inputSchemaJson: includeSchemas ? artifact.inputSchemaJson : undefined,
+          outputSchemaJson: includeSchemas ? artifact.outputSchemaJson : undefined,
+        }))
+      )
+    ),
+  getToolByPath: ({ path, includeSchemas }) =>
+    Effect.promise(() =>
+      input.toolStore.getByPath({
+        workspaceId: input.workspaceId,
+        path: path as ToolPath,
+      }).then((artifact) =>
+        artifact
           ? {
-              path: tool.path as any,
-              sourceKey: tool.sourceKey,
-              description: tool.description ?? tool.title,
+              path: artifact.path as any,
+              sourceKey: artifact.sourceKey,
+              description: artifact.description ?? artifact.title,
               interaction: "auto" as const,
-              inputHint: includeSchemas && tool.inputSchemaJson ? "object" : undefined,
-              outputHint: includeSchemas && tool.outputSchemaJson ? "output" : undefined,
-              inputSchemaJson: includeSchemas ? tool.inputSchemaJson : undefined,
-              outputSchemaJson: includeSchemas ? tool.outputSchemaJson : undefined,
+              inputHint: includeSchemas && artifact.inputSchemaJson ? "object" : undefined,
+              outputHint: includeSchemas && artifact.outputSchemaJson ? "output" : undefined,
+              inputSchemaJson: includeSchemas ? artifact.inputSchemaJson : undefined,
+              outputSchemaJson: includeSchemas ? artifact.outputSchemaJson : undefined,
             }
           : null
       )
     ),
-  getByPaths: ({ paths, includeSchemas }) =>
-    Effect.promise(async () => {
-      const resolved = await Promise.all(
-        paths.map((path) => registry.getToolByPath({ path: path as any })),
-      );
-
-      return resolved
-        .filter((tool): tool is NonNullable<typeof tool> => tool !== null)
-        .map((tool) => ({
-          path: tool.path as any,
-          sourceKey: tool.sourceKey,
-          description: tool.description ?? tool.title,
-          interaction: "auto" as const,
-          inputHint: includeSchemas && tool.inputSchemaJson ? "object" : undefined,
-          outputHint: includeSchemas && tool.outputSchemaJson ? "output" : undefined,
-          inputSchemaJson: includeSchemas ? tool.inputSchemaJson : undefined,
-          outputSchemaJson: includeSchemas ? tool.outputSchemaJson : undefined,
-        }));
-    }),
-});
-
-const createSearchProviderFromSourceRegistry = (registry: SourceRegistry): SearchProvider => ({
-  search: ({ query, limit }) =>
+  searchTools: ({ query, namespace, limit }) =>
     Effect.promise(() =>
-      registry.searchTools({ query, limit }).then((hits) =>
-        hits.map((hit) => ({
-          path: hit.path as any,
-          score: hit.score,
-        }))
-      )
+      input.toolStore.list({
+        workspaceId: input.workspaceId,
+        ...(namespace !== undefined ? { sourceKey: namespace as SourceKey } : {}),
+        ...(query !== undefined ? { query } : {}),
+        limit: 500,
+      }).then((artifacts) => {
+        const queryTokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+
+        return artifacts
+          .map((artifact) => {
+            const haystack = [
+              artifact.path,
+              artifact.title ?? "",
+              artifact.description ?? "",
+              artifact.search.namespace,
+              ...artifact.search.keywords,
+            ].join(" ").toLowerCase();
+
+            const score = queryTokens.reduce(
+              (total, token) => total + (haystack.includes(token) ? 1 : 0),
+              0,
+            );
+
+            return {
+              path: artifact.path as any,
+              score,
+            };
+          })
+          .filter((hit) => hit.score > 0)
+          .sort((left, right) => right.score - left.score)
+          .slice(0, limit);
+      })
     ),
 });
-
-const buildDynamicExecuteDescriptionFromSourceRegistry = (registry: SourceRegistry) =>
-  Effect.promise(() =>
-    registry.listSources({ limit: 200 }).then((sources) =>
-      [
-        "Execute TypeScript in sandbox; call tools via discovery workflow.",
-        "Available sources:",
-        ...sources.map((source) => `- ${source.displayName}`),
-        "Workflow:",
-        '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
-        "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
-        "3) Call selected tools.<path>(input).",
-        "Do not use fetch; use tools.* only.",
-      ].join("\n")
-    )
-  );
 
 const createWorkspaceToolInvoker = (input: {
   workspaceId: string;
@@ -531,14 +424,13 @@ const createWorkspaceToolInvoker = (input: {
   providerInvoker: ProviderInvoker;
 }): ToolInvoker => ({
   invoke: (() => {
-    const sourceRegistry = createWorkspaceSourceRegistry({
+    const catalog = createWorkspaceToolCatalog({
       workspaceId: input.workspaceId,
       sourceStore: input.sourceStore,
       toolStore: input.toolStore,
     });
     const systemTools = createSystemToolMap({
-      directory: createToolDirectoryFromSourceRegistry(sourceRegistry),
-      search: createSearchProviderFromSourceRegistry(sourceRegistry),
+      catalog,
       sourceKey: "system",
     });
     const systemToolPaths = new Set(Object.keys(systemTools));
@@ -657,94 +549,18 @@ const createDiscoveryBackedToolMap = (input: {
   sourceKey?: string;
 }) => {
   const sourceKey = asSourceKey(input.sourceKey ?? "in_memory.tools");
-  const descriptors = toolDescriptorsFromTools({
+  const catalog = createToolCatalogFromTools({
     tools: input.tools,
-    sourceKey,
+    defaultNamespace: input.namespace,
   });
-  const artifacts: ToolArtifact[] = descriptors.map((descriptor) => ({
-    path: descriptor.path as any,
-    sourceKey,
-    title: descriptor.description,
-    description: descriptor.description,
-    inputSchemaJson: descriptor.inputSchemaJson,
-    outputSchemaJson: descriptor.outputSchemaJson,
-    search: {
-      namespace: input.namespace,
-      keywords: [
-        input.namespace,
-        ...(descriptor.description
-          ? descriptor.description.toLowerCase().split(/\W+/).filter(Boolean)
-          : []),
-      ],
-    },
-    invocation: {
-      provider: "snippet",
-      exportName: descriptor.path,
-    },
-  }));
-
-  const sourceRegistry: SourceRegistry = {
-    listSources: async ({ limit = 200 } = {}) =>
-      [
-        {
-          sourceKey,
-          displayName: input.displayName ?? input.namespace,
-        },
-      ].slice(0, limit),
-    listTools: async ({ sourceKey: requestedSourceKey, query, limit = 200 } = {}) =>
-      artifacts
-        .filter((artifact) => !requestedSourceKey || artifact.sourceKey === requestedSourceKey)
-        .filter((artifact) =>
-          !query
-            || `${artifact.path} ${artifact.description ?? ""}`
-              .toLowerCase()
-              .includes(query.toLowerCase())
-        )
-        .slice(0, limit),
-    getToolByPath: async ({ path }) =>
-      artifacts.find((artifact) => artifact.path === path) ?? null,
-    searchTools: async ({ query, sourceKey: requestedSourceKey, limit = 12 }) =>
-      artifacts
-        .filter((artifact) => !requestedSourceKey || artifact.sourceKey === requestedSourceKey)
-        .map((artifact) => {
-          const haystack = `${artifact.path} ${artifact.description ?? ""}`.toLowerCase();
-          const score = query
-            .toLowerCase()
-            .split(/\s+/)
-            .filter(Boolean)
-            .reduce((total, token) => total + (haystack.includes(token) ? 1 : 0), 0);
-
-          return {
-            path: artifact.path,
-            score,
-          };
-        })
-        .filter((hit) => hit.score > 0)
-        .sort((left, right) => right.score - left.score)
-        .slice(0, limit),
-    getByKey: async ({ sourceKey: requestedSourceKey }) =>
-      requestedSourceKey === sourceKey
-        ? {
-            sourceKey,
-            displayName: input.displayName ?? input.namespace,
-            kind: "snippet",
-            enabled: true,
-            auth: { kind: "none" },
-            connection: {
-              snippetId: input.namespace,
-              entrypoint: input.namespace,
-            },
-          }
-        : null,
-  };
+  const discovery = createToolCatalogDiscovery({ catalog });
 
   return {
-    executeDescription: buildDynamicExecuteDescriptionFromSourceRegistry(sourceRegistry),
+    executeDescription: discovery.executeDescription,
     tools: mergeToolMaps([
       input.tools,
       createSystemToolMap({
-        directory: createToolDirectoryFromSourceRegistry(sourceRegistry),
-        search: createSearchProviderFromSourceRegistry(sourceRegistry),
+        catalog,
         sourceKey,
       }),
     ]),
@@ -838,7 +654,7 @@ const makeOpenApiTestServer = Effect.acquireRelease(
     }).pipe(Effect.orDie),
 );
 
-describe("source runtime sketch", () => {
+describe("source runtime", () => {
   it.effect("searches serialized workspace tools and calls one", () =>
     Effect.gen(function* () {
       const workspaceId = "workspace_123";
@@ -907,14 +723,14 @@ describe("source runtime sketch", () => {
         bindingStore,
         secretRegistry,
       });
-      const workspaceSourceRegistry = createWorkspaceSourceRegistry({
+      const workspaceCatalog = createWorkspaceToolCatalog({
         workspaceId,
         sourceStore,
         toolStore,
       });
-      const executeDescription = yield* buildDynamicExecuteDescriptionFromSourceRegistry(
-        workspaceSourceRegistry,
-      );
+      const executeDescription = yield* createToolCatalogDiscovery({
+        catalog: workspaceCatalog,
+      }).executeDescription;
 
       const output = yield* makeInProcessExecutor().execute(
         [
@@ -953,7 +769,7 @@ describe("source runtime sketch", () => {
       expect(executeDescription).toBe(
         [
           "Execute TypeScript in sandbox; call tools via discovery workflow.",
-          "Available sources:",
+          "Available namespaces:",
           "- GitHub API",
           "Workflow:",
           '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
@@ -1008,8 +824,8 @@ describe("source runtime sketch", () => {
               score: expect.any(Number),
               description: "GET /repos/{owner}/{repo}",
               interaction: "auto",
-              inputHint: undefined,
-              outputHint: undefined,
+              inputHint: "object { owner, repo }",
+              outputHint: "unknown",
             },
           ],
           total: 1,
@@ -1027,8 +843,8 @@ describe("source runtime sketch", () => {
       expect(yield* discoveryBacked.executeDescription).toBe(
         [
           "Execute TypeScript in sandbox; call tools via discovery workflow.",
-          "Available sources:",
-          "- GitHub API",
+          "Available namespaces:",
+          "- github",
           "Workflow:",
           '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
           "2) const details = await tools.describe.tool({ path, includeSchemas: true });",

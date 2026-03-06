@@ -73,6 +73,7 @@
       "dependencies": {
         "@effect/platform": "catalog:",
         "@electric-sql/pglite": "^0.3.12",
+        "@executor-v3/codemode-core": "workspace:*",
         "drizzle-orm": "1.0.0-beta.15-859cf75",
         "effect": "catalog:",
         "postgres": "^3.4.7",
@@ -91,6 +92,7 @@
         "@executor-v3/ai-sdk-adapter": "workspace:*",
         "@executor-v3/codemode-core": "workspace:*",
         "@executor-v3/codemode-openapi": "workspace:*",
+        "@executor-v3/control-plane": "workspace:*",
         "@executor-v3/runtime-local-inproc": "workspace:*",
         "effect": "catalog:",
       },
