@@ -1,13 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { createInterface } from "node:readline/promises";
 
 import { Command, Options } from "@effect/cli";
-import { Terminal } from "@effect/platform";
 import {
   NodeFileSystem,
   NodePath,
   NodeRuntime,
-  NodeTerminal,
 } from "@effect/platform-node";
 import {
   ExecutionIdSchema,
@@ -27,6 +26,7 @@ import {
   SERVER_POLL_INTERVAL_MS,
   SERVER_START_TIMEOUT_MS,
 } from "./config";
+import { seedDemoMcpSourceInWorkspace } from "./dev";
 import { runLocalExecutorServer } from "./server";
 
 const toError = (cause: unknown): Error =>
@@ -34,6 +34,23 @@ const toError = (cause: unknown): Error =>
 
 const sleep = (ms: number) =>
   Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+const promptLine = (prompt: string): Effect.Effect<string, Error, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      const rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      try {
+        return await rl.question(prompt);
+      } finally {
+        rl.close();
+      }
+    },
+    catch: toError,
+  });
 
 const readCode = (input: {
   code?: string;
@@ -153,23 +170,29 @@ const parseInteractionPayload = (interaction: ExecutionInteraction): {
 
 const promptInteraction = (interaction: ExecutionInteraction) =>
   Effect.gen(function* () {
-    const terminal = yield* Terminal.Terminal;
-    const isTTY = yield* terminal.isTTY;
     const parsed = parseInteractionPayload(interaction);
 
-    if (!isTTY || parsed === null) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY || parsed === null) {
       return null;
     }
 
     if (parsed.mode === "url") {
-      yield* terminal.display(`${parsed.message}\n${parsed.url ?? ""}\nPress enter when done.\n`);
-      yield* terminal.readLine;
+      yield* Effect.sync(() => {
+        process.stdout.write(`${parsed.message}\n${parsed.url ?? ""}\n`);
+      });
+      yield* promptLine("Press enter when done. ");
       return JSON.stringify({ action: "accept" });
     }
 
-    yield* terminal.display(`${parsed.message} [y/N] `);
-    const line = yield* terminal.readLine;
-    const accepted = line.trim().toLowerCase() === "y" || line.trim().toLowerCase() === "yes";
+    const line = yield* promptLine(`${parsed.message} [y/N] `);
+    const normalized = line.trim().toLowerCase();
+    if (normalized.length === 0) {
+      return null;
+    }
+    if (normalized !== "y" && normalized !== "yes" && normalized !== "n" && normalized !== "no") {
+      return null;
+    }
+    const accepted = normalized === "y" || normalized === "yes";
 
     return JSON.stringify({
       action: accepted ? "accept" : "decline",
@@ -201,6 +224,28 @@ const printExecution = (envelope: ExecutionEnvelope) =>
       id: execution.id,
       status: execution.status,
     }));
+  });
+
+const seedDemoMcpSource = (input: {
+  baseUrl: string;
+  endpoint: string;
+  name: string;
+  namespace: string;
+}) =>
+  Effect.gen(function* () {
+    yield* ensureServer(input.baseUrl);
+    const { installation, client } = yield* getLocalAuthedClient(input.baseUrl);
+    const result = yield* seedDemoMcpSourceInWorkspace({
+      client,
+      workspaceId: installation.workspaceId,
+      endpoint: input.endpoint,
+      name: input.name,
+      namespace: input.namespace,
+    });
+
+    yield* Effect.sync(() => {
+      console.log(JSON.stringify(result));
+    });
   });
 
 const driveExecution = (input: {
@@ -325,8 +370,36 @@ const resumeCommand = Command.make(
     }),
 ).pipe(Command.withDescription("Resume a paused execution"));
 
+const devSeedMcpDemoCommand = Command.make(
+  "seed-mcp-demo",
+  {
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
+    endpoint: Options.text("endpoint").pipe(
+      Options.withDefault("http://127.0.0.1:58506/mcp"),
+    ),
+    name: Options.text("name").pipe(Options.withDefault("Demo")),
+    namespace: Options.text("namespace").pipe(Options.withDefault("demo")),
+  },
+  ({ baseUrl, endpoint, name, namespace }) =>
+    seedDemoMcpSource({
+      baseUrl,
+      endpoint,
+      name,
+      namespace,
+    }),
+).pipe(
+  Command.withDescription(
+    "Seed the localhost MCP elicitation demo source into the default workspace",
+  ),
+);
+
+const devCommand = Command.make("dev").pipe(
+  Command.withSubcommands([devSeedMcpDemoCommand] as any),
+  Command.withDescription("Development helpers"),
+);
+
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([serverCommand, runCommand, resumeCommand] as any),
+  Command.withSubcommands([serverCommand, runCommand, resumeCommand, devCommand] as any),
   Command.withDescription("Executor local CLI"),
 );
 
@@ -352,8 +425,7 @@ const hiddenServer = (): Effect.Effect<void, Error, never> | null => {
 const program = (hiddenServer()
   ?? runCli(process.argv).pipe(Effect.mapError(toError)))
   .pipe(Effect.provide(NodeFileSystem.layer))
-  .pipe(Effect.provide(NodePath.layer))
-  .pipe(Effect.provide(NodeTerminal.layer));
+  .pipe(Effect.provide(NodePath.layer));
 
 // Effect CLI's environment does not fully narrow at the process boundary.
 NodeRuntime.runMain(program as Effect.Effect<void, Error, never>);

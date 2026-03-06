@@ -100,7 +100,7 @@ export const makeLiveExecutionManager = (): LiveExecutionManager => {
           const response = yield* Deferred.make<ElicitationResponse>();
           const now = Date.now();
           const interaction: ExecutionInteraction = {
-            id: input.interactionId as ExecutionInteraction["id"],
+            id: `${executionId}:${input.interactionId}` as ExecutionInteraction["id"],
             executionId,
             status: "pending",
             kind: input.elicitation.mode === "url" ? "url" : "form",
