@@ -31,7 +31,8 @@
     "@executor-v3/runtime-local-inproc": "workspace:*",
     "drizzle-orm": "1.0.0-beta.15-859cf75",
     "effect": "catalog:",
-    "postgres": "^3.4.7"
+    "postgres": "^3.4.7",
+    "prettier": "^3.8.1"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
