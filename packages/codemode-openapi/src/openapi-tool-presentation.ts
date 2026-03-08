@@ -18,6 +18,41 @@ const parseJson = (value: string): unknown | undefined => {
   }
 };
 
+const asRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+
+const isStrictEmptyObjectSchema = (value: unknown): boolean => {
+  const schema = asRecord(value);
+  if (schema.type !== "object" && schema.properties === undefined) {
+    return false;
+  }
+
+  const properties = asRecord(schema.properties);
+  return Object.keys(properties).length === 0 && schema.additionalProperties === false;
+};
+
+export const openApiOutputTypeSignatureFromSchemaJson = (
+  schemaJson: string | undefined,
+  maxLength: number = 320,
+ ): string => {
+  if (!schemaJson) {
+    return "void";
+  }
+
+  const parsed = parseJson(schemaJson);
+  if (parsed === undefined) {
+    return "unknown";
+  }
+
+  if (isStrictEmptyObjectSchema(parsed)) {
+    return "{}";
+  }
+
+  return typeSignatureFromSchemaJson(schemaJson, "unknown", maxLength);
+};
+
 const firstExample = (
   examples: ReadonlyArray<OpenApiExample> | undefined,
 ): OpenApiExample | undefined => examples?.[0];
@@ -82,8 +117,8 @@ export const buildOpenApiToolPresentation = (input: {
   const exampleOutputJson = buildExampleOutputJson(input.definition.documentation);
 
   return {
-    inputType: typeSignatureFromSchemaJson(inputSchemaJson, "unknown", 320),
-    outputType: typeSignatureFromSchemaJson(outputSchemaJson, "unknown", 320),
+    inputType: typeSignatureFromSchemaJson(inputSchemaJson, "unknown", Infinity),
+    outputType: openApiOutputTypeSignatureFromSchemaJson(outputSchemaJson, Infinity),
     ...(inputSchemaJson ? { inputSchemaJson } : {}),
     ...(outputSchemaJson ? { outputSchemaJson } : {}),
     ...(exampleInputJson ? { exampleInputJson } : {}),

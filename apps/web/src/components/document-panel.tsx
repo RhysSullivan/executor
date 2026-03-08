@@ -1,14 +1,6 @@
-import { useMemo } from "react";
 import { cn } from "../lib/utils";
+import { useFormattedCode } from "../lib/format";
 import { CodeBlock } from "./code-block";
-
-function prettyJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
-}
 
 export function DocumentPanel(props: {
   title: string;
@@ -17,10 +9,7 @@ export function DocumentPanel(props: {
   empty: string;
   compact?: boolean;
 }) {
-  const formatted = useMemo(
-    () => (props.body ? prettyJson(props.body) : null),
-    [props.body],
-  );
+  const formatted = useFormattedCode(props.body, props.lang);
 
   return (
     <section

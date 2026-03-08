@@ -3,6 +3,7 @@ import {
   buildOpenApiToolPresentation,
   compileOpenApiToolDefinitions,
   extractOpenApiManifest,
+  openApiOutputTypeSignatureFromSchemaJson,
   type OpenApiToolDefinition,
   type OpenApiToolManifest,
 } from "@executor-v3/codemode-openapi";
@@ -162,19 +163,26 @@ const persistedToolSummaryFromArtifact = (input: {
         inputType: typeSignatureFromSchemaJson(
           input.artifact.inputSchemaJson,
           "unknown",
-          320,
+          Infinity,
         ),
       }
     : {}),
-  ...(input.artifact.outputSchemaJson
+  ...(input.artifact.providerKind === "openapi"
     ? {
-        outputType: typeSignatureFromSchemaJson(
-          input.artifact.outputSchemaJson,
-          "unknown",
-          320,
+        outputType: openApiOutputTypeSignatureFromSchemaJson(
+          input.artifact.outputSchemaJson ?? undefined,
+          Infinity,
         ),
       }
-    : {}),
+    : input.artifact.outputSchemaJson
+      ? {
+          outputType: typeSignatureFromSchemaJson(
+            input.artifact.outputSchemaJson,
+            "unknown",
+            Infinity,
+          ),
+        }
+      : {}),
 });
 
 const openApiToolRecord = (input: {

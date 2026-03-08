@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   useSourceInspection,
   useSourceToolDetail,
   useSourceDiscovery,
+  usePrefetchToolDetail,
   type Loadable,
   type SourceInspection,
   type SourceInspectionToolDetail,
@@ -18,11 +19,14 @@ import {
   IconSearch,
   IconChevron,
   IconTool,
+  IconFolder,
   IconCopy,
   IconCheck,
   IconClose,
   IconEmpty,
+  IconInfo,
 } from "../components/icons";
+import { Markdown } from "../components/markdown";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,6 +129,7 @@ export function SourceDetailPage(props: {
                   onSelectTool={(toolPath) =>
                     void navigate({ search: (prev) => ({ ...prev, tool: toolPath, tab: "model" }) })
                   }
+                  sourceId={sourceId}
                 />
               )}
               {search.tab === "discover" && (
@@ -172,6 +177,7 @@ function ModelView(props: {
   detail: Loadable<SourceInspectionToolDetail | null>;
   selectedToolPath: string | null;
   onSelectTool: (toolPath: string) => void;
+  sourceId: string;
 }) {
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -244,23 +250,22 @@ function ModelView(props: {
           </span>
         </div>
 
-        {/* Tool list */}
+        {/* Tool tree */}
         <div className="flex-1 overflow-y-auto">
           {filteredTools.length === 0 ? (
             <div className="p-4 text-center text-[13px] text-muted-foreground/50">
               {terms.length > 0 ? "No tools match your search" : "No tools available"}
             </div>
           ) : (
-            <div className="p-1.5 space-y-px">
-              {filteredTools.map((tool) => (
-                <ToolListItem
-                  key={tool.path}
-                  tool={tool}
-                  active={tool.path === props.selectedToolPath}
-                  onSelect={() => props.onSelectTool(tool.path)}
-                  search={search}
-                />
-              ))}
+            <div className="p-1.5">
+              <ToolTree
+                tools={filteredTools}
+                selectedToolPath={props.selectedToolPath}
+                onSelectTool={props.onSelectTool}
+                search={search}
+                isFiltered={terms.length > 0}
+                sourceId={props.sourceId}
+              />
             </div>
           )}
         </div>
@@ -286,6 +291,215 @@ function ModelView(props: {
 }
 
 // ---------------------------------------------------------------------------
+// Tool Tree (nested by . segments)
+// ---------------------------------------------------------------------------
+
+type ToolTreeNode = {
+  segment: string;
+  tool?: SourceInspection["tools"][number];
+  children: Map<string, ToolTreeNode>;
+};
+
+function buildToolTree(tools: SourceInspection["tools"]): ToolTreeNode {
+  const root: ToolTreeNode = { segment: "", children: new Map() };
+  for (const tool of tools) {
+    const parts = tool.path.split(".");
+    let node = root;
+    for (const part of parts) {
+      if (!node.children.has(part)) {
+        node.children.set(part, { segment: part, children: new Map() });
+      }
+      node = node.children.get(part)!;
+    }
+    node.tool = tool;
+  }
+  return root;
+}
+
+function ToolTree(props: {
+  tools: SourceInspection["tools"];
+  selectedToolPath: string | null;
+  onSelectTool: (path: string) => void;
+  search: string;
+  isFiltered: boolean;
+  sourceId: string;
+}) {
+  const tree = useMemo(() => buildToolTree(props.tools), [props.tools]);
+  const prefetch = usePrefetchToolDetail();
+  const entries = [...tree.children.values()].sort((a, b) =>
+    a.segment.localeCompare(b.segment),
+  );
+
+  return (
+    <div className="flex flex-col gap-px">
+      {entries.map((node) => (
+        <ToolTreeNodeView
+          key={node.segment}
+          node={node}
+          depth={0}
+          selectedToolPath={props.selectedToolPath}
+          onSelectTool={props.onSelectTool}
+          search={props.search}
+          defaultOpen={props.isFiltered}
+          sourceId={props.sourceId}
+          prefetch={prefetch}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ToolTreeNodeView(props: {
+  node: ToolTreeNode;
+  depth: number;
+  selectedToolPath: string | null;
+  onSelectTool: (path: string) => void;
+  search: string;
+  defaultOpen: boolean;
+  sourceId: string;
+  prefetch: (sourceId: string, toolPath: string) => () => void;
+}) {
+  const { node, depth, selectedToolPath, onSelectTool, search, defaultOpen, sourceId, prefetch } = props;
+  const hasChildren = node.children.size > 0;
+  const isLeaf = !!node.tool && !hasChildren;
+
+  // Check if any descendant is the selected tool
+  const hasSelectedDescendant = useMemo(() => {
+    if (!selectedToolPath) return false;
+    function check(n: ToolTreeNode): boolean {
+      if (n.tool?.path === selectedToolPath) return true;
+      for (const child of n.children.values()) {
+        if (check(child)) return true;
+      }
+      return false;
+    }
+    return check(node);
+  }, [node, selectedToolPath]);
+
+  const [open, setOpen] = useState(defaultOpen || hasSelectedDescendant);
+
+  // Auto-open when search filter is active or selection moves into this group
+  useEffect(() => {
+    if (defaultOpen || hasSelectedDescendant) setOpen(true);
+  }, [defaultOpen, hasSelectedDescendant]);
+
+  // Leaf: render as a tool item
+  if (isLeaf) {
+    return (
+      <ToolListItem
+        tool={node.tool!}
+        active={node.tool!.path === selectedToolPath}
+        onSelect={() => onSelectTool(node.tool!.path)}
+        search={search}
+        depth={depth}
+        sourceId={sourceId}
+        prefetch={prefetch}
+      />
+    );
+  }
+
+  // Folder: collapsible group
+  const paddingLeft = 8 + depth * 16;
+  const sortedChildren = [...node.children.values()].sort((a, b) =>
+    a.segment.localeCompare(b.segment),
+  );
+
+  const leafCount = countToolLeaves(node);
+
+  return (
+    <div>
+      {node.tool ? (
+        // Node is both a folder AND a tool (rare)
+        <div className="flex items-center">
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="shrink-0 rounded p-0.5 text-muted-foreground/30 hover:text-muted-foreground"
+            style={{ marginLeft: paddingLeft }}
+          >
+            <IconChevron
+              className={cn(
+                "size-2.5 transition-transform duration-150",
+                open && "rotate-90",
+              )}
+            />
+          </button>
+          <ToolListItem
+            tool={node.tool}
+            active={node.tool.path === selectedToolPath}
+            onSelect={() => onSelectTool(node.tool!.path)}
+            search={search}
+            depth={-1}
+            className="flex-1 pl-1"
+            sourceId={sourceId}
+            prefetch={prefetch}
+          />
+        </div>
+      ) : (
+        // Pure folder
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            "group flex w-full items-center gap-1.5 rounded-md py-1 pr-2.5 text-[12px] transition-colors hover:bg-accent/40",
+            open ? "text-foreground/80" : "text-muted-foreground/60",
+          )}
+          style={{ paddingLeft }}
+        >
+          <IconChevron
+            className={cn(
+              "size-2.5 shrink-0 text-muted-foreground/30 transition-transform duration-150",
+              open && "rotate-90",
+            )}
+          />
+          <IconFolder className={cn(
+            "size-3 shrink-0",
+            open ? "text-primary/60" : "text-muted-foreground/30",
+          )} />
+          <span className="flex-1 truncate text-left font-mono">
+            {highlightMatch(node.segment, search)}
+          </span>
+          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/25">
+            {leafCount}
+          </span>
+        </button>
+      )}
+
+      {open && hasChildren && (
+        <div className="relative flex flex-col gap-px">
+          <span
+            className="absolute top-0 bottom-1 w-px bg-border/40"
+            style={{ left: paddingLeft + 5 }}
+            aria-hidden
+          />
+          {sortedChildren.map((child) => (
+            <ToolTreeNodeView
+              key={child.segment}
+              node={child}
+              depth={depth + 1}
+              selectedToolPath={selectedToolPath}
+              onSelectTool={onSelectTool}
+              search={search}
+              defaultOpen={defaultOpen}
+              sourceId={sourceId}
+              prefetch={prefetch}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function countToolLeaves(node: ToolTreeNode): number {
+  let count = node.tool ? 1 : 0;
+  for (const child of node.children.values()) {
+    count += countToolLeaves(child);
+  }
+  return count;
+}
+
+// ---------------------------------------------------------------------------
 // ToolListItem
 // ---------------------------------------------------------------------------
 
@@ -294,8 +508,14 @@ function ToolListItem(props: {
   active: boolean;
   onSelect: () => void;
   search: string;
+  depth: number;
+  className?: string;
+  sourceId: string;
+  prefetch: (sourceId: string, toolPath: string) => () => void;
 }) {
   const ref = useRef<HTMLButtonElement>(null);
+  const paddingLeft = props.depth >= 0 ? 8 + props.depth * 16 + 8 : undefined;
+  const prefetchedRef = useRef(false);
 
   useEffect(() => {
     if (props.active && ref.current) {
@@ -303,21 +523,47 @@ function ToolListItem(props: {
     }
   }, [props.active]);
 
+  // Prefetch when visible in viewport
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || prefetchedRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !prefetchedRef.current) {
+          prefetchedRef.current = true;
+          props.prefetch(props.sourceId, props.tool.path);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [props.prefetch, props.sourceId, props.tool.path]);
+
+  // Show only the last segment (the actual method name) since parents show the namespace
+  const label = props.depth >= 0
+    ? props.tool.path.split(".").pop() ?? props.tool.path
+    : props.tool.path;
+
   return (
     <button
       ref={ref}
       type="button"
       onClick={props.onSelect}
       className={cn(
-        "group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors",
+        "group flex w-full items-center gap-2 rounded-md py-1.5 pr-2.5 text-left transition-colors",
         props.active
-          ? "bg-primary/10 text-foreground border-l-2 border-l-primary -ml-px"
+          ? "bg-primary/10 text-foreground border-l-2 border-l-primary"
           : "hover:bg-accent/50 text-foreground/70 hover:text-foreground",
+        props.className,
       )}
+      style={paddingLeft != null ? { paddingLeft } : undefined}
     >
       <IconTool className="size-3 shrink-0 text-muted-foreground/40" />
       <span className="flex-1 truncate font-mono text-[12px]">
-        {highlightMatch(props.tool.path, props.search)}
+        {highlightMatch(label, props.search)}
       </span>
       {props.tool.method && <MethodBadge method={props.tool.method} />}
     </button>
@@ -328,9 +574,34 @@ function ToolListItem(props: {
 // ToolDetailPanel
 // ---------------------------------------------------------------------------
 
+type OutputTypeExplanation = {
+  title: string;
+  description: string;
+};
+
+const getOutputTypeExplanation = (outputType: string | null | undefined): OutputTypeExplanation | null => {
+  if (outputType === "void") {
+    return {
+      title: "No response body",
+      description: "This operation succeeds without returning JSON. The HTTP response carries status only.",
+    };
+  }
+
+  if (outputType === "{}") {
+    return {
+      title: "Empty JSON object",
+      description: "This operation returns a response body, but the schema has no fields.",
+    };
+  }
+
+  return null;
+};
+
+
 function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
   const { detail } = props;
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const outputTypeExplanation = getOutputTypeExplanation(detail.summary.outputType);
 
   const copy = useCallback((text: string, field: string) => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -368,13 +639,36 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
 
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto">
-        <div className="px-5 py-4 space-y-5">
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            <MetricCard label="Input type" value={detail.summary.inputType ?? "unknown"} />
-            <MetricCard label="Output type" value={detail.summary.outputType ?? "unknown"} />
-            <MetricCard label="Tool ID" value={detail.summary.toolId} mono />
-            <MetricCard label="Path template" value={detail.summary.pathTemplate ?? "n/a"} mono />
+        <div className="px-5 py-4 space-y-4">
+          {/* Description */}
+          {detail.summary.description && (
+            <Markdown>{detail.summary.description}</Markdown>
+          )}
+
+          {/* Type signatures */}
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <DocumentPanel title="Input type" body={detail.summary.inputType ?? null} lang="typescript" empty="No input type." />
+            <DocumentPanel title="Output type" body={detail.summary.outputType ?? null} lang="typescript" empty="No output type." />
+          </div>
+          {outputTypeExplanation && (
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-card/40 px-3 py-2.5 text-[12px] text-muted-foreground">
+              <IconInfo className="mt-0.5 size-3.5 shrink-0 text-primary/80" />
+              <div>
+                <div className="font-medium text-foreground/90">{outputTypeExplanation.title}</div>
+                <p className="mt-0.5 leading-relaxed">{outputTypeExplanation.description}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Metadata row */}
+          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+            <MetricPill label="Tool ID" value={detail.summary.toolId} />
+            {detail.summary.pathTemplate && (
+              <MetricPill label="Path" value={detail.summary.pathTemplate} />
+            )}
+            {detail.summary.method && (
+              <MethodBadge method={detail.summary.method} />
+            )}
           </div>
 
           {/* Schema panels */}
@@ -530,6 +824,20 @@ function MetricCard(props: { label: string; value: string; mono?: boolean }) {
     </div>
   );
 }
+
+function MetricPill(props: { label: string; value: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card/60 px-2 py-1">
+      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
+        {props.label}
+      </span>
+      <span className="font-mono text-[11px] text-foreground/70">
+        {props.value}
+      </span>
+    </span>
+  );
+}
+
 
 function CopyButton(props: {
   text: string;

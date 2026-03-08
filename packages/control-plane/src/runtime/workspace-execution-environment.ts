@@ -19,6 +19,7 @@ import {
   compileOpenApiToolDefinitions,
   createOpenApiToolsFromManifest,
   extractOpenApiManifest,
+  openApiOutputTypeSignatureFromSchemaJson,
   type OpenApiToolDefinition,
   type OpenApiToolManifest,
 } from "@executor-v3/codemode-openapi";
@@ -232,11 +233,17 @@ const toPersistedDescriptor = (input: {
     "unknown",
     320,
   ),
-  outputType: typeSignatureFromSchemaJson(
-    input.artifact.outputSchemaJson ?? undefined,
-    "unknown",
-    320,
-  ),
+  outputType:
+    input.artifact.providerKind === "openapi"
+      ? openApiOutputTypeSignatureFromSchemaJson(
+          input.artifact.outputSchemaJson ?? undefined,
+          320,
+        )
+      : typeSignatureFromSchemaJson(
+          input.artifact.outputSchemaJson ?? undefined,
+          "unknown",
+          320,
+        ),
   inputSchemaJson: input.includeSchemas ? input.artifact.inputSchemaJson ?? undefined : undefined,
   outputSchemaJson: input.includeSchemas ? input.artifact.outputSchemaJson ?? undefined : undefined,
   ...(input.artifact.providerKind ? { providerKind: input.artifact.providerKind } : {}),

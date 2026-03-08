@@ -12,7 +12,11 @@ export {
   OpenApiToolDefinitionSchema,
   type OpenApiToolDefinition,
 } from "./openapi-definitions";
-export { buildOpenApiToolPresentation, type OpenApiToolPresentation } from "./openapi-tool-presentation";
+export {
+  buildOpenApiToolPresentation,
+  openApiOutputTypeSignatureFromSchemaJson,
+  type OpenApiToolPresentation,
+} from "./openapi-tool-presentation";
 export {
   OpenApiToolInvocationError,
   createOpenApiToolsFromManifest,

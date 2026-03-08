@@ -1,5 +1,5 @@
 import { Atom, Result } from "@effect-atom/atom";
-import { RegistryProvider, useAtomValue } from "@effect-atom/atom-react";
+import { RegistryContext, RegistryProvider, useAtomValue } from "@effect-atom/atom-react";
 import type {
   LocalInstallation,
   Source,
@@ -315,6 +315,42 @@ export const useSourceDiscovery = (input: {
   return workspace.enabled ? results : pendingLoadable(workspace.workspace);
 };
 
+// ---------------------------------------------------------------------------
+// Prefetching
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a function that imperatively triggers a fetch for a tool detail.
+ * Because the atom family uses `Atom.keepAlive`, the fetched result persists
+ * in the registry. When the user later selects the tool, `useSourceToolDetail`
+ * gets an instant cache hit.
+ *
+ * Usage: call the returned function on pointer-enter with a short delay.
+ * It returns a cleanup function (unmounts the atom subscription).
+ */
+export const usePrefetchToolDetail = () => {
+  const registry = React.useContext(RegistryContext);
+  const workspace = useWorkspaceRequestContext();
+
+  return React.useCallback(
+    (sourceId: string, toolPath: string): (() => void) => {
+      if (!workspace.enabled) return () => {};
+      const requestedSourceId = sourceId as Source["id"];
+      const atom = sourceInspectionToolAtom(
+        encodeAtomKey([
+          workspace.enabled,
+          workspace.workspaceId,
+          workspace.accountId,
+          requestedSourceId,
+          toolPath,
+        ]),
+      );
+      // mount triggers the fetch; returns a dispose function
+      return registry.mount(atom);
+    },
+    [registry, workspace.enabled, workspace.workspaceId, workspace.accountId],
+  );
+};
 
 export type {
   LocalInstallation,

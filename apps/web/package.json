@@ -11,15 +11,18 @@
   "dependencies": {
     "@executor-v3/react": "workspace:*",
     "@executor-v3/server": "workspace:*",
+    "@streamdown/code": "^1.0.3",
     "@tanstack/react-router": "^1.132.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "effect": "catalog:",
+    "prettier": "^3.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-grab": "^0.1.26",
     "scheduler": "^0.27.0",
     "shiki": "^4.0.1",
+    "streamdown": "^2.3.0",
     "tailwind-merge": "^3.5.0"
   },
   "devDependencies": {

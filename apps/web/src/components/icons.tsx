@@ -107,3 +107,13 @@ export function IconSpinner({ className, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function IconInfo({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={cn("size-4", className)} {...props}>
+      <circle cx="8" cy="8" r="5.75" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M8 7v3.25" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="8" cy="4.75" r="0.8" fill="currentColor" />
+    </svg>
+  );
+}
