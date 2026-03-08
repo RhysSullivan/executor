@@ -1,13 +1,24 @@
 import { Atom, Result } from "@effect-atom/atom";
 import type * as Registry from "@effect-atom/atom/Registry";
 import { RegistryContext, RegistryProvider, useAtomValue } from "@effect-atom/atom-react";
+import { createControlPlaneClient } from "@executor-v3/control-plane/client";
 import type {
+  ConnectMcpSourcePayload,
+  ConnectMcpSourceResult,
+  ControlPlaneClient,
+  CreateSecretPayload,
+  CreateSecretResult,
   CreateSourcePayload,
+  DeleteSecretResult,
+  InstanceConfig,
   LocalInstallation,
+  SecretListItem,
   Source,
   SourceInspection,
   SourceInspectionDiscoverResult,
   SourceInspectionToolDetail,
+  UpdateSecretPayload,
+  UpdateSecretResult,
   UpdateSourcePayload,
 } from "@executor-v3/control-plane";
 import * as Cause from "effect/Cause";
@@ -15,7 +26,6 @@ import * as Effect from "effect/Effect";
 import * as React from "react";
 
 const DEFAULT_EXECUTOR_API_BASE_URL = "http://127.0.0.1:8788";
-const ACCOUNT_HEADER = "x-executor-account-id";
 const PLACEHOLDER_WORKSPACE_ID = "ws_placeholder" as Source["workspaceId"];
 const PLACEHOLDER_ACCOUNT_ID = "acc_placeholder";
 const PLACEHOLDER_SOURCE_ID = "src_placeholder" as Source["id"];
@@ -133,31 +143,48 @@ const encodeDiscoveryKey = (
 const causeMessage = (cause: Cause.Cause<unknown>): Error =>
   new Error(Cause.pretty(cause));
 
-const requestJson = async <A>(input: {
-  path: string;
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+const runControlPlane = <A>(input: {
   accountId?: string;
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
-  payload?: unknown;
+  execute: (client: ControlPlaneClient) => Effect.Effect<A, unknown, never>;
 }): Promise<A> => {
-  const response = await fetch(new URL(input.path, apiBaseUrl), {
-    method: input.method ?? "GET",
-    headers: {
-      ...(input.accountId ? { [ACCOUNT_HEADER]: input.accountId } : {}),
-      ...(input.payload !== undefined ? { "content-type": "application/json" } : {}),
-    },
-    ...(input.payload !== undefined ? { body: JSON.stringify(input.payload) } : {}),
-  });
+  const accountId = input.accountId;
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `${response.status} ${response.statusText}`);
-  }
-
-  return response.json() as Promise<A>;
+  return Effect.runPromise(
+    createControlPlaneClient({
+      baseUrl: apiBaseUrl,
+      ...(accountId !== undefined ? { accountId } : {}),
+    }).pipe(Effect.flatMap(input.execute)),
+  );
 };
 
+const controlPlaneRequest = <A>(input: {
+  accountId?: string;
+  execute: (client: ControlPlaneClient) => Effect.Effect<A, unknown, never>;
+}): Effect.Effect<A, Error> =>
+  Effect.tryPromise({
+    try: () => runControlPlane(input),
+    catch: toError,
+  });
+
 const localInstallationAtom = Atom.make(
-  Effect.promise(() => requestJson<LocalInstallation>({ path: "/v1/local/installation" })),
+  controlPlaneRequest({
+    execute: (client) => client.local.installation({}),
+  }),
+).pipe(Atom.keepAlive);
+
+const instanceConfigAtom = Atom.make(
+  controlPlaneRequest({
+    execute: (client) => client.local.config({}),
+  }),
+).pipe(Atom.keepAlive);
+
+const secretsAtom = Atom.make(
+  controlPlaneRequest({
+    execute: (client) => client.local.listSecrets({}),
+  }),
 ).pipe(Atom.keepAlive);
 
 const sourcesAtom = Atom.family((key: string) => {
@@ -165,12 +192,14 @@ const sourcesAtom = Atom.family((key: string) => {
 
   return Atom.make(
     enabled
-      ? Effect.promise(() =>
-          requestJson<ReadonlyArray<Source>>({
-            path: `/v1/workspaces/${workspaceId}/sources`,
+      ? controlPlaneRequest({
             accountId,
-          }),
-        )
+            execute: (client) => client.sources.list({
+              path: {
+                workspaceId,
+              },
+            }),
+          })
       : Effect.never,
   ).pipe(Atom.keepAlive);
 });
@@ -180,12 +209,15 @@ const sourceAtom = Atom.family((key: string) => {
 
   return Atom.make(
     enabled
-      ? Effect.promise(() =>
-          requestJson<Source>({
-            path: `/v1/workspaces/${workspaceId}/sources/${sourceId}`,
+      ? controlPlaneRequest({
             accountId,
-          }),
-        )
+            execute: (client) => client.sources.get({
+              path: {
+                workspaceId,
+                sourceId,
+              },
+            }),
+          })
       : Effect.never,
   ).pipe(Atom.keepAlive);
 });
@@ -195,12 +227,15 @@ const sourceInspectionAtom = Atom.family((key: string) => {
 
   return Atom.make(
     enabled
-      ? Effect.promise(() =>
-          requestJson<SourceInspection>({
-            path: `/v1/workspaces/${workspaceId}/sources/${sourceId}/inspection`,
+      ? controlPlaneRequest({
             accountId,
-          }),
-        )
+            execute: (client) => client.sources.inspection({
+              path: {
+                workspaceId,
+                sourceId,
+              },
+            }),
+          })
       : Effect.never,
   ).pipe(Atom.keepAlive);
 });
@@ -210,12 +245,16 @@ const sourceInspectionToolAtom = Atom.family((key: string) => {
 
   return Atom.make(
     enabled && toolPath
-      ? Effect.promise(() =>
-          requestJson<SourceInspectionToolDetail>({
-            path: `/v1/workspaces/${workspaceId}/sources/${sourceId}/tools/${encodeURIComponent(toolPath)}/inspection`,
+      ? controlPlaneRequest({
             accountId,
-          }),
-        )
+            execute: (client) => client.sources.inspectionTool({
+              path: {
+                workspaceId,
+                sourceId,
+                toolPath,
+              },
+            }),
+          })
       : Effect.succeed<SourceInspectionToolDetail | null>(null),
   ).pipe(Atom.keepAlive);
 });
@@ -234,17 +273,19 @@ const sourceDiscoveryAtom = Atom.family((key: string) => {
             total: 0,
             results: [],
           })
-        : Effect.promise(() =>
-            requestJson<SourceInspectionDiscoverResult>({
-              path: `/v1/workspaces/${workspaceId}/sources/${sourceId}/inspection/discover`,
+        : controlPlaneRequest({
               accountId,
-              method: "POST",
-              payload: {
-                query,
-                ...(limit !== null ? { limit } : {}),
-              },
+              execute: (client) => client.sources.inspectionDiscover({
+                path: {
+                  workspaceId,
+                  sourceId,
+                },
+                payload: {
+                  query,
+                  ...(limit !== null ? { limit } : {}),
+                },
+              }),
             }),
-          ),
   ).pipe(Atom.keepAlive);
 });
 
@@ -641,6 +682,108 @@ export const useInvalidateExecutorQueries = (): (() => void) => {
 export const useLocalInstallation = (): Loadable<LocalInstallation> =>
   useLoadableAtom(localInstallationAtom);
 
+export const useInstanceConfig = (): Loadable<InstanceConfig> =>
+  useLoadableAtom(instanceConfigAtom);
+
+export const useSecrets = (): Loadable<ReadonlyArray<SecretListItem>> =>
+  useLoadableAtom(secretsAtom);
+
+export const useRefreshSecrets = (): (() => void) => {
+  const registry = React.useContext(RegistryContext);
+  return React.useCallback(() => {
+    registry.refresh(secretsAtom);
+  }, [registry]);
+};
+
+type SecretMutationState<T> = {
+  status: "idle" | "pending" | "success" | "error";
+  data: T | null;
+  error: Error | null;
+};
+
+const useSecretMutation = <TInput, TOutput>(
+  execute: (input: TInput) => Promise<TOutput>,
+) => {
+  const registry = React.useContext(RegistryContext);
+  const [state, setState] = React.useState<SecretMutationState<TOutput>>({
+    status: "idle",
+    data: null,
+    error: null,
+  });
+
+  const mutateAsync = React.useCallback(async (payload: TInput) => {
+    setState((current) => ({
+      status: "pending",
+      data: current.data,
+      error: null,
+    }));
+
+    try {
+      const data = await execute(payload);
+      registry.refresh(secretsAtom);
+      setState({ status: "success", data, error: null });
+      return data;
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      setState({ status: "error", data: null, error });
+      throw error;
+    }
+  }, [execute, registry]);
+
+  const reset = React.useCallback(() => {
+    setState({ status: "idle", data: null, error: null });
+  }, []);
+
+  return React.useMemo(
+    () => ({
+      ...state,
+      mutateAsync,
+      reset,
+    }),
+    [mutateAsync, reset, state],
+  );
+};
+
+export const useCreateSecret = () =>
+  useSecretMutation<CreateSecretPayload, CreateSecretResult>(
+    React.useCallback(
+      (payload) =>
+        runControlPlane({
+          execute: (client) => client.local.createSecret({
+            payload,
+          }),
+        }),
+      [],
+    ),
+  );
+
+export const useUpdateSecret = () =>
+  useSecretMutation<{ secretId: string; payload: UpdateSecretPayload }, UpdateSecretResult>(
+    React.useCallback(
+      (input) =>
+        runControlPlane({
+          execute: (client) => client.local.updateSecret({
+            path: { secretId: input.secretId },
+            payload: input.payload,
+          }),
+        }),
+      [],
+    ),
+  );
+
+export const useDeleteSecret = () =>
+  useSecretMutation<string, DeleteSecretResult>(
+    React.useCallback(
+      (secretId) =>
+        runControlPlane({
+          execute: (client) => client.local.deleteSecret({
+            path: { secretId },
+          }),
+        }),
+      [],
+    ),
+  );
+
 export const useSources = (): Loadable<ReadonlyArray<Source>> => {
   const workspace = useWorkspaceRequestContext();
   const key = encodeSourcesKey(workspace.enabled, workspace.workspaceId, workspace.accountId);
@@ -755,11 +898,14 @@ export const useCreateSource = () =>
   useSourceMutation<CreateSourcePayload, Source>(
     React.useCallback(
       ({ workspaceId, accountId, payload }) =>
-        requestJson<Source>({
-          path: `/v1/workspaces/${workspaceId}/sources`,
+        runControlPlane({
           accountId,
-          method: "POST",
-          payload,
+          execute: (client) => client.sources.create({
+            path: {
+              workspaceId,
+            },
+            payload,
+          }),
         }),
       [],
     ),
@@ -804,11 +950,15 @@ export const useUpdateSource = () =>
   useSourceMutation<{ sourceId: Source["id"]; payload: UpdateSourcePayload }, Source>(
     React.useCallback(
       ({ workspaceId, accountId, payload }) =>
-        requestJson<Source>({
-          path: `/v1/workspaces/${workspaceId}/sources/${payload.sourceId}`,
+        runControlPlane({
           accountId,
-          method: "PATCH",
-          payload: payload.payload,
+          execute: (client) => client.sources.update({
+            path: {
+              workspaceId,
+              sourceId: payload.sourceId,
+            },
+            payload: payload.payload,
+          }),
         }),
       [],
     ),
@@ -853,14 +1003,56 @@ export const useUpdateSource = () =>
     },
   );
 
+export const useConnectMcpSource = () =>
+  useSourceMutation<ConnectMcpSourcePayload, ConnectMcpSourceResult>(
+    React.useCallback(
+      ({ workspaceId, accountId, payload }) =>
+        runControlPlane({
+          accountId,
+          execute: (client) => client.sources.connectMcp({
+            path: {
+              workspaceId,
+            },
+            payload,
+          }),
+        }),
+      [],
+    ),
+    {
+      onSuccess: (context, _payload, result) => {
+        const listAtom = sourcesAtom(encodeSourcesKey(true, context.workspaceId, context.accountId));
+        const currentList = getCachedAtomValue(context.registry, listAtom);
+        if (currentList !== undefined) {
+          setCachedAtomValue(context.registry, listAtom, upsertSourceInList(currentList, result.source));
+        }
+
+        setCachedAtomValue(
+          context.registry,
+          sourceAtom(encodeSourceKey(true, context.workspaceId, context.accountId, result.source.id)),
+          result.source,
+        );
+
+        context.invalidateQueries({
+          workspaceId: context.workspaceId,
+          accountId: context.accountId,
+          sourceId: result.source.id,
+        });
+      },
+    },
+  );
+
 export const useRemoveSource = () =>
   useSourceMutation<Source["id"], SourceRemoveResult>(
     React.useCallback(
       ({ workspaceId, accountId, payload }) =>
-        requestJson<SourceRemoveResult>({
-          path: `/v1/workspaces/${workspaceId}/sources/${payload}`,
+        runControlPlane({
           accountId,
-          method: "DELETE",
+          execute: (client) => client.sources.remove({
+            path: {
+              workspaceId,
+              sourceId: payload,
+            },
+          }),
         }),
       [],
     ),
@@ -888,11 +1080,20 @@ export const useRemoveSource = () =>
   );
 
 export type {
+  ConnectMcpSourcePayload,
+  ConnectMcpSourceResult,
+  CreateSecretPayload,
+  CreateSecretResult,
   CreateSourcePayload,
+  DeleteSecretResult,
+  InstanceConfig,
   LocalInstallation,
+  SecretListItem,
   Source,
   SourceInspection,
   SourceInspectionDiscoverResult,
   SourceInspectionToolDetail,
+  UpdateSecretPayload,
+  UpdateSecretResult,
   UpdateSourcePayload,
 };

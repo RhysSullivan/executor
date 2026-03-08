@@ -481,7 +481,7 @@ function getReadyData<T>(loadable: Loadable<T>): T {
 
 
 describe("executor-react source hooks", () => {
-  it.effect("rolls back optimistic source creation when the live API rejects the payload", () =>
+  it.effect("rejects invalid source creation before applying optimistic state", () =>
     Effect.promise(async () => {
     const apiServer = await startControlPlaneServer();
     const proxyServer = await startProxyServer({
@@ -505,36 +505,20 @@ describe("executor-react source hooks", () => {
         (value) => isReady(value.sources) && value.sources.data.length === 0,
       );
 
-      let mutationPromise!: Promise<Source>;
+      let mutationPromise!: Promise<{ ok: true; value: Source } | { ok: false; error: unknown }>;
       await React.act(async () => {
         mutationPromise = harness.current!.createSource.mutateAsync({
           name: "" as never,
           kind: "openapi",
           endpoint: "https://example.com",
-        });
+        }).then(
+          (value) => ({ ok: true as const, value }),
+          (error) => ({ ok: false as const, error }),
+        );
         await Promise.resolve();
       });
 
-      await waitForValue(
-        () => harness.current,
-        (value) =>
-          value.createSource.status === "pending"
-          && isReady(value.sources)
-          && value.sources.data.some((source) => source.id.startsWith("src_optimistic_")),
-      );
-
-      let failure: unknown = null;
-      await React.act(async () => {
-        try {
-          await mutationPromise;
-        } catch (error) {
-          failure = error;
-        }
-      });
-
-      expect(failure).toBeInstanceOf(Error);
-
-      const rolledBack = await waitForValue(
+      const failed = await waitForValue(
         () => harness.current,
         (value) =>
           value.createSource.status === "error"
@@ -542,7 +526,14 @@ describe("executor-react source hooks", () => {
           && value.sources.data.length === 0,
       );
 
-      expect(rolledBack.createSource.error).toBeInstanceOf(Error);
+      const result = await mutationPromise;
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        throw new Error("Expected invalid source creation to fail");
+      }
+
+      expect(result.error).toBeInstanceOf(Error);
+      expect(failed.createSource.error).toBeInstanceOf(Error);
     } finally {
       await harness.unmount();
       await proxyServer.close();
