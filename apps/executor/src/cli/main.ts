@@ -1,7 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-
+import { fileURLToPath } from "node:url";
 import { Args, Command, Options } from "@effect/cli";
 import {
   NodeFileSystem,
@@ -29,6 +31,8 @@ import {
   DEFAULT_SERVER_BASE_URL,
   DEFAULT_SERVER_HOST,
   DEFAULT_LOCAL_DATA_DIR,
+  DEFAULT_SERVER_LOG_FILE,
+  DEFAULT_SERVER_PID_FILE,
   DEFAULT_SERVER_PORT,
   SERVER_POLL_INTERVAL_MS,
   SERVER_START_TIMEOUT_MS,
@@ -38,6 +42,11 @@ import {
   seedDemoMcpSourceInWorkspace,
   seedGithubOpenApiSourceInWorkspace,
 } from "./dev";
+import {
+  resolveRuntimeMigrationsDir,
+  resolveRuntimeWebAssetsDir,
+  resolveSelfCommand,
+} from "./runtime-paths";
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
@@ -133,9 +142,32 @@ const getBootstrapClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
   createControlPlaneClient({ baseUrl });
 
 const decodeExecutionId = Schema.decodeUnknown(ExecutionIdSchema);
+const cliSourceDir = dirname(fileURLToPath(import.meta.url));
 const CLI_NAME = "executor";
-const CLI_VERSION = "0.1.0";
-const CLI_ENTRYPOINT = process.argv[1];
+const CLI_VERSION = (() => {
+  const candidatePaths = [
+    resolve(cliSourceDir, "../package.json"),
+    resolve(cliSourceDir, "../../package.json"),
+  ];
+
+  for (const candidatePath of candidatePaths) {
+    if (!existsSync(candidatePath)) {
+      continue;
+    }
+
+    try {
+      const contents = readFileSync(candidatePath, "utf8");
+      const metadata = JSON.parse(contents) as { version?: string };
+      if (metadata.version && metadata.version.trim().length > 0) {
+        return metadata.version;
+      }
+    } catch {
+      // Fall through to the default version below.
+    }
+  }
+
+  return "0.0.0-local";
+})();
 const HELP_TOKENS = ["--help", "-h", "help"] as const;
 
 const isHelpToken = (value: string | undefined): boolean =>
@@ -168,7 +200,7 @@ const buildWorkflowText = (namespaces: readonly string[] = []): string =>
     '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
     "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
     "3) Call selected tools.<path>(input).",
-    '4) To connect a source, call tools.executor.sources.add(...) for MCP or OpenAPI APIs.',
+    '4) To connect a source, call tools.executor.sources.add(...) for MCP, OpenAPI, or GraphQL APIs.',
     ...EXECUTOR_SOURCES_ADD_HELP_LINES,
     "5) If execution pauses for interaction, resume it with `executor resume --execution-id ...`.",
     "Do not use fetch; use tools.* only.",
@@ -374,17 +406,267 @@ const isServerReachable = (baseUrl: string) =>
     Effect.catchAll(() => Effect.succeed(false)),
   );
 
+const getDefaultServerOptions = (port: number = DEFAULT_SERVER_PORT) => {
+  const assetsDir = resolveRuntimeWebAssetsDir();
+  const migrationsFolder = resolveRuntimeMigrationsDir();
+
+  return {
+    host: DEFAULT_SERVER_HOST,
+    port,
+    localDataDir: DEFAULT_LOCAL_DATA_DIR,
+    migrationsFolder: migrationsFolder ?? undefined,
+    pidFile: DEFAULT_SERVER_PID_FILE,
+    ui: assetsDir ? { assetsDir } : undefined,
+  };
+};
+
 const startServerInBackground = (port: number) =>
-  Effect.sync(() => {
-    if (!CLI_ENTRYPOINT) {
-      throw new Error("Cannot determine current executor entrypoint.");
+  Effect.tryPromise({
+    try: async () => {
+      const command = resolveSelfCommand(["__local-server", "--port", String(port)]);
+      await mkdir(dirname(DEFAULT_SERVER_LOG_FILE), { recursive: true });
+      const logHandle = await open(DEFAULT_SERVER_LOG_FILE, "a");
+
+      try {
+        const child = spawn(command[0]!, command.slice(1), {
+          detached: true,
+          stdio: ["ignore", logHandle.fd, logHandle.fd],
+        });
+        child.unref();
+      } finally {
+        await logHandle.close();
+      }
+    },
+    catch: toError,
+  });
+
+type LocalServerPidRecord = {
+  pid?: number;
+  port?: number;
+  host?: string;
+  baseUrl?: string;
+  startedAt?: number;
+  logFile?: string;
+};
+
+const readPidRecord = (): Effect.Effect<LocalServerPidRecord | null, never, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      const contents = await readFile(DEFAULT_SERVER_PID_FILE, "utf8");
+      return JSON.parse(contents) as LocalServerPidRecord;
+    },
+    catch: () => null,
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+const isPidRunning = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+};
+
+
+const readServerLogTail = async (
+  logFile: string = DEFAULT_SERVER_LOG_FILE,
+  maxLines: number = 40,
+  maxChars: number = 6000,
+): Promise<string | null> => {
+  try {
+    const contents = await readFile(logFile, "utf8");
+    const lines = contents.split(/\r?\n/u).filter((line) => line.length > 0);
+    const tail = lines.slice(-maxLines).join("\n");
+    return tail.length > maxChars ? tail.slice(-maxChars) : tail;
+  } catch {
+    return null;
+  }
+};
+
+const buildReachabilityTimeoutError = async (
+  baseUrl: string,
+  expected: boolean,
+  logFile: string = DEFAULT_SERVER_LOG_FILE,
+): Promise<Error> => {
+  const action = expected ? "start" : "shutdown";
+  const prefix = `Timed out waiting for local executor server ${action} at ${baseUrl}`;
+  const logTail = await readServerLogTail(logFile);
+
+  if (!logTail) {
+    return new Error(`${prefix}\n\nDaemon log: ${logFile}`);
+  }
+
+  return new Error(`${prefix}\n\nRecent daemon log (${logFile}):\n${logTail}`);
+};
+
+const waitForReachability = (baseUrl: string, expected: boolean) =>
+  Effect.gen(function* () {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < SERVER_START_TIMEOUT_MS) {
+      const reachable = yield* isServerReachable(baseUrl);
+      if (reachable === expected) {
+        return;
+      }
+      yield* sleep(SERVER_POLL_INTERVAL_MS);
     }
 
-    const child = spawn(process.execPath, [CLI_ENTRYPOINT, "__local-server", "--port", String(port)], {
-      detached: true,
-      stdio: "ignore",
+    const error = yield* Effect.tryPromise({
+      try: () => buildReachabilityTimeoutError(baseUrl, expected),
+      catch: toError,
     });
-    child.unref();
+
+    return yield* Effect.fail(error);
+  });
+
+type LocalServerStatus = {
+  baseUrl: string;
+  reachable: boolean;
+  pidFile: string;
+  pid: number | null;
+  pidRunning: boolean;
+  logFile: string;
+  localDataDir: string;
+  webAssetsDir: string | null;
+  migrationsDir: string | null;
+  installation: {
+    accountId: string;
+    workspaceId: string;
+  } | null;
+};
+
+const getServerStatus = (baseUrl: string): Effect.Effect<LocalServerStatus, Error, never> =>
+  Effect.gen(function* () {
+    const pidRecord = yield* readPidRecord();
+    const reachable = yield* isServerReachable(baseUrl);
+    const installation = reachable
+      ? yield* getBootstrapClient(baseUrl).pipe(
+          Effect.flatMap((client) => client.local.installation({})),
+          Effect.catchAll(() => Effect.succeed(null)),
+        )
+      : null;
+
+    const pid = typeof pidRecord?.pid === "number" ? pidRecord.pid : null;
+    const pidRunning = pid !== null ? isPidRunning(pid) : false;
+    const logFile = pidRecord?.logFile ?? DEFAULT_SERVER_LOG_FILE;
+
+    return {
+      baseUrl,
+      reachable,
+      pidFile: DEFAULT_SERVER_PID_FILE,
+      pid,
+      pidRunning,
+      logFile,
+      localDataDir: DEFAULT_LOCAL_DATA_DIR,
+      webAssetsDir: resolveRuntimeWebAssetsDir(),
+      migrationsDir: resolveRuntimeMigrationsDir(),
+      installation,
+    } satisfies LocalServerStatus;
+  });
+
+const renderStatus = (status: LocalServerStatus): string =>
+  [
+    `baseUrl: ${status.baseUrl}`,
+    `reachable: ${status.reachable ? "yes" : "no"}`,
+    `pid: ${status.pid ?? "none"}`,
+    `pidRunning: ${status.pidRunning ? "yes" : "no"}`,
+    `pidFile: ${status.pidFile}`,
+    `logFile: ${status.logFile}`,
+    `localDataDir: ${status.localDataDir}`,
+    `webAssetsDir: ${status.webAssetsDir ?? "missing"}`,
+    `migrationsDir: ${status.migrationsDir ?? "missing"}`,
+    `workspaceId: ${status.installation?.workspaceId ?? "unavailable"}`,
+  ].join("\n");
+
+const getDoctorReport = (baseUrl: string) =>
+  getServerStatus(baseUrl).pipe(
+    Effect.map((status) => {
+      const checks = {
+        serverReachable: {
+          ok: status.reachable,
+          detail: status.reachable ? `reachable at ${status.baseUrl}` : `not reachable at ${status.baseUrl}`,
+        },
+        pidFile: {
+          ok: status.pid !== null,
+          detail: status.pid !== null ? `pid ${status.pid}` : `missing pid file at ${status.pidFile}`,
+        },
+        process: {
+          ok: status.pidRunning,
+          detail: status.pidRunning ? `pid ${status.pid}` : "no live daemon process recorded",
+        },
+        database: {
+          ok: status.localDataDir.length > 0,
+          detail: status.localDataDir,
+        },
+        webAssets: {
+          ok: status.webAssetsDir !== null,
+          detail: status.webAssetsDir ?? "missing bundled web assets",
+        },
+        migrations: {
+          ok: status.migrationsDir !== null,
+          detail: status.migrationsDir ?? "missing migrations directory",
+        },
+        installation: {
+          ok: status.installation !== null,
+          detail: status.installation
+            ? `workspace ${status.installation.workspaceId}`
+            : "local installation unavailable",
+        },
+      } as const;
+
+      return {
+        ok: Object.values(checks).every((check) => check.ok),
+        status,
+        checks,
+      };
+    }),
+  );
+
+const printJson = (value: unknown) =>
+  Effect.sync(() => {
+    console.log(JSON.stringify(value, null, 2));
+  });
+
+const printText = (value: string) =>
+  Effect.sync(() => {
+    console.log(value);
+  });
+
+const stopServer = (baseUrl: string) =>
+  Effect.gen(function* () {
+    const pidRecord = yield* readPidRecord();
+    const pid = typeof pidRecord?.pid === "number" ? pidRecord.pid : null;
+
+    if (pid === null) {
+      yield* Effect.tryPromise({
+        try: () => rm(DEFAULT_SERVER_PID_FILE, { force: true }),
+        catch: () => undefined,
+      });
+      return false;
+    }
+
+    if (!isPidRunning(pid)) {
+      yield* Effect.tryPromise({
+        try: () => rm(DEFAULT_SERVER_PID_FILE, { force: true }),
+        catch: () => undefined,
+      });
+      return false;
+    }
+
+
+    yield* Effect.sync(() => {
+      process.kill(pid, "SIGTERM");
+    });
+
+    yield* waitForReachability(baseUrl, false).pipe(
+      Effect.catchAll(() =>
+        Effect.tryPromise({
+          try: () => rm(DEFAULT_SERVER_PID_FILE, { force: true }),
+          catch: () => undefined,
+        }).pipe(Effect.zipRight(Effect.fail(new Error(`Timed out stopping local executor server pid ${pid}`)))),
+      ),
+    );
+
+    return true;
   });
 
 const ensureServer = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
@@ -398,18 +680,7 @@ const ensureServer = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
     const port = Number(url.port || DEFAULT_SERVER_PORT);
     yield* startServerInBackground(port);
 
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < SERVER_START_TIMEOUT_MS) {
-      const ready = yield* isServerReachable(baseUrl);
-      if (ready) {
-        return;
-      }
-      yield* sleep(SERVER_POLL_INTERVAL_MS);
-    }
-
-    return yield* Effect.fail(
-      new Error(`Timed out waiting for local executor server at ${baseUrl}`),
-    );
+    yield* waitForReachability(baseUrl, true);
   });
 
 const parseInteractionPayload = (interaction: ExecutionInteraction): {
@@ -822,13 +1093,67 @@ const serverStartCommand = Command.make(
   {
     port: Options.integer("port").pipe(Options.withDefault(DEFAULT_SERVER_PORT)),
   },
-  ({ port }) => runLocalExecutorServer({ host: DEFAULT_SERVER_HOST, port }),
+  ({ port }) => runLocalExecutorServer(getDefaultServerOptions(port)),
 ).pipe(Command.withDescription("Start the local executor server"));
 
 const serverCommand = Command.make("server").pipe(
   Command.withSubcommands([serverStartCommand] as const),
   Command.withDescription("Local server commands"),
 );
+
+const upCommand = Command.make(
+  "up",
+  {
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
+  },
+  ({ baseUrl }) =>
+    ensureServer(baseUrl).pipe(
+      Effect.zipRight(getServerStatus(baseUrl)),
+      Effect.flatMap((status) => printText(renderStatus(status))),
+    ),
+).pipe(Command.withDescription("Ensure the local executor server is running"));
+
+const downCommand = Command.make(
+  "down",
+  {
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
+  },
+  ({ baseUrl }) =>
+    stopServer(baseUrl).pipe(
+      Effect.flatMap((stopped) =>
+        printText(stopped ? "Stopped local executor server." : "Local executor server is not running."),
+      ),
+    ),
+).pipe(Command.withDescription("Stop the local executor server"));
+
+const statusCommand = Command.make(
+  "status",
+  {
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
+    json: Options.boolean("json").pipe(Options.withDefault(false)),
+  },
+  ({ baseUrl, json }) =>
+    getServerStatus(baseUrl).pipe(
+      Effect.flatMap((status) => json ? printJson(status) : printText(renderStatus(status))),
+    ),
+).pipe(Command.withDescription("Show local executor server status"));
+
+const doctorCommand = Command.make(
+  "doctor",
+  {
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
+    json: Options.boolean("json").pipe(Options.withDefault(false)),
+  },
+  ({ baseUrl, json }) =>
+    getDoctorReport(baseUrl).pipe(
+      Effect.flatMap((report) => json
+        ? printJson(report)
+        : printText([
+            `ok: ${report.ok ? "yes" : "no"}`,
+            ...Object.entries(report.checks).map(([name, check]) => `${name}: ${check.ok ? "ok" : "fail"} - ${check.detail}`),
+          ].join("\n"))),
+    ),
+).pipe(Command.withDescription("Check local executor install and daemon health"));
 
 const callCommand = Command.make(
   "call",
@@ -966,7 +1291,16 @@ const devCommand = Command.make("dev").pipe(
 );
 
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([serverCommand, callCommand, resumeCommand, devCommand] as const),
+  Command.withSubcommands([
+    serverCommand,
+    upCommand,
+    downCommand,
+    statusCommand,
+    doctorCommand,
+    callCommand,
+    resumeCommand,
+    devCommand,
+  ] as const),
   Command.withDescription("Executor local CLI"),
 );
 
@@ -986,8 +1320,9 @@ const hiddenServer = (): Effect.Effect<void, Error, never> | null => {
   const port = portFlagIndex >= 0 ? Number(args[portFlagIndex + 1]) : DEFAULT_SERVER_PORT;
 
   return runLocalExecutorServer({
-    host: DEFAULT_SERVER_HOST,
-    port: Number.isInteger(port) && port > 0 ? port : DEFAULT_SERVER_PORT,
+    ...getDefaultServerOptions(
+      Number.isInteger(port) && port > 0 ? port : DEFAULT_SERVER_PORT,
+    ),
   });
 };
 
@@ -995,7 +1330,15 @@ const program = (hiddenServer()
   ?? helpOverride()
   ?? runCli(toEffectCliArgv(getCliArgs())).pipe(Effect.mapError(toError)))
   .pipe(Effect.provide(NodeFileSystem.layer))
-  .pipe(Effect.provide(NodePath.layer));
+  .pipe(Effect.provide(NodePath.layer))
+  .pipe(
+    Effect.catchAllCause((cause) =>
+      Effect.sync(() => {
+        console.error(Cause.pretty(cause));
+        process.exitCode = 1;
+      }),
+    ),
+  );
 
 // Effect CLI's environment does not fully narrow at the process boundary.
-NodeRuntime.runMain(program as Effect.Effect<void, Error, never>);
+NodeRuntime.runMain(program as Effect.Effect<void, never, never>);
