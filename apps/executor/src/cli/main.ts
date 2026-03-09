@@ -22,6 +22,7 @@ import {
   type SqlControlPlaneRuntime,
 } from "@executor-v3/control-plane";
 import type { ToolCatalog } from "@executor-v3/codemode-core";
+import { isDenoAvailable } from "@executor-v3/runtime-deno-subprocess";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
@@ -583,46 +584,56 @@ const renderStatus = (status: LocalServerStatus): string =>
 
 const getDoctorReport = (baseUrl: string) =>
   getServerStatus(baseUrl).pipe(
-    Effect.map((status) => {
-      const checks = {
-        serverReachable: {
-          ok: status.reachable,
-          detail: status.reachable ? `reachable at ${status.baseUrl}` : `not reachable at ${status.baseUrl}`,
-        },
-        pidFile: {
-          ok: status.pid !== null,
-          detail: status.pid !== null ? `pid ${status.pid}` : `missing pid file at ${status.pidFile}`,
-        },
-        process: {
-          ok: status.pidRunning,
-          detail: status.pidRunning ? `pid ${status.pid}` : "no live daemon process recorded",
-        },
-        database: {
-          ok: status.localDataDir.length > 0,
-          detail: status.localDataDir,
-        },
-        webAssets: {
-          ok: status.webAssetsDir !== null,
-          detail: status.webAssetsDir ?? "missing bundled web assets",
-        },
-        migrations: {
-          ok: status.migrationsDir !== null,
-          detail: status.migrationsDir ?? "missing migrations directory",
-        },
-        installation: {
-          ok: status.installation !== null,
-          detail: status.installation
-            ? `workspace ${status.installation.workspaceId}`
-            : "local installation unavailable",
-        },
-      } as const;
+    Effect.flatMap((status) =>
+      getDenoVersion().pipe(
+        Effect.map((denoVersion) => {
+          const checks = {
+            serverReachable: {
+              ok: status.reachable,
+              detail: status.reachable ? `reachable at ${status.baseUrl}` : `not reachable at ${status.baseUrl}`,
+            },
+            pidFile: {
+              ok: status.pid !== null,
+              detail: status.pid !== null ? `pid ${status.pid}` : `missing pid file at ${status.pidFile}`,
+            },
+            process: {
+              ok: status.pidRunning,
+              detail: status.pidRunning ? `pid ${status.pid}` : "no live daemon process recorded",
+            },
+            database: {
+              ok: status.localDataDir.length > 0,
+              detail: status.localDataDir,
+            },
+            webAssets: {
+              ok: status.webAssetsDir !== null,
+              detail: status.webAssetsDir ?? "missing bundled web assets",
+            },
+            migrations: {
+              ok: status.migrationsDir !== null,
+              detail: status.migrationsDir ?? "missing migrations directory",
+            },
+            installation: {
+              ok: status.installation !== null,
+              detail: status.installation
+                ? `workspace ${status.installation.workspaceId}`
+                : "local installation unavailable",
+            },
+            denoSandbox: {
+              ok: denoVersion !== null,
+              detail: denoVersion !== null
+                ? `deno ${denoVersion}`
+                : "deno not found (run `executor sandbox` to install)",
+            },
+          } as const;
 
-      return {
-        ok: Object.values(checks).every((check) => check.ok),
-        status,
-        checks,
-      };
-    }),
+          return {
+            ok: Object.values(checks).every((check) => check.ok),
+            status,
+            checks,
+          };
+        }),
+      ),
+    ),
   );
 
 const printJson = (value: unknown) =>
@@ -1143,6 +1154,93 @@ const doctorCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Check local executor install and daemon health"));
 
+const getDenoVersion = (): Effect.Effect<string | null, never, never> =>
+  Effect.tryPromise({
+    try: () =>
+      new Promise<string | null>((resolve) => {
+        const denoExecutable = process.env.DENO_BIN?.trim()
+          || (process.env.HOME && existsSync(`${process.env.HOME}/.deno/bin/deno`)
+            ? `${process.env.HOME}/.deno/bin/deno`
+            : "deno");
+
+        const child = spawn(denoExecutable, ["--version"], {
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 5000,
+        });
+
+        let stdout = "";
+        child.stdout?.setEncoding("utf8");
+        child.stdout?.on("data", (chunk: string) => {
+          stdout += chunk;
+        });
+
+        child.once("error", () => resolve(null));
+        child.once("close", (code) => {
+          if (code !== 0) {
+            resolve(null);
+            return;
+          }
+
+          const match = /deno\s+(\S+)/i.exec(stdout);
+          resolve(match ? match[1] : null);
+        });
+      }),
+    catch: () => null,
+  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+const installDeno = (): Effect.Effect<boolean, Error, never> =>
+  Effect.tryPromise({
+    try: () =>
+      new Promise<boolean>((resolve, reject) => {
+        const child = spawn("sh", ["-c", "curl -fsSL https://deno.land/install.sh | sh"], {
+          stdio: ["ignore", "inherit", "inherit"],
+        });
+
+        child.once("error", (err) => reject(err));
+        child.once("close", (code) => resolve(code === 0));
+      }),
+    catch: toError,
+  });
+
+const sandboxCommand = Command.make(
+  "sandbox",
+  {},
+  () =>
+    Effect.gen(function* () {
+      yield* printText("Checking Deno sandbox runtime...");
+
+      const version = yield* getDenoVersion();
+
+      if (version !== null) {
+        yield* printText(`Deno sandbox is ready (deno ${version}).`);
+        return;
+      }
+
+      if (!isDenoAvailable()) {
+        yield* printText("Deno is not installed. Installing...");
+      } else {
+        yield* printText("Deno binary found but did not respond. Reinstalling...");
+      }
+
+      const installed = yield* installDeno();
+      if (!installed) {
+        return yield* Effect.fail(
+          new Error("Deno installation failed. Install manually: https://docs.deno.com/runtime/getting_started/installation/"),
+        );
+      }
+
+      const postVersion = yield* getDenoVersion();
+      if (postVersion === null) {
+        return yield* Effect.fail(
+          new Error("Deno was installed but could not be verified. You may need to restart your shell."),
+        );
+      }
+
+      yield* printText(`Deno sandbox installed successfully (deno ${postVersion}).`);
+    }),
+).pipe(Command.withDescription("Check and install the Deno sandbox runtime"));
+
+
 const callCommand = Command.make(
   "call",
   {
@@ -1287,6 +1385,7 @@ const root = Command.make("executor").pipe(
     downCommand,
     statusCommand,
     doctorCommand,
+    sandboxCommand,
     callCommand,
     resumeCommand,
     devCommand,

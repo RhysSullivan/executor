@@ -22,6 +22,7 @@
         "@effect/platform-node": "catalog:",
         "@executor-v3/codemode-core": "workspace:*",
         "@executor-v3/control-plane": "workspace:*",
+        "@executor-v3/runtime-deno-subprocess": "workspace:*",
         "@executor-v3/runtime-local-inproc": "workspace:*",
         "@executor-v3/server": "workspace:*",
         "effect": "catalog:",

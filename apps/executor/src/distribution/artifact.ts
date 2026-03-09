@@ -193,6 +193,10 @@ export const buildDistributionPackage = async (
   });
   await cp(pgliteDataPath, join(binDir, "pglite.data"));
   await cp(pgliteWasmPath, join(binDir, "pglite.wasm"));
+  await cp(
+    join(repoRoot, "packages/runtime-deno-subprocess/src/deno-subprocess-worker.mjs"),
+    join(binDir, "deno-subprocess-worker.mjs"),
+  );
   await writeFile(join(packageDir, "package.json"), createPackageJson({
     packageName,
     packageVersion,
