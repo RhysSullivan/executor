@@ -118,8 +118,6 @@ jobs:
       - name: Publish to npm
         if: steps.state.outputs.package_published != 'true'
         working-directory: apps/executor
-        env:
-          NODE_AUTH_TOKEN: ""
         run: npm publish ./dist/npm --access public --provenance
 
       - name: Create GitHub release
