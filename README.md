@@ -4,6 +4,11 @@
 
 It gives an agent a TypeScript runtime, a discoverable tool catalog, and a single local place to connect external systems such as MCP servers, OpenAPI APIs, and GraphQL APIs. Instead of pasting large MCP manifests into every chat or giving an agent broad shell access, you run code inside `executor` and let it call typed `tools.*` functions.
 
+## Community
+
+Join the Discord community: https://discord.gg/eF29HBHwM6
+
+
 At runtime, `executor` behaves like one local product:
 
 - a CLI for starting the runtime and executing code
