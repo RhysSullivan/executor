@@ -45,6 +45,14 @@ import type {
 } from "./execution-state";
 import { createExecutorToolMap } from "./executor-tools";
 import {
+  createGraphqlToolsFromManifest,
+  extractGraphqlManifest,
+  graphqlToolDescriptorFromDefinition,
+  compileGraphqlToolDefinitions,
+  type GraphqlToolDefinition,
+  type GraphqlToolManifest,
+} from "./graphql-tools";
+import {
   loadSourceById as loadStoredSourceById,
   loadSourcesInWorkspace,
 } from "./source-store";
@@ -292,6 +300,16 @@ type OpenApiWorkspaceTool = {
   searchText: string;
 };
 
+type GraphqlWorkspaceTool = {
+  path: ToolPath;
+  source: Source;
+  manifest: GraphqlToolManifest;
+  definition: GraphqlToolDefinition;
+  descriptor: ToolDescriptor;
+  searchNamespace: string;
+  searchText: string;
+};
+
 const loadOpenApiWorkspaceTools = (input: {
   rows: SqlControlPlaneRows;
   workspaceId: Source["workspaceId"];
@@ -393,6 +411,99 @@ const loadOpenApiWorkspaceTools = (input: {
     return toolGroups.flat();
   });
 
+const loadGraphqlWorkspaceTools = (input: {
+  rows: SqlControlPlaneRows;
+  workspaceId: Source["workspaceId"];
+  includeSchemas: boolean;
+}): Effect.Effect<ReadonlyArray<GraphqlWorkspaceTool>, Error, never> =>
+  Effect.gen(function* () {
+    const sourceRecords = yield* input.rows.sources.listByWorkspaceId(input.workspaceId).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+    const documentBySourceId = new Map(
+      sourceRecords.map((record) => [record.id, record.sourceDocumentText]),
+    );
+    const sources = yield* loadSourcesInWorkspace(input.rows, input.workspaceId);
+
+    const connectedGraphqlSources = sources.filter((source) =>
+      source.enabled
+      && source.status === "connected"
+      && source.kind === "graphql"
+      && typeof documentBySourceId.get(source.id) === "string"
+      && documentBySourceId.get(source.id)!.length > 0,
+    );
+
+    const toolGroups = yield* Effect.forEach(
+      connectedGraphqlSources,
+      (source) =>
+        Effect.gen(function* () {
+          const graphqlDocument = documentBySourceId.get(source.id)!;
+          const manifest = yield* extractGraphqlManifest(
+            source.name,
+            graphqlDocument,
+          ).pipe(
+            Effect.mapError((cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+            ),
+          );
+          const definitions = compileGraphqlToolDefinitions(manifest);
+          const namespace = source.namespace ?? namespaceFromSourceName(source.name);
+
+          return definitions.map((definition) => {
+            const path = asToolPath(
+              namespace ? `${namespace}.${definition.toolId}` : definition.toolId,
+            );
+            const searchNamespace = namespace;
+            const descriptor = graphqlToolDescriptorFromDefinition({
+              manifest,
+              definition,
+              path,
+              sourceKey: source.id,
+              includeSchemas: input.includeSchemas,
+            });
+            const searchText = [
+              path,
+              searchNamespace,
+              source.name,
+              definition.name,
+              definition.description,
+              definition.rawToolId,
+              definition.fieldName,
+              definition.group,
+              definition.leaf,
+              definition.operationType,
+              definition.operationName,
+              definition.searchTerms.join(" "),
+              definition.toolId === "request"
+                ? "graphql request query mutation variables"
+                : "graphql field query mutation",
+              manifest.queryTypeName,
+              manifest.mutationTypeName,
+              manifest.subscriptionTypeName,
+            ]
+              .filter((part): part is string => typeof part === "string" && part.length > 0)
+              .join(" ")
+              .toLowerCase();
+
+            return {
+              path,
+              source,
+              manifest,
+              definition,
+              descriptor,
+              searchNamespace,
+              searchText,
+            } satisfies GraphqlWorkspaceTool;
+          });
+        }),
+      { concurrency: "unbounded" },
+    );
+
+    return toolGroups.flat();
+  });
+
 
 const loadSourceById = (input: {
   rows: SqlControlPlaneRows;
@@ -415,7 +526,7 @@ const createWorkspaceToolCatalog = (input: {
 }): ToolCatalog => ({
   listNamespaces: ({ limit }) =>
     Effect.gen(function* () {
-      const [persisted, openApiTools, executor] = yield* Effect.all([
+      const [persisted, openApiTools, graphqlTools, executor] = yield* Effect.all([
         input.rows.toolArtifacts.listNamespacesByWorkspaceId(input.workspaceId, {
           limit,
         }).pipe(
@@ -428,6 +539,11 @@ const createWorkspaceToolCatalog = (input: {
           workspaceId: input.workspaceId,
           includeSchemas: false,
         }),
+        loadGraphqlWorkspaceTools({
+          rows: input.rows,
+          workspaceId: input.workspaceId,
+          includeSchemas: false,
+        }),
         input.executorCatalog.listNamespaces({ limit }),
       ]);
 
@@ -436,6 +552,13 @@ const createWorkspaceToolCatalog = (input: {
         merged.set(namespace.namespace, namespace);
       }
       for (const tool of openApiTools) {
+        const existing = merged.get(tool.searchNamespace);
+        merged.set(tool.searchNamespace, {
+          namespace: tool.searchNamespace,
+          toolCount: (existing?.toolCount ?? 0) + 1,
+        });
+      }
+      for (const tool of graphqlTools) {
         const existing = merged.get(tool.searchNamespace);
         merged.set(tool.searchNamespace, {
           namespace: tool.searchNamespace,
@@ -461,7 +584,7 @@ const createWorkspaceToolCatalog = (input: {
 
   listTools: ({ namespace, query, limit, includeSchemas = false }) =>
     Effect.gen(function* () {
-      const [persisted, openApiTools, executor] = yield* Effect.all([
+      const [persisted, openApiTools, graphqlTools, executor] = yield* Effect.all([
         namespace?.startsWith("executor")
           ? Effect.succeed([] as readonly StoredToolArtifactRecord[])
           : input.rows.toolArtifacts.listByWorkspaceId(input.workspaceId, {
@@ -474,6 +597,23 @@ const createWorkspaceToolCatalog = (input: {
             ),
           ),
         loadOpenApiWorkspaceTools({
+          rows: input.rows,
+          workspaceId: input.workspaceId,
+          includeSchemas,
+        }).pipe(
+          Effect.map((tools) =>
+            tools.filter((tool) => {
+              if (namespace && tool.searchNamespace !== namespace) {
+                return false;
+              }
+              if (!query) {
+                return true;
+              }
+              return tokenize(query).every((token) => tool.searchText.includes(token));
+            }),
+          ),
+        ),
+        loadGraphqlWorkspaceTools({
           rows: input.rows,
           workspaceId: input.workspaceId,
           includeSchemas,
@@ -508,6 +648,7 @@ const createWorkspaceToolCatalog = (input: {
       return [
         ...persistedDescriptors,
         ...openApiTools.map((tool) => tool.descriptor),
+        ...graphqlTools.map((tool) => tool.descriptor),
         ...executor,
       ]
         .sort((left, right) => left.path.localeCompare(right.path))
@@ -534,6 +675,16 @@ const createWorkspaceToolCatalog = (input: {
         return openApiTool.descriptor;
       }
 
+      const graphqlTools = yield* loadGraphqlWorkspaceTools({
+        rows: input.rows,
+        workspaceId: input.workspaceId,
+        includeSchemas,
+      });
+      const graphqlTool = graphqlTools.find((tool) => tool.path === path);
+      if (graphqlTool) {
+        return graphqlTool.descriptor;
+      }
+
       const artifact = yield* input.rows.toolArtifacts.getByWorkspaceAndPath(
         input.workspaceId,
         path,
@@ -556,7 +707,7 @@ const createWorkspaceToolCatalog = (input: {
   searchTools: ({ query, namespace, limit }) =>
     Effect.gen(function* () {
       const queryTokens = tokenize(query);
-      const [persisted, openApiTools, executor] = yield* Effect.all([
+      const [persisted, openApiTools, graphqlTools, executor] = yield* Effect.all([
         namespace?.startsWith("executor")
           ? Effect.succeed([] as readonly StoredToolArtifactRecord[])
           : input.rows.toolArtifacts.searchByWorkspaceId(input.workspaceId, {
@@ -568,6 +719,15 @@ const createWorkspaceToolCatalog = (input: {
             ),
           ),
         loadOpenApiWorkspaceTools({
+          rows: input.rows,
+          workspaceId: input.workspaceId,
+          includeSchemas: false,
+        }).pipe(
+          Effect.map((tools) =>
+            tools.filter((tool) => !namespace || tool.searchNamespace === namespace),
+          ),
+        ),
+        loadGraphqlWorkspaceTools({
           rows: input.rows,
           workspaceId: input.workspaceId,
           includeSchemas: false,
@@ -600,7 +760,17 @@ const createWorkspaceToolCatalog = (input: {
         }))
         .filter((hit) => hit.score > 0);
 
-      return [...persistedHits, ...openApiHits, ...executor]
+      const graphqlHits: SearchHit[] = graphqlTools
+        .map((tool) => ({
+          path: tool.path,
+          score: tokenize(query).reduce(
+            (total, token) => total + (tool.searchText.includes(token) ? 1 : 0),
+            0,
+          ),
+        }))
+        .filter((hit) => hit.score > 0);
+
+      return [...persistedHits, ...openApiHits, ...graphqlHits, ...executor]
         .sort((left, right) =>
           right.score - left.score || left.path.localeCompare(right.path),
         )
@@ -667,6 +837,38 @@ const createWorkspaceToolInvoker = (input: {
           namespace: openApiTool.source.namespace ?? namespaceFromSourceName(openApiTool.source.name),
           sourceKey: openApiTool.source.id,
           defaultHeaders: openApiTool.source.defaultHeaders ?? {},
+          credentialHeaders: auth.headers,
+        });
+
+        return yield* makeToolInvokerFromTools({
+          tools,
+          onElicitation: input.onElicitation,
+        }).invoke({
+          path: invocation.path,
+          args: invocation.args,
+          context: invocation.context,
+        });
+      }
+
+      const graphqlTools = yield* loadGraphqlWorkspaceTools({
+        rows: input.rows,
+        workspaceId: input.workspaceId,
+        includeSchemas: false,
+      });
+      const graphqlTool = graphqlTools.find((tool) => tool.path === invocation.path);
+      if (graphqlTool) {
+        const auth = yield* resolveSourceAuthMaterial({
+          source: graphqlTool.source,
+          resolveSecretMaterial: input.resolveSecretMaterial,
+          context: toSecretResolutionContext(invocation.context),
+        });
+
+        const tools = createGraphqlToolsFromManifest({
+          manifest: graphqlTool.manifest,
+          endpoint: graphqlTool.source.endpoint,
+          namespace: graphqlTool.source.namespace ?? namespaceFromSourceName(graphqlTool.source.name),
+          sourceKey: graphqlTool.source.id,
+          defaultHeaders: graphqlTool.source.defaultHeaders ?? {},
           credentialHeaders: auth.headers,
         });
 

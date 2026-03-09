@@ -21,6 +21,10 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
+import {
+  extractGraphqlManifest,
+  GRAPHQL_INTROSPECTION_QUERY,
+} from "./graphql-tools";
 import type {
   ResolveSecretMaterial as ResolveSourceSecretMaterial,
   SecretMaterialResolveContext,
@@ -111,7 +115,7 @@ const toMcpToolArtifactRecord = (input: {
 const shouldIndexSource = (source: Source): boolean =>
   source.enabled
   && source.status === "connected"
-  && (source.kind === "mcp" || source.kind === "openapi");
+  && (source.kind === "mcp" || source.kind === "openapi" || source.kind === "graphql");
 
 export const namespaceFromSourceName = (name: string): string => {
   const normalized = name
@@ -175,6 +179,46 @@ const fetchOpenApiDocumentWithHeaders = (input: {
   }).pipe(
     Effect.provide(FetchHttpClient.layer),
   );
+
+const fetchGraphqlIntrospectionDocumentWithHeaders = (input: {
+  url: string;
+  headers?: Readonly<Record<string, string>>;
+}): Effect.Effect<string, Error, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      const response = await fetch(input.url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(input.headers ?? {}),
+        },
+        body: JSON.stringify({
+          query: GRAPHQL_INTROSPECTION_QUERY,
+          operationName: "IntrospectionQuery",
+        }),
+      });
+      const text = await response.text();
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text) as unknown;
+      } catch (cause) {
+        throw new Error(
+          `GraphQL introspection endpoint did not return JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          `GraphQL introspection failed with status ${response.status}`,
+        );
+      }
+
+      return JSON.stringify(parsed, null, 2);
+    },
+    catch: (cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+  });
 
 const indexMcpSourceToolArtifacts = (input: {
   rows: SqlControlPlaneRows;
@@ -310,6 +354,66 @@ const indexOpenApiSourceToolArtifacts = (input: {
     );
   });
 
+const indexGraphqlSourceToolArtifacts = (input: {
+  rows: SqlControlPlaneRows;
+  source: Source;
+  auth: ResolvedSourceAuthMaterial;
+}): Effect.Effect<void, Error, never> =>
+  Effect.gen(function* () {
+    const graphqlDocument = yield* fetchGraphqlIntrospectionDocumentWithHeaders({
+      url: input.source.endpoint,
+      headers: {
+        ...(input.source.defaultHeaders ?? {}),
+        ...input.auth.headers,
+      },
+    }).pipe(
+      Effect.mapError((cause) =>
+        new Error(
+          `Failed fetching GraphQL introspection for ${input.source.id}: ${cause.message}`,
+        ),
+      ),
+    );
+
+    const manifest = yield* extractGraphqlManifest(
+      input.source.name,
+      graphqlDocument,
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+
+    const now = Date.now();
+    const updatedSource = yield* input.rows.sources.update(
+      input.source.workspaceId,
+      input.source.id,
+      {
+        sourceHash: manifest.sourceHash,
+        sourceDocumentText: graphqlDocument,
+        updatedAt: now,
+      },
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+
+    if (Option.isNone(updatedSource)) {
+      return yield* Effect.fail(
+        new Error(`Source disappeared while storing GraphQL document for ${input.source.id}`),
+      );
+    }
+
+    yield* input.rows.toolArtifacts.removeByWorkspaceAndSourceId(
+      input.source.workspaceId,
+      input.source.id,
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+  });
+
 export const syncSourceToolArtifacts = (input: {
   rows: SqlControlPlaneRows;
   source: Source;
@@ -343,6 +447,14 @@ export const syncSourceToolArtifacts = (input: {
 
     if (input.source.kind === "openapi") {
       return yield* indexOpenApiSourceToolArtifacts({
+        rows: input.rows,
+        source: input.source,
+        auth,
+      });
+    }
+
+    if (input.source.kind === "graphql") {
+      return yield* indexGraphqlSourceToolArtifacts({
         rows: input.rows,
         source: input.source,
         auth,

@@ -31,6 +31,7 @@
     "@executor-v3/runtime-local-inproc": "workspace:*",
     "drizzle-orm": "1.0.0-beta.15-859cf75",
     "effect": "catalog:",
+    "graphql": "^16.12.0",
     "postgres": "^3.4.7",
     "prettier": "^3.8.1"
   },

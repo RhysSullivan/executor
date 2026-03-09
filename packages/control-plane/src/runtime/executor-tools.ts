@@ -19,7 +19,7 @@ import * as Schema from "effect/Schema";
 
 import {
   type ExecutorAddSourceInput,
-  type ExecutorOpenApiSourceAuthInput,
+  type ExecutorHttpSourceAuthInput,
   type RuntimeSourceAuthService,
 } from "./source-auth-service";
 import {
@@ -43,9 +43,17 @@ const ExecutorOpenApiSourceAddInputSchema = Schema.Struct({
   namespace: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
+const ExecutorGraphqlSourceAddInputSchema = Schema.Struct({
+  kind: Schema.Literal("graphql"),
+  endpoint: Schema.String,
+  name: Schema.optional(Schema.NullOr(Schema.String)),
+  namespace: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
 const ExecutorSourcesAddSchema = Schema.Union(
   ExecutorMcpSourceAddInputSchema,
   ExecutorOpenApiSourceAddInputSchema,
+  ExecutorGraphqlSourceAddInputSchema,
 );
 
 const ExecutorSourcesAddInputSchema = Schema.standardSchemaV1(
@@ -62,6 +70,11 @@ export const EXECUTOR_SOURCES_ADD_MCP_INPUT_SIGNATURE = deriveSchemaTypeSignatur
 export const EXECUTOR_SOURCES_ADD_OPENAPI_INPUT_SIGNATURE = deriveSchemaTypeSignature(
   ExecutorOpenApiSourceAddInputSchema,
   420,
+);
+
+export const EXECUTOR_SOURCES_ADD_GRAPHQL_INPUT_SIGNATURE = deriveSchemaTypeSignature(
+  ExecutorGraphqlSourceAddInputSchema,
+  320,
 );
 
 export const EXECUTOR_SOURCES_ADD_INPUT_HINT = deriveSchemaTypeSignature(
@@ -88,12 +101,14 @@ export const EXECUTOR_SOURCES_ADD_HELP_LINES = [
   '  Omit kind or set kind: "mcp". endpoint is the MCP server URL.',
   `- OpenAPI: ${EXECUTOR_SOURCES_ADD_OPENAPI_INPUT_SIGNATURE}`,
   "  endpoint is the base API URL. specUrl is the OpenAPI document URL.",
+  `- GraphQL: ${EXECUTOR_SOURCES_ADD_GRAPHQL_INPUT_SIGNATURE}`,
+  "  endpoint is the GraphQL HTTP endpoint.",
   "  executor handles the credential setup for you.",
 ] as const;
 
 export const buildExecutorSourcesAddDescription = (): string =>
   [
-    "Add an MCP or OpenAPI source to the current workspace.",
+    "Add an MCP, OpenAPI, or GraphQL source to the current workspace.",
     ...EXECUTOR_SOURCES_ADD_HELP_LINES,
   ].join("\n");
 
@@ -137,9 +152,9 @@ const promptForSourceCredentialSelection = (input: {
   args: {
     workspaceId: WorkspaceId;
     sourceId: Source["id"];
-    kind: "openapi";
+    kind: "openapi" | "graphql";
     endpoint: string;
-    specUrl: string;
+    specUrl?: string;
     name?: string | null;
     namespace?: string | null;
   };
@@ -200,13 +215,13 @@ const promptForSourceCredentialSelection = (input: {
     });
 
     if (content.authKind === "none") {
-      return { kind: "none" } satisfies ExecutorOpenApiSourceAuthInput;
+      return { kind: "none" } satisfies ExecutorHttpSourceAuthInput;
     }
 
     return {
       kind: "bearer",
       tokenRef: content.tokenRef,
-    } satisfies ExecutorOpenApiSourceAuthInput;
+    } satisfies ExecutorHttpSourceAuthInput;
   });
 
 export const createExecutorToolMap = (input: {
@@ -232,6 +247,12 @@ export const createExecutorToolMap = (input: {
             specUrl: string;
             name?: string | null;
             namespace?: string | null;
+          }
+          | {
+            kind: "graphql";
+            endpoint: string;
+            name?: string | null;
+            namespace?: string | null;
           },
         context,
       ): Promise<Source> => {
@@ -240,7 +261,7 @@ export const createExecutorToolMap = (input: {
           `executor.sources.add:${crypto.randomUUID()}`,
         );
         const preparedArgs: ExecutorAddSourceInput =
-          args.kind === "openapi"
+          args.kind === "openapi" || args.kind === "graphql"
             ? {
               ...args,
               workspaceId: input.workspaceId,
@@ -279,14 +300,14 @@ export const createExecutorToolMap = (input: {
         }
 
         if (result.kind === "credential_required") {
-          const preparedOpenApiArgs = preparedArgs as Extract<
+          const preparedHttpArgs = preparedArgs as Extract<
             ExecutorAddSourceInput,
-            { kind: "openapi" }
+            { kind: "openapi" | "graphql" }
           >;
           const selectedAuth = await Effect.runPromise(
             promptForSourceCredentialSelection({
               args: {
-                ...preparedOpenApiArgs,
+                ...preparedHttpArgs,
                 workspaceId: input.workspaceId,
                 sourceId: result.source.id,
               },
@@ -305,7 +326,7 @@ export const createExecutorToolMap = (input: {
           const completed = await Effect.runPromise(
             input.sourceAuthService.addExecutorSource(
               {
-                ...preparedOpenApiArgs,
+                ...preparedHttpArgs,
                 auth: selectedAuth,
               },
               context?.onElicitation

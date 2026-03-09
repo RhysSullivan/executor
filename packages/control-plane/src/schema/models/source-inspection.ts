@@ -5,6 +5,7 @@ import { SourceSchema } from "./source";
 
 export const SourceInspectionPipelineKindSchema = Schema.Literal(
   "openapi",
+  "graphql",
   "persisted",
 );
 

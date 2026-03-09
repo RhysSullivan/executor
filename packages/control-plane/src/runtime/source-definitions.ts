@@ -134,6 +134,27 @@ const validateSourceByKind = (source: Source): Effect.Effect<Source, Error, neve
       if (trimOrNull(source.specUrl) === null) {
         return yield* Effect.fail(new Error("OpenAPI sources require specUrl"));
       }
+
+      if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
+        return yield* Effect.fail(
+          new Error("OpenAPI sources cannot define MCP transport settings"),
+        );
+      }
+
+      return source;
+    }
+
+    if (source.kind === "graphql") {
+      if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
+        return yield* Effect.fail(
+          new Error("GraphQL sources cannot define MCP transport settings"),
+        );
+      }
+
+      if (source.specUrl !== null) {
+        return yield* Effect.fail(new Error("GraphQL sources cannot define specUrl"));
+      }
+
       return source;
     }
 

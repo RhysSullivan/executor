@@ -28,6 +28,13 @@ import * as Option from "effect/Option";
 
 import { operationErrors } from "./operation-errors";
 import { formatJsonIfNeeded, formatWithPrettier } from "./prettier-format";
+import {
+  buildGraphqlToolPresentation,
+  compileGraphqlToolDefinitions,
+  extractGraphqlManifest,
+  type GraphqlToolDefinition,
+  type GraphqlToolManifest,
+} from "./graphql-tools";
 import { loadSourceById as loadStoredSourceById } from "./source-store";
 import { ControlPlaneStore, type ControlPlaneStoreShape } from "./store";
 import { namespaceFromSourceName } from "./tool-artifacts";
@@ -270,6 +277,51 @@ const openApiToolRecord = (input: {
   };
 };
 
+const graphqlToolRecord = (input: {
+  source: Source;
+  namespace: string;
+  manifest: GraphqlToolManifest;
+  definition: GraphqlToolDefinition;
+}): InspectionToolRecord => {
+  const presentation = buildGraphqlToolPresentation({
+    manifest: input.manifest,
+    definition: input.definition,
+  });
+  const path = `${input.namespace}.${input.definition.toolId}`;
+  const summary: SourceInspectionToolSummary = {
+    path,
+    sourceKey: input.source.id,
+    title: input.definition.name,
+    description: input.definition.description,
+    providerKind: "graphql",
+    toolId: input.definition.toolId,
+    rawToolId: input.definition.rawToolId,
+    operationId: input.definition.operationName,
+    group: input.definition.group,
+    leaf: input.definition.leaf,
+    tags: [],
+    method: null,
+    pathTemplate: null,
+    inputType: presentation.inputType,
+    outputType: presentation.outputType,
+  };
+
+  return {
+    summary,
+    detail: {
+      summary,
+      definitionJson: asPrettyJson(input.definition),
+      documentationJson: null,
+      providerDataJson: presentation.providerDataJson,
+      inputSchemaJson: presentation.inputSchemaJson ?? null,
+      outputSchemaJson: presentation.outputSchemaJson ?? null,
+      exampleInputJson: presentation.exampleInputJson ?? null,
+      exampleOutputJson: null,
+    },
+    searchText: searchTextFromSummary(summary),
+  };
+};
+
 const loadPersistedInspection = (input: {
   store: ControlPlaneStoreShape;
   source: Source;
@@ -363,6 +415,55 @@ const loadOpenApiInspection = (input: {
     } satisfies ResolvedSourceInspection;
   });
 
+const loadGraphqlInspection = (input: {
+  source: Source;
+  sourceRecord: StoredSourceRecord;
+}): Effect.Effect<ResolvedSourceInspection, Error, never> =>
+  Effect.gen(function* () {
+    const rawDocumentText = input.sourceRecord.sourceDocumentText;
+    if (!rawDocumentText) {
+      return yield* Effect.fail(new Error("Missing stored GraphQL document"));
+    }
+
+    const manifest = yield* extractGraphqlManifest(
+      input.source.name,
+      rawDocumentText,
+    ).pipe(
+      Effect.mapError((cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+      ),
+    );
+    const definitions = compileGraphqlToolDefinitions(manifest);
+    const namespace = input.source.namespace ?? namespaceFromSourceName(input.source.name);
+    const tools = yield* Effect.forEach(definitions, (definition) =>
+      formatInspectionToolRecord(graphqlToolRecord({
+        source: input.source,
+        namespace,
+        manifest,
+        definition,
+      })),
+    );
+    const manifestJson = yield* Effect.promise(() =>
+      formatWithPrettier(asPrettyJson(manifest), "json"),
+    );
+    const definitionsJson = yield* Effect.promise(() =>
+      formatWithPrettier(asPrettyJson(definitions), "json"),
+    );
+    const formattedRawDocumentText = yield* Effect.promise(() =>
+      formatJsonIfNeeded(rawDocumentText),
+    );
+
+    return {
+      source: input.source,
+      namespace,
+      pipelineKind: "graphql",
+      rawDocumentText: formattedRawDocumentText,
+      manifestJson,
+      definitionsJson,
+      tools,
+    } satisfies ResolvedSourceInspection;
+  });
+
 const resolveSourceInspection = (input: {
   workspaceId: WorkspaceId;
   sourceId: SourceId;
@@ -372,6 +473,20 @@ const resolveSourceInspection = (input: {
 
     if (source.kind === "openapi" && sourceRecord.sourceDocumentText) {
       return yield* loadOpenApiInspection({
+        source,
+        sourceRecord,
+      }).pipe(
+        Effect.catchAll(() =>
+          loadPersistedInspection({
+            store,
+            source,
+          }),
+        ),
+      );
+    }
+
+    if (source.kind === "graphql" && sourceRecord.sourceDocumentText) {
+      return yield* loadGraphqlInspection({
         source,
         sourceRecord,
       }).pipe(
