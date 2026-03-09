@@ -1,0 +1,78 @@
+name: Publish Executor Package
+run-name: "${{ format('publish executor {0}', github.ref_name) }}"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-executor-package-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Require default branch
+        if: github.ref_name != github.event.repository.default_branch
+        run: |
+          echo "Publish from ${GITHUB_REF_NAME} is blocked; use ${DEFAULT_BRANCH}." >&2
+          exit 1
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./apps/executor/package.json').version")"
+
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "apps/executor/package.json version is not semver: ${version}" >&2
+            exit 1
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Publishing executor@${version}"
+
+      - name: Ensure version is unpublished
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if npm view "executor@${{ steps.version.outputs.version }}" version >/dev/null 2>&1; then
+            echo "executor@${{ steps.version.outputs.version }} is already published" >&2
+            exit 1
+          fi
+
+      - name: Run executor checks
+        run: |
+          bun run --cwd apps/executor typecheck
+          bun run --cwd apps/executor test
+
+      - name: Build distribution package
+        run: bun run --cwd apps/executor build:dist
+
+      - name: Publish to npm
+        working-directory: apps/executor
+        run: npm publish ./dist/npm --access public --provenance
