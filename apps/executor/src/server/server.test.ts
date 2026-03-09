@@ -21,7 +21,7 @@ import {
   type ResolveExecutionEnvironment,
   SourceIdSchema,
 } from "@executor/control-plane";
-import { makeInProcessExecutor } from "@executor/runtime-local-inproc";
+import { makeSesExecutor } from "@executor/runtime-ses";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
@@ -38,7 +38,7 @@ import { createLocalExecutorServer } from "@executor/server";
 
 const executionResolver: ResolveExecutionEnvironment = () =>
   Effect.succeed({
-    executor: makeInProcessExecutor(),
+    executor: makeSesExecutor(),
     toolInvoker: makeToolInvokerFromTools({
       tools: {
         "math.add": {
@@ -63,7 +63,7 @@ const makeServer = createLocalExecutorServer({
 
 const gatedExecutionResolver: ResolveExecutionEnvironment = ({ onElicitation }) =>
   Effect.succeed({
-    executor: makeInProcessExecutor(),
+    executor: makeSesExecutor(),
     toolInvoker: makeToolInvokerFromTools({
       tools: {
         "demo.gated_echo": toTool({

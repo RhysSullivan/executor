@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import { z } from "zod";
 
 import { makeToolInvokerFromTools } from "@executor/codemode-core";
-import { makeInProcessExecutor } from "@executor/runtime-local-inproc";
+import { makeSesExecutor } from "@executor/runtime-ses";
 
 import {
   createCodeTool,
@@ -30,7 +30,7 @@ const tools = createToolsFromAiSdkTools({
   sourceKey: "in_memory.demo",
 });
 
-const executor = makeInProcessExecutor();
+const executor = makeSesExecutor();
 const toolInvoker = makeToolInvokerFromTools({ tools });
 
 export const codemode = createCodeTool({

@@ -5,7 +5,7 @@ import {
   makeToolInvokerFromTools,
   toExecutorTool,
 } from "@executor/codemode-core";
-import { makeInProcessExecutor } from "@executor/runtime-local-inproc";
+import { makeSesExecutor } from "@executor/runtime-ses";
 
 const numberPairInputSchema = Schema.standardSchemaV1(
   Schema.Struct({
@@ -35,12 +35,12 @@ const tools = {
 };
 
 const run = Effect.gen(function* () {
-  const outputWithTools = yield* makeInProcessExecutor().execute(
+  const outputWithTools = yield* makeSesExecutor().execute(
     "return await tools.math.add({ a: 20, b: 22 });",
     makeToolInvokerFromTools({ tools }),
   );
 
-  const outputWithInvoker = yield* makeInProcessExecutor().execute(
+  const outputWithInvoker = yield* makeSesExecutor().execute(
     "return await tools.math.add({ a: 39, b: 3 });",
     makeToolInvokerFromTools({ tools }),
   );

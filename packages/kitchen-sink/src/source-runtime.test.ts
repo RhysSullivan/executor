@@ -32,7 +32,7 @@ import {
   type ToolInvoker,
 } from "@executor/codemode-core";
 import { createOpenApiToolsFromSpec } from "@executor/codemode-openapi";
-import { makeInProcessExecutor } from "@executor/runtime-local-inproc";
+import { makeSesExecutor } from "@executor/runtime-ses";
 
 const asToolPath = (value: string): ToolPath => value as ToolPath;
 const asSourceId = (value: string): SourceId => value as SourceId;
@@ -717,7 +717,7 @@ describe("source runtime", () => {
         catalog: workspaceCatalog,
       }).executeDescription;
 
-      const output = yield* makeInProcessExecutor().execute(
+      const output = yield* makeSesExecutor().execute(
         [
           'const matches = await tools.discover({ query: "github issues", limit: 3 });',
           "const result = await tools.github.issues.list({ owner: 'vercel', repo: 'next.js' });",
@@ -790,7 +790,7 @@ describe("source runtime", () => {
         tools: discoveryBacked.tools,
       });
 
-      const output = yield* makeInProcessExecutor().execute(
+      const output = yield* makeSesExecutor().execute(
         [
           'const matches = await tools.discover({ query: "github repo", limit: 3 });',
           "const result = await tools.github.repos.getRepo({ owner: 'vercel', repo: 'ai' });",
@@ -854,7 +854,7 @@ describe("source runtime", () => {
         },
       });
 
-      const output = yield* makeInProcessExecutor().execute(
+      const output = yield* makeSesExecutor().execute(
         "return await tools.math.add({ a: 20, b: 22 });",
         toolInvoker,
       );

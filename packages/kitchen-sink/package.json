@@ -14,7 +14,7 @@
     "@executor/codemode-core": "workspace:*",
     "@executor/codemode-openapi": "workspace:*",
     "@executor/control-plane": "workspace:*",
-    "@executor/runtime-local-inproc": "workspace:*",
+    "@executor/runtime-ses": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

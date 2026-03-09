@@ -10,7 +10,7 @@ import {
   makeToolInvokerFromTools,
   toExecutorTool,
 } from "@executor/codemode-core";
-import { makeInProcessExecutor } from "@executor/runtime-local-inproc";
+import { makeSesExecutor } from "@executor/runtime-ses";
 
 const numberPairInputSchema = Schema.standardSchemaV1(
   Schema.Struct({
@@ -44,9 +44,9 @@ const tools = {
 };
 
 describe("kitchen-sink", () => {
-  it.effect("executes code with in-process runtime", () =>
+  it.effect("executes code with SES runtime", () =>
     Effect.gen(function* () {
-      const executor = makeInProcessExecutor();
+      const executor = makeSesExecutor();
       const toolInvoker = makeToolInvokerFromTools({
         tools,
         onToolInteraction: allowAllToolInteractions,
@@ -67,7 +67,7 @@ describe("kitchen-sink", () => {
 
   it.effect("executes through lazy tool invoker", () =>
     Effect.gen(function* () {
-      const executor = makeInProcessExecutor();
+      const executor = makeSesExecutor();
       const toolInvoker = makeToolInvokerFromTools({ tools });
 
       const output = yield* executor.execute(
@@ -79,9 +79,20 @@ describe("kitchen-sink", () => {
     }),
   );
 
+  it.effect("does not expose process inside SES sandbox", () =>
+    Effect.gen(function* () {
+      const executor = makeSesExecutor();
+      const toolInvoker = makeToolInvokerFromTools({ tools });
+
+      const output = yield* executor.execute("return typeof process;", toolInvoker);
+
+      expect(output.result).toBe("undefined");
+    }),
+  );
+
   it.effect("createCodeTool wraps Effect execution for AI SDK", () =>
     Effect.gen(function* () {
-      const executor = makeInProcessExecutor();
+      const executor = makeSesExecutor();
       const toolInvoker = makeToolInvokerFromTools({ tools });
       const codemode = createCodeTool({ toolInvoker, executor });
       const execute = (codemode as unknown as {
@@ -108,7 +119,7 @@ describe("kitchen-sink", () => {
 
   it.effect("fetch is disabled by default", () =>
     Effect.gen(function* () {
-      const executor = makeInProcessExecutor();
+      const executor = makeSesExecutor();
       const toolInvoker = makeToolInvokerFromTools({ tools });
 
       const output = yield* executor.execute(
@@ -116,7 +127,7 @@ describe("kitchen-sink", () => {
         toolInvoker,
       );
 
-      expect(output.error).toContain("fetch is disabled in in-process executor");
+      expect(output.error).toContain("fetch is disabled in SES executor");
     }),
   );
 });

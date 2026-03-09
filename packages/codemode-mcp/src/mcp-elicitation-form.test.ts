@@ -6,7 +6,7 @@ import * as Effect from "effect/Effect";
 import { z } from "zod/v4";
 
 import { makeToolInvokerFromTools } from "@executor/codemode-core";
-import { makeInProcessExecutor } from "@executor/runtime-local-inproc";
+import { makeSesExecutor } from "@executor/runtime-ses";
 
 import {
   createMcpConnectorFromClient,
@@ -108,7 +108,7 @@ describe("codemode-mcp form elicitation", () => {
         sourceKey: "mcp.form",
       });
 
-      const output = yield* makeInProcessExecutor().execute(
+      const output = yield* makeSesExecutor().execute(
         'return await tools.source.form.gated_echo({ value: "from-form" });',
         makeToolInvokerFromTools({
           tools: discovered.tools,

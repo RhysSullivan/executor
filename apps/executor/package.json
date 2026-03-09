@@ -48,7 +48,7 @@
   },
   "devDependencies": {
     "@executor/mcp-elicitation-demo": "workspace:*",
-    "@executor/runtime-local-inproc": "workspace:*",
+    "@executor/runtime-ses": "workspace:*",
     "@effect/vitest": "catalog:",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/node": "catalog:",

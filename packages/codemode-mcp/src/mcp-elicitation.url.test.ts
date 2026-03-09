@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import { z } from "zod/v4";
 
 import { makeToolInvokerFromTools } from "@executor/codemode-core";
-import { makeInProcessExecutor } from "@executor/runtime-local-inproc";
+import { makeSesExecutor } from "@executor/runtime-ses";
 
 import { createSdkMcpConnector } from "./mcp-connection";
 import { discoverMcpToolsFromConnector } from "./mcp-tools";
@@ -250,7 +250,7 @@ describe("codemode-mcp URL elicitation", () => {
         sourceKey: "mcp.url",
       });
 
-      const output = yield* makeInProcessExecutor().execute(
+      const output = yield* makeSesExecutor().execute(
         'return await tools.source.url.url_blocking_echo({ value: "from-url-blocking" });',
         makeToolInvokerFromTools({
           tools: discovered.tools,
@@ -293,7 +293,7 @@ describe("codemode-mcp URL elicitation", () => {
         sourceKey: "mcp.url",
       });
 
-      const output = yield* makeInProcessExecutor().execute(
+      const output = yield* makeSesExecutor().execute(
         'return await tools.source.url.url_retry_echo({ value: "from-url-retry" });',
         makeToolInvokerFromTools({
           tools: discovered.tools,

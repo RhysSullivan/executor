@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@executor/codemode-core": "workspace:*",
-    "@executor/runtime-local-inproc": "workspace:*",
+    "@executor/runtime-ses": "workspace:*",
     "ai": "^6.0.0",
     "effect": "catalog:",
     "zod": "catalog:"

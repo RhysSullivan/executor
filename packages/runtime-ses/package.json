@@ -1,5 +1,5 @@
 {
-  "name": "@executor/runtime-local-inproc",
+  "name": "@executor/runtime-ses",
   "private": true,
   "type": "module",
   "exports": {
@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@executor/codemode-core": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "ses": "^1.15.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

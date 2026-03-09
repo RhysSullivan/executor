@@ -6,6 +6,8 @@ import { join, resolve } from "node:path";
 import { readDistributionPackageMetadata, repoRoot } from "./metadata";
 
 const defaultOutputDir = resolve(repoRoot, "apps/executor/dist/npm");
+const DENO_INSTALL_URL = "https://docs.deno.com/runtime/getting_started/installation/";
+
 
 export type BuildDistributionPackageOptions = {
   outputDir?: string;
@@ -122,6 +124,9 @@ const createPackageJson = (input: {
     bin: {
       executor: "bin/executor.js",
     },
+    scripts: {
+      postinstall: "node ./bin/postinstall.js",
+    },
     files: [
       "bin",
       "resources",
@@ -142,6 +147,48 @@ const createLauncherSource = () => [
   "",
 ].join("\n");
 
+const createPostinstallSource = () => [
+  "#!/usr/bin/env node",
+  'import { spawnSync } from "node:child_process";',
+  'import { existsSync } from "node:fs";',
+  'import { join } from "node:path";',
+  "",
+  `const denoInstallUrl = ${JSON.stringify(DENO_INSTALL_URL)};`,
+  "",
+  "const resolveDenoExecutable = () => {",
+  '  const configured = process.env.DENO_BIN?.trim();',
+  '  if (configured) {',
+  '    return configured;',
+  '  }',
+  "",
+  '  const home = process.env.HOME?.trim();',
+  '  if (home) {',
+  '    const installedPath = join(home, ".deno", "bin", "deno");',
+  '    if (existsSync(installedPath)) {',
+  '      return installedPath;',
+  '    }',
+  '  }',
+  "",
+  '  return "deno";',
+  "};",
+  "",
+  "const isDenoAvailable = (executable) => {",
+  '  const result = spawnSync(executable, ["--version"], {',
+  '    stdio: "ignore",',
+  '    timeout: 5000,',
+  '  });',
+  "",
+  '  return result.error === undefined && result.status === 0;',
+  "};",
+  "",
+  "const denoExecutable = resolveDenoExecutable();",
+  "",
+  "if (!isDenoAvailable(denoExecutable)) {",
+  '  console.warn(`Deno not found, if you want to use deno for sandboxing install it from ${denoInstallUrl} otherwise JS will execute in SES`);',
+  "}",
+  "",
+].join("\n");
+
 export const buildDistributionPackage = async (
   options: BuildDistributionPackageOptions = {},
 ): Promise<DistributionPackageArtifact> => {
@@ -153,6 +200,7 @@ export const buildDistributionPackage = async (
   const migrationsDir = join(resourcesDir, "migrations");
   const bundlePath = join(binDir, "executor.mjs");
   const launcherPath = join(binDir, "executor.js");
+  const postinstallPath = join(binDir, "postinstall.js");
   const pgliteDistDir = resolvePGliteDistDir();
   const pgliteDataPath = join(pgliteDistDir, "pglite.data");
   const pgliteWasmPath = join(pgliteDistDir, "pglite.wasm");
@@ -216,7 +264,9 @@ export const buildDistributionPackage = async (
   }));
   await cp(readmePath, join(packageDir, "README.md"));
   await writeFile(launcherPath, createLauncherSource());
+  await writeFile(postinstallPath, createPostinstallSource());
   await chmod(launcherPath, 0o755);
+  await chmod(postinstallPath, 0o755);
 
   return {
     packageDir,

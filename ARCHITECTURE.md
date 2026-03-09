@@ -38,10 +38,10 @@ If `README.md` answers "what is this product and how do I use it?", this file an
                              +-- live execution manager
                              v
                   +---------+---------+
-                  | in-process TS      |
+                  | SES sandboxed      |
                   | executor runtime   |
-                  | runtime-local-     |
-                  | inproc             |
+                  | runtime-ses        |
+                  | subprocess worker  |
                   +--------------------+
 ```
 
@@ -103,7 +103,7 @@ It contains the runtime layer, persistence integration, and the business logic f
 
 If you want to understand the behavior of the product, this is the most important package.
 
-### `packages/runtime-local-inproc`: code execution runtime
+### `packages/runtime-ses`: code execution runtime
 
 This package provides the TypeScript execution environment used by the local product.
 
@@ -115,7 +115,7 @@ At a high level it receives:
 
 and runs user-authored code against that environment.
 
-The current runtime is in-process, which keeps the local architecture simple and fast.
+The current runtime executes code in a dedicated SES child process so tool calls stay proxied through the control plane.
 
 ### Adapter packages
 
@@ -274,7 +274,7 @@ That environment combines:
 
 The resolver returns three things:
 
-- the in-process code executor
+- the SES code executor
 - the workspace tool catalog
 - the tool invoker that actually dispatches calls
 
@@ -282,7 +282,7 @@ This resolver is the composition point where the whole product becomes one calla
 
 ### 3. Run TypeScript
 
-The code then runs inside the local in-process runtime.
+The code then runs inside the local SES sandbox runtime.
 
 The intended calling pattern is:
 
