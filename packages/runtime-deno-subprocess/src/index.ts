@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -89,6 +90,21 @@ const defaultDenoExecutable = (): string => {
   }
 
   return "deno";
+};
+
+const formatDenoSpawnError = (
+  cause: unknown,
+  executable: string,
+): string => {
+  const code = typeof cause === "object" && cause !== null && "code" in cause
+    ? String((cause as { code?: unknown }).code)
+    : null;
+
+  if (code === "ENOENT") {
+    return `Failed to spawn Deno subprocess: Deno executable "${executable}" was not found. Install Deno or set DENO_BIN.`;
+  }
+
+  return `Failed to spawn Deno subprocess: ${cause instanceof Error ? cause.message : String(cause)}`;
 };
 
 // --------------------------------------------------------------------------
@@ -294,9 +310,7 @@ const executeInDeno = (
               stderrBuffer += chunk;
             },
             onError: (cause) => {
-              fail(
-                `Failed to spawn Deno subprocess: ${cause.message}`,
-              );
+              fail(formatDenoSpawnError(cause, denoExecutable));
             },
             onExit: (exitCode, signal) => {
               if (settled) {
@@ -310,9 +324,7 @@ const executeInDeno = (
           },
         );
       } catch (cause) {
-        fail(
-          `Failed to spawn Deno subprocess: ${cause instanceof Error ? cause.message : String(cause)}`,
-        );
+        fail(formatDenoSpawnError(cause, denoExecutable));
         return;
       }
 
@@ -334,8 +346,14 @@ const executeInDeno = (
  */
 export const isDenoAvailable = (
   executable: string = defaultDenoExecutable(),
-): boolean =>
-  executable.includes("/") ? existsSync(executable) : true;
+): boolean => {
+  const result = spawnSync(executable, ["--version"], {
+    stdio: "ignore",
+    timeout: 5000,
+  });
+
+  return result.error === undefined && result.status === 0;
+};
 
 /**
  * Create a `CodeExecutor` that runs code in a sandboxed Deno subprocess.

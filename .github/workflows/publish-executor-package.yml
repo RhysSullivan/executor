@@ -39,6 +39,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 

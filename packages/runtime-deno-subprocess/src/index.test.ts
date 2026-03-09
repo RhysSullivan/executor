@@ -43,6 +43,27 @@ const tools = {
   }),
 };
 
+it("reports unavailable Deno executables", () => {
+  expect(isDenoAvailable("__executor_missing_deno__")).toBe(false);
+});
+
+it.effect("returns an actionable error when Deno is missing", () =>
+  Effect.gen(function* () {
+    const executor = makeDenoSubprocessExecutor({
+      denoExecutable: "__executor_missing_deno__",
+    });
+    const toolInvoker = makeToolInvokerFromTools({ tools });
+
+    const output = yield* executor.execute(
+      "return 1 + 2;",
+      toolInvoker,
+    );
+
+    expect(output.result).toBeNull();
+    expect(output.error).toContain("Install Deno or set DENO_BIN");
+  }),
+);
+
 const skipUnlessDeno = isDenoAvailable()
   ? describe
   : describe.skip;

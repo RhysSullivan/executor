@@ -538,7 +538,13 @@ type LocalServerStatus = {
     accountId: string;
     workspaceId: string;
   } | null;
+  denoVersion: string | null;
 };
+
+const renderDenoSandboxDetail = (denoVersion: string | null): string =>
+  denoVersion !== null
+    ? `deno ${denoVersion}`
+    : "deno not found (run `executor sandbox` to install)";
 
 const getServerStatus = (baseUrl: string): Effect.Effect<LocalServerStatus, Error, never> =>
   Effect.gen(function* () {
@@ -554,6 +560,7 @@ const getServerStatus = (baseUrl: string): Effect.Effect<LocalServerStatus, Erro
     const pid = typeof pidRecord?.pid === "number" ? pidRecord.pid : null;
     const pidRunning = pid !== null ? isPidRunning(pid) : false;
     const logFile = pidRecord?.logFile ?? DEFAULT_SERVER_LOG_FILE;
+    const denoVersion = yield* getDenoVersion();
 
     return {
       baseUrl,
@@ -566,6 +573,7 @@ const getServerStatus = (baseUrl: string): Effect.Effect<LocalServerStatus, Erro
       webAssetsDir: resolveRuntimeWebAssetsDir(),
       migrationsDir: resolveRuntimeMigrationsDir(),
       installation,
+      denoVersion,
     } satisfies LocalServerStatus;
   });
 
@@ -581,60 +589,55 @@ const renderStatus = (status: LocalServerStatus): string =>
     `webAssetsDir: ${status.webAssetsDir ?? "missing"}`,
     `migrationsDir: ${status.migrationsDir ?? "missing"}`,
     `workspaceId: ${status.installation?.workspaceId ?? "unavailable"}`,
+    `denoSandbox: ${renderDenoSandboxDetail(status.denoVersion)}`,
   ].join("\n");
 
 const getDoctorReport = (baseUrl: string) =>
   getServerStatus(baseUrl).pipe(
-    Effect.flatMap((status) =>
-      getDenoVersion().pipe(
-        Effect.map((denoVersion) => {
-          const checks = {
-            serverReachable: {
-              ok: status.reachable,
-              detail: status.reachable ? `reachable at ${status.baseUrl}` : `not reachable at ${status.baseUrl}`,
-            },
-            pidFile: {
-              ok: status.pid !== null,
-              detail: status.pid !== null ? `pid ${status.pid}` : `missing pid file at ${status.pidFile}`,
-            },
-            process: {
-              ok: status.pidRunning,
-              detail: status.pidRunning ? `pid ${status.pid}` : "no live daemon process recorded",
-            },
-            database: {
-              ok: status.localDataDir.length > 0,
-              detail: status.localDataDir,
-            },
-            webAssets: {
-              ok: status.webAssetsDir !== null,
-              detail: status.webAssetsDir ?? "missing bundled web assets",
-            },
-            migrations: {
-              ok: status.migrationsDir !== null,
-              detail: status.migrationsDir ?? "missing migrations directory",
-            },
-            installation: {
-              ok: status.installation !== null,
-              detail: status.installation
-                ? `workspace ${status.installation.workspaceId}`
-                : "local installation unavailable",
-            },
-            denoSandbox: {
-              ok: denoVersion !== null,
-              detail: denoVersion !== null
-                ? `deno ${denoVersion}`
-                : "deno not found (run `executor sandbox` to install)",
-            },
-          } as const;
+    Effect.map((status) => {
+      const checks = {
+        serverReachable: {
+          ok: status.reachable,
+          detail: status.reachable ? `reachable at ${status.baseUrl}` : `not reachable at ${status.baseUrl}`,
+        },
+        pidFile: {
+          ok: status.pid !== null,
+          detail: status.pid !== null ? `pid ${status.pid}` : `missing pid file at ${status.pidFile}`,
+        },
+        process: {
+          ok: status.pidRunning,
+          detail: status.pidRunning ? `pid ${status.pid}` : "no live daemon process recorded",
+        },
+        database: {
+          ok: status.localDataDir.length > 0,
+          detail: status.localDataDir,
+        },
+        webAssets: {
+          ok: status.webAssetsDir !== null,
+          detail: status.webAssetsDir ?? "missing bundled web assets",
+        },
+        migrations: {
+          ok: status.migrationsDir !== null,
+          detail: status.migrationsDir ?? "missing migrations directory",
+        },
+        installation: {
+          ok: status.installation !== null,
+          detail: status.installation
+            ? `workspace ${status.installation.workspaceId}`
+            : "local installation unavailable",
+        },
+        denoSandbox: {
+          ok: status.denoVersion !== null,
+          detail: renderDenoSandboxDetail(status.denoVersion),
+        },
+      } as const;
 
-          return {
-            ok: Object.values(checks).every((check) => check.ok),
-            status,
-            checks,
-          };
-        }),
-      ),
-    ),
+      return {
+        ok: Object.values(checks).every((check) => check.ok),
+        status,
+        checks,
+      };
+    }),
   );
 
 const printJson = (value: unknown) =>
