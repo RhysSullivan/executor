@@ -15,4 +15,4 @@ export * from "./models/local-installation";
 export * from "./models/execution";
 export * from "./models/source-inspection";
 export * from "./models/source-discovery";
-export * from "./models/data-migration";
+export * from "./models/code-migration";

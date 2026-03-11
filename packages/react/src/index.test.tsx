@@ -370,7 +370,9 @@ const seedStoredOpenApiSource = async (input: {
       status: "connected",
       enabled: true,
       namespace: "hooks-test",
-      specUrl,
+      binding: {
+        specUrl,
+      },
       auth: {
         kind: "none",
       },
@@ -497,6 +499,9 @@ describe("executor-react source hooks", () => {
           name: "" as never,
           kind: "openapi",
           endpoint: "https://example.com",
+          binding: {
+            specUrl: "https://example.com/openapi.json",
+          },
         }).then(
           (value) => ({ ok: true as const, value }),
           (error) => ({ ok: false as const, error }),

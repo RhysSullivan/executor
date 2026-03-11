@@ -32,8 +32,11 @@ const makeRuntime = Effect.acquireRelease(
 const openApiBindingConfigJson = (specUrl: string): string =>
   JSON.stringify({
     adapterKey: "openapi",
-    specUrl,
-    defaultHeaders: null,
+    version: 1,
+    payload: {
+      specUrl,
+      defaultHeaders: null,
+    },
   });
 
 type OpenApiSpecServer = {
@@ -156,7 +159,10 @@ describe("control-plane-runtime", () => {
               name: "Github",
               kind: "openapi",
               endpoint: openApiServer.baseUrl,
-              specUrl: openApiServer.specUrl,
+              binding: {
+                specUrl: openApiServer.specUrl,
+                defaultHeaders: null,
+              },
               auth: {
                 kind: "none",
               },
@@ -253,7 +259,10 @@ describe("control-plane-runtime", () => {
       expect(connected.kind).toBe("connected");
       expect(connected.source.kind).toBe("openapi");
       expect(connected.source.status).toBe("connected");
-      expect(connected.source.specUrl).toBe(openApiServer.specUrl);
+      expect(connected.source.binding).toEqual({
+        specUrl: openApiServer.specUrl,
+        defaultHeaders: null,
+      });
     }),
   );
 

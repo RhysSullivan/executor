@@ -8,6 +8,7 @@ import type {
   AccountId,
   CredentialSlot,
   Source,
+  SourceBinding,
   SourceImportAuthPolicy,
   SourceTransport,
   StoredSourceRecipeDocumentRecord,
@@ -32,6 +33,8 @@ export type SourceBindingState = {
   specUrl: string | null;
   defaultHeaders: StringMap | null;
 };
+
+export type StoredSourceBindingConfig = Pick<SourceBinding, "version" | "payload">;
 
 export type SourceAdapterSyncInput = {
   source: Source;
@@ -93,6 +96,7 @@ export type SourceAdapter = {
   key: string;
   displayName: string;
   family: SourceAdapterFamily;
+  bindingConfigVersion: number;
   providerKey: string;
   defaultImportAuthPolicy: SourceImportAuthPolicy;
   primaryDocumentKind: string | null;
@@ -104,7 +108,8 @@ export type SourceAdapter = {
   serializeBindingConfig: (source: Source) => string;
   deserializeBindingConfig: (
     input: Pick<StoredSourceRecord, "id" | "bindingConfigJson">,
-  ) => Effect.Effect<SourceBindingState, Error, never>;
+  ) => Effect.Effect<StoredSourceBindingConfig, Error, never>;
+  bindingStateFromSource: (source: Source) => Effect.Effect<SourceBindingState, Error, never>;
   sourceConfigFromSource: (source: Source) => Record<string, unknown>;
   validateSource: (source: Source) => Effect.Effect<Source, Error, never>;
   shouldAutoProbe: (source: Source) => boolean;

@@ -11,14 +11,13 @@ import type {
   Source,
   SourceAuth,
   SourceImportAuthPolicy,
+  SourceRecipeAdapterKey,
   SourceRecipeId,
-  SourceRecipeImporterKind,
   SourceRecipeKind,
   SourceRecipeRevisionId,
   StoredSourceRecord,
   StoredSourceRecipeRecord,
   StoredSourceRecipeRevisionRecord,
-  StringMap,
   WorkspaceId,
 } from "#schema";
 import {
@@ -49,7 +48,7 @@ const sourceRecipeKindFromSource = (source: Source): SourceRecipeKind => {
   return adapter.family;
 };
 
-const sourceRecipeImporterKindFromSource = (source: Source): SourceRecipeImporterKind => {
+const sourceRecipeAdapterKeyFromSource = (source: Source): SourceRecipeAdapterKey => {
   return getSourceAdapterForSource(source).key;
 };
 
@@ -63,7 +62,7 @@ const stableHash = (value: string): string =>
 const sourceRecipeSignature = (source: Source): string =>
   JSON.stringify({
     recipeKind: sourceRecipeKindFromSource(source),
-    importerKind: sourceRecipeImporterKindFromSource(source),
+    adapterKey: sourceRecipeAdapterKeyFromSource(source),
     providerKey: sourceRecipeProviderKeyFromSource(source),
     sourceConfig: sourceConfigFromSource(source),
   });
@@ -267,11 +266,8 @@ export const createSourceFromPayload = (input: {
       status: input.payload.status ?? "draft",
       enabled: input.payload.enabled ?? true,
       namespace: trimOrNull(input.payload.namespace),
-      transport: input.payload.transport ?? null,
-      queryParams: input.payload.queryParams ?? null,
-      headers: input.payload.headers ?? null,
-      specUrl: trimOrNull(input.payload.specUrl),
-      defaultHeaders: input.payload.defaultHeaders ?? null,
+      bindingVersion: getSourceAdapter(input.payload.kind).bindingConfigVersion,
+      binding: input.payload.binding ?? {},
       importAuthPolicy,
       importAuth,
       auth,
@@ -295,14 +291,13 @@ export const updateSourceFromPayload = (input: {
       ? input.source.importAuth
       : yield* normalizeAuth(input.payload.importAuth);
     const nextImportAuthPolicy = normalizeImportAuthPolicy(
-      input.payload.kind ?? input.source.kind,
+      input.source.kind,
       input.payload.importAuthPolicy ?? input.source.importAuthPolicy,
     );
 
     return yield* validateSourceByKind({
       ...input.source,
       name: input.payload.name !== undefined ? input.payload.name.trim() : input.source.name,
-      kind: input.payload.kind ?? input.source.kind,
       endpoint:
         input.payload.endpoint !== undefined
           ? input.payload.endpoint.trim()
@@ -312,21 +307,12 @@ export const updateSourceFromPayload = (input: {
       namespace: input.payload.namespace !== undefined
         ? trimOrNull(input.payload.namespace)
         : input.source.namespace,
-      transport: input.payload.transport !== undefined
-        ? input.payload.transport
-        : input.source.transport,
-      queryParams: input.payload.queryParams !== undefined
-        ? input.payload.queryParams
-        : input.source.queryParams,
-      headers: input.payload.headers !== undefined
-        ? input.payload.headers
-        : input.source.headers,
-      specUrl: input.payload.specUrl !== undefined
-        ? trimOrNull(input.payload.specUrl)
-        : input.source.specUrl,
-      defaultHeaders: input.payload.defaultHeaders !== undefined
-        ? input.payload.defaultHeaders
-        : input.source.defaultHeaders,
+      bindingVersion: input.payload.binding !== undefined
+        ? getSourceAdapter(input.source.kind).bindingConfigVersion
+        : input.source.bindingVersion,
+      binding: input.payload.binding !== undefined
+        ? input.payload.binding
+        : input.source.binding,
       importAuthPolicy: nextImportAuthPolicy,
       importAuth: nextImportAuth,
       auth: nextAuth,
@@ -347,7 +333,7 @@ export const createSourceRecipeRecord = (input: {
 }): StoredSourceRecipeRecord => ({
   id: input.recipeId ?? stableSourceRecipeId(input.source),
   kind: sourceRecipeKindFromSource(input.source),
-  importerKind: sourceRecipeImporterKindFromSource(input.source),
+  adapterKey: sourceRecipeAdapterKeyFromSource(input.source),
   providerKey: sourceRecipeProviderKeyFromSource(input.source),
   name: input.source.name,
   summary: null,
@@ -438,7 +424,7 @@ export const projectSourceFromStorage = (input: {
 }): Effect.Effect<Source, Error, never> =>
   Effect.gen(function* () {
     const adapter = getSourceAdapter(input.sourceRecord.kind);
-    const bindingState = yield* adapter.deserializeBindingConfig({
+    const bindingConfig = yield* adapter.deserializeBindingConfig({
       id: input.sourceRecord.id,
       bindingConfigJson: input.sourceRecord.bindingConfigJson,
     });
@@ -452,11 +438,8 @@ export const projectSourceFromStorage = (input: {
       status: input.sourceRecord.status,
       enabled: input.sourceRecord.enabled,
       namespace: input.sourceRecord.namespace,
-      transport: bindingState.transport,
-      queryParams: bindingState.queryParams,
-      headers: bindingState.headers,
-      specUrl: bindingState.specUrl,
-      defaultHeaders: bindingState.defaultHeaders,
+      bindingVersion: bindingConfig.version,
+      binding: bindingConfig.payload,
       importAuthPolicy: input.sourceRecord.importAuthPolicy,
       importAuth:
         input.sourceRecord.importAuthPolicy === "separate"

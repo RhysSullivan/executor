@@ -1,22 +1,61 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import type { Source } from "#schema";
 
 import type { SourceAdapter } from "./types";
 import {
   createStandardToolDescriptor,
   decodeBindingConfig,
+  decodeSourceBindingPayload,
   emptySourceBindingState,
   encodeBindingConfig,
 } from "./shared";
 
-const InternalBindingConfigSchema = Schema.Struct({
-  adapterKey: Schema.String,
-});
+const InternalBindingConfigSchema = Schema.Struct({});
+
+const INTERNAL_BINDING_CONFIG_VERSION = 1;
+
+const bindingHasAnyField = (
+  value: unknown,
+  fields: readonly string[],
+): boolean =>
+  value !== null
+  && typeof value === "object"
+  && !Array.isArray(value)
+  && fields.some((field) => Object.prototype.hasOwnProperty.call(value, field));
+
+const internalBindingConfigFromSource = (source: Pick<Source, "id" | "bindingVersion" | "binding">) =>
+  Effect.gen(function* () {
+    if (
+      bindingHasAnyField(source.binding, [
+        "specUrl",
+        "defaultHeaders",
+        "transport",
+        "queryParams",
+        "headers",
+      ])
+    ) {
+      return yield* Effect.fail(
+        new Error("internal sources cannot define HTTP source settings"),
+      );
+    }
+
+    return yield* decodeSourceBindingPayload({
+      sourceId: source.id,
+      label: "internal",
+      version: source.bindingVersion,
+      expectedVersion: INTERNAL_BINDING_CONFIG_VERSION,
+      schema: InternalBindingConfigSchema,
+      value: source.binding,
+      allowedKeys: [],
+    });
+  });
 
 export const internalSourceAdapter: SourceAdapter = {
   key: "internal",
   displayName: "Internal",
   family: "internal",
+  bindingConfigVersion: INTERNAL_BINDING_CONFIG_VERSION,
   providerKey: "generic_internal",
   defaultImportAuthPolicy: "none",
   primaryDocumentKind: null,
@@ -26,38 +65,41 @@ export const internalSourceAdapter: SourceAdapter = {
   executorAddHelpText: null,
   executorAddInputSignatureWidth: null,
   serializeBindingConfig: (source) =>
-    encodeBindingConfig(InternalBindingConfigSchema, {
+    encodeBindingConfig({
       adapterKey: source.kind,
+      version: INTERNAL_BINDING_CONFIG_VERSION,
+      payloadSchema: InternalBindingConfigSchema,
+      payload: Effect.runSync(internalBindingConfigFromSource(source)),
     }),
   deserializeBindingConfig: ({ id, bindingConfigJson }) =>
     Effect.map(
       decodeBindingConfig({
         sourceId: id,
         label: "internal",
-        schema: InternalBindingConfigSchema,
+        adapterKey: "internal",
+        version: INTERNAL_BINDING_CONFIG_VERSION,
+        payloadSchema: InternalBindingConfigSchema,
         value: bindingConfigJson,
       }),
-      () => emptySourceBindingState,
+      ({ version, payload }) => ({
+        version,
+        payload,
+      }),
     ),
+  bindingStateFromSource: () => Effect.succeed(emptySourceBindingState),
   sourceConfigFromSource: (source) => ({
     kind: "internal",
     endpoint: source.endpoint,
   }),
   validateSource: (source) =>
     Effect.gen(function* () {
-      if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
-        return yield* Effect.fail(
-          new Error(`${source.kind} sources cannot define MCP transport settings`),
-        );
-      }
+      yield* internalBindingConfigFromSource(source);
 
-      if (source.specUrl !== null || source.defaultHeaders !== null) {
-        return yield* Effect.fail(
-          new Error(`${source.kind} sources cannot define HTTP source settings`),
-        );
-      }
-
-      return source;
+      return {
+        ...source,
+        bindingVersion: INTERNAL_BINDING_CONFIG_VERSION,
+        binding: {},
+      };
     }),
   shouldAutoProbe: () => false,
   parseManifest: () => Effect.succeed(null),

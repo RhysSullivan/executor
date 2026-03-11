@@ -45,6 +45,7 @@ import {
   ConnectHttpImportAuthSchema,
   createStandardToolDescriptor,
   decodeBindingConfig,
+  decodeSourceBindingPayload,
   emptySourceBindingState,
   encodeBindingConfig,
   isSourceCredentialRequiredError,
@@ -77,15 +78,59 @@ const GraphqlExecutorAddInputSchema = Schema.extend(
 );
 
 const GraphqlBindingConfigSchema = Schema.Struct({
-  adapterKey: Schema.Literal("graphql"),
   defaultHeaders: Schema.NullOr(StringMapSchema),
 });
+
+type GraphqlBindingConfig = typeof GraphqlBindingConfigSchema.Type;
+
+const GraphqlSourceBindingPayloadSchema = Schema.Struct({
+  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+});
+
+const GRAPHQL_BINDING_CONFIG_VERSION = 1;
 
 const GRAPHQL_MATERIALIZATION_REVISION_ID = "src_recipe_rev_materialization" as SourceRecipeRevisionId;
 
 const decodeGraphqlToolProviderDataJson = Schema.decodeUnknownEither(
   Schema.parseJson(GraphqlToolProviderDataSchema),
 );
+
+const bindingHasAnyField = (
+  value: unknown,
+  fields: readonly string[],
+): boolean =>
+  value !== null
+  && typeof value === "object"
+  && !Array.isArray(value)
+  && fields.some((field) => Object.prototype.hasOwnProperty.call(value, field));
+
+const graphqlBindingConfigFromSource = (
+  source: Pick<Source, "id" | "bindingVersion" | "binding">,
+): Effect.Effect<GraphqlBindingConfig, Error, never> =>
+  Effect.gen(function* () {
+    if (bindingHasAnyField(source.binding, ["transport", "queryParams", "headers"])) {
+      return yield* Effect.fail(
+        new Error("GraphQL sources cannot define MCP transport settings"),
+      );
+    }
+    if (bindingHasAnyField(source.binding, ["specUrl"])) {
+      return yield* Effect.fail(new Error("GraphQL sources cannot define specUrl"));
+    }
+
+    const bindingConfig = yield* decodeSourceBindingPayload({
+      sourceId: source.id,
+      label: "GraphQL",
+      version: source.bindingVersion,
+      expectedVersion: GRAPHQL_BINDING_CONFIG_VERSION,
+      schema: GraphqlSourceBindingPayloadSchema,
+      value: source.binding,
+      allowedKeys: ["defaultHeaders"],
+    });
+
+    return {
+      defaultHeaders: bindingConfig.defaultHeaders ?? null,
+    } satisfies GraphqlBindingConfig;
+  });
 
 const fetchGraphqlIntrospectionDocumentWithHeaders = (input: {
   url: string;
@@ -292,6 +337,7 @@ export const graphqlSourceAdapter: SourceAdapter = {
   key: "graphql",
   displayName: "GraphQL",
   family: "http_api",
+  bindingConfigVersion: GRAPHQL_BINDING_CONFIG_VERSION,
   providerKey: "generic_graphql",
   defaultImportAuthPolicy: "reuse_runtime",
   primaryDocumentKind: "graphql_introspection",
@@ -303,41 +349,52 @@ export const graphqlSourceAdapter: SourceAdapter = {
   ],
   executorAddInputSignatureWidth: 320,
   serializeBindingConfig: (source) =>
-    encodeBindingConfig(GraphqlBindingConfigSchema, {
+    encodeBindingConfig({
       adapterKey: "graphql",
-      defaultHeaders: source.defaultHeaders,
+      version: GRAPHQL_BINDING_CONFIG_VERSION,
+      payloadSchema: GraphqlBindingConfigSchema,
+      payload: Effect.runSync(graphqlBindingConfigFromSource(source)),
     }),
   deserializeBindingConfig: ({ id, bindingConfigJson }) =>
     Effect.map(
       decodeBindingConfig({
         sourceId: id,
         label: "GraphQL",
-        schema: GraphqlBindingConfigSchema,
+        adapterKey: "graphql",
+        version: GRAPHQL_BINDING_CONFIG_VERSION,
+        payloadSchema: GraphqlBindingConfigSchema,
         value: bindingConfigJson,
       }),
-      (bindingConfig) => ({
+      ({ version, payload }) => ({
+        version,
+        payload,
+      }),
+    ),
+  bindingStateFromSource: (source) =>
+    Effect.map(graphqlBindingConfigFromSource(source), (bindingConfig) => ({
         ...emptySourceBindingState,
         defaultHeaders: bindingConfig.defaultHeaders,
       }),
     ),
-  sourceConfigFromSource: (source) => ({
-    kind: "graphql",
-    endpoint: source.endpoint,
-    defaultHeaders: source.defaultHeaders,
-  }),
+  sourceConfigFromSource: (source) =>
+    Effect.runSync(
+      Effect.map(graphqlBindingConfigFromSource(source), (bindingConfig) => ({
+        kind: "graphql",
+        endpoint: source.endpoint,
+        defaultHeaders: bindingConfig.defaultHeaders,
+      })),
+    ),
   validateSource: (source) =>
     Effect.gen(function* () {
-      if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
-        return yield* Effect.fail(
-          new Error("GraphQL sources cannot define MCP transport settings"),
-        );
-      }
+      const bindingConfig = yield* graphqlBindingConfigFromSource(source);
 
-      if (source.specUrl !== null) {
-        return yield* Effect.fail(new Error("GraphQL sources cannot define specUrl"));
-      }
-
-      return source;
+      return {
+        ...source,
+        bindingVersion: GRAPHQL_BINDING_CONFIG_VERSION,
+        binding: {
+          defaultHeaders: bindingConfig.defaultHeaders,
+        },
+      };
     }),
   shouldAutoProbe: (source) =>
     source.enabled && (source.status === "draft" || source.status === "probing"),
@@ -404,12 +461,13 @@ export const graphqlSourceAdapter: SourceAdapter = {
     }),
   materializeSource: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
+      const bindingConfig = yield* graphqlBindingConfigFromSource(source);
       const auth = yield* resolveAuthMaterialForSlot("import");
       const graphqlDocument = yield* fetchGraphqlIntrospectionDocumentWithHeaders(
         {
           url: source.endpoint,
           headers: {
-            ...(source.defaultHeaders ?? {}),
+            ...(bindingConfig.defaultHeaders ?? {}),
             ...auth.headers,
           },
         },
@@ -480,6 +538,7 @@ export const graphqlSourceAdapter: SourceAdapter = {
     onElicitation,
   }) =>
     Effect.gen(function* () {
+      const bindingConfig = yield* graphqlBindingConfigFromSource(source);
       const schemaRefTable = schemaBundle
         ? decodeGraphqlSchemaRefTableJson(schemaBundle.refsJson)
         : Either.right({});
@@ -504,7 +563,7 @@ export const graphqlSourceAdapter: SourceAdapter = {
         outputSchemaJson: operation.outputSchemaJson ?? undefined,
         providerDataJson: operation.providerDataJson,
         schemaRefTable: schemaRefTable.right,
-        defaultHeaders: source.defaultHeaders ?? {},
+        defaultHeaders: bindingConfig.defaultHeaders ?? {},
         credentialHeaders: auth.headers,
       });
 

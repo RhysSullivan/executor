@@ -223,7 +223,7 @@ export const loadWorkspaceSourceRecipes = (input: {
     );
   });
 
-export const loadSourceRecipe = (input: {
+export const loadSourceWithRecipe = (input: {
   rows: SqlControlPlaneRows;
   workspaceId: WorkspaceId;
   sourceId: Source["id"];

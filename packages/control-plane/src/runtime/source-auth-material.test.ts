@@ -18,11 +18,11 @@ const makeSource = (overrides: Partial<Source> = {}): Source => ({
   status: "connected",
   enabled: true,
   namespace: "github",
-  transport: null,
-  queryParams: null,
-  headers: null,
-  specUrl: "https://api.github.com/openapi.json",
-  defaultHeaders: null,
+  bindingVersion: 1,
+  binding: {
+    specUrl: "https://api.github.com/openapi.json",
+    defaultHeaders: null,
+  },
   importAuthPolicy: "reuse_runtime",
   importAuth: { kind: "none" },
   auth: { kind: "none" },
@@ -82,7 +82,9 @@ describe("source-auth-material", () => {
         source: makeSource({
           kind: "graphql",
           endpoint: "https://example.com/graphql",
-          specUrl: null,
+          binding: {
+            defaultHeaders: null,
+          },
           auth: {
             kind: "oauth2",
             headerName: "Authorization",

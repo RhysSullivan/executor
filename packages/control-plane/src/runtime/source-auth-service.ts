@@ -16,11 +16,13 @@ import {
   type SecretMaterialPurpose,
   Source,
   type SourceImportAuthPolicy,
+  type SourceTransport,
   SourceAuthSession,
   SourceAuthSessionIdSchema,
   SourceIdSchema,
   SourceSchema,
   type SecretRef,
+  type StringMap,
   type WorkspaceId,
 } from "#schema";
 import * as Context from "effect/Context";
@@ -43,7 +45,10 @@ import {
   createSourceFromPayload,
   updateSourceFromPayload,
 } from "./source-definitions";
-import { hasSourceAdapterFamily } from "./source-adapters";
+import {
+  hasSourceAdapterFamily,
+  sourceBindingStateFromSource,
+} from "./source-adapters";
 import { isSourceCredentialRequiredError } from "./source-adapters/shared";
 import {
   createDefaultSecretMaterialResolver,
@@ -152,14 +157,15 @@ const probeMcpSourceWithoutAuth = (
     if (source.kind !== "mcp") {
       return yield* Effect.fail(new Error(`Expected MCP source, received ${source.kind}`));
     }
+    const bindingState = yield* sourceBindingStateFromSource(source);
 
     const connector = yield* Effect.try({
       try: () =>
         createSdkMcpConnector({
           endpoint: source.endpoint,
-          transport: source.transport ?? undefined,
-          queryParams: source.queryParams ?? undefined,
-          headers: source.headers ?? undefined,
+          transport: bindingState.transport ?? undefined,
+          queryParams: bindingState.queryParams ?? undefined,
+          headers: bindingState.headers ?? undefined,
         }),
       catch: (cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
@@ -365,9 +371,9 @@ export type ConnectMcpSourceInput = {
   name?: string | null;
   namespace?: string | null;
   enabled?: boolean;
-  transport?: Source["transport"];
-  queryParams?: Source["queryParams"];
-  headers?: Source["headers"];
+  transport?: SourceTransport;
+  queryParams?: StringMap | null;
+  headers?: StringMap | null;
   baseUrl?: string | null;
 };
 
@@ -378,9 +384,9 @@ export type McpSourceConnectResult = Extract<ExecutorSourceAddResult, {
 export type SourceOAuthProviderInput = {
   kind: "mcp";
   endpoint: string;
-  transport?: Source["transport"];
-  queryParams?: Source["queryParams"];
-  headers?: Source["headers"];
+  transport?: SourceTransport;
+  queryParams?: StringMap | null;
+  headers?: StringMap | null;
 };
 
 export type StartSourceOAuthSessionInput = {
@@ -586,9 +592,9 @@ const connectMcpSourceInternal = (input: {
   name?: string | null;
   namespace?: string | null;
   enabled?: boolean;
-  transport?: Source["transport"];
-  queryParams?: Source["queryParams"];
-  headers?: Source["headers"];
+  transport?: SourceTransport;
+  queryParams?: StringMap | null;
+  headers?: StringMap | null;
   mcpDiscoveryElicitation?: McpDiscoveryElicitationContext;
   resolveSecretMaterial: ResolveSecretMaterial;
 }): Effect.Effect<McpSourceConnectResult, Error, never> =>
@@ -627,11 +633,14 @@ const connectMcpSourceInternal = (input: {
       ?? existing?.namespace
       ?? defaultNamespaceFromName(chosenName);
     const chosenEnabled = input.enabled ?? existing?.enabled ?? true;
-    const chosenTransport = input.transport ?? existing?.transport ?? "auto";
+    const existingBinding = existing
+      ? yield* sourceBindingStateFromSource(existing)
+      : null;
+    const chosenTransport = input.transport ?? existingBinding?.transport ?? "auto";
     const chosenQueryParams =
-      input.queryParams !== undefined ? input.queryParams : (existing?.queryParams ?? null);
+      input.queryParams !== undefined ? input.queryParams : (existingBinding?.queryParams ?? null);
     const chosenHeaders =
-      input.headers !== undefined ? input.headers : (existing?.headers ?? null);
+      input.headers !== undefined ? input.headers : (existingBinding?.headers ?? null);
     const now = Date.now();
 
     const draftSource = existing
@@ -641,12 +650,13 @@ const connectMcpSourceInternal = (input: {
             name: chosenName,
             endpoint: normalizedEndpoint,
             namespace: chosenNamespace,
-            kind: "mcp",
             status: "probing",
             enabled: chosenEnabled,
-            transport: chosenTransport,
-            queryParams: chosenQueryParams,
-            headers: chosenHeaders,
+            binding: {
+              transport: chosenTransport,
+              queryParams: chosenQueryParams,
+              headers: chosenHeaders,
+            },
             importAuthPolicy: "reuse_runtime",
             importAuth: { kind: "none" },
             auth: { kind: "none" },
@@ -664,9 +674,11 @@ const connectMcpSourceInternal = (input: {
             namespace: chosenNamespace,
             status: "probing",
             enabled: chosenEnabled,
-            transport: chosenTransport,
-            queryParams: chosenQueryParams,
-            headers: chosenHeaders,
+            binding: {
+              transport: chosenTransport,
+              queryParams: chosenQueryParams,
+              headers: chosenHeaders,
+            },
             importAuthPolicy: "reuse_runtime",
             importAuth: { kind: "none" },
             auth: { kind: "none" },
@@ -823,7 +835,8 @@ const addExecutorHttpSource = (input: {
       }
 
       if (input.sourceInput.kind === "openapi") {
-        return trimOrNull(source.specUrl) === normalizedSpecUrl;
+        const bindingState = Effect.runSync(sourceBindingStateFromSource(source));
+        return trimOrNull(bindingState.specUrl) === normalizedSpecUrl;
       }
 
       return true;
@@ -837,6 +850,9 @@ const addExecutorHttpSource = (input: {
       trimOrNull(input.sourceInput.namespace)
       ?? existing?.namespace
       ?? defaultNamespaceFromName(chosenName);
+    const existingBinding = existing
+      ? yield* sourceBindingStateFromSource(existing)
+      : null;
     const now = Date.now();
 
     const auth = yield* materializeExecutorHttpAuth({
@@ -859,10 +875,16 @@ const addExecutorHttpSource = (input: {
             name: chosenName,
             endpoint: normalizedEndpoint,
             namespace: chosenNamespace,
-            kind: input.sourceInput.kind,
             status: "probing",
             enabled: true,
-            specUrl: normalizedSpecUrl,
+            binding: input.sourceInput.kind === "openapi"
+              ? {
+                  specUrl: normalizedSpecUrl,
+                  defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                }
+              : {
+                  defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                },
             importAuthPolicy: importAuth.importAuthPolicy,
             importAuth: importAuth.importAuth,
             auth,
@@ -880,7 +902,14 @@ const addExecutorHttpSource = (input: {
             namespace: chosenNamespace,
             status: "probing",
             enabled: true,
-            specUrl: normalizedSpecUrl,
+            binding: input.sourceInput.kind === "openapi"
+              ? {
+                  specUrl: normalizedSpecUrl,
+                  defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                }
+              : {
+                  defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                },
             importAuthPolicy: importAuth.importAuthPolicy,
             importAuth: importAuth.importAuth,
             auth,

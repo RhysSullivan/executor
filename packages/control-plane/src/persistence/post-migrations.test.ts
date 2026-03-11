@@ -25,20 +25,26 @@ import {
   createSqlControlPlanePersistence,
   type SqlControlPlanePersistence,
 } from "./index";
-import { runDataMigrations } from "./data-migrations";
+import { runCodeMigrations } from "./code-migrations";
 import { loadSourceById } from "../runtime/source-store";
 
 const openApiBindingConfigJson = (specUrl: string): string =>
   JSON.stringify({
     adapterKey: "openapi",
-    specUrl,
-    defaultHeaders: null,
+    version: 1,
+    payload: {
+      specUrl,
+      defaultHeaders: null,
+    },
   });
 
 const graphqlBindingConfigJson = (): string =>
   JSON.stringify({
     adapterKey: "graphql",
-    defaultHeaders: null,
+    version: 1,
+    payload: {
+      defaultHeaders: null,
+    },
   });
 
 const baseRevisionRecord = (input: {
@@ -143,8 +149,8 @@ const seedMigratedSourceRecipe = (input: {
     yield* input.persistence.rows.sourceRecipes.upsert({
       id: recipeId,
       kind: "http_api",
-      importerKind:
-        input.kind === "openapi" ? "openapi" : "graphql_introspection",
+      adapterKey:
+        input.kind === "openapi" ? "openapi" : "graphql",
       providerKey:
         input.kind === "openapi" ? "generic_http" : "generic_graphql",
       name: input.kind === "openapi" ? "GitHub" : "GraphQL Demo",
@@ -226,13 +232,13 @@ const seedMigratedSourceRecipe = (input: {
     return { recipeRevisionId };
   });
 
-describe("data-migrations", () => {
+describe("code-migrations", () => {
   it.scoped("repairs migrated OpenAPI recipes from stored documents", () =>
     Effect.gen(function* () {
       const persistence = yield* makePersistence;
       const workspaceId = WorkspaceIdSchema.make("ws_post_migration_openapi");
       const sourceId = SourceIdSchema.make("src_post_migration_openapi");
-      yield* persistence.rows.dataMigrations.clearAll();
+      yield* persistence.rows.codeMigrations.clearAll();
 
       const openApiDocument = JSON.stringify({
         openapi: "3.0.3",
@@ -294,7 +300,7 @@ describe("data-migrations", () => {
         documentText: openApiDocument,
       });
 
-      yield* runDataMigrations(persistence.rows);
+      yield* runCodeMigrations(persistence.rows);
 
       const revision =
         yield* persistence.rows.sourceRecipeRevisions.getById(recipeRevisionId);
@@ -318,7 +324,7 @@ describe("data-migrations", () => {
       const persistence = yield* makePersistence;
       const workspaceId = WorkspaceIdSchema.make("ws_post_migration_graphql");
       const sourceId = SourceIdSchema.make("src_post_migration_graphql");
-      yield* persistence.rows.dataMigrations.clearAll();
+      yield* persistence.rows.codeMigrations.clearAll();
       const schema = buildSchema(`
         type Query {
           viewer: User!
@@ -352,7 +358,7 @@ describe("data-migrations", () => {
         documentText: graphqlDocument,
       });
 
-      yield* runDataMigrations(persistence.rows);
+      yield* runCodeMigrations(persistence.rows);
 
       const revision =
         yield* persistence.rows.sourceRecipeRevisions.getById(recipeRevisionId);
@@ -376,7 +382,7 @@ describe("data-migrations", () => {
       const persistence = yield* makePersistence;
       const workspaceId = WorkspaceIdSchema.make("ws_post_migration_session");
       const sourceId = SourceIdSchema.make("src_post_migration_session");
-      yield* persistence.rows.dataMigrations.clearAll();
+      yield* persistence.rows.codeMigrations.clearAll();
       const sessionId = SourceAuthSessionIdSchema.make(
         "src_auth_post_migration_session",
       );
@@ -414,7 +420,7 @@ describe("data-migrations", () => {
         updatedAt: now,
       });
 
-      yield* runDataMigrations(persistence.rows);
+      yield* runCodeMigrations(persistence.rows);
 
       const session =
         yield* persistence.rows.sourceAuthSessions.getById(sessionId);
@@ -453,7 +459,7 @@ describe("data-migrations", () => {
         createSqlControlPlanePersistence({
           localDataDir,
           migrationsFolder: legacyMigrationsDir,
-          runDataMigrations: false,
+          runCodeMigrations: false,
         }),
       );
 
@@ -478,7 +484,7 @@ describe("data-migrations", () => {
       const seedRecipe = async (input: {
         sourceId: string;
         kind: "openapi" | "graphql" | "mcp";
-        importerKind: string;
+        adapterKey: string;
         providerKey: string;
         name: string;
         endpoint: string;
@@ -489,18 +495,31 @@ describe("data-migrations", () => {
           `src_recipe_rev_${input.sourceId}`,
         );
 
-        await Effect.runPromise(legacyPersistence!.rows.sourceRecipes.upsert({
-          id: recipeId,
-          kind: input.kind === "mcp" ? "mcp" : "http_api",
-          importerKind: input.importerKind,
-          providerKey: input.providerKey,
-          name: input.name,
-          summary: null,
-          visibility: "workspace",
-          latestRevisionId: recipeRevisionId,
-          createdAt: now,
-          updatedAt: now,
-        }));
+        await legacyPersistence!.db.execute(sql`
+          INSERT INTO "source_recipes" (
+            "id",
+            "kind",
+            "importer_kind",
+            "provider_key",
+            "name",
+            "summary",
+            "visibility",
+            "latest_revision_id",
+            "created_at",
+            "updated_at"
+          ) VALUES (
+            ${recipeId},
+            ${input.kind === "mcp" ? "mcp" : "http_api"},
+            ${input.adapterKey},
+            ${input.providerKey},
+            ${input.name},
+            NULL,
+            'workspace',
+            ${recipeRevisionId},
+            ${now},
+            ${now}
+          )
+        `);
         await legacyPersistence!.db.execute(sql`
           INSERT INTO "source_recipe_revisions" (
             "id",
@@ -529,7 +548,7 @@ describe("data-migrations", () => {
       const openapi = await seedRecipe({
         sourceId: "src_legacy_openapi",
         kind: "openapi",
-        importerKind: "openapi",
+        adapterKey: "openapi",
         providerKey: "generic_http",
         name: "Legacy OpenAPI",
         endpoint: "https://api.example.com",
@@ -543,7 +562,7 @@ describe("data-migrations", () => {
       const graphql = await seedRecipe({
         sourceId: "src_legacy_graphql",
         kind: "graphql",
-        importerKind: "graphql_introspection",
+        adapterKey: "graphql_introspection",
         providerKey: "generic_graphql",
         name: "Legacy GraphQL",
         endpoint: "https://api.example.com/graphql",
@@ -556,7 +575,7 @@ describe("data-migrations", () => {
       const mcp = await seedRecipe({
         sourceId: "src_legacy_mcp",
         kind: "mcp",
-        importerKind: "mcp_manifest",
+        adapterKey: "mcp_manifest",
         providerKey: "generic_mcp",
         name: "Legacy MCP",
         endpoint: "https://api.example.com/mcp",
@@ -680,10 +699,13 @@ describe("data-migrations", () => {
           sourceId: SourceIdSchema.make("src_legacy_openapi"),
         },
       ));
-      expect(openApiSource.specUrl).toBe("https://api.example.com/openapi.json");
-      expect(openApiSource.defaultHeaders).toEqual({
-        accept: "application/json",
+      expect(openApiSource.binding).toEqual({
+        specUrl: "https://api.example.com/openapi.json",
+        defaultHeaders: {
+          accept: "application/json",
+        },
       });
+      expect(openApiSource.bindingVersion).toBe(1);
 
       const graphqlSource = await Effect.runPromise(loadSourceById(
         upgradedPersistence.rows,
@@ -692,10 +714,16 @@ describe("data-migrations", () => {
           sourceId: SourceIdSchema.make("src_legacy_graphql"),
         },
       ));
-      expect(graphqlSource.defaultHeaders).toEqual({
-        accept: "application/json",
+      expect(graphqlSource.binding).toEqual({
+        defaultHeaders: {
+          accept: "application/json",
+        },
       });
-      expect(graphqlSource.specUrl).toBeNull();
+
+      const graphqlRecipe = await Effect.runPromise(
+        upgradedPersistence.rows.sourceRecipes.getById(graphql.recipeId),
+      );
+      expect(Option.getOrNull(graphqlRecipe)?.adapterKey).toBe("graphql");
 
       const mcpSource = await Effect.runPromise(loadSourceById(
         upgradedPersistence.rows,
@@ -704,13 +732,20 @@ describe("data-migrations", () => {
           sourceId: SourceIdSchema.make("src_legacy_mcp"),
         },
       ));
-      expect(mcpSource.transport).toBe("streamable-http");
-      expect(mcpSource.queryParams).toEqual({
-        tenant: "acme",
+      expect(mcpSource.binding).toEqual({
+        transport: "streamable-http",
+        queryParams: {
+          tenant: "acme",
+        },
+        headers: {
+          "x-tenant": "acme",
+        },
       });
-      expect(mcpSource.headers).toEqual({
-        "x-tenant": "acme",
-      });
+
+      const mcpRecipe = await Effect.runPromise(
+        upgradedPersistence.rows.sourceRecipes.getById(mcp.recipeId),
+      );
+      expect(Option.getOrNull(mcpRecipe)?.adapterKey).toBe("mcp");
     } finally {
       await legacyPersistence?.close().catch(() => undefined);
       await upgradedPersistence?.close().catch(() => undefined);

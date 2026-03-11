@@ -823,7 +823,11 @@ describe("local-executor-server", () => {
           status: "connected",
           enabled: true,
           namespace: "demo",
-          transport: "streamable-http",
+          binding: {
+            transport: "streamable-http",
+            queryParams: null,
+            headers: null,
+          },
           auth: {
             kind: "none",
           },
@@ -900,7 +904,11 @@ describe("local-executor-server", () => {
           status: "connected",
           enabled: true,
           namespace: "demo",
-          transport: "streamable-http",
+          binding: {
+            transport: "streamable-http",
+            queryParams: null,
+            headers: null,
+          },
           auth: {
             kind: "none",
           },
@@ -974,7 +982,11 @@ describe("local-executor-server", () => {
           status: "connected",
           enabled: true,
           namespace: "demo",
-          transport: "streamable-http",
+          binding: {
+            transport: "streamable-http",
+            queryParams: null,
+            headers: null,
+          },
           auth: {
             kind: "none",
           },
@@ -1373,7 +1385,7 @@ describe("local-executor-server", () => {
       yield* server.runtime.persistence.rows.sourceRecipes.upsert({
         id: recipeId,
         kind: "mcp",
-        importerKind: "mcp_manifest",
+        adapterKey: "mcp",
         providerKey: "generic_mcp",
         name: "Demo",
         summary: null,
@@ -1413,9 +1425,12 @@ describe("local-executor-server", () => {
         importAuthPolicy: "reuse_runtime",
         bindingConfigJson: JSON.stringify({
           adapterKey: "mcp",
-          transport: "streamable-http",
-          queryParams: null,
-          headers: null,
+          version: 1,
+          payload: {
+            transport: "streamable-http",
+            queryParams: null,
+            headers: null,
+          },
         }),
         sourceHash: null,
         lastError: null,

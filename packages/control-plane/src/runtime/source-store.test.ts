@@ -57,11 +57,11 @@ const makeOpenApiSource = (input: {
   status: "connected",
   enabled: true,
   namespace: "github",
-  transport: null,
-  queryParams: null,
-  headers: null,
-  specUrl: input.specUrl ?? "https://example.com/openapi.json",
-  defaultHeaders: null,
+  bindingVersion: 1,
+  binding: {
+    specUrl: input.specUrl ?? "https://example.com/openapi.json",
+    defaultHeaders: null,
+  },
   importAuthPolicy: "reuse_runtime",
   importAuth: { kind: "none" },
   auth: input.auth,
@@ -321,7 +321,10 @@ describe("source-store", () => {
           id: "src_recipe_doc_recipe_rewrite",
           recipeRevisionId: initialRecipeRevisionId,
           documentKind: "openapi",
-          documentKey: initialSource.specUrl ?? initialSource.endpoint,
+          documentKey:
+            typeof initialSource.binding.specUrl === "string"
+              ? initialSource.binding.specUrl
+              : initialSource.endpoint,
           contentText: "{}",
           contentHash: "hash_recipe_rewrite",
           fetchedAt: now,
@@ -452,7 +455,10 @@ describe("source-store", () => {
           id: "src_recipe_doc_shared_recipe",
           recipeRevisionId: sharedRecipeRevisionId,
           documentKind: "openapi",
-          documentKey: firstSource.specUrl ?? firstSource.endpoint,
+          documentKey:
+            typeof firstSource.binding.specUrl === "string"
+              ? firstSource.binding.specUrl
+              : firstSource.endpoint,
           contentText: "{}",
           contentHash: "hash_shared_recipe",
           fetchedAt: now,

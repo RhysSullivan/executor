@@ -595,11 +595,12 @@ const persistConnectedEchoTool = (input: {
       status: "connected",
       enabled: true,
       namespace: "counted",
-      transport: "streamable-http",
-      queryParams: null,
-      headers: null,
-      specUrl: null,
-      defaultHeaders: null,
+      bindingVersion: 1,
+      binding: {
+        transport: "streamable-http",
+        queryParams: null,
+        headers: null,
+      },
       importAuthPolicy: "reuse_runtime",
       importAuth: { kind: "none" },
       auth: { kind: "none" },
@@ -806,11 +807,11 @@ const persistConnectedGithubOpenApiSource = (input: {
       status: "connected",
       enabled: true,
       namespace: "github",
-      transport: null,
-      queryParams: null,
-      headers: null,
-      specUrl: "https://example.com/github-openapi.json",
-      defaultHeaders: null,
+      bindingVersion: 1,
+      binding: {
+        specUrl: "https://example.com/github-openapi.json",
+        defaultHeaders: null,
+      },
       importAuthPolicy: "reuse_runtime",
       importAuth: { kind: "none" },
       auth: input.auth
@@ -867,7 +868,10 @@ const persistConnectedGithubOpenApiSource = (input: {
           id: `src_recipe_doc_${randomUUID()}`,
           recipeRevisionId: sourceRecord.value.recipeRevisionId,
           documentKind: "openapi",
-          documentKey: source.specUrl ?? source.endpoint,
+          documentKey:
+            typeof source.binding.specUrl === "string"
+              ? source.binding.specUrl
+              : source.endpoint,
           contentText: openApiDocumentText,
           contentHash: manifest.sourceHash,
           fetchedAt: now,

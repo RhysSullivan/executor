@@ -23,7 +23,7 @@ import {
 
 import {
   expandRecipeTools,
-  loadSourceRecipe,
+  loadSourceWithRecipe,
   loadWorkspaceSourceRecipes,
   recipeToolDescriptor,
   recipeToolPath,
@@ -41,39 +41,70 @@ const makePersistence = () =>
 const openApiBindingConfigJson = (specUrl: string): string =>
   JSON.stringify({
     adapterKey: "openapi",
-    specUrl,
-    defaultHeaders: null,
+    version: 1,
+    payload: {
+      specUrl,
+      defaultHeaders: null,
+    },
   });
 
 const graphqlBindingConfigJson = (): string =>
   JSON.stringify({
     adapterKey: "graphql",
-    defaultHeaders: null,
+    version: 1,
+    payload: {
+      defaultHeaders: null,
+    },
   });
 
-const makeSource = (overrides: Partial<Source> = {}): Source => ({
-  id: SourceIdSchema.make("src_runtime_recipe"),
-  workspaceId: WorkspaceIdSchema.make("ws_runtime_recipe"),
-  name: "GitHub",
-  kind: "openapi",
-  endpoint: "https://api.github.com",
-  status: "connected",
-  enabled: true,
-  namespace: "github",
-  transport: null,
-  queryParams: null,
-  headers: null,
-  specUrl: "https://api.github.com/openapi.json",
-  defaultHeaders: null,
-  importAuthPolicy: "reuse_runtime",
-  importAuth: { kind: "none" },
-  auth: { kind: "none" },
-  sourceHash: null,
-  lastError: null,
-  createdAt: 1000,
-  updatedAt: 1000,
-  ...overrides,
-});
+const makeSource = (overrides: Partial<Source> = {}): Source => {
+  const kind = overrides.kind ?? "openapi";
+  const endpoint = overrides.endpoint
+    ?? (kind === "graphql"
+      ? "https://example.com/graphql"
+      : kind === "mcp"
+        ? "https://example.com/mcp"
+        : "https://api.github.com");
+  const binding =
+    overrides.binding
+    ?? (kind === "openapi"
+      ? {
+          specUrl: "https://api.github.com/openapi.json",
+          defaultHeaders: null,
+        }
+      : kind === "graphql"
+        ? {
+            defaultHeaders: null,
+          }
+        : kind === "mcp"
+          ? {
+              transport: null,
+              queryParams: null,
+              headers: null,
+            }
+          : {});
+
+  return {
+    id: SourceIdSchema.make("src_runtime_recipe"),
+    workspaceId: WorkspaceIdSchema.make("ws_runtime_recipe"),
+    name: "GitHub",
+    kind,
+    endpoint,
+    status: "connected",
+    enabled: true,
+    namespace: "github",
+    bindingVersion: 1,
+    binding,
+    importAuthPolicy: "reuse_runtime",
+    importAuth: { kind: "none" },
+    auth: { kind: "none" },
+    sourceHash: null,
+    lastError: null,
+    createdAt: 1000,
+    updatedAt: 1000,
+    ...overrides,
+  };
+};
 
 const makeOperation = (
   overrides: Partial<StoredSourceRecipeOperationRecord> = {},
@@ -245,8 +276,6 @@ describe("source-recipes-runtime", () => {
       const openApiSource = makeSource();
       const graphqlSource = makeSource({
         kind: "graphql",
-        endpoint: "https://example.com/graphql",
-        specUrl: null,
         namespace: "issues",
       });
 
@@ -287,8 +316,6 @@ describe("source-recipes-runtime", () => {
       expect(recipeToolDescriptor({
         source: makeSource({
           kind: "graphql",
-          endpoint: "https://example.com/graphql",
-          specUrl: null,
         }),
         operation: makeGraphqlOperation(),
         path: "graphql.viewer",
@@ -298,8 +325,6 @@ describe("source-recipes-runtime", () => {
       expect(recipeToolDescriptor({
         source: makeSource({
           kind: "graphql",
-          endpoint: "https://example.com/graphql",
-          specUrl: null,
         }),
         operation: makeGraphqlOperation({
           operationKind: "write",
@@ -311,9 +336,11 @@ describe("source-recipes-runtime", () => {
       expect(recipeToolDescriptor({
         source: makeSource({
           kind: "mcp",
-          endpoint: "https://example.com/mcp",
-          specUrl: null,
-          transport: "streamable-http",
+          binding: {
+            transport: "streamable-http",
+            queryParams: null,
+            headers: null,
+          },
         }),
         operation: makeMcpOperation(),
         path: "mcp.echo",
@@ -457,7 +484,7 @@ describe("source-recipes-runtime", () => {
         await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
           id: recipeId,
           kind: "http_api",
-          importerKind: "openapi",
+          adapterKey: "openapi",
           providerKey: "generic_http",
           name: "GitHub",
           summary: null,
@@ -567,7 +594,7 @@ describe("source-recipes-runtime", () => {
         await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
           id: recipeId,
           kind: "http_api",
-          importerKind: "graphql_introspection",
+          adapterKey: "graphql",
           providerKey: "generic_graphql",
           name: "GraphQL Demo",
           summary: null,
@@ -627,7 +654,7 @@ describe("source-recipes-runtime", () => {
     it("fails clearly when loading a missing source, missing revision, or invalid manifest", async () => {
       const persistence = await makePersistence();
       try {
-        await expect(Effect.runPromise(loadSourceRecipe({
+        await expect(Effect.runPromise(loadSourceWithRecipe({
           rows: persistence.rows,
           workspaceId: WorkspaceIdSchema.make("ws_missing_source"),
           sourceId: SourceIdSchema.make("src_missing_source"),
@@ -649,7 +676,7 @@ describe("source-recipes-runtime", () => {
         await Effect.runPromise(persistence.rows.sourceRecipes.upsert({
           id: recipeId,
           kind: "http_api",
-          importerKind: "openapi",
+          adapterKey: "openapi",
           providerKey: "generic_http",
           name: "Broken GitHub",
           summary: null,
@@ -677,7 +704,7 @@ describe("source-recipes-runtime", () => {
           updatedAt: 1000,
         }));
 
-        await expect(Effect.runPromise(loadSourceRecipe({
+        await expect(Effect.runPromise(loadSourceWithRecipe({
           rows: persistence.rows,
           workspaceId,
           sourceId,
@@ -700,7 +727,7 @@ describe("source-recipes-runtime", () => {
           updatedAt: 1000,
         }));
 
-        await expect(Effect.runPromise(loadSourceRecipe({
+        await expect(Effect.runPromise(loadSourceWithRecipe({
           rows: persistence.rows,
           workspaceId,
           sourceId,

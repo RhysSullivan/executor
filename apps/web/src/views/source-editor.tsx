@@ -62,7 +62,7 @@ const isSourceNotFoundLoadable = (loadable: Loadable<unknown>): boolean =>
   loadable.status === "error"
   && loadable.error.message.toLowerCase().includes("source not found");
 
-type TransportValue = "" | NonNullable<Source["transport"]>;
+type TransportValue = "" | "auto" | "streamable-http" | "sse";
 
 type SourceFormState = {
   name: string;
@@ -88,7 +88,7 @@ type SourceFormState = {
 
 const kindOptions: ReadonlyArray<Source["kind"]> = ["mcp", "openapi", "graphql", "internal"];
 
-const transportOptions: ReadonlyArray<NonNullable<Source["transport"]>> = [
+const transportOptions: ReadonlyArray<Exclude<TransportValue, "">> = [
   "auto",
   "streamable-http",
   "sse",
@@ -256,8 +256,33 @@ const startSourceOAuthPopup = async (input: {
   });
 };
 
-const stringMapToEditor = (value: Source["queryParams"] | Source["headers"] | Source["defaultHeaders"]): string =>
+const stringMapToEditor = (value: Record<string, string> | null): string =>
   value === null ? "" : JSON.stringify(value, null, 2);
+
+const readBindingStringMap = (
+  source: Source,
+  key: string,
+): Record<string, string> | null => {
+  const candidate = source.binding[key];
+  if (candidate === null || candidate === undefined || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return null;
+  }
+
+  const entries = Object.entries(candidate as Record<string, unknown>);
+  return entries.every(([, value]) => typeof value === "string")
+    ? Object.fromEntries(entries as ReadonlyArray<readonly [string, string]>)
+    : null;
+};
+
+const readBindingString = (source: Source, key: string): string =>
+  typeof source.binding[key] === "string" ? String(source.binding[key]) : "";
+
+const readBindingTransport = (source: Source): TransportValue => {
+  const candidate = source.binding.transport;
+  return typeof candidate === "string" && (candidate === "auto" || candidate === "streamable-http" || candidate === "sse")
+    ? candidate
+    : "";
+};
 
 const defaultFormState = (template?: SourceTemplate): SourceFormState => ({
   name: template?.name ?? "",
@@ -287,11 +312,11 @@ const formStateFromSource = (source: Source): SourceFormState => ({
   endpoint: source.endpoint,
   namespace: source.namespace ?? "",
   enabled: source.enabled,
-  transport: source.kind === "mcp" ? (source.transport ?? "auto") : "",
-  queryParamsText: stringMapToEditor(source.queryParams),
-  headersText: stringMapToEditor(source.headers),
-  specUrl: source.specUrl ?? "",
-  defaultHeadersText: stringMapToEditor(source.defaultHeaders),
+  transport: source.kind === "mcp" ? (readBindingTransport(source) || "auto") : "",
+  queryParamsText: stringMapToEditor(readBindingStringMap(source, "queryParams")),
+  headersText: stringMapToEditor(readBindingStringMap(source, "headers")),
+  specUrl: readBindingString(source, "specUrl"),
+  defaultHeadersText: stringMapToEditor(readBindingStringMap(source, "defaultHeaders")),
   authKind: source.auth.kind,
   authHeaderName: source.auth.kind === "none" ? "Authorization" : source.auth.headerName,
   authPrefix: source.auth.kind === "none" ? "Bearer " : source.auth.prefix,
@@ -427,11 +452,11 @@ const buildSourcePayload = (state: SourceFormState): CreateSourcePayload => {
   if (state.kind === "mcp") {
     return {
       ...shared,
-      transport: state.transport === "" ? "auto" : state.transport,
-      queryParams: parseJsonStringMap("Query params", state.queryParamsText),
-      headers: parseJsonStringMap("Request headers", state.headersText),
-      specUrl: null,
-      defaultHeaders: null,
+      binding: {
+        transport: state.transport === "" ? "auto" : state.transport,
+        queryParams: parseJsonStringMap("Query params", state.queryParamsText),
+        headers: parseJsonStringMap("Request headers", state.headersText),
+      },
     };
   }
 
@@ -443,32 +468,25 @@ const buildSourcePayload = (state: SourceFormState): CreateSourcePayload => {
 
     return {
       ...shared,
-      transport: null,
-      queryParams: null,
-      headers: null,
-      specUrl,
-      defaultHeaders: parseJsonStringMap("Default headers", state.defaultHeadersText),
+      binding: {
+        specUrl,
+        defaultHeaders: parseJsonStringMap("Default headers", state.defaultHeadersText),
+      },
     };
   }
 
   if (state.kind === "graphql") {
     return {
       ...shared,
-      transport: null,
-      queryParams: null,
-      headers: null,
-      specUrl: null,
-      defaultHeaders: parseJsonStringMap("Default headers", state.defaultHeadersText),
+      binding: {
+        defaultHeaders: parseJsonStringMap("Default headers", state.defaultHeadersText),
+      },
     };
   }
 
   return {
     ...shared,
-    transport: null,
-    queryParams: null,
-    headers: null,
-    specUrl: null,
-    defaultHeaders: null,
+    binding: {},
   };
 };
 

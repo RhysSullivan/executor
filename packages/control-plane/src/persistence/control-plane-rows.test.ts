@@ -43,8 +43,11 @@ const encodeSessionDataJson = Schema.encodeSync(McpSourceAuthSessionDataJsonSche
 const openApiBindingConfigJson = (specUrl: string): string =>
   JSON.stringify({
     adapterKey: "openapi",
-    specUrl,
-    defaultHeaders: null,
+    version: 1,
+    payload: {
+      specUrl,
+      defaultHeaders: null,
+    },
   });
 
 const baseRevisionRecord = (input: {
@@ -101,7 +104,7 @@ const seedWorkspaceSourceState = (input: {
     yield* input.persistence.rows.sourceRecipes.upsert({
       id: recipeId,
       kind: "http_api",
-      importerKind: "openapi",
+      adapterKey: "openapi",
       providerKey: "openapi:https://api.github.com",
       name: "Github",
       summary: null,
@@ -362,7 +365,7 @@ describe("control-plane-persistence-drizzle", () => {
       yield* persistence.rows.sourceRecipes.upsert({
         id: recipeId,
         kind: "http_api",
-        importerKind: "openapi",
+        adapterKey: "openapi",
         providerKey: "openapi:https://api.cloudflare.com/client/v4",
         name: "Cloudflare API",
         summary: null,
@@ -724,7 +727,7 @@ describe("control-plane-persistence-drizzle", () => {
       yield* persistence.rows.sourceRecipes.upsert({
         id: sharedRecipeId,
         kind: "http_api",
-        importerKind: "openapi",
+        adapterKey: "openapi",
         providerKey: "openapi:https://api.github.com",
         name: "Github",
         summary: null,

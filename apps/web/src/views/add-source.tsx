@@ -85,7 +85,7 @@ type OAuthRequiredInfo = {
 
 const kindOptions: ReadonlyArray<ConnectFormState["kind"]> = ["mcp", "openapi", "graphql"];
 
-const transportOptions: ReadonlyArray<NonNullable<Source["transport"]>> = [
+const transportOptions: ReadonlyArray<"auto" | "streamable-http" | "sse"> = [
   "auto",
   "streamable-http",
   "sse",

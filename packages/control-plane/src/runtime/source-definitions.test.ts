@@ -18,6 +18,28 @@ import {
 } from "./source-definitions";
 import { namespaceFromSourceName } from "./source-names";
 
+const openApiBinding = (
+  specUrl = "https://api.github.com/openapi.json",
+  defaultHeaders: Record<string, string> | null = null,
+) => ({
+  specUrl,
+  defaultHeaders,
+});
+
+const graphqlBinding = (defaultHeaders: Record<string, string> | null = null) => ({
+  defaultHeaders,
+});
+
+const mcpBinding = (input: {
+  transport?: "auto" | "streamable-http" | "sse" | null;
+  queryParams?: Record<string, string> | null;
+  headers?: Record<string, string> | null;
+} = {}) => ({
+  transport: input.transport ?? null,
+  queryParams: input.queryParams ?? null,
+  headers: input.headers ?? null,
+});
+
 const makeSource = (overrides: Partial<Source> = {}): Source => ({
   id: SourceIdSchema.make("src_source_definitions"),
   workspaceId: WorkspaceIdSchema.make("ws_source_definitions"),
@@ -27,11 +49,8 @@ const makeSource = (overrides: Partial<Source> = {}): Source => ({
   status: "connected",
   enabled: true,
   namespace: "github",
-  transport: null,
-  queryParams: null,
-  headers: null,
-  specUrl: "https://api.github.com/openapi.json",
-  defaultHeaders: null,
+  bindingVersion: 1,
+  binding: openApiBinding(),
   importAuthPolicy: "reuse_runtime",
   importAuth: { kind: "none" },
   auth: { kind: "none" },
@@ -67,7 +86,7 @@ describe("source-definitions", () => {
       const source = makeSource();
       const changedEndpoint = makeSource({
         endpoint: "https://example.com",
-        specUrl: "https://example.com/openapi.json",
+        binding: openApiBinding("https://example.com/openapi.json"),
       });
 
       expect(stableSourceRecipeId(changedEndpoint)).not.toBe(stableSourceRecipeId(source));
@@ -86,14 +105,14 @@ describe("source-definitions", () => {
           name: "  GitHub  ",
           kind: "openapi",
           endpoint: " https://api.github.com ",
-          specUrl: " https://api.github.com/openapi.json ",
+          binding: openApiBinding(" https://api.github.com/openapi.json "),
         },
         now: 1234,
       }));
 
       expect(source.name).toBe("GitHub");
       expect(source.endpoint).toBe("https://api.github.com");
-      expect(source.specUrl).toBe("https://api.github.com/openapi.json");
+      expect(source.binding).toEqual(openApiBinding("https://api.github.com/openapi.json"));
       expect(source.status).toBe("draft");
       expect(source.enabled).toBe(true);
       expect(source.auth).toEqual({ kind: "none" });
@@ -103,7 +122,7 @@ describe("source-definitions", () => {
       const source = makeSource({
         kind: "graphql",
         endpoint: "https://example.com/graphql",
-        specUrl: null,
+        binding: graphqlBinding({ accept: "application/json" }),
         auth: {
           kind: "bearer",
           headerName: "Authorization",
@@ -113,7 +132,6 @@ describe("source-definitions", () => {
             handle: "sec_token",
           },
         },
-        defaultHeaders: { accept: "application/json" },
       });
 
       const updated = await Effect.runPromise(updateSourceFromPayload({
@@ -127,8 +145,7 @@ describe("source-definitions", () => {
 
       expect(updated.name).toBe(source.name);
       expect(updated.endpoint).toBe(source.endpoint);
-      expect(updated.queryParams).toEqual(source.queryParams);
-      expect(updated.defaultHeaders).toEqual(source.defaultHeaders);
+      expect(updated.binding).toEqual(source.binding);
       expect(updated.auth).toEqual(source.auth);
       expect(updated.status).toBe("error");
       expect(updated.lastError).toBe("bad gateway");
@@ -177,7 +194,7 @@ describe("source-definitions", () => {
           name: "Bad Bearer",
           kind: "openapi",
           endpoint: "https://example.com",
-          specUrl: "https://example.com/openapi.json",
+          binding: openApiBinding("https://example.com/openapi.json"),
           auth: {
             kind: "bearer",
             headerName: "Authorization",
@@ -198,6 +215,7 @@ describe("source-definitions", () => {
           name: "Bad OAuth",
           kind: "graphql",
           endpoint: "https://example.com/graphql",
+          binding: graphqlBinding(),
           auth: {
             kind: "oauth2",
             headerName: "Authorization",
@@ -224,7 +242,9 @@ describe("source-definitions", () => {
           name: "MCP",
           kind: "mcp",
           endpoint: "https://example.com/mcp",
-          specUrl: "https://example.com/openapi.json",
+          binding: {
+            specUrl: "https://example.com/openapi.json",
+          },
         } as never,
         now: 1234,
       }))).rejects.toThrow("MCP sources cannot define specUrl");
@@ -236,7 +256,7 @@ describe("source-definitions", () => {
           name: "OpenAPI",
           kind: "openapi",
           endpoint: "https://example.com",
-          specUrl: "   ",
+          binding: openApiBinding("   "),
         } as never,
         now: 1234,
       }))).rejects.toThrow("OpenAPI sources require specUrl");
@@ -248,8 +268,10 @@ describe("source-definitions", () => {
           name: "OpenAPI",
           kind: "openapi",
           endpoint: "https://example.com",
-          specUrl: "https://example.com/openapi.json",
-          transport: "sse",
+          binding: {
+            specUrl: "https://example.com/openapi.json",
+            transport: "sse",
+          },
         } as never,
         now: 1234,
       }))).rejects.toThrow("OpenAPI sources cannot define MCP transport settings");
@@ -261,7 +283,9 @@ describe("source-definitions", () => {
           name: "GraphQL",
           kind: "graphql",
           endpoint: "https://example.com/graphql",
-          specUrl: "https://example.com/openapi.json",
+          binding: {
+            specUrl: "https://example.com/openapi.json",
+          },
         } as never,
         now: 1234,
       }))).rejects.toThrow("GraphQL sources cannot define specUrl");
@@ -273,8 +297,10 @@ describe("source-definitions", () => {
           name: "Internal",
           kind: "internal",
           endpoint: "internal://executor",
-          defaultHeaders: {
-            accept: "application/json",
+          binding: {
+            defaultHeaders: {
+              accept: "application/json",
+            },
           },
         } as never,
         now: 1234,
@@ -316,11 +342,11 @@ describe("source-definitions", () => {
     it("roundtrips bearer auth and serialized maps", async () => {
       const source = makeSource({
         kind: "mcp",
-        specUrl: null,
-        defaultHeaders: null,
-        transport: "auto",
-        queryParams: { page: "1" },
-        headers: { "x-api-key": "secret" },
+        binding: mcpBinding({
+          transport: "auto",
+          queryParams: { page: "1" },
+          headers: { "x-api-key": "secret" },
+        }),
         auth: {
           kind: "bearer",
           headerName: "Authorization",
@@ -345,9 +371,8 @@ describe("source-definitions", () => {
       expect(runtimeCredential?.id).toBe(existingCredentialId);
       expect(JSON.parse(sourceRecord.bindingConfigJson ?? "{}")).toEqual({
         adapterKey: "mcp",
-        transport: source.transport,
-        queryParams: source.queryParams,
-        headers: source.headers,
+        version: 1,
+        payload: source.binding,
       });
 
       const projected = await Effect.runPromise(projectSourceFromStorage({
@@ -363,8 +388,7 @@ describe("source-definitions", () => {
       const withRefresh = makeSource({
         kind: "graphql",
         endpoint: "https://example.com/graphql",
-        specUrl: null,
-        defaultHeaders: { accept: "application/json" },
+        binding: graphqlBinding({ accept: "application/json" }),
         auth: {
           kind: "oauth2",
           headerName: "Authorization",
@@ -383,8 +407,7 @@ describe("source-definitions", () => {
         id: SourceIdSchema.make("src_source_definitions_no_refresh"),
         kind: "graphql",
         endpoint: "https://example.com/graphql",
-        specUrl: null,
-        defaultHeaders: { accept: "application/json" },
+        binding: graphqlBinding({ accept: "application/json" }),
         auth: {
           kind: "oauth2",
           headerName: "Authorization",

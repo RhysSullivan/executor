@@ -46,6 +46,7 @@ import {
   ConnectHttpImportAuthSchema,
   createStandardToolDescriptor,
   decodeBindingConfig,
+  decodeSourceBindingPayload,
   emptySourceBindingState,
   encodeBindingConfig,
   isSourceCredentialRequiredError,
@@ -80,10 +81,21 @@ const OpenApiExecutorAddInputSchema = Schema.extend(
 );
 
 const OpenApiBindingConfigSchema = Schema.Struct({
-  adapterKey: Schema.Literal("openapi"),
-  specUrl: Schema.String,
-  defaultHeaders: Schema.NullOr(StringMapSchema),
+  specUrl: Schema.Trim.pipe(Schema.nonEmptyString()),
+  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
 });
+
+const OpenApiSourceBindingPayloadSchema = Schema.Struct({
+  specUrl: Schema.optional(Schema.String),
+  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+});
+
+type OpenApiBindingConfig = {
+  specUrl: string;
+  defaultHeaders: typeof StringMapSchema.Type | null;
+};
+
+const OPENAPI_BINDING_CONFIG_VERSION = 1;
 
 const OPENAPI_MATERIALIZATION_REVISION_ID = "src_recipe_rev_materialization" as SourceRecipeRevisionId;
 
@@ -94,6 +106,48 @@ const decodeOpenApiProviderDataJson = Schema.decodeUnknownEither(
 const decodeOpenApiRefHintTableJson = Schema.decodeUnknownEither(
   Schema.parseJson(OpenApiRefHintTableSchema),
 );
+
+const bindingHasAnyField = (
+  value: unknown,
+  fields: readonly string[],
+): boolean =>
+  value !== null
+  && typeof value === "object"
+  && !Array.isArray(value)
+  && fields.some((field) => Object.prototype.hasOwnProperty.call(value, field));
+
+const openApiBindingConfigFromSource = (
+  source: Pick<Source, "id" | "bindingVersion" | "binding">,
+): Effect.Effect<OpenApiBindingConfig, Error, never> =>
+  Effect.gen(function* () {
+    if (bindingHasAnyField(source.binding, ["transport", "queryParams", "headers"])) {
+      return yield* Effect.fail(
+        new Error("OpenAPI sources cannot define MCP transport settings"),
+      );
+    }
+
+    const bindingConfig = yield* decodeSourceBindingPayload({
+      sourceId: source.id,
+      label: "OpenAPI",
+      version: source.bindingVersion,
+      expectedVersion: OPENAPI_BINDING_CONFIG_VERSION,
+      schema: OpenApiSourceBindingPayloadSchema,
+      value: source.binding,
+      allowedKeys: ["specUrl", "defaultHeaders"],
+    });
+
+    const specUrl = typeof bindingConfig.specUrl === "string"
+      ? bindingConfig.specUrl.trim()
+      : "";
+    if (specUrl.length === 0) {
+      return yield* Effect.fail(new Error("OpenAPI sources require specUrl"));
+    }
+
+    return {
+      specUrl,
+      defaultHeaders: bindingConfig.defaultHeaders ?? null,
+    } satisfies OpenApiBindingConfig;
+  });
 
 const fetchOpenApiDocumentWithHeaders = (input: {
   url: string;
@@ -334,6 +388,7 @@ export const openApiSourceAdapter: SourceAdapter = {
   key: "openapi",
   displayName: "OpenAPI",
   family: "http_api",
+  bindingConfigVersion: OPENAPI_BINDING_CONFIG_VERSION,
   providerKey: "generic_http",
   defaultImportAuthPolicy: "reuse_runtime",
   primaryDocumentKind: "openapi",
@@ -345,49 +400,59 @@ export const openApiSourceAdapter: SourceAdapter = {
   ],
   executorAddInputSignatureWidth: 420,
   serializeBindingConfig: (source) =>
-    encodeBindingConfig(OpenApiBindingConfigSchema, {
+    encodeBindingConfig({
       adapterKey: "openapi",
-      specUrl: source.specUrl ?? source.endpoint,
-      defaultHeaders: source.defaultHeaders,
+      version: OPENAPI_BINDING_CONFIG_VERSION,
+      payloadSchema: OpenApiBindingConfigSchema,
+      payload: Effect.runSync(openApiBindingConfigFromSource(source)),
     }),
   deserializeBindingConfig: ({ id, bindingConfigJson }) =>
     Effect.map(
       decodeBindingConfig({
         sourceId: id,
         label: "OpenAPI",
-        schema: OpenApiBindingConfigSchema,
+        adapterKey: "openapi",
+        version: OPENAPI_BINDING_CONFIG_VERSION,
+        payloadSchema: OpenApiBindingConfigSchema,
         value: bindingConfigJson,
       }),
-      (bindingConfig) => ({
-        ...emptySourceBindingState,
-        specUrl: bindingConfig.specUrl,
-        defaultHeaders: bindingConfig.defaultHeaders,
+      ({ version, payload }) => ({
+        version,
+        payload: {
+          specUrl: payload.specUrl,
+          defaultHeaders: payload.defaultHeaders ?? null,
+        },
       }),
     ),
-  sourceConfigFromSource: (source) => ({
-    kind: "openapi",
-    endpoint: source.endpoint,
-    specUrl: source.specUrl ?? source.endpoint,
-    defaultHeaders: source.defaultHeaders,
-  }),
+  bindingStateFromSource: (source) =>
+    Effect.map(openApiBindingConfigFromSource(source), (bindingConfig) => ({
+      ...emptySourceBindingState,
+      specUrl: bindingConfig.specUrl,
+      defaultHeaders: bindingConfig.defaultHeaders,
+    })),
+  sourceConfigFromSource: (source) =>
+    Effect.runSync(
+      Effect.map(openApiBindingConfigFromSource(source), (bindingConfig) => ({
+        kind: "openapi",
+        endpoint: source.endpoint,
+        specUrl: bindingConfig.specUrl,
+        defaultHeaders: bindingConfig.defaultHeaders,
+      })),
+    ),
   validateSource: (source) =>
     Effect.gen(function* () {
-      if (source.specUrl === null || source.specUrl.trim().length === 0) {
-        return yield* Effect.fail(new Error("OpenAPI sources require specUrl"));
-      }
-
-      if (source.transport !== null || source.queryParams !== null || source.headers !== null) {
-        return yield* Effect.fail(
-          new Error("OpenAPI sources cannot define MCP transport settings"),
-        );
-      }
-
-      return source;
+      const bindingConfig = yield* openApiBindingConfigFromSource(source);
+      return {
+        ...source,
+        bindingVersion: OPENAPI_BINDING_CONFIG_VERSION,
+        binding: {
+          specUrl: bindingConfig.specUrl,
+          defaultHeaders: bindingConfig.defaultHeaders,
+        },
+      };
     }),
   shouldAutoProbe: (source) =>
-    source.enabled
-    && !!source.specUrl
-    && (source.status === "draft" || source.status === "probing"),
+    source.enabled && (source.status === "draft" || source.status === "probing"),
   parseManifest: ({ source, manifestJson }) =>
     parseJsonValue<OpenApiToolManifest>({
       label: `OpenAPI manifest for ${source.id}`,
@@ -448,17 +513,13 @@ export const openApiSourceAdapter: SourceAdapter = {
     }),
   materializeSource: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
-      if (!source.specUrl) {
-        return yield* Effect.fail(
-          new Error(`Missing OpenAPI specUrl for source ${source.id}`),
-        );
-      }
+      const bindingConfig = yield* openApiBindingConfigFromSource(source);
 
       const auth = yield* resolveAuthMaterialForSlot("import");
       const openApiDocument = yield* fetchOpenApiDocumentWithHeaders({
-        url: source.specUrl,
+        url: bindingConfig.specUrl,
         headers: {
-          ...(source.defaultHeaders ?? {}),
+          ...(bindingConfig.defaultHeaders ?? {}),
           ...auth.headers,
         },
       }).pipe(
@@ -498,7 +559,7 @@ export const openApiSourceAdapter: SourceAdapter = {
             id: `src_recipe_doc_${crypto.randomUUID()}`,
             recipeRevisionId: OPENAPI_MATERIALIZATION_REVISION_ID,
             documentKind: "openapi",
-            documentKey: source.specUrl ?? source.endpoint,
+            documentKey: bindingConfig.specUrl,
             contentText: openApiDocument,
             contentHash: contentHash(openApiDocument),
             fetchedAt: now,
@@ -527,6 +588,7 @@ export const openApiSourceAdapter: SourceAdapter = {
     onElicitation,
   }) =>
     Effect.gen(function* () {
+      const bindingConfig = yield* openApiBindingConfigFromSource(source);
       const refHintTable = schemaBundle
         ? decodeOpenApiRefHintTableJson(schemaBundle.refsJson)
         : Either.right({});
@@ -546,7 +608,7 @@ export const openApiSourceAdapter: SourceAdapter = {
         path,
         sourceKey: source.id,
         baseUrl: source.endpoint,
-        defaultHeaders: source.defaultHeaders ?? {},
+        defaultHeaders: bindingConfig.defaultHeaders ?? {},
         credentialHeaders: auth.headers,
         refHintTable: refHintTable.right,
       });

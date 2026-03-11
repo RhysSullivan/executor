@@ -8,7 +8,7 @@ export { createSourceRecipeRevisionsRepo } from "./source-recipe-revisions-repo"
 export { createSourceRecipeDocumentsRepo } from "./source-recipe-documents-repo";
 export { createSourceRecipeSchemaBundlesRepo } from "./source-recipe-schema-bundles-repo";
 export { createSourceRecipeOperationsRepo } from "./source-recipe-operations-repo";
-export { createDataMigrationsRepo } from "./data-migrations-repo";
+export { createCodeMigrationsRepo } from "./code-migrations-repo";
 export { createCredentialsRepo } from "./credentials-repo";
 export { createSourceOauthClientsRepo } from "./source-oauth-clients-repo";
 export { createSecretMaterialsRepo } from "./secret-materials-repo";

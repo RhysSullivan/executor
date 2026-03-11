@@ -7,7 +7,7 @@ import { createDrizzleClient, type DrizzleClient } from "./client";
 import {
   createAccountsRepo,
   createCredentialsRepo,
-  createDataMigrationsRepo,
+  createCodeMigrationsRepo,
   createExecutionInteractionsRepo,
   createExecutionsRepo,
   createLocalInstallationsRepo,
@@ -34,7 +34,7 @@ import {
   type SqlBackend,
   type SqlRuntime,
 } from "./sql-runtime";
-import { runDataMigrations } from "./data-migrations";
+import { runCodeMigrations } from "./code-migrations";
 
 export { tableNames, type DrizzleTables } from "./schema";
 export {
@@ -63,7 +63,7 @@ const createRows = (client: DrizzleClient, tables: DrizzleTables = drizzleSchema
   sourceRecipeDocuments: createSourceRecipeDocumentsRepo(client, tables),
   sourceRecipeSchemaBundles: createSourceRecipeSchemaBundlesRepo(client, tables),
   sourceRecipeOperations: createSourceRecipeOperationsRepo(client, tables),
-  dataMigrations: createDataMigrationsRepo(client, tables),
+  codeMigrations: createCodeMigrationsRepo(client, tables),
   credentials: createCredentialsRepo(client, tables),
   sourceOauthClients: createSourceOauthClientsRepo(client, tables),
   secretMaterials: createSecretMaterialsRepo(client, tables),
@@ -131,7 +131,7 @@ const closeRuntimeEffect = (runtime: SqlRuntime) =>
 export type CreateSqlControlPlanePersistenceOptions =
   & CreateSqlRuntimeOptions
   & {
-    runDataMigrations?: boolean;
+    runCodeMigrations?: boolean;
   };
 
 export const createSqlControlPlanePersistence = (
@@ -154,9 +154,9 @@ export const createSqlControlPlanePersistence = (
         } satisfies SqlControlPlanePersistence;
       }),
       Effect.flatMap((persistence) =>
-        options.runDataMigrations === false
+        options.runCodeMigrations === false
           ? Effect.succeed(persistence)
-          : runDataMigrations(persistence.rows).pipe(
+          : runCodeMigrations(persistence.rows).pipe(
               Effect.mapError(toBootstrapError),
               Effect.map(() => persistence),
             )),

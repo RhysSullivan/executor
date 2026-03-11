@@ -207,26 +207,26 @@ const rebuildPersistedSourceRecipes: DataMigration = {
     }),
 };
 
-const dataMigrations = [
+const codeMigrations = [
   rebuildPersistedSourceRecipes,
   migrateLegacySourceAuthSessions,
 ] as const satisfies readonly DataMigration[];
 
-export const runDataMigrations = (
+export const runCodeMigrations = (
   rows: SqlControlPlaneRows,
 ): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
     const applied = new Set(
-      (yield* rows.dataMigrations.listAll()).map((migration) => migration.id),
+      (yield* rows.codeMigrations.listAll()).map((migration) => migration.id),
     );
 
-    for (const migration of dataMigrations) {
+    for (const migration of codeMigrations) {
       if (applied.has(migration.id)) {
         continue;
       }
 
       yield* migration.run(rows);
-      yield* rows.dataMigrations.upsert({
+      yield* rows.codeMigrations.upsert({
         id: migration.id,
         appliedAt: Date.now(),
       });

@@ -4,6 +4,9 @@ import {
 } from "@executor/control-plane";
 import * as Effect from "effect/Effect";
 
+const readBindingString = (binding: Record<string, unknown>, key: string): string | null =>
+  typeof binding[key] === "string" ? String(binding[key]) : null;
+
 type SeedDemoMcpSourceInput = {
   client: ControlPlaneClient;
   workspaceId: string;
@@ -62,7 +65,7 @@ export const seedDemoMcpSourceInWorkspace = (
       existingByName !== undefined
       && existingByName.endpoint === expected.endpoint
       && existingByName.namespace === expected.namespace
-      && existingByName.transport === expected.transport
+      && readBindingString(existingByName.binding, "transport") === expected.transport
       && existingByName.auth.kind === "none"
     ) {
       return {
@@ -84,7 +87,11 @@ export const seedDemoMcpSourceInWorkspace = (
           status: "connected",
           enabled: true,
           namespace: input.namespace,
-          transport: "streamable-http",
+          binding: {
+            transport: "streamable-http",
+            queryParams: null,
+            headers: null,
+          },
           auth: {
             kind: "none",
           },
@@ -110,7 +117,11 @@ export const seedDemoMcpSourceInWorkspace = (
         status: "connected",
         enabled: true,
         namespace: input.namespace,
-        transport: "streamable-http",
+        binding: {
+          transport: "streamable-http",
+          queryParams: null,
+          headers: null,
+        },
         auth: {
           kind: "none",
         },
@@ -155,8 +166,8 @@ export const seedGithubOpenApiSourceInWorkspace = (
       existingByName !== undefined
       && existingByName.endpoint === input.endpoint
       && existingByName.namespace === input.namespace
-      && existingByName.specUrl === input.specUrl
-      && JSON.stringify(existingByName.defaultHeaders) === JSON.stringify(null)
+      && readBindingString(existingByName.binding, "specUrl") === input.specUrl
+      && JSON.stringify(existingByName.binding.defaultHeaders ?? null) === JSON.stringify(null)
       && JSON.stringify(existingByName.auth) === JSON.stringify(auth)
     ) {
       return {
@@ -178,7 +189,10 @@ export const seedGithubOpenApiSourceInWorkspace = (
           status: "connected",
           enabled: true,
           namespace: input.namespace,
-          specUrl: input.specUrl,
+          binding: {
+            specUrl: input.specUrl,
+            defaultHeaders: null,
+          },
           auth,
         },
       });
@@ -202,7 +216,10 @@ export const seedGithubOpenApiSourceInWorkspace = (
         status: "connected",
         enabled: true,
         namespace: input.namespace,
-        specUrl: input.specUrl,
+        binding: {
+          specUrl: input.specUrl,
+          defaultHeaders: null,
+        },
         auth,
       },
     });

@@ -7,6 +7,7 @@ import {
 import {
   type CredentialSlot,
   SecretRefSchema,
+  SourceBindingVersionSchema,
   SourceImportAuthPolicySchema,
   SourceTransportSchema,
   StringMapSchema,
@@ -14,6 +15,7 @@ import {
 import type {
   SecretRef,
   Source,
+  SourceBinding,
   SourceTransport,
   StoredSourceRecipeOperationRecord,
   StringMap,
@@ -122,25 +124,112 @@ export const emptySourceBindingState = {
   defaultHeaders: StringMap | null;
 };
 
-export const encodeBindingConfig = (schema: Schema.Schema.AnyNoContext, value: unknown): string =>
-  Schema.encodeSync(Schema.parseJson(schema))(value);
+const BindingConfigEnvelopeSchema = <A, I>(
+  adapterKey: string,
+  payloadSchema: Schema.Schema<A, I, never>,
+) =>
+  Schema.Struct({
+    adapterKey: Schema.Literal(adapterKey),
+    version: SourceBindingVersionSchema,
+    payload: payloadSchema,
+  });
+
+export const encodeBindingConfig = <A, I>(input: {
+  adapterKey: string;
+  version: number;
+  payloadSchema: Schema.Schema<A, I, never>;
+  payload: A;
+}): string =>
+  Schema.encodeSync(
+    Schema.parseJson(BindingConfigEnvelopeSchema(input.adapterKey, input.payloadSchema)),
+  )({
+    adapterKey: input.adapterKey,
+    version: input.version,
+    payload: input.payload,
+  });
 
 export const decodeBindingConfig = <A>(input: {
   sourceId: string;
   label: string;
-  schema: Schema.Schema<A, any, never>;
+  adapterKey: string;
+  version: number;
+  payloadSchema: Schema.Schema<A, any, never>;
   value: string | null;
+}): Effect.Effect<SourceBinding & { payload: A }, Error, never> => {
+  if (input.value === null) {
+    return Effect.fail(
+      new Error(`Missing ${input.label} binding config for ${input.sourceId}`),
+    );
+  }
+
+  return Effect.try({
+    try: () =>
+      Schema.decodeUnknownSync(
+        Schema.parseJson(BindingConfigEnvelopeSchema(input.adapterKey, input.payloadSchema)),
+      )(input.value),
+    catch: (cause) => {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      return new Error(
+        `Invalid ${input.label} binding config for ${input.sourceId}: ${message}`,
+      );
+    },
+  }).pipe(
+    Effect.flatMap((decoded) =>
+      decoded.version === input.version
+        ? Effect.succeed({
+            version: decoded.version,
+            payload: decoded.payload,
+          } as SourceBinding & { payload: A })
+        : Effect.fail(
+            new Error(
+              `Unsupported ${input.label} binding config version ${decoded.version} for ${input.sourceId}; expected ${input.version}`,
+            ),
+          ),
+    ),
+  );
+};
+
+export const decodeSourceBindingPayload = <A>(input: {
+  sourceId: string;
+  label: string;
+  version: number;
+  expectedVersion: number;
+  schema: Schema.Schema<A, any, never>;
+  value: unknown;
+  allowedKeys?: readonly string[] | undefined;
 }): Effect.Effect<A, Error, never> =>
-  input.value === null
+  input.version !== input.expectedVersion
     ? Effect.fail(
-        new Error(`Missing ${input.label} binding config for ${input.sourceId}`),
+        new Error(
+          `Unsupported ${input.label} binding version ${input.version} for ${input.sourceId}; expected ${input.expectedVersion}`,
+        ),
       )
     : Effect.try({
-        try: () => Schema.decodeUnknownSync(Schema.parseJson(input.schema))(input.value),
-        catch: (cause) =>
-          cause instanceof Error
-            ? new Error(`Invalid ${input.label} binding config for ${input.sourceId}: ${cause.message}`)
-            : new Error(`Invalid ${input.label} binding config for ${input.sourceId}: ${String(cause)}`),
+        try: () => {
+          if (
+            input.allowedKeys
+            && input.value !== null
+            && typeof input.value === "object"
+            && !Array.isArray(input.value)
+          ) {
+            const extraKeys = Object.keys(input.value as Record<string, unknown>).filter(
+              (key) => !input.allowedKeys!.includes(key),
+            );
+            if (extraKeys.length > 0) {
+              throw new Error(
+                `Unsupported fields: ${extraKeys.join(", ")}`,
+              );
+            }
+          }
+
+          return Schema.decodeUnknownSync(input.schema)(input.value);
+        },
+        catch: (cause) => {
+          const message = cause instanceof Error ? cause.message : String(cause);
+          return new Error(
+            `Invalid ${input.label} binding payload for ${input.sourceId}: ${message}`,
+          );
+        },
       });
 
 export const firstSchemaBundle = (input: {

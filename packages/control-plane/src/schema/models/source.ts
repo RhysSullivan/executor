@@ -11,6 +11,7 @@ import {
   SourceRecipeRevisionIdSchema,
   WorkspaceIdSchema,
 } from "../ids";
+import { JsonObjectSchema } from "./source-auth-session";
 
 export const SourceKindSchema = Schema.String;
 
@@ -61,6 +62,13 @@ export const SourceAuthSchema = Schema.Union(
 export const StringMapSchema = Schema.Record({
   key: Schema.String,
   value: Schema.String,
+});
+
+export const SourceBindingVersionSchema = Schema.Number;
+
+export const SourceBindingSchema = Schema.Struct({
+  version: SourceBindingVersionSchema,
+  payload: JsonObjectSchema,
 });
 
 const sourceRowSchemaOverrides = {
@@ -147,11 +155,8 @@ export const SourceSchema = Schema.Struct({
   status: SourceStatusSchema,
   enabled: Schema.Boolean,
   namespace: Schema.NullOr(Schema.String),
-  transport: Schema.NullOr(SourceTransportSchema),
-  queryParams: Schema.NullOr(StringMapSchema),
-  headers: Schema.NullOr(StringMapSchema),
-  specUrl: Schema.NullOr(Schema.String),
-  defaultHeaders: Schema.NullOr(StringMapSchema),
+  bindingVersion: SourceBindingVersionSchema,
+  binding: JsonObjectSchema,
   importAuthPolicy: SourceImportAuthPolicySchema,
   importAuth: SourceAuthSchema,
   auth: SourceAuthSchema,
@@ -167,6 +172,7 @@ export type SourceTransport = typeof SourceTransportSchema.Type;
 export type SourceImportAuthPolicy = typeof SourceImportAuthPolicySchema.Type;
 export type SecretRef = typeof SecretRefSchema.Type;
 export type SourceAuth = typeof SourceAuthSchema.Type;
+export type SourceBinding = typeof SourceBindingSchema.Type;
 export type StoredSourceRecord = typeof StoredSourceRecordSchema.Type;
 export type StringMap = typeof StringMapSchema.Type;
 export type Source = typeof SourceSchema.Type;

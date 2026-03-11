@@ -58,6 +58,9 @@ export const getSourceAdapter = (key: string): SourceAdapter => {
 export const getSourceAdapterForSource = (source: Pick<Source, "kind">): SourceAdapter =>
   getSourceAdapter(source.kind);
 
+export const sourceBindingStateFromSource = (source: Source) =>
+  getSourceAdapterForSource(source).bindingStateFromSource(source);
+
 export const getSourceAdapterForOperation = (
   operation: Pick<StoredSourceRecipeOperationRecord, "providerKind">,
 ): SourceAdapter => getSourceAdapter(operation.providerKind);

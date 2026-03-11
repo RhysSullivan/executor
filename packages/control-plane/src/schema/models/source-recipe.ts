@@ -21,7 +21,7 @@ export const SourceRecipeKindSchema = Schema.Literal(
   "internal",
 );
 
-export const SourceRecipeImporterKindSchema = Schema.String;
+export const SourceRecipeAdapterKeySchema = Schema.String;
 
 export const SourceRecipeVisibilitySchema = Schema.Literal(
   "private",
@@ -53,7 +53,7 @@ export const SourceRecipeOperationProviderKindSchema = Schema.String;
 const recipeRowSchemaOverrides = {
   id: SourceRecipeIdSchema,
   kind: SourceRecipeKindSchema,
-  importerKind: SourceRecipeImporterKindSchema,
+  adapterKey: SourceRecipeAdapterKeySchema,
   visibility: SourceRecipeVisibilitySchema,
   latestRevisionId: SourceRecipeRevisionIdSchema,
   createdAt: TimestampMsSchema,
@@ -123,7 +123,7 @@ export const StoredSourceRecipeOperationRecordSchema = StoredSourceRecipeOperati
 });
 
 export type SourceRecipeKind = typeof SourceRecipeKindSchema.Type;
-export type SourceRecipeImporterKind = typeof SourceRecipeImporterKindSchema.Type;
+export type SourceRecipeAdapterKey = typeof SourceRecipeAdapterKeySchema.Type;
 export type SourceRecipeVisibility = typeof SourceRecipeVisibilitySchema.Type;
 export type SourceRecipeDocumentKind = typeof SourceRecipeDocumentKindSchema.Type;
 export type SourceRecipeSchemaBundleKind =

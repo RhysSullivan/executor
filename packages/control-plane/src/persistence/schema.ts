@@ -21,7 +21,7 @@ export const tableNames = {
   sourceRecipeDocuments: "source_recipe_documents",
   sourceRecipeSchemaBundles: "source_recipe_schema_bundles",
   sourceRecipeOperations: "source_recipe_operations",
-  dataMigrations: "control_plane_data_migrations",
+  codeMigrations: "control_plane_code_migrations",
   credentials: "workspace_source_credentials",
   workspaceSourceOauthClients: "workspace_source_oauth_clients",
   secretMaterials: "secret_materials",
@@ -182,7 +182,7 @@ export const sourceRecipesTable = pgTable(
   {
     id: text("id").notNull().primaryKey(),
     kind: text("kind").notNull(),
-    importerKind: text("importer_kind").notNull(),
+    adapterKey: text("adapter_key").notNull(),
     providerKey: text("provider_key").notNull(),
     name: text("name").notNull(),
     summary: text("summary"),
@@ -343,8 +343,8 @@ export const sourceRecipeOperationsTable = pgTable(
   ],
 );
 
-export const dataMigrationsTable = pgTable(
-  tableNames.dataMigrations,
+export const codeMigrationsTable = pgTable(
+  tableNames.codeMigrations,
   {
     id: text("id").notNull().primaryKey(),
     appliedAt: bigint("applied_at", { mode: "number" }).notNull(),
@@ -637,7 +637,7 @@ export const drizzleSchema = {
   sourceRecipeDocumentsTable,
   sourceRecipeSchemaBundlesTable,
   sourceRecipeOperationsTable,
-  dataMigrationsTable,
+  codeMigrationsTable,
   credentialsTable,
   workspaceSourceOauthClientsTable,
   secretMaterialsTable,

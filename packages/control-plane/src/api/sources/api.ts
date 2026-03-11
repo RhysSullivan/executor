@@ -1,6 +1,7 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
   ExecutionInteractionIdSchema,
+  JsonObjectSchema,
   SourceAuthSchema,
   SourceAuthSessionIdSchema,
   SourceDiscoveryResultSchema,
@@ -15,8 +16,6 @@ import {
   SourceProbeAuthSchema,
   SourceSchema,
   SourceStatusSchema,
-  SourceTransportSchema,
-  StringMapSchema,
   WorkspaceIdSchema,
 } from "#schema";
 import * as Schema from "effect/Schema";
@@ -47,11 +46,7 @@ const createSourcePayloadOptionalSchema = Schema.Struct({
   status: Schema.optional(SourceStatusSchema),
   enabled: Schema.optional(Schema.Boolean),
   namespace: Schema.optional(Schema.NullOr(Schema.String)),
-  transport: Schema.optional(Schema.NullOr(SourceTransportSchema)),
-  queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
-  headers: Schema.optional(Schema.NullOr(StringMapSchema)),
-  specUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  binding: Schema.optional(JsonObjectSchema),
   importAuthPolicy: Schema.optional(SourceImportAuthPolicySchema),
   importAuth: Schema.optional(SourceAuthSchema),
   auth: Schema.optional(SourceAuthSchema),
@@ -68,16 +63,11 @@ export type CreateSourcePayload = typeof CreateSourcePayloadSchema.Type;
 
 export const UpdateSourcePayloadSchema = Schema.Struct({
   name: OptionalTrimmedNonEmptyStringSchema,
-  kind: Schema.optional(SourceKindSchema),
   endpoint: OptionalTrimmedNonEmptyStringSchema,
   status: Schema.optional(SourceStatusSchema),
   enabled: Schema.optional(Schema.Boolean),
   namespace: Schema.optional(Schema.NullOr(Schema.String)),
-  transport: Schema.optional(Schema.NullOr(SourceTransportSchema)),
-  queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
-  headers: Schema.optional(Schema.NullOr(StringMapSchema)),
-  specUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  binding: Schema.optional(JsonObjectSchema),
   importAuthPolicy: Schema.optional(SourceImportAuthPolicySchema),
   importAuth: Schema.optional(SourceAuthSchema),
   auth: Schema.optional(SourceAuthSchema),

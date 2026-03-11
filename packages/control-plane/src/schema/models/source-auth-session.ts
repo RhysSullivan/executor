@@ -49,12 +49,12 @@ export const JsonValueSchema: Schema.Schema<JsonValue> = Schema.suspend(() =>
       value: JsonValueSchema,
     }),
   )
-);
+).annotations({ identifier: "JsonValue" });
 
 export const JsonObjectSchema = Schema.Record({
   key: Schema.String,
   value: JsonValueSchema,
-});
+}).annotations({ identifier: "JsonObject" });
 
 export const McpSourceAuthSessionDataSchema = Schema.Struct({
   kind: Schema.Literal("mcp_oauth"),

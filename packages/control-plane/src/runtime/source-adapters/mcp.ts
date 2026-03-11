@@ -32,6 +32,7 @@ import type { SourceAdapter, SourceAdapterMaterialization } from "./types";
 import {
   createStandardToolDescriptor,
   decodeBindingConfig,
+  decodeSourceBindingPayload,
   emptySourceBindingState,
   encodeBindingConfig,
   McpConnectFieldsSchema,
@@ -58,11 +59,20 @@ const McpExecutorAddInputSchema = Schema.Struct({
 });
 
 const McpBindingConfigSchema = Schema.Struct({
-  adapterKey: Schema.Literal("mcp"),
   transport: Schema.NullOr(SourceTransportSchema),
   queryParams: Schema.NullOr(StringMapSchema),
   headers: Schema.NullOr(StringMapSchema),
 });
+
+type McpBindingConfig = typeof McpBindingConfigSchema.Type;
+
+const McpSourceBindingPayloadSchema = Schema.Struct({
+  transport: Schema.optional(Schema.NullOr(SourceTransportSchema)),
+  queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
+  headers: Schema.optional(Schema.NullOr(StringMapSchema)),
+});
+
+const MCP_BINDING_CONFIG_VERSION = 1;
 
 const McpToolProviderDataSchema = Schema.Struct({
   kind: Schema.Literal("mcp"),
@@ -74,6 +84,45 @@ const McpToolProviderDataSchema = Schema.Struct({
 const decodeMcpToolProviderDataJson = Schema.decodeUnknownEither(
   Schema.parseJson(McpToolProviderDataSchema),
 );
+
+const bindingHasAnyField = (
+  value: unknown,
+  fields: readonly string[],
+): boolean =>
+  value !== null
+  && typeof value === "object"
+  && !Array.isArray(value)
+  && fields.some((field) => Object.prototype.hasOwnProperty.call(value, field));
+
+const mcpBindingConfigFromSource = (
+  source: Pick<Source, "id" | "bindingVersion" | "binding">,
+): Effect.Effect<McpBindingConfig, Error, never> =>
+  Effect.gen(function* () {
+    if (bindingHasAnyField(source.binding, ["specUrl"])) {
+      return yield* Effect.fail(new Error("MCP sources cannot define specUrl"));
+    }
+    if (bindingHasAnyField(source.binding, ["defaultHeaders"])) {
+      return yield* Effect.fail(
+        new Error("MCP sources cannot define HTTP source settings"),
+      );
+    }
+
+    const bindingConfig = yield* decodeSourceBindingPayload({
+      sourceId: source.id,
+      label: "MCP",
+      version: source.bindingVersion,
+      expectedVersion: MCP_BINDING_CONFIG_VERSION,
+      schema: McpSourceBindingPayloadSchema,
+      value: source.binding,
+      allowedKeys: ["transport", "queryParams", "headers"],
+    });
+
+    return {
+      transport: bindingConfig.transport ?? null,
+      queryParams: bindingConfig.queryParams ?? null,
+      headers: bindingConfig.headers ?? null,
+    } satisfies McpBindingConfig;
+  });
 
 const toMcpRecipeOperationRecord = (input: {
   recipeRevisionId: SourceRecipeRevisionId;
@@ -169,6 +218,7 @@ export const mcpSourceAdapter: SourceAdapter = {
   key: "mcp",
   displayName: "MCP",
   family: "mcp",
+  bindingConfigVersion: MCP_BINDING_CONFIG_VERSION,
   providerKey: "generic_mcp",
   defaultImportAuthPolicy: "reuse_runtime",
   primaryDocumentKind: "mcp_manifest",
@@ -180,47 +230,58 @@ export const mcpSourceAdapter: SourceAdapter = {
   ],
   executorAddInputSignatureWidth: 240,
   serializeBindingConfig: (source) =>
-    encodeBindingConfig(McpBindingConfigSchema, {
+    encodeBindingConfig({
       adapterKey: "mcp",
-      transport: source.transport,
-      queryParams: source.queryParams,
-      headers: source.headers,
+      version: MCP_BINDING_CONFIG_VERSION,
+      payloadSchema: McpBindingConfigSchema,
+      payload: Effect.runSync(mcpBindingConfigFromSource(source)),
     }),
   deserializeBindingConfig: ({ id, bindingConfigJson }) =>
     Effect.map(
       decodeBindingConfig({
         sourceId: id,
         label: "MCP",
-        schema: McpBindingConfigSchema,
+        adapterKey: "mcp",
+        version: MCP_BINDING_CONFIG_VERSION,
+        payloadSchema: McpBindingConfigSchema,
         value: bindingConfigJson,
       }),
-      (bindingConfig) => ({
+      ({ version, payload }) => ({
+        version,
+        payload,
+      }),
+    ),
+  bindingStateFromSource: (source) =>
+    Effect.map(mcpBindingConfigFromSource(source), (bindingConfig) => ({
         ...emptySourceBindingState,
         transport: bindingConfig.transport,
         queryParams: bindingConfig.queryParams,
         headers: bindingConfig.headers,
       }),
     ),
-  sourceConfigFromSource: (source) => ({
-    kind: "mcp",
-    endpoint: source.endpoint,
-    transport: source.transport,
-    queryParams: source.queryParams,
-    headers: source.headers,
-  }),
+  sourceConfigFromSource: (source) =>
+    Effect.runSync(
+      Effect.map(mcpBindingConfigFromSource(source), (bindingConfig) => ({
+        kind: "mcp",
+        endpoint: source.endpoint,
+        transport: bindingConfig.transport,
+        queryParams: bindingConfig.queryParams,
+        headers: bindingConfig.headers,
+      })),
+    ),
   validateSource: (source) =>
     Effect.gen(function* () {
-      if (source.specUrl !== null) {
-        return yield* Effect.fail(new Error("MCP sources cannot define specUrl"));
-      }
+      const bindingConfig = yield* mcpBindingConfigFromSource(source);
 
-      if (source.defaultHeaders !== null) {
-        return yield* Effect.fail(
-          new Error("MCP sources cannot define HTTP default headers"),
-        );
-      }
-
-      return source;
+      return {
+        ...source,
+        bindingVersion: MCP_BINDING_CONFIG_VERSION,
+        binding: {
+          transport: bindingConfig.transport,
+          queryParams: bindingConfig.queryParams,
+          headers: bindingConfig.headers,
+        },
+      };
     }),
   shouldAutoProbe: () => false,
   parseManifest: ({ source, manifestJson }) =>
@@ -271,15 +332,16 @@ export const mcpSourceAdapter: SourceAdapter = {
     }),
   materializeSource: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
+      const bindingConfig = yield* mcpBindingConfigFromSource(source);
       const auth = yield* resolveAuthMaterialForSlot("import");
       const connector = yield* Effect.try({
         try: () =>
           createSdkMcpConnector({
             endpoint: source.endpoint,
-            transport: source.transport ?? undefined,
-            queryParams: source.queryParams ?? undefined,
+            transport: bindingConfig.transport ?? undefined,
+            queryParams: bindingConfig.queryParams ?? undefined,
             headers: {
-              ...(source.headers ?? {}),
+              ...(bindingConfig.headers ?? {}),
               ...auth.headers,
             },
           }),
@@ -316,6 +378,7 @@ export const mcpSourceAdapter: SourceAdapter = {
     onElicitation,
   }) =>
     Effect.gen(function* () {
+      const bindingConfig = yield* mcpBindingConfigFromSource(source);
       const manifest = yield* parseJsonValue<McpToolManifest>({
         label: `MCP manifest for ${source.id}`,
         value: manifestJson,
@@ -330,10 +393,10 @@ export const mcpSourceAdapter: SourceAdapter = {
         manifest,
         connect: createSdkMcpConnector({
           endpoint: source.endpoint,
-          transport: source.transport ?? undefined,
-          queryParams: source.queryParams ?? undefined,
+          transport: bindingConfig.transport ?? undefined,
+          queryParams: bindingConfig.queryParams ?? undefined,
           headers: {
-            ...(source.headers ?? {}),
+            ...(bindingConfig.headers ?? {}),
             ...auth.headers,
           },
         }),
