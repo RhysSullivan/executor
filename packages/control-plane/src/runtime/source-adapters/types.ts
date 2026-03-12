@@ -8,6 +8,7 @@ import type {
   AccountId,
   CredentialSlot,
   OAuth2ClientAuthenticationMethod,
+  SourceOauthClientInput,
   Source,
   SourceBinding,
   SourceImportAuthPolicy,
@@ -78,13 +79,6 @@ export type SourceAdapterOauth2SetupConfig = {
   prefix: string;
   clientAuthentication: OAuth2ClientAuthenticationMethod;
   authorizationParams?: Readonly<Record<string, string>>;
-};
-
-export type SourceAdapterDefaultOauthClient = {
-  providerKey: string;
-  clientId: string;
-  clientSecret: string | null;
-  redirectMode?: "app_callback" | "loopback";
 };
 
 export type SourceAdapterRepairRevisionInput = {
@@ -160,9 +154,9 @@ export type SourceAdapter = {
     source: Source;
     slot: CredentialSlot;
   }) => Effect.Effect<SourceAdapterOauth2SetupConfig | null, Error, never>;
-  getDefaultOauthClient?: (
-    source: Source,
-  ) => Effect.Effect<SourceAdapterDefaultOauthClient | null, Error, never>;
+  normalizeOauthClientInput?: (
+    input: SourceOauthClientInput,
+  ) => Effect.Effect<SourceOauthClientInput, Error, never>;
   invokePersistedTool: (
     input: SourceAdapterInvokePersistedToolInput,
   ) => Effect.Effect<unknown, Error, never>;

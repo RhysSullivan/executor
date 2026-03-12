@@ -72,6 +72,8 @@ type ConnectFormState = {
   bearerToken: string;
   bearerProviderId: string;
   bearerHandle: string;
+  oauthClientId: string;
+  oauthClientSecret: string;
   queryParamsText: string;
   headersText: string;
 };
@@ -216,6 +218,8 @@ const defaultConnectForm = (discovery?: SourceDiscoveryResult): ConnectFormState
       bearerToken: "",
       bearerProviderId: "",
       bearerHandle: "",
+      oauthClientId: "",
+      oauthClientSecret: "",
       queryParamsText: "",
       headersText: "",
     };
@@ -266,6 +270,8 @@ const defaultConnectForm = (discovery?: SourceDiscoveryResult): ConnectFormState
     bearerToken: "",
     bearerProviderId: "",
     bearerHandle: "",
+    oauthClientId: "",
+    oauthClientSecret: "",
     queryParamsText: "",
     headersText: "",
   };
@@ -358,6 +364,9 @@ const buildConnectPayload = (form: ConnectFormState): ConnectSourcePayload => {
     const version = form.version.trim();
     if (!service) throw new Error("Google Discovery sources require a service name.");
     if (!version) throw new Error("Google Discovery sources require a version.");
+    if (form.authKind === "oauth2" && form.oauthClientId.trim().length === 0) {
+      throw new Error("Google OAuth requires a client ID.");
+    }
     return {
       kind: "google_discovery",
       service,
@@ -365,6 +374,12 @@ const buildConnectPayload = (form: ConnectFormState): ConnectSourcePayload => {
       discoveryUrl: trimToNull(form.discoveryUrl),
       name: trimToNull(form.name),
       namespace: trimToNull(form.namespace),
+      oauthClient: form.authKind === "oauth2"
+        ? {
+            clientId: form.oauthClientId.trim(),
+            clientSecret: trimToNull(form.oauthClientSecret),
+          }
+        : null,
       auth,
     };
   }
@@ -1149,9 +1164,27 @@ export function AddSourcePage() {
                   {connectForm.kind === "google_discovery" && (
                     <div className="sm:col-span-2 rounded-lg border border-border bg-card/60 px-3 py-2 text-[12px] text-muted-foreground">
                       {connectForm.authKind === "oauth2"
-                        ? "OAuth starts after you click Connect. Executor will open a Google sign-in popup and store the resulting refreshable credentials for this source."
+                        ? "OAuth starts after you click Connect. Executor will store the OAuth client secret in the configured secret store, then open the Google sign-in flow for this source."
                         : "Choosing auth mode 'none' skips the Google OAuth popup. Use 'oauth2' if you want executor to start the sign-in flow for you."}
                     </div>
+                  )}
+                  {connectForm.kind === "google_discovery" && connectForm.authKind === "oauth2" && (
+                    <>
+                      <Field label="OAuth client ID" className="sm:col-span-2">
+                        <TextInput
+                          value={connectForm.oauthClientId}
+                          onChange={(v) => setFormField("oauthClientId", v)}
+                          placeholder="1234567890-abcdef.apps.googleusercontent.com"
+                        />
+                      </Field>
+                      <Field label="OAuth client secret" className="sm:col-span-2">
+                        <TextInput
+                          value={connectForm.oauthClientSecret}
+                          onChange={(v) => setFormField("oauthClientSecret", v)}
+                          placeholder="GOCSPX-..."
+                        />
+                      </Field>
+                    </>
                   )}
                   {connectForm.authKind !== "none" && (
                     <>

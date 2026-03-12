@@ -42,6 +42,7 @@ import type {
 import {
   ConnectHttpAuthSchema,
   ConnectHttpImportAuthSchema,
+  ConnectOauthClientSchema,
   createStandardToolDescriptor,
   decodeBindingConfig,
   decodeSourceBindingPayload,
@@ -65,6 +66,7 @@ const GoogleDiscoveryConnectPayloadSchema = Schema.extend(
     scopes: Schema.optional(
       Schema.Array(Schema.Trim.pipe(Schema.nonEmptyString())),
     ),
+    oauthClient: ConnectOauthClientSchema,
     name: OptionalNullableStringSchema,
     namespace: OptionalNullableStringSchema,
     auth: Schema.optional(ConnectHttpAuthSchema),
@@ -359,11 +361,6 @@ const googleDiscoveryOauth2SetupConfig = (source: Source) =>
     };
   });
 
-const trimEnv = (value: string | undefined): string | null => {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
-};
-
 export const googleDiscoverySourceAdapter: SourceAdapter = {
   key: "google_discovery",
   displayName: "Google Discovery",
@@ -565,17 +562,11 @@ export const googleDiscoverySourceAdapter: SourceAdapter = {
       };
     }),
   getOauth2SetupConfig: ({ source }) => googleDiscoveryOauth2SetupConfig(source),
-  getDefaultOauthClient: () =>
-    Effect.succeed(
-      trimEnv(process.env.GOOGLE_CLIENT_ID)
-        ? {
-            providerKey: "google_workspace",
-            clientId: trimEnv(process.env.GOOGLE_CLIENT_ID)!,
-            clientSecret: trimEnv(process.env.GOOGLE_CLIENT_SECRET),
-            redirectMode: "loopback",
-          }
-        : null,
-    ),
+  normalizeOauthClientInput: (input) =>
+    Effect.succeed({
+      ...input,
+      redirectMode: input.redirectMode ?? "loopback",
+    }),
   invokePersistedTool: ({
     source,
     path,

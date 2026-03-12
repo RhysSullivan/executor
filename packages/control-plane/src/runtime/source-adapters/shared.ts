@@ -5,6 +5,7 @@ import {
   typeSignatureFromSchemaJson,
 } from "@executor/codemode-core";
 import {
+  SourceOauthClientInputSchema,
   type CredentialSlot,
   SecretRefSchema,
   SourceBindingVersionSchema,
@@ -67,6 +68,10 @@ export const ConnectHttpImportAuthSchema = Schema.Struct({
   importAuthPolicy: Schema.optional(SourceImportAuthPolicySchema),
   importAuth: Schema.optional(ConnectHttpAuthSchema),
 });
+
+export const ConnectOauthClientSchema = Schema.optional(
+  Schema.NullOr(SourceOauthClientInputSchema),
+);
 
 export const SourceConnectCommonFieldsSchema = Schema.Struct({
   endpoint: TrimmedNonEmptyStringSchema,

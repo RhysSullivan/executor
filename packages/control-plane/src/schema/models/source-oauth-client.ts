@@ -22,6 +22,14 @@ export const WorkspaceSourceOauthClientMetadataJsonSchema = Schema.parseJson(
   WorkspaceSourceOauthClientMetadataSchema,
 );
 
+export const SourceOauthClientInputSchema = Schema.Struct({
+  clientId: Schema.Trim.pipe(Schema.nonEmptyString()),
+  clientSecret: Schema.optional(
+    Schema.NullOr(Schema.Trim.pipe(Schema.nonEmptyString())),
+  ),
+  redirectMode: Schema.optional(WorkspaceSourceOauthClientRedirectModeSchema),
+});
+
 export const WorkspaceSourceOauthClientSchema = createSelectSchema(
   workspaceSourceOauthClientsTable,
   {
@@ -38,3 +46,4 @@ export type WorkspaceSourceOauthClientRedirectMode =
   typeof WorkspaceSourceOauthClientRedirectModeSchema.Type;
 export type WorkspaceSourceOauthClientMetadata =
   typeof WorkspaceSourceOauthClientMetadataSchema.Type;
+export type SourceOauthClientInput = typeof SourceOauthClientInputSchema.Type;

@@ -75,12 +75,20 @@ describe("control-plane payload schemas", () => {
         service: "  sheets  ",
         version: "  v4  ",
         discoveryUrl: "  https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest  ",
+        oauthClient: {
+          clientId: "  google-client  ",
+          clientSecret: "  google-secret  ",
+        },
       }),
     ).toEqual({
       kind: "google_discovery",
       service: "sheets",
       version: "v4",
       discoveryUrl: "https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest",
+      oauthClient: {
+        clientId: "google-client",
+        clientSecret: "google-secret",
+      },
     });
 
     expect(

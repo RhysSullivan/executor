@@ -22,6 +22,7 @@ import {
   SourceAuthSession,
   SourceAuthSessionIdSchema,
   SourceIdSchema,
+  type SourceOauthClientInput,
   SourceSchema,
   type SecretRef,
   type StringMap,
@@ -57,6 +58,7 @@ import {
 } from "./source-adapters";
 import { isSourceCredentialRequiredError } from "./source-adapters/shared";
 import {
+  createDefaultSecretMaterialDeleter,
   createDefaultSecretMaterialResolver,
   createDefaultSecretMaterialStorer,
   type ResolveSecretMaterial,
@@ -437,6 +439,7 @@ export type ExecutorAddSourceInput =
       version: string;
       discoveryUrl?: string | null;
       scopes?: ReadonlyArray<string> | null;
+      oauthClient?: SourceOauthClientInput | null;
       name?: string | null;
       namespace?: string | null;
       importAuthPolicy?: SourceImportAuthPolicy | null;
@@ -706,10 +709,91 @@ const sourceOauthClientSecretRef = (client: {
       }
     : null;
 
-const resolveOrCreateSourceOauthClient = (input: {
+const upsertSourceOauthClient = (input: {
   rows: SqlControlPlaneRows;
   source: Source;
+  oauthClient: SourceOauthClientInput;
   storeSecretMaterial: StoreSecretMaterial;
+}): Effect.Effect<ResolvedSourceOauthClient, Error, never> =>
+  Effect.gen(function* () {
+    const adapter = getSourceAdapterForSource(input.source);
+    const setupConfig = adapter.getOauth2SetupConfig
+      ? yield* adapter.getOauth2SetupConfig({
+          source: input.source,
+          slot: "runtime",
+        })
+      : null;
+    if (setupConfig === null) {
+      return yield* Effect.fail(
+        new Error(`Source ${input.source.id} does not support OAuth client configuration`),
+      );
+    }
+
+    const existing = yield* input.rows.sourceOauthClients.getByWorkspaceSourceAndProvider({
+      workspaceId: input.source.workspaceId,
+      sourceId: input.source.id,
+      providerKey: setupConfig.providerKey,
+    });
+    const normalizedOauthClient = adapter.normalizeOauthClientInput
+      ? yield* adapter.normalizeOauthClientInput(input.oauthClient)
+      : input.oauthClient;
+    const previousClientSecretRef = Option.isSome(existing)
+      ? sourceOauthClientSecretRef(existing.value)
+      : null;
+    const clientSecretRef = normalizedOauthClient.clientSecret
+      ? yield* input.storeSecretMaterial({
+          purpose: "oauth_client_info",
+          value: normalizedOauthClient.clientSecret,
+        })
+      : null;
+    const now = Date.now();
+    const clientId = Option.isSome(existing)
+      ? existing.value.id
+      : WorkspaceSourceOauthClientIdSchema.make(
+          `src_oauth_client_${crypto.randomUUID()}`,
+        );
+    yield* input.rows.sourceOauthClients.upsert({
+      id: clientId,
+      workspaceId: input.source.workspaceId,
+      sourceId: input.source.id,
+      providerKey: setupConfig.providerKey,
+      clientId: normalizedOauthClient.clientId,
+      clientSecretProviderId: clientSecretRef?.providerId ?? null,
+      clientSecretHandle: clientSecretRef?.handle ?? null,
+      clientMetadataJson: encodeWorkspaceSourceOauthClientMetadataJson({
+        redirectMode: normalizedOauthClient.redirectMode ?? "app_callback",
+      }),
+      createdAt: Option.isSome(existing) ? existing.value.createdAt : now,
+      updatedAt: now,
+    });
+    if (
+      previousClientSecretRef
+      && (
+        clientSecretRef === null
+        || previousClientSecretRef.providerId !== clientSecretRef.providerId
+        || previousClientSecretRef.handle !== clientSecretRef.handle
+      )
+    ) {
+      const deleteSecretMaterial = createDefaultSecretMaterialDeleter({
+        rows: input.rows,
+      });
+      yield* deleteSecretMaterial(previousClientSecretRef).pipe(
+        Effect.either,
+        Effect.ignore,
+      );
+    }
+
+    return {
+      providerKey: setupConfig.providerKey,
+      clientId: normalizedOauthClient.clientId,
+      clientSecret: clientSecretRef,
+      redirectMode: normalizedOauthClient.redirectMode ?? "app_callback",
+    };
+  });
+
+const resolveExistingSourceOauthClient = (input: {
+  rows: SqlControlPlaneRows;
+  source: Source;
 }): Effect.Effect<ResolvedSourceOauthClient | null, Error, never> =>
   Effect.gen(function* () {
     const adapter = getSourceAdapterForSource(input.source);
@@ -728,52 +812,15 @@ const resolveOrCreateSourceOauthClient = (input: {
       sourceId: input.source.id,
       providerKey: setupConfig.providerKey,
     });
-    if (Option.isSome(existing)) {
-      return {
-        providerKey: existing.value.providerKey,
-        clientId: existing.value.clientId,
-        clientSecret: sourceOauthClientSecretRef(existing.value),
-        redirectMode: sourceOauthClientRedirectMode(existing.value),
-      };
-    }
-
-    const fallback = adapter.getDefaultOauthClient
-      ? yield* adapter.getDefaultOauthClient(input.source)
-      : null;
-    if (fallback === null) {
+    if (Option.isNone(existing)) {
       return null;
     }
 
-    const clientSecretRef = fallback.clientSecret
-      ? yield* input.storeSecretMaterial({
-          purpose: "oauth_client_info",
-          value: fallback.clientSecret,
-        })
-      : null;
-    const now = Date.now();
-    const clientId = WorkspaceSourceOauthClientIdSchema.make(
-      `src_oauth_client_${crypto.randomUUID()}`,
-    );
-    yield* input.rows.sourceOauthClients.upsert({
-      id: clientId,
-      workspaceId: input.source.workspaceId,
-      sourceId: input.source.id,
-      providerKey: fallback.providerKey,
-      clientId: fallback.clientId,
-      clientSecretProviderId: clientSecretRef?.providerId ?? null,
-      clientSecretHandle: clientSecretRef?.handle ?? null,
-      clientMetadataJson: encodeWorkspaceSourceOauthClientMetadataJson({
-        redirectMode: fallback.redirectMode ?? "app_callback",
-      }),
-      createdAt: now,
-      updatedAt: now,
-    });
-
     return {
-      providerKey: fallback.providerKey,
-      clientId: fallback.clientId,
-      clientSecret: clientSecretRef,
-      redirectMode: fallback.redirectMode ?? "app_callback",
+      providerKey: existing.value.providerKey,
+      clientId: existing.value.clientId,
+      clientSecret: sourceOauthClientSecretRef(existing.value),
+      redirectMode: sourceOauthClientRedirectMode(existing.value),
     };
   });
 
@@ -799,10 +846,9 @@ const startOauth2PkceSourceCredentialSetup = (input: {
       return null;
     }
 
-    const oauthClient = yield* resolveOrCreateSourceOauthClient({
+    const oauthClient = yield* resolveExistingSourceOauthClient({
       rows: input.rows,
       source: input.source,
-      storeSecretMaterial: input.storeSecretMaterial,
     });
     if (oauthClient === null) {
       return null;
@@ -1446,6 +1492,15 @@ const addExecutorGoogleDiscoverySource = (input: {
     const persistedDraft = yield* persistSource(input.rows, draftSource, {
       actorAccountId: input.sourceInput.actorAccountId,
     });
+
+    if (input.sourceInput.oauthClient) {
+      yield* upsertSourceOauthClient({
+        rows: input.rows,
+        source: persistedDraft,
+        oauthClient: input.sourceInput.oauthClient,
+        storeSecretMaterial: input.storeSecretMaterial,
+      });
+    }
 
     if (shouldPromptForExecutorHttpRuntimeCredentialSetup({
       existing,

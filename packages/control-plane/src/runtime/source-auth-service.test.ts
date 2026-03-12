@@ -222,10 +222,6 @@ describe("source-auth-service", () => {
 
   it("completes Google Discovery desktop OAuth into a refreshable auth artifact and lease", async () => {
     const discoveryDocument = await fetchLiveDiscoveryDocument();
-    const previousClientId = process.env.GOOGLE_CLIENT_ID;
-    const previousClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    process.env.GOOGLE_CLIENT_ID = "google-test-client";
-    process.env.GOOGLE_CLIENT_SECRET = "google-test-secret";
 
     const persistence = await makePersistence();
     try {
@@ -290,6 +286,10 @@ describe("source-auth-service", () => {
                 version: "v4",
                 discoveryUrl,
                 scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+                oauthClient: {
+                  clientId: "google-test-client",
+                  clientSecret: "google-test-secret",
+                },
               }),
             );
 
@@ -303,6 +303,18 @@ describe("source-auth-service", () => {
             );
             expect(Option.isSome(sessionOption)).toBe(true);
             const session = Option.getOrNull(sessionOption) as SourceAuthSession;
+            const oauthClientOption = await Effect.runPromise(
+              persistence.rows.sourceOauthClients.getByWorkspaceSourceAndProvider({
+                workspaceId,
+                sourceId: addResult.source.id,
+                providerKey: "google_workspace",
+              }),
+            );
+            expect(Option.isSome(oauthClientOption)).toBe(true);
+            const oauthClient = Option.getOrNull(oauthClientOption)!;
+            expect(oauthClient.clientId).toBe("google-test-client");
+            expect(oauthClient.clientSecretProviderId).toBe("postgres");
+            expect(oauthClient.clientSecretHandle).toBeTruthy();
             expect(session.providerKind).toBe("oauth2_pkce");
             const sessionData = Schema.decodeUnknownSync(
               OAuth2PkceSourceAuthSessionDataJsonSchema,
@@ -475,25 +487,11 @@ describe("source-auth-service", () => {
       });
     } finally {
       await persistence.close();
-      if (previousClientId === undefined) {
-        delete process.env.GOOGLE_CLIENT_ID;
-      } else {
-        process.env.GOOGLE_CLIENT_ID = previousClientId;
-      }
-      if (previousClientSecret === undefined) {
-        delete process.env.GOOGLE_CLIENT_SECRET;
-      } else {
-        process.env.GOOGLE_CLIENT_SECRET = previousClientSecret;
-      }
     }
   }, 60_000);
 
   it("uses the request origin callback for Google Discovery OAuth started from the web app", async () => {
     const discoveryDocument = await fetchLiveDiscoveryDocument();
-    const previousClientId = process.env.GOOGLE_CLIENT_ID;
-    const previousClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    process.env.GOOGLE_CLIENT_ID = "google-test-client";
-    process.env.GOOGLE_CLIENT_SECRET = "google-test-secret";
 
     const persistence = await makePersistence();
     try {
@@ -559,6 +557,10 @@ describe("source-auth-service", () => {
                   version: "v4",
                   discoveryUrl,
                   scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
+                  oauthClient: {
+                    clientId: "google-test-client",
+                    clientSecret: "google-test-secret",
+                  },
                 },
                 {
                   baseUrl: "https://app.executor.dev",
@@ -594,16 +596,6 @@ describe("source-auth-service", () => {
       });
     } finally {
       await persistence.close();
-      if (previousClientId === undefined) {
-        delete process.env.GOOGLE_CLIENT_ID;
-      } else {
-        process.env.GOOGLE_CLIENT_ID = previousClientId;
-      }
-      if (previousClientSecret === undefined) {
-        delete process.env.GOOGLE_CLIENT_SECRET;
-      } else {
-        process.env.GOOGLE_CLIENT_SECRET = previousClientSecret;
-      }
     }
   }, 60_000);
 });
