@@ -69,6 +69,27 @@ export class McpToolsError extends Data.TaggedError("McpToolsError")<{
   details: string | null;
 }> {}
 
+const EXECUTION_SUSPENDED_SENTINEL = "__EXECUTION_SUSPENDED__";
+
+const causeText = (cause: unknown): string => {
+  if (cause instanceof Error) {
+    return `${cause.message}\n${cause.stack ?? ""}`;
+  }
+
+  if (typeof cause === "string") {
+    return cause;
+  }
+
+  try {
+    return JSON.stringify(cause);
+  } catch {
+    return String(cause);
+  }
+};
+
+const isExecutionSuspendedCause = (cause: unknown): boolean =>
+  causeText(cause).includes(EXECUTION_SUSPENDED_SENTINEL);
+
 const toDetails = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
@@ -140,11 +161,13 @@ const resolveElicitationResponse = (input: {
     elicitation: input.elicitation,
   }).pipe(
     Effect.mapError((cause) =>
-      new McpToolsError({
-        stage: "call_tool",
-        message: `Failed resolving elicitation for ${input.toolName}`,
-        details: toDetails(cause),
-      })),
+      isExecutionSuspendedCause(cause)
+        ? (cause as McpToolsError)
+        : new McpToolsError({
+            stage: "call_tool",
+            message: `Failed resolving elicitation for ${input.toolName}`,
+            details: toDetails(cause),
+          })),
   );
 
 const installMcpElicitationHandler = (input: {
@@ -196,6 +219,10 @@ const installMcpElicitationHandler = (input: {
             ),
             Effect.map(toMcpElicitationResponse),
             Effect.catchAll((error) => {
+              if (isExecutionSuspendedCause(error)) {
+                return Effect.fail(error);
+              }
+
               console.error(
                 `[mcp-tools] elicitation failed for ${input.toolName}, treating as cancel:`,
                 error instanceof Error ? error.message : String(error),
@@ -318,6 +345,10 @@ const runMcpListToolsEffect = (input: {
         return attempt.right;
       }
 
+      if (isExecutionSuspendedCause(attempt.left)) {
+        return yield* Effect.fail(attempt.left as McpToolsError);
+      }
+
       if (
         input.mcpDiscoveryElicitation
         && isUrlElicitationRequiredError(attempt.left)
@@ -380,6 +411,10 @@ const runMcpToolCallEffect = (input: {
 
       if (Either.isRight(attempt)) {
         return attempt.right;
+      }
+
+      if (isExecutionSuspendedCause(attempt.left)) {
+        return yield* Effect.fail(attempt.left as McpToolsError);
       }
 
       if (

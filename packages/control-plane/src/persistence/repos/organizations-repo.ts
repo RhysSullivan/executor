@@ -163,6 +163,10 @@ export const createOrganizationsRepo = (
             .where(
               inArray(tables.executionInteractionsTable.executionId, executionIds),
             );
+
+          await tx
+            .delete(tables.executionStepsTable)
+            .where(inArray(tables.executionStepsTable.executionId, executionIds));
         }
 
         await tx

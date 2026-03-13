@@ -10,6 +10,7 @@ import {
   createAuthLeasesRepo,
   createCodeMigrationsRepo,
   createExecutionInteractionsRepo,
+  createExecutionStepsRepo,
   createExecutionsRepo,
   createLocalInstallationsRepo,
   createOrganizationMembershipsRepo,
@@ -74,6 +75,7 @@ const createRows = (client: DrizzleClient, tables: DrizzleTables = drizzleSchema
   localInstallations: createLocalInstallationsRepo(client, tables),
   executions: createExecutionsRepo(client, tables),
   executionInteractions: createExecutionInteractionsRepo(client, tables),
+  executionSteps: createExecutionStepsRepo(client, tables),
 });
 
 export type SqlControlPlaneRows = ReturnType<typeof createRows>;

@@ -27,6 +27,10 @@ type LiveRunEntry = {
 };
 
 type LiveExecutionManagerShape = {
+  publishState: (input: {
+    executionId: Execution["id"];
+    state: VisibleExecutionState;
+  }) => Effect.Effect<void>;
   registerStateWaiter: (
     executionId: Execution["id"],
   ) => Effect.Effect<Deferred.Deferred<VisibleExecutionState>>;
@@ -138,6 +142,8 @@ export const createLiveExecutionManager = () => {
     });
 
   const manager = {
+    publishState,
+
     registerStateWaiter: (executionId) =>
       Effect.gen(function* () {
         const waiter = yield* Deferred.make<VisibleExecutionState>();
@@ -168,6 +174,7 @@ export const createLiveExecutionManager = () => {
                 elicitation: input.elicitation,
               }) ?? "{}",
             responseJson: null,
+            responsePrivateJson: null,
             createdAt: now,
             updatedAt: now,
           };
@@ -194,6 +201,7 @@ export const createLiveExecutionManager = () => {
           yield* rows.executionInteractions.update(interaction.id, {
             status: resolved.action === "cancel" ? "cancelled" : "resolved",
             responseJson: serializeJson(sanitizePersistedElicitationResponse(resolved)),
+            responsePrivateJson: serializeJson(resolved),
             updatedAt: resolvedAt,
           });
           yield* rows.executions.update(executionId, {

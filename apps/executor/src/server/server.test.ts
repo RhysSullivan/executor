@@ -840,6 +840,7 @@ describe("local-executor-server", () => {
         },
         payload: {
           code: 'return await tools.demo.gated_echo({ value: "from-daemon" });',
+          interactionMode: "live_form",
         },
       });
 
@@ -856,6 +857,7 @@ describe("local-executor-server", () => {
           executionId: created.execution.id,
         },
         payload: {
+          interactionMode: "live_form",
           responseJson: JSON.stringify({
             action: "accept",
             content: {
@@ -922,6 +924,7 @@ describe("local-executor-server", () => {
           },
           payload: {
             code: `return await tools.demo.gated_echo({ value: "${value}" });`,
+            interactionMode: "live_form",
           },
         });
 
@@ -934,6 +937,7 @@ describe("local-executor-server", () => {
             executionId: created.execution.id,
           },
           payload: {
+            interactionMode: "live_form",
             responseJson: JSON.stringify({
               action: "accept",
               content: {
@@ -1112,6 +1116,7 @@ describe("local-executor-server", () => {
         },
         payload: {
           code: `return await tools.executor.sources.add({ endpoint: ${JSON.stringify(oauthServer.endpoint)}, name: "Axiom", namespace: "axiom" });`,
+          interactionMode: "live",
         },
       });
 

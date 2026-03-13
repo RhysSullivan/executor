@@ -857,6 +857,9 @@ const printUrlInteraction = (input: {
     }
   });
 
+const executionInteractionMode = (): "live_form" | "detach" =>
+  process.stdin.isTTY && process.stdout.isTTY ? "live_form" : "detach";
+
 const promptInteraction = (input: {
   interaction: ExecutionInteraction;
   shouldOpenUrls: boolean;
@@ -1105,6 +1108,7 @@ const driveExecution = (input: {
         },
         payload: {
           responseJson,
+          interactionMode: executionInteractionMode(),
         },
       });
     }
@@ -1271,6 +1275,7 @@ const callCommand = Command.make(
         },
         payload: {
           code: resolvedCode,
+          interactionMode: executionInteractionMode(),
         },
       });
 

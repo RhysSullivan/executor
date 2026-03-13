@@ -96,6 +96,10 @@ export const createWorkspacesRepo = (
         await tx
           .delete(tables.executionInteractionsTable)
           .where(inArray(tables.executionInteractionsTable.executionId, executionIds));
+
+        await tx
+          .delete(tables.executionStepsTable)
+          .where(inArray(tables.executionStepsTable.executionId, executionIds));
       }
 
       await tx

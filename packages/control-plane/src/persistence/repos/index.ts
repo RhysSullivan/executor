@@ -18,3 +18,4 @@ export { createPoliciesRepo } from "./policies-repo";
 export { createLocalInstallationsRepo } from "./local-installations-repo";
 export { createExecutionsRepo } from "./executions-repo";
 export { createExecutionInteractionsRepo } from "./execution-interactions-repo";
+export { createExecutionStepsRepo } from "./execution-steps-repo";
