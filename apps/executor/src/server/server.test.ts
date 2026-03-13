@@ -17,6 +17,7 @@ import { startMcpElicitationDemoServer } from "@executor/mcp-elicitation-demo";
 import { makeToolInvokerFromTools, toTool } from "@executor/codemode-core";
 import {
   createControlPlaneClient,
+  controlPlaneOpenApiSpec,
   type ControlPlaneClient,
   type ResolveExecutionEnvironment,
   SourceIdSchema,
@@ -601,6 +602,24 @@ const waitForExecutionCompletion = (input: {
   });
 
 describe("local-executor-server", () => {
+  it.scoped("serves the control-plane OpenAPI spec at /v1/openapi.json", () =>
+    Effect.gen(function* () {
+      const server = yield* makeServer;
+      const response = yield* Effect.promise(() =>
+        fetch(`${server.baseUrl}/v1/openapi.json`, {
+          headers: {
+            accept: "application/json",
+          },
+        }),
+      );
+      const spec = yield* Effect.promise(() => response.json());
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(spec).toEqual(controlPlaneOpenApiSpec);
+    }),
+  );
+
   it.scoped("serves the control-plane API and executes code", () =>
     Effect.gen(function* () {
       const server = yield* makeServer;

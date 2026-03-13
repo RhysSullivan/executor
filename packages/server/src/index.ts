@@ -212,7 +212,9 @@ const createControlPlaneWebHandler = (runtime: SqlControlPlaneRuntime) =>
     Effect.sync(() =>
       HttpApiBuilder.toWebHandler(
         Layer.merge(
-          createControlPlaneApiLayer(runtime.runtimeLayer),
+          HttpApiBuilder.middlewareOpenApi({ path: "/v1/openapi.json" }).pipe(
+            Layer.provideMerge(createControlPlaneApiLayer(runtime.runtimeLayer))
+          ),
           HttpServer.layerContext,
         ),
       ),
