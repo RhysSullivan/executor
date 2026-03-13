@@ -42,6 +42,7 @@ import * as Schema from "effect/Schema";
 
 import {
   LiveExecutionManagerService,
+  sanitizePersistedElicitationResponse,
   type LiveExecutionManager,
 } from "./live-execution";
 import {
@@ -302,6 +303,7 @@ const mergeOauth2PkceSourceAuthSessionData = (input: {
 
 
 const completeLiveInteraction = (input: {
+  rows: SqlControlPlaneRows;
   liveExecutionManager: LiveExecutionManager;
   session: SourceAuthSession;
   response: {
@@ -314,23 +316,49 @@ const completeLiveInteraction = (input: {
       return;
     }
 
-    yield* input.liveExecutionManager.resolveInteraction({
+    const response =
+      input.response.action === "accept"
+        ? { action: "accept" as const }
+        : {
+            action: "cancel" as const,
+            ...(input.response.reason
+              ? {
+                  content: {
+                    reason: input.response.reason,
+                  },
+                }
+              : {}),
+          };
+
+    const resumed = yield* input.liveExecutionManager.resolveInteraction({
       executionId: input.session.executionId,
-      response:
-        input.response.action === "accept"
-          ? { action: "accept" }
-          : {
-              action: "cancel",
-              ...(input.response.reason
-                ? {
-                    content: {
-                      reason: input.response.reason,
-                    },
-                  }
-                : {}),
-            },
+      response,
     });
+
+    if (!resumed) {
+      const pendingInteraction = yield* input.rows.executionInteractions
+        .getPendingByExecutionId(input.session.executionId);
+
+      if (Option.isSome(pendingInteraction)) {
+        yield* input.rows.executionInteractions.update(pendingInteraction.value.id, {
+          status: response.action === "cancel" ? "cancelled" : "resolved",
+          responseJson: serializeJson(
+            sanitizePersistedElicitationResponse(response),
+          ),
+          responsePrivateJson: serializeJson(response),
+          updatedAt: Date.now(),
+        });
+      }
+    }
   });
+
+const serializeJson = (value: unknown): string | null => {
+  if (value === undefined) {
+    return null;
+  }
+
+  return JSON.stringify(value);
+};
 
 const updateSourceStatus = (rows: SqlControlPlaneRows, source: Source, input: {
   actorAccountId?: AccountId | null;
@@ -2006,6 +2034,7 @@ export const createRuntimeSourceAuthService = (input: {
           resolveSecretMaterial,
         });
         yield* completeLiveInteraction({
+          rows: input.rows,
           liveExecutionManager: input.liveExecutionManager,
           session,
           response: {
@@ -2193,6 +2222,7 @@ export const createRuntimeSourceAuthService = (input: {
       });
 
       yield* completeLiveInteraction({
+        rows: input.rows,
         liveExecutionManager: input.liveExecutionManager,
         session,
         response: {

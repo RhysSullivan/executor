@@ -13,3 +13,4 @@ export { createSecretMaterialsRepo } from "./secret-materials-repo";
 export { createSourceAuthSessionsRepo } from "./source-auth-sessions-repo";
 export { createExecutionsRepo } from "./executions-repo";
 export { createExecutionInteractionsRepo } from "./execution-interactions-repo";
+export { createExecutionStepsRepo } from "./execution-steps-repo";

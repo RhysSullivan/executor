@@ -31,6 +31,9 @@ export const ExecutionIdSchema = Schema.String.pipe(Schema.brand("ExecutionId"))
 export const ExecutionInteractionIdSchema = Schema.String.pipe(
   Schema.brand("ExecutionInteractionId"),
 );
+export const ExecutionStepIdSchema = Schema.String.pipe(
+  Schema.brand("ExecutionStepId"),
+);
 
 export type AccountId = typeof AccountIdSchema.Type;
 export type WorkspaceId = typeof WorkspaceIdSchema.Type;
@@ -47,3 +50,4 @@ export type SecretMaterialId = typeof SecretMaterialIdSchema.Type;
 export type PolicyId = typeof PolicyIdSchema.Type;
 export type ExecutionId = typeof ExecutionIdSchema.Type;
 export type ExecutionInteractionId = typeof ExecutionInteractionIdSchema.Type;
+export type ExecutionStepId = typeof ExecutionStepIdSchema.Type;

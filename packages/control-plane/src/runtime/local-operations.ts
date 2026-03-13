@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
 import { loadLocalInstallation } from "./local-installation";
+import { submitExecutionInteractionResponse } from "./execution-service";
 import { LiveExecutionManagerService } from "./live-execution";
 import {
   operationErrors,
@@ -241,12 +242,28 @@ export const submitSourceCredentialInteraction = (input: {
       });
 
       if (!resumed) {
-        return yield* Effect.fail(
-          localOps.sourceCredentialSubmit.badRequest(
-            "Source credential request is no longer resumable",
-            `interactionId=${interaction.interactionId}`,
+        const persisted = yield* submitExecutionInteractionResponse({
+          executionId: interaction.executionId,
+          response: {
+            action: "cancel",
+          },
+        }).pipe(
+          Effect.mapError((error) =>
+            localOps.sourceCredentialSubmit.unknownStorage(
+              error,
+              `Failed resuming execution for interaction ${interaction.interactionId}`,
+            )
           ),
         );
+
+        if (!persisted) {
+          return yield* Effect.fail(
+            localOps.sourceCredentialSubmit.badRequest(
+              "Source credential request is no longer resumable",
+              `interactionId=${interaction.interactionId}`,
+            ),
+          );
+        }
       }
 
       return {
@@ -266,12 +283,29 @@ export const submitSourceCredentialInteraction = (input: {
       });
 
       if (!resumed) {
-        return yield* Effect.fail(
-          localOps.sourceCredentialSubmit.badRequest(
-            "Source credential request is no longer resumable",
-            `interactionId=${interaction.interactionId}`,
+        const persisted = yield* submitExecutionInteractionResponse({
+          executionId: interaction.executionId,
+          response: {
+            action: "accept",
+            content: createSourceCredentialSelectionNoneContent(),
+          },
+        }).pipe(
+          Effect.mapError((error) =>
+            localOps.sourceCredentialSubmit.unknownStorage(
+              error,
+              `Failed resuming execution for interaction ${interaction.interactionId}`,
+            )
           ),
         );
+
+        if (!persisted) {
+          return yield* Effect.fail(
+            localOps.sourceCredentialSubmit.badRequest(
+              "Source credential request is no longer resumable",
+              `interactionId=${interaction.interactionId}`,
+            ),
+          );
+        }
       }
 
       return {
@@ -314,12 +348,29 @@ export const submitSourceCredentialInteraction = (input: {
     });
 
     if (!resumed) {
-      return yield* Effect.fail(
-        localOps.sourceCredentialSubmit.badRequest(
-          "Source credential request is no longer resumable",
-          `interactionId=${interaction.interactionId}`,
+      const persisted = yield* submitExecutionInteractionResponse({
+        executionId: interaction.executionId,
+        response: {
+          action: "accept",
+          content: createSourceCredentialSelectionBearerContent(tokenRef),
+        },
+      }).pipe(
+        Effect.mapError((error) =>
+          localOps.sourceCredentialSubmit.unknownStorage(
+            error,
+            `Failed resuming execution for interaction ${interaction.interactionId}`,
+          )
         ),
       );
+
+      if (!persisted) {
+        return yield* Effect.fail(
+          localOps.sourceCredentialSubmit.badRequest(
+            "Source credential request is no longer resumable",
+            `interactionId=${interaction.interactionId}`,
+          ),
+        );
+      }
     }
 
     return {

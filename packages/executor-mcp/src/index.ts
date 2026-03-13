@@ -117,6 +117,9 @@ const supportsManagedElicitation = (server: McpServer): boolean => {
   return Boolean(capabilities?.elicitation?.form) && Boolean(capabilities?.elicitation?.url);
 };
 
+const interactionModeForServer = (server: McpServer): "live_form" | "detach" =>
+  supportsManagedElicitation(server) ? "live_form" : "detach";
+
 type CatalogLike = {
   listNamespaces: (input: { limit: number }) => Effect.Effect<
     ReadonlyArray<{ namespace: string; displayName?: string }>,
@@ -318,6 +321,7 @@ const driveExecutionWithElicitation = async (input: {
           executionId: current.execution.id as never,
           payload: {
             responseJson: JSON.stringify(response),
+            interactionMode: interactionModeForServer(input.server),
           },
           resumedByAccountId: input.accountId as never,
         }),
@@ -340,6 +344,7 @@ const driveExecutionWithElicitation = async (input: {
           executionId: current.execution.id as never,
           payload: {
             responseJson: JSON.stringify(response),
+            interactionMode: interactionModeForServer(input.server),
           },
           resumedByAccountId: input.accountId as never,
         }),
@@ -382,14 +387,15 @@ const driveExecutionWithoutElicitation = async (input: {
 
     current = await runControlPlane(
       input.runtime,
-      resumeExecution({
-        workspaceId: input.workspaceId as never,
-        executionId: current.execution.id as never,
-        payload: {
-          responseJson: JSON.stringify(response),
-        },
-        resumedByAccountId: input.accountId as never,
-      }),
+        resumeExecution({
+          workspaceId: input.workspaceId as never,
+          executionId: current.execution.id as never,
+          payload: {
+            responseJson: JSON.stringify(response),
+            interactionMode: "detach",
+          },
+          resumedByAccountId: input.accountId as never,
+        }),
     );
     response = undefined;
   }
@@ -424,7 +430,10 @@ const createExecutorMcpServer = async (config: {
         config.runtime,
         createExecution({
           workspaceId,
-          payload: { code },
+          payload: {
+            code,
+            interactionMode: interactionModeForServer(server),
+          },
           createdByAccountId: accountId,
         }),
       );

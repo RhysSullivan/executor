@@ -7,6 +7,7 @@ import { Schema } from "effect";
 
 import {
   executionInteractionsTable,
+  executionStepsTable,
   executionsTable,
 } from "../../persistence/schema";
 import { TimestampMsSchema } from "../common";
@@ -14,6 +15,7 @@ import {
   AccountIdSchema,
   ExecutionIdSchema,
   ExecutionInteractionIdSchema,
+  ExecutionStepIdSchema,
   WorkspaceIdSchema,
 } from "../ids";
 
@@ -67,6 +69,7 @@ const executionInteractionSchemaOverrides = {
   status: ExecutionInteractionStatusSchema,
   purpose: Schema.String,
   responseJson: Schema.NullOr(Schema.String),
+  responsePrivateJson: Schema.NullOr(Schema.String),
   createdAt: TimestampMsSchema,
   updatedAt: TimestampMsSchema,
 } as const;
@@ -91,8 +94,48 @@ export const ExecutionEnvelopeSchema = Schema.Struct({
   pendingInteraction: Schema.NullOr(ExecutionInteractionSchema),
 });
 
+export const ExecutionStepKindSchema = Schema.Literal("tool_call");
+
+export const ExecutionStepStatusSchema = Schema.Literal(
+  "pending",
+  "waiting",
+  "completed",
+  "failed",
+);
+
+const executionStepSchemaOverrides = {
+  id: ExecutionStepIdSchema,
+  executionId: ExecutionIdSchema,
+  sequence: Schema.Number,
+  kind: ExecutionStepKindSchema,
+  status: ExecutionStepStatusSchema,
+  interactionId: Schema.NullOr(ExecutionInteractionIdSchema),
+  resultJson: Schema.NullOr(Schema.String),
+  errorText: Schema.NullOr(Schema.String),
+  createdAt: TimestampMsSchema,
+  updatedAt: TimestampMsSchema,
+} as const;
+
+export const ExecutionStepSchema = createSelectSchema(
+  executionStepsTable,
+  executionStepSchemaOverrides,
+);
+
+export const ExecutionStepInsertSchema = createInsertSchema(
+  executionStepsTable,
+  executionStepSchemaOverrides,
+);
+
+export const ExecutionStepUpdateSchema = createUpdateSchema(
+  executionStepsTable,
+  executionStepSchemaOverrides,
+);
+
 export type ExecutionStatus = typeof ExecutionStatusSchema.Type;
 export type Execution = typeof ExecutionSchema.Type;
 export type ExecutionInteractionStatus = typeof ExecutionInteractionStatusSchema.Type;
 export type ExecutionInteraction = typeof ExecutionInteractionSchema.Type;
 export type ExecutionEnvelope = typeof ExecutionEnvelopeSchema.Type;
+export type ExecutionStepKind = typeof ExecutionStepKindSchema.Type;
+export type ExecutionStepStatus = typeof ExecutionStepStatusSchema.Type;
+export type ExecutionStep = typeof ExecutionStepSchema.Type;

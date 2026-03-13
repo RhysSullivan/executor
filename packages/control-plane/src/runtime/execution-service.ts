@@ -4,12 +4,19 @@ import {
   ControlPlaneStorageError,
 } from "../api/errors";
 import type {
+  ElicitationResponse,
+  OnElicitation,
+  ToolInvocationContext,
+  ToolInvoker,
+} from "@executor/codemode-core";
+import type {
   CreateExecutionPayload,
   ResumeExecutionPayload,
 } from "../api/executions/api";
-import type { ToolInvoker } from "@executor/codemode-core";
 import {
   ExecutionIdSchema,
+  ExecutionInteractionIdSchema,
+  ExecutionStepIdSchema,
   type AccountId,
   type Execution,
   type ExecutionEnvelope,
@@ -21,12 +28,10 @@ import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import {
-  type ResolveExecutionEnvironment,
-  ResumeUnsupportedError,
-} from "./execution-state";
+import { type ResolveExecutionEnvironment } from "./execution-state";
 import {
   LiveExecutionManagerService,
+  sanitizePersistedElicitationResponse,
   type LiveExecutionManager,
 } from "./live-execution";
 import {
@@ -46,12 +51,29 @@ const executionOps = {
   resume: operationErrors("executions.resume"),
 } as const;
 
+type InteractionMode = NonNullable<CreateExecutionPayload["interactionMode"]>;
+
+const EXECUTION_SUSPENDED_SENTINEL = "__EXECUTION_SUSPENDED__";
+
+const DEFAULT_INTERACTION_MODE: InteractionMode = "detach";
+
 const serializeJson = (value: unknown): string | null => {
   if (value === undefined) {
     return null;
   }
 
   return JSON.stringify(value);
+};
+
+const serializeRequiredJson = (value: unknown): string =>
+  JSON.stringify(value === undefined ? null : value);
+
+const parseStoredJson = (value: string | null): unknown => {
+  if (value === null) {
+    return undefined;
+  }
+
+  return JSON.parse(value);
 };
 
 const ElicitationActionSchema = Schema.Literal("accept", "decline", "cancel");
@@ -88,10 +110,117 @@ const withExecutionInvocationContext = (input: {
             typeof context?.callId === "string" && context.callId.length > 0
               ? context.callId
               : `call_${String(sequence)}`,
+          executionStepSequence: sequence,
         },
       });
     },
   };
+};
+
+const executionStepSequenceFromContext = (
+  context: ToolInvocationContext | undefined,
+): number | null => {
+  const value = context?.executionStepSequence;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+    ? value
+    : null;
+};
+
+const executionStepIdFor = (
+  executionId: Execution["id"],
+  sequence: number,
+) => ExecutionStepIdSchema.make(`${executionId}:step:${String(sequence)}`);
+
+const interactionIdSuffixForRequest = (input: {
+  interactionId: string;
+  path: string;
+  context?: ToolInvocationContext;
+}) => {
+  const callId =
+    typeof input.context?.callId === "string" && input.context.callId.length > 0
+      ? input.context.callId
+      : null;
+
+  return callId === null ? input.interactionId : `${callId}:${input.path}`;
+};
+
+const executionInteractionIdForRequest = (input: {
+  executionId: Execution["id"];
+  interactionId: string;
+  path: string;
+  context?: ToolInvocationContext;
+}) => {
+  return ExecutionInteractionIdSchema.make(
+    `${input.executionId}:${interactionIdSuffixForRequest(input)}`,
+  );
+};
+
+const resolveInteractionMode = (
+  value: CreateExecutionPayload["interactionMode"] | ResumeExecutionPayload["interactionMode"],
+): InteractionMode =>
+  value === "live" || value === "live_form" ? value : DEFAULT_INTERACTION_MODE;
+
+const createExecutionSuspendedError = (input: {
+  executionId: Execution["id"];
+  interactionId: string;
+}): Error =>
+  new Error(
+    `${EXECUTION_SUSPENDED_SENTINEL}:${input.executionId}:${input.interactionId}`,
+  );
+
+const isExecutionSuspendedValue = (value: unknown): boolean => {
+  if (value instanceof Error) {
+    return value.message.includes(EXECUTION_SUSPENDED_SENTINEL);
+  }
+
+  return typeof value === "string" && value.includes(EXECUTION_SUSPENDED_SENTINEL);
+};
+
+const decodeStoredElicitationResponse = (input: {
+  interactionId: string;
+  responseJson: string | null;
+}) =>
+  Effect.try({
+    try: () => {
+      if (input.responseJson === null) {
+        throw new Error(
+          `Interaction ${input.interactionId} has no stored response`,
+        );
+      }
+
+      return JSON.parse(input.responseJson);
+    },
+    catch: (error) =>
+      error instanceof Error ? error : new Error(String(error)),
+  }).pipe(
+    Effect.flatMap((decoded) =>
+      decodeElicitationResponse(decoded).pipe(
+        Effect.mapError((error) => new Error(String(error))),
+      )
+    ),
+  );
+
+const verifyStoredStepMatches = (input: {
+  executionId: Execution["id"];
+  sequence: number;
+  expectedPath: string;
+  expectedArgsJson: string;
+  actualPath: string;
+  actualArgsJson: string;
+}) => {
+  if (
+    input.expectedPath === input.actualPath
+    && input.expectedArgsJson === input.actualArgsJson
+  ) {
+    return;
+  }
+
+  throw new Error(
+    [
+      `Durable execution mismatch for ${input.executionId} at tool step ${String(input.sequence)}.`,
+      `Expected ${input.expectedPath}(${input.expectedArgsJson}) but replay reached ${input.actualPath}(${input.actualArgsJson}).`,
+    ].join(" "),
+  );
 };
 
 const fetchExecution = (
@@ -139,6 +268,482 @@ const fetchExecutionEnvelope = (
       execution,
       pendingInteraction: Option.isSome(pendingInteraction) ? pendingInteraction.value : null,
     };
+  });
+
+const suspendExecutionForInteraction = (input: {
+  rows: ControlPlaneStoreShape;
+  executionId: Execution["id"];
+  liveExecutionManager: LiveExecutionManager;
+  request: Parameters<OnElicitation>[0];
+  interactionId: ExecutionEnvelope["pendingInteraction"] extends infer T
+    ? T extends { id: infer I }
+      ? I
+      : never
+    : never;
+}) =>
+  Effect.gen(function* () {
+    const now = Date.now();
+    const existing = yield* input.rows.executionInteractions.getById(input.interactionId);
+    const stepSequence = executionStepSequenceFromContext(input.request.context);
+
+    if (Option.isSome(existing) && existing.value.status !== "pending") {
+      return yield* decodeStoredElicitationResponse({
+        interactionId: input.interactionId,
+        responseJson:
+          existing.value.responsePrivateJson ?? existing.value.responseJson,
+      });
+    }
+
+    if (Option.isNone(existing)) {
+      yield* input.rows.executionInteractions.insert({
+        id: ExecutionInteractionIdSchema.make(input.interactionId),
+        executionId: input.executionId,
+        status: "pending",
+        kind: input.request.elicitation.mode === "url" ? "url" : "form",
+        purpose: "elicitation",
+        payloadJson:
+          serializeJson({
+            path: input.request.path,
+            sourceKey: input.request.sourceKey,
+            args: input.request.args,
+            context: input.request.context,
+            elicitation: input.request.elicitation,
+          }) ?? "{}",
+        responseJson: null,
+        responsePrivateJson: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    if (stepSequence !== null) {
+      yield* input.rows.executionSteps.updateByExecutionAndSequence(
+        input.executionId,
+        stepSequence,
+        {
+          status: "waiting",
+          interactionId: ExecutionInteractionIdSchema.make(input.interactionId),
+          updatedAt: now,
+        },
+      );
+    }
+
+    yield* input.rows.executions.update(input.executionId, {
+      status: "waiting_for_interaction",
+      updatedAt: now,
+    });
+    yield* input.liveExecutionManager.publishState({
+      executionId: input.executionId,
+      state: "waiting_for_interaction",
+    });
+
+    return yield* Effect.fail(
+      createExecutionSuspendedError({
+        executionId: input.executionId,
+        interactionId: input.interactionId,
+      }),
+    );
+  });
+
+const createHybridOnElicitation = (input: {
+  rows: ControlPlaneStoreShape;
+  executionId: Execution["id"];
+  liveExecutionManager: LiveExecutionManager;
+  interactionMode: InteractionMode;
+}): OnElicitation => {
+  const liveOnElicitation = input.liveExecutionManager.createOnElicitation({
+    rows: input.rows,
+    executionId: input.executionId,
+  });
+
+  return (request) =>
+    Effect.gen(function* () {
+      const interactionIdSuffix = interactionIdSuffixForRequest({
+        interactionId: request.interactionId,
+        path: request.path,
+        context: request.context,
+      });
+      const interactionId = executionInteractionIdForRequest({
+        executionId: input.executionId,
+        interactionId: request.interactionId,
+        path: request.path,
+        context: request.context,
+      });
+      const existing = yield* input.rows.executionInteractions.getById(interactionId);
+
+      if (Option.isSome(existing) && existing.value.status !== "pending") {
+        return yield* decodeStoredElicitationResponse({
+          interactionId,
+          responseJson:
+            existing.value.responsePrivateJson ?? existing.value.responseJson,
+        });
+      }
+
+      const allowLiveWait =
+        input.interactionMode === "live"
+        || (input.interactionMode === "live_form" && request.elicitation.mode !== "url");
+
+      if (Option.isNone(existing) && allowLiveWait) {
+        const stepSequence = executionStepSequenceFromContext(request.context);
+        if (stepSequence !== null) {
+          yield* input.rows.executionSteps.updateByExecutionAndSequence(
+            input.executionId,
+            stepSequence,
+            {
+              status: "waiting",
+              interactionId: ExecutionInteractionIdSchema.make(interactionId),
+              updatedAt: Date.now(),
+            },
+          );
+        }
+
+        return yield* liveOnElicitation({
+          ...request,
+          interactionId: interactionIdSuffix,
+        });
+      }
+
+      return yield* suspendExecutionForInteraction({
+        rows: input.rows,
+        executionId: input.executionId,
+        liveExecutionManager: input.liveExecutionManager,
+        request,
+        interactionId,
+      });
+    });
+};
+
+const createReplayToolInvoker = (input: {
+  rows: ControlPlaneStoreShape;
+  executionId: Execution["id"];
+  toolInvoker: ToolInvoker;
+}): ToolInvoker => ({
+  invoke: ({ path, args, context }) =>
+    Effect.gen(function* () {
+      const stepSequence = executionStepSequenceFromContext(context);
+      if (stepSequence === null) {
+        return yield* input.toolInvoker.invoke({ path, args, context });
+      }
+
+      const argsJson = serializeRequiredJson(args);
+      const existing = yield* input.rows.executionSteps.getByExecutionAndSequence(
+        input.executionId,
+        stepSequence,
+      );
+
+      if (Option.isSome(existing)) {
+        verifyStoredStepMatches({
+          executionId: input.executionId,
+          sequence: stepSequence,
+          expectedPath: existing.value.path,
+          expectedArgsJson: existing.value.argsJson,
+          actualPath: path,
+          actualArgsJson: argsJson,
+        });
+
+        if (existing.value.status === "completed") {
+          return parseStoredJson(existing.value.resultJson);
+        }
+
+        if (existing.value.status === "failed") {
+          return yield* Effect.fail(
+            new Error(
+              existing.value.errorText
+                ?? `Stored tool step ${String(stepSequence)} failed`,
+            ),
+          );
+        }
+      } else {
+        const now = Date.now();
+        yield* input.rows.executionSteps.insert({
+          id: executionStepIdFor(input.executionId, stepSequence),
+          executionId: input.executionId,
+          sequence: stepSequence,
+          kind: "tool_call",
+          status: "pending",
+          path,
+          argsJson,
+          resultJson: null,
+          errorText: null,
+          interactionId: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      try {
+        const value = yield* input.toolInvoker.invoke({ path, args, context });
+        const updatedAt = Date.now();
+
+        yield* input.rows.executionSteps.updateByExecutionAndSequence(
+          input.executionId,
+          stepSequence,
+          {
+            status: "completed",
+            resultJson: serializeJson(value),
+            errorText: null,
+            updatedAt,
+          },
+        );
+
+        return value;
+      } catch (error) {
+        const updatedAt = Date.now();
+
+        if (isExecutionSuspendedValue(error)) {
+          yield* input.rows.executionSteps.updateByExecutionAndSequence(
+            input.executionId,
+            stepSequence,
+            {
+              status: "waiting",
+              updatedAt,
+            },
+          );
+
+          return yield* Effect.fail(error);
+        }
+
+        yield* input.rows.executionSteps.updateByExecutionAndSequence(
+          input.executionId,
+          stepSequence,
+          {
+            status: "failed",
+            errorText: error instanceof Error ? error.message : String(error),
+            updatedAt,
+          },
+        );
+
+        return yield* Effect.fail(error);
+      }
+    }),
+});
+
+const persistExecutionOutcome = (input: {
+  rows: ControlPlaneStoreShape;
+  liveExecutionManager: LiveExecutionManager;
+  executionId: Execution["id"];
+  outcome: {
+    result: unknown;
+    error?: string;
+    logs?: string[];
+  };
+}) =>
+  Effect.gen(function* () {
+    if (isExecutionSuspendedValue(input.outcome.error)) {
+      return;
+    }
+
+    if (input.outcome.error) {
+      const [execution, pendingInteraction] = yield* Effect.all([
+        input.rows.executions.getById(input.executionId),
+        input.rows.executionInteractions.getPendingByExecutionId(input.executionId),
+      ]);
+
+      if (
+        Option.isSome(execution)
+        && execution.value.status === "waiting_for_interaction"
+        && Option.isSome(pendingInteraction)
+      ) {
+        return;
+      }
+    }
+
+    const completedAt = Date.now();
+    const updated = yield* input.rows.executions.update(input.executionId, {
+      status: input.outcome.error ? "failed" : "completed",
+      resultJson: serializeJson(input.outcome.result),
+      errorText: input.outcome.error ?? null,
+      logsJson: serializeJson(input.outcome.logs ?? null),
+      completedAt,
+      updatedAt: completedAt,
+    });
+
+    if (Option.isNone(updated)) {
+      yield* input.liveExecutionManager.clearRun(input.executionId);
+      return;
+    }
+
+    yield* input.liveExecutionManager.finishRun({
+      executionId: input.executionId,
+      state: updated.value.status === "completed" ? "completed" : "failed",
+    });
+
+    yield* input.rows.executionSteps.deleteByExecutionId(input.executionId);
+  });
+
+const persistExecutionFailure = (input: {
+  rows: ControlPlaneStoreShape;
+  liveExecutionManager: LiveExecutionManager;
+  executionId: Execution["id"];
+  error: string;
+}) =>
+  Effect.gen(function* () {
+    const completedAt = Date.now();
+    const updated = yield* input.rows.executions.update(input.executionId, {
+      status: "failed",
+      errorText: input.error,
+      completedAt,
+      updatedAt: completedAt,
+    });
+
+    if (Option.isNone(updated)) {
+      yield* input.liveExecutionManager.clearRun(input.executionId);
+      return;
+    }
+
+    yield* input.liveExecutionManager.finishRun({
+      executionId: input.executionId,
+      state: "failed",
+    });
+
+    yield* input.rows.executionSteps.deleteByExecutionId(input.executionId);
+  });
+
+const runExecutionAttemptWithDependencies = (
+  store: ControlPlaneStoreShape,
+  executionResolver: ResolveExecutionEnvironment,
+  liveExecutionManager: LiveExecutionManager,
+  execution: Execution,
+  interactionMode: InteractionMode,
+) =>
+  executionResolver({
+    workspaceId: execution.workspaceId,
+    accountId: execution.createdByAccountId,
+    executionId: execution.id,
+    onElicitation: createHybridOnElicitation({
+      rows: store,
+      executionId: execution.id,
+      liveExecutionManager,
+      interactionMode,
+    }),
+  }).pipe(
+    Effect.map((environment) => ({
+      executor: environment.executor,
+      toolInvoker: withExecutionInvocationContext({
+        executionId: execution.id,
+        toolInvoker: createReplayToolInvoker({
+          rows: store,
+          executionId: execution.id,
+          toolInvoker: environment.toolInvoker,
+        }),
+      }),
+    })),
+    Effect.flatMap(({ executor, toolInvoker }) =>
+      executor.execute(execution.code, toolInvoker)
+    ),
+    Effect.flatMap((outcome) =>
+      persistExecutionOutcome({
+        rows: store,
+        liveExecutionManager,
+        executionId: execution.id,
+        outcome,
+      })
+    ),
+    Effect.catchAll((error) =>
+      persistExecutionFailure({
+        rows: store,
+        liveExecutionManager,
+        executionId: execution.id,
+        error: error instanceof Error ? error.message : String(error),
+      }).pipe(
+        Effect.catchAll(() => liveExecutionManager.clearRun(execution.id)),
+      )
+    ),
+  );
+
+const forkExecutionAttemptWithDependencies = (
+  store: ControlPlaneStoreShape,
+  executionResolver: ResolveExecutionEnvironment,
+  liveExecutionManager: LiveExecutionManager,
+  execution: Execution,
+  interactionMode: InteractionMode,
+) =>
+  Effect.sync(() => {
+    Effect.runFork(
+      runExecutionAttemptWithDependencies(
+        store,
+        executionResolver,
+        liveExecutionManager,
+        execution,
+        interactionMode,
+      ),
+    );
+  });
+
+const submitExecutionInteractionResponseWithDependencies = (
+  store: ControlPlaneStoreShape,
+  executionResolver: ResolveExecutionEnvironment,
+  liveExecutionManager: LiveExecutionManager,
+  input: {
+    executionId: ExecutionId;
+    response: ElicitationResponse;
+    interactionMode: InteractionMode;
+  },
+) =>
+  Effect.gen(function* () {
+    const execution = yield* store.executions.getById(input.executionId);
+    if (Option.isNone(execution)) {
+      return false;
+    }
+
+    const pendingInteraction = yield* store.executionInteractions.getPendingByExecutionId(
+      input.executionId,
+    );
+    if (Option.isNone(pendingInteraction)) {
+      return false;
+    }
+
+    if (
+      execution.value.status !== "waiting_for_interaction"
+      && execution.value.status !== "failed"
+    ) {
+      return false;
+    }
+
+    const now = Date.now();
+    const steps = yield* store.executionSteps.listByExecutionId(input.executionId);
+    const waitingStep = [...steps]
+      .reverse()
+      .find((step) => step.interactionId === pendingInteraction.value.id);
+
+    if (waitingStep) {
+      yield* store.executionSteps.updateByExecutionAndSequence(
+        input.executionId,
+        waitingStep.sequence,
+        {
+          status: "waiting",
+          errorText: null,
+          updatedAt: now,
+        },
+      );
+    }
+
+    yield* store.executionInteractions.update(pendingInteraction.value.id, {
+      status: input.response.action === "cancel" ? "cancelled" : "resolved",
+      responseJson: serializeJson(
+        sanitizePersistedElicitationResponse(input.response),
+      ),
+      responsePrivateJson: serializeJson(input.response),
+      updatedAt: now,
+    });
+
+    const updated = yield* store.executions.update(input.executionId, {
+      status: "running",
+      updatedAt: now,
+    });
+    if (Option.isNone(updated)) {
+      return false;
+    }
+
+    yield* forkExecutionAttemptWithDependencies(
+      store,
+      executionResolver,
+      liveExecutionManager,
+      updated.value,
+      input.interactionMode,
+    );
+
+    return true;
   });
 
 const createExecutionWithDependencies = (
@@ -190,84 +795,15 @@ const createExecutionWithDependencies = (
       );
     }
 
-    const environment = yield* executionResolver({
-      workspaceId: input.workspaceId,
-      accountId: input.createdByAccountId,
-      executionId: execution.id,
-      onElicitation: liveExecutionManager.createOnElicitation({
-        rows: store,
-        executionId: execution.id,
-      }),
-    }).pipe(
-      Effect.mapError((error) =>
-        executionOps.create.child("environment").unknownStorage(
-          error,
-          "Execution environment resolution failed",
-        ),
-      ),
-    );
-
     const nextState = yield* liveExecutionManager.registerStateWaiter(execution.id);
-    const toolInvoker = withExecutionInvocationContext({
-      executionId: execution.id,
-      toolInvoker: environment.toolInvoker,
-    });
 
-    yield* Effect.sync(() => {
-      Effect.runFork(
-        environment.executor.execute(code, toolInvoker).pipe(
-          Effect.flatMap((outcome) => {
-            const completedAt = Date.now();
-            return executionOps.create.child("complete").mapStorage(
-              store.executions.update(execution.id, {
-                status: outcome.error ? "failed" : "completed",
-                resultJson: serializeJson(outcome.result),
-                errorText: outcome.error ?? null,
-                logsJson: serializeJson(outcome.logs ?? null),
-                completedAt,
-                updatedAt: completedAt,
-              }),
-            ).pipe(
-              Effect.flatMap((updated) =>
-                Option.isNone(updated)
-                  ? Effect.fail(
-                      executionOps.create.notFound(
-                        "Execution not found after completion",
-                        `executionId=${execution.id}`,
-                      ),
-                    )
-                  : Effect.succeed(updated.value),
-              ),
-              Effect.flatMap((updated) =>
-                liveExecutionManager.finishRun({
-                  executionId: execution.id,
-                  state: updated.status === "completed" ? "completed" : "failed",
-                }).pipe(Effect.as(updated)),
-              ),
-            );
-          }),
-          Effect.catchAll((error) => {
-            const completedAt = Date.now();
-            return executionOps.create.child("complete_error").mapStorage(
-              store.executions.update(execution.id, {
-                status: "failed",
-                errorText: error instanceof Error ? error.message : String(error),
-                completedAt,
-                updatedAt: completedAt,
-              }),
-            ).pipe(
-              Effect.zipRight(
-                liveExecutionManager.finishRun({
-                  executionId: execution.id,
-                  state: "failed",
-                }),
-              ),
-              Effect.catchAll(() => liveExecutionManager.clearRun(execution.id)),
-            );
-          }),
-        ),
-      );
-    });
+    yield* forkExecutionAttemptWithDependencies(
+      store,
+      executionResolver,
+      liveExecutionManager,
+      running.value,
+      resolveInteractionMode(input.payload.interactionMode),
+    );
 
     yield* Deferred.await(nextState);
 
@@ -308,6 +844,27 @@ export const getExecution = (input: {
     })
   );
 
+export const submitExecutionInteractionResponse = (input: {
+  executionId: ExecutionId;
+  response: ElicitationResponse;
+  interactionMode?: InteractionMode;
+}) =>
+  Effect.gen(function* () {
+    const store = yield* ControlPlaneStore;
+    const executionResolver = yield* RuntimeExecutionResolverService;
+    const liveExecutionManager = yield* LiveExecutionManagerService;
+
+    return yield* submitExecutionInteractionResponseWithDependencies(
+      store,
+      executionResolver,
+        liveExecutionManager,
+        {
+          ...input,
+          interactionMode: input.interactionMode ?? DEFAULT_INTERACTION_MODE,
+        },
+      );
+  });
+
 export const resumeExecution = (input: {
   workspaceId: WorkspaceId;
   executionId: ExecutionId;
@@ -316,6 +873,7 @@ export const resumeExecution = (input: {
 }) =>
   Effect.gen(function* () {
     const store = yield* ControlPlaneStore;
+    const executionResolver = yield* RuntimeExecutionResolverService;
     const liveExecutionManager = yield* LiveExecutionManagerService;
 
     const existing = yield* fetchExecutionEnvelope(store, {
@@ -324,7 +882,13 @@ export const resumeExecution = (input: {
       operation: "executions.resume",
     });
 
-    if (existing.execution.status !== "waiting_for_interaction") {
+    if (
+      existing.execution.status !== "waiting_for_interaction"
+      && !(
+        existing.execution.status === "failed"
+        && existing.pendingInteraction !== null
+      )
+    ) {
       return yield* Effect.fail(
         executionOps.resume.badRequest(
           "Execution is not waiting for interaction",
@@ -353,23 +917,38 @@ export const resumeExecution = (input: {
                     String(error),
                   ),
                 ),
-              ),
+              )
             ),
           );
 
     const nextState = yield* liveExecutionManager.registerStateWaiter(input.executionId);
-    const resumed = yield* liveExecutionManager.resolveInteraction({
+    const resumedLive = yield* liveExecutionManager.resolveInteraction({
       executionId: input.executionId,
       response,
     });
 
-    if (!resumed) {
-      return yield* Effect.fail(
-        executionOps.resume.badRequest(
-          "Resume is unavailable for this execution",
-          `executionId=${input.executionId} mode=${new ResumeUnsupportedError({ executionId: input.executionId })._tag}`,
+    if (!resumedLive) {
+      const resumed = yield* executionOps.resume.child("submit_interaction").mapStorage(
+        submitExecutionInteractionResponseWithDependencies(
+          store,
+          executionResolver,
+          liveExecutionManager,
+          {
+            executionId: input.executionId,
+            response,
+            interactionMode: resolveInteractionMode(input.payload.interactionMode),
+          },
         ),
       );
+
+      if (!resumed) {
+        return yield* Effect.fail(
+          executionOps.resume.badRequest(
+            "Resume is unavailable for this execution",
+            `executionId=${input.executionId}`,
+          ),
+        );
+      }
     }
 
     yield* Deferred.await(nextState);

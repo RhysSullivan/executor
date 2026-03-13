@@ -26,6 +26,7 @@ export const tableNames = {
   sourceAuthSessions: "source_auth_sessions",
   executions: "executions",
   executionInteractions: "execution_interactions",
+  executionSteps: "execution_steps",
 } as const;
 
 export const accountsTable = pgTable(
@@ -473,6 +474,7 @@ export const executionInteractionsTable = pgTable(
     purpose: text("purpose").notNull(),
     payloadJson: text("payload_json").notNull(),
     responseJson: text("response_json"),
+    responsePrivateJson: text("response_private_json"),
     createdAt: bigint("created_at", { mode: "number" }).notNull(),
     updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
@@ -485,6 +487,43 @@ export const executionInteractionsTable = pgTable(
     check(
       "execution_interactions_status_check",
       sql`${table.status} in ('pending', 'resolved', 'cancelled')`,
+    ),
+  ],
+);
+
+export const executionStepsTable = pgTable(
+  tableNames.executionSteps,
+  {
+    id: text("id").notNull().primaryKey(),
+    executionId: text("execution_id").notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    path: text("path").notNull(),
+    argsJson: text("args_json").notNull(),
+    resultJson: text("result_json"),
+    errorText: text("error_text"),
+    interactionId: text("interaction_id"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("execution_steps_execution_sequence_idx").on(
+      table.executionId,
+      table.sequence,
+    ),
+    index("execution_steps_execution_updated_idx").on(
+      table.executionId,
+      table.updatedAt,
+      table.id,
+    ),
+    check(
+      "execution_steps_kind_check",
+      sql`${table.kind} in ('tool_call')`,
+    ),
+    check(
+      "execution_steps_status_check",
+      sql`${table.status} in ('pending', 'waiting', 'completed', 'failed')`,
     ),
   ],
 );
@@ -505,6 +544,7 @@ export const drizzleSchema = {
   sourceAuthSessionsTable,
   executionsTable,
   executionInteractionsTable,
+  executionStepsTable,
 };
 
 export type DrizzleTables = typeof drizzleSchema;
