@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect";
 import {
   readLocalSourceArtifact,
 } from "./local-source-artifacts";
+import { LocalSourceArtifactMissingError } from "./local-errors";
 import {
   requireRuntimeLocalWorkspace,
 } from "./local-runtime-context";
@@ -218,7 +219,7 @@ export const loadSourceWithRecipe = (input: {
   workspaceId: WorkspaceId;
   sourceId: Source["id"];
   actorAccountId?: AccountId | null;
-}): Effect.Effect<LoadedSourceRecipe, Error, never> =>
+}): Effect.Effect<LoadedSourceRecipe, Error | LocalSourceArtifactMissingError, never> =>
   Effect.gen(function* () {
     const runtimeLocalWorkspace = yield* requireRuntimeLocalWorkspace(input.workspaceId);
     const source = yield* loadSourceById(input.rows, {
@@ -232,7 +233,10 @@ export const loadSourceWithRecipe = (input: {
     });
     if (artifact === null) {
       return yield* Effect.fail(
-        new Error(`Recipe artifact missing for source ${input.sourceId}`),
+        new LocalSourceArtifactMissingError({
+          message: `Recipe artifact missing for source ${input.sourceId}`,
+          sourceId: input.sourceId,
+        }),
       );
     }
 

@@ -31,6 +31,15 @@ import {
   removeLocalSourceArtifact,
 } from "./local-source-artifacts";
 import {
+  LocalConfiguredSourceNotFoundError,
+  LocalExecutorConfigDecodeError,
+  LocalFileSystemError,
+  LocalUnsupportedSourceKindError,
+  LocalWorkspaceStateDecodeError,
+  RuntimeLocalWorkspaceMismatchError,
+  RuntimeLocalWorkspaceUnavailableError,
+} from "./local-errors";
+import {
   requireRuntimeLocalWorkspace,
 } from "./local-runtime-context";
 import {
@@ -231,7 +240,21 @@ const configAuthFromSource = (input: {
   return input.existingConfigAuth;
 };
 
-const resolveRuntimeLocalWorkspace = (workspaceId: WorkspaceId) =>
+const resolveRuntimeLocalWorkspace = (workspaceId: WorkspaceId): Effect.Effect<{
+  context: ResolvedLocalWorkspaceContext;
+  installation: {
+    workspaceId: WorkspaceId;
+    accountId: AccountId;
+  };
+  loadedConfig: LoadedLocalExecutorConfig;
+  workspaceState: LocalWorkspaceState;
+},
+  | RuntimeLocalWorkspaceUnavailableError
+  | RuntimeLocalWorkspaceMismatchError
+  | LocalFileSystemError
+  | LocalExecutorConfigDecodeError
+  | LocalWorkspaceStateDecodeError,
+never> =>
   Effect.gen(function* () {
     const runtimeLocalWorkspace = yield* requireRuntimeLocalWorkspace(workspaceId);
     const loadedConfig = yield* loadLocalExecutorConfig(runtimeLocalWorkspace.context);
@@ -256,11 +279,16 @@ const buildLocalSourceRecord = (input: {
 }): Effect.Effect<{
   source: Source;
   sourceId: SourceId;
-}, Error, never> =>
+}, LocalConfiguredSourceNotFoundError | Error, never> =>
   Effect.gen(function* () {
     const sourceConfig = input.loadedConfig.config?.sources?.[input.sourceId];
     if (!sourceConfig) {
-      return yield* Effect.fail(new Error(`Configured source not found for id ${input.sourceId}`));
+      return yield* Effect.fail(
+        new LocalConfiguredSourceNotFoundError({
+          message: `Configured source not found for id ${input.sourceId}`,
+          sourceId: input.sourceId,
+        }),
+      );
     }
 
     const existingState = input.workspaceState.sources[input.sourceId];
@@ -356,7 +384,17 @@ export const loadSourcesInWorkspace = (
   options: {
     actorAccountId?: AccountId | null;
   } = {},
-) =>
+): Effect.Effect<
+  readonly Source[],
+  | RuntimeLocalWorkspaceUnavailableError
+  | RuntimeLocalWorkspaceMismatchError
+  | LocalFileSystemError
+  | LocalExecutorConfigDecodeError
+  | LocalWorkspaceStateDecodeError
+  | LocalConfiguredSourceNotFoundError
+  | Error,
+  never
+> =>
   Effect.gen(function* () {
     const localWorkspace = yield* resolveRuntimeLocalWorkspace(workspaceId);
     const authArtifacts = yield* rows.authArtifacts.listByWorkspaceId(workspaceId);
@@ -382,13 +420,26 @@ export const loadSourceById = (rows: SqlControlPlaneRows, input: {
   workspaceId: WorkspaceId;
   sourceId: Source["id"];
   actorAccountId?: AccountId | null;
-}) =>
+}): Effect.Effect<
+  Source,
+  | RuntimeLocalWorkspaceUnavailableError
+  | RuntimeLocalWorkspaceMismatchError
+  | LocalFileSystemError
+  | LocalExecutorConfigDecodeError
+  | LocalWorkspaceStateDecodeError
+  | LocalConfiguredSourceNotFoundError
+  | Error,
+  never
+> =>
   Effect.gen(function* () {
     const localWorkspace = yield* resolveRuntimeLocalWorkspace(input.workspaceId);
     const authArtifacts = yield* rows.authArtifacts.listByWorkspaceId(input.workspaceId);
     if (!localWorkspace.loadedConfig.config?.sources?.[input.sourceId]) {
       return yield* Effect.fail(
-        new Error(`Source not found: workspaceId=${input.workspaceId} sourceId=${input.sourceId}`),
+        new LocalConfiguredSourceNotFoundError({
+          message: `Source not found: workspaceId=${input.workspaceId} sourceId=${input.sourceId}`,
+          sourceId: input.sourceId,
+        }),
       );
     }
 
@@ -456,7 +507,10 @@ const configSourceFromLocalSource = (input: {
         binding: cloneJson(input.source.binding) as Extract<LocalConfigSource, { kind: "mcp" }>["binding"],
       };
     default:
-      throw new Error(`Unsupported source kind for local config: ${input.source.kind}`);
+      throw new LocalUnsupportedSourceKindError({
+        message: `Unsupported source kind for local config: ${input.source.kind}`,
+        kind: input.source.kind,
+      });
   }
 };
 

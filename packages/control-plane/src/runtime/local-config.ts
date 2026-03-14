@@ -17,6 +17,11 @@ import {
 } from "#schema";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import {
+  LocalExecutorConfigDecodeError,
+  LocalFileSystemError,
+  unknownLocalErrorDetails,
+} from "./local-errors";
 
 const decodeLocalExecutorConfig = Schema.decodeUnknownSync(LocalExecutorConfigSchema);
 
@@ -34,10 +39,13 @@ const provideNodeFileSystem = <A, E, R>(
     Exclude<R, FileSystem.FileSystem>
   >;
 
-const mapFileSystemError = (path: string, action: string) => (cause: unknown): Error => {
-  const message = cause instanceof Error ? cause.message : String(cause);
-  return new Error(`Failed to ${action} ${path}: ${message}`);
-};
+const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
+  new LocalFileSystemError({
+    message: `Failed to ${action} ${path}: ${unknownLocalErrorDetails(cause)}`,
+    action,
+    path,
+    details: unknownLocalErrorDetails(cause),
+  });
 
 const trimOrUndefined = (value: string | undefined | null): string | undefined => {
   const trimmed = value?.trim();
@@ -106,7 +114,7 @@ export const resolveHomeConfigPath = (input: {
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   homeDirectory?: string;
-} = {}): Effect.Effect<string, Error> =>
+} = {}): Effect.Effect<string, LocalFileSystemError> =>
   provideNodeFileSystem(Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const candidates = resolveDefaultHomeConfigCandidates(input);
@@ -152,13 +160,23 @@ const parseJsonc = (input: { path: string; content: string }): LocalExecutorConf
       allowTrailingComma: true,
     });
     if (errors.length > 0) {
-      throw new Error(formatJsoncParseErrors(input.content, errors));
+      throw new LocalExecutorConfigDecodeError({
+        message: `Invalid executor config at ${input.path}: ${formatJsoncParseErrors(input.content, errors)}`,
+        path: input.path,
+        details: formatJsoncParseErrors(input.content, errors),
+      });
     }
 
     return decodeLocalExecutorConfig(parsed);
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause);
-    throw new Error(`Invalid executor config at ${input.path}: ${message}`);
+    if (cause instanceof LocalExecutorConfigDecodeError) {
+      throw cause;
+    }
+    throw new LocalExecutorConfigDecodeError({
+      message: `Invalid executor config at ${input.path}: ${unknownLocalErrorDetails(cause)}`,
+      path: input.path,
+      details: unknownLocalErrorDetails(cause),
+    });
   }
 };
 
@@ -320,7 +338,7 @@ export type LoadedLocalExecutorConfig = {
 export const resolveLocalWorkspaceContext = (input: {
   cwd?: string;
   workspaceRoot?: string;
-} = {}): Effect.Effect<ResolvedLocalWorkspaceContext, Error> =>
+} = {}): Effect.Effect<ResolvedLocalWorkspaceContext, LocalFileSystemError> =>
   provideNodeFileSystem(Effect.gen(function* () {
     const cwd = resolve(input.cwd ?? process.cwd());
     const workspaceRoot = resolve(
@@ -344,7 +362,7 @@ export const resolveLocalWorkspaceContext = (input: {
 
 export const readOptionalLocalExecutorConfig = (
   path: string,
-): Effect.Effect<LocalExecutorConfig | null, Error> =>
+): Effect.Effect<LocalExecutorConfig | null, LocalFileSystemError | LocalExecutorConfigDecodeError> =>
   provideNodeFileSystem(Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const exists = yield* fs.exists(path).pipe(
@@ -360,13 +378,22 @@ export const readOptionalLocalExecutorConfig = (
     return yield* Effect.try({
       try: () => parseJsonc({ path, content }),
       catch: (cause) =>
-        cause instanceof Error ? cause : new Error(String(cause)),
+        cause instanceof LocalExecutorConfigDecodeError
+          ? cause
+          : new LocalExecutorConfigDecodeError({
+              message: `Invalid executor config at ${path}: ${unknownLocalErrorDetails(cause)}`,
+              path,
+              details: unknownLocalErrorDetails(cause),
+            }),
     });
   }));
 
 export const loadLocalExecutorConfig = (
   context: ResolvedLocalWorkspaceContext,
-): Effect.Effect<LoadedLocalExecutorConfig, Error> =>
+): Effect.Effect<
+  LoadedLocalExecutorConfig,
+  LocalFileSystemError | LocalExecutorConfigDecodeError
+> =>
   Effect.gen(function* () {
     const [homeConfig, projectConfig] = yield* Effect.all([
       readOptionalLocalExecutorConfig(context.homeConfigPath),
@@ -388,7 +415,7 @@ export const encodeLocalExecutorConfig = (config: LocalExecutorConfig): string =
 export const writeProjectLocalExecutorConfig = (input: {
   context: ResolvedLocalWorkspaceContext;
   config: LocalExecutorConfig;
-}): Effect.Effect<void, Error> =>
+}): Effect.Effect<void, LocalFileSystemError> =>
   provideNodeFileSystem(Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     yield* fs.makeDirectory(input.context.configDirectory, { recursive: true }).pipe(

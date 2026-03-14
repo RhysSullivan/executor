@@ -18,6 +18,11 @@ import * as Schema from "effect/Schema";
 
 import type { ResolvedLocalWorkspaceContext } from "./local-config";
 import {
+  LocalFileSystemError,
+  LocalSourceArtifactDecodeError,
+  unknownLocalErrorDetails,
+} from "./local-errors";
+import {
   createSourceRecipeRevisionRecord,
   stableSourceRecipeId,
 } from "./source-definitions";
@@ -52,10 +57,13 @@ const provideNodeFileSystem = <A, E, R>(
     Exclude<R, FileSystem.FileSystem>
   >;
 
-const mapFileSystemError = (path: string, action: string) => (cause: unknown): Error => {
-  const message = cause instanceof Error ? cause.message : String(cause);
-  return new Error(`Failed to ${action} ${path}: ${message}`);
-};
+const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
+  new LocalFileSystemError({
+    message: `Failed to ${action} ${path}: ${unknownLocalErrorDetails(cause)}`,
+    action,
+    path,
+    details: unknownLocalErrorDetails(cause),
+  });
 
 const localSourceArtifactPath = (input: {
   context: ResolvedLocalWorkspaceContext;
@@ -157,7 +165,10 @@ export const buildLocalSourceArtifact = (input: {
 export const readLocalSourceArtifact = (input: {
   context: ResolvedLocalWorkspaceContext;
   sourceId: string;
-}): Effect.Effect<LocalSourceArtifact | null, Error> =>
+}): Effect.Effect<
+  LocalSourceArtifact | null,
+  LocalFileSystemError | LocalSourceArtifactDecodeError
+> =>
   provideNodeFileSystem(Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = localSourceArtifactPath(input);
@@ -174,8 +185,11 @@ export const readLocalSourceArtifact = (input: {
     return yield* Effect.try({
       try: () => decodeLocalSourceArtifact(JSON.parse(content) as unknown),
       catch: (cause) => {
-        const message = cause instanceof Error ? cause.message : String(cause);
-        return new Error(`Invalid local source artifact at ${path}: ${message}`);
+        return new LocalSourceArtifactDecodeError({
+          message: `Invalid local source artifact at ${path}: ${unknownLocalErrorDetails(cause)}`,
+          path,
+          details: unknownLocalErrorDetails(cause),
+        });
       },
     });
   }));
@@ -184,7 +198,7 @@ export const writeLocalSourceArtifact = (input: {
   context: ResolvedLocalWorkspaceContext;
   sourceId: string;
   artifact: LocalSourceArtifact;
-}): Effect.Effect<void, Error> =>
+}): Effect.Effect<void, LocalFileSystemError> =>
   provideNodeFileSystem(Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const directory = join(input.context.artifactsDirectory, "sources");
@@ -200,7 +214,7 @@ export const writeLocalSourceArtifact = (input: {
 export const removeLocalSourceArtifact = (input: {
   context: ResolvedLocalWorkspaceContext;
   sourceId: string;
-}): Effect.Effect<void, Error> =>
+}): Effect.Effect<void, LocalFileSystemError> =>
   provideNodeFileSystem(Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const path = localSourceArtifactPath(input);

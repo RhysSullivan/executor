@@ -7,6 +7,10 @@ import type {
   LoadedLocalExecutorConfig,
   ResolvedLocalWorkspaceContext,
 } from "./local-config";
+import {
+  RuntimeLocalWorkspaceMismatchError,
+  RuntimeLocalWorkspaceUnavailableError,
+} from "./local-errors";
 
 export type RuntimeLocalWorkspaceState = {
   context: ResolvedLocalWorkspaceContext;
@@ -28,24 +32,37 @@ export const getRuntimeLocalWorkspaceOption = () =>
     Effect.map((option) => (Option.isSome(option) ? option.value : null)),
   ) as Effect.Effect<RuntimeLocalWorkspaceState | null, never, never>;
 
-export const requireRuntimeLocalWorkspace = (workspaceId?: WorkspaceId) =>
-  Effect.flatMap(getRuntimeLocalWorkspaceOption(), (runtimeLocalWorkspace) => {
+export const requireRuntimeLocalWorkspace = (
+  workspaceId?: WorkspaceId,
+): Effect.Effect<
+  RuntimeLocalWorkspaceState,
+  RuntimeLocalWorkspaceUnavailableError | RuntimeLocalWorkspaceMismatchError,
+  never
+> =>
+  Effect.gen(function* () {
+    const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
     if (runtimeLocalWorkspace === null) {
-      return Effect.fail(new Error("Runtime local workspace is unavailable"));
+      return yield* Effect.fail(
+        new RuntimeLocalWorkspaceUnavailableError({
+          message: "Runtime local workspace is unavailable",
+        }),
+      );
     }
 
     if (
       workspaceId !== undefined
       && runtimeLocalWorkspace.installation.workspaceId !== workspaceId
     ) {
-      return Effect.fail(
-        new Error(
-          `Workspace ${workspaceId} is not the active local workspace ${runtimeLocalWorkspace.installation.workspaceId}`,
-        ),
+      return yield* Effect.fail(
+        new RuntimeLocalWorkspaceMismatchError({
+          message: `Workspace ${workspaceId} is not the active local workspace ${runtimeLocalWorkspace.installation.workspaceId}`,
+          requestedWorkspaceId: workspaceId,
+          activeWorkspaceId: runtimeLocalWorkspace.installation.workspaceId,
+        }),
       );
     }
 
-    return Effect.succeed(runtimeLocalWorkspace);
+    return runtimeLocalWorkspace;
   });
 
 export const requireRuntimeLocalAccountId = (workspaceId?: WorkspaceId) =>
