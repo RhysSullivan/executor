@@ -1,7 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import {
   HttpApi,
@@ -24,7 +22,6 @@ import {
   type ControlPlaneClient,
   type ResolveExecutionEnvironment,
   SourceIdSchema,
-  SourceRecipeIdSchema,
   SourceRecipeRevisionIdSchema,
 } from "@executor/control-plane";
 import { makeSesExecutor } from "@executor/runtime-ses";
@@ -41,6 +38,15 @@ import {
   seedGithubOpenApiSourceInWorkspace,
 } from "../cli/dev";
 import { createLocalExecutorServer } from "@executor/server";
+import {
+  buildLocalSourceArtifact,
+  writeLocalSourceArtifact,
+} from "../../../../packages/control-plane/src/runtime/local-source-artifacts";
+import {
+  resolveLocalWorkspaceContext,
+  writeProjectLocalExecutorConfig,
+} from "../../../../packages/control-plane/src/runtime/local-config";
+import { materializationFromMcpManifestEntries } from "../../../../packages/control-plane/src/runtime/source-adapters/mcp";
 
 const executionResolver: ResolveExecutionEnvironment = () =>
   Effect.succeed({
@@ -82,17 +88,6 @@ const createIsolatedLocalExecutorServer = (
     };
   });
 
-const stableLocalSourceId = (input: {
-  workspaceRoot: string;
-  configKey: string;
-}) =>
-  SourceIdSchema.make(
-    `src_local_${createHash("sha256")
-      .update(`${input.workspaceRoot}:${input.configKey}`)
-      .digest("hex")
-      .slice(0, 16)}`,
-  );
-
 const writeConfiguredLocalMcpSource = (input: {
   workspaceRoot: string;
   configKey: string;
@@ -101,16 +96,58 @@ const writeConfiguredLocalMcpSource = (input: {
   namespace?: string;
 }) =>
   Effect.promise(async () => {
-    const sourceId = stableLocalSourceId({
+    const sourceId = SourceIdSchema.make(input.configKey);
+    const context = await resolveLocalWorkspaceContext({
       workspaceRoot: input.workspaceRoot,
-      configKey: input.configKey,
     });
-    const recipeId = SourceRecipeIdSchema.make(`src_recipe_${sourceId}`);
-    const recipeRevisionId = SourceRecipeRevisionIdSchema.make(`src_recipe_rev_${sourceId}`);
-    const now = Date.now();
-    const manifest = {
-      version: 1 as const,
-      tools: [{
+
+    await writeProjectLocalExecutorConfig({
+      context,
+      config: {
+        sources: {
+          [input.configKey]: {
+            kind: "mcp",
+            name: input.name ?? "Demo",
+            namespace: input.namespace ?? input.configKey,
+            connection: {
+              endpoint: input.endpoint,
+            },
+            binding: {
+              transport: "streamable-http",
+            },
+          },
+        },
+      },
+    });
+
+    const source = {
+      id: sourceId,
+      workspaceId: "ws_local_server_test" as never,
+      name: input.name ?? "Demo",
+      kind: "mcp" as const,
+      endpoint: input.endpoint,
+      status: "connected" as const,
+      enabled: true,
+      namespace: input.namespace ?? input.configKey,
+      bindingVersion: 1,
+      binding: {
+        transport: "streamable-http",
+        queryParams: null,
+        headers: null,
+      },
+      importAuthPolicy: "reuse_runtime" as const,
+      importAuth: { kind: "none" as const },
+      auth: { kind: "none" as const },
+      sourceHash: null,
+      lastError: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const materialization = materializationFromMcpManifestEntries({
+      recipeRevisionId: SourceRecipeRevisionIdSchema.make("src_recipe_rev_materialization"),
+      endpoint: input.endpoint,
+      manifestEntries: [{
         toolId: "gated_echo",
         toolName: "gated_echo",
         description: "Asks for approval before echoing a value",
@@ -125,93 +162,16 @@ const writeConfiguredLocalMcpSource = (input: {
           additionalProperties: false,
         }),
       }],
-    };
-    const manifestJson = JSON.stringify(manifest);
-
-    await mkdir(join(input.workspaceRoot, ".executor", "artifacts", "sources"), {
-      recursive: true,
     });
-    await writeFile(
-      join(input.workspaceRoot, ".executor", "executor.jsonc"),
-      `${JSON.stringify({
-        sources: {
-          [input.configKey]: {
-            kind: "mcp",
-            name: input.name ?? "Demo",
-            namespace: input.namespace ?? input.configKey,
-            connection: {
-              endpoint: input.endpoint,
-            },
-            binding: {
-              transport: "streamable-http",
-            },
-          },
-        },
-      }, null, 2)}\n`,
-      "utf8",
-    );
-    await writeFile(
-      join(input.workspaceRoot, ".executor", "artifacts", "sources", `${input.configKey}.json`),
-      `${JSON.stringify({
-        version: 1,
-        sourceId,
-        configKey: input.configKey,
-        recipeId,
-        generatedAt: now,
-        revision: {
-          id: recipeRevisionId,
-          recipeId,
-          revisionNumber: 1,
-          sourceConfigJson: JSON.stringify({
-            kind: "mcp",
-            endpoint: input.endpoint,
-            transport: "streamable-http",
-            queryParams: null,
-            headers: null,
-          }),
-          manifestJson,
-          manifestHash: null,
-          materializationHash: null,
-          createdAt: now,
-          updatedAt: now,
-        },
-        documents: [{
-          id: `src_recipe_doc_${sourceId}`,
-          recipeRevisionId,
-          documentKind: "mcp_manifest",
-          documentKey: "manifest",
-          contentText: manifestJson,
-          contentHash: `manifest_${sourceId}`,
-          fetchedAt: now,
-          createdAt: now,
-          updatedAt: now,
-        }],
-        schemaBundles: [],
-        operations: [{
-          id: `src_recipe_op_${sourceId}`,
-          recipeRevisionId,
-          operationKey: "gated_echo",
-          transportKind: "mcp",
-          toolId: "gated_echo",
-          title: "gated_echo",
-          description: "Asks for approval before echoing a value",
-          operationKind: "unknown",
-          searchText: "demo.gated_echo gated echo approval",
-          inputSchemaJson: manifest.tools[0]!.inputSchemaJson ?? null,
-          outputSchemaJson: null,
-          providerKind: "mcp",
-          providerDataJson: JSON.stringify({
-            kind: "mcp",
-            toolId: "gated_echo",
-            toolName: "gated_echo",
-            description: "Asks for approval before echoing a value",
-          }),
-          createdAt: now,
-          updatedAt: now,
-        }],
-      }, null, 2)}\n`,
-      "utf8",
-    );
+
+    await writeLocalSourceArtifact({
+      context,
+      sourceId,
+      artifact: buildLocalSourceArtifact({
+        source,
+        materialization,
+      }),
+    });
   });
 
 const makeServer = createIsolatedLocalExecutorServer({
