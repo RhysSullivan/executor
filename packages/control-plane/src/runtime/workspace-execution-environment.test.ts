@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
+  FileSystem,
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
@@ -12,6 +11,7 @@ import {
   HttpApiSchema,
   HttpServer,
 } from "@effect/platform";
+import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -80,9 +80,7 @@ import {
   loadLocalWorkspaceState,
   writeLocalWorkspaceState,
 } from "./local-workspace-state";
-import {
-  materializationFromMcpManifestEntries,
-} from "./source-adapters/mcp";
+import { materializationFromMcpManifestEntries } from "./source-adapters/mcp";
 import { createWorkspaceExecutionEnvironmentResolver } from "./workspace-execution-environment";
 
 type CountedMcpServer = {
@@ -115,6 +113,15 @@ const normalizeSearchText = (
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+
+const provideNodeFileSystem = <A, E, R>(
+  effect: Effect.Effect<A, E, R | FileSystem.FileSystem>,
+): Effect.Effect<A, E, Exclude<R, FileSystem.FileSystem>> =>
+  effect.pipe(Effect.provide(NodeFileSystem.layer)) as Effect.Effect<
+    A,
+    E,
+    Exclude<R, FileSystem.FileSystem>
+  >;
 
 const GraphqlUserType = new GraphQLObjectType({
   name: "User",
@@ -941,98 +948,98 @@ const persistConnectedGithubOpenApiSource = (input: {
       context: input.runtimeLocalWorkspace.context,
       sourceId: source.id,
       artifact: buildLocalSourceArtifact({
-            source: {
-              ...source,
-              sourceHash: manifest.sourceHash,
+        source: {
+          ...source,
+          sourceHash: manifest.sourceHash,
+        },
+        materialization: {
+          manifestJson: JSON.stringify(manifest),
+          manifestHash: manifest.sourceHash,
+          sourceHash: manifest.sourceHash,
+          documents: [
+            {
+              id: `src_recipe_doc_${randomUUID()}`,
+              recipeRevisionId: "src_recipe_rev_materialization" as never,
+              documentKind: "openapi",
+              documentKey:
+                typeof source.binding.specUrl === "string"
+                  ? source.binding.specUrl
+                  : source.endpoint,
+              contentText: openApiDocumentText,
+              contentHash: manifest.sourceHash,
+              fetchedAt: now,
+              createdAt: now,
+              updatedAt: now,
             },
-            materialization: {
-              manifestJson: JSON.stringify(manifest),
-              manifestHash: manifest.sourceHash,
-              sourceHash: manifest.sourceHash,
-              documents: [
-                {
-                  id: `src_recipe_doc_${randomUUID()}`,
-                  recipeRevisionId: "src_recipe_rev_materialization" as never,
-                  documentKind: "openapi",
-                  documentKey:
-                    typeof source.binding.specUrl === "string"
-                      ? source.binding.specUrl
-                      : source.endpoint,
-                  contentText: openApiDocumentText,
-                  contentHash: manifest.sourceHash,
-                  fetchedAt: now,
-                  createdAt: now,
-                  updatedAt: now,
-                },
-              ],
-              schemaBundles:
-                refEntries.length > 0
-                  ? [
-                      {
-                        id: SourceRecipeSchemaBundleIdSchema.make(
-                          `src_recipe_bundle_${randomUUID()}`,
-                        ),
-                        recipeRevisionId: "src_recipe_rev_materialization" as never,
-                        bundleKind: "json_schema_ref_map",
-                        refsJson: JSON.stringify(
-                          Object.fromEntries(
-                            refEntries.map(([ref, rawValue]) => {
-                              try {
-                                return [ref, JSON.parse(rawValue) as unknown];
-                              } catch {
-                                return [ref, rawValue];
-                              }
-                            }),
-                          ),
-                        ),
-                        contentHash: manifest.sourceHash,
-                        createdAt: now,
-                        updatedAt: now,
-                      },
-                    ]
-                  : [],
-              operations: definitions.map((definition) => {
-                const presentation = buildOpenApiToolPresentation({
-                  definition,
-                });
-                const method = definition.method.toUpperCase();
+          ],
+          schemaBundles:
+            refEntries.length > 0
+              ? [
+                  {
+                    id: SourceRecipeSchemaBundleIdSchema.make(
+                      `src_recipe_bundle_${randomUUID()}`,
+                    ),
+                    recipeRevisionId: "src_recipe_rev_materialization" as never,
+                    bundleKind: "json_schema_ref_map",
+                    refsJson: JSON.stringify(
+                      Object.fromEntries(
+                        refEntries.map(([ref, rawValue]) => {
+                          try {
+                            return [ref, JSON.parse(rawValue) as unknown];
+                          } catch {
+                            return [ref, rawValue];
+                          }
+                        }),
+                      ),
+                    ),
+                    contentHash: manifest.sourceHash,
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                ]
+              : [],
+          operations: definitions.map((definition) => {
+            const presentation = buildOpenApiToolPresentation({
+              definition,
+            });
+            const method = definition.method.toUpperCase();
 
-                return {
-                  id: `src_recipe_op_${randomUUID()}`,
-                  recipeRevisionId: "src_recipe_rev_materialization" as never,
-                  operationKey: definition.toolId,
-                  transportKind: "http",
-                  toolId: definition.toolId,
-                  title: definition.name,
-                  description: definition.description,
-                  operationKind:
-                    method === "GET" || method === "HEAD"
-                      ? "read"
-                      : method === "DELETE"
-                        ? "delete"
-                        : "write",
-                  searchText: normalizeSearchText(
-                    definition.toolId,
-                    definition.name,
-                    definition.description,
-                    definition.rawToolId,
-                    definition.operationId ?? undefined,
-                    definition.method,
-                    definition.path,
-                    definition.group,
-                    definition.leaf,
-                    definition.tags.join(" "),
-                  ),
-                  inputSchemaJson: presentation.inputSchemaJson ?? null,
-                  outputSchemaJson: presentation.outputSchemaJson ?? null,
-                  providerKind: "openapi",
-                  providerDataJson: presentation.providerDataJson,
-                  createdAt: now,
-                  updatedAt: now,
-                };
-              }),
-            },
+            return {
+              id: `src_recipe_op_${randomUUID()}`,
+              recipeRevisionId: "src_recipe_rev_materialization" as never,
+              operationKey: definition.toolId,
+              transportKind: "http",
+              toolId: definition.toolId,
+              title: definition.name,
+              description: definition.description,
+              operationKind:
+                method === "GET" || method === "HEAD"
+                  ? "read"
+                  : method === "DELETE"
+                    ? "delete"
+                    : "write",
+              searchText: normalizeSearchText(
+                definition.toolId,
+                definition.name,
+                definition.description,
+                definition.rawToolId,
+                definition.operationId ?? undefined,
+                definition.method,
+                definition.path,
+                definition.group,
+                definition.leaf,
+                definition.tags.join(" "),
+              ),
+              inputSchemaJson: presentation.inputSchemaJson ?? null,
+              outputSchemaJson: presentation.outputSchemaJson ?? null,
+              providerKind: "openapi",
+              providerDataJson: presentation.providerDataJson,
+              createdAt: now,
+              updatedAt: now,
+            };
           }),
+        },
+      }),
     });
     yield* writeLocalWorkspaceState({
       context: input.runtimeLocalWorkspace.context,
@@ -1054,62 +1061,104 @@ const persistConnectedGithubOpenApiSource = (input: {
     return;
   }) as Effect.Effect<void, Error, never>;
 
-const makeRuntimeLocalWorkspaceState = (workspaceId: WorkspaceId): Effect.Effect<RuntimeLocalWorkspaceState, Error, never> =>
-  Effect.gen(function* () {
-    const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-workspace-env-"));
-    const context = yield* resolveLocalWorkspaceContext({ workspaceRoot });
-    const loadedConfig = yield* loadLocalExecutorConfig(context);
-    return {
-      context,
-      installation: {
-        workspaceId,
-        accountId: AccountIdSchema.make("acc_local_test"),
-      },
-      loadedConfig,
-    } satisfies RuntimeLocalWorkspaceState;
-  });
-
-const makeResolver = (
-  persistence: SqlControlPlanePersistence,
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState,
-) =>
-  ((input: Parameters<ReturnType<typeof createWorkspaceExecutionEnvironmentResolver>>[0]) =>
-    createWorkspaceExecutionEnvironmentResolver({
-    rows: persistence.rows,
-    sourceAuthService: {
-      getLocalServerBaseUrl: () => null,
-      storeSecretMaterial: () =>
-        Effect.fail(new Error("not implemented in test")),
-      getSourceById: () => Effect.fail(new Error("not implemented in test")),
-      addExecutorSource: () =>
-        Effect.fail(new Error("not implemented in test")),
-      connectMcpSource: () => Effect.fail(new Error("not implemented in test")),
-      startSourceOAuthSession: () =>
-        Effect.fail(new Error("not implemented in test")),
-      completeSourceOAuthSession: () =>
-        Effect.fail(new Error("not implemented in test")),
-      completeSourceCredentialSetup: () =>
-        Effect.fail(new Error("not implemented in test")),
-    } as RuntimeSourceAuthService,
-  })(input).pipe(
-    Effect.provideService(RuntimeLocalWorkspaceService, runtimeLocalWorkspace),
-  ));
-
-const makeResolverWithLiveSourceAuth = (
-  persistence: SqlControlPlanePersistence,
-  runtimeLocalWorkspace: RuntimeLocalWorkspaceState,
-) =>
-  ((input: Parameters<ReturnType<typeof createWorkspaceExecutionEnvironmentResolver>>[0]) =>
-    createWorkspaceExecutionEnvironmentResolver({
-    rows: persistence.rows,
-    sourceAuthService: createRuntimeSourceAuthService({
-      rows: persistence.rows,
-      liveExecutionManager: createLiveExecutionManager(),
-      getLocalServerBaseUrl: () => "http://127.0.0.1:8788",
+const makeRuntimeLocalWorkspaceState = (
+  workspaceId: WorkspaceId,
+): Effect.Effect<RuntimeLocalWorkspaceState, Error, Scope.Scope> =>
+  provideNodeFileSystem(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({
+        prefix: "executor-workspace-env-",
+      });
+      const context = yield* resolveLocalWorkspaceContext({ workspaceRoot });
+      const loadedConfig = yield* loadLocalExecutorConfig(context);
+      return {
+        context,
+        installation: {
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_local_test"),
+        },
+        loadedConfig,
+      } satisfies RuntimeLocalWorkspaceState;
     }),
-  })(input).pipe(
-    Effect.provideService(RuntimeLocalWorkspaceService, runtimeLocalWorkspace),
-  ));
+  );
+
+const writeLocalToolSource = (input: {
+  runtimeLocalWorkspace: RuntimeLocalWorkspaceState;
+  relativePath: string;
+  content: string;
+}): Effect.Effect<void, Error, never> =>
+  provideNodeFileSystem(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const toolPath = join(
+        input.runtimeLocalWorkspace.context.configDirectory,
+        "tools",
+        input.relativePath,
+      );
+      yield* fs.makeDirectory(dirname(toolPath), { recursive: true });
+      yield* fs.writeFileString(toolPath, input.content);
+    }),
+  );
+
+const makeResolver =
+  (
+    persistence: SqlControlPlanePersistence,
+    runtimeLocalWorkspace: RuntimeLocalWorkspaceState,
+  ) =>
+  (
+    input: Parameters<
+      ReturnType<typeof createWorkspaceExecutionEnvironmentResolver>
+    >[0],
+  ) =>
+    createWorkspaceExecutionEnvironmentResolver({
+      rows: persistence.rows,
+      sourceAuthService: {
+        getLocalServerBaseUrl: () => null,
+        storeSecretMaterial: () =>
+          Effect.fail(new Error("not implemented in test")),
+        getSourceById: () => Effect.fail(new Error("not implemented in test")),
+        addExecutorSource: () =>
+          Effect.fail(new Error("not implemented in test")),
+        connectMcpSource: () =>
+          Effect.fail(new Error("not implemented in test")),
+        startSourceOAuthSession: () =>
+          Effect.fail(new Error("not implemented in test")),
+        completeSourceOAuthSession: () =>
+          Effect.fail(new Error("not implemented in test")),
+        completeSourceCredentialSetup: () =>
+          Effect.fail(new Error("not implemented in test")),
+      } as RuntimeSourceAuthService,
+    })(input).pipe(
+      Effect.provideService(
+        RuntimeLocalWorkspaceService,
+        runtimeLocalWorkspace,
+      ),
+    );
+
+const makeResolverWithLiveSourceAuth =
+  (
+    persistence: SqlControlPlanePersistence,
+    runtimeLocalWorkspace: RuntimeLocalWorkspaceState,
+  ) =>
+  (
+    input: Parameters<
+      ReturnType<typeof createWorkspaceExecutionEnvironmentResolver>
+    >[0],
+  ) =>
+    createWorkspaceExecutionEnvironmentResolver({
+      rows: persistence.rows,
+      sourceAuthService: createRuntimeSourceAuthService({
+        rows: persistence.rows,
+        liveExecutionManager: createLiveExecutionManager(),
+        getLocalServerBaseUrl: () => "http://127.0.0.1:8788",
+      }),
+    })(input).pipe(
+      Effect.provideService(
+        RuntimeLocalWorkspaceService,
+        runtimeLocalWorkspace,
+      ),
+    );
 
 describe("workspace-execution-environment", () => {
   it.scoped("discovers persisted tools without live MCP listing", () =>
@@ -1118,7 +1167,8 @@ describe("workspace-execution-environment", () => {
       const persistence = yield* makePersistence;
       const workspaceId = WorkspaceIdSchema.make("ws_catalog");
       const sourceId = SourceIdSchema.make("src_catalog");
-      const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
+      const runtimeLocalWorkspace =
+        yield* makeRuntimeLocalWorkspaceState(workspaceId);
       yield* persistConnectedEchoTool({
         runtimeLocalWorkspace,
         endpoint: server.endpoint,
@@ -1132,7 +1182,10 @@ describe("workspace-execution-environment", () => {
           cause instanceof Error ? cause : new Error(String(cause)),
       }).pipe(Effect.orDie);
 
-      const resolveEnvironment = makeResolver(persistence, runtimeLocalWorkspace);
+      const resolveEnvironment = makeResolver(
+        persistence,
+        runtimeLocalWorkspace,
+      );
       const environment = yield* resolveEnvironment({
         workspaceId,
         accountId: AccountIdSchema.make("acc_catalog"),
@@ -1165,14 +1218,18 @@ describe("workspace-execution-environment", () => {
         const persistence = yield* makePersistence;
         const workspaceId = WorkspaceIdSchema.make("ws_github_discovery");
         const sourceId = SourceIdSchema.make("src_github_discovery");
-        const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
+        const runtimeLocalWorkspace =
+          yield* makeRuntimeLocalWorkspaceState(workspaceId);
         yield* persistConnectedGithubOpenApiSource({
           runtimeLocalWorkspace,
           workspaceId,
           sourceId,
         });
 
-        const resolveEnvironment = makeResolver(persistence, runtimeLocalWorkspace);
+        const resolveEnvironment = makeResolver(
+          persistence,
+          runtimeLocalWorkspace,
+        );
         const environment = yield* resolveEnvironment({
           workspaceId,
           accountId: AccountIdSchema.make("acc_github_discovery"),
@@ -1219,7 +1276,8 @@ describe("workspace-execution-environment", () => {
       const persistence = yield* makePersistence;
       const workspaceId = WorkspaceIdSchema.make("ws_invoke");
       const sourceId = SourceIdSchema.make("src_invoke");
-      const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
+      const runtimeLocalWorkspace =
+        yield* makeRuntimeLocalWorkspaceState(workspaceId);
       yield* persistConnectedEchoTool({
         runtimeLocalWorkspace,
         endpoint: server.endpoint,
@@ -1227,7 +1285,10 @@ describe("workspace-execution-environment", () => {
         sourceId,
       });
 
-      const resolveEnvironment = makeResolver(persistence, runtimeLocalWorkspace);
+      const resolveEnvironment = makeResolver(
+        persistence,
+        runtimeLocalWorkspace,
+      );
       const environment = yield* resolveEnvironment({
         workspaceId,
         accountId: AccountIdSchema.make("acc_invoke"),
@@ -1250,14 +1311,138 @@ describe("workspace-execution-environment", () => {
   );
 
   it.scoped(
+    "discovers and invokes local TypeScript tools from grouped directories",
+    () =>
+      Effect.gen(function* () {
+        const persistence = yield* makePersistence;
+        const workspaceId = WorkspaceIdSchema.make("ws_local_tools");
+        const runtimeLocalWorkspace =
+          yield* makeRuntimeLocalWorkspaceState(workspaceId);
+        yield* writeLocalToolSource({
+          runtimeLocalWorkspace,
+          relativePath: join("math", "arithmetic", "add.ts"),
+          content: `
+import { Schema } from "effect"
+
+const inputSchema = Schema.standardSchemaV1(
+  Schema.Struct({
+    a: Schema.Number,
+    b: Schema.Number,
+  }),
+)
+
+const outputSchema = Schema.standardSchemaV1(
+  Schema.Struct({
+    sum: Schema.Number,
+  }),
+)
+
+export default {
+  description: "Add two numbers together",
+  inputSchema,
+  outputSchema,
+  async execute({ a, b }: { a: number; b: number }) {
+    await Promise.resolve()
+    return { sum: a + b }
+  },
+}
+`.trimStart(),
+        });
+        yield* writeLocalToolSource({
+          runtimeLocalWorkspace,
+          relativePath: join("text", "case", "upper.ts"),
+          content: `
+import { defineLocalTool } from "@executor/control-plane"
+import * as z from "zod/v4"
+
+const inputSchema = z.object({
+  value: z.string(),
+})
+
+const outputSchema = z.object({
+  value: z.string(),
+})
+
+export const tool = defineLocalTool({
+  description: "Convert text to uppercase",
+  inputSchema,
+  outputSchema,
+  async execute({ value }) {
+    await Promise.resolve()
+    return { value: value.toUpperCase() }
+  },
+})
+`.trimStart(),
+        });
+
+        const resolveEnvironment = makeResolver(
+          persistence,
+          runtimeLocalWorkspace,
+        );
+        const environment = yield* resolveEnvironment({
+          workspaceId,
+          accountId: AccountIdSchema.make("acc_local_tools"),
+          executionId: ExecutionIdSchema.make("exec_local_tools"),
+        });
+
+        const discovered = (yield* environment.toolInvoker.invoke({
+          path: "discover",
+          args: {
+            query: "add two numbers arithmetic",
+            limit: 5,
+          },
+        })) as {
+          bestPath: string | null;
+          results: Array<{ path: string }>;
+        };
+
+        expect(discovered.bestPath).toBe("math.arithmetic.add");
+        expect(discovered.results[0]?.path).toBe("math.arithmetic.add");
+
+        const listed = yield* environment.catalog!.listTools({
+          namespace: "math.arithmetic",
+          limit: 5,
+          includeSchemas: false,
+        });
+
+        expect(listed).toHaveLength(1);
+        expect(listed[0]?.path).toBe("math.arithmetic.add");
+        expect(listed[0]?.sourceKey).toBe("local.tool.math.arithmetic.add");
+
+        const result = (yield* environment.toolInvoker.invoke({
+          path: "math.arithmetic.add",
+          args: {
+            a: 2,
+            b: 3,
+          },
+        })) as { sum: number };
+
+        expect(result.sum).toBe(5);
+
+        const upper = (yield* environment.toolInvoker.invoke({
+          path: "text.case.upper",
+          args: {
+            value: "hello",
+          },
+        })) as { value: string };
+
+        expect(upper.value).toBe("HELLO");
+      }),
+  );
+
+  it.scoped(
     "adds an OpenAPI source through executor.sources.add with elicited credentials",
     () =>
       Effect.gen(function* () {
         const specServer = yield* makeOpenApiSpecServer;
         const persistence = yield* makePersistence;
         const workspaceId = WorkspaceIdSchema.make("ws_add_openapi");
-        const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
-        const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence, runtimeLocalWorkspace);
+        const runtimeLocalWorkspace =
+          yield* makeRuntimeLocalWorkspaceState(workspaceId);
+        const resolveEnvironment = makeResolverWithLiveSourceAuth(
+          persistence,
+          runtimeLocalWorkspace,
+        );
         const now = Date.now();
         const tokenSecretMaterialId = SecretMaterialIdSchema.make(
           "sec_test_openapi_bearer",
@@ -1338,7 +1523,9 @@ describe("workspace-execution-environment", () => {
           encodeURIComponent("exec_add_openapi:executor.sources.add:"),
         );
 
-        const loadedConfig = yield* loadLocalExecutorConfig(runtimeLocalWorkspace.context);
+        const loadedConfig = yield* loadLocalExecutorConfig(
+          runtimeLocalWorkspace.context,
+        );
         expect(loadedConfig.config?.sources?.[added.id]).toMatchObject({
           kind: "openapi",
           connection: {
@@ -1352,7 +1539,9 @@ describe("workspace-execution-environment", () => {
         expect(artifact?.documents[0]?.contentText).toContain(
           '"operationId":"repos.getRepo"',
         );
-        const workspaceState = yield* loadLocalWorkspaceState(runtimeLocalWorkspace.context);
+        const workspaceState = yield* loadLocalWorkspaceState(
+          runtimeLocalWorkspace.context,
+        );
         expect(workspaceState.sources[added.id]?.status).toBe("connected");
 
         const freshEnvironment = yield* resolveEnvironment({
@@ -1399,8 +1588,12 @@ describe("workspace-execution-environment", () => {
         const graphqlServer = yield* makeGraphqlServer;
         const persistence = yield* makePersistence;
         const workspaceId = WorkspaceIdSchema.make("ws_add_graphql");
-        const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
-        const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence, runtimeLocalWorkspace);
+        const runtimeLocalWorkspace =
+          yield* makeRuntimeLocalWorkspaceState(workspaceId);
+        const resolveEnvironment = makeResolverWithLiveSourceAuth(
+          persistence,
+          runtimeLocalWorkspace,
+        );
         const now = Date.now();
         const tokenSecretMaterialId = SecretMaterialIdSchema.make(
           "sec_test_graphql_bearer",
@@ -1630,7 +1823,8 @@ describe("workspace-execution-environment", () => {
       const persistence = yield* makePersistence;
       const workspaceId = WorkspaceIdSchema.make("ws_params_auth");
       const sourceId = SourceIdSchema.make("src_params_auth");
-      const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
+      const runtimeLocalWorkspace =
+        yield* makeRuntimeLocalWorkspaceState(workspaceId);
 
       yield* persistConnectedGithubOpenApiSource({
         runtimeLocalWorkspace,
@@ -1643,7 +1837,10 @@ describe("workspace-execution-environment", () => {
         },
       });
 
-      const resolveEnvironment = makeResolver(persistence, runtimeLocalWorkspace);
+      const resolveEnvironment = makeResolver(
+        persistence,
+        runtimeLocalWorkspace,
+      );
       const environment = yield* resolveEnvironment({
         workspaceId,
         accountId: AccountIdSchema.make("acc_params_auth"),
@@ -1683,7 +1880,8 @@ describe("workspace-execution-environment", () => {
           "ws_openapi_describe_bundle",
         );
         const sourceId = SourceIdSchema.make("src_openapi_describe_bundle");
-        const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
+        const runtimeLocalWorkspace =
+          yield* makeRuntimeLocalWorkspaceState(workspaceId);
 
         yield* persistConnectedGithubOpenApiSource({
           runtimeLocalWorkspace,
@@ -1691,7 +1889,10 @@ describe("workspace-execution-environment", () => {
           sourceId,
         });
 
-        const resolveEnvironment = makeResolver(persistence, runtimeLocalWorkspace);
+        const resolveEnvironment = makeResolver(
+          persistence,
+          runtimeLocalWorkspace,
+        );
         const environment = yield* resolveEnvironment({
           workspaceId,
           accountId: AccountIdSchema.make("acc_openapi_describe_bundle"),
@@ -1739,8 +1940,12 @@ describe("workspace-execution-environment", () => {
       Effect.gen(function* () {
         const persistence = yield* makePersistence;
         const workspaceId = WorkspaceIdSchema.make("ws_describe_add_source");
-        const runtimeLocalWorkspace = yield* makeRuntimeLocalWorkspaceState(workspaceId);
-        const resolveEnvironment = makeResolverWithLiveSourceAuth(persistence, runtimeLocalWorkspace);
+        const runtimeLocalWorkspace =
+          yield* makeRuntimeLocalWorkspaceState(workspaceId);
+        const resolveEnvironment = makeResolverWithLiveSourceAuth(
+          persistence,
+          runtimeLocalWorkspace,
+        );
 
         const environment = yield* resolveEnvironment({
           workspaceId,
