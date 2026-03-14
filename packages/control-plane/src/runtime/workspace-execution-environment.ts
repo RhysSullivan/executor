@@ -9,11 +9,7 @@ import {
   type ToolPath,
   type ToolSchemaBundle,
 } from "@executor/codemode-core";
-import {
-  isDenoAvailable,
-  makeDenoSubprocessExecutor,
-} from "@executor/runtime-deno-subprocess";
-import { makeSesExecutor } from "@executor/runtime-ses";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   SqlControlPlaneRowsService,
   type SqlControlPlaneRows,
@@ -775,9 +771,7 @@ export const createWorkspaceExecutionEnvironmentResolver = (input: {
         onElicitation,
       });
 
-      const executor = isDenoAvailable()
-        ? makeDenoSubprocessExecutor()
-        : makeSesExecutor();
+      const executor = makeQuickJsExecutor();
 
       return {
         executor,

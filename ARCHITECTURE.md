@@ -38,10 +38,10 @@ If `README.md` answers "what is this product and how do I use it?", this file an
                              +-- live execution manager
                              v
                   +---------+---------+
-                  | SES sandboxed      |
+                  | QuickJS sandboxed  |
                   | executor runtime   |
-                  | runtime-ses        |
-                  | subprocess worker  |
+                  | runtime-quickjs    |
+                  | default executor   |
                   +--------------------+
 ```
 
@@ -103,7 +103,7 @@ It contains the runtime layer, persistence integration, and the business logic f
 
 If you want to understand the behavior of the product, this is the most important package.
 
-### `packages/runtime-ses`: code execution runtime
+### `packages/runtime-quickjs`: default code execution runtime
 
 This package provides the TypeScript execution environment used by the local product.
 
@@ -115,7 +115,7 @@ At a high level it receives:
 
 and runs user-authored code against that environment.
 
-The current runtime executes code in a dedicated SES child process so tool calls stay proxied through the control plane.
+The default runtime executes code inside a QuickJS WebAssembly sandbox so tool calls stay proxied through the control plane.
 
 ### Adapter packages
 

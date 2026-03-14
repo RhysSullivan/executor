@@ -28,6 +28,7 @@
     "@executor/codemode-core": "workspace:*",
     "@executor/codemode-google-discovery": "workspace:*",
     "@executor/codemode-mcp": "workspace:*",
+    "@executor/runtime-quickjs": "workspace:*",
     "@executor/runtime-ses": "workspace:*",
     "@executor/codemode-openapi": "workspace:*",
     "@executor/runtime-deno-subprocess": "workspace:*",

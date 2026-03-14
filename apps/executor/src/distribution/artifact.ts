@@ -86,6 +86,21 @@ const resolvePGliteDistDir = (): string => {
   return distDir;
 };
 
+const resolveQuickJsWasmPath = (): string => {
+  const requireFromQuickJsRuntime = createRequire(
+    join(repoRoot, "packages/runtime-quickjs/package.json"),
+  );
+  const wasmPath = requireFromQuickJsRuntime.resolve(
+    "@jitl/quickjs-wasmfile-release-sync/wasm",
+  );
+
+  if (!existsSync(wasmPath)) {
+    throw new Error(`Unable to locate QuickJS wasm asset at ${wasmPath}`);
+  }
+
+  return wasmPath;
+};
+
 
 const createPackageJson = (input: {
   packageName: string;
@@ -176,7 +191,7 @@ const createPostinstallSource = () => [
   "const denoExecutable = resolveDenoExecutable();",
   "",
   "if (!isDenoAvailable(denoExecutable)) {",
-  '  console.warn(`Deno not found, if you want to use deno for sandboxing install it from ${denoInstallUrl} otherwise JS will execute in SES`);',
+  '  console.warn(`Deno not found, if you want to use deno for sandboxing install it from ${denoInstallUrl} otherwise JS will execute in QuickJS`);',
   "}",
   "",
 ].join("\n");
@@ -196,6 +211,7 @@ export const buildDistributionPackage = async (
   const pgliteDistDir = resolvePGliteDistDir();
   const pgliteDataPath = join(pgliteDistDir, "pglite.data");
   const pgliteWasmPath = join(pgliteDistDir, "pglite.wasm");
+  const quickJsWasmPath = resolveQuickJsWasmPath();
   const webDistDir = join(repoRoot, "apps/web/dist");
   const readmePath = join(repoRoot, "README.md");
   const packageName = options.packageName ?? defaults.name;
@@ -235,6 +251,7 @@ export const buildDistributionPackage = async (
   });
   await cp(pgliteDataPath, join(binDir, "pglite.data"));
   await cp(pgliteWasmPath, join(binDir, "pglite.wasm"));
+  await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
   await mkdir(join(binDir, "openapi-extractor-wasm"), { recursive: true });
   await cp(
     join(repoRoot, "packages/codemode-openapi/src/openapi-extractor-wasm/openapi_extractor_bg.wasm"),
