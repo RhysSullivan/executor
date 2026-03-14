@@ -22,8 +22,7 @@ const decodeLocalExecutorConfig = Schema.decodeUnknownSync(LocalExecutorConfigSc
 const PROJECT_CONFIG_BASENAME = "executor.jsonc";
 const PROJECT_CONFIG_FALLBACK_BASENAME = "executor.json";
 const PROJECT_CONFIG_DIRECTORY = ".executor";
-const HOME_CONFIG_DIRECTORY = join(homedir(), ".config", "executor");
-const HOME_CONFIG_PATH = join(HOME_CONFIG_DIRECTORY, PROJECT_CONFIG_BASENAME);
+const EXECUTOR_CONFIG_DIR_ENV = "EXECUTOR_CONFIG_DIR";
 
 const normalizeSlashPath = (value: string): string =>
   value.replaceAll("\\", "/");
@@ -52,6 +51,80 @@ const pathExists = async (path: string): Promise<boolean> => {
 const trimOrUndefined = (value: string | undefined | null): string | undefined => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
+};
+
+const defaultExecutorConfigDirectory = (input: {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  homeDirectory?: string;
+} = {}): string => {
+  const env = input.env ?? process.env;
+  const platform = input.platform ?? process.platform;
+  const homeDirectory = input.homeDirectory ?? homedir();
+  const explicitConfigDirectory = trimOrUndefined(env[EXECUTOR_CONFIG_DIR_ENV]);
+
+  if (explicitConfigDirectory) {
+    return explicitConfigDirectory;
+  }
+
+  if (platform === "win32") {
+    return join(
+      trimOrUndefined(env.LOCALAPPDATA) ?? join(homeDirectory, "AppData", "Local"),
+      "Executor",
+    );
+  }
+
+  if (platform === "darwin") {
+    return join(homeDirectory, "Library", "Application Support", "Executor");
+  }
+
+  return join(
+    trimOrUndefined(env.XDG_CONFIG_HOME) ?? join(homeDirectory, ".config"),
+    "executor",
+  );
+};
+
+const legacyExecutorConfigDirectory = (input: {
+  homeDirectory?: string;
+} = {}): string =>
+  join(input.homeDirectory ?? homedir(), ".config", "executor");
+
+export const resolveDefaultHomeConfigCandidates = (input: {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  homeDirectory?: string;
+} = {}): string[] => {
+  const homeDirectory = input.homeDirectory ?? homedir();
+  const canonicalDirectory = defaultExecutorConfigDirectory({
+    env: input.env,
+    platform: input.platform,
+    homeDirectory,
+  });
+  const legacyDirectory = legacyExecutorConfigDirectory({ homeDirectory });
+  const directories = canonicalDirectory === legacyDirectory
+    ? [canonicalDirectory]
+    : [canonicalDirectory, legacyDirectory];
+
+  return directories.flatMap((directory) => [
+    join(directory, PROJECT_CONFIG_BASENAME),
+    join(directory, PROJECT_CONFIG_FALLBACK_BASENAME),
+  ]);
+};
+
+export const resolveHomeConfigPath = async (input: {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  homeDirectory?: string;
+} = {}): Promise<string> => {
+  const candidates = resolveDefaultHomeConfigCandidates(input);
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return candidates[0]!;
 };
 
 const formatJsoncParseErrors = (content: string, errors: readonly JsoncParseError[]): string => {
@@ -232,6 +305,7 @@ export const resolveLocalWorkspaceContext = async (input: {
   );
   const workspaceName = basename(workspaceRoot) || "workspace";
   const projectConfigPath = await resolveProjectConfigPath(workspaceRoot);
+  const homeConfigPath = await resolveHomeConfigPath();
 
   return {
     cwd,
@@ -239,7 +313,7 @@ export const resolveLocalWorkspaceContext = async (input: {
     workspaceName,
     configDirectory: join(workspaceRoot, PROJECT_CONFIG_DIRECTORY),
     projectConfigPath,
-    homeConfigPath: HOME_CONFIG_PATH,
+    homeConfigPath,
     artifactsDirectory: join(workspaceRoot, PROJECT_CONFIG_DIRECTORY, "artifacts"),
     stateDirectory: join(workspaceRoot, PROJECT_CONFIG_DIRECTORY, "state"),
     installationId: `local_${stableHash(normalizeSlashPath(workspaceRoot))}`,
