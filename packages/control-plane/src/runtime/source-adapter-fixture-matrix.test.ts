@@ -322,7 +322,8 @@ describe("source adapter fixture matrix", () => {
         expect(Object.keys(snapshot.catalog.capabilities).length).toBeGreaterThan(250);
         expect(tool).toBeDefined();
         expect(tool?.descriptor.previewInputType).not.toContain("unknown");
-        expect(tool?.descriptor.previewOutputType).not.toContain("unknown");
+        expect(tool?.descriptor.previewOutputType).toContain("data:");
+        expect(tool?.descriptor.previewOutputType).toContain("status:");
         expect(tool?.descriptor.inputSchema).toMatchObject({
           type: "object",
           properties: {
@@ -401,6 +402,17 @@ describe("source adapter fixture matrix", () => {
         expect(tool?.descriptor.outputSchema).toMatchObject({
           type: "object",
           properties: {
+            data: {
+              anyOf: expect.any(Array),
+            },
+          },
+        });
+        const dataVariants =
+          (tool?.descriptor.outputSchema as { properties?: { data?: { anyOf?: Array<Record<string, unknown>> } } })
+            .properties?.data?.anyOf ?? [];
+        const objectDataVariant = dataVariants.find((variant) => variant.type === "object");
+        expect(objectDataVariant).toMatchObject({
+          properties: {
             id: {
               type: "integer",
             },
@@ -449,6 +461,7 @@ describe("source adapter fixture matrix", () => {
               });
               response.statusCode = 200;
               response.setHeader("content-type", "application/json");
+              response.setHeader("x-request-id", `req_${String(requests.length)}`);
               response.end(JSON.stringify({ ok: true }));
             });
           });
@@ -643,7 +656,7 @@ describe("source adapter fixture matrix", () => {
               refreshAfter: null,
             } as const;
 
-            await Effect.runPromise(
+            const getItemResult = await Effect.runPromise(
               invokeIrTool({
                 workspaceId: source.workspaceId,
                 accountId: "acct_fixture" as any,
@@ -659,7 +672,7 @@ describe("source adapter fixture matrix", () => {
                 },
               }),
             );
-            await Effect.runPromise(
+            const submitFormResult = await Effect.runPromise(
               invokeIrTool({
                 workspaceId: source.workspaceId,
                 accountId: "acct_fixture" as any,
@@ -674,6 +687,24 @@ describe("source adapter fixture matrix", () => {
               }),
             );
 
+            expect(getItemResult).toMatchObject({
+              data: { ok: true },
+              error: null,
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "x-request-id": "req_1",
+              },
+            });
+            expect(submitFormResult).toMatchObject({
+              data: { ok: true },
+              error: null,
+              status: 200,
+              headers: {
+                "content-type": "application/json",
+                "x-request-id": "req_2",
+              },
+            });
             expect(requests).toHaveLength(2);
             expect(requests[0]?.path).toBe("/v2/items/.alpha.beta");
             expect(requests[0]?.query).toContain("filter%5Bstatus%5D=open");
@@ -735,7 +766,8 @@ describe("source adapter fixture matrix", () => {
         expect(Object.keys(snapshot.catalog.capabilities).length).toBeGreaterThan(10);
         expect(tool).toBeDefined();
         expect(tool?.descriptor.previewInputType).not.toContain("unknown");
-        expect(tool?.descriptor.previewOutputType).not.toContain("unknown");
+        expect(tool?.descriptor.previewOutputType).toContain("data:");
+        expect(tool?.descriptor.previewOutputType).toContain("status:");
         expect(tool?.descriptor.inputSchema).toMatchObject({
           type: "object",
           properties: {
@@ -897,6 +929,197 @@ describe("source adapter fixture matrix", () => {
         ).toEqual([]);
     }),
     120_000,
+  );
+
+  it.effect(
+    "executes persisted GraphQL field tools with normalized response envelopes",
+    () =>
+      Effect.gen(function* () {
+        const requests: Array<{
+          body: string;
+          headers: Record<string, string | string[] | undefined>;
+          path: string;
+        }> = [];
+
+        const server = createServer((request, response) => {
+          let body = "";
+          request.setEncoding("utf8");
+          request.on("data", (chunk) => {
+            body += chunk;
+          });
+          request.on("end", () => {
+            requests.push({
+              body,
+              headers: request.headers,
+              path: request.url ?? "/",
+            });
+            response.statusCode = 200;
+            response.setHeader("content-type", "application/json");
+            response.setHeader("x-request-id", "req_graphql_1");
+            response.end(JSON.stringify({
+              data: {
+                viewer: {
+                  login: "alice",
+                },
+              },
+            }));
+          });
+        });
+
+        yield* Effect.tryPromise({
+          try: () =>
+            new Promise<void>((resolve, reject) => {
+              server.listen(0, "127.0.0.1", (error?: Error) => {
+                if (error) {
+                  reject(error);
+                  return;
+                }
+                resolve();
+              });
+            }),
+          catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+        });
+
+        try {
+          const address = server.address();
+          if (!address || typeof address === "string") {
+            throw new Error("Failed to resolve GraphQL execution fixture server");
+          }
+
+          const baseUrl = `http://127.0.0.1:${address.port}`;
+          const source = makeSource({
+            id: "src_graphql_execution_fixture",
+            name: "GraphQL Fixture",
+            kind: "graphql",
+            endpoint: `${baseUrl}/graphql`,
+            namespace: "gqlfixture",
+            binding: {
+              defaultHeaders: null,
+            },
+          });
+          const snapshot = createGraphqlCatalogSnapshot({
+            source,
+            documents: [{
+              documentKind: "graphql_introspection",
+              documentKey: `${baseUrl}/graphql`,
+              contentText: "{}",
+              fetchedAt: 1,
+            }],
+            operations: [{
+              toolId: "viewer",
+              title: "Viewer",
+              description: "Fetch the current viewer.",
+              effect: "read",
+              inputSchema: {
+                type: "object",
+                additionalProperties: false,
+              },
+              outputSchema: {
+                type: "object",
+                properties: {
+                  data: {
+                    type: "object",
+                    properties: {
+                      login: {
+                        type: "string",
+                      },
+                    },
+                    required: ["login"],
+                    additionalProperties: false,
+                  },
+                  errors: {
+                    type: "array",
+                    items: {},
+                  },
+                  isError: {
+                    type: "boolean",
+                  },
+                },
+                required: ["data", "errors", "isError"],
+                additionalProperties: false,
+              },
+              providerData: {
+                kind: "graphql",
+                toolKind: "field",
+                toolId: "viewer",
+                rawToolId: "viewer",
+                group: "query",
+                leaf: "viewer",
+                fieldName: "viewer",
+                operationType: "query",
+                operationName: "ViewerQuery",
+                operationDocument: "query ViewerQuery { viewer { login } }",
+                queryTypeName: "Query",
+                mutationTypeName: null,
+                subscriptionTypeName: null,
+              },
+            }],
+          });
+          const loadedCatalog = makeLoadedCatalog({
+            source,
+            snapshot,
+          });
+          const tool = yield* expandCatalogToolByPath({
+            catalogs: [loadedCatalog],
+            path: "gqlfixture.viewer",
+          });
+
+          if (!tool) {
+            throw new Error("Expected GraphQL execution fixture tool to resolve");
+          }
+
+          const auth = {
+            placements: [],
+            headers: {},
+            queryParams: {},
+            cookies: {},
+            bodyValues: {},
+            expiresAt: null,
+            refreshAfter: null,
+          } as const;
+
+          const result = yield* invokeIrTool({
+            workspaceId: source.workspaceId,
+            accountId: "acct_fixture" as any,
+            tool,
+            auth,
+            args: {},
+          });
+
+          expect(result).toMatchObject({
+            data: {
+              login: "alice",
+            },
+            error: null,
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-request-id": "req_graphql_1",
+            },
+          });
+          expect(requests).toHaveLength(1);
+          expect(requests[0]?.path).toBe("/graphql");
+          expect(JSON.parse(requests[0]?.body ?? "{}")).toMatchObject({
+            query: "query ViewerQuery { viewer { login } }",
+            variables: {},
+            operationName: "ViewerQuery",
+          });
+        } finally {
+          yield* Effect.tryPromise({
+            try: () =>
+              new Promise<void>((resolve, reject) => {
+                server.close((error) => {
+                  if (error) {
+                    reject(error);
+                    return;
+                  }
+                  resolve();
+                });
+              }),
+            catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
+          });
+        }
+      }),
   );
 
   it.effect(

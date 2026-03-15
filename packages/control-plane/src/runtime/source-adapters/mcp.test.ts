@@ -4,17 +4,94 @@ import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { describe, expect, it } from "@effect/vitest";
-import { SourceIdSchema } from "#schema";
+import {
+  SourceCatalogIdSchema,
+  SourceCatalogRevisionIdSchema,
+  SourceIdSchema,
+} from "#schema";
+import type {
+  Source,
+  StoredSourceCatalogRevisionRecord,
+  StoredSourceRecord,
+} from "#schema";
 
 import * as Effect from "effect/Effect";
 import { z } from "zod/v4";
 
+import { projectCatalogForAgentSdk } from "../../ir/catalog";
+import type { CatalogSnapshotV1 } from "../../ir/model";
+import { createCatalogTypeProjector, projectedCatalogTypeRoots } from "../catalog-typescript";
+import { invokeIrTool } from "../ir-execution";
+import {
+  expandCatalogToolByPath,
+  type LoadedSourceCatalog,
+} from "../source-catalog-runtime";
 import { createSourceFromPayload } from "../source-definitions";
 import { mcpSourceAdapter } from "./mcp";
 
 type RealMcpServer = {
   endpoint: string;
   close: () => Promise<void>;
+};
+
+const makeLoadedCatalog = (input: {
+  source: Source;
+  snapshot: CatalogSnapshotV1;
+}): LoadedSourceCatalog => {
+  const catalogId = SourceCatalogIdSchema.make(`catalog_${input.source.id}`);
+  const revisionId = SourceCatalogRevisionIdSchema.make(
+    `catalog_revision_${input.source.id}`,
+  );
+  const sourceRecord = {
+    id: input.source.id,
+    workspaceId: input.source.workspaceId,
+    catalogId,
+    catalogRevisionId: revisionId,
+    name: input.source.name,
+    kind: input.source.kind,
+    endpoint: input.source.endpoint,
+    status: input.source.status,
+    enabled: input.source.enabled,
+    namespace: input.source.namespace,
+    importAuthPolicy: input.source.importAuthPolicy,
+    bindingConfigJson: JSON.stringify(input.source.binding),
+    sourceHash: input.source.sourceHash,
+    lastError: input.source.lastError,
+    createdAt: input.source.createdAt,
+    updatedAt: input.source.updatedAt,
+  } satisfies StoredSourceRecord;
+  const revision = {
+    id: revisionId,
+    catalogId,
+    revisionNumber: 1,
+    sourceConfigJson: JSON.stringify({
+      kind: input.source.kind,
+      endpoint: input.source.endpoint,
+      binding: input.source.binding,
+    }),
+    importMetadataJson: JSON.stringify(input.snapshot.import),
+    importMetadataHash: "hash_import",
+    snapshotHash: "hash_snapshot",
+    createdAt: 1,
+    updatedAt: 1,
+  } satisfies StoredSourceCatalogRevisionRecord;
+  const projected = projectCatalogForAgentSdk({
+    catalog: input.snapshot.catalog,
+  });
+
+  return {
+    source: input.source,
+    sourceRecord,
+    revision,
+    snapshot: input.snapshot,
+    catalog: input.snapshot.catalog,
+    projected,
+    typeProjector: createCatalogTypeProjector({
+      catalog: projected.catalog,
+      roots: projectedCatalogTypeRoots(projected),
+    }),
+    importMetadata: input.snapshot.import,
+  };
 };
 
 const makeRealMcpServer = Effect.acquireRelease(
@@ -221,6 +298,91 @@ describe("mcp source adapter", () => {
         _meta: {
           category: "filesystem",
         },
+      });
+    }),
+  );
+
+  it.scoped("executes persisted MCP tools with normalized response envelopes", () =>
+    Effect.gen(function* () {
+      const realServer = yield* makeRealMcpServer;
+      const source = yield* createSourceFromPayload({
+        workspaceId: "ws_test" as any,
+        sourceId: SourceIdSchema.make(`src_${randomUUID()}`),
+        payload: {
+          name: "MCP Demo",
+          kind: "mcp",
+          endpoint: realServer.endpoint,
+          namespace: "mcp.demo",
+          binding: {
+            transport: "streamable-http",
+            queryParams: null,
+            headers: null,
+          },
+          importAuthPolicy: "reuse_runtime",
+          importAuth: { kind: "none" },
+          auth: { kind: "none" },
+          status: "connected",
+          enabled: true,
+        },
+        now: Date.now(),
+      });
+
+      const syncResult = yield* mcpSourceAdapter.syncCatalog({
+        source,
+        resolveSecretMaterial: () =>
+          Effect.fail(new Error("unexpected secret lookup")),
+        resolveAuthMaterialForSlot: () =>
+          Effect.succeed({
+            placements: [],
+            headers: {},
+            queryParams: {},
+            cookies: {},
+            bodyValues: {},
+            expiresAt: null,
+            refreshAfter: null,
+          }),
+      });
+
+      const tool = yield* expandCatalogToolByPath({
+        catalogs: [makeLoadedCatalog({
+          source,
+          snapshot: syncResult.snapshot,
+        })],
+        path: "mcp.demo.read_file",
+      });
+
+      if (!tool) {
+        throw new Error("Expected MCP persisted tool to resolve");
+      }
+
+      const result = yield* invokeIrTool({
+        workspaceId: source.workspaceId,
+        accountId: "acct_test" as any,
+        tool,
+        auth: {
+          placements: [],
+          headers: {},
+          queryParams: {},
+          cookies: {},
+          bodyValues: {},
+          expiresAt: null,
+          refreshAfter: null,
+        },
+        args: {
+          path: "/tmp/demo.txt",
+        },
+      });
+
+      expect(result).toEqual({
+        data: {
+          content: [{
+            type: "text",
+            text: "read:/tmp/demo.txt",
+          }],
+        },
+        error: null,
+        headers: {},
+        status: null,
       });
     }),
   );

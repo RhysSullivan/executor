@@ -205,6 +205,14 @@ export const sourceTemplates: ReadonlyArray<SourceTemplate> = [
     discoveryUrl: "https://forms.googleapis.com/$discovery/rest?version=v1",
   }),
   googleDiscoveryTemplate({
+    id: "google-search-console",
+    name: "Google Search Console",
+    summary: "Sites, sitemaps, URL inspection, and search and Discover performance.",
+    service: "searchconsole",
+    version: "v1",
+    discoveryUrl: "https://searchconsole.googleapis.com/$discovery/rest?version=v1",
+  }),
+  googleDiscoveryTemplate({
     id: "google-people",
     name: "Google People",
     summary: "Contacts, profiles, directory people, and contact groups.",
