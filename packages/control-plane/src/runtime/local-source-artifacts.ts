@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema";
 import {
   CatalogSnapshotV1Schema,
   type NativeBlob,
+  type ShapeNode,
   type SourceDocument,
 } from "../ir/model";
 import type { SourceCatalogSyncResult } from "./source-catalog-support";
@@ -56,6 +57,10 @@ const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
 
 const mutableRecord = <K extends string, V>(value: Readonly<Record<K, V>>): Record<K, V> =>
   value as Record<K, V>;
+
+const clearProvenance = (value: unknown): void => {
+  (value as { provenance: Array<unknown> }).provenance = [];
+};
 
 const localSourceArtifactPath = (input: {
   context: ResolvedLocalWorkspaceContext;
@@ -150,6 +155,109 @@ const hydrateArtifactSourceDocuments = (input: {
     const remainingBlobs = (document.native ?? []).filter((blob) => blob.kind !== "source_document");
     document.native = [rawDocument, ...remainingBlobs];
   }
+
+  return nextArtifact;
+};
+
+const stripShapeFieldDocs = (node: ShapeNode): void => {
+  switch (node.type) {
+    case "object":
+    case "graphqlInterface":
+      for (const field of Object.values(node.fields)) {
+        delete (field as { docs?: unknown }).docs;
+      }
+      return;
+    default:
+      return;
+  }
+};
+
+const stripRuntimeMetadata = (artifact: LocalSourceArtifact): LocalSourceArtifact => {
+  const nextArtifact = structuredClone(artifact);
+
+  for (const document of Object.values(nextArtifact.snapshot.catalog.documents)) {
+    delete (document as { provenance?: unknown }).provenance;
+    delete (document as { docs?: unknown }).docs;
+    delete (document as { native?: unknown }).native;
+  }
+
+  for (const resource of Object.values(nextArtifact.snapshot.catalog.resources)) {
+    clearProvenance(resource as unknown);
+    delete (resource as { docs?: unknown }).docs;
+    delete (resource as { native?: unknown }).native;
+  }
+
+  for (const scope of Object.values(nextArtifact.snapshot.catalog.scopes)) {
+    clearProvenance(scope as unknown);
+    delete (scope as { docs?: unknown }).docs;
+    delete (scope as { native?: unknown }).native;
+  }
+
+  for (const capability of Object.values(nextArtifact.snapshot.catalog.capabilities)) {
+    clearProvenance(capability as unknown);
+    delete (capability as { native?: unknown }).native;
+    delete (capability as { exampleIds?: unknown }).exampleIds;
+  }
+
+  for (const executable of Object.values(nextArtifact.snapshot.catalog.executables)) {
+    clearProvenance(executable as unknown);
+    if (Array.isArray((executable as { native?: NativeBlob[] }).native)) {
+      const keptNative = ((executable as { native?: NativeBlob[] }).native ?? []).filter((blob) =>
+        blob.kind === "google_discovery_provider_data"
+      );
+      if (keptNative.length > 0) {
+        (executable as { native?: NativeBlob[] }).native = keptNative;
+      } else {
+        delete (executable as { native?: unknown }).native;
+      }
+    }
+  }
+
+  for (const responseSet of Object.values(nextArtifact.snapshot.catalog.responseSets)) {
+    clearProvenance(responseSet as unknown);
+    delete (responseSet as { native?: unknown }).native;
+  }
+
+  for (const diagnostic of Object.values(nextArtifact.snapshot.catalog.diagnostics)) {
+    delete (diagnostic as { provenance?: unknown }).provenance;
+  }
+
+  const mutableSymbols = mutableRecord(nextArtifact.snapshot.catalog.symbols);
+  for (const [symbolId, symbol] of Object.entries(mutableSymbols)) {
+    if (symbol.kind === "example") {
+      delete mutableSymbols[symbolId as keyof typeof mutableSymbols];
+      continue;
+    }
+
+    clearProvenance(symbol as unknown);
+    delete (symbol as { docs?: unknown }).docs;
+    delete (symbol as { diagnosticIds?: unknown }).diagnosticIds;
+    delete (symbol as { native?: unknown }).native;
+    delete (symbol as { deprecated?: unknown }).deprecated;
+
+    switch (symbol.kind) {
+      case "shape":
+        stripShapeFieldDocs(symbol.node);
+        break;
+      case "parameter":
+      case "header":
+      case "response":
+        delete (symbol as { exampleIds?: unknown }).exampleIds;
+        if ("content" in symbol && Array.isArray(symbol.content)) {
+          for (const content of symbol.content) {
+            delete (content as { exampleIds?: unknown }).exampleIds;
+          }
+        }
+        break;
+      case "requestBody":
+        for (const content of symbol.contents) {
+          delete (content as { exampleIds?: unknown }).exampleIds;
+        }
+        break;
+    }
+  }
+
+  mutableRecord(nextArtifact.snapshot.catalog).diagnostics = {};
 
   return nextArtifact;
 };
@@ -281,6 +389,7 @@ export const writeLocalSourceArtifact = (input: {
     const legacyPath = legacyLocalSourceArtifactPath(input);
     const sourceDocumentDirectory = localSourceDocumentDirectory(input);
     const split = splitArtifactSourceDocuments(input.artifact);
+    const runtimeArtifact = stripRuntimeMetadata(split.artifact);
     yield* fs.makeDirectory(directory, { recursive: true }).pipe(
       Effect.mapError(mapFileSystemError(directory, "create source artifact directory")),
     );
@@ -302,7 +411,7 @@ export const writeLocalSourceArtifact = (input: {
         );
       }
     }
-    yield* fs.writeFileString(path, `${JSON.stringify(split.artifact)}\n`).pipe(
+    yield* fs.writeFileString(path, `${JSON.stringify(runtimeArtifact)}\n`).pipe(
       Effect.mapError(mapFileSystemError(path, "write source artifact")),
     );
     const legacyExists = yield* fs.exists(legacyPath).pipe(

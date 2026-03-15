@@ -622,12 +622,17 @@ const responseContentCandidates = (
       content.shapeId ? [{ mediaType: content.mediaType, shapeId: content.shapeId }] : [],
     );
 
-const projectResultShapeFromResponses = (
+type RankedResponseVariantEntry = {
+  variant: ResponseSet["variants"][number];
+  response: ResponseSymbol;
+  score: number;
+};
+
+const responseVariantEntries = (
   catalog: CatalogV1,
-  capability: Capability,
   responseSet: ResponseSet,
-): ShapeSymbolId | undefined => {
-  const ranked = [...responseSet.variants]
+): RankedResponseVariantEntry[] =>
+  [...responseSet.variants]
     .map((variant) => {
       const response = getResponseSymbol(catalog, variant.responseId);
       return response
@@ -638,14 +643,27 @@ const projectResultShapeFromResponses = (
           }
         : null;
     })
-    .filter((entry): entry is { variant: ResponseSet["variants"][number]; response: ResponseSymbol; score: number } => entry !== null)
-    .sort((left, right) => right.score - left.score);
+    .filter((entry): entry is RankedResponseVariantEntry => entry !== null);
 
-  const preferred = ranked.some(({ score }) => score >= 60)
-    ? ranked.filter(({ score }) => score >= 60)
-    : ranked.filter(({ score }) => score === (ranked[0]?.score ?? 0));
+const isSuccessStatusMatch = (match: StatusMatch): boolean => {
+  switch (match.kind) {
+    case "exact":
+      return match.status >= 200 && match.status < 300;
+    case "range":
+      return match.value === "2XX";
+    case "default":
+      return false;
+  }
+};
 
-  const jsonCandidates = preferred.flatMap(({ response }) =>
+const contentShapeIdFromResponseEntries = (
+  catalog: CatalogV1,
+  capability: Capability,
+  label: string,
+  title: string,
+  entries: readonly RankedResponseVariantEntry[],
+): ShapeSymbolId | undefined => {
+  const jsonCandidates = entries.flatMap(({ response }) =>
     responseContentCandidates(response).filter((candidate) => isJsonMediaType(candidate.mediaType)),
   );
 
@@ -657,12 +675,12 @@ const projectResultShapeFromResponses = (
         mediaType: candidate.mediaType,
         shapeId: candidate.shapeId,
       })),
-      `responseSet:${responseSet.id}:json`,
+      `${label}:json`,
     );
   }
 
   const fallbackShapeIds = unique(
-    preferred.flatMap(({ response }) =>
+    entries.flatMap(({ response }) =>
       responseContentCandidates(response).map((candidate) => candidate.shapeId),
     ),
   );
@@ -677,8 +695,8 @@ const projectResultShapeFromResponses = (
 
   return createSyntheticShape(catalog, {
     capability,
-    label: `responseSet:${responseSet.id}:union`,
-    title: `${capability.surface.title ?? capability.id} result`,
+    label: `${label}:union`,
+    title,
     node: {
       type: "anyOf",
       items: fallbackShapeIds,
@@ -688,6 +706,297 @@ const projectResultShapeFromResponses = (
       code: "multi_response_union_synthesized",
       message: `Synthesized response union for ${capability.id}`,
       relatedSymbolIds: fallbackShapeIds,
+    },
+  });
+};
+
+const projectResultShapeFromResponses = (
+  catalog: CatalogV1,
+  capability: Capability,
+  responseSet: ResponseSet,
+): ShapeSymbolId | undefined =>
+  contentShapeIdFromResponseEntries(
+    catalog,
+    capability,
+    `responseSet:${responseSet.id}`,
+    `${capability.surface.title ?? capability.id} result`,
+    responseVariantEntries(catalog, responseSet).filter(({ variant }) => isSuccessStatusMatch(variant.match)),
+  );
+
+const projectErrorShapeFromResponses = (
+  catalog: CatalogV1,
+  capability: Capability,
+  responseSet: ResponseSet,
+): ShapeSymbolId | undefined =>
+  contentShapeIdFromResponseEntries(
+    catalog,
+    capability,
+    `responseSet:${responseSet.id}:error`,
+    `${capability.surface.title ?? capability.id} error`,
+    responseVariantEntries(catalog, responseSet).filter(({ variant }) => !isSuccessStatusMatch(variant.match)),
+  );
+
+const scalarShape = (
+  catalog: CatalogV1,
+  capability: Capability,
+  input: {
+    label: string;
+    title: string;
+    scalar: "string" | "number" | "integer" | "boolean" | "null" | "bytes";
+  },
+): ShapeSymbolId =>
+  createSyntheticShape(catalog, {
+    capability,
+    label: input.label,
+    title: input.title,
+    node: {
+      type: "scalar",
+      scalar: input.scalar,
+    },
+  });
+
+const constNullShape = (
+  catalog: CatalogV1,
+  capability: Capability,
+  label: string,
+): ShapeSymbolId =>
+  createSyntheticShape(catalog, {
+    capability,
+    label,
+    title: "null",
+    node: {
+      type: "const",
+      value: null,
+    },
+  });
+
+const unknownShape = (
+  catalog: CatalogV1,
+  capability: Capability,
+  input: {
+    label: string;
+    title: string;
+    reason: string;
+  },
+): ShapeSymbolId =>
+  createSyntheticShape(catalog, {
+    capability,
+    label: input.label,
+    title: input.title,
+    node: {
+      type: "unknown",
+      reason: input.reason,
+    },
+  });
+
+const nullableShape = (
+  catalog: CatalogV1,
+  capability: Capability,
+  input: {
+    label: string;
+    title: string;
+    baseShapeId: ShapeSymbolId;
+  },
+): ShapeSymbolId => {
+  const nullShapeId = constNullShape(catalog, capability, `${input.label}:null`);
+  if (input.baseShapeId === nullShapeId) {
+    return nullShapeId;
+  }
+
+  return createSyntheticShape(catalog, {
+    capability,
+    label: `${input.label}:nullable`,
+    title: input.title,
+    node: {
+      type: "anyOf",
+      items: unique([input.baseShapeId, nullShapeId]),
+    },
+  });
+};
+
+const headersShape = (
+  catalog: CatalogV1,
+  capability: Capability,
+  label: string,
+): ShapeSymbolId => {
+  const valueShapeId = scalarShape(catalog, capability, {
+    label: `${label}:value`,
+    title: "Header value",
+    scalar: "string",
+  });
+
+  return createSyntheticShape(catalog, {
+    capability,
+    label,
+    title: "Response headers",
+    node: {
+      type: "object",
+      fields: {},
+      additionalProperties: valueShapeId,
+    },
+  });
+};
+
+const shapeFieldShapeId = (
+  catalog: CatalogV1,
+  shapeId: ShapeSymbolId | undefined,
+  fieldName: string,
+  seen = new Set<ShapeSymbolId>(),
+): ShapeSymbolId | undefined => {
+  if (!shapeId || seen.has(shapeId)) {
+    return undefined;
+  }
+
+  const shape = getShape(catalog, shapeId);
+  if (!shape) {
+    return undefined;
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(shapeId);
+
+  switch (shape.node.type) {
+    case "ref":
+      return shapeFieldShapeId(catalog, shape.node.target, fieldName, nextSeen);
+    case "object":
+      return shape.node.fields[fieldName]?.shapeId;
+    case "allOf":
+      for (const item of shape.node.items) {
+        const found = shapeFieldShapeId(catalog, item, fieldName, nextSeen);
+        if (found) {
+          return found;
+        }
+      }
+      return undefined;
+    default:
+      return undefined;
+  }
+};
+
+const projectExecutionResultShape = (
+  catalog: CatalogV1,
+  capability: Capability,
+  executable: Executable,
+  responseSet: ResponseSet,
+): ShapeSymbolId => {
+  const genericDataShape = unknownShape(catalog, capability, {
+    label: `executionResult:${capability.id}:data:unknown`,
+    title: "Response data",
+    reason: `Execution result data for ${capability.id} is not statically known`,
+  });
+  const genericErrorShape = unknownShape(catalog, capability, {
+    label: `executionResult:${capability.id}:error:unknown`,
+    title: "Response error",
+    reason: `Execution result error for ${capability.id} is not statically known`,
+  });
+  const genericHeadersShape = headersShape(
+    catalog,
+    capability,
+    `executionResult:${capability.id}:headers`,
+  );
+  const genericStatusShape = scalarShape(catalog, capability, {
+    label: `executionResult:${capability.id}:status`,
+    title: "Response status",
+    scalar: "integer",
+  });
+
+  let dataShapeId: ShapeSymbolId | undefined;
+  let errorShapeId: ShapeSymbolId | undefined;
+  let headersShapeId: ShapeSymbolId = genericHeadersShape;
+  let statusShapeId: ShapeSymbolId = genericStatusShape;
+
+  switch (executable.protocol) {
+    case "http":
+      dataShapeId = projectResultShapeFromResponses(catalog, capability, responseSet);
+      errorShapeId = projectErrorShapeFromResponses(catalog, capability, responseSet);
+      break;
+    case "graphql":
+      dataShapeId =
+        shapeFieldShapeId(catalog, executable.resultShapeId, "data")
+        ?? shapeFieldShapeId(catalog, executable.resultShapeId, "body")
+        ?? executable.resultShapeId;
+      errorShapeId =
+        shapeFieldShapeId(catalog, executable.resultShapeId, "error")
+        ?? shapeFieldShapeId(catalog, executable.resultShapeId, "errors");
+      headersShapeId =
+        shapeFieldShapeId(catalog, executable.resultShapeId, "headers")
+        ?? genericHeadersShape;
+      statusShapeId =
+        shapeFieldShapeId(catalog, executable.resultShapeId, "status")
+        ?? genericStatusShape;
+      break;
+    case "mcp":
+      dataShapeId = executable.outputShapeId;
+      errorShapeId = undefined;
+      statusShapeId = constNullShape(
+        catalog,
+        capability,
+        `executionResult:${capability.id}:status:null`,
+      );
+      break;
+  }
+
+  const dataFieldShapeId = nullableShape(catalog, capability, {
+    label: `executionResult:${capability.id}:data`,
+    title: "Result data",
+    baseShapeId: dataShapeId ?? genericDataShape,
+  });
+  const errorFieldShapeId = nullableShape(catalog, capability, {
+    label: `executionResult:${capability.id}:error`,
+    title: "Result error",
+    baseShapeId: errorShapeId ?? genericErrorShape,
+  });
+  const statusFieldShapeId = nullableShape(catalog, capability, {
+    label: `executionResult:${capability.id}:status`,
+    title: "Result status",
+    baseShapeId: statusShapeId,
+  });
+
+  return createSyntheticShape(catalog, {
+    capability,
+    label: `executionResult:${capability.id}`,
+    title: `${capability.surface.title ?? capability.id} result`,
+    node: {
+      type: "object",
+      fields: {
+        data: {
+          shapeId: dataFieldShapeId,
+          docs: {
+            description: "Successful result payload when available.",
+          },
+        },
+        error: {
+          shapeId: errorFieldShapeId,
+          docs: {
+            description: "Error payload when the remote execution completed but failed.",
+          },
+        },
+        headers: {
+          shapeId: headersShapeId,
+          docs: {
+            description: "Response headers when available.",
+          },
+        },
+        status: {
+          shapeId: statusFieldShapeId,
+          docs: {
+            description: "Transport status code when available.",
+          },
+        },
+      },
+      required: ["data", "error", "headers", "status"],
+      additionalProperties: false,
+    },
+    diagnostic: {
+      level: "info",
+      code: "projection_result_shape_synthesized",
+      message: `Synthesized execution result envelope for ${capability.id}`,
+      relatedSymbolIds: unique([
+        dataFieldShapeId,
+        errorFieldShapeId,
+        headersShapeId,
+        statusFieldShapeId,
+      ]),
     },
   });
 };
@@ -1073,15 +1382,15 @@ const projectCapability = (
   switch (executable.protocol) {
     case "http":
       callShapeId = projectHttpCallShape(catalog, capability, executable);
-      resultShapeId = projectResultShapeFromResponses(catalog, capability, responseSet);
+      resultShapeId = projectExecutionResultShape(catalog, capability, executable, responseSet);
       break;
     case "graphql":
       callShapeId = projectGraphqlCallShape(catalog, capability, executable);
-      resultShapeId = executable.resultShapeId;
+      resultShapeId = projectExecutionResultShape(catalog, capability, executable, responseSet);
       break;
     case "mcp":
       callShapeId = projectMcpCallShape(catalog, capability, executable);
-      resultShapeId = executable.outputShapeId;
+      resultShapeId = projectExecutionResultShape(catalog, capability, executable, responseSet);
       break;
   }
 

@@ -109,8 +109,11 @@ describe("local-source-artifacts", () => {
       const persistedArtifact = JSON.parse(readFileSync(path, "utf8"));
       const persistedDocument = Object.values(persistedArtifact.snapshot.catalog.documents)[0] as {
         native?: ReadonlyArray<{ kind?: string }>;
+        provenance?: unknown;
       };
       expect(persistedDocument.native?.some((blob) => blob.kind === "source_document") ?? false).toBe(false);
+      expect(persistedDocument.provenance).toBeUndefined();
+      expect(Object.keys(persistedArtifact.snapshot.catalog.diagnostics)).toHaveLength(0);
 
       const decoded = yield* readLocalSourceArtifact({
         context,
@@ -120,6 +123,7 @@ describe("local-source-artifacts", () => {
       expect(decoded?.snapshot.import.adapterKey).toBe("openapi");
       expect(decoded?.sourceId).toBe("src_test");
       expect((Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as { native?: Array<{ value?: unknown }> })?.native?.[0]?.value).toBe('{"openapi":"3.1.0"}');
+      expect((Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as { provenance?: unknown }).provenance).toBeUndefined();
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 

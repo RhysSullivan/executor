@@ -708,7 +708,9 @@ describe("source-catalog-snapshot", () => {
     expect(executable.operationType).toBe("query");
     expect(executable.rootField).toBe("viewer");
     expect(executable.selectionMode).toBe("fixed");
-    expect(executable.native).toBeUndefined();
+    expect(executable.native).toMatchObject([{
+      kind: "graphql_provider_data",
+    }]);
   });
 
   it("projects MCP metadata into capability semantics", () => {

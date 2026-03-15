@@ -33,6 +33,19 @@ const put = <K extends string, V>(record: Record<K, V>, key: K, value: V) => {
   record[key] = value;
 };
 
+const expectNullableShapeContains = (
+  catalog: CatalogV1,
+  nullableShapeId: ReturnType<typeof ShapeSymbolIdSchema.make>,
+  expectedInnerShapeId: ReturnType<typeof ShapeSymbolIdSchema.make>,
+) => {
+  const shape = catalog.symbols[nullableShapeId];
+  if (shape?.kind !== "shape" || shape.node.type !== "anyOf") {
+    throw new Error("Expected nullable anyOf shape");
+  }
+
+  expect(shape.node.items).toContain(expectedInnerShapeId);
+};
+
 const docId = DocumentIdSchema.make("doc_primary");
 const baseProvenance = (pointer: string): ProvenanceRef[] => [{
   relation: "declared",
@@ -630,7 +643,6 @@ describe("IR catalog", () => {
 
     const descriptor = projected.toolDescriptors[CapabilityIdSchema.make("cap_events_update")];
     expect(descriptor.toolPath).toEqual(["google", "calendar", "events", "update"]);
-    expect(descriptor.resultShapeId).toBe(ShapeSymbolIdSchema.make("shape_event_result"));
 
     const callShape = projected.catalog.symbols[descriptor.callShapeId];
     expect(callShape?.kind).toBe("shape");
@@ -645,6 +657,19 @@ describe("IR catalog", () => {
       "body",
     ]);
     expect(callShape.node.required).toEqual(["calendarId", "eventId", "body"]);
+
+    const resultShape = descriptor.resultShapeId
+      ? projected.catalog.symbols[descriptor.resultShapeId]
+      : undefined;
+    if (resultShape?.kind !== "shape" || resultShape.node.type !== "object") {
+      throw new Error("Expected projected HTTP result envelope");
+    }
+    expect(Object.keys(resultShape.node.fields)).toEqual(["data", "error", "headers", "status"]);
+    expectNullableShapeContains(
+      projected.catalog,
+      resultShape.node.fields.data.shapeId,
+      ShapeSymbolIdSchema.make("shape_event_result"),
+    );
 
     const searchDoc = projected.searchDocs[CapabilityIdSchema.make("cap_events_update")];
     expect(searchDoc.authHints).toContain("oauth2");
@@ -680,7 +705,18 @@ describe("IR catalog", () => {
     }
 
     expect(Object.keys(callShape.node.fields)).toEqual(["id", "input", "select"]);
-    expect(descriptor.resultShapeId).toBe(ShapeSymbolIdSchema.make("shape_graphql_result"));
+    const resultShape = descriptor.resultShapeId
+      ? projected.catalog.symbols[descriptor.resultShapeId]
+      : undefined;
+    if (resultShape?.kind !== "shape" || resultShape.node.type !== "object") {
+      throw new Error("Expected projected GraphQL result envelope");
+    }
+    expect(Object.keys(resultShape.node.fields)).toEqual(["data", "error", "headers", "status"]);
+    expectNullableShapeContains(
+      projected.catalog,
+      resultShape.node.fields.data.shapeId,
+      ShapeSymbolIdSchema.make("shape_graphql_result"),
+    );
   });
 
   it("builds inspect views and invocation plans from the projected graph", () => {

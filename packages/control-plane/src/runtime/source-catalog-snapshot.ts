@@ -2009,6 +2009,12 @@ const createGraphqlCapability = (input: {
     responseSetId,
     synthetic: false,
     provenance: provenanceFor(input.documentId, `#/graphql/${input.operation.providerData.toolId}/executable`),
+    native: [nativeBlob({
+      source: input.source,
+      kind: "graphql_provider_data",
+      pointer: `#/graphql/${input.operation.providerData.toolId}/providerData`,
+      value: input.operation.providerData,
+    })],
   } satisfies GraphQLExecutable;
 
   const effect = input.operation.effect;

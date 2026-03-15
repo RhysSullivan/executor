@@ -65,15 +65,11 @@ const readSourceTransport = (source: Source): "auto" | "streamable-http" | "sse"
   return undefined;
 };
 
-const summarizeHttpBody = (body: unknown): string => {
-  if (typeof body === "string") {
-    return body.slice(0, 400);
-  }
-  try {
-    return JSON.stringify(body).slice(0, 400);
-  } catch {
-    return String(body);
-  }
+type ExecutionEnvelope = {
+  data: unknown;
+  error: unknown;
+  headers: Record<string, string>;
+  status: number | null;
 };
 
 const decodeFetchBody = async (response: Response): Promise<unknown> => {
@@ -86,6 +82,16 @@ const decodeFetchBody = async (response: Response): Promise<unknown> => {
   }
   return response.text();
 };
+
+const responseHeadersRecord = (response: Response): Record<string, string> => {
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+  return headers;
+};
+
+const executionEnvelope = (input: ExecutionEnvelope): ExecutionEnvelope => input;
 
 const parameterById = (catalog: CatalogV1, parameterId: string): ParameterSymbol | undefined => {
   const symbol = catalog.symbols[parameterId];
@@ -340,11 +346,12 @@ const executeHttp = (input: {
         ...(body !== undefined ? { body } : {}),
       });
       const responseBody = await decodeFetchBody(response);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${summarizeHttpBody(responseBody)}`);
-      }
-
-      return responseBody;
+      return executionEnvelope({
+        data: response.ok ? responseBody : null,
+        error: response.ok ? null : responseBody,
+        headers: responseHeadersRecord(response),
+        status: response.status,
+      });
     },
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
   });
@@ -394,7 +401,9 @@ const executeGraphql = (input: {
   Effect.tryPromise({
     try: async () => {
       const argsRecord = asObject(input.args);
-      const native = input.executable.native?.[0]?.value as Record<string, unknown> | undefined;
+      const native = input.executable.native
+        ?.find((blob) => blob.kind === "graphql_provider_data")
+        ?.value as Record<string, unknown> | undefined;
       const requestHeaders = {
         ...readSourceHeaders(input.source),
         ...input.auth.headers,
@@ -430,14 +439,19 @@ const executeGraphql = (input: {
           }),
         });
         const body = await decodeFetchBody(response);
-        if (!response.ok) {
-          throw new Error(`GraphQL HTTP ${response.status}: ${summarizeHttpBody(body)}`);
-        }
-        return body;
+        const bodyRecord = asObject(body);
+        const errors = Array.isArray(bodyRecord.errors) ? bodyRecord.errors : [];
+        return executionEnvelope({
+          data: body,
+          error: errors.length > 0 ? errors : (response.status >= 400 ? body : null),
+          headers: responseHeadersRecord(response),
+          status: response.status,
+        });
       }
 
       const operationDocument = asString(native.operationDocument)!;
       const operationName = asString(native.operationName) ?? undefined;
+      const fieldName = asString(native.fieldName) ?? input.executable.rootField;
       const variables = graphqlArgsPayload({
         catalog: input.catalog,
         executable: input.executable,
@@ -468,18 +482,14 @@ const executeGraphql = (input: {
         }),
       });
       const body = asObject(await decodeFetchBody(response));
-      if (!response.ok) {
-        throw new Error(`GraphQL HTTP ${response.status}: ${summarizeHttpBody(body)}`);
-      }
-
       const errors = Array.isArray(body.errors) ? body.errors : [];
       const data = asObject(body.data);
-      const fieldName = asString(native.fieldName) ?? input.executable.rootField;
-      return {
+      return executionEnvelope({
         data: data[fieldName] ?? null,
-        errors,
-        isError: errors.length > 0,
-      };
+        error: errors.length > 0 ? errors : (response.status >= 400 ? body : null),
+        headers: responseHeadersRecord(response),
+        status: response.status,
+      });
     },
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
   });
@@ -572,7 +582,15 @@ const executeMcp = (input: {
             }
           : undefined;
 
-      return await definition.execute(asObject(payload), executionContext);
+      const result = await definition.execute(asObject(payload), executionContext);
+      const resultRecord = asObject(result);
+      const isError = resultRecord.isError === true;
+      return executionEnvelope({
+        data: isError ? null : (result ?? null),
+        error: isError ? result : null,
+        headers: {},
+        status: null,
+      });
     },
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
   });
