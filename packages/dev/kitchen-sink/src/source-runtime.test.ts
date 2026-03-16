@@ -283,27 +283,38 @@ const resolveSourceCallContext = (input: {
   secretRegistry: SecretMaterialRegistry;
 }) =>
   async (source: Source): Promise<SourceCallContext> => {
-    if (source.auth.kind === "none") {
-      return { auth: { kind: "none" } };
+    switch (source.auth.kind) {
+      case "none":
+        return { auth: { kind: "none" } };
+      case "bearer": {
+        const token = await input.secretRegistry.get({ ref: source.auth.token });
+        return {
+          auth: {
+            kind: "headers",
+            headers: {
+              [source.auth.headerName]: `${source.auth.prefix}${token}`,
+            },
+          },
+        };
+      }
+      case "oauth2": {
+        const token = await input.secretRegistry.get({ ref: source.auth.accessToken });
+        return {
+          auth: {
+            kind: "headers",
+            headers: {
+              [source.auth.headerName]: `${source.auth.prefix}${token}`,
+            },
+          },
+        };
+      }
+      case "oauth2_authorized_user":
+        throw new Error("oauth2_authorized_user auth requires persistence-backed runtime resolution");
+      case "provider_grant_ref":
+        throw new Error("provider_grant_ref auth requires persistence-backed runtime resolution");
+      case "mcp_oauth":
+        throw new Error("mcp_oauth auth requires persistence-backed runtime resolution");
     }
-
-    if (source.auth.kind === "oauth2_authorized_user") {
-      throw new Error("oauth2_authorized_user auth requires persistence-backed runtime resolution");
-    }
-
-    const tokenRef = source.auth.kind === "bearer"
-      ? source.auth.token
-      : source.auth.accessToken;
-    const token = await input.secretRegistry.get({ ref: tokenRef });
-
-    return {
-      auth: {
-        kind: "headers",
-        headers: {
-          [source.auth.headerName]: `${source.auth.prefix}${token}`,
-        },
-      },
-    };
   };
 
 const createProviderInvoker = (): ProviderInvoker => ({

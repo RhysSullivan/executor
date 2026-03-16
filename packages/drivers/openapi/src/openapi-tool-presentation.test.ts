@@ -10,7 +10,7 @@ import { buildOpenApiToolPresentation } from "./openapi-tool-presentation";
 
 const readFixture = (name: string): string =>
   readFileSync(
-    new URL(`../../control-plane/src/runtime/fixtures/${name}`, import.meta.url),
+    new URL(`../../../platform/control-plane/src/runtime/fixtures/${name}`, import.meta.url),
     "utf8",
   );
 

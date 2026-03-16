@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest"
   },
   "dependencies": {

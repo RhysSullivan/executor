@@ -396,10 +396,16 @@ const planHttpInvocation = (input: {
 const executeHttpPlan = (requestPlan: HttpInvocationRequestPlan) =>
   Effect.tryPromise({
     try: async () => {
+      const body =
+        requestPlan.body === undefined
+          ? undefined
+          : typeof requestPlan.body === "string"
+            ? requestPlan.body
+            : new Uint8Array(requestPlan.body).buffer;
       const response = await fetch(requestPlan.url, {
         method: requestPlan.method,
         headers: requestPlan.headers,
-        ...(requestPlan.body !== undefined ? { body: requestPlan.body } : {}),
+        ...(body !== undefined ? { body } : {}),
       });
       const responseBody = await decodeFetchBody(response);
       return executionEnvelope({

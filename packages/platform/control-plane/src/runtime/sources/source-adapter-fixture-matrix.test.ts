@@ -57,7 +57,7 @@ import {
 const FIXTURE_WORKSPACE_ID = WorkspaceIdSchema.make("ws_source_fixture_matrix");
 
 const readFixture = (name: string): string =>
-  readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8");
+  readFileSync(new URL(`../fixtures/${name}`, import.meta.url), "utf8");
 
 const makeSource = (input: {
   id: string;
