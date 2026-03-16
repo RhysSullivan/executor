@@ -179,20 +179,6 @@ const resolveHttpBaseUrl = (source: Source, catalog: CatalogV1, executable: Http
   if (scopedServers.length > 0) {
     return resolveScopedServerUrl(source, scopedServers[0]!);
   }
-
-  const googleBlob = executable.native?.find(
-    (blob) => blob.kind === "google_discovery_provider_data",
-  );
-  if (googleBlob) {
-    const providerData = googleBlob.value as {
-      invocation?: { rootUrl?: string; servicePath?: string };
-    } | null;
-    const rootUrl = providerData?.invocation?.rootUrl;
-    if (rootUrl) {
-      const servicePath = providerData?.invocation?.servicePath ?? "";
-      return new URL(servicePath || "", rootUrl);
-    }
-  }
   return new URL(source.endpoint);
 };
 
@@ -401,9 +387,6 @@ const executeGraphql = (input: {
   Effect.tryPromise({
     try: async () => {
       const argsRecord = asObject(input.args);
-      const native = input.executable.native
-        ?.find((blob) => blob.kind === "graphql_provider_data")
-        ?.value as Record<string, unknown> | undefined;
       const requestHeaders = {
         ...readSourceHeaders(input.source),
         ...input.auth.headers,
@@ -419,8 +402,11 @@ const executeGraphql = (input: {
         queryParams,
       }).toString();
 
-      const toolKind = asString(native?.toolKind);
-      if (toolKind === "request" || !native || !asString(native.operationDocument)) {
+      if (
+        input.executable.toolKind === "request"
+        || typeof input.executable.operationDocument !== "string"
+        || input.executable.operationDocument.trim().length === 0
+      ) {
         const query = asString(argsRecord.query);
         if (query === null) {
           throw new Error(`GraphQL request tools require args.query`);
@@ -449,9 +435,9 @@ const executeGraphql = (input: {
         });
       }
 
-      const operationDocument = asString(native.operationDocument)!;
-      const operationName = asString(native.operationName) ?? undefined;
-      const fieldName = asString(native.fieldName) ?? input.executable.rootField;
+      const operationDocument = input.executable.operationDocument;
+      const operationName = input.executable.operationName;
+      const fieldName = input.executable.rootField;
       const variables = graphqlArgsPayload({
         catalog: input.catalog,
         executable: input.executable,

@@ -921,6 +921,20 @@ const openApiServerSpecs = (
   }));
 };
 
+const googleDiscoveryServerSpecs = (
+  operation: GoogleDiscoveryCatalogOperationInput | undefined,
+): NonNullable<NonNullable<Scope["defaults"]>["servers"]> | undefined => {
+  const rootUrl = operation?.providerData.invocation.rootUrl;
+  if (!rootUrl) {
+    return undefined;
+  }
+
+  const servicePath = operation?.providerData.invocation.servicePath ?? "";
+  return [{
+    url: new URL(servicePath || "", rootUrl).toString(),
+  }];
+};
+
 const createOperationScope = (input: {
   catalog: CatalogV1;
   source: Source;
@@ -1877,17 +1891,6 @@ const createHttpCapabilityFromGoogleDiscovery = (input: {
     responseSetId,
     synthetic: false,
     provenance: provenanceFor(input.documentId, `#/googleDiscovery/${input.operation.providerData.toolId}/executable`),
-    native: [nativeBlob({
-      source: input.source,
-      kind: "google_discovery_provider_data",
-      pointer: `#/googleDiscovery/${input.operation.providerData.toolId}/providerData`,
-      value: {
-        invocation: {
-          rootUrl: input.operation.providerData.invocation.rootUrl,
-          servicePath: input.operation.providerData.invocation.servicePath,
-        },
-      },
-    })],
   } satisfies HttpExecutable;
 
   const effect = input.operation.effect;
@@ -1998,23 +2001,24 @@ const createGraphqlCapability = (input: {
     protocol: "graphql",
     capabilityId,
     scopeId: input.serviceScopeId,
+    toolKind: input.operation.providerData.toolKind,
     operationType: input.operation.providerData.operationType ?? "query",
     rootField:
       input.operation.providerData.fieldName
       ?? input.operation.providerData.leaf
       ?? input.operation.providerData.toolId,
+    ...(input.operation.providerData.operationName
+      ? { operationName: input.operation.providerData.operationName }
+      : {}),
+    ...(input.operation.providerData.operationDocument
+      ? { operationDocument: input.operation.providerData.operationDocument }
+      : {}),
     argumentShapeId,
     resultShapeId,
     selectionMode: "fixed",
     responseSetId,
     synthetic: false,
     provenance: provenanceFor(input.documentId, `#/graphql/${input.operation.providerData.toolId}/executable`),
-    native: [nativeBlob({
-      source: input.source,
-      kind: "graphql_provider_data",
-      pointer: `#/graphql/${input.operation.providerData.toolId}/providerData`,
-      value: input.operation.providerData,
-    })],
   } satisfies GraphQLExecutable;
 
   const effect = input.operation.effect;
@@ -2156,13 +2160,6 @@ const buildCatalogSnapshot = (input: {
   }) => void;
 }): CatalogSnapshotV1 => {
   const catalog = createEmptyCatalogV1();
-  const primaryDocumentKey =
-    input.documents[0]?.documentKey
-    ?? input.source.endpoint
-    ?? input.source.id;
-  const primaryDocumentId = documentIdFor(input.source, primaryDocumentKey);
-  const primaryResourceId = resourceIdForSource(input.source);
-
   const documents = input.documents.length > 0
     ? input.documents
     : [{
@@ -2171,6 +2168,16 @@ const buildCatalogSnapshot = (input: {
         fetchedAt: Date.now(),
         contentText: "{}",
       }];
+  const primaryDocument = documents[0]!;
+  const primaryDocumentKey =
+    primaryDocument.documentKey
+    ?? input.source.endpoint
+    ?? input.source.id;
+  const primaryDocumentId = documentIdFor(
+    input.source,
+    `${primaryDocument.documentKind}:${primaryDocument.documentKey}`,
+  );
+  const primaryResourceId = resourceIdForSource(input.source);
 
   for (const document of documents) {
     const documentId = documentIdFor(input.source, `${document.documentKind}:${document.documentKey}`);
@@ -2294,6 +2301,10 @@ export const createGoogleDiscoveryCatalogSnapshot = (input: {
     source: input.source,
     adapterKey: "google_discovery",
     documents: input.documents,
+    serviceScopeDefaults: (() => {
+      const servers = googleDiscoveryServerSpecs(input.operations[0]);
+      return servers ? { servers } : undefined;
+    })(),
     registerOperations: ({ catalog, documentId, serviceScopeId, importer }) => {
       for (const operation of input.operations) {
         createHttpCapabilityFromGoogleDiscovery({

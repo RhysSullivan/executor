@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 
 import {
+  decodeCatalogSnapshotV1,
   projectCatalogForAgentSdk,
   type ProjectedCatalog,
 } from "../ir/catalog";
@@ -765,7 +766,7 @@ const buildSnapshotFromArtifact = (input: {
   source: Source;
   artifact: LocalSourceArtifact;
 }): CatalogSnapshotV1 => {
-  return input.artifact.snapshot;
+  return decodeCatalogSnapshotV1(input.artifact.snapshot);
 };
 
 const loadWorkspaceSourceCatalogsWithDeps = (deps: RuntimeSourceCatalogStoreDeps, input: {

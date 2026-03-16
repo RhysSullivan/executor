@@ -19,7 +19,10 @@ import {
   writeLocalSourceArtifact,
 } from "./local-source-artifacts";
 import type { ResolvedLocalWorkspaceContext } from "./local-config";
-import { createOpenApiCatalogSnapshot } from "./source-catalog-snapshot";
+import {
+  createGraphqlCatalogSnapshot,
+  createOpenApiCatalogSnapshot,
+} from "./source-catalog-snapshot";
 
 const makeContext = (): ResolvedLocalWorkspaceContext => {
   const workspaceRoot = mkdtempSync(join(tmpdir(), "executor-artifacts-"));
@@ -80,8 +83,59 @@ const makeArtifact = () => {
   });
 };
 
+const makeGraphqlArtifact = () => {
+  const source: Source = {
+    ...makeSource(),
+    kind: "graphql",
+    endpoint: "https://example.com/graphql",
+    binding: {
+      defaultHeaders: null,
+    },
+  };
+  const snapshot = createGraphqlCatalogSnapshot({
+    source,
+    documents: [{
+      documentKind: "graphql_introspection",
+      documentKey: source.endpoint,
+      contentText: '{"__schema":{}}',
+      fetchedAt: 1,
+    }],
+    operations: [{
+      toolId: "viewer",
+      title: "Viewer",
+      description: "Load the current viewer",
+      effect: "read",
+      inputSchema: { type: "object", properties: {} },
+      outputSchema: { type: "object", properties: { login: { type: "string" } } },
+      providerData: {
+        kind: "graphql",
+        toolKind: "field",
+        toolId: "viewer",
+        rawToolId: "viewer",
+        group: "query",
+        leaf: "viewer",
+        fieldName: "viewer",
+        operationType: "query",
+        operationName: "ViewerQuery",
+        operationDocument: "query ViewerQuery { viewer { login } }",
+        queryTypeName: "Query",
+        mutationTypeName: null,
+        subscriptionTypeName: null,
+      },
+    }],
+  });
+
+  return buildLocalSourceArtifact({
+    source,
+    syncResult: {
+      snapshot,
+      sourceHash: source.sourceHash,
+    },
+  });
+};
+
 describe("local-source-artifacts", () => {
-  it.effect("writes uncompressed artifacts and reads them back", () =>
+  it.effect("writes canonical uncompressed artifacts and reads them back", () =>
     Effect.gen(function* () {
       const context = makeContext();
       const artifact = makeArtifact();
@@ -111,8 +165,12 @@ describe("local-source-artifacts", () => {
         native?: ReadonlyArray<{ kind?: string }>;
         provenance?: unknown;
       };
+      const persistedResource = Object.values(persistedArtifact.snapshot.catalog.resources)[0] as {
+        provenance?: unknown;
+      };
       expect(persistedDocument.native?.some((blob) => blob.kind === "source_document") ?? false).toBe(false);
       expect(persistedDocument.provenance).toBeUndefined();
+      expect(persistedResource.provenance).toBeDefined();
       expect(Object.keys(persistedArtifact.snapshot.catalog.diagnostics)).toHaveLength(0);
 
       const decoded = yield* readLocalSourceArtifact({
@@ -124,6 +182,32 @@ describe("local-source-artifacts", () => {
       expect(decoded?.sourceId).toBe("src_test");
       expect((Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as { native?: Array<{ value?: unknown }> })?.native?.[0]?.value).toBe('{"openapi":"3.1.0"}');
       expect((Object.values(decoded?.snapshot.catalog.documents ?? {})[0] as { provenance?: unknown }).provenance).toBeUndefined();
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+
+  it.effect("preserves GraphQL execution metadata across a write/read round-trip", () =>
+    Effect.gen(function* () {
+      const context = makeContext();
+      const artifact = makeGraphqlArtifact();
+
+      yield* writeLocalSourceArtifact({
+        context,
+        sourceId: artifact.sourceId,
+        artifact,
+      });
+
+      const decoded = yield* readLocalSourceArtifact({
+        context,
+        sourceId: artifact.sourceId,
+      });
+
+      const executable = Object.values(decoded?.snapshot.catalog.executables ?? {})[0];
+      expect(executable?.protocol).toBe("graphql");
+      expect(executable?.protocol === "graphql" ? executable.toolKind : null).toBe("field");
+      expect(executable?.protocol === "graphql" ? executable.operationName : null).toBe("ViewerQuery");
+      expect(executable?.protocol === "graphql" ? executable.operationDocument : null).toBe(
+        "query ViewerQuery { viewer { login } }",
+      );
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 

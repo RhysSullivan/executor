@@ -127,10 +127,14 @@ describe("source-catalog-snapshot", () => {
     const capability = Object.values(snapshot.catalog.capabilities)[0]!;
     const executable = Object.values(snapshot.catalog.executables)[0]!;
     const responseSet = Object.values(snapshot.catalog.responseSets)[0]!;
+    const resource = Object.values(snapshot.catalog.resources)[0]!;
+    const serviceScope = snapshot.catalog.scopes[capability.serviceScopeId]!;
 
     expect(capability.surface.toolPath).toEqual(["google", "calendar", "events", "update"]);
     expect(capability.semantics.effect).toBe("write");
     expect(capability.auth.kind).toBe("none");
+    expect(snapshot.catalog.documents[resource.documentId]).toBeDefined();
+    expect(snapshot.catalog.documents[serviceScope.provenance[0]!.documentId]).toBeDefined();
     expect(executable.protocol).toBe("http");
     expect(executable.method).toBe("PATCH");
     expect(executable.pathTemplate).toBe("/calendars/{calendarId}/events/{eventId}");
@@ -540,16 +544,15 @@ describe("source-catalog-snapshot", () => {
 
     const capability = Object.values(snapshot.catalog.capabilities)[0]!;
     const executable = Object.values(snapshot.catalog.executables)[0]!;
+    const serviceScope = snapshot.catalog.scopes[capability.serviceScopeId]!;
     const securityScheme = Object.values(snapshot.catalog.symbols).find((symbol) => symbol.kind === "securityScheme");
 
     expect(capability.auth.kind).toBe("scheme");
     expect(capability.native).toBeUndefined();
-    expect(executable.native?.[0]?.value).toEqual({
-      invocation: {
-        rootUrl: "https://www.googleapis.com/",
-        servicePath: "drive/v3/",
-      },
-    });
+    expect(executable.native).toBeUndefined();
+    expect(serviceScope.defaults?.servers).toEqual([{
+      url: "https://www.googleapis.com/drive/v3/",
+    }]);
     expect(securityScheme?.kind).toBe("securityScheme");
     expect(securityScheme?.kind === "securityScheme" ? securityScheme.oauth?.scopes : undefined).toEqual({
       "https://www.googleapis.com/auth/drive.readonly": "View your Google Drive files.",
@@ -705,12 +708,13 @@ describe("source-catalog-snapshot", () => {
     const executable = Object.values(snapshot.catalog.executables)[0]!;
 
     expect(executable.protocol).toBe("graphql");
+    expect(executable.toolKind).toBe("field");
     expect(executable.operationType).toBe("query");
     expect(executable.rootField).toBe("viewer");
+    expect(executable.operationName).toBe("ViewerQuery");
+    expect(executable.operationDocument).toBe("query ViewerQuery { viewer { login } }");
     expect(executable.selectionMode).toBe("fixed");
-    expect(executable.native).toMatchObject([{
-      kind: "graphql_provider_data",
-    }]);
+    expect(executable.native).toBeUndefined();
   });
 
   it("projects MCP metadata into capability semantics", () => {

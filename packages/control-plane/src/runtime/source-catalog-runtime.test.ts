@@ -22,6 +22,7 @@ import {
   CapabilityIdSchema,
   DocumentIdSchema,
   ExecutableIdSchema,
+  ResourceIdSchema,
   ResponseSetIdSchema,
   ScopeIdSchema,
   ShapeSymbolIdSchema,
@@ -52,6 +53,7 @@ const baseProvenance = (pointer: string): ProvenanceRef[] => [{
 
 const createGraphqlCatalog = (): CatalogV1 => {
   const catalog = createEmptyCatalogV1();
+  const resourceId = ResourceIdSchema.make("res_graphql");
   const scopeId = ScopeIdSchema.make("scope_graphql");
   const stringShapeId = ShapeSymbolIdSchema.make("shape_string");
   const teamFilterShapeId = ShapeSymbolIdSchema.make("shape_team_filter");
@@ -69,6 +71,17 @@ const createGraphqlCatalog = (): CatalogV1 => {
     rawRef: "memory://linear/graphql",
   });
 
+  put(catalog.resources as Record<typeof resourceId, CatalogV1["resources"][typeof resourceId]>, resourceId, {
+    id: resourceId,
+    documentId: docId,
+    canonicalUri: "https://api.linear.app/graphql",
+    baseUri: "https://api.linear.app/graphql",
+    anchors: {},
+    dynamicAnchors: {},
+    synthetic: false,
+    provenance: baseProvenance("#"),
+  });
+
   put(catalog.scopes as Record<typeof scopeId, CatalogV1["scopes"][typeof scopeId]>, scopeId, {
     id: scopeId,
     kind: "service",
@@ -81,6 +94,7 @@ const createGraphqlCatalog = (): CatalogV1 => {
   put(catalog.symbols as Record<typeof stringShapeId, CatalogV1["symbols"][typeof stringShapeId]>, stringShapeId, {
     id: stringShapeId,
     kind: "shape",
+    resourceId,
     title: "String",
     node: {
       type: "scalar",
@@ -93,6 +107,7 @@ const createGraphqlCatalog = (): CatalogV1 => {
   put(catalog.symbols as Record<typeof teamFilterShapeId, CatalogV1["symbols"][typeof teamFilterShapeId]>, teamFilterShapeId, {
     id: teamFilterShapeId,
     kind: "shape",
+    resourceId,
     title: "TeamFilter",
     node: {
       type: "object",
@@ -113,6 +128,7 @@ const createGraphqlCatalog = (): CatalogV1 => {
   put(catalog.symbols as Record<typeof callShapeId, CatalogV1["symbols"][typeof callShapeId]>, callShapeId, {
     id: callShapeId,
     kind: "shape",
+    resourceId,
     title: "TeamsArgs",
     node: {
       type: "object",
@@ -145,6 +161,7 @@ const createGraphqlCatalog = (): CatalogV1 => {
   put(catalog.symbols as Record<typeof resultShapeId, CatalogV1["symbols"][typeof resultShapeId]>, resultShapeId, {
     id: resultShapeId,
     kind: "shape",
+    resourceId,
     title: "TeamConnection",
     node: {
       type: "object",
@@ -197,6 +214,7 @@ const createGraphqlCatalog = (): CatalogV1 => {
     protocol: "graphql",
     capabilityId,
     scopeId,
+    toolKind: "field",
     operationType: "query",
     rootField: "teams",
     argumentShapeId: callShapeId,
@@ -368,6 +386,9 @@ describe("source-catalog-runtime", () => {
             const routeBlockedShapeId = ShapeSymbolIdSchema.make("shape_abuse_route_blocked");
             const unionShapeId = ShapeSymbolIdSchema.make("shape_abuse_union");
             const executable = Object.values(catalog.executables)[0]!;
+            const resourceId = catalog.symbols[stringShapeId]?.kind === "shape"
+              ? catalog.symbols[stringShapeId].resourceId
+              : undefined;
             if (executable.protocol !== "graphql") {
               throw new Error("Expected GraphQL executable in fixture");
             }
@@ -375,6 +396,7 @@ describe("source-catalog-runtime", () => {
             put(catalog.symbols as Record<typeof numberShapeId, CatalogV1["symbols"][typeof numberShapeId]>, numberShapeId, {
               id: numberShapeId,
               kind: "shape",
+              ...(resourceId ? { resourceId } : {}),
               title: "Number",
               node: {
                 type: "scalar",
@@ -392,6 +414,7 @@ describe("source-catalog-runtime", () => {
               put(catalog.symbols as Record<typeof shapeId, CatalogV1["symbols"][typeof shapeId]>, shapeId, {
                 id: shapeId,
                 kind: "shape",
+                ...(resourceId ? { resourceId } : {}),
                 title: String(action),
                 node: {
                   type: "const",
@@ -405,6 +428,7 @@ describe("source-catalog-runtime", () => {
             put(catalog.symbols as Record<typeof routeShapeId, CatalogV1["symbols"][typeof routeShapeId]>, routeShapeId, {
               id: routeShapeId,
               kind: "shape",
+              ...(resourceId ? { resourceId } : {}),
               title: "RouteInfo",
               node: {
                 type: "object",
@@ -423,6 +447,7 @@ describe("source-catalog-runtime", () => {
             put(catalog.symbols as Record<typeof blockedShapeId, CatalogV1["symbols"][typeof blockedShapeId]>, blockedShapeId, {
               id: blockedShapeId,
               kind: "shape",
+              ...(resourceId ? { resourceId } : {}),
               title: "BlockedHistoryItem",
               node: {
                 type: "object",
@@ -443,6 +468,7 @@ describe("source-catalog-runtime", () => {
             put(catalog.symbols as Record<typeof unblockedShapeId, CatalogV1["symbols"][typeof unblockedShapeId]>, unblockedShapeId, {
               id: unblockedShapeId,
               kind: "shape",
+              ...(resourceId ? { resourceId } : {}),
               title: "UnblockedHistoryItem",
               node: {
                 type: "object",
@@ -461,6 +487,7 @@ describe("source-catalog-runtime", () => {
             put(catalog.symbols as Record<typeof routeBlockedShapeId, CatalogV1["symbols"][typeof routeBlockedShapeId]>, routeBlockedShapeId, {
               id: routeBlockedShapeId,
               kind: "shape",
+              ...(resourceId ? { resourceId } : {}),
               title: "RouteBlockedHistoryItem",
               node: {
                 type: "object",
@@ -481,6 +508,7 @@ describe("source-catalog-runtime", () => {
             put(catalog.symbols as Record<typeof unionShapeId, CatalogV1["symbols"][typeof unionShapeId]>, unionShapeId, {
               id: unionShapeId,
               kind: "shape",
+              ...(resourceId ? { resourceId } : {}),
               title: "AbuseBlockHistoryItem",
               node: {
                 type: "oneOf",
@@ -521,6 +549,7 @@ describe("source-catalog-runtime", () => {
             }
 
             const callShape = catalog.symbols[executable.argumentShapeId];
+            const resourceId = callShape?.kind === "shape" ? callShape.resourceId : undefined;
             if (!callShape || callShape.kind !== "shape" || callShape.node.type !== "object") {
               throw new Error("Expected object argument shape in fixture");
             }
@@ -528,6 +557,7 @@ describe("source-catalog-runtime", () => {
             put(catalog.symbols as Record<typeof unsupportedShapeId, CatalogV1["symbols"][typeof unsupportedShapeId]>, unsupportedShapeId, {
               id: unsupportedShapeId,
               kind: "shape",
+              ...(resourceId ? { resourceId } : {}),
               title: "UnsupportedNot",
               node: {
                 type: "not",

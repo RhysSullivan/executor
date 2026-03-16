@@ -18,6 +18,7 @@ import {
   CapabilityIdSchema,
   DocumentIdSchema,
   ExecutableIdSchema,
+  ResourceIdSchema,
   ResponseSetIdSchema,
   ScopeIdSchema,
   ShapeSymbolIdSchema,
@@ -38,6 +39,7 @@ const baseProvenance = (pointer: string): ProvenanceRef[] => [{
 
 const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
   const catalog = createEmptyCatalogV1();
+  const resourceId = ResourceIdSchema.make("res_graphql");
   const scopeId = ScopeIdSchema.make("scope_graphql");
   const stringShapeId = ShapeSymbolIdSchema.make("shape_string");
   const teamFilterShapeId = ShapeSymbolIdSchema.make("shape_team_filter");
@@ -57,6 +59,17 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
     rawRef: "memory://linear/graphql",
   });
 
+  put(catalog.resources as Record<typeof resourceId, CatalogV1["resources"][typeof resourceId]>, resourceId, {
+    id: resourceId,
+    documentId: docId,
+    canonicalUri: "https://api.linear.app/graphql",
+    baseUri: "https://api.linear.app/graphql",
+    anchors: {},
+    dynamicAnchors: {},
+    synthetic: false,
+    provenance: baseProvenance("#"),
+  });
+
   put(catalog.scopes as Record<typeof scopeId, CatalogV1["scopes"][typeof scopeId]>, scopeId, {
     id: scopeId,
     kind: "service",
@@ -69,6 +82,7 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
   put(catalog.symbols as Record<typeof stringShapeId, CatalogV1["symbols"][typeof stringShapeId]>, stringShapeId, {
     id: stringShapeId,
     kind: "shape",
+    resourceId,
     title: "String",
     node: {
       type: "scalar",
@@ -81,6 +95,7 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
   put(catalog.symbols as Record<typeof teamFilterShapeId, CatalogV1["symbols"][typeof teamFilterShapeId]>, teamFilterShapeId, {
     id: teamFilterShapeId,
     kind: "shape",
+    resourceId,
     title: "shape_deadbeef",
     node: {
       type: "object",
@@ -98,6 +113,7 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
   put(catalog.symbols as Record<typeof callShapeId, CatalogV1["symbols"][typeof callShapeId]>, callShapeId, {
     id: callShapeId,
     kind: "shape",
+    resourceId,
     title: "shape_feedface",
     node: {
       type: "object",
@@ -115,6 +131,7 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
   put(catalog.symbols as Record<typeof resultShapeId, CatalogV1["symbols"][typeof resultShapeId]>, resultShapeId, {
     id: resultShapeId,
     kind: "shape",
+    resourceId,
     title: "TeamConnection",
     node: {
       type: "object",
@@ -167,6 +184,7 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
     protocol: "graphql",
     capabilityId,
     scopeId,
+    toolKind: "field",
     operationType: "query",
     rootField: "teams",
     argumentShapeId: callShapeId,
@@ -208,6 +226,7 @@ const createSnapshot = (): ReturnType<typeof createCatalogSnapshotV1> => {
     protocol: "graphql",
     capabilityId: secondCapabilityId,
     scopeId,
+    toolKind: "field",
     operationType: "query",
     rootField: "teamsSearch",
     argumentShapeId: callShapeId,

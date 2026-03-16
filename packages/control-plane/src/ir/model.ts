@@ -89,6 +89,11 @@ export const SelectionModeSchema = Schema.Literal(
   "persisted",
 );
 
+export const GraphQLToolKindSchema = Schema.Literal(
+  "request",
+  "field",
+);
+
 export const StatusRangeSchema = Schema.Literal(
   "1XX",
   "2XX",
@@ -714,8 +719,11 @@ export const GraphQLExecutableSchema = Schema.extend(
     protocol: Schema.Literal("graphql"),
     capabilityId: CapabilityIdSchema,
     scopeId: ScopeIdSchema,
+    toolKind: GraphQLToolKindSchema,
     operationType: Schema.Literal("query", "mutation", "subscription"),
     rootField: Schema.String,
+    operationName: Schema.optional(Schema.String),
+    operationDocument: Schema.optional(Schema.String),
     argumentShapeId: ShapeSymbolIdSchema,
     resultShapeId: ShapeSymbolIdSchema,
     selectionShapeId: Schema.optional(ShapeSymbolIdSchema),
@@ -891,6 +899,7 @@ export type ParameterLocation = typeof ParameterLocationSchema.Type;
 export type ResponseTrait = typeof ResponseTraitSchema.Type;
 export type SecuritySchemeType = typeof SecuritySchemeTypeSchema.Type;
 export type SelectionMode = typeof SelectionModeSchema.Type;
+export type GraphQLToolKind = typeof GraphQLToolKindSchema.Type;
 export type PaginationHintKind = typeof PaginationHintKindSchema.Type;
 export type DiagnosticCode = typeof DiagnosticCodeSchema.Type;
 export type DiagnosticLevel = typeof DiagnosticLevelSchema.Type;

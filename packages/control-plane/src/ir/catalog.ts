@@ -139,6 +139,8 @@ export interface CatalogInvariantViolation {
   code:
     | "missing_symbol_provenance"
     | "missing_entity_provenance"
+    | "missing_document"
+    | "missing_provenance_document"
     | "missing_resource_context"
     | "missing_reference_target"
     | "missing_unresolved_ref_diagnostic"
@@ -1622,8 +1624,13 @@ export const decodeCatalogFragmentV1 = (input: unknown): CatalogFragmentV1 => {
 
 export const decodeCatalogSnapshotV1 = (input: unknown) => {
   try {
-    return decodeCatalogSnapshotSync(input);
+    const snapshot = decodeCatalogSnapshotSync(input);
+    assertCatalogInvariants(snapshot.catalog);
+    return snapshot;
   } catch (cause) {
+    if (cause instanceof Error) {
+      throw cause;
+    }
     throw new Error(ParseResult.TreeFormatter.formatErrorSync(cause as never));
   }
 };
@@ -1633,11 +1640,15 @@ export const createEmptyCatalogV1 = (): CatalogV1 => emptyCatalog();
 export const createCatalogSnapshotV1 = (input: {
   import: ImportMetadata;
   catalog: CatalogV1;
-}) => ({
-  version: "ir.v1.snapshot" as const,
-  import: input.import,
-  catalog: decodeCatalogV1(input.catalog),
-});
+}) => {
+  const catalog = assertCatalogInvariants(decodeCatalogV1(input.catalog));
+
+  return {
+    version: "ir.v1.snapshot" as const,
+    import: input.import,
+    catalog,
+  };
+};
 
 export const mergeCatalogFragments = (fragments: readonly CatalogFragmentV1[]): CatalogV1 => {
   const catalog = emptyCatalog();
@@ -1696,13 +1707,28 @@ export const mergeCatalogFragments = (fragments: readonly CatalogFragmentV1[]): 
     mergeRecord("diagnostics", fragment.diagnostics);
   }
 
-  return catalog;
+  return assertCatalogInvariants(decodeCatalogV1(catalog));
 };
 
 export const validateCatalogInvariants = (
   catalog: CatalogV1,
 ): CatalogInvariantViolation[] => {
   const violations: CatalogInvariantViolation[] = [];
+
+  const checkProvenanceDocuments = (input: {
+    entityId: string;
+    provenance: readonly { documentId: DocumentId }[];
+  }) => {
+    for (const provenance of input.provenance) {
+      if (!catalog.documents[provenance.documentId]) {
+        violations.push({
+          code: "missing_provenance_document",
+          entityId: input.entityId,
+          message: `Entity ${input.entityId} references missing provenance document ${provenance.documentId}`,
+        });
+      }
+    }
+  };
 
   for (const symbol of Object.values(catalog.symbols)) {
     if (symbol.provenance.length === 0) {
@@ -1752,6 +1778,11 @@ export const validateCatalogInvariants = (
         });
       }
     }
+
+    checkProvenanceDocuments({
+      entityId: symbol.id,
+      provenance: symbol.provenance,
+    });
   }
 
   for (const collection of [
@@ -1766,6 +1797,23 @@ export const validateCatalogInvariants = (
         code: "missing_entity_provenance",
         entityId: "id" in collection ? collection.id : undefined,
         message: `Entity ${"id" in collection ? collection.id : "unknown"} is missing provenance`,
+      });
+    }
+
+    if ("id" in collection) {
+      checkProvenanceDocuments({
+        entityId: collection.id,
+        provenance: collection.provenance,
+      });
+    }
+  }
+
+  for (const resource of Object.values(catalog.resources)) {
+    if (!catalog.documents[resource.documentId]) {
+      violations.push({
+        code: "missing_document",
+        entityId: resource.id,
+        message: `Resource ${resource.id} references missing document ${resource.documentId}`,
       });
     }
   }
@@ -1828,6 +1876,26 @@ export const validateCatalogInvariants = (
   }
 
   return violations;
+};
+
+const assertCatalogInvariants = (catalog: CatalogV1): CatalogV1 => {
+  const violations = validateCatalogInvariants(catalog);
+  if (violations.length === 0) {
+    return catalog;
+  }
+
+  const preview = violations
+    .slice(0, 5)
+    .map((violation) => `${violation.code}: ${violation.message}`)
+    .join("\n");
+
+  throw new Error(
+    [
+      `Invalid IR catalog (${violations.length} invariant violation${violations.length === 1 ? "" : "s"}).`,
+      preview,
+      ...(violations.length > 5 ? [`...and ${String(violations.length - 5)} more`] : []),
+    ].join("\n"),
+  );
 };
 
 export const projectCatalogForAgentSdk = (input: {

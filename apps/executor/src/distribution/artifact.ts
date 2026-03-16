@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
@@ -91,26 +91,21 @@ const resolveQuickJsWasmPath = (): string => {
 };
 
 const resolveJsoncParserUmdImplPath = async (): Promise<string> => {
-  const bunStoreDir = join(repoRoot, "node_modules/.bun");
-  const storeEntries = await readdir(bunStoreDir, { withFileTypes: true });
+  const requireFromControlPlane = createRequire(
+    join(repoRoot, "packages/control-plane/package.json"),
+  );
+  const jsoncParserPackagePath = requireFromControlPlane.resolve(
+    "jsonc-parser/package.json",
+  );
+  const jsoncParserUmdImplPath = resolve(dirname(jsoncParserPackagePath), "lib/umd/impl");
 
-  for (const entry of storeEntries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("jsonc-parser@")) {
-      continue;
-    }
-
-    const candidate = join(
-      bunStoreDir,
-      entry.name,
-      "node_modules/jsonc-parser/lib/umd/impl",
+  if (!existsSync(jsoncParserUmdImplPath)) {
+    throw new Error(
+      `Unable to locate jsonc-parser UMD implementation files at ${jsoncParserUmdImplPath}`,
     );
-
-    if (existsSync(candidate)) {
-      return candidate;
-    }
   }
 
-  throw new Error("Unable to locate jsonc-parser UMD implementation files in node_modules/.bun");
+  return jsoncParserUmdImplPath;
 };
 
 

@@ -510,6 +510,7 @@ const createGraphqlCatalog = (): CatalogV1 => {
     protocol: "graphql",
     capabilityId,
     scopeId,
+    toolKind: "field",
     operationType: "mutation",
     rootField: "updateUser",
     argumentShapeId: argShapeId,
