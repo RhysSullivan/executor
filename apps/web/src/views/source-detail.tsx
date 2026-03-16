@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import {
   type ConnectSourcePayload,
   useSource,
@@ -21,6 +21,7 @@ import { Button } from "../components/ui/button";
 import { LoadableBlock, EmptyState } from "../components/loadable";
 import { DocumentPanel } from "../components/document-panel";
 import { SourceNotFoundState } from "../components/source-not-found-state";
+import { SourceRecoveryState } from "../components/source-recovery-state";
 import {
   IconSearch,
   IconChevron,
@@ -53,10 +54,43 @@ const isSourceNotFoundError = (loadable: Loadable<unknown>): boolean =>
   loadable.status === "error"
   && loadable.error.message.toLowerCase().includes("source not found");
 
+const isMissingCatalogArtifactError = (loadable: Loadable<unknown>): boolean =>
+  loadable.status === "error"
+  && loadable.error.message.toLowerCase().includes("catalog artifact missing for source");
+
 const listExcludesSource = (
   sources: Loadable<ReadonlyArray<Source>>,
   sourceId: string,
 ): boolean => sources.status === "ready" && !sources.data.some((source) => source.id === sourceId);
+
+type SourceDetailPageState =
+  | { kind: "source_not_found" }
+  | { kind: "tools_missing"; source: Source }
+  | { kind: "ready" };
+
+const resolveSourceDetailPageState = (input: {
+  sources: Loadable<ReadonlyArray<Source>>;
+  source: Loadable<Source>;
+  inspection: Loadable<SourceInspection>;
+  sourceId: string;
+}): SourceDetailPageState => {
+  if (
+    listExcludesSource(input.sources, input.sourceId)
+    || isSourceNotFoundError(input.source)
+    || isSourceNotFoundError(input.inspection)
+  ) {
+    return { kind: "source_not_found" };
+  }
+
+  if (input.source.status === "ready" && isMissingCatalogArtifactError(input.inspection)) {
+    return {
+      kind: "tools_missing",
+      source: input.source.data,
+    };
+  }
+
+  return { kind: "ready" };
+};
 
 const readBindingString = (source: Source, key: string): string | null =>
   typeof source.binding[key] === "string" && source.binding[key].trim().length > 0
@@ -177,10 +211,12 @@ export function SourceDetailPage(props: {
     tone: "success" | "error";
     text: string;
   } | null>(null);
-  const missingSource =
-    listExcludesSource(sources, sourceId)
-    || isSourceNotFoundError(source)
-    || isSourceNotFoundError(inspection);
+  const sourceDetailPageState = resolveSourceDetailPageState({
+    sources,
+    source,
+    inspection,
+    sourceId,
+  });
 
   const selectedToolPath =
     search.tool
@@ -230,8 +266,30 @@ export function SourceDetailPage(props: {
     void navigate({ search: (prev) => ({ ...prev, tool: firstTool }), replace: true });
   }, [inspection, navigate, search.tab, search.tool]);
 
-  if (missingSource) {
+  if (sourceDetailPageState.kind === "source_not_found") {
     return <SourceNotFoundState />;
+  }
+
+  if (sourceDetailPageState.kind === "tools_missing") {
+    const refreshPayload = refreshPayloadFromSource(sourceDetailPageState.source);
+
+    return (
+      <SourceRecoveryState
+        source={sourceDetailPageState.source}
+        title="Tools need to be rebuilt"
+        description="This source exists in your workspace, but its generated tool catalog is missing. Refresh to reconnect and rebuild the tools."
+        refreshLabel="Refresh source"
+        refreshTitle={
+          refreshPayload === null
+            ? "Refresh is unavailable for this source configuration"
+            : "Reconnect and rebuild this source"
+        }
+        refreshDisabled={connectSource.status === "pending" || refreshPayload === null}
+        refreshPending={connectSource.status === "pending"}
+        feedback={refreshFeedback}
+        onRefresh={() => void handleRefresh(sourceDetailPageState.source)}
+      />
+    );
   }
 
   return (
