@@ -92,4 +92,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="v${{ steps.detect_release.outputs.version }}"
-          gh workflow run publish-executor-package.yml --ref main -f tag="$tag"
+          gh workflow run publish-executor-package.yml --ref "$tag" -f tag="$tag"
