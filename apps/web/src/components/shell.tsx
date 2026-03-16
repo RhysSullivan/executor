@@ -25,34 +25,143 @@ const { VITE_APP_VERSION, VITE_GITHUB_URL } = (import.meta as ImportMeta & {
   readonly env: AppMetaEnv;
 }).env;
 
+type UpdateChannel = "latest" | "beta";
+
+type ParsedVersion = {
+  readonly major: number;
+  readonly minor: number;
+  readonly patch: number;
+  readonly prerelease: ReadonlyArray<string | number> | null;
+};
+
+const semverPattern =
+  /^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<prerelease>[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+const resolveUpdateChannel = (version: string): UpdateChannel =>
+  version.includes("-beta.") ? "beta" : "latest";
+
+const parseVersion = (version: string): ParsedVersion | null => {
+  const match = version.trim().match(semverPattern);
+  if (!match?.groups) {
+    return null;
+  }
+
+  return {
+    major: Number(match.groups.major),
+    minor: Number(match.groups.minor),
+    patch: Number(match.groups.patch),
+    prerelease: match.groups.prerelease
+      ? match.groups.prerelease.split(".").map((identifier) =>
+          /^\d+$/.test(identifier) ? Number(identifier) : identifier,
+        )
+      : null,
+  };
+};
+
+const comparePrereleaseIdentifiers = (
+  left: ReadonlyArray<string | number> | null,
+  right: ReadonlyArray<string | number> | null,
+): number => {
+  if (left === null && right === null) {
+    return 0;
+  }
+
+  if (left === null) {
+    return 1;
+  }
+
+  if (right === null) {
+    return -1;
+  }
+
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftIdentifier = left[index];
+    const rightIdentifier = right[index];
+
+    if (leftIdentifier === rightIdentifier) {
+      continue;
+    }
+
+    if (leftIdentifier === undefined) {
+      return -1;
+    }
+
+    if (rightIdentifier === undefined) {
+      return 1;
+    }
+
+    if (typeof leftIdentifier === "number" && typeof rightIdentifier === "number") {
+      return leftIdentifier < rightIdentifier ? -1 : 1;
+    }
+
+    if (typeof leftIdentifier === "number") {
+      return -1;
+    }
+
+    if (typeof rightIdentifier === "number") {
+      return 1;
+    }
+
+    return leftIdentifier < rightIdentifier ? -1 : 1;
+  }
+
+  return 0;
+};
+
+const compareVersions = (left: string, right: string): number | null => {
+  const leftVersion = parseVersion(left);
+  const rightVersion = parseVersion(right);
+  if (!leftVersion || !rightVersion) {
+    return null;
+  }
+
+  if (leftVersion.major !== rightVersion.major) {
+    return leftVersion.major < rightVersion.major ? -1 : 1;
+  }
+
+  if (leftVersion.minor !== rightVersion.minor) {
+    return leftVersion.minor < rightVersion.minor ? -1 : 1;
+  }
+
+  if (leftVersion.patch !== rightVersion.patch) {
+    return leftVersion.patch < rightVersion.patch ? -1 : 1;
+  }
+
+  return comparePrereleaseIdentifiers(leftVersion.prerelease, rightVersion.prerelease);
+};
+
 // ── useLatestVersion ─────────────────────────────────────────────────────
 
 function useLatestVersion(currentVersion: string) {
+  const channel = resolveUpdateChannel(currentVersion);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("https://registry.npmjs.org/executor/latest")
+    fetch("https://registry.npmjs.org/-/package/executor/dist-tags")
       .then((res) => res.json())
-      .then((data: { version?: string }) => {
-        if (!cancelled && data.version) setLatestVersion(data.version);
+      .then((data: Partial<Record<UpdateChannel, string>>) => {
+        if (!cancelled) {
+          setLatestVersion(data[channel] ?? null);
+        }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [channel]);
 
   const updateAvailable =
-    latestVersion !== null && latestVersion !== currentVersion;
+    latestVersion !== null && compareVersions(currentVersion, latestVersion) === -1;
 
-  return { latestVersion, updateAvailable };
+  return { latestVersion, updateAvailable, channel };
 }
 
 // ── UpdateCard ───────────────────────────────────────────────────────────
 
-function UpdateCard(props: { latestVersion: string }) {
-  const command = `npm i -g executor@latest`;
+function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
+  const command = `npm i -g executor@${props.channel}`;
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(() => {
@@ -104,7 +213,7 @@ export function AppShell() {
   const matchRoute = useMatchRoute();
   const isHome = matchRoute({ to: "/" });
   const isSecrets = matchRoute({ to: "/secrets" });
-  const { latestVersion, updateAvailable } = useLatestVersion(VITE_APP_VERSION);
+  const { latestVersion, updateAvailable, channel } = useLatestVersion(VITE_APP_VERSION);
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
@@ -158,7 +267,7 @@ export function AppShell() {
 
         {/* Update available */}
         {updateAvailable && latestVersion && (
-          <UpdateCard latestVersion={latestVersion} />
+          <UpdateCard latestVersion={latestVersion} channel={channel} />
         )}
 
         {/* Footer */}
