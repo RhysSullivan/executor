@@ -328,7 +328,7 @@ If you are exploring the repo, these are the directories that matter most:
 - Merge that PR to `main`. `.github/workflows/release.yml` opens or updates a `Version Packages` release PR for version bumps and changelog updates.
 - Merge the `Version Packages` PR. The release workflow pushes the matching git tag, and `.github/workflows/publish-executor-package.yml` publishes to npm and creates the GitHub release.
 - Do not edit `apps/executor/package.json` by hand for normal releases. Changesets owns the version.
-- For a beta train, enter prerelease mode with `bun run release:pre:enter`, commit `.changeset/pre.json`, and merge it. Release PRs will then use `-beta.x` versions until you exit with `bun run release:pre:exit`.
+- For a beta train, enter prerelease mode with `bun run release:beta:start`, commit `.changeset/pre.json`, and merge it. Release PRs will then use `-beta.x` versions until you exit with `bun run release:beta:stop`.
 - `bun run --cwd apps/executor release:publish` remains the publish implementation used by CI.
 - To build and pack the publish artifact locally without publishing, run `bun run --cwd apps/executor release:publish:dry-run`.
 - One-time npm setup: either configure npm trusted publishing for `RhysSullivan/executor` with the workflow file `.github/workflows/publish-executor-package.yml`, or add a GitHub Actions secret named `NPM_TOKEN` that can publish the `executor` package.

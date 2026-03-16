@@ -30,6 +30,8 @@
     "changeset:version": "changeset version",
     "release:pre:enter": "changeset pre enter beta",
     "release:pre:exit": "changeset pre exit",
+    "release:beta:start": "changeset pre enter beta",
+    "release:beta:stop": "changeset pre exit",
     "typecheck": "bun run --filter='*' typecheck",
     "knip": "knip"
   },
