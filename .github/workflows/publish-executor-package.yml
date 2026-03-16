@@ -42,6 +42,14 @@ jobs:
           bun run --cwd apps/executor test
 
       - name: Publish package and create release
+        if: ${{ secrets.NPM_TOKEN == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
+        run: bun run --cwd apps/executor release:publish
+
+      - name: Publish package and create release with NPM token
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: bun run --cwd apps/executor release:publish
