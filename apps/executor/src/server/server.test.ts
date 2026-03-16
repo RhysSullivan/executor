@@ -1308,7 +1308,7 @@ describe("local-executor-server", () => {
             },
           });
           const source = sources.find((entry) => entry.namespace === "axiom");
-          if (source?.status === "connected" && source.auth.kind === "oauth2") {
+          if (source?.status === "connected" && source.auth.kind === "mcp_oauth") {
             return source;
           }
 
@@ -1318,7 +1318,7 @@ describe("local-executor-server", () => {
 
       expect(connectedSource.name).toBe("Axiom");
       expect(connectedSource.status).toBe("connected");
-      expect(connectedSource.auth.kind).toBe("oauth2");
+      expect(connectedSource.auth.kind).toBe("mcp_oauth");
 
       const toolCall = yield* client.executions.create({
         path: {
@@ -1355,7 +1355,7 @@ describe("local-executor-server", () => {
       expect(approvedToolCall.pendingInteraction).toBeNull();
       expect(approvedToolCall.execution.resultJson).toContain("oauth-demo");
     }),
-    60_000,
+    15_000,
   );
 
   it.scoped("gates mutating OpenAPI tools by default and allows them via workspace policy", () =>
