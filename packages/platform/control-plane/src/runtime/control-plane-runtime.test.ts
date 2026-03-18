@@ -21,6 +21,8 @@ import {
   WorkspaceOauthClientIdSchema,
 } from "#schema";
 import type { ToolPath } from "@executor/codemode-core";
+import { createCatalogImportMetadata } from "@executor/source-core";
+import { createGraphqlCatalogFragment } from "@executor/source-graphql";
 
 import {
   type ControlPlaneRuntime,
@@ -33,6 +35,14 @@ import { decodeSourceCredentialSelectionContent } from "./sources/source-credent
 import { persistSource } from "./sources/source-store";
 import { withControlPlaneClient } from "./execution/test-http-client";
 import { runtimeEffectError } from "./effect-errors";
+import { resolveLocalWorkspaceContext } from "./local/config";
+import { writeLocalControlPlaneState } from "./local/control-plane-store";
+import { deriveLocalInstallation } from "./local/installation";
+import {
+  buildLocalSourceArtifact,
+  writeLocalSourceArtifact,
+} from "./local/source-artifacts";
+import { writeLocalWorkspaceState } from "./local/workspace-state";
 
 const makeRuntime = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -699,6 +709,188 @@ describe("control-plane-runtime", () => {
     }),
   );
 
+  it.scoped("loads a v1.2.3-style workspace artifact on startup", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectoryScoped({
+        prefix: "executor-control-plane-runtime-v123-",
+      });
+      const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
+      const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
+      const configDirectory = join(workspaceRoot, ".executor");
+      const configPath = join(configDirectory, "executor.jsonc");
+      const sourceId = SourceIdSchema.make("graphql");
+      const now = Date.now();
+
+      yield* fs.makeDirectory(configDirectory, { recursive: true });
+      yield* fs.writeFileString(
+        configPath,
+        `{
+  "sources": {
+    "graphql": {
+      "kind": "graphql",
+      "name": "GraphQL API",
+      "namespace": "graphql",
+      "connection": {
+        "endpoint": "https://example.com/graphql"
+      },
+      "binding": {
+        "defaultHeaders": null
+      }
+    }
+  }
+}
+`,
+      );
+
+      const context = yield* resolveLocalWorkspaceContext({
+        workspaceRoot,
+        homeConfigPath,
+        homeStateDirectory,
+      });
+      const installation = deriveLocalInstallation(context);
+      const source = yield* createSourceFromPayload({
+        workspaceId: installation.workspaceId,
+        sourceId,
+        payload: {
+          name: "GraphQL API",
+          kind: "graphql",
+          endpoint: "https://example.com/graphql",
+          status: "connected",
+          enabled: true,
+          namespace: "graphql",
+          importAuthPolicy: "reuse_runtime",
+          binding: {
+            defaultHeaders: null,
+          },
+          importAuth: { kind: "none" },
+          auth: { kind: "none" },
+        },
+        now,
+      }).pipe(Effect.orDie);
+
+      const artifact = buildLocalSourceArtifact({
+        source,
+        syncResult: {
+          fragment: createGraphqlCatalogFragment({
+            source,
+            documents: [
+              {
+                documentKind: "graphql_introspection",
+                documentKey: source.endpoint,
+                contentText: '{"__schema":{}}',
+                fetchedAt: now,
+              },
+            ],
+            operations: [
+              {
+                toolId: "viewer",
+                title: "Viewer",
+                description: "Load the current viewer",
+                effect: "read",
+                inputSchema: { type: "object", properties: {} },
+                outputSchema: {
+                  type: "object",
+                  properties: { login: { type: "string" } },
+                },
+                providerData: {
+                  kind: "graphql",
+                  toolKind: "field",
+                  toolId: "viewer",
+                  rawToolId: "viewer",
+                  group: "query",
+                  leaf: "viewer",
+                  fieldName: "viewer",
+                  operationType: "query",
+                  operationName: "ViewerQuery",
+                  operationDocument: "query ViewerQuery { viewer { login } }",
+                  queryTypeName: "Query",
+                  mutationTypeName: null,
+                  subscriptionTypeName: null,
+                },
+              },
+            ],
+          }),
+          importMetadata: createCatalogImportMetadata({
+            source,
+            adapterKey: "graphql",
+          }),
+          sourceHash: source.sourceHash,
+        },
+      });
+
+      yield* writeLocalWorkspaceState({
+        context,
+        state: {
+          version: 1,
+          sources: {
+            [sourceId]: {
+              status: source.status,
+              lastError: source.lastError,
+              sourceHash: source.sourceHash,
+              createdAt: source.createdAt,
+              updatedAt: source.updatedAt,
+            },
+          },
+          policies: {},
+        },
+      });
+      yield* writeLocalControlPlaneState({
+        context,
+        state: {
+          version: 1,
+          authArtifacts: [],
+          authLeases: [],
+          sourceOauthClients: [],
+          workspaceOauthClients: [],
+          providerAuthGrants: [],
+          sourceAuthSessions: [],
+          secretMaterials: [],
+          executions: [],
+          executionInteractions: [],
+          executionSteps: [],
+        },
+      });
+      yield* writeLocalSourceArtifact({
+        context,
+        sourceId,
+        artifact,
+      });
+
+      const artifactPath = join(context.artifactsDirectory, "sources", `${sourceId}.json`);
+      const legacyArtifact = JSON.parse(
+        yield* fs.readFileString(artifactPath, "utf8"),
+      ) as Record<string, unknown>;
+      legacyArtifact.version = 3;
+      yield* fs.writeFileString(artifactPath, `${JSON.stringify(legacyArtifact)}\n`);
+
+      const runtime = yield* Effect.acquireRelease(
+        createControlPlaneRuntime({
+          workspaceRoot,
+          homeConfigPath,
+          homeStateDirectory,
+        }),
+        (createdRuntime) => Effect.promise(() => createdRuntime.close()).pipe(Effect.orDie),
+      );
+
+      const inspection = yield* withControlPlaneClient(
+        { runtime, accountId: installation.accountId },
+        (client) =>
+          client.sources.inspection({
+            path: {
+              workspaceId: installation.workspaceId,
+              sourceId,
+            },
+          }),
+      );
+
+      expect(inspection.source.id).toBe(sourceId);
+      expect(inspection.source.kind).toBe("graphql");
+      expect(inspection.toolCount).toBe(1);
+      expect(inspection.tools.map((tool) => tool.path)).toContain("graphql.viewer");
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+
   it.scoped("returns an empty inspection bundle for auth-required sources without a catalog artifact", () =>
     Effect.gen(function* () {
       const runtime = yield* makeRuntime;
@@ -930,6 +1122,175 @@ describe("control-plane-runtime", () => {
       expect(storedInteraction.value.responseJson).toContain("\"authKind\":\"none\"");
       expect(storedInteraction.value.responseJson).not.toContain("tokenRef");
     }),
+  );
+
+  it.scoped("reuses existing Google provider grants for single connects and clears orphan state", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+      const googleServer = yield* makeGoogleWorkspaceTestServer;
+      const installation = runtime.localInstallation;
+
+      const oauthClient = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.sources.createWorkspaceOauthClient({
+            path: {
+              workspaceId: installation.workspaceId,
+            },
+            payload: {
+              providerKey: "google_workspace",
+              label: "Local Google Workspace Client",
+              oauthClient: {
+                clientId: "google-client-id",
+                clientSecret: "google-client-secret",
+              },
+            },
+          }),
+      );
+
+      const refreshSecretId = "sec_google_refresh_single_reuse";
+      yield* upsertLocalSecret(runtime, {
+        id: refreshSecretId,
+        name: "Google Refresh Token",
+        purpose: "oauth_refresh_token",
+        value: "refresh-token-reuse",
+      });
+
+      const grantId = ProviderAuthGrantIdSchema.make(`provider_grant_${crypto.randomUUID()}`);
+      yield* runtime.persistence.rows.providerAuthGrants.upsert({
+        id: grantId,
+        workspaceId: installation.workspaceId,
+        actorAccountId: installation.accountId,
+        providerKey: "google_workspace",
+        oauthClientId: oauthClient.id,
+        tokenEndpoint: googleServer.tokenEndpoint,
+        clientAuthentication: "client_secret_post",
+        headerName: "Authorization",
+        prefix: "Bearer ",
+        refreshToken: {
+          providerId: "local",
+          handle: refreshSecretId,
+        },
+        grantedScopes: [
+          "scope:drive.readonly",
+        ],
+        lastRefreshedAt: null,
+        orphanedAt: 123,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+
+      googleServer.queueTokenResponse({
+        access_token: "reuse-access-token",
+        scope: "scope:drive.readonly",
+      });
+
+      const result = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.sources.connect({
+            path: {
+              workspaceId: installation.workspaceId,
+            },
+            payload: {
+              kind: "google_discovery",
+              workspaceOauthClientId: oauthClient.id,
+              service: "drive",
+              version: "v3",
+              discoveryUrl: googleServer.discoveryUrl({
+                service: "drive",
+                version: "v3",
+                scope: "scope:drive.readonly",
+              }),
+              scopes: ["scope:drive.readonly"],
+              name: "Drive",
+              namespace: "google.drive",
+            },
+          }),
+      );
+
+      expect(result.kind).toBe("connected");
+      if (result.kind !== "connected") {
+        throw new Error(`Expected connected result, received ${result.kind}`);
+      }
+      expect(result.source.auth).toEqual({
+        kind: "provider_grant_ref",
+        grantId,
+        providerKey: "google_workspace",
+        requiredScopes: ["scope:drive.readonly"],
+        headerName: "Authorization",
+        prefix: "Bearer ",
+      });
+
+      const storedGrant = yield* runtime.persistence.rows.providerAuthGrants.getById(grantId);
+      assertTrue(Option.isSome(storedGrant));
+      expect(storedGrant.value.orphanedAt).toBeNull();
+      expect(googleServer.discoveryAuthorizations).toContain("Bearer reuse-access-token");
+    }),
+    60_000,
+  );
+
+  it.scoped("uses the app callback redirect for browser-started Google single-source OAuth", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+      const googleServer = yield* makeGoogleWorkspaceTestServer;
+      const installation = runtime.localInstallation;
+
+      const oauthClient = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.sources.createWorkspaceOauthClient({
+            path: {
+              workspaceId: installation.workspaceId,
+            },
+            payload: {
+              providerKey: "google_workspace",
+              label: "Local Google Workspace Client",
+              oauthClient: {
+                clientId: "google-client-id",
+                clientSecret: "google-client-secret",
+              },
+            },
+          }),
+      );
+
+      const result = yield* withControlPlaneClient(
+        { runtime },
+        (client) =>
+          client.sources.connect({
+            path: {
+              workspaceId: installation.workspaceId,
+            },
+            payload: {
+              kind: "google_discovery",
+              workspaceOauthClientId: oauthClient.id,
+              service: "gmail",
+              version: "v1",
+              discoveryUrl: googleServer.discoveryUrl({
+                service: "gmail",
+                version: "v1",
+                scope: "scope:gmail.readonly",
+              }),
+              scopes: ["scope:gmail.readonly"],
+              name: "Gmail",
+              namespace: "google.gmail",
+            },
+          }),
+      );
+
+      expect(result.kind).toBe("oauth_required");
+      if (result.kind !== "oauth_required") {
+        throw new Error(`Expected oauth_required result, received ${result.kind}`);
+      }
+
+      const redirectUri = new URL(result.authorizationUrl).searchParams.get("redirect_uri");
+      expect(redirectUri).not.toBeNull();
+      expect(new URL(redirectUri!).pathname).toBe(
+        `/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/oauth/provider/callback`,
+      );
+      expect(result.source.status).toBe("auth_required");
+    }),
+    60_000,
   );
 
   it.scoped("reuses existing Google provider grants for batch connects and clears orphan state", () =>

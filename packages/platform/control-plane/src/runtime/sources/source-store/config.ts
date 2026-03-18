@@ -12,6 +12,7 @@ import {
   fromConfigSecretProviderId,
   toConfigSecretProviderId,
 } from "../../local/config-secrets";
+import { getSourceAdapterForSource } from "../source-adapters";
 import { slugify } from "../slug";
 
 export const trimOrNull = (value: string | null | undefined): string | null => {
@@ -168,47 +169,17 @@ export const configSourceFromLocalSource = (input: {
     },
   };
 
-  switch (input.source.kind) {
-    case "openapi":
-      return {
-        kind: "openapi",
-        ...common,
-        binding: cloneJson(input.source.binding) as Extract<
-          LocalConfigSource,
-          { kind: "openapi" }
-        >["binding"],
-      };
-    case "graphql":
-      return {
-        kind: "graphql",
-        ...common,
-        binding: cloneJson(input.source.binding) as Extract<
-          LocalConfigSource,
-          { kind: "graphql" }
-        >["binding"],
-      };
-    case "google_discovery":
-      return {
-        kind: "google_discovery",
-        ...common,
-        binding: cloneJson(input.source.binding) as Extract<
-          LocalConfigSource,
-          { kind: "google_discovery" }
-        >["binding"],
-      };
-    case "mcp":
-      return {
-        kind: "mcp",
-        ...common,
-        binding: cloneJson(input.source.binding) as Extract<
-          LocalConfigSource,
-          { kind: "mcp" }
-        >["binding"],
-      };
-    default:
-      throw new LocalUnsupportedSourceKindError({
-        message: `Unsupported source kind for local config: ${input.source.kind}`,
-        kind: input.source.kind,
-      });
+  const adapter = getSourceAdapterForSource(input.source);
+  if (adapter.localConfigBindingSchema === null) {
+    throw new LocalUnsupportedSourceKindError({
+      message: `Unsupported source kind for local config: ${input.source.kind}`,
+      kind: input.source.kind,
+    });
   }
+
+  return {
+    kind: input.source.kind as LocalConfigSource["kind"],
+    ...common,
+    binding: cloneJson(adapter.localConfigBindingFromSource(input.source)),
+  } as LocalConfigSource;
 };

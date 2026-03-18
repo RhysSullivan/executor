@@ -271,6 +271,7 @@
         "@executor/runtime-deno-subprocess": "workspace:*",
         "@executor/runtime-quickjs": "workspace:*",
         "@executor/runtime-ses": "workspace:*",
+        "@executor/source-builtins": "workspace:*",
         "@executor/source-core": "workspace:*",
         "@executor/source-google-discovery": "workspace:*",
         "@executor/source-graphql": "workspace:*",
@@ -310,6 +311,21 @@
         "@opentelemetry/sdk-trace-node": "^2.6.0",
         "@opentelemetry/semantic-conventions": "^1.40.0",
         "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "packages/sources/builtins": {
+      "name": "@executor/source-builtins",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/source-core": "workspace:*",
+        "@executor/source-google-discovery": "workspace:*",
+        "@executor/source-graphql": "workspace:*",
+        "@executor/source-mcp": "workspace:*",
+        "@executor/source-openapi": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "catalog:",
@@ -635,6 +651,8 @@
     "@executor/runtime-ses": ["@executor/runtime-ses@workspace:packages/kernel/runtime-ses"],
 
     "@executor/server": ["@executor/server@workspace:packages/platform/server"],
+
+    "@executor/source-builtins": ["@executor/source-builtins@workspace:packages/sources/builtins"],
 
     "@executor/source-core": ["@executor/source-core@workspace:packages/sources/core"],
 

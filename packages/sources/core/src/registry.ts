@@ -20,10 +20,14 @@ export const createSourceAdapterRegistry = <const TAdapters extends readonly Sou
   const getSourceAdapterForSource = (source: Pick<Source, "kind">): SourceAdapter =>
     getSourceAdapter(source.kind);
 
+  const findSourceAdapterByProviderKey = (providerKey: string): SourceAdapter | null =>
+    adapters.find((adapter) => adapter.providerKey === providerKey) ?? null;
+
   return {
     adapters,
     getSourceAdapter,
     getSourceAdapterForSource,
+    findSourceAdapterByProviderKey,
     sourceBindingStateFromSource: (source: Source) =>
       getSourceAdapterForSource(source).bindingStateFromSource(source),
     sourceAdapterCatalogKind: (key: string): SourceCatalogKind =>

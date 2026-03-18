@@ -52,7 +52,7 @@ const internalBindingConfigFromSource = (
     });
   });
 
-export const internalSourceAdapter: SourceAdapter = {
+export const internalSourceAdapter = {
   key: "internal",
   displayName: "Internal",
   catalogKind: "internal",
@@ -65,6 +65,8 @@ export const internalSourceAdapter: SourceAdapter = {
   executorAddInputSchema: null,
   executorAddHelpText: null,
   executorAddInputSignatureWidth: null,
+  localConfigBindingSchema: null,
+  localConfigBindingFromSource: () => null,
   serializeBindingConfig: (source) =>
     encodeBindingConfig({
       adapterKey: source.kind,
@@ -124,4 +126,4 @@ export const internalSourceAdapter: SourceAdapter = {
     Effect.fail(
       runtimeEffectError("sources/source-adapters/internal", "Internal sources do not support persisted adapter invocation"),
     ),
-};
+} satisfies SourceAdapter;

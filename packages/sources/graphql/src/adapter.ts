@@ -7,6 +7,7 @@ import {
   GraphqlToolProviderDataSchema,
   type GraphqlToolProviderData,
 } from "./provider-data";
+import { detectGraphqlSource } from "./discovery";
 import {
   createGraphqlCatalogFragment,
   type GraphqlCatalogOperationInput,
@@ -17,6 +18,7 @@ import {
   extractGraphqlManifest,
   GRAPHQL_INTROSPECTION_QUERY,
 } from "./graphql-tools";
+import { GraphqlLocalConfigBindingSchema } from "./local-config";
 import {
   ConnectHttpAuthSchema,
   ConnectHttpImportAuthSchema,
@@ -27,6 +29,7 @@ import {
   emptySourceBindingState,
   encodeBindingConfig,
   isSourceCredentialRequiredError,
+  looksLikeGraphqlEndpoint,
   OptionalNullableStringSchema,
   SourceCredentialRequiredError,
   SourceConnectCommonFieldsSchema,
@@ -255,7 +258,7 @@ const withoutUndefinedEntries = (
     Object.entries(record).filter(([, value]) => value !== undefined),
   );
 
-export const graphqlSourceAdapter: SourceAdapter = {
+export const graphqlSourceAdapter = {
   key: "graphql",
   displayName: "GraphQL",
   catalogKind: "imported",
@@ -268,6 +271,13 @@ export const graphqlSourceAdapter: SourceAdapter = {
   executorAddInputSchema: GraphqlExecutorAddInputSchema,
   executorAddHelpText: ["endpoint is the GraphQL HTTP endpoint."],
   executorAddInputSignatureWidth: 320,
+  localConfigBindingSchema: GraphqlLocalConfigBindingSchema,
+  localConfigBindingFromSource: (source) =>
+    Effect.runSync(
+      Effect.map(graphqlBindingConfigFromSource(source), (bindingConfig) => ({
+        defaultHeaders: bindingConfig.defaultHeaders,
+      })),
+    ),
   serializeBindingConfig: (source) =>
     encodeBindingConfig({
       adapterKey: "graphql",
@@ -318,6 +328,13 @@ export const graphqlSourceAdapter: SourceAdapter = {
   shouldAutoProbe: (source) =>
     source.enabled &&
     (source.status === "draft" || source.status === "probing"),
+  discoveryPriority: ({ normalizedUrl }) =>
+    looksLikeGraphqlEndpoint(normalizedUrl) ? 400 : 150,
+  detectSource: ({ normalizedUrl, headers }) =>
+    detectGraphqlSource({
+      normalizedUrl,
+      headers,
+    }),
   syncCatalog: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
       const bindingConfig = yield* graphqlBindingConfigFromSource(source);
@@ -519,4 +536,4 @@ export const graphqlSourceAdapter: SourceAdapter = {
       catch: (cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
     }),
-};
+} satisfies SourceAdapter;

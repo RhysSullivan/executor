@@ -12,11 +12,13 @@ import {
   compileGoogleDiscoveryToolDefinitions,
   extractGoogleDiscoveryManifest,
 } from "./document";
+import { detectGoogleDiscoverySource } from "./discovery";
 import { buildGoogleDiscoveryToolPresentation } from "./tools";
 import {
   createGoogleDiscoveryCatalogFragment,
   type GoogleDiscoveryCatalogOperationInput,
 } from "./catalog";
+import { GoogleDiscoveryLocalConfigBindingSchema } from "./local-config";
 import {
   GoogleDiscoveryToolProviderDataSchema,
   type GoogleDiscoveryToolManifest,
@@ -424,7 +426,7 @@ const googleDiscoveryOauth2SetupConfig = (source: Source) =>
     };
   });
 
-export const googleDiscoverySourceAdapter: SourceAdapter = {
+export const googleDiscoverySourceAdapter = {
   key: "google_discovery",
   displayName: "Google Discovery",
   catalogKind: "imported",
@@ -439,6 +441,20 @@ export const googleDiscoverySourceAdapter: SourceAdapter = {
     "service is the Discovery service name, e.g. sheets or drive. version is the API version, e.g. v4 or v3.",
   ],
   executorAddInputSignatureWidth: 420,
+  localConfigBindingSchema: GoogleDiscoveryLocalConfigBindingSchema,
+  localConfigBindingFromSource: (source) =>
+    Effect.runSync(
+      Effect.map(
+        googleDiscoveryBindingConfigFromSource(source),
+        (bindingConfig) => ({
+          service: bindingConfig.service,
+          version: bindingConfig.version,
+          discoveryUrl: bindingConfig.discoveryUrl,
+          defaultHeaders: bindingConfig.defaultHeaders ?? null,
+          scopes: bindingConfig.scopes,
+        }),
+      ),
+    ),
   serializeBindingConfig: (source) =>
     encodeBindingConfig({
       adapterKey: "google_discovery",
@@ -508,6 +524,15 @@ export const googleDiscoverySourceAdapter: SourceAdapter = {
   shouldAutoProbe: (source) =>
     source.enabled &&
     (source.status === "draft" || source.status === "probing"),
+  discoveryPriority: ({ normalizedUrl }) =>
+    normalizedUrl.includes("$discovery/rest") || normalizedUrl.includes("/discovery/v1/apis/")
+      ? 500
+      : 300,
+  detectSource: ({ normalizedUrl, headers }) =>
+    detectGoogleDiscoverySource({
+      normalizedUrl,
+      headers,
+    }),
   syncCatalog: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
       const bindingConfig =
@@ -684,4 +709,4 @@ export const googleDiscoverySourceAdapter: SourceAdapter = {
       catch: (cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
     }),
-};
+} satisfies SourceAdapter;

@@ -6,7 +6,7 @@ import {
   buildGraphqlToolPresentation,
   compileGraphqlToolDefinitions,
   type GraphqlToolManifest,
-} from "../../sources/graphql-tools";
+} from "@executor/source-graphql";
 import { createGoogleDiscoveryCatalogSnapshot } from "@executor/source-google-discovery";
 import { createGraphqlCatalogSnapshot } from "@executor/source-graphql";
 import { createMcpCatalogSnapshot } from "@executor/source-mcp";

@@ -1,5 +1,6 @@
 export * from "./catalog";
 export * from "./catalog-sync-result";
+export * from "./composition";
 export * from "./discovery";
 export * from "./discovery-models";
 export * from "./effect-errors";

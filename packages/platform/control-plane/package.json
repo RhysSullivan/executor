@@ -21,6 +21,7 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/source-core": "workspace:*",
+    "@executor/source-builtins": "workspace:*",
     "@executor/auth-mcp-oauth": "workspace:*",
     "@executor/auth-oauth2": "workspace:*",
     "@executor/codemode-core": "workspace:*",

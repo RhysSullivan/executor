@@ -9,6 +9,7 @@ import type { Schema } from "effect";
 
 import type { OAuth2ClientAuthenticationMethod } from "@executor/auth-oauth2";
 import type { SourceCatalogSyncResult } from "./catalog-sync-result";
+import type { SourceDiscoveryResult } from "./discovery-models";
 import type {
   CredentialSlot,
   SecretRef,
@@ -128,6 +129,11 @@ export type SourceAdapterInvokeInput = {
   context?: Record<string, unknown>;
 };
 
+export type SourceAdapterDiscoveryInput = {
+  normalizedUrl: string;
+  headers: Readonly<Record<string, string>>;
+};
+
 export type SourceAdapter = {
   key: string;
   displayName: string;
@@ -141,6 +147,8 @@ export type SourceAdapter = {
   executorAddInputSchema: SourceAdapterInputSchema | null;
   executorAddHelpText: readonly string[] | null;
   executorAddInputSignatureWidth: number | null;
+  localConfigBindingSchema: SourceAdapterInputSchema | null;
+  localConfigBindingFromSource: (source: Source) => unknown;
   serializeBindingConfig: (source: Source) => string;
   deserializeBindingConfig: (
     input: Pick<StoredSourceRecord, "id" | "bindingConfigJson">,
@@ -149,6 +157,12 @@ export type SourceAdapter = {
   sourceConfigFromSource: (source: Source) => Record<string, unknown>;
   validateSource: (source: Source) => Effect.Effect<Source, Error, never>;
   shouldAutoProbe: (source: Source) => boolean;
+  discoveryPriority?: (input: {
+    normalizedUrl: string;
+  }) => number;
+  detectSource?: (
+    input: SourceAdapterDiscoveryInput,
+  ) => Effect.Effect<SourceDiscoveryResult | null, Error, never>;
   syncCatalog: (
     input: SourceAdapterSyncInput,
   ) => Effect.Effect<SourceCatalogSyncResult, Error, never>;

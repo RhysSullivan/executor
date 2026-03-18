@@ -5,6 +5,10 @@ import {
   type McpDiscoveryElicitationContext,
 } from "@executor/source-mcp";
 import {
+  isSourceCredentialRequiredError,
+  type SourceAdapterOauth2SetupConfig,
+} from "@executor/source-core";
+import {
   AccountId,
   type CredentialSlot,
   McpSourceAuthSessionDataJsonSchema,
@@ -61,14 +65,13 @@ import {
   updateSourceFromPayload,
 } from "./source-definitions";
 import {
+  findSourceAdapterByProviderKey,
   getSourceAdapter,
   getSourceAdapterForSource,
   sourceAdapterRequiresInteractiveConnect,
   sourceAdapterUsesCredentialManagedAuth,
   sourceBindingStateFromSource,
 } from "./source-adapters";
-import type { SourceAdapterOauth2SetupConfig } from "./source-adapters/types";
-import { isSourceCredentialRequiredError } from "./source-adapters/shared";
 import {
   createDefaultSecretMaterialDeleter,
   type ResolveSecretMaterial,
@@ -932,6 +935,24 @@ type ResolvedWorkspaceOauthClient = ResolvedSourceOauthClient & {
   label: string | null;
 };
 
+type RuntimeProviderAuthTarget = {
+  source: Source;
+  requiredScopes: ReadonlyArray<string>;
+  setupConfig: SourceAdapterOauth2SetupConfig;
+};
+
+type RuntimeProviderAuthResult =
+  | {
+      kind: "connected";
+      sources: ReadonlyArray<Source>;
+    }
+  | {
+      kind: "oauth_required";
+      sources: ReadonlyArray<Source>;
+      sessionId: SourceAuthSession["id"];
+      authorizationUrl: string;
+    };
+
 const decodeWorkspaceSourceOauthClientMetadataOption = Schema.decodeUnknownOption(
   WorkspaceSourceOauthClientMetadataJsonSchema,
 );
@@ -1171,6 +1192,84 @@ const providerGrantCoversScopes = (
 
 const normalizeScopes = (scopes: ReadonlyArray<string>): ReadonlyArray<string> =>
   [...new Set(scopes.map((scope) => scope.trim()).filter((scope) => scope.length > 0))];
+
+const authorizationParamsMatch = (
+  left: SourceAdapterOauth2SetupConfig["authorizationParams"],
+  right: SourceAdapterOauth2SetupConfig["authorizationParams"],
+): boolean => {
+  const leftEntries = Object.entries(left ?? {}).sort(([leftKey], [rightKey]) =>
+    leftKey.localeCompare(rightKey),
+  );
+  const rightEntries = Object.entries(right ?? {}).sort(([leftKey], [rightKey]) =>
+    leftKey.localeCompare(rightKey),
+  );
+
+  return leftEntries.length === rightEntries.length
+    && leftEntries.every(([key, value], index) => {
+      const otherEntry = rightEntries[index];
+      return otherEntry !== undefined
+        && otherEntry[0] === key
+        && otherEntry[1] === value;
+    });
+};
+
+const providerOauthSetupConfigMatches = (
+  left: SourceAdapterOauth2SetupConfig,
+  right: SourceAdapterOauth2SetupConfig,
+): boolean =>
+  left.providerKey === right.providerKey
+  && left.authorizationEndpoint === right.authorizationEndpoint
+  && left.tokenEndpoint === right.tokenEndpoint
+  && left.headerName === right.headerName
+  && left.prefix === right.prefix
+  && left.clientAuthentication === right.clientAuthentication
+  && authorizationParamsMatch(left.authorizationParams, right.authorizationParams);
+
+const resolveRuntimeProviderAuthTarget = (
+  source: Source,
+): Effect.Effect<RuntimeProviderAuthTarget | null, Error, never> =>
+  Effect.gen(function* () {
+    const adapter = getSourceAdapterForSource(source);
+    const setupConfig = adapter.getOauth2SetupConfig
+      ? yield* adapter.getOauth2SetupConfig({
+          source,
+          slot: "runtime",
+        })
+      : null;
+    if (setupConfig === null) {
+      return null;
+    }
+
+    return {
+      source,
+      requiredScopes: normalizeScopes(setupConfig.scopes),
+      setupConfig,
+    } satisfies RuntimeProviderAuthTarget;
+  });
+
+const mergeRuntimeProviderAuthSetupConfig = (
+  targets: ReadonlyArray<RuntimeProviderAuthTarget>,
+): Effect.Effect<SourceAdapterOauth2SetupConfig, Error, never> =>
+  Effect.gen(function* () {
+    if (targets.length === 0) {
+      return yield* runtimeEffectError("sources/source-auth-service", "Provider auth setup requires at least one target source");
+    }
+
+    const baseSetupConfig = targets[0]!.setupConfig;
+    for (const target of targets.slice(1)) {
+      if (!providerOauthSetupConfigMatches(baseSetupConfig, target.setupConfig)) {
+        return yield* runtimeEffectError(
+          "sources/source-auth-service",
+          `Provider auth setup for ${baseSetupConfig.providerKey} requires compatible source OAuth configuration`,
+        );
+      }
+    }
+
+    return {
+      ...baseSetupConfig,
+      scopes: normalizeScopes(targets.flatMap((target) => [...target.requiredScopes])),
+    };
+  });
 
 const findReusableProviderGrant = (input: {
   rows: ControlPlaneStoreShape;
@@ -1510,6 +1609,96 @@ const startProviderOauthBatchCredentialSetup = (input: {
           : Effect.void
       ),
     );
+  });
+
+const connectSourcesWithProviderRuntimeAuth = (input: {
+  rows: ControlPlaneStoreShape;
+  sourceStore: RuntimeSourceStore;
+  sourceCatalogSync: RuntimeSourceCatalogSyncShape;
+  workspaceId: WorkspaceId;
+  actorAccountId?: AccountId | null;
+  executionId?: SourceAuthSession["executionId"];
+  interactionId?: SourceAuthSession["interactionId"];
+  baseUrl?: string | null;
+  getLocalServerBaseUrl?: () => string | undefined;
+  workspaceOauthClient: ResolvedWorkspaceOauthClient;
+  targets: ReadonlyArray<RuntimeProviderAuthTarget>;
+}): Effect.Effect<RuntimeProviderAuthResult, Error, WorkspaceStorageServices> =>
+  Effect.gen(function* () {
+    const setupConfig = yield* mergeRuntimeProviderAuthSetupConfig(input.targets);
+    const reusableGrant = yield* findReusableProviderGrant({
+      rows: input.rows,
+      workspaceId: input.workspaceId,
+      actorAccountId: input.actorAccountId,
+      providerKey: setupConfig.providerKey,
+      oauthClientId: input.workspaceOauthClient.id,
+      requiredScopes: setupConfig.scopes,
+    });
+
+    if (Option.isSome(reusableGrant)) {
+      const connectedSources = yield* attachProviderGrantToSources({
+        sourceStore: input.sourceStore,
+        sourceCatalogSync: input.sourceCatalogSync,
+        actorAccountId: input.actorAccountId,
+        grantId: reusableGrant.value.id,
+        providerKey: reusableGrant.value.providerKey,
+        headerName: reusableGrant.value.headerName,
+        prefix: reusableGrant.value.prefix,
+        targets: input.targets.map((target) => ({
+          source: target.source,
+          requiredScopes: target.requiredScopes,
+        })),
+      });
+
+      return {
+        kind: "connected",
+        sources: connectedSources,
+      } satisfies RuntimeProviderAuthResult;
+    }
+
+    const requestBaseUrl = trimOrNull(input.baseUrl);
+    const baseUrl = requestBaseUrl ?? input.getLocalServerBaseUrl?.() ?? null;
+    if (baseUrl === null) {
+      return yield* runtimeEffectError(
+        "sources/source-auth-service",
+        `Local executor server base URL is unavailable for ${setupConfig.providerKey} OAuth setup`,
+      );
+    }
+
+    const oauthRequired = yield* startProviderOauthBatchCredentialSetup({
+      rows: input.rows,
+      sourceStore: input.sourceStore,
+      workspaceId: input.workspaceId,
+      actorAccountId: input.actorAccountId,
+      executionId: input.executionId,
+      interactionId: input.interactionId,
+      baseUrl,
+      redirectModeOverride: requestBaseUrl ? "app_callback" : undefined,
+      workspaceOauthClient: input.workspaceOauthClient,
+      setupConfig,
+      targetSources: input.targets.map((target) => ({
+        source: target.source,
+        requiredScopes: target.requiredScopes,
+      })),
+    });
+
+    const pendingSources = yield* Effect.forEach(
+      input.targets,
+      (target) =>
+        input.sourceStore.loadSourceById({
+          workspaceId: target.source.workspaceId,
+          sourceId: target.source.id,
+          actorAccountId: input.actorAccountId,
+        }),
+      { discard: false },
+    );
+
+    return {
+      kind: "oauth_required",
+      sources: pendingSources,
+      sessionId: oauthRequired.sessionId,
+      authorizationUrl: oauthRequired.authorizationUrl,
+    } satisfies RuntimeProviderAuthResult;
   });
 
 const attachProviderGrantToSources = (input: {
@@ -2235,15 +2424,10 @@ const addExecutorGoogleDiscoverySource = (input: {
       actorAccountId: input.sourceInput.actorAccountId,
     });
     const googleAdapter = getSourceAdapterForSource(persistedDraft);
-    const googleSetupConfig = googleAdapter.getOauth2SetupConfig
-      ? yield* googleAdapter.getOauth2SetupConfig({
-          source: persistedDraft,
-          slot: "runtime",
-        })
-      : null;
+    const providerAuthTarget = yield* resolveRuntimeProviderAuthTarget(persistedDraft);
 
     if (
-      googleSetupConfig !== null
+      providerAuthTarget !== null
       && input.sourceInput.auth === undefined
       && persistedDraft.auth.kind === "none"
     ) {
@@ -2253,13 +2437,13 @@ const addExecutorGoogleDiscoverySource = (input: {
           rows: input.rows,
           workspaceId: persistedDraft.workspaceId,
           oauthClientId: input.sourceInput.workspaceOauthClientId,
-          providerKey: googleSetupConfig.providerKey,
+          providerKey: providerAuthTarget.setupConfig.providerKey,
         });
       } else if (input.sourceInput.oauthClient) {
         workspaceOauthClient = yield* createWorkspaceOauthClient({
           rows: input.rows,
           workspaceId: persistedDraft.workspaceId,
-          providerKey: googleSetupConfig.providerKey,
+          providerKey: providerAuthTarget.setupConfig.providerKey,
           oauthClient: input.sourceInput.oauthClient,
           label: `${chosenName} OAuth Client`,
           normalizeOauthClient: googleAdapter.normalizeOauthClientInput,
@@ -2268,69 +2452,37 @@ const addExecutorGoogleDiscoverySource = (input: {
       }
 
       if (workspaceOauthClient === null) {
-        return yield* runtimeEffectError("sources/source-auth-service", "Google shared auth requires a workspace OAuth client");
+        return yield* runtimeEffectError(
+          "sources/source-auth-service",
+          `${providerAuthTarget.setupConfig.providerKey} shared auth requires a workspace OAuth client`,
+        );
       }
 
-      const requiredScopes = normalizeScopes(googleSetupConfig.scopes);
-      const reusableGrant = yield* findReusableProviderGrant({
-        rows: input.rows,
-        workspaceId: persistedDraft.workspaceId,
-        actorAccountId: input.sourceInput.actorAccountId,
-        providerKey: googleSetupConfig.providerKey,
-        oauthClientId: workspaceOauthClient.id,
-        requiredScopes,
-      });
-
-      if (Option.isSome(reusableGrant)) {
-        const [connectedSource] = yield* attachProviderGrantToSources({
-          sourceStore: input.sourceStore,
-          sourceCatalogSync: input.sourceCatalogSync,
-          actorAccountId: input.sourceInput.actorAccountId,
-          grantId: reusableGrant.value.id,
-          providerKey: reusableGrant.value.providerKey,
-          headerName: reusableGrant.value.headerName,
-          prefix: reusableGrant.value.prefix,
-          targets: [{
-            source: persistedDraft,
-            requiredScopes,
-          }],
-        });
-
-        return {
-          kind: "connected",
-          source: connectedSource!,
-        } satisfies ExecutorSourceAddResult;
-      }
-
-      const requestBaseUrl = trimOrNull(input.baseUrl);
-      const baseUrl = requestBaseUrl ?? input.getLocalServerBaseUrl?.() ?? null;
-      if (baseUrl === null) {
-        return yield* runtimeEffectError("sources/source-auth-service", "Local executor server base URL is unavailable for Google OAuth setup");
-      }
-
-      const oauthRequired = yield* startProviderOauthBatchCredentialSetup({
+      const providerAuthResult = yield* connectSourcesWithProviderRuntimeAuth({
         rows: input.rows,
         sourceStore: input.sourceStore,
+        sourceCatalogSync: input.sourceCatalogSync,
         workspaceId: persistedDraft.workspaceId,
         actorAccountId: input.sourceInput.actorAccountId,
         executionId: input.sourceInput.executionId,
         interactionId: input.sourceInput.interactionId,
-        baseUrl,
-        redirectModeOverride: requestBaseUrl ? "app_callback" : undefined,
+        baseUrl: input.baseUrl,
+        getLocalServerBaseUrl: input.getLocalServerBaseUrl,
         workspaceOauthClient,
-        setupConfig: googleSetupConfig,
-        targetSources: [{
-          source: persistedDraft,
-          requiredScopes,
-        }],
+        targets: [providerAuthTarget],
       });
 
-      return {
-        kind: "oauth_required",
-        source: oauthRequired.source,
-        sessionId: oauthRequired.sessionId,
-        authorizationUrl: oauthRequired.authorizationUrl,
-      } satisfies ExecutorSourceAddResult;
+      return providerAuthResult.kind === "connected"
+        ? {
+            kind: "connected",
+            source: providerAuthResult.sources[0]!,
+          } satisfies ExecutorSourceAddResult
+        : {
+            kind: "oauth_required",
+            source: providerAuthResult.sources[0]!,
+            sessionId: providerAuthResult.sessionId,
+            authorizationUrl: providerAuthResult.authorizationUrl,
+          } satisfies ExecutorSourceAddResult;
     }
 
     if (input.sourceInput.oauthClient) {
@@ -2537,66 +2689,43 @@ const connectGoogleDiscoveryBatchInternal = (input: {
           const persistedDraft = yield* input.sourceStore.persistSource(draftSource, {
             actorAccountId: input.sourceInput.actorAccountId,
           });
-          const adapter = getSourceAdapterForSource(persistedDraft);
-          const setupConfig = adapter.getOauth2SetupConfig
-            ? yield* adapter.getOauth2SetupConfig({
-                source: persistedDraft,
-                slot: "runtime",
-              })
-            : null;
-          if (setupConfig === null) {
+          const providerAuthTarget = yield* resolveRuntimeProviderAuthTarget(persistedDraft);
+          if (providerAuthTarget === null) {
             return yield* runtimeEffectError("sources/source-auth-service", `Source ${persistedDraft.id} does not support Google shared auth`);
           }
 
-          return {
-            source: persistedDraft,
-            requiredScopes: normalizeScopes(setupConfig.scopes),
-            setupConfig,
-          };
+          return providerAuthTarget;
         }),
       { discard: false },
     );
 
-    const baseSetupConfig = persistedTargets[0]!.setupConfig;
-    const unionScopes = normalizeScopes(
-      persistedTargets.flatMap((target) => [...target.requiredScopes]),
-    );
     const workspaceOauthClient = yield* resolveWorkspaceOauthClientById({
       rows: input.rows,
       workspaceId: input.sourceInput.workspaceId,
       oauthClientId: input.sourceInput.workspaceOauthClientId,
-      providerKey: baseSetupConfig.providerKey,
+      providerKey: persistedTargets[0]!.setupConfig.providerKey,
     });
     if (workspaceOauthClient === null) {
       return yield* runtimeEffectError("sources/source-auth-service", `Workspace OAuth client not found: ${input.sourceInput.workspaceOauthClientId}`);
     }
 
-    const reusableGrant = yield* findReusableProviderGrant({
+    const providerAuthResult = yield* connectSourcesWithProviderRuntimeAuth({
       rows: input.rows,
+      sourceStore: input.sourceStore,
+      sourceCatalogSync: input.sourceCatalogSync,
       workspaceId: input.sourceInput.workspaceId,
       actorAccountId: input.sourceInput.actorAccountId,
-      providerKey: baseSetupConfig.providerKey,
-      oauthClientId: workspaceOauthClient.id,
-      requiredScopes: unionScopes,
+      executionId: input.sourceInput.executionId,
+      interactionId: input.sourceInput.interactionId,
+      baseUrl: input.sourceInput.baseUrl,
+      getLocalServerBaseUrl: input.getLocalServerBaseUrl,
+      workspaceOauthClient,
+      targets: persistedTargets,
     });
 
-    if (Option.isSome(reusableGrant)) {
-      const connectedSources = yield* attachProviderGrantToSources({
-        sourceStore: input.sourceStore,
-        sourceCatalogSync: input.sourceCatalogSync,
-        actorAccountId: input.sourceInput.actorAccountId,
-        grantId: reusableGrant.value.id,
-        providerKey: reusableGrant.value.providerKey,
-        headerName: reusableGrant.value.headerName,
-        prefix: reusableGrant.value.prefix,
-        targets: persistedTargets.map((target) => ({
-          source: target.source,
-          requiredScopes: target.requiredScopes,
-        })),
-      });
-
+    if (providerAuthResult.kind === "connected") {
       return {
-        results: connectedSources.map((source) => ({
+        results: providerAuthResult.sources.map((source) => ({
           source,
           status: "connected" as const,
         })),
@@ -2604,51 +2733,15 @@ const connectGoogleDiscoveryBatchInternal = (input: {
       };
     }
 
-    const baseUrl = trimOrNull(input.sourceInput.baseUrl) ?? input.getLocalServerBaseUrl?.() ?? null;
-    if (baseUrl === null) {
-      return yield* runtimeEffectError("sources/source-auth-service", "Local executor server base URL is unavailable for Google OAuth setup");
-    }
-
-    const oauthRequired = yield* startProviderOauthBatchCredentialSetup({
-      rows: input.rows,
-      sourceStore: input.sourceStore,
-      workspaceId: input.sourceInput.workspaceId,
-      actorAccountId: input.sourceInput.actorAccountId,
-      executionId: input.sourceInput.executionId,
-      interactionId: input.sourceInput.interactionId,
-      baseUrl,
-      redirectModeOverride: trimOrNull(input.sourceInput.baseUrl) ? "app_callback" : undefined,
-      workspaceOauthClient,
-      setupConfig: {
-        ...baseSetupConfig,
-        scopes: unionScopes,
-      },
-      targetSources: persistedTargets.map((target) => ({
-        source: target.source,
-        requiredScopes: target.requiredScopes,
-      })),
-    });
-
-    const pendingSources = yield* Effect.forEach(
-      persistedTargets,
-      (target) =>
-        input.sourceStore.loadSourceById({
-          workspaceId: input.sourceInput.workspaceId,
-          sourceId: target.source.id,
-          actorAccountId: input.sourceInput.actorAccountId,
-        }),
-      { discard: false },
-    );
-
     return {
-      results: pendingSources.map((source) => ({
+      results: providerAuthResult.sources.map((source) => ({
         source,
         status: "pending_oauth" as const,
       })),
       providerOauthSession: {
-        sessionId: oauthRequired.sessionId,
-        authorizationUrl: oauthRequired.authorizationUrl,
-        sourceIds: pendingSources.map((source) => source.id),
+        sessionId: providerAuthResult.sessionId,
+        authorizationUrl: providerAuthResult.authorizationUrl,
+        sourceIds: providerAuthResult.sources.map((source) => source.id),
       },
     };
   });
@@ -2883,15 +2976,14 @@ const createRuntimeSourceConnectionService = (
     createWorkspaceOauthClient: ({ workspaceId, providerKey, label, oauthClient }) =>
       provideLocalWorkspace(
         Effect.gen(function* () {
+          const sourceAdapter = findSourceAdapterByProviderKey(providerKey);
           const created = yield* createWorkspaceOauthClient({
             rows: input.rows,
             workspaceId,
             providerKey,
             oauthClient,
             label,
-            normalizeOauthClient: providerKey === "google_workspace"
-              ? getSourceAdapter("google_discovery").normalizeOauthClientInput
-              : undefined,
+            normalizeOauthClient: sourceAdapter?.normalizeOauthClientInput,
             storeSecretMaterial: input.storeSecretMaterial,
           });
           const stored = yield* input.rows.workspaceOauthClients.getById(created.id);

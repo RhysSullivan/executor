@@ -10,12 +10,14 @@ import {
 } from "@executor/codemode-core";
 import { buildOpenApiToolPresentation } from "./tool-presentation";
 import { compileOpenApiToolDefinitions } from "./definitions";
+import { detectOpenApiSource } from "./discovery";
 import {
   httpBodyModeFromContentType,
   serializeOpenApiParameterValue,
   serializeOpenApiRequestBody,
   withSerializedQueryEntries,
 } from "./http-serialization";
+import { OpenApiLocalConfigBindingSchema } from "./local-config";
 import {
   OpenApiToolProviderDataSchema,
   type OpenApiRefHintTable,
@@ -36,6 +38,7 @@ import {
   emptySourceBindingState,
   encodeBindingConfig,
   isSourceCredentialRequiredError,
+  looksLikeGraphqlEndpoint,
   OptionalNullableStringSchema,
   SourceCredentialRequiredError,
   SourceConnectCommonFieldsSchema,
@@ -402,7 +405,7 @@ const openApiCatalogOperationFromDefinition = (input: {
   };
 };
 
-export const openApiSourceAdapter: SourceAdapter = {
+export const openApiSourceAdapter = {
   key: "openapi",
   displayName: "OpenAPI",
   catalogKind: "imported",
@@ -417,6 +420,14 @@ export const openApiSourceAdapter: SourceAdapter = {
     "endpoint is the base API URL. specUrl is the OpenAPI document URL.",
   ],
   executorAddInputSignatureWidth: 420,
+  localConfigBindingSchema: OpenApiLocalConfigBindingSchema,
+  localConfigBindingFromSource: (source) =>
+    Effect.runSync(
+      Effect.map(openApiBindingConfigFromSource(source), (bindingConfig) => ({
+        specUrl: bindingConfig.specUrl,
+        defaultHeaders: bindingConfig.defaultHeaders,
+      })),
+    ),
   serializeBindingConfig: (source) =>
     encodeBindingConfig({
       adapterKey: "openapi",
@@ -472,6 +483,13 @@ export const openApiSourceAdapter: SourceAdapter = {
   shouldAutoProbe: (source) =>
     source.enabled &&
     (source.status === "draft" || source.status === "probing"),
+  discoveryPriority: ({ normalizedUrl }) =>
+    looksLikeGraphqlEndpoint(normalizedUrl) ? 50 : 250,
+  detectSource: ({ normalizedUrl, headers }) =>
+    detectOpenApiSource({
+      normalizedUrl,
+      headers,
+    }),
   syncCatalog: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
       const bindingConfig = yield* openApiBindingConfigFromSource(source);
@@ -663,4 +681,4 @@ export const openApiSourceAdapter: SourceAdapter = {
       catch: (cause) =>
         cause instanceof Error ? cause : new Error(String(cause)),
     }),
-};
+} satisfies SourceAdapter;

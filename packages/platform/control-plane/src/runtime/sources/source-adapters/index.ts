@@ -1,66 +1,48 @@
 import * as Schema from "effect/Schema";
 
 import {
-  createSourceAdapterRegistry,
+  createSourceAdapterComposition,
   type SourceAdapter,
 } from "@executor/source-core";
-import { googleDiscoverySourceAdapter } from "@executor/source-google-discovery";
-import { graphqlSourceAdapter } from "@executor/source-graphql";
-import { mcpSourceAdapter } from "@executor/source-mcp";
-import { openApiSourceAdapter } from "@executor/source-openapi";
+import { externalSourceAdapters } from "@executor/source-builtins";
 
 import { internalSourceAdapter } from "./internal";
 
 export type * from "@executor/source-core";
 
 export const builtInSourceAdapters = [
-  openApiSourceAdapter,
-  graphqlSourceAdapter,
-  googleDiscoverySourceAdapter,
-  mcpSourceAdapter,
+  ...externalSourceAdapters,
   internalSourceAdapter,
 ] as const satisfies readonly SourceAdapter[];
+const composition = createSourceAdapterComposition(builtInSourceAdapters);
 
-export const connectableSourceAdapters = [
-  mcpSourceAdapter,
-  openApiSourceAdapter,
-  graphqlSourceAdapter,
-  googleDiscoverySourceAdapter,
-] as const;
-
-export const ConnectSourcePayloadSchema = Schema.Union(
-  mcpSourceAdapter.connectPayloadSchema!,
-  openApiSourceAdapter.connectPayloadSchema!,
-  graphqlSourceAdapter.connectPayloadSchema!,
-  googleDiscoverySourceAdapter.connectPayloadSchema!,
-);
-
+export const connectableSourceAdapters = composition.connectableSourceAdapters;
+export const ConnectSourcePayloadSchema =
+  composition.connectPayloadSchema as Schema.Schema<
+    typeof composition.connectPayloadSchema.Type,
+    any,
+    never
+  >;
 export type ConnectSourcePayload = typeof ConnectSourcePayloadSchema.Type;
 
-export const executorAddableSourceAdapters = [
-  mcpSourceAdapter,
-  openApiSourceAdapter,
-  graphqlSourceAdapter,
-  googleDiscoverySourceAdapter,
-] as const;
-
-export const ExecutorAddSourceInputSchema = Schema.Union(
-  mcpSourceAdapter.executorAddInputSchema!,
-  openApiSourceAdapter.executorAddInputSchema!,
-  graphqlSourceAdapter.executorAddInputSchema!,
-  googleDiscoverySourceAdapter.executorAddInputSchema!,
-);
-
+export const executorAddableSourceAdapters = composition.executorAddableSourceAdapters;
+export const ExecutorAddSourceInputSchema =
+  composition.executorAddInputSchema as Schema.Schema<
+    typeof composition.executorAddInputSchema.Type,
+    any,
+    never
+  >;
 export type ExecutorAddSourceInput = typeof ExecutorAddSourceInputSchema.Type;
 
-const registry = createSourceAdapterRegistry(builtInSourceAdapters);
+export const localConfigurableSourceAdapters = composition.localConfigurableSourceAdapters;
 
-export const getSourceAdapter = registry.getSourceAdapter;
-export const getSourceAdapterForSource = registry.getSourceAdapterForSource;
-export const sourceBindingStateFromSource = registry.sourceBindingStateFromSource;
-export const sourceAdapterCatalogKind = registry.sourceAdapterCatalogKind;
+export const getSourceAdapter = composition.getSourceAdapter;
+export const getSourceAdapterForSource = composition.getSourceAdapterForSource;
+export const findSourceAdapterByProviderKey = composition.findSourceAdapterByProviderKey;
+export const sourceBindingStateFromSource = composition.sourceBindingStateFromSource;
+export const sourceAdapterCatalogKind = composition.sourceAdapterCatalogKind;
 export const sourceAdapterRequiresInteractiveConnect =
-  registry.sourceAdapterRequiresInteractiveConnect;
+  composition.sourceAdapterRequiresInteractiveConnect;
 export const sourceAdapterUsesCredentialManagedAuth =
-  registry.sourceAdapterUsesCredentialManagedAuth;
-export const isInternalSourceAdapter = registry.isInternalSourceAdapter;
+  composition.sourceAdapterUsesCredentialManagedAuth;
+export const isInternalSourceAdapter = composition.isInternalSourceAdapter;

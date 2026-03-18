@@ -1,0 +1,26 @@
+{
+  "name": "@executor/source-builtins",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/source-core": "workspace:*",
+    "@executor/source-google-discovery": "workspace:*",
+    "@executor/source-graphql": "workspace:*",
+    "@executor/source-mcp": "workspace:*",
+    "@executor/source-openapi": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "bun-types": "catalog:"
+  },
+  "version": "0.0.0"
+}

@@ -12,10 +12,12 @@ import {
   type McpToolManifest,
   type McpToolManifestEntry,
 } from "./tools";
+import { detectMcpSource } from "./discovery";
 import {
   createMcpCatalogFragment,
   type McpCatalogOperationInput,
 } from "./catalog";
+import { McpLocalConfigBindingSchema } from "./local-config";
 import type { McpServerMetadata } from "./manifest";
 import {
   contentHash,
@@ -25,6 +27,7 @@ import {
   decodeSourceBindingPayload,
   emptySourceBindingState,
   encodeBindingConfig,
+  looksLikeGraphqlEndpoint,
   McpConnectFieldsSchema,
   OptionalNullableStringSchema,
   SourceTransportSchema,
@@ -326,7 +329,7 @@ export const catalogSyncResultFromMcpManifest = (input: {
   });
 };
 
-export const mcpSourceAdapter: SourceAdapter = {
+export const mcpSourceAdapter = {
   key: "mcp",
   displayName: "MCP",
   catalogKind: "imported",
@@ -342,6 +345,19 @@ export const mcpSourceAdapter: SourceAdapter = {
     'For local servers, set transport: "stdio" and provide command plus optional args/env/cwd.',
   ],
   executorAddInputSignatureWidth: 240,
+  localConfigBindingSchema: McpLocalConfigBindingSchema,
+  localConfigBindingFromSource: (source) =>
+    Effect.runSync(
+      Effect.map(mcpBindingConfigFromSource(source), (bindingConfig) => ({
+        transport: bindingConfig.transport,
+        queryParams: bindingConfig.queryParams,
+        headers: bindingConfig.headers,
+        command: bindingConfig.command,
+        args: bindingConfig.args,
+        env: bindingConfig.env,
+        cwd: bindingConfig.cwd,
+      })),
+    ),
   serializeBindingConfig: (source) =>
     encodeBindingConfig({
       adapterKey: "mcp",
@@ -408,6 +424,13 @@ export const mcpSourceAdapter: SourceAdapter = {
       };
     }),
   shouldAutoProbe: () => false,
+  discoveryPriority: ({ normalizedUrl }) =>
+    looksLikeGraphqlEndpoint(normalizedUrl) ? 350 : 125,
+  detectSource: ({ normalizedUrl, headers }) =>
+    detectMcpSource({
+      normalizedUrl,
+      headers,
+    }),
   syncCatalog: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
       const bindingConfig = yield* mcpBindingConfigFromSource(source);
@@ -599,4 +622,4 @@ export const mcpSourceAdapter: SourceAdapter = {
           status: null,
         };
     }),
-};
+} satisfies SourceAdapter;

@@ -1,11 +1,6 @@
 import { Schema } from "effect";
 
-import {
-  GoogleDiscoveryLocalConfigBindingSchema,
-} from "@executor/source-google-discovery";
-import { GraphqlLocalConfigBindingSchema } from "@executor/source-graphql";
-import { McpLocalConfigBindingSchema } from "@executor/source-mcp";
-import { OpenApiLocalConfigBindingSchema } from "@executor/source-openapi";
+import { localConfigurableSourceAdapters } from "../../runtime/sources/source-adapters";
 
 export const LocalExecutorRuntimeSchema = Schema.Literal(
   "quickjs",
@@ -73,44 +68,44 @@ const LocalConfigSourceEntryBaseSchema = Schema.Struct({
   connection: LocalConfigSourceConnectionSchema,
 });
 
-export const LocalConfigOpenApiSourceSchema = Schema.extend(
-  LocalConfigSourceEntryBaseSchema,
-  Schema.Struct({
-    kind: Schema.Literal("openapi"),
-    binding: OpenApiLocalConfigBindingSchema,
-  }),
-);
+type SchemaTypeOf<TSchema> = TSchema extends { readonly Type: infer T } ? T : never;
+type LocalConfigSourceEntryBase = typeof LocalConfigSourceEntryBaseSchema.Type;
 
-export const LocalConfigGraphqlSourceSchema = Schema.extend(
-  LocalConfigSourceEntryBaseSchema,
-  Schema.Struct({
-    kind: Schema.Literal("graphql"),
-    binding: GraphqlLocalConfigBindingSchema,
-  }),
-);
+type LocalConfigSourceFromAdapter<
+  TAdapter extends (typeof localConfigurableSourceAdapters)[number],
+> =
+  TAdapter extends {
+    key: infer TKey extends string;
+    localConfigBindingSchema: infer TSchema;
+  }
+    ? {
+        kind: TKey;
+        binding: SchemaTypeOf<TSchema>;
+      } & LocalConfigSourceEntryBase
+    : never;
 
-export const LocalConfigMcpSourceSchema = Schema.extend(
-  LocalConfigSourceEntryBaseSchema,
-  Schema.Struct({
-    kind: Schema.Literal("mcp"),
-    binding: McpLocalConfigBindingSchema,
-  }),
-);
+export type LocalConfigSource = LocalConfigSourceFromAdapter<
+  (typeof localConfigurableSourceAdapters)[number]
+>;
 
-export const LocalConfigGoogleDiscoverySourceSchema = Schema.extend(
-  LocalConfigSourceEntryBaseSchema,
-  Schema.Struct({
-    kind: Schema.Literal("google_discovery"),
-    binding: GoogleDiscoveryLocalConfigBindingSchema,
-  }),
+const LocalConfigSourceEntrySchemas = localConfigurableSourceAdapters.map(
+  (adapter) =>
+    Schema.extend(
+      LocalConfigSourceEntryBaseSchema,
+      Schema.Struct({
+        kind: Schema.Literal(adapter.key as LocalConfigSource["kind"]),
+        binding: adapter.localConfigBindingSchema,
+      }),
+    ),
 );
 
 export const LocalConfigSourceSchema = Schema.Union(
-  LocalConfigOpenApiSourceSchema,
-  LocalConfigGraphqlSourceSchema,
-  LocalConfigMcpSourceSchema,
-  LocalConfigGoogleDiscoverySourceSchema,
-);
+  ...((LocalConfigSourceEntrySchemas as unknown) as [
+    Schema.Schema<any, any, never>,
+    Schema.Schema<any, any, never>,
+    ...Array<Schema.Schema<any, any, never>>,
+  ]),
+) as Schema.Schema<LocalConfigSource, any, never>;
 
 export const LocalConfigPolicyActionSchema = Schema.Literal("allow", "deny");
 export const LocalConfigPolicyApprovalSchema = Schema.Literal("auto", "manual");
@@ -168,7 +163,6 @@ export type LocalConfigSecretProvider =
 export type LocalConfigExplicitSecretRef =
   typeof LocalConfigExplicitSecretRefSchema.Type;
 export type LocalConfigSecretInput = typeof LocalConfigSecretInputSchema.Type;
-export type LocalConfigSource = typeof LocalConfigSourceSchema.Type;
 export type LocalConfigPolicy = typeof LocalConfigPolicySchema.Type;
 export type LocalConfigSecrets = typeof LocalConfigSecretsSchema.Type;
 export type LocalExecutorRuntime = typeof LocalExecutorRuntimeSchema.Type;

@@ -25,7 +25,10 @@ import {
 } from "../../runtime/local/operations";
 import { discoverSource } from "../../runtime/sources/source-discovery";
 import { sourceAdapterRequiresInteractiveConnect } from "../../runtime/sources/source-adapters";
-import { RuntimeSourceAuthServiceTag } from "../../runtime/sources/source-auth-service";
+import {
+  RuntimeSourceAuthServiceTag,
+  type ExecutorAddSourceInput,
+} from "../../runtime/sources/source-auth-service";
 
 import {
   ControlPlaneBadRequestError,
@@ -33,6 +36,7 @@ import {
   ControlPlaneStorageError,
 } from "../errors";
 import { ControlPlaneApi } from "../api";
+import type { ConnectSourcePayload } from "./api";
 import { resolveRequestedLocalWorkspace } from "../local-context";
 
 const readHeader = (headers: unknown, name: string): string | null => {
@@ -78,6 +82,11 @@ const toBadRequestError = (operation: string, cause: unknown) => {
     details: message,
   });
 };
+
+const isInteractiveConnectPayload = (
+  payload: ConnectSourcePayload,
+): payload is Extract<ConnectSourcePayload, { kind?: "mcp" }> =>
+  payload.kind === undefined || sourceAdapterRequiresInteractiveConnect(payload.kind);
 
 const escapeHtml = (value: string): string =>
   value
@@ -677,8 +686,8 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
               const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
               const baseUrl = resolveRequestOrigin(request);
 
-              if (sourceAdapterRequiresInteractiveConnect(payload.kind)) {
-                return yield* sourceAuthService.connectMcpSource({
+	              if (isInteractiveConnectPayload(payload)) {
+	                return yield* sourceAuthService.connectMcpSource({
                   workspaceId: path.workspaceId,
                   actorAccountId: runtimeLocalWorkspace.installation.accountId,
                   endpoint: payload.endpoint,
@@ -695,16 +704,16 @@ export const ControlPlaneSourcesLive = HttpApiBuilder.group(
                 });
               }
 
-              return yield* sourceAuthService.addExecutorSource(
-                {
-                  workspaceId: path.workspaceId,
-                  actorAccountId: runtimeLocalWorkspace.installation.accountId,
-                  executionId: null,
-                  interactionId: null,
-                  ...payload,
-                },
-                { baseUrl },
-              );
+	              return yield* sourceAuthService.addExecutorSource(
+	                ({
+	                  workspaceId: path.workspaceId,
+	                  actorAccountId: runtimeLocalWorkspace.installation.accountId,
+	                  executionId: null,
+	                  interactionId: null,
+	                  ...(payload as Record<string, unknown>),
+	                } as ExecutorAddSourceInput),
+	                { baseUrl },
+	              );
             }).pipe(
               Effect.catchAll((cause) =>
                 Effect.fail(toBadRequestError("sources.connect", cause)),

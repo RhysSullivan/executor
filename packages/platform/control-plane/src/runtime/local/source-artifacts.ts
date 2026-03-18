@@ -23,7 +23,7 @@ import {
   contentHash,
   snapshotFromSourceCatalogSyncResult,
   type SourceCatalogSyncResult,
-} from "../sources/catalog-sync-result";
+} from "@executor/source-core";
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
   LocalFileSystemError,
@@ -34,7 +34,17 @@ import {
   createSourceCatalogRevisionRecord,
   stableSourceCatalogId,
 } from "../sources/source-definitions";
+const LEGACY_LOCAL_SOURCE_ARTIFACT_VERSION = 3 as const;
 const LOCAL_SOURCE_ARTIFACT_VERSION = 4 as const;
+
+const LegacyLocalSourceArtifactSchema = Schema.Struct({
+  version: Schema.Literal(LEGACY_LOCAL_SOURCE_ARTIFACT_VERSION),
+  sourceId: SourceIdSchema,
+  catalogId: SourceCatalogIdSchema,
+  generatedAt: TimestampMsSchema,
+  revision: StoredSourceCatalogRevisionRecordSchema,
+  snapshot: CatalogSnapshotV1Schema,
+});
 
 export const LocalSourceArtifactSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_SOURCE_ARTIFACT_VERSION),
@@ -46,8 +56,21 @@ export const LocalSourceArtifactSchema = Schema.Struct({
 });
 
 export type LocalSourceArtifact = typeof LocalSourceArtifactSchema.Type;
+type LegacyLocalSourceArtifact = typeof LegacyLocalSourceArtifactSchema.Type;
 
-const decodeLocalSourceArtifact = Schema.decodeUnknownSync(LocalSourceArtifactSchema);
+const decodeLocalSourceArtifact = Schema.decodeUnknownSync(
+  Schema.Union(LocalSourceArtifactSchema, LegacyLocalSourceArtifactSchema),
+);
+
+const normalizeLocalSourceArtifact = (
+  artifact: LocalSourceArtifact | LegacyLocalSourceArtifact,
+): LocalSourceArtifact =>
+  artifact.version === LOCAL_SOURCE_ARTIFACT_VERSION
+    ? artifact
+    : {
+        ...artifact,
+        version: LOCAL_SOURCE_ARTIFACT_VERSION,
+      };
 
 const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
   new LocalFileSystemError({
@@ -212,7 +235,7 @@ export const readLocalSourceArtifact = (input: {
           path: readPath,
           details: unknownLocalErrorDetails(cause),
         }),
-    });
+    }).pipe(Effect.map(normalizeLocalSourceArtifact));
 
     const rawDocuments: Record<string, NativeBlob> = {};
     for (const documentId of Object.keys(artifact.snapshot.catalog.documents)) {

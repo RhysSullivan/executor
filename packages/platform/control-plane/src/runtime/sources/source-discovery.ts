@@ -2,75 +2,52 @@ import * as Effect from "effect/Effect";
 
 import {
   fallbackSourceDiscoveryResult,
-  looksLikeGraphqlEndpoint,
   normalizeSourceDiscoveryUrl,
   probeHeadersFromAuth,
+  type SourceAdapter,
   type SourceProbeAuth,
   type SourceDiscoveryResult,
 } from "@executor/source-core";
-import { detectGoogleDiscoverySource } from "@executor/source-google-discovery";
-import { detectGraphqlSource } from "@executor/source-graphql";
-import { detectMcpSource } from "@executor/source-mcp";
-import { detectOpenApiSource } from "@executor/source-openapi";
+
+import { builtInSourceAdapters } from "./source-adapters";
+
+type DiscoverableSourceAdapter = SourceAdapter & {
+  detectSource: NonNullable<SourceAdapter["detectSource"]>;
+};
+
+const sourceAdapters: ReadonlyArray<SourceAdapter> = builtInSourceAdapters;
+
+const discoverableSourceAdapters = sourceAdapters.filter(
+  (adapter): adapter is DiscoverableSourceAdapter =>
+    adapter.detectSource !== undefined,
+);
 
 export const discoverSource = (input: {
   url: string;
   probeAuth?: SourceProbeAuth | null;
 }): Effect.Effect<SourceDiscoveryResult, Error, never> =>
   Effect.gen(function* () {
-    const normalizedUrl = normalizeSourceDiscoveryUrl(input.url);
+    const normalizedUrl = yield* Effect.try({
+      try: () => normalizeSourceDiscoveryUrl(input.url),
+      catch: (cause) =>
+        cause instanceof Error ? cause : new Error(String(cause)),
+    });
     const headers = probeHeadersFromAuth(input.probeAuth);
 
-    if (looksLikeGraphqlEndpoint(normalizedUrl)) {
-      const graphql = yield* detectGraphqlSource({
+    const adaptersByPriority = [...discoverableSourceAdapters].sort(
+      (left, right) =>
+        (right.discoveryPriority?.({ normalizedUrl }) ?? 0)
+        - (left.discoveryPriority?.({ normalizedUrl }) ?? 0),
+    );
+
+    for (const adapter of adaptersByPriority) {
+      const detected = yield* adapter.detectSource({
         normalizedUrl,
         headers,
       });
-      if (graphql) {
-        return graphql;
+      if (detected) {
+        return detected;
       }
-
-      const mcp = yield* detectMcpSource({
-        normalizedUrl,
-        headers,
-      });
-      if (mcp) {
-        return mcp;
-      }
-
-      return fallbackSourceDiscoveryResult(normalizedUrl);
-    }
-
-    const googleDiscovery = yield* detectGoogleDiscoverySource({
-      normalizedUrl,
-      headers,
-    });
-    if (googleDiscovery) {
-      return googleDiscovery;
-    }
-
-    const openApi = yield* detectOpenApiSource({
-      normalizedUrl,
-      headers,
-    });
-    if (openApi) {
-      return openApi;
-    }
-
-    const graphql = yield* detectGraphqlSource({
-      normalizedUrl,
-      headers,
-    });
-    if (graphql) {
-      return graphql;
-    }
-
-    const mcp = yield* detectMcpSource({
-      normalizedUrl,
-      headers,
-    });
-    if (mcp) {
-      return mcp;
     }
 
     return fallbackSourceDiscoveryResult(normalizedUrl);
