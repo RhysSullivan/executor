@@ -265,4 +265,63 @@ describe("local-source-artifacts", () => {
         );
       }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
+
+  it.effect(
+    "treats legacy protocol-shaped artifacts as missing cache entries",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const context = yield* makeContext();
+        const artifact = makeGraphqlArtifact();
+        const [legacyExecutableId, legacyExecutable] = Object.entries(
+          artifact.snapshot.catalog.executables,
+        )[0]!;
+        const path = join(
+          context.artifactsDirectory,
+          "sources",
+          `${artifact.sourceId}.json`,
+        );
+
+        const legacyArtifact = {
+          ...artifact,
+          version: 3,
+          snapshot: {
+            ...artifact.snapshot,
+            catalog: {
+              ...artifact.snapshot.catalog,
+              executables: {
+                ...artifact.snapshot.catalog.executables,
+                [legacyExecutableId]: {
+                  id: legacyExecutable.id,
+                  protocol: "graphql",
+                  capabilityId: legacyExecutable.capabilityId,
+                  scopeId: legacyExecutable.scopeId,
+                  operationType: "query",
+                  operationName: "ViewerQuery",
+                  operationDocument: "query ViewerQuery { viewer { login } }",
+                  responseSetId: legacyExecutable.projection.responseSetId,
+                  synthetic: legacyExecutable.synthetic,
+                  provenance: legacyExecutable.provenance,
+                },
+              },
+            },
+          },
+        };
+
+        yield* fs.makeDirectory(join(context.artifactsDirectory, "sources"), {
+          recursive: true,
+        }).pipe(Effect.orDie);
+        yield* fs.writeFileString(
+          path,
+          `${JSON.stringify(legacyArtifact)}\n`,
+        ).pipe(Effect.orDie);
+
+        const decoded = yield* readLocalSourceArtifact({
+          context,
+          sourceId: artifact.sourceId,
+        });
+
+        expect(decoded).toBeNull();
+      }).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
 });

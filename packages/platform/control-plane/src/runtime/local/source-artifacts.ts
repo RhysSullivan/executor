@@ -10,6 +10,7 @@ import {
   type SourceCatalogId,
 } from "#schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import { decodeCatalogSnapshotV1 } from "@executor/ir/catalog";
@@ -27,7 +28,6 @@ import {
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
   LocalFileSystemError,
-  LocalSourceArtifactDecodeError,
   unknownLocalErrorDetails,
 } from "./errors";
 import {
@@ -58,13 +58,41 @@ export const LocalSourceArtifactSchema = Schema.Struct({
 export type LocalSourceArtifact = typeof LocalSourceArtifactSchema.Type;
 type LegacyLocalSourceArtifact = typeof LegacyLocalSourceArtifactSchema.Type;
 
-const decodeLocalSourceArtifact = Schema.decodeUnknownSync(
-  Schema.Union(LocalSourceArtifactSchema, LegacyLocalSourceArtifactSchema),
+const ReadableLegacyLocalSourceArtifactSchema = Schema.Struct({
+  version: Schema.Literal(LEGACY_LOCAL_SOURCE_ARTIFACT_VERSION),
+  sourceId: SourceIdSchema,
+  catalogId: SourceCatalogIdSchema,
+  generatedAt: TimestampMsSchema,
+  revision: StoredSourceCatalogRevisionRecordSchema,
+  snapshot: Schema.Unknown,
+});
+
+const ReadableLocalSourceArtifactSchema = Schema.Struct({
+  version: Schema.Literal(LOCAL_SOURCE_ARTIFACT_VERSION),
+  sourceId: SourceIdSchema,
+  catalogId: SourceCatalogIdSchema,
+  generatedAt: TimestampMsSchema,
+  revision: StoredSourceCatalogRevisionRecordSchema,
+  snapshot: Schema.Unknown,
+});
+
+type ReadableLegacyLocalSourceArtifact =
+  typeof ReadableLegacyLocalSourceArtifactSchema.Type;
+type ReadableLocalSourceArtifact =
+  typeof ReadableLocalSourceArtifactSchema.Type;
+
+const decodeReadableLocalSourceArtifactOption = Schema.decodeUnknownOption(
+  Schema.parseJson(
+    Schema.Union(
+      ReadableLocalSourceArtifactSchema,
+      ReadableLegacyLocalSourceArtifactSchema,
+    ),
+  ),
 );
 
 const normalizeLocalSourceArtifact = (
-  artifact: LocalSourceArtifact | LegacyLocalSourceArtifact,
-): LocalSourceArtifact =>
+  artifact: ReadableLocalSourceArtifact | ReadableLegacyLocalSourceArtifact,
+): Omit<LocalSourceArtifact, "snapshot"> & { snapshot: unknown } =>
   artifact.version === LOCAL_SOURCE_ARTIFACT_VERSION
     ? artifact
     : {
@@ -176,6 +204,16 @@ const snapshotHash = (snapshot: CatalogSnapshotV1): string =>
 const importMetadataHash = (snapshot: { import: SourceCatalogSyncResult["importMetadata"] }): string =>
   contentHash(JSON.stringify(snapshot.import));
 
+const decodeCatalogSnapshotV1Option = (
+  snapshot: unknown,
+): CatalogSnapshotV1 | null => {
+  try {
+    return decodeCatalogSnapshotV1(snapshot);
+  } catch {
+    return null;
+  }
+};
+
 export const buildLocalSourceArtifact = (input: {
   source: Source;
   syncResult: SourceCatalogSyncResult;
@@ -209,7 +247,7 @@ export const readLocalSourceArtifact = (input: {
   sourceId: string;
 }): Effect.Effect<
   LocalSourceArtifact | null,
-  LocalFileSystemError | LocalSourceArtifactDecodeError,
+  LocalFileSystemError,
   FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
@@ -227,18 +265,24 @@ export const readLocalSourceArtifact = (input: {
       Effect.mapError(mapFileSystemError(readPath, "read source artifact")),
     );
 
-    const artifact = yield* Effect.try({
-      try: () => decodeLocalSourceArtifact(JSON.parse(content) as unknown),
-      catch: (cause) =>
-        new LocalSourceArtifactDecodeError({
-          message: `Invalid local source artifact at ${readPath}: ${unknownLocalErrorDetails(cause)}`,
-          path: readPath,
-          details: unknownLocalErrorDetails(cause),
-        }),
-    }).pipe(Effect.map(normalizeLocalSourceArtifact));
+    const decodedArtifact = decodeReadableLocalSourceArtifactOption(content);
+    if (Option.isNone(decodedArtifact)) {
+      return null;
+    }
+
+    const artifact = normalizeLocalSourceArtifact(decodedArtifact.value);
+    const snapshot = decodeCatalogSnapshotV1Option(artifact.snapshot);
+    if (snapshot === null) {
+      return null;
+    }
+
+    const decodedSnapshotArtifact: LocalSourceArtifact = {
+      ...artifact,
+      snapshot,
+    };
 
     const rawDocuments: Record<string, NativeBlob> = {};
-    for (const documentId of Object.keys(artifact.snapshot.catalog.documents)) {
+    for (const documentId of Object.keys(decodedSnapshotArtifact.snapshot.catalog.documents)) {
       const sourceDocumentPath = localSourceDocumentPath({
         context: input.context,
         sourceId: input.sourceId,
@@ -255,7 +299,7 @@ export const readLocalSourceArtifact = (input: {
         Effect.mapError(mapFileSystemError(sourceDocumentPath, "read source document")),
       );
       rawDocuments[documentId] = {
-        sourceKind: artifact.snapshot.import.sourceKind,
+        sourceKind: decodedSnapshotArtifact.snapshot.import.sourceKind,
         kind: "source_document",
         value: sourceContent,
       } satisfies NativeBlob;
@@ -263,23 +307,15 @@ export const readLocalSourceArtifact = (input: {
 
     const hydratedArtifact = Object.keys(rawDocuments).length > 0
       ? hydrateArtifactSourceDocuments({
-          artifact,
+          artifact: decodedSnapshotArtifact,
           rawDocuments,
         })
-      : artifact;
+      : decodedSnapshotArtifact;
 
-    return yield* Effect.try({
-      try: () => ({
-        ...hydratedArtifact,
-        snapshot: decodeCatalogSnapshotV1(hydratedArtifact.snapshot),
-      }),
-      catch: (cause) =>
-        new LocalSourceArtifactDecodeError({
-          message: `Invalid IR snapshot in local source artifact at ${readPath}: ${unknownLocalErrorDetails(cause)}`,
-          path: readPath,
-          details: unknownLocalErrorDetails(cause),
-        }),
-    });
+    return {
+      ...hydratedArtifact,
+      snapshot: hydratedArtifact.snapshot,
+    };
   });
 
 export const writeLocalSourceArtifact = (input: {

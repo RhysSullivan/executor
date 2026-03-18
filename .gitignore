@@ -83,3 +83,4 @@ sources/composio-scrape/data/
 personal-notes/
 .tmp/
 executor/.env.executor-push
+ignored/
