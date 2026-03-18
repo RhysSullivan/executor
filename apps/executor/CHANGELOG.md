@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.4-beta.1
+
+### Patch Changes
+
+- 5869ddb: Fix build
+
 ## 1.2.4-beta.0
 
 ### Patch Changes
