@@ -44,18 +44,6 @@
         "zod": "catalog:",
       },
     },
-    "apps/mcp-elicitation-demo": {
-      "name": "@executor/mcp-elicitation-demo",
-      "version": "0.0.0",
-      "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.26.0",
-        "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-      },
-    },
     "apps/web": {
       "name": "@executor/web",
       "version": "0.0.0",
@@ -87,6 +75,18 @@
         "tailwindcss": "^4.2.1",
         "tw-animate-css": "^1.4.0",
         "vite": "^7.3.1",
+      },
+    },
+    "examples/mcp-elicitation-demo": {
+      "name": "@executor/mcp-elicitation-demo",
+      "version": "0.0.0",
+      "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.26.0",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
       },
     },
     "examples/serve-skills-via-mcp": {
@@ -651,7 +651,7 @@
 
     "@executor/kitchen-sink": ["@executor/kitchen-sink@workspace:packages/dev/kitchen-sink"],
 
-    "@executor/mcp-elicitation-demo": ["@executor/mcp-elicitation-demo@workspace:apps/mcp-elicitation-demo"],
+    "@executor/mcp-elicitation-demo": ["@executor/mcp-elicitation-demo@workspace:examples/mcp-elicitation-demo"],
 
     "@executor/react": ["@executor/react@workspace:packages/clients/react"],
 
