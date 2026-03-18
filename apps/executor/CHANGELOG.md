@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.4-beta.3
+
+### Patch Changes
+
+- dc94998: Auto migrate sources on startup
+
 ## 1.2.4-beta.2
 
 ### Patch Changes
