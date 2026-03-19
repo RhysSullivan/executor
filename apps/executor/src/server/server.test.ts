@@ -1181,34 +1181,11 @@ describe("local-executor-server", () => {
   15_000,
   );
 
-  it.scoped("loads OpenAPI sources from control-plane state and calls them", () =>
+  it.scoped("loads GitHub OpenAPI sources from control-plane state via stored secrets and calls them", () =>
     Effect.gen(function* () {
       const openApiServer = yield* Effect.acquireRelease(
         Effect.promise(() => startOpenApiDemoServer()),
         (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
-      );
-
-      const previousGithubToken = process.env.GITHUB_TOKEN;
-      const previousAllowEnvSecrets = process.env.DANGEROUSLY_ALLOW_ENV_SECRETS;
-      yield* Effect.acquireRelease(
-        Effect.sync(() => {
-          process.env.GITHUB_TOKEN = "ghp_test_executor";
-          process.env.DANGEROUSLY_ALLOW_ENV_SECRETS = "true";
-        }),
-        () =>
-          Effect.sync(() => {
-            if (previousGithubToken === undefined) {
-              delete process.env.GITHUB_TOKEN;
-            } else {
-              process.env.GITHUB_TOKEN = previousGithubToken;
-            }
-
-            if (previousAllowEnvSecrets === undefined) {
-              delete process.env.DANGEROUSLY_ALLOW_ENV_SECRETS;
-            } else {
-              process.env.DANGEROUSLY_ALLOW_ENV_SECRETS = previousAllowEnvSecrets;
-            }
-          }),
       );
 
       const server = yield* createIsolatedLocalExecutorServer({
@@ -1225,14 +1202,44 @@ describe("local-executor-server", () => {
         accountId: installation.accountId,
       });
 
-      yield* seedGithubOpenApiSourceInWorkspace({
+      const seeded = yield* seedGithubOpenApiSourceInWorkspace({
         client,
         workspaceId: installation.workspaceId,
         endpoint: openApiServer.baseUrl,
         specUrl: openApiServer.specUrl,
         name: "GitHub",
         namespace: "github",
+        token: "ghp_test_executor",
+        secretName: "GitHub PAT",
+        providerId: "local",
       });
+
+      expect(seeded.secret.action).toBe("created");
+      expect(seeded.secret.providerId).toBe("local");
+      expect(seeded.source.providerId).toBe("local");
+      expect(seeded.verification.linked).toBe(true);
+
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+      });
+      expect(sources).toHaveLength(1);
+      expect(sources[0]?.auth.kind).toBe("bearer");
+      if (sources[0]?.auth.kind === "bearer") {
+        expect(sources[0].auth.token.providerId).toBe("local");
+      }
+
+      const secrets = yield* bootstrapClient.local.listSecrets({});
+      const storedSecret = secrets.find((secret) => secret.id === seeded.secret.secretId);
+      expect(storedSecret).toEqual(expect.objectContaining({
+        providerId: "local",
+      }));
+      expect(storedSecret?.linkedSources).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: seeded.source.sourceId,
+        }),
+      ]));
 
       const execution = yield* client.executions.create({
         path: {
@@ -1247,6 +1254,97 @@ describe("local-executor-server", () => {
       expect(execution.pendingInteraction).toBeNull();
       expect(execution.execution.resultJson).toContain("\"full_name\":\"vercel/ai\"");
       expect(openApiServer.seenAuthHeaders).toEqual(["Bearer ghp_test_executor"]);
+    }),
+  );
+
+  it.scoped("rotates stored GitHub source tokens in place", () =>
+    Effect.gen(function* () {
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+
+      const server = yield* createIsolatedLocalExecutorServer({
+        port: 0,
+        localDataDir: ":memory:",
+      });
+
+      const bootstrapClient = yield* createControlPlaneClient({
+        baseUrl: server.baseUrl,
+      });
+      const installation = yield* bootstrapClient.local.installation({});
+      const client = yield* createControlPlaneClient({
+        baseUrl: server.baseUrl,
+        accountId: installation.accountId,
+      });
+
+      const first = yield* seedGithubOpenApiSourceInWorkspace({
+        client,
+        workspaceId: installation.workspaceId,
+        endpoint: openApiServer.baseUrl,
+        specUrl: openApiServer.specUrl,
+        name: "GitHub",
+        namespace: "github",
+        token: "ghp_test_old_token",
+        secretName: "GitHub PAT",
+        providerId: "local",
+      });
+
+      const second = yield* seedGithubOpenApiSourceInWorkspace({
+        client,
+        workspaceId: installation.workspaceId,
+        endpoint: openApiServer.baseUrl,
+        specUrl: openApiServer.specUrl,
+        name: "GitHub",
+        namespace: "github",
+        token: "ghp_test_new_token",
+        secretName: "GitHub PAT",
+        providerId: "local",
+      });
+
+      expect(first.secret.action).toBe("created");
+      expect(second.secret.action).toBe("updated");
+      expect(second.secret.secretId).toBe(first.secret.secretId);
+      expect(second.source.sourceId).toBe(first.source.sourceId);
+      expect(second.source.action).toBe("noop");
+      expect(second.verification.linked).toBe(true);
+
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+      });
+      expect(sources).toHaveLength(1);
+      expect(sources[0]?.auth.kind).toBe("bearer");
+      if (sources[0]?.auth.kind === "bearer") {
+        expect(sources[0].auth.token.providerId).toBe("local");
+        expect(sources[0].auth.token.handle).toBe(first.secret.secretId);
+      }
+
+      const secrets = yield* bootstrapClient.local.listSecrets({});
+      const storedSecret = secrets.find((secret) => secret.id === first.secret.secretId);
+      expect(storedSecret).toEqual(expect.objectContaining({
+        providerId: "local",
+      }));
+      expect(storedSecret?.linkedSources).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          sourceId: first.source.sourceId,
+        }),
+      ]));
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.workspaceId,
+        },
+        payload: {
+          code: 'return await tools.github.repos.getRepo({ owner: "vercel", repo: "ai" });',
+        },
+      });
+
+      expect(execution.execution.status).toBe("completed");
+      expect(execution.pendingInteraction).toBeNull();
+      expect(execution.execution.resultJson).toContain("\"full_name\":\"vercel/ai\"");
+      expect(openApiServer.seenAuthHeaders).toEqual(["Bearer ghp_test_new_token"]);
     }),
   );
 
@@ -1586,7 +1684,7 @@ describe("local-executor-server", () => {
 
       expect(resumed.execution.status).toBe("failed");
       expect(resumed.pendingInteraction).toBeNull();
-      expect(resumed.execution.errorText).toContain("Invalid URL");
+      expect(resumed.execution.errorText).toContain("Failed connecting to MCP server");
     }),
   );
 });
