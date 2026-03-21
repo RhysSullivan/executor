@@ -804,7 +804,7 @@ function ToolDetailPanel(props: { detail: SourceInspectionToolDetail }) {
               <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
                 TypeScript Signature
               </div>
-              <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[12px] text-foreground">
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap font-mono text-[12px] text-foreground">
                 {detail.contract.callDeclaration}
               </pre>
             </div>
