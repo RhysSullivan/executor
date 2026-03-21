@@ -3,7 +3,13 @@
   "exclude": [
     "duplicates"
   ],
+  "ignoreDependencies": [
+    "react-grab"
+  ],
   "ignoreIssues": {
+    "packages/kernel/runtime-deno-subprocess/src/deno-subprocess-worker.mjs": [
+      "files"
+    ],
     "packages/sources/openapi/src/openapi-extractor-wasm/openapi_extractor.js": [
       "exports"
     ]
@@ -22,6 +28,17 @@
       ],
       "project": [
         "src/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts}"
+      ]
+    },
+    "apps/web": {
+      "entry": [
+        "src/index.html",
+        "src/frontend.tsx",
+        "src/dev.ts",
+        "src/server.ts"
+      ],
+      "project": [
+        "src/**/*.{js,mjs,cjs,jsx,ts,tsx,mts,cts,css,html}"
       ]
     },
     "examples/*": {

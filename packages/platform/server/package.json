@@ -6,6 +6,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "test": "bun test",
+    "test:watch": "bun test --watch",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -18,7 +20,6 @@
     "@executor/platform-sdk": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.213.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.213.0",
     "@opentelemetry/resources": "^2.6.0",
     "@opentelemetry/sdk-trace-base": "^2.6.0",
     "@opentelemetry/sdk-trace-node": "^2.6.0",

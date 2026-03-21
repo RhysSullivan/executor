@@ -20,7 +20,6 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-grab": "^0.1.26",
-    "scheduler": "^0.27.0",
     "shiki": "^4.0.1",
     "streamdown": "^2.3.0",
     "tailwind-merge": "^3.5.0",

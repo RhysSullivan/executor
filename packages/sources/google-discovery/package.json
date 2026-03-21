@@ -21,7 +21,6 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/platform-node": "^0.104.1",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
