@@ -2,8 +2,8 @@ import { Atom, Result } from "@effect-atom/atom";
 import type * as Registry from "@effect-atom/atom/Registry";
 import { RegistryContext, RegistryProvider, useAtomValue } from "@effect-atom/atom-react";
 import {
-  createControlPlaneClient,
-  type ControlPlaneClient,
+  createExecutorApiClient,
+  type ExecutorApiClient,
 } from "@executor/platform-api/client";
 import {
   type CompleteSourceOAuthResult,
@@ -238,13 +238,13 @@ const logExecutorDevError = (label: string, details: Record<string, unknown>): v
 const runControlPlane = async <A>(input: {
   baseUrl?: string;
   accountId?: string;
-  execute: (client: ControlPlaneClient) => Effect.Effect<A, unknown, never>;
+  execute: (client: ExecutorApiClient) => Effect.Effect<A, unknown, never>;
 }): Promise<A> => {
   const baseUrl = input.baseUrl ?? apiBaseUrl;
   const accountId = input.accountId;
 
   const exit = await Effect.runPromiseExit(
-    createControlPlaneClient({
+    createExecutorApiClient({
       baseUrl,
       ...(accountId !== undefined ? { accountId } : {}),
     }).pipe(Effect.flatMap(input.execute)),
@@ -267,7 +267,7 @@ const runControlPlane = async <A>(input: {
 const controlPlaneRequest = <A>(input: {
   baseUrl?: string;
   accountId?: string;
-  execute: (client: ControlPlaneClient) => Effect.Effect<A, unknown, never>;
+  execute: (client: ExecutorApiClient) => Effect.Effect<A, unknown, never>;
 }): Effect.Effect<A, Error> =>
   Effect.tryPromise({
     try: () => runControlPlane(input),

@@ -4,11 +4,11 @@ import { FileSystem, HttpApiBuilder, HttpServer } from "@effect/platform";
 import { NodeFileSystem, NodeHttpServer } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import {
-  createControlPlaneApiLayer,
+  createExecutorApiLayer,
 } from "@executor/platform-api";
 import { createExecutorEffect } from "@executor/platform-sdk";
-import type { ControlPlaneRuntime } from "@executor/platform-sdk/runtime";
-import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "@executor/platform-sdk-file";
+import type { ExecutorRuntime } from "@executor/platform-sdk/runtime";
+import { createLocalExecutorRuntime as createExecutorRuntime } from "@executor/platform-sdk-file";
 import type {
   LocalInstallation,
   Source,
@@ -70,7 +70,7 @@ type RunningServer = {
 };
 
 type ApiServer = RunningServer & {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
 };
 
 type HookHarness<T> = {
@@ -102,7 +102,7 @@ const startControlPlaneServer = async (): Promise<ApiServer> => {
     ),
   );
   const runtime = await Effect.runPromise(
-    createControlPlaneRuntime({
+    createExecutorRuntime({
       workspaceRoot,
     }),
   );
@@ -117,7 +117,7 @@ const startControlPlaneServer = async (): Promise<ApiServer> => {
       }),
     );
     const serverLayer = HttpApiBuilder.serve().pipe(
-      Layer.provide(createControlPlaneApiLayer(executor)),
+      Layer.provide(createExecutorApiLayer(executor)),
       Layer.provideMerge(NodeHttpServer.layerTest),
     );
     const context = await Effect.runPromise(Layer.buildWithScope(serverLayer, scope));
