@@ -25,7 +25,7 @@ import {
   ControlPlaneNotFoundError,
   ControlPlaneStorageError,
 } from "../errors";
-import { ControlPlaneApi } from "../api";
+import { ExecutorApi } from "../api";
 import type { ConnectSourcePayload } from "./api";
 import {
   getControlPlaneExecutor,
@@ -742,8 +742,8 @@ const credentialSubmitErrorResponse = (input: {
     }),
   );
 
-export const ControlPlaneSourcesLive = HttpApiBuilder.group(
-  ControlPlaneApi,
+export const ExecutorSourcesLive = HttpApiBuilder.group(
+  ExecutorApi,
   "sources",
   (handlers) =>
     handlers

@@ -4,7 +4,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
-  createControlPlaneClient,
+  createExecutorApiClient,
 } from "@executor/platform-api";
 import { type SourceDiscoveryKind } from "@executor/platform-sdk/schema";
 import { createLocalExecutorServer } from "@executor/server";
@@ -33,11 +33,11 @@ const createIsolatedLocalExecutorServer = () =>
 const createApiClientHarness = () =>
   Effect.gen(function* () {
     const server = yield* createIsolatedLocalExecutorServer();
-    const bootstrapClient = yield* createControlPlaneClient({
+    const bootstrapClient = yield* createExecutorApiClient({
       baseUrl: server.baseUrl,
     });
     const installation = yield* bootstrapClient.local.installation({});
-    const client = yield* createControlPlaneClient({
+    const client = yield* createExecutorApiClient({
       baseUrl: server.baseUrl,
       accountId: installation.accountId,
     });

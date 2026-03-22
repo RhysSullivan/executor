@@ -136,7 +136,7 @@ export const loadSourcesInWorkspaceWithDeps = (
       deps,
       workspaceId,
     );
-    const authArtifacts = yield* deps.rows.authArtifacts.listByWorkspaceId(
+    const authArtifacts = yield* deps.executorState.authArtifacts.listByWorkspaceId(
       workspaceId,
     );
     const sources = yield* Effect.forEach(
@@ -234,8 +234,8 @@ export const listLinkedSecretSourcesInWorkspaceWithDeps = (
       loadSourcesInWorkspaceWithDeps(deps, workspaceId, {
         actorAccountId: options.actorAccountId,
       }),
-      deps.rows.authArtifacts.listByWorkspaceId(workspaceId),
-      deps.rows.secretMaterials.listAll().pipe(
+      deps.executorState.authArtifacts.listByWorkspaceId(workspaceId),
+      deps.executorState.secretMaterials.listAll().pipe(
         Effect.map(
           (materials) => new Set(materials.map((material) => String(material.id))),
         ),
@@ -290,7 +290,7 @@ export const loadSourceByIdWithDeps = (
       deps,
       input.workspaceId,
     );
-    const authArtifacts = yield* deps.rows.authArtifacts.listByWorkspaceId(
+    const authArtifacts = yield* deps.executorState.authArtifacts.listByWorkspaceId(
       input.workspaceId,
     );
     if (!localWorkspace.loadedConfig.config?.sources?.[input.sourceId]) {

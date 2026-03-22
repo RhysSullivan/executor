@@ -22,8 +22,8 @@ import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
 import {
   type ResolveExecutionEnvironment,
 } from "../index";
-import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "../../../../sdk-file/src/index";
-import { withControlPlaneClient } from "./test-http-client";
+import { createLocalExecutorRuntime as createExecutorRuntime } from "../../../../sdk-file/src/index";
+import { withExecutorApiClient } from "./test-http-client";
 
 type McpFormServer = {
   endpoint: string;
@@ -295,7 +295,7 @@ describe("execution-mcp-resume", () => {
         prefix: "executor-execution-mcp-resume-",
       });
       const runtime = yield* Effect.acquireRelease(
-        createControlPlaneRuntime({
+        createExecutorRuntime({
           localDataDir: ":memory:",
           workspaceRoot,
           homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
@@ -307,7 +307,7 @@ describe("execution-mcp-resume", () => {
 
       const installation = runtime.localInstallation;
 
-      const created = yield* withControlPlaneClient(
+      const created = yield* withExecutorApiClient(
         {
           runtime,
           accountId: installation.accountId,
@@ -331,7 +331,7 @@ describe("execution-mcp-resume", () => {
         expect(created.pendingInteraction.payloadJson).toContain("Approve gated echo");
       }
 
-      const pendingInteraction = yield* runtime.persistence.rows.executionInteractions.getPendingByExecutionId(
+      const pendingInteraction = yield* runtime.storage.executorState.executionInteractions.getPendingByExecutionId(
         created.execution.id,
       );
 
@@ -341,7 +341,7 @@ describe("execution-mcp-resume", () => {
         expect(pendingInteraction.value.payloadJson).toContain("Approve gated echo");
       }
 
-      const resumed = yield* withControlPlaneClient(
+      const resumed = yield* withExecutorApiClient(
         {
           runtime,
           accountId: installation.accountId,

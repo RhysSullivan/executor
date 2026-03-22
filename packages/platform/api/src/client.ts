@@ -4,16 +4,16 @@ import {
 } from "@effect/platform";
 import * as Effect from "effect/Effect";
 
-import { ControlPlaneApi } from "./api";
+import { ExecutorApi } from "./api";
 
-export const createControlPlaneClient = (input: {
+export const createExecutorApiClient = (input: {
   baseUrl: string;
   accountId?: string;
 }) =>
-  HttpApiClient.make(ControlPlaneApi, {
+  HttpApiClient.make(ExecutorApi, {
     baseUrl: input.baseUrl,
   }).pipe(Effect.provide(FetchHttpClient.layer));
 
-export type ControlPlaneClient = Effect.Effect.Success<
-  ReturnType<typeof createControlPlaneClient>
+export type ExecutorApiClient = Effect.Effect.Success<
+  ReturnType<typeof createExecutorApiClient>
 >;

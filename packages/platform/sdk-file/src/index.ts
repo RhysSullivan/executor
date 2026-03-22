@@ -2,12 +2,14 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   createExecutor,
+  createExecutorBackend,
   createExecutorEffect,
   type CreateExecutorOptions,
   type Executor,
   type ExecutorBackend,
   type ExecutorBackendServices,
-  type ExecutorRuntimeOptions,
+  type ExecutorLocalToolBackend,
+  type ExecutorSourceTypeDeclarationsBackend,
   type ExecutorWorkspaceDescriptor,
 } from "@executor/platform-sdk";
 import type {
@@ -15,10 +17,9 @@ import type {
   LocalInstallation,
 } from "@executor/platform-sdk/schema";
 import {
-  type RuntimeControlPlaneOptions,
-  type ControlPlaneRuntime,
+  type ExecutorRuntime,
+  type ExecutorRuntimeOptions,
   type ResolveSecretMaterial,
-  createControlPlaneRuntimeFromServices,
 } from "@executor/platform-sdk/runtime";
 import * as Effect from "effect/Effect";
 import type { LocalToolRuntime } from "../../sdk/src/runtime/local-tool-runtime";
@@ -30,7 +31,7 @@ import {
   resolveLocalWorkspaceContext,
   writeProjectLocalExecutorConfig,
 } from "./config";
-import { createLocalControlPlanePersistence } from "./control-plane-store";
+import { createLocalExecutorStatePersistence } from "./executor-state-store";
 import {
   createDefaultSecretMaterialDeleter,
   createLocalInstanceConfigResolver,
@@ -78,7 +79,7 @@ export type CreateLocalExecutorBackendOptions = {
 };
 
 type CreateLocalRuntimeOptions = CreateLocalExecutorBackendOptions &
-  RuntimeControlPlaneOptions;
+  ExecutorRuntimeOptions;
 
 type LocalWorkspaceState = Parameters<
   typeof writeLocalWorkspaceState
@@ -172,14 +173,14 @@ const createBoundSourceArtifactStore = (
 const createBoundLocalToolRuntimeLoader = (
   context: ResolvedLocalWorkspaceContext,
   fileSystem: FileSystem.FileSystem,
-): ExecutorBackendServices["localToolRuntimeLoader"] => ({
+): ExecutorLocalToolBackend => ({
   load: () =>
     bindFileSystem(fileSystem, loadLocalToolRuntime(context)),
 });
 
 const createBoundSourceTypeDeclarationsRefresher = (
   context: ResolvedLocalWorkspaceContext,
-): NonNullable<ExecutorBackendServices["sourceTypeDeclarationsRefresher"]> => ({
+): ExecutorSourceTypeDeclarationsBackend => ({
   refreshWorkspaceInBackground: ({ entries }) =>
     Effect.sync(() => {
       refreshWorkspaceSourceTypeDeclarationsInBackground({
@@ -215,7 +216,7 @@ const toExecutorWorkspaceContext = (
 
 export const createLocalExecutorServicesEffect = (
   options: CreateLocalExecutorBackendOptions = {},
-  runtimeOptions: RuntimeControlPlaneOptions = {},
+  runtimeOptions: ExecutorRuntimeOptions = {},
 ): Effect.Effect<ExecutorBackendServices, Error> =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -229,7 +230,7 @@ export const createLocalExecutorServicesEffect = (
       }),
     ).pipe(Effect.mapError(toError));
 
-    const persistence = createLocalControlPlanePersistence(
+    const executorStateStorage = createLocalExecutorStatePersistence(
       workspaceContext,
       fileSystem,
     );
@@ -241,76 +242,68 @@ export const createLocalExecutorServicesEffect = (
     const resolveSecretMaterial: ResolveSecretMaterial =
       runtimeOptions.resolveSecretMaterial
       ?? createDefaultSecretMaterialResolver({
-        rows: persistence.rows,
+        executorState: executorStateStorage.executorState,
         localConfig: loadedConfig.config,
         workspaceRoot: workspaceContext.workspaceRoot,
       });
 
     return {
       workspace: toExecutorWorkspaceContext(workspaceContext),
-      installationStore: createBoundInstallationStore(workspaceContext),
-      workspaceConfigStore,
-      workspaceStateStore: createBoundWorkspaceStateStore(
-        workspaceContext,
-        fileSystem,
-      ),
-      sourceArtifactStore: createBoundSourceArtifactStore(
-        workspaceContext,
-        fileSystem,
-      ),
-      localToolRuntimeLoader: createBoundLocalToolRuntimeLoader(
-        workspaceContext,
-        fileSystem,
-      ),
-      sourceTypeDeclarationsRefresher:
-        createBoundSourceTypeDeclarationsRefresher(workspaceContext),
-      secretMaterial: {
-        resolve: resolveSecretMaterial,
-        store: createDefaultSecretMaterialStorer({
-          rows: persistence.rows,
-        }),
-        delete: createDefaultSecretMaterialDeleter({
-          rows: persistence.rows,
-        }),
-        update: createDefaultSecretMaterialUpdater({
-          rows: persistence.rows,
-        }),
+      storage: {
+        installation: createBoundInstallationStore(workspaceContext),
+        workspaceConfig: workspaceConfigStore,
+        workspaceState: createBoundWorkspaceStateStore(
+          workspaceContext,
+          fileSystem,
+        ),
+        sourceArtifacts: createBoundSourceArtifactStore(
+          workspaceContext,
+          fileSystem,
+        ),
+        executorState: executorStateStorage.executorState,
+        secretMaterial: {
+          resolve: resolveSecretMaterial,
+          store: createDefaultSecretMaterialStorer({
+            executorState: executorStateStorage.executorState,
+          }),
+          delete: createDefaultSecretMaterialDeleter({
+            executorState: executorStateStorage.executorState,
+          }),
+          update: createDefaultSecretMaterialUpdater({
+            executorState: executorStateStorage.executorState,
+          }),
+        },
+        close: executorStateStorage.close,
       },
+      localTools: createBoundLocalToolRuntimeLoader(
+        workspaceContext,
+        fileSystem,
+      ),
+      sourceTypeDeclarations:
+        createBoundSourceTypeDeclarationsRefresher(workspaceContext),
       instanceConfig: {
         resolve: createLocalInstanceConfigResolver(),
       },
-      persistence,
     } satisfies ExecutorBackendServices;
   }).pipe(Effect.provide(NodeFileSystem.layer));
 
 export const createLocalExecutorBackend = (
   options: CreateLocalExecutorBackendOptions = {},
-): ExecutorBackend => ({
-  createRuntime: (runtimeOptions) =>
-    Effect.flatMap(
+): ExecutorBackend =>
+  createExecutorBackend({
+    loadServices: (runtimeOptions: ExecutorRuntimeOptions) =>
       createLocalExecutorServicesEffect(options, runtimeOptions),
-      (services) =>
-        createControlPlaneRuntimeFromServices({
-          ...runtimeOptions,
-          services,
-        }),
-    ).pipe(Effect.provide(NodeFileSystem.layer)),
-});
+  });
 
-export const createLocalControlPlaneRuntime = (
+export const createLocalExecutorRuntime = (
   options: CreateLocalRuntimeOptions = {},
-): Effect.Effect<ControlPlaneRuntime, Error> =>
-  Effect.flatMap(
-    createLocalExecutorServicesEffect(options, options),
-    (services) =>
-      createControlPlaneRuntimeFromServices({
-        executionResolver: options.executionResolver,
-        createInternalToolMap: options.createInternalToolMap,
-        resolveSecretMaterial: options.resolveSecretMaterial,
-        getLocalServerBaseUrl: options.getLocalServerBaseUrl,
-        services,
-      }),
-  ).pipe(Effect.provide(NodeFileSystem.layer));
+): Effect.Effect<ExecutorRuntime, Error> =>
+  createLocalExecutorBackend(options).createRuntime({
+    executionResolver: options.executionResolver,
+    createInternalToolMap: options.createInternalToolMap,
+    resolveSecretMaterial: options.resolveSecretMaterial,
+    getLocalServerBaseUrl: options.getLocalServerBaseUrl,
+  });
 
 export const createLocalExecutorEffect = (
   options: CreateLocalExecutorBackendOptions & ExecutorRuntimeOptions = {},
@@ -333,9 +326,9 @@ export {
   loadLocalInstallation,
 } from "./installation";
 export {
-  loadLocalControlPlaneState,
-  writeLocalControlPlaneState,
-} from "./control-plane-store";
+  loadLocalExecutorStateSnapshot,
+  writeLocalExecutorStateSnapshot,
+} from "./executor-state-store";
 export {
   loadLocalExecutorConfig,
   resolveConfigRelativePath,

@@ -76,25 +76,25 @@ export const removeSourceByIdWithDeps = (
       sourceId: input.sourceId,
     });
     const existingAuthArtifacts =
-      yield* deps.rows.authArtifacts.listByWorkspaceAndSourceId({
+      yield* deps.executorState.authArtifacts.listByWorkspaceAndSourceId({
         workspaceId: input.workspaceId,
         sourceId: input.sourceId,
       });
     const removedGrantIds = providerGrantIdsFromArtifacts(existingAuthArtifacts);
 
-    yield* deps.rows.sourceAuthSessions.removeByWorkspaceAndSourceId(
+    yield* deps.executorState.sourceAuthSessions.removeByWorkspaceAndSourceId(
       input.workspaceId,
       input.sourceId,
     );
-    yield* deps.rows.sourceOauthClients.removeByWorkspaceAndSourceId({
+    yield* deps.executorState.sourceOauthClients.removeByWorkspaceAndSourceId({
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
     });
-    yield* removeAuthArtifactsForSource(deps.rows, input, deleteSecretMaterial);
+    yield* removeAuthArtifactsForSource(deps.executorState, input, deleteSecretMaterial);
     yield* Effect.forEach(
       [...removedGrantIds],
       (grantId) =>
-        markProviderGrantOrphanedIfUnused(deps.rows, {
+        markProviderGrantOrphanedIfUnused(deps.executorState, {
           workspaceId: input.workspaceId,
           grantId,
         }),
@@ -130,7 +130,7 @@ export const persistSourceWithDeps = (
             ),
     } satisfies Source;
     const existingAuthArtifacts =
-      yield* deps.rows.authArtifacts.listByWorkspaceAndSourceId({
+      yield* deps.executorState.authArtifacts.listByWorkspaceAndSourceId({
         workspaceId: nextSource.workspaceId,
         sourceId: nextSource.id,
       });
@@ -172,58 +172,58 @@ export const persistSourceWithDeps = (
 
     if (runtimeAuthArtifact === null) {
       if (existingRuntimeAuthArtifact !== null) {
-        yield* removeAuthLeaseAndSecrets(deps.rows, {
+        yield* removeAuthLeaseAndSecrets(deps.executorState, {
           authArtifactId: existingRuntimeAuthArtifact.id,
         }, deleteSecretMaterial);
       }
-      yield* deps.rows.authArtifacts.removeByWorkspaceSourceAndActor({
+      yield* deps.executorState.authArtifacts.removeByWorkspaceSourceAndActor({
         workspaceId: nextSource.workspaceId,
         sourceId: nextSource.id,
         actorAccountId: options.actorAccountId ?? null,
         slot: "runtime",
       });
     } else {
-      yield* deps.rows.authArtifacts.upsert(runtimeAuthArtifact);
+      yield* deps.executorState.authArtifacts.upsert(runtimeAuthArtifact);
       if (
         existingRuntimeAuthArtifact !== null &&
         existingRuntimeAuthArtifact.id !== runtimeAuthArtifact.id
       ) {
-        yield* removeAuthLeaseAndSecrets(deps.rows, {
+        yield* removeAuthLeaseAndSecrets(deps.executorState, {
           authArtifactId: existingRuntimeAuthArtifact.id,
         }, deleteSecretMaterial);
       }
     }
 
-    yield* cleanupAuthArtifactSecretRefs(deps.rows, {
+    yield* cleanupAuthArtifactSecretRefs(deps.executorState, {
       previous: existingRuntimeAuthArtifact ?? null,
       next: runtimeAuthArtifact,
     }, deleteSecretMaterial);
 
     if (importAuthArtifact === null) {
       if (existingImportAuthArtifact !== null) {
-        yield* removeAuthLeaseAndSecrets(deps.rows, {
+        yield* removeAuthLeaseAndSecrets(deps.executorState, {
           authArtifactId: existingImportAuthArtifact.id,
         }, deleteSecretMaterial);
       }
-      yield* deps.rows.authArtifacts.removeByWorkspaceSourceAndActor({
+      yield* deps.executorState.authArtifacts.removeByWorkspaceSourceAndActor({
         workspaceId: nextSource.workspaceId,
         sourceId: nextSource.id,
         actorAccountId: options.actorAccountId ?? null,
         slot: "import",
       });
     } else {
-      yield* deps.rows.authArtifacts.upsert(importAuthArtifact);
+      yield* deps.executorState.authArtifacts.upsert(importAuthArtifact);
       if (
         existingImportAuthArtifact !== null &&
         existingImportAuthArtifact.id !== importAuthArtifact.id
       ) {
-        yield* removeAuthLeaseAndSecrets(deps.rows, {
+        yield* removeAuthLeaseAndSecrets(deps.executorState, {
           authArtifactId: existingImportAuthArtifact.id,
         }, deleteSecretMaterial);
       }
     }
 
-    yield* cleanupAuthArtifactSecretRefs(deps.rows, {
+    yield* cleanupAuthArtifactSecretRefs(deps.executorState, {
       previous: existingImportAuthArtifact ?? null,
       next: importAuthArtifact,
     }, deleteSecretMaterial);
@@ -240,7 +240,7 @@ export const persistSourceWithDeps = (
     yield* Effect.forEach(
       [...nextGrantIds],
       (grantId) =>
-        clearProviderGrantOrphanedAt(deps.rows, {
+        clearProviderGrantOrphanedAt(deps.executorState, {
           grantId,
         }),
       { discard: true },
@@ -248,7 +248,7 @@ export const persistSourceWithDeps = (
     yield* Effect.forEach(
       [...previousGrantIds].filter((grantId) => !nextGrantIds.has(grantId)),
       (grantId) =>
-        markProviderGrantOrphanedIfUnused(deps.rows, {
+        markProviderGrantOrphanedIfUnused(deps.executorState, {
           workspaceId: nextSource.workspaceId,
           grantId,
         }),

@@ -36,11 +36,11 @@ import {
   unknownLocalErrorDetails,
 } from "./errors";
 
-const LOCAL_CONTROL_PLANE_STATE_VERSION = 1 as const;
-const LOCAL_CONTROL_PLANE_STATE_BASENAME = "control-plane-state.json";
+const LOCAL_EXECUTOR_STATE_VERSION = 1 as const;
+const LOCAL_EXECUTOR_STATE_BASENAME = "executor-state.json";
 
-const LocalControlPlaneStateSchema = Schema.Struct({
-  version: Schema.Literal(LOCAL_CONTROL_PLANE_STATE_VERSION),
+const LocalExecutorStateSnapshotSchema = Schema.Struct({
+  version: Schema.Literal(LOCAL_EXECUTOR_STATE_VERSION),
   authArtifacts: Schema.Array(AuthArtifactSchema),
   authLeases: Schema.Array(AuthLeaseSchema),
   sourceOauthClients: Schema.Array(WorkspaceSourceOauthClientSchema),
@@ -53,19 +53,19 @@ const LocalControlPlaneStateSchema = Schema.Struct({
   executionSteps: Schema.Array(ExecutionStepSchema),
 });
 
-export type LocalControlPlaneState = typeof LocalControlPlaneStateSchema.Type;
+export type LocalExecutorStateSnapshot = typeof LocalExecutorStateSnapshotSchema.Type;
 
-export type LocalControlPlanePersistence = {
-  rows: LocalControlPlaneStore;
+export type LocalExecutorStatePersistence = {
+  executorState: LocalExecutorStateStore;
   close: () => Promise<void>;
 };
 
-const decodeLocalControlPlaneState = Schema.decodeUnknown(
-  LocalControlPlaneStateSchema,
+const decodeLocalExecutorStateSnapshot = Schema.decodeUnknown(
+  LocalExecutorStateSnapshotSchema,
 );
 
-const defaultLocalControlPlaneState = (): LocalControlPlaneState => ({
-  version: LOCAL_CONTROL_PLANE_STATE_VERSION,
+const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
+  version: LOCAL_EXECUTOR_STATE_VERSION,
   authArtifacts: [],
   authLeases: [],
   sourceOauthClients: [],
@@ -108,14 +108,14 @@ const sortByUpdatedAtAndIdDesc = <T extends { updatedAt: number; id: string }>(
     right.updatedAt - left.updatedAt || right.id.localeCompare(left.id),
   );
 
-const localControlPlaneStatePath = (
+const localExecutorStatePath = (
   context: ResolvedLocalWorkspaceContext,
 ): string =>
   join(
     context.homeStateDirectory,
     "workspaces",
     deriveLocalInstallation(context).workspaceId,
-    LOCAL_CONTROL_PLANE_STATE_BASENAME,
+    LOCAL_EXECUTOR_STATE_BASENAME,
   );
 
 const bindFileSystem = <A, E>(
@@ -131,59 +131,59 @@ const bindNodeFileSystem = <A, E>(
 
 const readStateFromDisk = (
   context: ResolvedLocalWorkspaceContext,
-): Effect.Effect<LocalControlPlaneState, LocalFileSystemError, FileSystem.FileSystem> =>
+): Effect.Effect<LocalExecutorStateSnapshot, LocalFileSystemError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const path = localControlPlaneStatePath(context);
+    const path = localExecutorStatePath(context);
     const exists = yield* fs.exists(path).pipe(
-      Effect.mapError(mapFileSystemError(path, "check control plane state path")),
+      Effect.mapError(mapFileSystemError(path, "check executor state path")),
     );
     if (!exists) {
-      return defaultLocalControlPlaneState();
+      return defaultLocalExecutorStateSnapshot();
     }
 
     const content = yield* fs.readFileString(path, "utf8").pipe(
-      Effect.mapError(mapFileSystemError(path, "read control plane state")),
+      Effect.mapError(mapFileSystemError(path, "read executor state")),
     );
     const parsed = yield* Effect.try({
       try: () => JSON.parse(content) as unknown,
-      catch: mapFileSystemError(path, "parse control plane state"),
+      catch: mapFileSystemError(path, "parse executor state"),
     });
-    return yield* decodeLocalControlPlaneState(parsed).pipe(
-      Effect.mapError(mapFileSystemError(path, "decode control plane state")),
+    return yield* decodeLocalExecutorStateSnapshot(parsed).pipe(
+      Effect.mapError(mapFileSystemError(path, "decode executor state")),
     );
   });
 
 const writeStateToDisk = (
   context: ResolvedLocalWorkspaceContext,
-  state: LocalControlPlaneState,
+  state: LocalExecutorStateSnapshot,
 ): Effect.Effect<void, LocalFileSystemError, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const path = localControlPlaneStatePath(context);
+    const path = localExecutorStatePath(context);
     const tempPath = `${path}.${randomUUID()}.tmp`;
 
     yield* fs.makeDirectory(dirname(path), { recursive: true }).pipe(
-      Effect.mapError(mapFileSystemError(dirname(path), "create control plane state directory")),
+      Effect.mapError(mapFileSystemError(dirname(path), "create executor state directory")),
     );
     yield* fs.writeFileString(tempPath, `${JSON.stringify(state, null, 2)}\n`, {
       mode: 0o600,
     }).pipe(
-      Effect.mapError(mapFileSystemError(tempPath, "write control plane state")),
+      Effect.mapError(mapFileSystemError(tempPath, "write executor state")),
     );
     yield* fs.rename(tempPath, path).pipe(
-      Effect.mapError(mapFileSystemError(path, "replace control plane state")),
+      Effect.mapError(mapFileSystemError(path, "replace executor state")),
     );
   });
 
-export const loadLocalControlPlaneState = (
+export const loadLocalExecutorStateSnapshot = (
   context: ResolvedLocalWorkspaceContext,
-): Effect.Effect<LocalControlPlaneState, LocalFileSystemError> =>
+): Effect.Effect<LocalExecutorStateSnapshot, LocalFileSystemError> =>
   bindNodeFileSystem(readStateFromDisk(context));
 
-export const writeLocalControlPlaneState = (input: {
+export const writeLocalExecutorStateSnapshot = (input: {
   context: ResolvedLocalWorkspaceContext;
-  state: LocalControlPlaneState;
+  state: LocalExecutorStateSnapshot;
 }): Effect.Effect<void, LocalFileSystemError> =>
   bindNodeFileSystem(writeStateToDisk(input.context, input.state));
 
@@ -309,11 +309,11 @@ const mergeProviderAuthGrants = (
   imported: readonly ProviderAuthGrant[],
 ): ProviderAuthGrant[] => mergeById(current, imported);
 
-export const mergeImportedLocalControlPlaneState = (input: {
-  current: LocalControlPlaneState;
-  imported: Partial<Omit<LocalControlPlaneState, "version">>;
-}): LocalControlPlaneState => ({
-  version: LOCAL_CONTROL_PLANE_STATE_VERSION,
+export const mergeImportedLocalExecutorStateSnapshot = (input: {
+  current: LocalExecutorStateSnapshot;
+  imported: Partial<Omit<LocalExecutorStateSnapshot, "version">>;
+}): LocalExecutorStateSnapshot => ({
+  version: LOCAL_EXECUTOR_STATE_VERSION,
   authArtifacts: mergeAuthArtifacts(
     input.current.authArtifacts,
     input.imported.authArtifacts ?? [],
@@ -354,7 +354,7 @@ export const mergeImportedLocalControlPlaneState = (input: {
 });
 
 type StateMutationResult<A> = {
-  state: LocalControlPlaneState;
+  state: LocalExecutorStateSnapshot;
   value: A;
 };
 
@@ -362,12 +362,12 @@ const createStateManager = (
   context: ResolvedLocalWorkspaceContext,
   fileSystem: FileSystem.FileSystem,
 ) => {
-  let cache: LocalControlPlaneState | null = null;
+  let cache: LocalExecutorStateSnapshot | null = null;
   let mutationQueue: Promise<void> = Promise.resolve();
   const run = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) =>
     Effect.runPromise(bindFileSystem(fileSystem, effect));
 
-  const ensureLoaded = async (): Promise<LocalControlPlaneState> => {
+  const ensureLoaded = async (): Promise<LocalExecutorStateSnapshot> => {
     if (cache !== null) {
       return cache;
     }
@@ -377,7 +377,7 @@ const createStateManager = (
   };
 
   const read = <A>(
-    operation: (state: LocalControlPlaneState) => A | Promise<A>,
+    operation: (state: LocalExecutorStateSnapshot) => A | Promise<A>,
   ): Effect.Effect<A, LocalFileSystemError> =>
     Effect.tryPromise({
       try: async () => {
@@ -385,14 +385,14 @@ const createStateManager = (
         return operation(cloneValue(await ensureLoaded()));
       },
       catch: mapFileSystemError(
-        localControlPlaneStatePath(context),
-        "read control plane state",
+        localExecutorStatePath(context),
+        "read executor state",
       ),
     });
 
   const mutate = <A>(
     operation: (
-      state: LocalControlPlaneState,
+      state: LocalExecutorStateSnapshot,
     ) => StateMutationResult<A> | Promise<StateMutationResult<A>>,
   ): Effect.Effect<A, LocalFileSystemError> =>
     Effect.tryPromise({
@@ -421,8 +421,8 @@ const createStateManager = (
         return value;
       },
       catch: mapFileSystemError(
-        localControlPlaneStatePath(context),
-        "write control plane state",
+        localExecutorStatePath(context),
+        "write executor state",
       ),
     });
 
@@ -432,7 +432,7 @@ const createStateManager = (
   };
 };
 
-export const createLocalControlPlaneStore = (
+export const createLocalExecutorStateStore = (
   context: ResolvedLocalWorkspaceContext,
   fileSystem: FileSystem.FileSystem,
 ) => {
@@ -1211,14 +1211,14 @@ export const createLocalControlPlaneStore = (
   };
 };
 
-export type LocalControlPlaneStore = ReturnType<typeof createLocalControlPlaneStore>;
+export type LocalExecutorStateStore = ReturnType<typeof createLocalExecutorStateStore>;
 
-export const createLocalControlPlanePersistence = (
+export const createLocalExecutorStatePersistence = (
   context: ResolvedLocalWorkspaceContext,
   fileSystem: FileSystem.FileSystem,
-): LocalControlPlanePersistence => ({
-  rows: createLocalControlPlaneStore(context, fileSystem),
+): LocalExecutorStatePersistence => ({
+  executorState: createLocalExecutorStateStore(context, fileSystem),
   close: async () => {},
 });
 
-export { localControlPlaneStatePath };
+export { localExecutorStatePath };

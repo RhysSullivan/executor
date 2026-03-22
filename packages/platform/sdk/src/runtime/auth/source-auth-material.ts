@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import { ControlPlaneStore, type ControlPlaneStoreShape } from "../store";
+import { ExecutorStateStore, type ExecutorStateStoreShape } from "../executor-state-store";
 import {
   authArtifactFromSourceAuth,
   resolveAuthArtifactMaterial,
@@ -65,7 +65,7 @@ export const resolveSourceAuthMaterialWithDeps = (input: {
   source: Source;
   slot?: CredentialSlot;
   actorAccountId?: AccountId | null;
-  rows?: ControlPlaneStoreShape;
+  executorState?: ExecutorStateStoreShape;
   resolveSecretMaterial: ResolveSecretMaterial;
   storeSecretMaterial?: StoreSecretMaterial;
   deleteSecretMaterial?: DeleteSecretMaterial;
@@ -74,14 +74,14 @@ export const resolveSourceAuthMaterialWithDeps = (input: {
   Effect.gen(function* () {
     const slot = input.slot ?? "runtime";
 
-    if (input.rows !== undefined) {
+    if (input.executorState !== undefined) {
       const candidateSlots =
         slot === "import" && input.source.importAuthPolicy === "reuse_runtime"
           ? ["import", "runtime"] satisfies ReadonlyArray<CredentialSlot>
           : [slot] satisfies ReadonlyArray<CredentialSlot>;
 
       for (const candidateSlot of candidateSlots) {
-        const artifactOption = yield* input.rows.authArtifacts.getByWorkspaceSourceAndActor({
+        const artifactOption = yield* input.executorState.authArtifacts.getByWorkspaceSourceAndActor({
           workspaceId: input.source.workspaceId,
           sourceId: input.source.id,
           actorAccountId: input.actorAccountId ?? null,
@@ -90,7 +90,7 @@ export const resolveSourceAuthMaterialWithDeps = (input: {
 
         if (Option.isSome(artifactOption)) {
           return yield* resolveAuthArtifactMaterialWithLeases({
-            rows: input.rows,
+            executorState: input.executorState,
             artifact: artifactOption.value,
             resolveSecretMaterial: input.resolveSecretMaterial,
             storeSecretMaterial: input.storeSecretMaterial ?? (() => Effect.dieMessage("storeSecretMaterial unavailable")),
@@ -111,9 +111,9 @@ export const resolveSourceAuthMaterialWithDeps = (input: {
       actorAccountId: input.actorAccountId ?? null,
     });
 
-    if (input.rows !== undefined) {
+    if (input.executorState !== undefined) {
       return yield* resolveAuthArtifactMaterialWithLeases({
-        rows: input.rows,
+        executorState: input.executorState,
         artifact,
         resolveSecretMaterial: input.resolveSecretMaterial,
         storeSecretMaterial: input.storeSecretMaterial ?? (() => Effect.dieMessage("storeSecretMaterial unavailable")),
@@ -148,7 +148,7 @@ export const resolveSourceAuthMaterial = (input: {
 export const RuntimeSourceAuthMaterialLive = Layer.effect(
   RuntimeSourceAuthMaterialService,
   Effect.gen(function* () {
-    const rows = yield* ControlPlaneStore;
+    const executorState = yield* ExecutorStateStore;
     const resolveSecretMaterial = yield* SecretMaterialResolverService;
     const storeSecretMaterial = yield* SecretMaterialStorerService;
     const deleteSecretMaterial = yield* SecretMaterialDeleterService;
@@ -157,7 +157,7 @@ export const RuntimeSourceAuthMaterialLive = Layer.effect(
       resolve: (input) =>
         resolveSourceAuthMaterialWithDeps({
           ...input,
-          rows,
+          executorState,
           resolveSecretMaterial,
           storeSecretMaterial,
           deleteSecretMaterial,

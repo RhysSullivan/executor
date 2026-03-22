@@ -1,11 +1,11 @@
 import { HttpApiBuilder } from "@effect/platform";
 import * as Effect from "effect/Effect";
 
-import { ControlPlaneApi } from "../api";
+import { ExecutorApi } from "../api";
 import { resolveRequestedLocalWorkspace } from "../local-context";
 
-export const ControlPlaneExecutionsLive = HttpApiBuilder.group(
-  ControlPlaneApi,
+export const ExecutorExecutionsLive = HttpApiBuilder.group(
+  ExecutorApi,
   "executions",
   (handlers) =>
     handlers

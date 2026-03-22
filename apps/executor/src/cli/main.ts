@@ -10,8 +10,8 @@ import {
   NodeRuntime,
 } from "@effect/platform-node";
 import {
-  createControlPlaneClient,
-  type ControlPlaneClient,
+  createExecutorApiClient,
+  type ExecutorApiClient,
 } from "@executor/platform-api";
 import { createWorkspaceExecutorAdminToolMap } from "@executor/platform-internal";
 import {
@@ -154,7 +154,7 @@ const readCode = (input: {
   });
 
 const getBootstrapClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
-  createControlPlaneClient({ baseUrl });
+  createExecutorApiClient({ baseUrl });
 
 const decodeExecutionId = Schema.decodeUnknown(ExecutionIdSchema);
 const require = createRequire(import.meta.url);
@@ -401,7 +401,7 @@ const getLocalAuthedClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
   Effect.gen(function* () {
     const bootstrapClient = yield* getBootstrapClient(baseUrl);
     const installation = yield* bootstrapClient.local.installation({});
-    const client = yield* createControlPlaneClient({
+    const client = yield* createExecutorApiClient({
       baseUrl,
       accountId: installation.accountId,
     });
@@ -922,7 +922,7 @@ const promptInteraction = (input: {
   });
 
 const waitForExecutionProgress = (input: {
-  client: ControlPlaneClient;
+  client: ExecutorApiClient;
   workspaceId: ExecutionEnvelope["execution"]["workspaceId"];
   executionId: ExecutionEnvelope["execution"]["id"];
   pendingInteractionId: ExecutionInteraction["id"];
@@ -1025,7 +1025,7 @@ const seedGithubOpenApiSource = (input: {
   });
 
 const driveExecution = (input: {
-  client: ControlPlaneClient;
+  client: ExecutorApiClient;
   workspaceId: ExecutionEnvelope["execution"]["workspaceId"];
   envelope: ExecutionEnvelope;
   baseUrl: string;

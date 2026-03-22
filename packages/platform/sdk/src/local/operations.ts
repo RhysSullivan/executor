@@ -20,7 +20,7 @@ import {
   createSourceCredentialSelectionBearerContent,
   createSourceCredentialSelectionNoneContent,
 } from "../runtime/sources/source-credential-interactions";
-import { ControlPlaneStore } from "../runtime/store";
+import { ExecutorStateStore } from "../runtime/executor-state-store";
 
 const localOps = {
   installation: operationErrors("local.installation.get"),
@@ -129,7 +129,7 @@ const loadSourceCredentialInteraction = (input: {
     | typeof localOps.sourceCredentialSubmit;
 }) =>
   Effect.gen(function* () {
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
     const sourceAuthService = yield* RuntimeSourceAuthServiceTag;
 
     const stored = yield* store.executionInteractions

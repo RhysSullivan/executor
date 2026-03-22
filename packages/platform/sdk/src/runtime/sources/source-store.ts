@@ -16,7 +16,7 @@ import {
 } from "../workspace/storage";
 import { SecretMaterialDeleterService } from "../workspace/secret-material-providers";
 import { RuntimeLocalWorkspaceService } from "../workspace/runtime-context";
-import { ControlPlaneStore, type ControlPlaneStoreShape } from "../store";
+import { ExecutorStateStore, type ExecutorStateStoreShape } from "../executor-state-store";
 import {
   loadRuntimeSourceStoreDeps,
   type RuntimeSourceStoreDeps,
@@ -61,7 +61,7 @@ type RuntimeSourceStoreShape = {
 export type RuntimeSourceStore = RuntimeSourceStoreShape;
 
 export const loadSourcesInWorkspace = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   workspaceId: WorkspaceId,
   options: {
     actorAccountId?: AccountId | null;
@@ -72,12 +72,12 @@ export const loadSourcesInWorkspace = (
   WorkspaceStorageServices | SourceTypeDeclarationsRefresherService
 > =>
   Effect.flatMap(
-    loadRuntimeSourceStoreDeps(rows, workspaceId),
+    loadRuntimeSourceStoreDeps(executorState, workspaceId),
     (deps) => loadSourcesInWorkspaceWithDeps(deps, workspaceId, options),
   );
 
 export const listLinkedSecretSourcesInWorkspace = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   workspaceId: WorkspaceId,
   options: {
     actorAccountId?: AccountId | null;
@@ -88,12 +88,12 @@ export const listLinkedSecretSourcesInWorkspace = (
   WorkspaceStorageServices | SourceTypeDeclarationsRefresherService
 > =>
   Effect.flatMap(
-    loadRuntimeSourceStoreDeps(rows, workspaceId),
+    loadRuntimeSourceStoreDeps(executorState, workspaceId),
     (deps) => listLinkedSecretSourcesInWorkspaceWithDeps(deps, workspaceId, options),
   );
 
 export const loadSourceById = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   input: {
     workspaceId: WorkspaceId;
     sourceId: Source["id"];
@@ -105,12 +105,12 @@ export const loadSourceById = (
   WorkspaceStorageServices | SourceTypeDeclarationsRefresherService
 > =>
   Effect.flatMap(
-    loadRuntimeSourceStoreDeps(rows, input.workspaceId),
+    loadRuntimeSourceStoreDeps(executorState, input.workspaceId),
     (deps) => loadSourceByIdWithDeps(deps, input),
   );
 
 export const removeSourceById = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   input: {
     workspaceId: WorkspaceId;
     sourceId: Source["id"];
@@ -123,13 +123,13 @@ export const removeSourceById = (
   | SecretMaterialDeleterService
 > =>
   Effect.gen(function* () {
-    const deps = yield* loadRuntimeSourceStoreDeps(rows, input.workspaceId);
+    const deps = yield* loadRuntimeSourceStoreDeps(executorState, input.workspaceId);
     const deleteSecretMaterial = yield* SecretMaterialDeleterService;
     return yield* removeSourceByIdWithDeps(deps, input, deleteSecretMaterial);
   });
 
 export const persistSource = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   source: Source,
   options: {
     actorAccountId?: AccountId | null;
@@ -142,7 +142,7 @@ export const persistSource = (
   | SecretMaterialDeleterService
 > =>
   Effect.gen(function* () {
-    const deps = yield* loadRuntimeSourceStoreDeps(rows, source.workspaceId);
+    const deps = yield* loadRuntimeSourceStoreDeps(executorState, source.workspaceId);
     const deleteSecretMaterial = yield* SecretMaterialDeleterService;
     return yield* persistSourceWithDeps(deps, source, options, deleteSecretMaterial);
   });
@@ -154,7 +154,7 @@ export class RuntimeSourceStoreService extends Context.Tag(
 export const RuntimeSourceStoreLive = Layer.effect(
   RuntimeSourceStoreService,
   Effect.gen(function* () {
-    const rows = yield* ControlPlaneStore;
+    const executorState = yield* ExecutorStateStore;
     const runtimeLocalWorkspace = yield* RuntimeLocalWorkspaceService;
     const workspaceConfigStore = yield* WorkspaceConfigStore;
     const workspaceStateStore = yield* WorkspaceStateStore;
@@ -164,7 +164,7 @@ export const RuntimeSourceStoreLive = Layer.effect(
     const deleteSecretMaterial = yield* SecretMaterialDeleterService;
 
     const deps: RuntimeSourceStoreDeps = {
-      rows,
+      executorState,
       runtimeLocalWorkspace,
       workspaceConfigStore,
       workspaceStateStore,

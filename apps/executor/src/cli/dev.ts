@@ -1,4 +1,4 @@
-import type { ControlPlaneClient } from "@executor/platform-api";
+import type { ExecutorApiClient } from "@executor/platform-api";
 import { WorkspaceIdSchema } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 
@@ -6,7 +6,7 @@ const readBindingString = (binding: Record<string, unknown>, key: string): strin
   typeof binding[key] === "string" ? String(binding[key]) : null;
 
 type SeedDemoMcpSourceInput = {
-  client: ControlPlaneClient;
+  client: ExecutorApiClient;
   workspaceId: string;
   endpoint: string;
   name: string;
@@ -28,7 +28,7 @@ type SeedDemoMcpSourceResult =
     };
 
 type SeedGithubOpenApiSourceInput = {
-  client: ControlPlaneClient;
+  client: ExecutorApiClient;
   workspaceId: string;
   endpoint: string;
   specUrl: string;

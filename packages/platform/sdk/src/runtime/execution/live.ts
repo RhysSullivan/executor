@@ -13,7 +13,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import type { ControlPlaneStoreShape } from "../store";
+import type { ExecutorStateStoreShape } from "../executor-state-store";
 
 type VisibleExecutionState =
   | "running"
@@ -38,7 +38,7 @@ type LiveExecutionManagerShape = {
     executionId: Execution["id"],
   ) => Effect.Effect<Deferred.Deferred<VisibleExecutionState>>;
   createOnElicitation: (input: {
-    rows: ControlPlaneStoreShape;
+    executorState: ExecutorStateStoreShape;
     executionId: Execution["id"];
   }) => OnElicitation;
   resolveInteraction: (input: {
@@ -156,7 +156,7 @@ export const createLiveExecutionManager = () => {
       }),
 
     createOnElicitation:
-      ({ rows, executionId }) =>
+      ({ executorState, executionId }) =>
       (input) =>
         Effect.gen(function* () {
           const run = getOrCreateRun(executionId);
@@ -182,8 +182,8 @@ export const createLiveExecutionManager = () => {
             updatedAt: now,
           };
 
-          yield* rows.executionInteractions.insert(interaction);
-          yield* rows.executions.update(executionId, {
+          yield* executorState.executionInteractions.insert(interaction);
+          yield* executorState.executions.update(executionId, {
             status: "waiting_for_interaction",
             updatedAt: now,
           });
@@ -202,13 +202,13 @@ export const createLiveExecutionManager = () => {
             const resolved = yield* Deferred.await(response);
             const resolvedAt = Date.now();
 
-            yield* rows.executionInteractions.update(interaction.id, {
+            yield* executorState.executionInteractions.update(interaction.id, {
               status: resolved.action === "cancel" ? "cancelled" : "resolved",
               responseJson: serializeJson(sanitizePersistedElicitationResponse(resolved)),
               responsePrivateJson: serializeJson(resolved),
               updatedAt: resolvedAt,
             });
-            yield* rows.executions.update(executionId, {
+            yield* executorState.executions.update(executionId, {
               status: "running",
               updatedAt: resolvedAt,
             });

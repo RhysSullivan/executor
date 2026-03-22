@@ -7,7 +7,7 @@ import {
   createExecution,
   getExecution,
   resumeExecution,
-  type ControlPlaneRuntime,
+  type ExecutorRuntime,
 } from "@executor/platform-sdk/runtime";
 import { ExecutionIdSchema } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
@@ -87,7 +87,7 @@ const formatResultPreview = (resultJson: string): string => {
   }
 };
 const runControlPlane = async <A, E, R>(
-  runtime: ControlPlaneRuntime,
+  runtime: ExecutorRuntime,
   effect: Effect.Effect<A, E, R>,
 ): Promise<A> => {
   const exit = await Effect.runPromiseExit(
@@ -148,7 +148,7 @@ const buildExecuteWorkflowText = (namespaces: readonly string[] = []): string =>
 
 const defaultExecuteDescription = buildExecuteWorkflowText();
 
-const loadExecuteDescription = (runtime: ControlPlaneRuntime): Promise<string> =>
+const loadExecuteDescription = (runtime: ExecutorRuntime): Promise<string> =>
   runControlPlane(
     runtime,
     Effect.gen(function* () {
@@ -259,7 +259,7 @@ const buildToolResult = (envelope: ExecutionEnvelope): ExecutorMcpToolResult => 
 };
 
 const waitForInteractionProgress = async (input: {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
   workspaceId: string;
   executionId: string;
   pendingInteractionId: string;
@@ -285,7 +285,7 @@ const waitForInteractionProgress = async (input: {
 };
 
 const driveExecutionWithElicitation = async (input: {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
   workspaceId: string;
   accountId: string;
   server: McpServer;
@@ -364,7 +364,7 @@ const driveExecutionWithElicitation = async (input: {
 };
 
 const driveExecutionWithoutElicitation = async (input: {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
   workspaceId: string;
   accountId: string;
   executionId: string;
@@ -404,7 +404,7 @@ const driveExecutionWithoutElicitation = async (input: {
 };
 
 const createExecutorMcpServer = async (config: {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
 }): Promise<McpServer> => {
   const executeDescription = await loadExecuteDescription(config.runtime);
   const server = new McpServer(
@@ -512,7 +512,7 @@ const jsonErrorResponse = (status: number, code: number, message: string) =>
   });
 
 export const createExecutorMcpRequestHandler = (
-  runtime: ControlPlaneRuntime,
+  runtime: ExecutorRuntime,
 ): ExecutorMcpRequestHandler => {
   const transports = new Map<string, WebStandardStreamableHTTPServerTransport>();
   const servers = new Map<string, McpServer>();

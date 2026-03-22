@@ -64,8 +64,9 @@ import {
 } from "./sources/operations";
 import type { ExecutorBackend } from "./backend";
 import {
-  provideControlPlaneRuntime,
-  type ControlPlaneRuntime,
+  provideExecutorRuntime,
+  type ExecutorRuntime,
+  type ExecutorRuntimeOptions,
   type CreateWorkspaceInternalToolMap,
   type ResolveExecutionEnvironment,
   type ResolveSecretMaterial,
@@ -85,13 +86,6 @@ import type {
   StartSourceOAuthSessionInput,
   StartSourceOAuthSessionResult,
 } from "./runtime/sources/source-auth-service";
-
-export type ExecutorRuntimeOptions = {
-  executionResolver?: ResolveExecutionEnvironment;
-  createInternalToolMap?: CreateWorkspaceInternalToolMap;
-  resolveSecretMaterial?: ResolveSecretMaterial;
-  getLocalServerBaseUrl?: () => string | undefined;
-};
 
 type DistributiveOmit<T, Keys extends PropertyKey> = T extends unknown ? Omit<T, Keys> : never;
 type ProvidedEffect<T extends Effect.Effect<any, any, any>> = Effect.Effect<
@@ -121,7 +115,7 @@ export type ExecutorSourceOAuthInput = DistributiveOmit<
 >;
 
 export type Executor = {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
   installation: LocalInstallation;
   workspaceId: WorkspaceId;
   accountId: AccountId;
@@ -361,12 +355,12 @@ export type CreateExecutorOptions = ExecutorRuntimeOptions & {
   backend: ExecutorBackend;
 };
 
-const fromRuntime = (runtime: ControlPlaneRuntime): Executor => {
+const fromRuntime = (runtime: ExecutorRuntime): Executor => {
   const installation = runtime.localInstallation;
   const workspaceId = installation.workspaceId;
   const accountId = installation.accountId;
   const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    provideControlPlaneRuntime(effect, runtime);
+    provideExecutorRuntime(effect, runtime);
   const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     Effect.runPromise(provide(effect) as Effect.Effect<A, E, never>);
   const provideSourceAuth = <A, E>(

@@ -1,0 +1,22 @@
+{
+  "name": "@executor/sqlite-sdk-consumer-example",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "start": "bun src/main.ts"
+  },
+  "dependencies": {
+    "@executor/platform-sdk": "workspace:*",
+    "@executor/source-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "bun-types": "catalog:"
+  },
+  "version": "0.0.0"
+}

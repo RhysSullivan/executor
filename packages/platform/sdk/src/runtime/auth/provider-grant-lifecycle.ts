@@ -12,7 +12,7 @@ import * as Option from "effect/Option";
 import {
   type DeleteSecretMaterial,
 } from "../workspace/secret-material-providers";
-import type { ControlPlaneStoreShape } from "../store";
+import type { ExecutorStateStoreShape } from "../executor-state-store";
 
 const providerGrantRefFromArtifact = (
   artifact: Pick<AuthArtifact, "artifactKind" | "configJson">,
@@ -23,12 +23,12 @@ export const providerGrantIdFromArtifact = (
 ): ProviderAuthGrant["id"] | null =>
   providerGrantRefFromArtifact(artifact)?.grantId ?? null;
 
-export const listProviderGrantRefArtifacts = (rows: ControlPlaneStoreShape, input: {
+export const listProviderGrantRefArtifacts = (executorState: ExecutorStateStoreShape, input: {
   workspaceId: WorkspaceId;
   grantId?: ProviderAuthGrant["id"] | null;
 }): Effect.Effect<readonly AuthArtifact[], Error, never> =>
   Effect.map(
-    rows.authArtifacts.listByWorkspaceId(input.workspaceId),
+    executorState.authArtifacts.listByWorkspaceId(input.workspaceId),
     (artifacts) =>
       artifacts.filter((artifact) => {
         const grantId = providerGrantIdFromArtifact(artifact);
@@ -36,16 +36,16 @@ export const listProviderGrantRefArtifacts = (rows: ControlPlaneStoreShape, inpu
       }),
   );
 
-export const clearProviderGrantOrphanedAt = (rows: ControlPlaneStoreShape, input: {
+export const clearProviderGrantOrphanedAt = (executorState: ExecutorStateStoreShape, input: {
   grantId: ProviderAuthGrant["id"];
 }): Effect.Effect<boolean, Error, never> =>
   Effect.gen(function* () {
-    const grantOption = yield* rows.providerAuthGrants.getById(input.grantId);
+    const grantOption = yield* executorState.providerAuthGrants.getById(input.grantId);
     if (Option.isNone(grantOption) || grantOption.value.orphanedAt === null) {
       return false;
     }
 
-    yield* rows.providerAuthGrants.upsert({
+    yield* executorState.providerAuthGrants.upsert({
       ...grantOption.value,
       orphanedAt: null,
       updatedAt: Date.now(),
@@ -53,17 +53,17 @@ export const clearProviderGrantOrphanedAt = (rows: ControlPlaneStoreShape, input
     return true;
   });
 
-export const markProviderGrantOrphanedIfUnused = (rows: ControlPlaneStoreShape, input: {
+export const markProviderGrantOrphanedIfUnused = (executorState: ExecutorStateStoreShape, input: {
   workspaceId: WorkspaceId;
   grantId: ProviderAuthGrant["id"];
 }): Effect.Effect<boolean, Error, never> =>
   Effect.gen(function* () {
-    const references = yield* listProviderGrantRefArtifacts(rows, input);
+    const references = yield* listProviderGrantRefArtifacts(executorState, input);
     if (references.length > 0) {
       return false;
     }
 
-    const grantOption = yield* rows.providerAuthGrants.getById(input.grantId);
+    const grantOption = yield* executorState.providerAuthGrants.getById(input.grantId);
     if (Option.isNone(grantOption) || grantOption.value.workspaceId !== input.workspaceId) {
       return false;
     }
@@ -73,7 +73,7 @@ export const markProviderGrantOrphanedIfUnused = (rows: ControlPlaneStoreShape, 
       return false;
     }
 
-    yield* rows.providerAuthGrants.upsert({
+    yield* executorState.providerAuthGrants.upsert({
       ...grant,
       orphanedAt: Date.now(),
       updatedAt: Date.now(),
@@ -81,7 +81,7 @@ export const markProviderGrantOrphanedIfUnused = (rows: ControlPlaneStoreShape, 
     return true;
   });
 
-export const removeProviderAuthGrantSecret = (rows: ControlPlaneStoreShape, input: {
+export const removeProviderAuthGrantSecret = (_executorState: ExecutorStateStoreShape, input: {
   grant: ProviderAuthGrant;
 }, deleteSecretMaterial: DeleteSecretMaterial): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {

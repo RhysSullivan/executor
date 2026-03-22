@@ -28,7 +28,7 @@ import type {
   StoreSecretMaterial,
   UpdateSecretMaterial,
 } from "../../workspace/secret-material-providers";
-import type { ControlPlaneStoreShape } from "../../store";
+import type { ExecutorStateStoreShape } from "../../executor-state-store";
 import { RuntimeSourceAuthService } from "../../sources/source-auth-service";
 import { type RuntimeSourceStore } from "../../sources/source-store";
 import { createExecutorToolMap } from "../../sources/executor-tools";
@@ -48,7 +48,7 @@ import { runtimeEffectError } from "../../effect-errors";
 export type WorkspaceInternalToolContext = {
   workspaceId: Source["workspaceId"];
   accountId: AccountId;
-  controlPlaneStore: ControlPlaneStoreShape;
+  executorStateStore: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSyncService: Effect.Effect.Success<
     typeof RuntimeSourceCatalogSyncService
@@ -72,7 +72,7 @@ export type CreateWorkspaceInternalToolMap = (
 export const createWorkspaceToolInvoker = (input: {
   workspaceId: Source["workspaceId"];
   accountId: AccountId;
-  controlPlaneStore: ControlPlaneStoreShape;
+  executorStateStore: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSyncService: Effect.Effect.Success<
     typeof RuntimeSourceCatalogSyncService
@@ -124,7 +124,7 @@ export const createWorkspaceToolInvoker = (input: {
     input.createInternalToolMap?.({
       workspaceId: input.workspaceId,
       accountId: input.accountId,
-      controlPlaneStore: input.controlPlaneStore,
+      executorStateStore: input.executorStateStore,
       sourceStore: input.sourceStore,
       sourceCatalogSyncService: input.sourceCatalogSyncService,
       sourceAuthService: input.sourceAuthService,

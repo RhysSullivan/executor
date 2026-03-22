@@ -58,7 +58,7 @@ import {
 } from "./workspace/storage";
 import type { LocalWorkspaceState } from "./workspace-state";
 import { synchronizeLocalWorkspaceState } from "./workspace/workspace-sync";
-import { ControlPlaneStore, type ControlPlaneStoreShape } from "./store";
+import { ExecutorStateStore, type ExecutorStateStoreShape } from "./executor-state-store";
 import { RuntimeSourceAuthServiceLive } from "./sources/source-auth-service";
 import { RuntimeSourceStoreLive } from "./sources/source-store";
 
@@ -72,7 +72,7 @@ export * from "./sources/source-auth-service";
 export * from "./sources/source-credential-interactions";
 export * from "./sources/source-adapters/mcp";
 export * from "./sources/source-store";
-export * from "./store";
+export * from "./executor-state-store";
 export * from "./execution/workspace/environment";
 export * from "../sources/inspection";
 export * from "../sources/discovery";
@@ -110,7 +110,7 @@ export {
   isInternalSourceAdapter,
 } from "./sources/source-adapters";
 
-export type RuntimeControlPlaneOptions = {
+export type ExecutorRuntimeOptions = {
   executionResolver?: ResolveExecutionEnvironment;
   createInternalToolMap?: CreateWorkspaceInternalToolMap;
   resolveSecretMaterial?: ResolveSecretMaterial;
@@ -127,7 +127,7 @@ const toRuntimeBootstrapError = (cause: unknown): Error => {
   return new Error(`Failed initializing runtime: ${details}`);
 };
 
-export type RuntimeControlPlaneLayer = Layer.Layer<any, never, never>;
+export type ExecutorRuntimeLayer = Layer.Layer<any, never, never>;
 
 export type BoundInstallationStore = {
   load: () => Effect.Effect<LocalInstallation, Error, never>;
@@ -179,22 +179,22 @@ export type RuntimeInstanceConfigService = {
   resolve: () => Effect.Effect<InstanceConfig, Error, never>;
 };
 
-export type RuntimePersistence = {
-  rows: ControlPlaneStoreShape;
-  close: () => Promise<void>;
+export type RuntimeStorageServices = {
+  installation: BoundInstallationStore;
+  workspaceConfig: BoundWorkspaceConfigStore;
+  workspaceState: BoundWorkspaceStateStore;
+  sourceArtifacts: BoundSourceArtifactStore;
+  executorState: ExecutorStateStoreShape;
+  secretMaterial: RuntimeSecretMaterialServices;
+  close?: () => Promise<void>;
 };
 
-export type RuntimeControlPlaneServices = {
+export type ExecutorRuntimeServices = {
   workspace: ExecutorWorkspaceDescriptor;
-  installationStore: BoundInstallationStore;
-  workspaceConfigStore: BoundWorkspaceConfigStore;
-  workspaceStateStore: BoundWorkspaceStateStore;
-  sourceArtifactStore: BoundSourceArtifactStore;
+  storage: RuntimeStorageServices;
   localToolRuntimeLoader?: BoundLocalToolRuntimeLoader;
   sourceTypeDeclarationsRefresher?: BoundSourceTypeDeclarationsRefresher;
-  secretMaterial: RuntimeSecretMaterialServices;
   instanceConfig: RuntimeInstanceConfigService;
-  persistence: RuntimePersistence;
 };
 
 const emptyToolRuntime = (): LocalToolRuntime => {
@@ -254,18 +254,17 @@ const makeSecretMaterialLayer = (input: RuntimeSecretMaterialServices) =>
 const makeInstanceConfigLayer = (input: RuntimeInstanceConfigService) =>
   Layer.succeed(LocalInstanceConfigService, input.resolve);
 
-export const createRuntimeControlPlaneLayer = (
-  input: RuntimeControlPlaneOptions & RuntimeControlPlaneServices & {
-    store: ControlPlaneStoreShape;
+export const createExecutorRuntimeLayer = (
+  input: ExecutorRuntimeOptions & ExecutorRuntimeServices & {
     localWorkspaceState: RuntimeLocalWorkspaceState;
     liveExecutionManager: ReturnType<typeof createLiveExecutionManager>;
   },
 ) => {
   const storageLayer = makeLocalStorageLayer({
-    installationStore: toInstallationStoreShape(input.installationStore),
-    workspaceConfigStore: toWorkspaceConfigStoreShape(input.workspaceConfigStore),
-    workspaceStateStore: toWorkspaceStateStoreShape(input.workspaceStateStore),
-    sourceArtifactStore: toSourceArtifactStoreShape(input.sourceArtifactStore),
+    installationStore: toInstallationStoreShape(input.storage.installation),
+    workspaceConfigStore: toWorkspaceConfigStoreShape(input.storage.workspaceConfig),
+    workspaceStateStore: toWorkspaceStateStoreShape(input.storage.workspaceState),
+    sourceArtifactStore: toSourceArtifactStoreShape(input.storage.sourceArtifacts),
   });
   const localToolRuntimeLayer = Layer.succeed(
     LocalToolRuntimeLoaderService,
@@ -283,14 +282,14 @@ export const createRuntimeControlPlaneLayer = (
   );
 
   const baseLayer = Layer.mergeAll(
-    Layer.succeed(ControlPlaneStore, input.store),
+    Layer.succeed(ExecutorStateStore, input.storage.executorState),
     RuntimeLocalWorkspaceLive(input.localWorkspaceState),
     storageLayer,
     Layer.succeed(LiveExecutionManagerService, input.liveExecutionManager),
     sourceTypeDeclarationsRefresherLayer,
   );
 
-  const secretMaterialLayer = makeSecretMaterialLayer(input.secretMaterial).pipe(
+  const secretMaterialLayer = makeSecretMaterialLayer(input.storage.secretMaterial).pipe(
     Layer.provide(baseLayer),
   );
   const instanceConfigLayer = makeInstanceConfigLayer(input.instanceConfig);
@@ -357,32 +356,32 @@ export const createRuntimeControlPlaneLayer = (
     localToolRuntimeLayer,
     sourceAuthLayer,
     executionResolverLayer,
-  ) as RuntimeControlPlaneLayer;
+  ) as ExecutorRuntimeLayer;
 };
 
-export type ControlPlaneRuntime = {
-  persistence: RuntimePersistence;
+export type ExecutorRuntime = {
+  storage: RuntimeStorageServices;
   localInstallation: LocalInstallation;
   managedRuntime: ManagedRuntime.ManagedRuntime<any, never>;
-  runtimeLayer: RuntimeControlPlaneLayer;
+  runtimeLayer: ExecutorRuntimeLayer;
   close: () => Promise<void>;
 };
 
-export const provideControlPlaneRuntime = <A, E, R>(
+export const provideExecutorRuntime = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
-  runtime: ControlPlaneRuntime,
+  runtime: ExecutorRuntime,
 ): Effect.Effect<A, E | never, never> =>
   effect.pipe(Effect.provide(runtime.managedRuntime));
 
-export const createControlPlaneRuntimeFromServices = (input: {
-  services: RuntimeControlPlaneServices;
-} & RuntimeControlPlaneOptions): Effect.Effect<ControlPlaneRuntime, Error> =>
+export const createExecutorRuntimeFromServices = (input: {
+  services: ExecutorRuntimeServices;
+} & ExecutorRuntimeOptions): Effect.Effect<ExecutorRuntime, Error> =>
   (Effect.gen(function* () {
-    const localInstallation = yield* input.services.installationStore
+    const localInstallation = yield* input.services.storage.installation
       .getOrProvision()
       .pipe(Effect.mapError(toRuntimeBootstrapError));
 
-    const loadedLocalConfig = yield* input.services.workspaceConfigStore
+    const loadedLocalConfig = yield* input.services.storage.workspaceConfig
       .load()
       .pipe(Effect.mapError(toRuntimeBootstrapError));
 
@@ -398,16 +397,16 @@ export const createControlPlaneRuntimeFromServices = (input: {
         Effect.provide(
           makeLocalStorageLayer({
             installationStore: toInstallationStoreShape(
-              input.services.installationStore,
+              input.services.storage.installation,
             ),
             workspaceConfigStore: toWorkspaceConfigStoreShape(
-              input.services.workspaceConfigStore,
+              input.services.storage.workspaceConfig,
             ),
             workspaceStateStore: toWorkspaceStateStoreShape(
-              input.services.workspaceStateStore,
+              input.services.storage.workspaceState,
             ),
             sourceArtifactStore: toSourceArtifactStoreShape(
-              input.services.sourceArtifactStore,
+              input.services.storage.sourceArtifacts,
             ),
           }),
         ),
@@ -426,10 +425,9 @@ export const createControlPlaneRuntimeFromServices = (input: {
     };
     const liveExecutionManager = createLiveExecutionManager();
 
-    const concreteRuntimeLayer = createRuntimeControlPlaneLayer({
+    const concreteRuntimeLayer = createExecutorRuntimeLayer({
       ...input,
       ...input.services,
-      store: input.services.persistence.rows,
       localWorkspaceState: runtimeLocalWorkspaceState,
       liveExecutionManager,
     });
@@ -444,16 +442,16 @@ export const createControlPlaneRuntimeFromServices = (input: {
     );
 
     return {
-      persistence: input.services.persistence,
+      storage: input.services.storage,
       localInstallation,
       managedRuntime,
-      runtimeLayer: concreteRuntimeLayer as RuntimeControlPlaneLayer,
+      runtimeLayer: concreteRuntimeLayer as ExecutorRuntimeLayer,
       close: async () => {
         await Effect.runPromise(clearAllMcpConnectionPools()).catch(
           () => undefined,
         );
         await managedRuntime.dispose().catch(() => undefined);
-        await input.services.persistence.close().catch(() => undefined);
+        await input.services.storage.close?.().catch(() => undefined);
       },
     };
-  }) as Effect.Effect<ControlPlaneRuntime, Error>);
+  }) as Effect.Effect<ExecutorRuntime, Error>);

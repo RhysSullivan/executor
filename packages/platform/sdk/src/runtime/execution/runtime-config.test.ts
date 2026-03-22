@@ -5,8 +5,8 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "../../../../sdk-file/src/index";
-import { withControlPlaneClient } from "./test-http-client";
+import { createLocalExecutorRuntime as createExecutorRuntime } from "../../../../sdk-file/src/index";
+import { withExecutorApiClient } from "./test-http-client";
 
 const writeProjectConfig = (
   workspaceRoot: string,
@@ -32,7 +32,7 @@ const makeRuntime = (config: Record<string, unknown>) => {
       });
       yield* writeProjectConfig(workspaceRoot, config);
 
-      return yield* createControlPlaneRuntime({
+      return yield* createExecutorRuntime({
         workspaceRoot,
         homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
         homeStateDirectory: join(workspaceRoot, ".executor-home-state"),
@@ -50,7 +50,7 @@ describe("execution runtime config", () => {
       });
       const installation = runtime.localInstallation;
 
-      const execution = yield* withControlPlaneClient(
+      const execution = yield* withExecutorApiClient(
         {
           runtime,
           accountId: installation.accountId,
@@ -82,7 +82,7 @@ describe("execution runtime config", () => {
       });
       const installation = runtime.localInstallation;
 
-      const execution = yield* withControlPlaneClient(
+      const execution = yield* withExecutorApiClient(
         {
           runtime,
           accountId: installation.accountId,
@@ -114,7 +114,7 @@ describe("execution runtime config", () => {
       });
       const installation = runtime.localInstallation;
 
-      const execution = yield* withControlPlaneClient(
+      const execution = yield* withExecutorApiClient(
         {
           runtime,
           accountId: installation.accountId,

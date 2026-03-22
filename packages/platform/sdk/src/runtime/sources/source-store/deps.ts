@@ -26,10 +26,10 @@ import {
   WorkspaceStateStore,
 } from "../../workspace/storage";
 import type { LocalWorkspaceState } from "../../workspace-state";
-import type { ControlPlaneStoreShape } from "../../store";
+import type { ExecutorStateStoreShape } from "../../executor-state-store";
 
 export type RuntimeSourceStoreDeps = {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   runtimeLocalWorkspace: RuntimeLocalWorkspaceState;
   workspaceConfigStore: WorkspaceConfigStoreShape;
   workspaceStateStore: WorkspaceStateStoreShape;
@@ -85,7 +85,7 @@ export const resolveRuntimeLocalWorkspaceFromDeps = (
   });
 
 export const loadRuntimeSourceStoreDeps = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   workspaceId: WorkspaceId,
 ): Effect.Effect<
   RuntimeSourceStoreDeps,
@@ -103,7 +103,7 @@ export const loadRuntimeSourceStoreDeps = (
       yield* SourceTypeDeclarationsRefresherService;
 
     return {
-      rows,
+      executorState,
       runtimeLocalWorkspace,
       workspaceConfigStore,
       workspaceStateStore,

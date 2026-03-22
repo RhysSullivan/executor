@@ -9,8 +9,8 @@ import * as Schema from "effect/Schema";
 import { makeToolInvokerFromTools } from "@executor/codemode-core";
 import { makeDenoSubprocessExecutor } from "@executor/runtime-deno-subprocess";
 
-import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "../../../../sdk-file/src/index";
-import { withControlPlaneClient } from "./test-http-client";
+import { createLocalExecutorRuntime as createExecutorRuntime } from "../../../../sdk-file/src/index";
+import { withExecutorApiClient } from "./test-http-client";
 
 const makeExecutionResolver = () => {
   const toolInvoker = makeToolInvokerFromTools({
@@ -54,7 +54,7 @@ const makeRuntime = Effect.acquireRelease(
   }).pipe(
     Effect.provide(NodeFileSystem.layer),
     Effect.flatMap(({ workspaceRoot, homeConfigPath, homeStateDirectory }) =>
-      createControlPlaneRuntime({
+      createExecutorRuntime({
         localDataDir: ":memory:",
         workspaceRoot,
         homeConfigPath,
@@ -72,7 +72,7 @@ describe("execution-http", () => {
       const runtime = yield* makeRuntime;
       const installation = runtime.localInstallation;
 
-      const createExecution = yield* withControlPlaneClient(
+      const createExecution = yield* withExecutorApiClient(
         {
           runtime,
           accountId: installation.accountId,
@@ -92,7 +92,7 @@ describe("execution-http", () => {
       expect(createExecution.execution.resultJson).toBe(JSON.stringify({ sum: 42 }));
       expect(createExecution.pendingInteraction).toBeNull();
 
-      const getExecution = yield* withControlPlaneClient(
+      const getExecution = yield* withExecutorApiClient(
         {
           runtime,
           accountId: installation.accountId,

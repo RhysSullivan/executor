@@ -5,7 +5,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
-import { createLocalControlPlaneRuntime as createControlPlaneRuntime } from "./index";
+import { createLocalExecutorRuntime as createExecutorRuntime } from "./index";
 import { getOrProvisionLocalInstallation } from "./installation";
 import { resolveLocalWorkspaceContext } from "./config";
 
@@ -18,7 +18,7 @@ const makeRuntime = Effect.acquireRelease(
     });
     const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
     const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
-    const runtime = yield* createControlPlaneRuntime({
+    const runtime = yield* createExecutorRuntime({
       localDataDir: ":memory:",
       workspaceRoot,
       homeConfigPath,

@@ -23,7 +23,7 @@ type SecretMaterialSummary = {
   updatedAt: number;
 };
 
-export type ControlPlaneStoreShape = {
+export type ExecutorStateStoreShape = {
   authArtifacts: {
     listByWorkspaceId: (
       workspaceId: AuthArtifact["workspaceId"],
@@ -224,6 +224,6 @@ export type ControlPlaneStoreShape = {
   };
 };
 
-export class ControlPlaneStore extends Context.Tag(
-  "#runtime/ControlPlaneStore",
-)<ControlPlaneStore, ControlPlaneStoreShape>() {}
+export class ExecutorStateStore extends Context.Tag(
+  "#runtime/ExecutorStateStore",
+)<ExecutorStateStore, ExecutorStateStoreShape>() {}

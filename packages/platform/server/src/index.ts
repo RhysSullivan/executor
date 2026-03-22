@@ -21,7 +21,7 @@ import { createLocalExecutorBackend } from "@executor/platform-sdk-file";
 import {
   type ResolveExecutionEnvironment,
   type ResolveSecretMaterial,
-  type ControlPlaneRuntime,
+  type ExecutorRuntime,
 } from "@executor/platform-sdk/runtime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -76,7 +76,7 @@ type StaticUiOptions = {
 
 export type LocalExecutorServer = {
   readonly executor: Executor;
-  readonly runtime: ControlPlaneRuntime;
+  readonly runtime: ExecutorRuntime;
   readonly port: number;
   readonly host: string;
   readonly baseUrl: string;
@@ -95,13 +95,13 @@ export type StartLocalExecutorServerOptions = {
 
 export type LocalExecutorRequestHandler = {
   readonly executor: Executor;
-  readonly runtime: ControlPlaneRuntime;
+  readonly runtime: ExecutorRuntime;
   readonly handleApiRequest: (request: Request) => Promise<Response>;
   readonly getBaseUrl: () => string | undefined;
   readonly setBaseUrl: (baseUrl: string) => void;
 };
 
-type ControlPlaneWebHandler = ReturnType<typeof HttpApiBuilder.toWebHandler>;
+type ExecutorApiWebHandler = ReturnType<typeof HttpApiBuilder.toWebHandler>;
 type ExecutorMcpHandler = ReturnType<typeof createExecutorMcpRequestHandler>;
 
 const EXECUTOR_NPM_DIST_TAGS_PATHNAME = "/v1/app/npm/dist-tags";
@@ -135,7 +135,7 @@ const createExecutorRuntime = (
     ),
   );
 
-const createControlPlaneWebHandler = (
+const createExecutorApiWebHandler = (
   executor: Executor,
   tracingRuntime: ReturnType<typeof createLocalTracingRuntimeFromEnv>,
 ) =>
@@ -154,7 +154,7 @@ const createControlPlaneWebHandler = (
         ),
       ),
     ),
-    (handler: ControlPlaneWebHandler) => Effect.tryPromise({ try: () => handler.dispose(), catch: (cause) => cause instanceof Error ? cause : new Error(String(cause ?? "web handler dispose failed")) }).pipe(Effect.orDie),
+    (handler: ExecutorApiWebHandler) => Effect.tryPromise({ try: () => handler.dispose(), catch: (cause) => cause instanceof Error ? cause : new Error(String(cause ?? "web handler dispose failed")) }).pipe(Effect.orDie),
   );
 
 const safeFilePath = (assetsDir: string, pathname: string): string | null => {
@@ -382,7 +382,7 @@ export const createLocalExecutorRequestHandler = (
       disposeExecutor,
     );
 
-    const apiHandler = yield* createControlPlaneWebHandler(
+    const apiHandler = yield* createExecutorApiWebHandler(
       executor,
       tracingRuntime,
     );

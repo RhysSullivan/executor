@@ -177,7 +177,7 @@ describe("source-auth-material", () => {
               auth: { kind: "none" },
             }),
             actorAccountId: null,
-            rows: {
+            executorState: {
               authArtifacts: {
                 getByWorkspaceSourceAndActor: () =>
                   Effect.succeed(

@@ -26,23 +26,26 @@ import { createGraphqlCatalogFragment } from "@executor/source-graphql";
 import { createWorkspaceExecutorAdminToolMap } from "../../../internal/src/index";
 
 import {
-  type ControlPlaneRuntime,
+  type ExecutorRuntime,
   LiveExecutionManagerService,
-  provideControlPlaneRuntime,
+  provideExecutorRuntime,
   RuntimeExecutionResolverService,
 } from "./index";
 import { createSourceFromPayload } from "./sources/source-definitions";
 import { decodeSourceCredentialSelectionContent } from "./sources/source-credential-interactions";
 import { persistSource } from "./sources/source-store";
-import { withControlPlaneClient } from "./execution/test-http-client";
+import {
+  withExecutorApiClient,
+  withExecutorApiRequestHandler,
+} from "./execution/test-http-client";
 import { runtimeEffectError } from "./effect-errors";
 import {
   buildLocalSourceArtifact,
-  createLocalControlPlaneRuntime as createControlPlaneRuntime,
+  createLocalExecutorRuntime as createExecutorRuntime,
   deriveLocalInstallation,
   readLocalSourceArtifact,
   resolveLocalWorkspaceContext,
-  writeLocalControlPlaneState,
+  writeLocalExecutorStateSnapshot,
   writeLocalSourceArtifact,
   writeProjectLocalExecutorConfig,
   writeLocalWorkspaceState,
@@ -55,13 +58,13 @@ import {
 const makeRuntime = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   const workspaceRoot = yield* fs.makeTempDirectoryScoped({
-    prefix: "executor-control-plane-runtime-",
+    prefix: "executor-runtime-",
   });
   const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
   const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
 
   return yield* Effect.acquireRelease(
-    createControlPlaneRuntime({
+    createExecutorRuntime({
       workspaceRoot,
       homeConfigPath,
       homeStateDirectory,
@@ -333,7 +336,7 @@ const makeGoogleWorkspaceTestServer = Effect.acquireRelease(
 );
 
 const upsertLocalSecret = (
-  runtime: ControlPlaneRuntime,
+  runtime: ExecutorRuntime,
   input: {
     id: string;
     name: string;
@@ -341,7 +344,7 @@ const upsertLocalSecret = (
     value: string;
   },
 ) =>
-  runtime.persistence.rows.secretMaterials.upsert({
+  runtime.storage.executorState.secretMaterials.upsert({
     id: SecretMaterialIdSchema.make(input.id),
     providerId: "local",
     handle: input.id,
@@ -353,7 +356,7 @@ const upsertLocalSecret = (
   });
 
 const createPersistedGoogleSource = (input: {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
   name: string;
   namespace: string;
   service: string;
@@ -398,9 +401,9 @@ const createPersistedGoogleSource = (input: {
       now: Date.now(),
     });
 
-    return yield* persistSource(input.runtime.persistence.rows, source, {
+    return yield* persistSource(input.runtime.storage.executorState, source, {
       actorAccountId: installation.accountId,
-    }).pipe((effect) => provideControlPlaneRuntime(effect, input.runtime));
+    }).pipe((effect) => provideExecutorRuntime(effect, input.runtime));
   });
 
 const expectLeft = <A, E>(effect: Effect.Effect<A, E, never>) =>
@@ -410,7 +413,7 @@ const expectLeft = <A, E>(effect: Effect.Effect<A, E, never>) =>
         ? Effect.succeed(result.left)
         : Effect.fail(
             runtimeEffectError(
-              "control-plane-runtime.test",
+              "executor-runtime.test",
               "Expected effect to fail",
             ),
           ),
@@ -418,11 +421,11 @@ const expectLeft = <A, E>(effect: Effect.Effect<A, E, never>) =>
   );
 
 const invokeWorkspaceTool = <A>(input: {
-  runtime: ControlPlaneRuntime;
+  runtime: ExecutorRuntime;
   path: ToolPath;
   args: unknown;
 }) =>
-  provideControlPlaneRuntime(
+  provideExecutorRuntime(
     Effect.gen(function* () {
       const installation = input.runtime.localInstallation;
       const resolveEnvironment = yield* RuntimeExecutionResolverService;
@@ -440,7 +443,7 @@ const invokeWorkspaceTool = <A>(input: {
     input.runtime,
   );
 
-describe("control-plane-runtime", () => {
+describe("executor-runtime", () => {
   it.scoped(
     "writes local source changes through executor.jsonc",
     () =>
@@ -452,7 +455,7 @@ describe("control-plane-runtime", () => {
         const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
         const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
         const runtime = yield* Effect.acquireRelease(
-          createControlPlaneRuntime({
+          createExecutorRuntime({
             workspaceRoot,
             homeConfigPath,
             homeStateDirectory,
@@ -463,7 +466,7 @@ describe("control-plane-runtime", () => {
         const openApiServer = yield* makeOpenApiSpecServer;
         const installation = runtime.localInstallation;
 
-        const createdSource = yield* withControlPlaneClient(
+        const createdSource = yield* withExecutorApiClient(
           { runtime, accountId: installation.accountId },
           (client) =>
             client.sources.create({
@@ -496,7 +499,7 @@ describe("control-plane-runtime", () => {
           openApiServer.baseUrl,
         );
 
-        const removed = yield* withControlPlaneClient(
+        const removed = yield* withExecutorApiClient(
           { runtime, accountId: installation.accountId },
           (client) =>
             client.sources.remove({
@@ -522,7 +525,7 @@ describe("control-plane-runtime", () => {
     Effect.gen(function* () {
       const runtime = yield* makeRuntime;
 
-      const created = yield* withControlPlaneClient({ runtime }, (client) =>
+      const created = yield* withExecutorApiClient({ runtime }, (client) =>
         client.local.createSecret({
           payload: {
             name: "GitHub PAT",
@@ -534,7 +537,7 @@ describe("control-plane-runtime", () => {
 
       expect(created.providerId).toBe("local");
 
-      const listed = yield* withControlPlaneClient({ runtime }, (client) =>
+      const listed = yield* withExecutorApiClient({ runtime }, (client) =>
         client.local.listSecrets({}),
       );
       expect(listed).toEqual([
@@ -545,7 +548,7 @@ describe("control-plane-runtime", () => {
         }),
       ]);
 
-      const updated = yield* withControlPlaneClient({ runtime }, (client) =>
+      const updated = yield* withExecutorApiClient({ runtime }, (client) =>
         client.local.updateSecret({
           path: { secretId: created.id },
           payload: {
@@ -558,14 +561,14 @@ describe("control-plane-runtime", () => {
       expect(updated.name).toBe("GitHub PAT Updated");
 
       const storedSecret =
-        yield* runtime.persistence.rows.secretMaterials.getById(
+        yield* runtime.storage.executorState.secretMaterials.getById(
           SecretMaterialIdSchema.make(created.id),
         );
       assertTrue(Option.isSome(storedSecret));
       expect(storedSecret.value.providerId).toBe("local");
       expect(storedSecret.value.value).toBe("ghp_test_token_v2");
 
-      const removed = yield* withControlPlaneClient({ runtime }, (client) =>
+      const removed = yield* withExecutorApiClient({ runtime }, (client) =>
         client.local.deleteSecret({
           path: { secretId: created.id },
         }),
@@ -580,7 +583,7 @@ describe("control-plane-runtime", () => {
       Effect.gen(function* () {
         const runtime = yield* makeRuntime;
 
-        const config = yield* withControlPlaneClient({ runtime }, (client) =>
+        const config = yield* withExecutorApiClient({ runtime }, (client) =>
           client.local.config({}),
         );
 
@@ -611,7 +614,7 @@ describe("control-plane-runtime", () => {
         const runtime = yield* makeRuntime;
         const openApiServer = yield* makeOpenApiSpecServer;
         const installation = runtime.localInstallation;
-        const createdSource = yield* withControlPlaneClient(
+        const createdSource = yield* withExecutorApiClient(
           { runtime, accountId: installation.accountId },
           (client) =>
             client.sources.create({
@@ -684,7 +687,7 @@ describe("control-plane-runtime", () => {
           listedSecrets.some((secret) => secret.id === createdSecret.id),
         ).toBe(true);
 
-        const apiSecrets = yield* withControlPlaneClient(
+        const apiSecrets = yield* withExecutorApiClient(
           { runtime },
           (client) => client.local.listSecrets({}),
         );
@@ -719,7 +722,7 @@ describe("control-plane-runtime", () => {
         });
         expect(loadedPolicy.id).toBe(createdPolicy.id);
 
-        const listedPolicies = yield* withControlPlaneClient(
+        const listedPolicies = yield* withExecutorApiClient(
           { runtime, accountId: installation.accountId },
           (client) =>
             client.policies.list({
@@ -764,7 +767,7 @@ describe("control-plane-runtime", () => {
         });
         expect(removedSource.removed).toBe(true);
 
-        const apiSources = yield* withControlPlaneClient(
+        const apiSources = yield* withExecutorApiClient(
           { runtime, accountId: installation.accountId },
           (client) =>
             client.sources.list({
@@ -793,7 +796,7 @@ describe("control-plane-runtime", () => {
         );
         const now = Date.now();
 
-        yield* runtime.persistence.rows.executions.insert({
+        yield* runtime.storage.executorState.executions.insert({
           id: executionId,
           workspaceId: installation.workspaceId,
           createdByAccountId: installation.accountId,
@@ -828,17 +831,17 @@ describe("control-plane-runtime", () => {
           },
           now,
         }).pipe(Effect.orDie);
-        yield* persistSource(runtime.persistence.rows, localSource, {
+        yield* persistSource(runtime.storage.executorState, localSource, {
           actorAccountId: installation.accountId,
         }).pipe(
-          (effect) => provideControlPlaneRuntime(effect, runtime),
+          (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
         );
 
         const interactionFiber = yield* Effect.gen(function* () {
           const liveExecutionManager = yield* LiveExecutionManagerService;
           const onElicitation = liveExecutionManager.createOnElicitation({
-            rows: runtime.persistence.rows,
+            executorState: runtime.storage.executorState,
             executionId,
           });
 
@@ -862,14 +865,14 @@ describe("control-plane-runtime", () => {
             },
           });
         }).pipe(
-          (effect) => provideControlPlaneRuntime(effect, runtime),
+          (effect) => provideExecutorRuntime(effect, runtime),
           Effect.fork,
         );
 
         const waitForPendingInteraction = (
           remaining: number,
         ): Effect.Effect<Option.Option<ExecutionInteraction>, Error> =>
-          runtime.persistence.rows.executionInteractions
+          runtime.storage.executorState.executionInteractions
             .getPendingByExecutionId(executionId)
             .pipe(
               Effect.flatMap((pendingInteraction) =>
@@ -885,36 +888,45 @@ describe("control-plane-runtime", () => {
         assertTrue(Option.isSome(pendingInteraction));
         expect(pendingInteraction.value.id).toBe(interactionId);
 
-        const page = yield* withControlPlaneClient({ runtime }, (client) =>
-          client.sources.credentialPage({
-            path: {
-              workspaceId: installation.workspaceId,
-              sourceId,
-            },
-            urlParams: {
-              interactionId: pendingInteraction.value.id,
-            },
-          }),
+        const page = yield* withExecutorApiRequestHandler(
+          { runtime },
+          (handleRequest) =>
+            Effect.promise(async () => {
+              const url = new URL(
+                `/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials`,
+                "http://127.0.0.1",
+              );
+              url.searchParams.set("interactionId", pendingInteraction.value.id);
+              const response = await handleRequest(new Request(url));
+              return response.text();
+            }),
         );
         expect(page).toContain("Configure Source Access");
         expect(page).toContain("GitHub");
         expect(page).toContain("Continue without auth");
 
-        const submittedPage = yield* withControlPlaneClient(
+        const submittedPage = yield* withExecutorApiRequestHandler(
           { runtime },
-          (client) =>
-            client.sources.credentialSubmit({
-              path: {
-                workspaceId: installation.workspaceId,
-                sourceId,
-              },
-              urlParams: {
-                interactionId: pendingInteraction.value.id,
-              },
-              payload: {
-                action: "submit",
-                token: "ghp_local_test_token",
-              },
+          (handleRequest) =>
+            Effect.promise(async () => {
+              const url = new URL(
+                `/v1/workspaces/${encodeURIComponent(installation.workspaceId)}/sources/${encodeURIComponent(sourceId)}/credentials`,
+                "http://127.0.0.1",
+              );
+              url.searchParams.set("interactionId", pendingInteraction.value.id);
+              const response = await handleRequest(
+                new Request(url, {
+                  method: "POST",
+                  headers: {
+                    "content-type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    action: "submit",
+                    token: "ghp_local_test_token",
+                  }),
+                }),
+              );
+              return response.text();
             }),
         );
         expect(submittedPage).toContain("Credential Stored");
@@ -933,7 +945,7 @@ describe("control-plane-runtime", () => {
             : "",
         );
         const storedSecret =
-          yield* runtime.persistence.rows.secretMaterials.getById(
+          yield* runtime.storage.executorState.secretMaterials.getById(
             tokenSecretMaterialId,
           );
         assertTrue(Option.isSome(storedSecret));
@@ -949,7 +961,7 @@ describe("control-plane-runtime", () => {
         );
 
         const storedInteraction =
-          yield* runtime.persistence.rows.executionInteractions.getById(
+          yield* runtime.storage.executorState.executionInteractions.getById(
             pendingInteraction.value.id,
           );
         assertTrue(Option.isSome(storedInteraction));
@@ -967,7 +979,7 @@ describe("control-plane-runtime", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const workspaceRoot = yield* fs.makeTempDirectoryScoped({
-        prefix: "executor-control-plane-runtime-v123-",
+        prefix: "executor-runtime-v123-",
       });
       const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
       const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
@@ -1089,7 +1101,7 @@ describe("control-plane-runtime", () => {
           policies: {},
         },
       });
-      yield* writeLocalControlPlaneState({
+      yield* writeLocalExecutorStateSnapshot({
         context,
         state: {
           version: 1,
@@ -1125,8 +1137,14 @@ describe("control-plane-runtime", () => {
         `${JSON.stringify(legacyArtifact)}\n`,
       );
 
+      const decodedLegacyArtifact = yield* readLocalSourceArtifact({
+        context,
+        sourceId,
+      }).pipe(Effect.provide(NodeFileSystem.layer));
+      expect(decodedLegacyArtifact).not.toBeNull();
+
       const runtime = yield* Effect.acquireRelease(
-        createControlPlaneRuntime({
+        createExecutorRuntime({
           workspaceRoot,
           homeConfigPath,
           homeStateDirectory,
@@ -1135,7 +1153,7 @@ describe("control-plane-runtime", () => {
           Effect.promise(() => createdRuntime.close()).pipe(Effect.orDie),
       );
 
-      const inspection = yield* withControlPlaneClient(
+      const inspection = yield* withExecutorApiClient(
         { runtime, accountId: installation.accountId },
         (client) =>
           client.sources.inspection({
@@ -1162,7 +1180,7 @@ describe("control-plane-runtime", () => {
         const fs = yield* FileSystem.FileSystem;
         const openApiServer = yield* makeOpenApiSpecServer;
         const workspaceRoot = yield* fs.makeTempDirectoryScoped({
-          prefix: "executor-control-plane-runtime-startup-rebuild-",
+          prefix: "executor-runtime-startup-rebuild-",
         });
         const homeConfigPath = join(workspaceRoot, ".executor-home.jsonc");
         const homeStateDirectory = join(workspaceRoot, ".executor-home-state");
@@ -1232,7 +1250,7 @@ describe("control-plane-runtime", () => {
         });
 
         const runtime = yield* Effect.acquireRelease(
-          createControlPlaneRuntime({
+          createExecutorRuntime({
             workspaceRoot,
             homeConfigPath,
             homeStateDirectory,
@@ -1247,7 +1265,7 @@ describe("control-plane-runtime", () => {
         }).pipe(Effect.provide(NodeFileSystem.layer));
         expect(rebuiltArtifact).not.toBeNull();
 
-        const inspection = yield* withControlPlaneClient(
+        const inspection = yield* withExecutorApiClient(
           { runtime, accountId: installation.accountId },
           (client) =>
             client.sources.inspection({
@@ -1295,14 +1313,14 @@ describe("control-plane-runtime", () => {
           },
           now,
         }).pipe(Effect.orDie);
-        yield* persistSource(runtime.persistence.rows, localSource, {
+        yield* persistSource(runtime.storage.executorState, localSource, {
           actorAccountId: installation.accountId,
         }).pipe(
-          (effect) => provideControlPlaneRuntime(effect, runtime),
+          (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
         );
 
-        const inspection = yield* withControlPlaneClient(
+        const inspection = yield* withExecutorApiClient(
           { runtime, accountId: installation.accountId },
           (client) =>
             client.sources.inspection({
@@ -1353,15 +1371,15 @@ describe("control-plane-runtime", () => {
           },
           now,
         }).pipe(Effect.orDie);
-        yield* persistSource(runtime.persistence.rows, localSource, {
+        yield* persistSource(runtime.storage.executorState, localSource, {
           actorAccountId: installation.accountId,
         }).pipe(
-          (effect) => provideControlPlaneRuntime(effect, runtime),
+          (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
         );
 
         const error = yield* expectLeft(
-          withControlPlaneClient(
+          withExecutorApiClient(
             { runtime, accountId: installation.accountId },
             (client) =>
               client.sources.inspection({
@@ -1395,7 +1413,7 @@ describe("control-plane-runtime", () => {
         );
         const now = Date.now();
 
-        yield* runtime.persistence.rows.executions.insert({
+        yield* runtime.storage.executorState.executions.insert({
           id: executionId,
           workspaceId: installation.workspaceId,
           createdByAccountId: installation.accountId,
@@ -1430,17 +1448,17 @@ describe("control-plane-runtime", () => {
           },
           now,
         }).pipe(Effect.orDie);
-        yield* persistSource(runtime.persistence.rows, localSource, {
+        yield* persistSource(runtime.storage.executorState, localSource, {
           actorAccountId: installation.accountId,
         }).pipe(
-          (effect) => provideControlPlaneRuntime(effect, runtime),
+          (effect) => provideExecutorRuntime(effect, runtime),
           Effect.orDie,
         );
 
         const interactionFiber = yield* Effect.gen(function* () {
           const liveExecutionManager = yield* LiveExecutionManagerService;
           const onElicitation = liveExecutionManager.createOnElicitation({
-            rows: runtime.persistence.rows,
+            executorState: runtime.storage.executorState,
             executionId,
           });
 
@@ -1464,14 +1482,14 @@ describe("control-plane-runtime", () => {
             },
           });
         }).pipe(
-          (effect) => provideControlPlaneRuntime(effect, runtime),
+          (effect) => provideExecutorRuntime(effect, runtime),
           Effect.fork,
         );
 
         const waitForPendingInteraction = (
           remaining: number,
         ): Effect.Effect<Option.Option<ExecutionInteraction>, Error> =>
-          runtime.persistence.rows.executionInteractions
+          runtime.storage.executorState.executionInteractions
             .getPendingByExecutionId(executionId)
             .pipe(
               Effect.flatMap((pendingInteraction) =>
@@ -1491,7 +1509,7 @@ describe("control-plane-runtime", () => {
           sourceId,
           interactionId: pendingInteraction.value.id,
           action: "continue",
-        }).pipe((effect) => provideControlPlaneRuntime(effect, runtime));
+        }).pipe((effect) => provideExecutorRuntime(effect, runtime));
 
         expect(submitted.kind).toBe("continued");
 
@@ -1502,7 +1520,7 @@ describe("control-plane-runtime", () => {
         });
 
         const storedInteraction =
-          yield* runtime.persistence.rows.executionInteractions.getById(
+          yield* runtime.storage.executorState.executionInteractions.getById(
             pendingInteraction.value.id,
           );
         assertTrue(Option.isSome(storedInteraction));
@@ -1566,7 +1584,7 @@ describe("control-plane-runtime", () => {
         const googleServer = yield* makeGoogleWorkspaceTestServer;
         const installation = runtime.localInstallation;
 
-        const oauthClient = yield* withControlPlaneClient(
+        const oauthClient = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.createWorkspaceOauthClient({
@@ -1595,7 +1613,7 @@ describe("control-plane-runtime", () => {
         const grantId = ProviderAuthGrantIdSchema.make(
           `provider_grant_${crypto.randomUUID()}`,
         );
-        yield* runtime.persistence.rows.providerAuthGrants.upsert({
+        yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
           workspaceId: installation.workspaceId,
           actorAccountId: installation.accountId,
@@ -1621,7 +1639,7 @@ describe("control-plane-runtime", () => {
           scope: "scope:drive.readonly",
         });
 
-        const result = yield* withControlPlaneClient({ runtime }, (client) =>
+        const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connect({
             path: {
               workspaceId: installation.workspaceId,
@@ -1657,7 +1675,7 @@ describe("control-plane-runtime", () => {
         });
 
         const storedGrant =
-          yield* runtime.persistence.rows.providerAuthGrants.getById(grantId);
+          yield* runtime.storage.executorState.providerAuthGrants.getById(grantId);
         assertTrue(Option.isSome(storedGrant));
         expect(storedGrant.value.orphanedAt).toBeNull();
         expect(googleServer.discoveryAuthorizations).toContain(
@@ -1675,7 +1693,7 @@ describe("control-plane-runtime", () => {
         const googleServer = yield* makeGoogleWorkspaceTestServer;
         const installation = runtime.localInstallation;
 
-        const oauthClient = yield* withControlPlaneClient(
+        const oauthClient = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.createWorkspaceOauthClient({
@@ -1693,7 +1711,7 @@ describe("control-plane-runtime", () => {
             }),
         );
 
-        const result = yield* withControlPlaneClient({ runtime }, (client) =>
+        const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connect({
             path: {
               workspaceId: installation.workspaceId,
@@ -1742,7 +1760,7 @@ describe("control-plane-runtime", () => {
         const googleServer = yield* makeGoogleWorkspaceTestServer;
         const installation = runtime.localInstallation;
 
-        const oauthClient = yield* withControlPlaneClient(
+        const oauthClient = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.createWorkspaceOauthClient({
@@ -1771,7 +1789,7 @@ describe("control-plane-runtime", () => {
         const grantId = ProviderAuthGrantIdSchema.make(
           `provider_grant_${crypto.randomUUID()}`,
         );
-        yield* runtime.persistence.rows.providerAuthGrants.upsert({
+        yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
           workspaceId: installation.workspaceId,
           actorAccountId: installation.accountId,
@@ -1801,7 +1819,7 @@ describe("control-plane-runtime", () => {
           scope: "scope:gmail.readonly scope:calendar.readonly",
         });
 
-        const result = yield* withControlPlaneClient({ runtime }, (client) =>
+        const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connectBatch({
             path: {
               workspaceId: installation.workspaceId,
@@ -1850,7 +1868,7 @@ describe("control-plane-runtime", () => {
         ).toBe(true);
 
         const storedGrant =
-          yield* runtime.persistence.rows.providerAuthGrants.getById(grantId);
+          yield* runtime.storage.executorState.providerAuthGrants.getById(grantId);
         assertTrue(Option.isSome(storedGrant));
         expect(storedGrant.value.orphanedAt).toBeNull();
         expect(googleServer.tokenRequests.length).toBeGreaterThanOrEqual(1);
@@ -1871,7 +1889,7 @@ describe("control-plane-runtime", () => {
         const googleServer = yield* makeGoogleWorkspaceTestServer;
         const installation = runtime.localInstallation;
 
-        const oauthClient = yield* withControlPlaneClient(
+        const oauthClient = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.createWorkspaceOauthClient({
@@ -1889,7 +1907,7 @@ describe("control-plane-runtime", () => {
             }),
         );
 
-        const result = yield* withControlPlaneClient({ runtime }, (client) =>
+        const result = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.connectBatch({
             path: {
               workspaceId: installation.workspaceId,
@@ -1935,7 +1953,7 @@ describe("control-plane-runtime", () => {
         const googleServer = yield* makeGoogleWorkspaceTestServer;
         const installation = runtime.localInstallation;
 
-        const oauthClient = yield* withControlPlaneClient(
+        const oauthClient = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.createWorkspaceOauthClient({
@@ -1981,7 +1999,7 @@ describe("control-plane-runtime", () => {
         const grantId = ProviderAuthGrantIdSchema.make(
           `provider_grant_${crypto.randomUUID()}`,
         );
-        yield* runtime.persistence.rows.providerAuthGrants.upsert({
+        yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
           workspaceId: installation.workspaceId,
           actorAccountId: installation.accountId,
@@ -2006,7 +2024,7 @@ describe("control-plane-runtime", () => {
           `src_auth_${crypto.randomUUID()}`,
         );
         const state = `provider-state-${crypto.randomUUID()}`;
-        yield* runtime.persistence.rows.sourceAuthSessions.upsert({
+        yield* runtime.storage.executorState.sourceAuthSessions.upsert({
           id: sessionId,
           workspaceId: installation.workspaceId,
           sourceId: SourceIdSchema.make(
@@ -2060,7 +2078,7 @@ describe("control-plane-runtime", () => {
           scope: "scope:gmail.readonly scope:drive.readonly",
         });
 
-        const callbackPage = yield* withControlPlaneClient(
+        const callbackPage = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.providerOauthComplete({
@@ -2077,7 +2095,7 @@ describe("control-plane-runtime", () => {
         expect(callbackPage).toContain("Connected 1 source");
 
         const storedGrant =
-          yield* runtime.persistence.rows.providerAuthGrants.getById(grantId);
+          yield* runtime.storage.executorState.providerAuthGrants.getById(grantId);
         assertTrue(Option.isSome(storedGrant));
         expect(storedGrant.value.refreshToken).toEqual({
           providerId: "local",
@@ -2088,7 +2106,7 @@ describe("control-plane-runtime", () => {
           "scope:drive.readonly",
         ]);
 
-        const refreshedSource = yield* withControlPlaneClient(
+        const refreshedSource = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.get({
@@ -2135,7 +2153,7 @@ describe("control-plane-runtime", () => {
         );
         const refreshSecretId = "sec_google_refresh_orphan";
 
-        yield* runtime.persistence.rows.workspaceOauthClients.upsert({
+        yield* runtime.storage.executorState.workspaceOauthClients.upsert({
           id: oauthClientId,
           workspaceId: installation.workspaceId,
           providerKey: "google_workspace",
@@ -2157,7 +2175,7 @@ describe("control-plane-runtime", () => {
         const grantId = ProviderAuthGrantIdSchema.make(
           `provider_grant_${crypto.randomUUID()}`,
         );
-        yield* runtime.persistence.rows.providerAuthGrants.upsert({
+        yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
           workspaceId: installation.workspaceId,
           actorAccountId: installation.accountId,
@@ -2196,7 +2214,7 @@ describe("control-plane-runtime", () => {
           },
         });
 
-        const removed = yield* withControlPlaneClient({ runtime }, (client) =>
+        const removed = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.remove({
             path: {
               workspaceId: installation.workspaceId,
@@ -2208,7 +2226,7 @@ describe("control-plane-runtime", () => {
         expect(removed.removed).toBe(true);
 
         const storedGrant =
-          yield* runtime.persistence.rows.providerAuthGrants.getById(grantId);
+          yield* runtime.storage.executorState.providerAuthGrants.getById(grantId);
         assertTrue(Option.isSome(storedGrant));
         expect(storedGrant.value.orphanedAt).not.toBeNull();
       }),
@@ -2225,7 +2243,7 @@ describe("control-plane-runtime", () => {
         );
         const refreshSecretId = "sec_google_refresh_revoke";
 
-        yield* runtime.persistence.rows.workspaceOauthClients.upsert({
+        yield* runtime.storage.executorState.workspaceOauthClients.upsert({
           id: oauthClientId,
           workspaceId: installation.workspaceId,
           providerKey: "google_workspace",
@@ -2247,7 +2265,7 @@ describe("control-plane-runtime", () => {
         const grantId = ProviderAuthGrantIdSchema.make(
           `provider_grant_${crypto.randomUUID()}`,
         );
-        yield* runtime.persistence.rows.providerAuthGrants.upsert({
+        yield* runtime.storage.executorState.providerAuthGrants.upsert({
           id: grantId,
           workspaceId: installation.workspaceId,
           actorAccountId: installation.accountId,
@@ -2303,7 +2321,7 @@ describe("control-plane-runtime", () => {
           },
         });
 
-        const removed = yield* withControlPlaneClient({ runtime }, (client) =>
+        const removed = yield* withExecutorApiClient({ runtime }, (client) =>
           client.sources.removeProviderAuthGrant({
             path: {
               workspaceId: installation.workspaceId,
@@ -2315,16 +2333,16 @@ describe("control-plane-runtime", () => {
         expect(removed.removed).toBe(true);
 
         const storedGrant =
-          yield* runtime.persistence.rows.providerAuthGrants.getById(grantId);
+          yield* runtime.storage.executorState.providerAuthGrants.getById(grantId);
         assertTrue(Option.isNone(storedGrant));
 
         const storedRefreshSecret =
-          yield* runtime.persistence.rows.secretMaterials.getById(
+          yield* runtime.storage.executorState.secretMaterials.getById(
             SecretMaterialIdSchema.make(refreshSecretId),
           );
         assertTrue(Option.isNone(storedRefreshSecret));
 
-        const disconnectedDrive = yield* withControlPlaneClient(
+        const disconnectedDrive = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.get({
@@ -2334,7 +2352,7 @@ describe("control-plane-runtime", () => {
               },
             }),
         );
-        const disconnectedGmail = yield* withControlPlaneClient(
+        const disconnectedGmail = yield* withExecutorApiClient(
           { runtime },
           (client) =>
             client.sources.get({

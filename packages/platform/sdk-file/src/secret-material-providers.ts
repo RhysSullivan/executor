@@ -31,8 +31,10 @@ import {
 } from "../../sdk/src/runtime/workspace/secret-material-providers";
 import { fromConfigSecretProviderId } from "../../sdk/src/runtime/workspace/config-secrets";
 import { getRuntimeLocalWorkspaceOption } from "../../sdk/src/runtime/workspace/runtime-context";
-import { ControlPlaneStore } from "../../sdk/src/runtime/store";
-import type { ControlPlaneStoreShape } from "../../sdk/src/runtime/store";
+import {
+  ExecutorStateStore,
+  type ExecutorStateStoreShape,
+} from "../../sdk/src/runtime/executor-state-store";
 import { runtimeEffectError } from "../../sdk/src/runtime/effect-errors";
 import { resolveConfigRelativePath } from "./config";
 
@@ -49,7 +51,7 @@ export type SecretStoreProviderId =
   | typeof LOCAL_SECRET_PROVIDER_ID;
 
 type SecretMaterialProviderRuntime = {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   env: NodeJS.ProcessEnv;
   dangerouslyAllowEnvSecrets: boolean;
   keychainServiceName: string;
@@ -355,7 +357,7 @@ const loadStoredSecretMaterial = (input: {
 }) =>
   Effect.gen(function* () {
     const materialId = SecretMaterialIdSchema.make(input.id);
-    const stored = yield* input.runtime.rows.secretMaterials.getById(materialId);
+    const stored = yield* input.runtime.executorState.secretMaterials.getById(materialId);
     if (Option.isNone(stored)) {
       return yield* runtimeEffectError("local/secret-material-providers", `${input.operation}: secret material not found: ${input.id}`);
     }
@@ -374,7 +376,7 @@ const createSecretMaterialMetadata = (input: {
   Effect.gen(function* () {
     const now = Date.now();
     const id = SecretMaterialIdSchema.make(`sec_${randomUUID()}`);
-    yield* input.runtime.rows.secretMaterials.upsert({
+    yield* input.runtime.executorState.secretMaterials.upsert({
       id,
       providerId: input.providerId,
       handle: input.providerHandle,
@@ -659,7 +661,7 @@ const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
         return toSecretMaterialSummary(stored);
       }
 
-      const updated = yield* runtime.rows.secretMaterials.updateById(
+      const updated = yield* runtime.executorState.secretMaterials.updateById(
         stored.id,
         {
           ...(name !== undefined ? { name } : {}),
@@ -683,7 +685,7 @@ const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
   remove: ({ ref, runtime }) =>
     Effect.gen(function* () {
       const materialId = SecretMaterialIdSchema.make(ref.handle);
-      return yield* runtime.rows.secretMaterials.removeById(materialId);
+      return yield* runtime.executorState.secretMaterials.removeById(materialId);
     }),
 });
 
@@ -748,7 +750,7 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         runtime,
       });
 
-      const updated = yield* runtime.rows.secretMaterials.updateById(
+      const updated = yield* runtime.executorState.secretMaterials.updateById(
         loaded.material.id,
         {
           name: nextName,
@@ -784,7 +786,7 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         return false;
       }
 
-      return yield* runtime.rows.secretMaterials.removeById(loaded.material.id);
+      return yield* runtime.executorState.secretMaterials.removeById(loaded.material.id);
     }),
 });
 
@@ -809,13 +811,13 @@ const getSecretMaterialProvider = (input: {
 };
 
 const createSecretMaterialProviderRuntime = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   dangerouslyAllowEnvSecrets?: boolean;
   keychainServiceName?: string;
   localConfig?: LocalExecutorConfig | null;
   workspaceRoot?: string | null;
 }): SecretMaterialProviderRuntime => ({
-  rows: input.rows,
+  executorState: input.executorState,
   env: process.env,
   dangerouslyAllowEnvSecrets: resolveDangerouslyAllowEnvSecrets(input.dangerouslyAllowEnvSecrets),
   keychainServiceName: resolveKeychainServiceName(input.keychainServiceName),
@@ -1010,7 +1012,7 @@ const resolveConfiguredSecretProvider = (input: {
   });
 
 export const createDefaultSecretMaterialResolver = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   dangerouslyAllowEnvSecrets?: boolean;
   keychainServiceName?: string;
   localConfig?: LocalExecutorConfig | null;
@@ -1048,7 +1050,7 @@ export const createDefaultSecretMaterialResolver = (input: {
 };
 
 export const createDefaultSecretMaterialStorer = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   dangerouslyAllowEnvSecrets?: boolean;
   keychainServiceName?: string;
 }): StoreSecretMaterial => {
@@ -1080,7 +1082,7 @@ export const createDefaultSecretMaterialStorer = (input: {
 };
 
 export const createDefaultSecretMaterialUpdater = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   dangerouslyAllowEnvSecrets?: boolean;
   keychainServiceName?: string;
 }): UpdateSecretMaterial => {
@@ -1108,7 +1110,7 @@ export const createDefaultSecretMaterialUpdater = (input: {
 };
 
 export const createDefaultSecretMaterialDeleter = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   dangerouslyAllowEnvSecrets?: boolean;
   keychainServiceName?: string;
 }): DeleteSecretMaterial => {
@@ -1162,11 +1164,11 @@ export const SecretMaterialResolverLive = (input: {
     : Layer.effect(
         SecretMaterialResolverService,
         Effect.gen(function* () {
-          const rows = yield* ControlPlaneStore;
+          const executorState = yield* ExecutorStateStore;
           const runtimeConfig = yield* resolveRuntimeSecretMaterialConfig(input);
 
           return createDefaultSecretMaterialResolver({
-            rows,
+            executorState,
             dangerouslyAllowEnvSecrets: input.dangerouslyAllowEnvSecrets,
             keychainServiceName: input.keychainServiceName,
             localConfig: runtimeConfig.localConfig,
@@ -1182,10 +1184,10 @@ export const SecretMaterialStorerLive = (input: {
   Layer.effect(
     SecretMaterialStorerService,
     Effect.gen(function* () {
-      const rows = yield* ControlPlaneStore;
+      const executorState = yield* ExecutorStateStore;
 
       return createDefaultSecretMaterialStorer({
-        rows,
+        executorState,
         dangerouslyAllowEnvSecrets: input.dangerouslyAllowEnvSecrets,
         keychainServiceName: input.keychainServiceName,
       });
@@ -1199,10 +1201,10 @@ export const SecretMaterialDeleterLive = (input: {
   Layer.effect(
     SecretMaterialDeleterService,
     Effect.gen(function* () {
-      const rows = yield* ControlPlaneStore;
+      const executorState = yield* ExecutorStateStore;
 
       return createDefaultSecretMaterialDeleter({
-        rows,
+        executorState,
         dangerouslyAllowEnvSecrets: input.dangerouslyAllowEnvSecrets,
         keychainServiceName: input.keychainServiceName,
       });
@@ -1216,10 +1218,10 @@ export const SecretMaterialUpdaterLive = (input: {
   Layer.effect(
     SecretMaterialUpdaterService,
     Effect.gen(function* () {
-      const rows = yield* ControlPlaneStore;
+      const executorState = yield* ExecutorStateStore;
 
       return createDefaultSecretMaterialUpdater({
-        rows,
+        executorState,
         dangerouslyAllowEnvSecrets: input.dangerouslyAllowEnvSecrets,
         keychainServiceName: input.keychainServiceName,
       });

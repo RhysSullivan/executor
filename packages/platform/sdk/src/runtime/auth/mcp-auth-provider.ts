@@ -20,7 +20,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import type { ControlPlaneStoreShape } from "../store";
+import type { ExecutorStateStoreShape } from "../executor-state-store";
 import {
   type DeleteSecretMaterial,
   type ResolveSecretMaterial,
@@ -110,7 +110,7 @@ export const createPersistedMcpOAuthSourceAuth = (input: {
 });
 
 export const createPersistedMcpAuthProvider = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   artifact: AuthArtifact;
   config: McpOAuthAuthArtifactConfig;
   resolveSecretMaterial: ResolveSecretMaterial;
@@ -128,7 +128,7 @@ export const createPersistedMcpAuthProvider = (input: {
         configJson: encodeMcpOAuthAuthArtifactConfig(nextConfig),
         updatedAt: Date.now(),
       };
-      yield* input.rows.authArtifacts.upsert(nextArtifact);
+      yield* input.executorState.authArtifacts.upsert(nextArtifact);
       currentArtifact = nextArtifact;
       currentConfig = nextConfig;
     });

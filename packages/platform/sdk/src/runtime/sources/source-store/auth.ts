@@ -12,13 +12,13 @@ import * as Effect from "effect/Effect";
 import { authArtifactSecretMaterialRefs } from "../../auth/auth-artifacts";
 import { removeAuthLeaseAndSecrets } from "../../auth/auth-leases";
 import type { DeleteSecretMaterial } from "../../workspace/secret-material-providers";
-import type { ControlPlaneStoreShape } from "../../store";
+import type { ExecutorStateStoreShape } from "../../executor-state-store";
 
 const secretRefKey = (ref: { providerId: string; handle: string }): string =>
   `${ref.providerId}:${ref.handle}`;
 
 export const cleanupAuthArtifactSecretRefs = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   input: {
     previous: AuthArtifact | null;
     next: AuthArtifact | null;
@@ -91,7 +91,7 @@ export const selectExactAuthArtifact = (input: {
   ) ?? null;
 
 export const removeAuthArtifactsForSource = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   input: {
     workspaceId: WorkspaceId;
     sourceId: Source["id"];
@@ -99,12 +99,12 @@ export const removeAuthArtifactsForSource = (
   deleteSecretMaterial: DeleteSecretMaterial,
 ) =>
   Effect.gen(function* () {
-    const existingAuthArtifacts = yield* rows.authArtifacts.listByWorkspaceAndSourceId({
+    const existingAuthArtifacts = yield* executorState.authArtifacts.listByWorkspaceAndSourceId({
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
     });
 
-    yield* rows.authArtifacts.removeByWorkspaceAndSourceId({
+    yield* executorState.authArtifacts.removeByWorkspaceAndSourceId({
       workspaceId: input.workspaceId,
       sourceId: input.sourceId,
     });
@@ -112,7 +112,7 @@ export const removeAuthArtifactsForSource = (
     yield* Effect.forEach(
       existingAuthArtifacts,
       (artifact) =>
-        removeAuthLeaseAndSecrets(rows, {
+        removeAuthLeaseAndSecrets(executorState, {
           authArtifactId: artifact.id,
         }, deleteSecretMaterial),
       { discard: true },
@@ -121,7 +121,7 @@ export const removeAuthArtifactsForSource = (
     yield* Effect.forEach(
       existingAuthArtifacts,
       (artifact) =>
-        cleanupAuthArtifactSecretRefs(rows, {
+        cleanupAuthArtifactSecretRefs(executorState, {
           previous: artifact,
           next: null,
         }, deleteSecretMaterial),

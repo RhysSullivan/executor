@@ -19,12 +19,12 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import {
-  ControlPlaneStore,
+  ExecutorStateStore,
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
   SecretMaterialStorerService,
   SecretMaterialUpdaterService,
-  type ControlPlaneStoreShape,
+  type ExecutorStateStoreShape,
   type WorkspaceInternalToolContext,
   RuntimeSourceAuthService,
   RuntimeSourceCatalogSyncService,
@@ -200,7 +200,7 @@ const localWorkspacePolicyOutputSchema = Schema.standardSchemaV1(
 );
 
 const makeRuntimeLayer = (input: {
-  controlPlaneStore: ControlPlaneStoreShape;
+  executorStateStore: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSyncService: Effect.Effect.Success<
     typeof RuntimeSourceCatalogSyncService
@@ -214,7 +214,7 @@ const makeRuntimeLayer = (input: {
   updateSecretMaterial: WorkspaceInternalToolContext["updateSecretMaterial"];
 }) =>
   Layer.mergeAll(
-    Layer.succeed(ControlPlaneStore, input.controlPlaneStore),
+    Layer.succeed(ExecutorStateStore, input.executorStateStore),
     Layer.succeed(RuntimeSourceStoreService, input.sourceStore),
     Layer.succeed(
       RuntimeSourceCatalogSyncService,
@@ -234,7 +234,7 @@ const makeRuntimeLayer = (input: {
 const runRuntimeEffect = <A, E, R>(input: {
   effect: Effect.Effect<A, E, R>;
   runtimeLayer: Layer.Layer<
-    | ControlPlaneStore
+    | ExecutorStateStore
     | LocalInstanceConfigService
     | RuntimeSourceStoreService
     | RuntimeSourceCatalogSyncService
@@ -276,7 +276,7 @@ export const createWorkspaceExecutorAdminToolMap = (
   input: WorkspaceInternalToolContext,
 ): ToolMap => {
   const runtimeLayer = makeRuntimeLayer({
-    controlPlaneStore: input.controlPlaneStore,
+    executorStateStore: input.executorStateStore,
     sourceStore: input.sourceStore,
     sourceCatalogSyncService: input.sourceCatalogSyncService,
     workspaceConfigStore: input.workspaceConfigStore,

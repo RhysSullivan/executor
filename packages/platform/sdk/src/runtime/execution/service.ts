@@ -45,9 +45,9 @@ import {
   type OperationErrorsLike,
 } from "../policy/operation-errors";
 import {
-  ControlPlaneStore,
-  type ControlPlaneStoreShape,
-} from "../store";
+  ExecutorStateStore,
+  type ExecutorStateStoreShape,
+} from "../executor-state-store";
 import { RuntimeExecutionResolverService } from "./workspace/environment";
 import { runtimeEffectError } from "../effect-errors";
 
@@ -244,7 +244,7 @@ const verifyStoredStepMatches = (input: {
 };
 
 const fetchExecution = (
-  store: ControlPlaneStoreShape,
+  store: ExecutorStateStoreShape,
   input: {
     workspaceId: Execution["workspaceId"];
     executionId: Execution["id"];
@@ -268,7 +268,7 @@ const fetchExecution = (
   });
 
 const fetchExecutionEnvelope = (
-  store: ControlPlaneStoreShape,
+  store: ExecutorStateStoreShape,
   input: {
     workspaceId: Execution["workspaceId"];
     executionId: Execution["id"];
@@ -289,7 +289,7 @@ const fetchExecutionEnvelope = (
   });
 
 const waitForExecutionEnvelopeToSettle = (
-  store: ControlPlaneStoreShape,
+  store: ExecutorStateStoreShape,
   input: {
     workspaceId: Execution["workspaceId"];
     executionId: Execution["id"];
@@ -326,7 +326,7 @@ const waitForExecutionEnvelopeToSettle = (
   });
 
 const suspendExecutionForInteraction = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   executionId: Execution["id"];
   liveExecutionManager: LiveExecutionManager;
   request: Parameters<OnElicitation>[0];
@@ -338,7 +338,7 @@ const suspendExecutionForInteraction = (input: {
 }) =>
   Effect.gen(function* () {
     const now = Date.now();
-    const existing = yield* input.rows.executionInteractions.getById(input.interactionId);
+    const existing = yield* input.executorState.executionInteractions.getById(input.interactionId);
     const stepSequence = executionStepSequenceFromContext(input.request.context);
 
     if (Option.isSome(existing) && existing.value.status !== "pending") {
@@ -350,7 +350,7 @@ const suspendExecutionForInteraction = (input: {
     }
 
     if (Option.isNone(existing)) {
-      yield* input.rows.executionInteractions.insert({
+      yield* input.executorState.executionInteractions.insert({
         id: ExecutionInteractionIdSchema.make(input.interactionId),
         executionId: input.executionId,
         status: "pending",
@@ -372,7 +372,7 @@ const suspendExecutionForInteraction = (input: {
     }
 
     if (stepSequence !== null) {
-      yield* input.rows.executionSteps.updateByExecutionAndSequence(
+      yield* input.executorState.executionSteps.updateByExecutionAndSequence(
         input.executionId,
         stepSequence,
         {
@@ -383,7 +383,7 @@ const suspendExecutionForInteraction = (input: {
       );
     }
 
-    yield* input.rows.executions.update(input.executionId, {
+    yield* input.executorState.executions.update(input.executionId, {
       status: "waiting_for_interaction",
       updatedAt: now,
     });
@@ -399,13 +399,13 @@ const suspendExecutionForInteraction = (input: {
   });
 
 const createHybridOnElicitation = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   executionId: Execution["id"];
   liveExecutionManager: LiveExecutionManager;
   interactionMode: InteractionMode;
 }): OnElicitation => {
   const liveOnElicitation = input.liveExecutionManager.createOnElicitation({
-    rows: input.rows,
+    executorState: input.executorState,
     executionId: input.executionId,
   });
 
@@ -422,7 +422,7 @@ const createHybridOnElicitation = (input: {
         path: request.path,
         context: request.context,
       });
-      const existing = yield* input.rows.executionInteractions.getById(interactionId);
+      const existing = yield* input.executorState.executionInteractions.getById(interactionId);
 
       if (Option.isSome(existing) && existing.value.status !== "pending") {
         return yield* decodeStoredElicitationResponse({
@@ -439,7 +439,7 @@ const createHybridOnElicitation = (input: {
       if (Option.isNone(existing) && allowLiveWait) {
         const stepSequence = executionStepSequenceFromContext(request.context);
         if (stepSequence !== null) {
-          yield* input.rows.executionSteps.updateByExecutionAndSequence(
+          yield* input.executorState.executionSteps.updateByExecutionAndSequence(
             input.executionId,
             stepSequence,
             {
@@ -457,7 +457,7 @@ const createHybridOnElicitation = (input: {
       }
 
       return yield* suspendExecutionForInteraction({
-        rows: input.rows,
+        executorState: input.executorState,
         executionId: input.executionId,
         liveExecutionManager: input.liveExecutionManager,
         request,
@@ -467,7 +467,7 @@ const createHybridOnElicitation = (input: {
 };
 
 const createReplayToolInvoker = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   executionId: Execution["id"];
   toolInvoker: ToolInvoker;
 }): ToolInvoker => ({
@@ -479,7 +479,7 @@ const createReplayToolInvoker = (input: {
       }
 
       const argsJson = serializeRequiredJson(args);
-      const existing = yield* input.rows.executionSteps.getByExecutionAndSequence(
+      const existing = yield* input.executorState.executionSteps.getByExecutionAndSequence(
         input.executionId,
         stepSequence,
       );
@@ -506,7 +506,7 @@ const createReplayToolInvoker = (input: {
         }
       } else {
         const now = Date.now();
-        yield* input.rows.executionSteps.insert({
+        yield* input.executorState.executionSteps.insert({
           id: executionStepIdFor(input.executionId, stepSequence),
           executionId: input.executionId,
           sequence: stepSequence,
@@ -526,7 +526,7 @@ const createReplayToolInvoker = (input: {
         const value = yield* input.toolInvoker.invoke({ path, args, context });
         const updatedAt = Date.now();
 
-        yield* input.rows.executionSteps.updateByExecutionAndSequence(
+        yield* input.executorState.executionSteps.updateByExecutionAndSequence(
           input.executionId,
           stepSequence,
           {
@@ -542,7 +542,7 @@ const createReplayToolInvoker = (input: {
         const updatedAt = Date.now();
 
         if (isExecutionSuspendedValue(error)) {
-          yield* input.rows.executionSteps.updateByExecutionAndSequence(
+          yield* input.executorState.executionSteps.updateByExecutionAndSequence(
             input.executionId,
             stepSequence,
             {
@@ -554,7 +554,7 @@ const createReplayToolInvoker = (input: {
           return yield* Effect.fail(error);
         }
 
-        yield* input.rows.executionSteps.updateByExecutionAndSequence(
+        yield* input.executorState.executionSteps.updateByExecutionAndSequence(
           input.executionId,
           stepSequence,
           {
@@ -570,7 +570,7 @@ const createReplayToolInvoker = (input: {
 });
 
 const persistExecutionOutcome = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   liveExecutionManager: LiveExecutionManager;
   executionId: Execution["id"];
   outcome: {
@@ -586,8 +586,8 @@ const persistExecutionOutcome = (input: {
 
     if (input.outcome.error) {
       const [execution, pendingInteraction] = yield* Effect.all([
-        input.rows.executions.getById(input.executionId),
-        input.rows.executionInteractions.getPendingByExecutionId(input.executionId),
+        input.executorState.executions.getById(input.executionId),
+        input.executorState.executionInteractions.getPendingByExecutionId(input.executionId),
       ]);
 
       if (
@@ -600,7 +600,7 @@ const persistExecutionOutcome = (input: {
     }
 
     const completedAt = Date.now();
-    const updated = yield* input.rows.executions.update(input.executionId, {
+    const updated = yield* input.executorState.executions.update(input.executionId, {
       status: input.outcome.error ? "failed" : "completed",
       resultJson: serializeJson(input.outcome.result),
       errorText: input.outcome.error ?? null,
@@ -619,18 +619,18 @@ const persistExecutionOutcome = (input: {
       state: updated.value.status === "completed" ? "completed" : "failed",
     });
 
-    yield* input.rows.executionSteps.deleteByExecutionId(input.executionId);
+    yield* input.executorState.executionSteps.deleteByExecutionId(input.executionId);
   });
 
 const persistExecutionFailure = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   liveExecutionManager: LiveExecutionManager;
   executionId: Execution["id"];
   error: string;
 }) =>
   Effect.gen(function* () {
     const completedAt = Date.now();
-    const updated = yield* input.rows.executions.update(input.executionId, {
+    const updated = yield* input.executorState.executions.update(input.executionId, {
       status: "failed",
       errorText: input.error,
       completedAt,
@@ -647,11 +647,11 @@ const persistExecutionFailure = (input: {
       state: "failed",
     });
 
-    yield* input.rows.executionSteps.deleteByExecutionId(input.executionId);
+    yield* input.executorState.executionSteps.deleteByExecutionId(input.executionId);
   });
 
 const runExecutionAttemptWithDependencies = (
-  store: ControlPlaneStoreShape,
+  store: ExecutorStateStoreShape,
   executionResolver: ResolveExecutionEnvironment,
   liveExecutionManager: LiveExecutionManager,
   execution: Execution,
@@ -662,7 +662,7 @@ const runExecutionAttemptWithDependencies = (
     accountId: execution.createdByAccountId,
     executionId: execution.id,
     onElicitation: createHybridOnElicitation({
-      rows: store,
+      executorState: store,
       executionId: execution.id,
       liveExecutionManager,
       interactionMode,
@@ -673,7 +673,7 @@ const runExecutionAttemptWithDependencies = (
       toolInvoker: withExecutionInvocationContext({
         executionId: execution.id,
         toolInvoker: createReplayToolInvoker({
-          rows: store,
+          executorState: store,
           executionId: execution.id,
           toolInvoker: environment.toolInvoker,
         }),
@@ -684,7 +684,7 @@ const runExecutionAttemptWithDependencies = (
     ),
     Effect.flatMap((outcome) =>
       persistExecutionOutcome({
-        rows: store,
+        executorState: store,
         liveExecutionManager,
         executionId: execution.id,
         outcome,
@@ -692,7 +692,7 @@ const runExecutionAttemptWithDependencies = (
     ),
     Effect.catchAll((error) =>
       persistExecutionFailure({
-        rows: store,
+        executorState: store,
         liveExecutionManager,
         executionId: execution.id,
         error: error instanceof Error ? error.message : String(error),
@@ -703,7 +703,7 @@ const runExecutionAttemptWithDependencies = (
   );
 
 const forkExecutionAttemptWithDependencies = (
-  store: ControlPlaneStoreShape,
+  store: ExecutorStateStoreShape,
   executionResolver: ResolveExecutionEnvironment,
   liveExecutionManager: LiveExecutionManager,
   execution: Execution,
@@ -728,7 +728,7 @@ const forkExecutionAttemptWithDependencies = (
   });
 
 const submitExecutionInteractionResponseWithDependencies = (
-  store: ControlPlaneStoreShape,
+  store: ExecutorStateStoreShape,
   executionResolver: ResolveExecutionEnvironment,
   liveExecutionManager: LiveExecutionManager,
   input: {
@@ -804,7 +804,7 @@ const submitExecutionInteractionResponseWithDependencies = (
   });
 
 const createExecutionWithDependencies = (
-  store: ControlPlaneStoreShape,
+  store: ExecutorStateStoreShape,
   executionResolver: ResolveExecutionEnvironment,
   liveExecutionManager: LiveExecutionManager,
   input: {
@@ -875,7 +875,7 @@ export const createExecution = (input: {
   createdByAccountId: AccountId;
 }) =>
   Effect.gen(function* () {
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
     const executionResolver = yield* RuntimeExecutionResolverService;
     const liveExecutionManager = yield* LiveExecutionManagerService;
 
@@ -891,7 +891,7 @@ export const getExecution = (input: {
   workspaceId: WorkspaceId;
   executionId: ExecutionId;
 }) =>
-  Effect.flatMap(ControlPlaneStore, (store) =>
+  Effect.flatMap(ExecutorStateStore, (store) =>
     fetchExecutionEnvelope(store, {
       workspaceId: input.workspaceId,
       executionId: input.executionId,
@@ -905,7 +905,7 @@ export const submitExecutionInteractionResponse = (input: {
   interactionMode?: InteractionMode;
 }) =>
   Effect.gen(function* () {
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
     const executionResolver = yield* RuntimeExecutionResolverService;
     const liveExecutionManager = yield* LiveExecutionManagerService;
 
@@ -927,7 +927,7 @@ export const resumeExecution = (input: {
   resumedByAccountId: AccountId;
 }) =>
   Effect.gen(function* () {
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
     const executionResolver = yield* RuntimeExecutionResolverService;
     const liveExecutionManager = yield* LiveExecutionManagerService;
 

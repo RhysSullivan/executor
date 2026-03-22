@@ -24,7 +24,7 @@ import {
   SecretMaterialUpdaterService,
 } from "../runtime/workspace/secret-material-providers";
 import { RuntimeSourceStoreService } from "../runtime/sources/source-store";
-import { ControlPlaneStore } from "../runtime/store";
+import { ExecutorStateStore } from "../runtime/executor-state-store";
 
 const secretStorageError = (operation: string, message: string) =>
   new ControlPlaneStorageError({
@@ -38,14 +38,14 @@ export const getLocalInstanceConfig = (): Effect.Effect<InstanceConfig, Error, L
 
 export const listLocalSecrets = () =>
   Effect.gen(function* () {
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
     const sourceStore = yield* RuntimeSourceStoreService;
     const runtimeLocalWorkspace = yield* requireRuntimeLocalWorkspace().pipe(
       Effect.mapError(() =>
         secretStorageError("secrets.list", "Failed resolving local workspace."),
       ),
     );
-    const rows = yield* store.secretMaterials
+    const secretMaterials = yield* store.secretMaterials
       .listAll()
       .pipe(
         Effect.mapError(() =>
@@ -65,7 +65,7 @@ export const listLocalSecrets = () =>
         ),
       );
 
-    return rows.map((row) => ({
+    return secretMaterials.map((row) => ({
       ...row,
       linkedSources: linkedSourcesMap.get(row.id) ?? [],
     }));
@@ -85,7 +85,7 @@ export const createLocalSecret = (payload: CreateSecretPayload) =>
       });
     }
 
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
     const storeSecretMaterial = yield* SecretMaterialStorerService;
     const ref = yield* storeSecretMaterial({
       name,
@@ -135,7 +135,7 @@ export const updateLocalSecret = (input: {
 }) =>
   Effect.gen(function* () {
     const secretId = SecretMaterialIdSchema.make(input.secretId);
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
 
     const existing = yield* store.secretMaterials
       .getById(secretId)
@@ -184,7 +184,7 @@ export const updateLocalSecret = (input: {
 export const deleteLocalSecret = (secretId: string) =>
   Effect.gen(function* () {
     const parsedSecretId = SecretMaterialIdSchema.make(secretId);
-    const store = yield* ControlPlaneStore;
+    const store = yield* ExecutorStateStore;
 
     const existing = yield* store.secretMaterials
       .getById(parsedSecretId)

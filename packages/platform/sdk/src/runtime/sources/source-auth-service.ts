@@ -103,7 +103,7 @@ import {
   RuntimeSourceStoreService,
 } from "./source-store";
 import type { WorkspaceStorageServices } from "../workspace/storage";
-import { ControlPlaneStore, type ControlPlaneStoreShape } from "../store";
+import { ExecutorStateStore, type ExecutorStateStoreShape } from "../executor-state-store";
 import { runtimeEffectError } from "../effect-errors";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
@@ -433,7 +433,7 @@ const mergeProviderOauthBatchSourceAuthSessionData = (input: {
 
 
 const completeLiveInteraction = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   liveExecutionManager: LiveExecutionManager;
   session: SourceAuthSession;
   response: {
@@ -466,11 +466,11 @@ const completeLiveInteraction = (input: {
     });
 
     if (!resumed) {
-      const pendingInteraction = yield* input.rows.executionInteractions
+      const pendingInteraction = yield* input.executorState.executionInteractions
         .getPendingByExecutionId(input.session.executionId);
 
       if (Option.isSome(pendingInteraction)) {
-        yield* input.rows.executionInteractions.update(pendingInteraction.value.id, {
+        yield* input.executorState.executionInteractions.update(pendingInteraction.value.id, {
           status: response.action === "cancel" ? "cancelled" : "resolved",
           responseJson: serializeJson(
             sanitizePersistedElicitationResponse(response),
@@ -991,7 +991,7 @@ const sourceOauthClientSecretRef = (client: {
     : null;
 
 const upsertSourceOauthClient = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   source: Source;
   oauthClient: SourceOauthClientInput;
   storeSecretMaterial: StoreSecretMaterial;
@@ -1009,7 +1009,7 @@ const upsertSourceOauthClient = (input: {
       return yield* runtimeEffectError("sources/source-auth-service", `Source ${input.source.id} does not support OAuth client configuration`);
     }
 
-    const existing = yield* input.rows.sourceOauthClients.getByWorkspaceSourceAndProvider({
+    const existing = yield* input.executorState.sourceOauthClients.getByWorkspaceSourceAndProvider({
       workspaceId: input.source.workspaceId,
       sourceId: input.source.id,
       providerKey: setupConfig.providerKey,
@@ -1032,7 +1032,7 @@ const upsertSourceOauthClient = (input: {
       : WorkspaceSourceOauthClientIdSchema.make(
           `src_oauth_client_${crypto.randomUUID()}`,
         );
-    yield* input.rows.sourceOauthClients.upsert({
+    yield* input.executorState.sourceOauthClients.upsert({
       id: clientId,
       workspaceId: input.source.workspaceId,
       sourceId: input.source.id,
@@ -1069,7 +1069,7 @@ const upsertSourceOauthClient = (input: {
   });
 
 const resolveExistingSourceOauthClient = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   source: Source;
 }): Effect.Effect<ResolvedSourceOauthClient | null, Error, never> =>
   Effect.gen(function* () {
@@ -1084,7 +1084,7 @@ const resolveExistingSourceOauthClient = (input: {
       return null;
     }
 
-    const existing = yield* input.rows.sourceOauthClients.getByWorkspaceSourceAndProvider({
+    const existing = yield* input.executorState.sourceOauthClients.getByWorkspaceSourceAndProvider({
       workspaceId: input.source.workspaceId,
       sourceId: input.source.id,
       providerKey: setupConfig.providerKey,
@@ -1102,7 +1102,7 @@ const resolveExistingSourceOauthClient = (input: {
   });
 
 const createWorkspaceOauthClient = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   workspaceId: WorkspaceId;
   providerKey: string;
   oauthClient: SourceOauthClientInput;
@@ -1127,7 +1127,7 @@ const createWorkspaceOauthClient = (input: {
       `ws_oauth_client_${crypto.randomUUID()}`,
     );
 
-    yield* input.rows.workspaceOauthClients.upsert({
+    yield* input.executorState.workspaceOauthClients.upsert({
       id,
       workspaceId: input.workspaceId,
       providerKey: input.providerKey,
@@ -1153,13 +1153,13 @@ const createWorkspaceOauthClient = (input: {
   });
 
 const resolveWorkspaceOauthClientById = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   workspaceId: WorkspaceId;
   oauthClientId: WorkspaceOauthClient["id"];
   providerKey: string;
 }): Effect.Effect<ResolvedWorkspaceOauthClient | null, Error, never> =>
   Effect.gen(function* () {
-    const existing = yield* input.rows.workspaceOauthClients.getById(input.oauthClientId);
+    const existing = yield* input.executorState.workspaceOauthClients.getById(input.oauthClientId);
     if (Option.isNone(existing)) {
       return null;
     }
@@ -1271,7 +1271,7 @@ const mergeRuntimeProviderAuthSetupConfig = (
   });
 
 const findReusableProviderGrant = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   workspaceId: WorkspaceId;
   actorAccountId?: AccountId | null;
   providerKey: string;
@@ -1279,7 +1279,7 @@ const findReusableProviderGrant = (input: {
   requiredScopes: ReadonlyArray<string>;
 }): Effect.Effect<import("effect/Option").Option<import("#schema").ProviderAuthGrant>, Error, never> =>
   Effect.map(
-    input.rows.providerAuthGrants.listByWorkspaceActorAndProvider({
+    input.executorState.providerAuthGrants.listByWorkspaceActorAndProvider({
       workspaceId: input.workspaceId,
       actorAccountId: input.actorAccountId ?? null,
       providerKey: input.providerKey,
@@ -1295,7 +1295,7 @@ const findReusableProviderGrant = (input: {
   );
 
 const upsertProviderAuthGrant = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   workspaceId: WorkspaceId;
   actorAccountId?: AccountId | null;
   providerKey: string;
@@ -1347,7 +1347,7 @@ const upsertProviderAuthGrant = (input: {
       updatedAt: now,
     } satisfies import("#schema").ProviderAuthGrant;
 
-    yield* input.rows.providerAuthGrants.upsert(nextGrant);
+    yield* input.executorState.providerAuthGrants.upsert(nextGrant);
 
     if (
       existingGrant?.refreshToken
@@ -1366,7 +1366,7 @@ const upsertProviderAuthGrant = (input: {
   });
 
 const startOauth2PkceSourceCredentialSetup = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   source: Source;
   actorAccountId?: AccountId | null;
@@ -1393,7 +1393,7 @@ const startOauth2PkceSourceCredentialSetup = (input: {
     }
 
     const oauthClient = yield* resolveExistingSourceOauthClient({
-      rows: input.rows,
+      executorState: input.executorState,
       source: input.source,
     });
     if (oauthClient === null) {
@@ -1427,7 +1427,7 @@ const startOauth2PkceSourceCredentialSetup = (input: {
       });
       const now = Date.now();
 
-      yield* input.rows.sourceAuthSessions.upsert({
+      yield* input.executorState.sourceAuthSessions.upsert({
         id: sessionId,
         workspaceId: input.source.workspaceId,
         sourceId: input.source.id,
@@ -1484,7 +1484,7 @@ const startOauth2PkceSourceCredentialSetup = (input: {
   });
 
 const startProviderOauthBatchCredentialSetup = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   workspaceId: WorkspaceId;
   actorAccountId?: AccountId | null;
@@ -1535,7 +1535,7 @@ const startProviderOauthBatchCredentialSetup = (input: {
       });
       const now = Date.now();
 
-      yield* input.rows.sourceAuthSessions.upsert({
+      yield* input.executorState.sourceAuthSessions.upsert({
         id: sessionId,
         workspaceId: input.workspaceId,
         sourceId: SourceIdSchema.make(`oauth_provider_${crypto.randomUUID()}`),
@@ -1609,7 +1609,7 @@ const startProviderOauthBatchCredentialSetup = (input: {
   });
 
 const connectSourcesWithProviderRuntimeAuth = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
   workspaceId: WorkspaceId;
@@ -1624,7 +1624,7 @@ const connectSourcesWithProviderRuntimeAuth = (input: {
   Effect.gen(function* () {
     const setupConfig = yield* mergeRuntimeProviderAuthSetupConfig(input.targets);
     const reusableGrant = yield* findReusableProviderGrant({
-      rows: input.rows,
+      executorState: input.executorState,
       workspaceId: input.workspaceId,
       actorAccountId: input.actorAccountId,
       providerKey: setupConfig.providerKey,
@@ -1663,7 +1663,7 @@ const connectSourcesWithProviderRuntimeAuth = (input: {
     }
 
     const oauthRequired = yield* startProviderOauthBatchCredentialSetup({
-      rows: input.rows,
+      executorState: input.executorState,
       sourceStore: input.sourceStore,
       workspaceId: input.workspaceId,
       actorAccountId: input.actorAccountId,
@@ -1740,19 +1740,19 @@ const attachProviderGrantToSources = (input: {
   );
 
 const removeProviderAuthGrantInternal = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   workspaceId: WorkspaceId;
   grantId: ProviderAuthGrant["id"];
   deleteSecretMaterial: DeleteSecretMaterial;
 }): Effect.Effect<boolean, Error, WorkspaceStorageServices> =>
   Effect.gen(function* () {
-    const grantOption = yield* input.rows.providerAuthGrants.getById(input.grantId);
+    const grantOption = yield* input.executorState.providerAuthGrants.getById(input.grantId);
     if (Option.isNone(grantOption) || grantOption.value.workspaceId !== input.workspaceId) {
       return false;
     }
 
-    const references = yield* listProviderGrantRefArtifacts(input.rows, {
+    const references = yield* listProviderGrantRefArtifacts(input.executorState, {
       workspaceId: input.workspaceId,
       grantId: input.grantId,
     });
@@ -1770,10 +1770,10 @@ const removeProviderAuthGrantInternal = (input: {
           );
 
           if (latestSource === null) {
-            yield* removeAuthLeaseAndSecrets(input.rows, {
+            yield* removeAuthLeaseAndSecrets(input.executorState, {
               authArtifactId: artifact.id,
             }, input.deleteSecretMaterial);
-            yield* input.rows.authArtifacts.removeByWorkspaceSourceAndActor({
+            yield* input.executorState.authArtifacts.removeByWorkspaceSourceAndActor({
               workspaceId: artifact.workspaceId,
               sourceId: artifact.sourceId,
               actorAccountId: artifact.actorAccountId,
@@ -1796,15 +1796,15 @@ const removeProviderAuthGrantInternal = (input: {
       { discard: true },
     );
 
-    yield* removeProviderAuthGrantSecret(input.rows, {
+    yield* removeProviderAuthGrantSecret(input.executorState, {
       grant: grantOption.value,
     }, input.deleteSecretMaterial);
-    yield* input.rows.providerAuthGrants.removeById(input.grantId);
+    yield* input.executorState.providerAuthGrants.removeById(input.grantId);
     return true;
   });
 
 const connectMcpSourceInternal = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
   getLocalServerBaseUrl?: () => string | undefined;
@@ -2047,7 +2047,7 @@ const connectMcpSourceInternal = (input: {
     });
 
     const sessionNow = Date.now();
-    yield* input.rows.sourceAuthSessions.upsert({
+    yield* input.executorState.sourceAuthSessions.upsert({
       id: sessionId,
       workspaceId: input.workspaceId,
       sourceId: authRequiredSource.id,
@@ -2086,7 +2086,7 @@ const connectMcpSourceInternal = (input: {
   });
 
 const addExecutorHttpSource = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
   sourceInput: ExecutorHttpEndpointSourceInput;
@@ -2212,7 +2212,7 @@ const addExecutorHttpSource = (input: {
       const baseUrl = requestBaseUrl ?? input.getLocalServerBaseUrl?.() ?? null;
       if (baseUrl) {
         const oauthRequired = yield* startOauth2PkceSourceCredentialSetup({
-          rows: input.rows,
+          executorState: input.executorState,
           sourceStore: input.sourceStore,
           source: persistedDraft,
           actorAccountId: input.sourceInput.actorAccountId,
@@ -2299,7 +2299,7 @@ const addExecutorHttpSource = (input: {
   );
 
 const addExecutorGoogleDiscoverySource = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
   sourceInput: Extract<ExecutorAddSourceInput, { kind: "google_discovery" }>;
@@ -2434,14 +2434,14 @@ const addExecutorGoogleDiscoverySource = (input: {
       let workspaceOauthClient: ResolvedWorkspaceOauthClient | null = null;
       if (input.sourceInput.workspaceOauthClientId) {
         workspaceOauthClient = yield* resolveWorkspaceOauthClientById({
-          rows: input.rows,
+          executorState: input.executorState,
           workspaceId: persistedDraft.workspaceId,
           oauthClientId: input.sourceInput.workspaceOauthClientId,
           providerKey: providerAuthTarget.setupConfig.providerKey,
         });
       } else if (input.sourceInput.oauthClient) {
         workspaceOauthClient = yield* createWorkspaceOauthClient({
-          rows: input.rows,
+          executorState: input.executorState,
           workspaceId: persistedDraft.workspaceId,
           providerKey: providerAuthTarget.setupConfig.providerKey,
           oauthClient: input.sourceInput.oauthClient,
@@ -2459,7 +2459,7 @@ const addExecutorGoogleDiscoverySource = (input: {
       }
 
       const providerAuthResult = yield* connectSourcesWithProviderRuntimeAuth({
-        rows: input.rows,
+        executorState: input.executorState,
         sourceStore: input.sourceStore,
         sourceCatalogSync: input.sourceCatalogSync,
         workspaceId: persistedDraft.workspaceId,
@@ -2487,7 +2487,7 @@ const addExecutorGoogleDiscoverySource = (input: {
 
     if (input.sourceInput.oauthClient) {
       yield* upsertSourceOauthClient({
-        rows: input.rows,
+        executorState: input.executorState,
         source: persistedDraft,
         oauthClient: input.sourceInput.oauthClient,
         storeSecretMaterial: input.storeSecretMaterial,
@@ -2504,7 +2504,7 @@ const addExecutorGoogleDiscoverySource = (input: {
       const baseUrl = requestBaseUrl ?? input.getLocalServerBaseUrl?.() ?? null;
       if (baseUrl) {
         const oauthRequired = yield* startOauth2PkceSourceCredentialSetup({
-          rows: input.rows,
+          executorState: input.executorState,
           sourceStore: input.sourceStore,
           source: persistedDraft,
           actorAccountId: input.sourceInput.actorAccountId,
@@ -2582,7 +2582,7 @@ const addExecutorGoogleDiscoverySource = (input: {
   });
 
 const connectGoogleDiscoveryBatchInternal = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
   sourceInput: ConnectGoogleDiscoveryBatchInput;
@@ -2701,7 +2701,7 @@ const connectGoogleDiscoveryBatchInternal = (input: {
     );
 
     const workspaceOauthClient = yield* resolveWorkspaceOauthClientById({
-      rows: input.rows,
+      executorState: input.executorState,
       workspaceId: input.sourceInput.workspaceId,
       oauthClientId: input.sourceInput.workspaceOauthClientId,
       providerKey: persistedTargets[0]!.setupConfig.providerKey,
@@ -2711,7 +2711,7 @@ const connectGoogleDiscoveryBatchInternal = (input: {
     }
 
     const providerAuthResult = yield* connectSourcesWithProviderRuntimeAuth({
-      rows: input.rows,
+      executorState: input.executorState,
       sourceStore: input.sourceStore,
       sourceCatalogSync: input.sourceCatalogSync,
       workspaceId: input.sourceInput.workspaceId,
@@ -2815,7 +2815,7 @@ type RuntimeSourceAuthServiceShape = {
 };
 
 type RuntimeSourceAuthDependencies = {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   liveExecutionManager: LiveExecutionManager;
   sourceStore: RuntimeSourceStore;
   sourceCatalogSync: RuntimeSourceCatalogSyncShape;
@@ -2877,7 +2877,7 @@ const createRuntimeSourceConnectionService = (
       provideLocalWorkspace(
         (isExecutorGoogleDiscoverySourceInput(sourceInput)
           ? addExecutorGoogleDiscoverySource({
-              rows: input.rows,
+              executorState: input.executorState,
               sourceStore: input.sourceStore,
               sourceCatalogSync: input.sourceCatalogSync,
               sourceInput,
@@ -2889,7 +2889,7 @@ const createRuntimeSourceConnectionService = (
             })
           : isExecutorHttpEndpointSourceInput(sourceInput)
           ? addExecutorHttpSource({
-              rows: input.rows,
+              executorState: input.executorState,
               sourceStore: input.sourceStore,
               sourceCatalogSync: input.sourceCatalogSync,
               sourceInput,
@@ -2901,7 +2901,7 @@ const createRuntimeSourceConnectionService = (
             })
           : isExecutorMcpSourceInput(sourceInput)
           ? connectMcpSourceInternal({
-              rows: input.rows,
+              executorState: input.executorState,
               sourceStore: input.sourceStore,
               sourceCatalogSync: input.sourceCatalogSync,
               getLocalServerBaseUrl: input.getLocalServerBaseUrl,
@@ -2931,7 +2931,7 @@ const createRuntimeSourceConnectionService = (
     connectGoogleDiscoveryBatch: (sourceInput) =>
       provideLocalWorkspace(
         connectGoogleDiscoveryBatchInternal({
-          rows: input.rows,
+          executorState: input.executorState,
           sourceStore: input.sourceStore,
           sourceCatalogSync: input.sourceCatalogSync,
           sourceInput,
@@ -2942,7 +2942,7 @@ const createRuntimeSourceConnectionService = (
     connectMcpSource: (sourceInput) =>
       provideLocalWorkspace(
         connectMcpSourceInternal({
-          rows: input.rows,
+          executorState: input.executorState,
           sourceStore: input.sourceStore,
           sourceCatalogSync: input.sourceCatalogSync,
           getLocalServerBaseUrl: input.getLocalServerBaseUrl,
@@ -2971,7 +2971,7 @@ const createRuntimeSourceConnectionService = (
 
     listWorkspaceOauthClients: ({ workspaceId, providerKey }) =>
       provideLocalWorkspace(
-        input.rows.workspaceOauthClients.listByWorkspaceAndProvider({
+        input.executorState.workspaceOauthClients.listByWorkspaceAndProvider({
           workspaceId,
           providerKey,
         }),
@@ -2982,7 +2982,7 @@ const createRuntimeSourceConnectionService = (
         Effect.gen(function* () {
           const sourceAdapter = findSourceAdapterByProviderKey(providerKey);
           const created = yield* createWorkspaceOauthClient({
-            rows: input.rows,
+            executorState: input.executorState,
             workspaceId,
             providerKey,
             oauthClient,
@@ -2990,7 +2990,7 @@ const createRuntimeSourceConnectionService = (
             normalizeOauthClient: sourceAdapter?.normalizeOauthClientInput,
             storeSecretMaterial: input.storeSecretMaterial,
           });
-          const stored = yield* input.rows.workspaceOauthClients.getById(created.id);
+          const stored = yield* input.executorState.workspaceOauthClients.getById(created.id);
           if (Option.isNone(stored)) {
             return yield* runtimeEffectError("sources/source-auth-service", `Workspace OAuth client ${created.id} was not persisted`);
           }
@@ -3002,12 +3002,12 @@ const createRuntimeSourceConnectionService = (
     removeWorkspaceOauthClient: ({ workspaceId, oauthClientId }) =>
       provideLocalWorkspace(
         Effect.gen(function* () {
-          const oauthClient = yield* input.rows.workspaceOauthClients.getById(oauthClientId);
+          const oauthClient = yield* input.executorState.workspaceOauthClients.getById(oauthClientId);
           if (Option.isNone(oauthClient) || oauthClient.value.workspaceId !== workspaceId) {
             return false;
           }
 
-          const grants = yield* input.rows.providerAuthGrants.listByWorkspaceId(workspaceId);
+          const grants = yield* input.executorState.providerAuthGrants.listByWorkspaceId(workspaceId);
           const dependentGrant = grants.find((grant) => grant.oauthClientId === oauthClientId);
           if (dependentGrant) {
             return yield* runtimeEffectError("sources/source-auth-service", 
@@ -3016,7 +3016,7 @@ const createRuntimeSourceConnectionService = (
           }
 
           const secretRef = sourceOauthClientSecretRef(oauthClient.value);
-          const removed = yield* input.rows.workspaceOauthClients.removeById(oauthClientId);
+          const removed = yield* input.executorState.workspaceOauthClients.removeById(oauthClientId);
           if (removed && secretRef) {
             yield* input.deleteSecretMaterial(secretRef).pipe(
               Effect.either,
@@ -3031,7 +3031,7 @@ const createRuntimeSourceConnectionService = (
     removeProviderAuthGrant: ({ workspaceId, grantId }) =>
       provideLocalWorkspace(
         removeProviderAuthGrantInternal({
-          rows: input.rows,
+          executorState: input.executorState,
           sourceStore: input.sourceStore,
           workspaceId,
           grantId,
@@ -3067,7 +3067,7 @@ const createRuntimeSourceOAuthSessionService = (
       });
       const now = Date.now();
 
-      yield* input.rows.sourceAuthSessions.upsert({
+      yield* input.executorState.sourceAuthSessions.upsert({
         id: sessionId,
         workspaceId: oauthInput.workspaceId,
         sourceId: SourceIdSchema.make(`oauth_draft_${crypto.randomUUID()}`),
@@ -3105,7 +3105,7 @@ const createRuntimeSourceOAuthSessionService = (
 
   completeSourceOAuthSession: ({ state, code, error, errorDescription }) =>
     provideLocalWorkspace(Effect.gen(function* () {
-      const sessionOption = yield* input.rows.sourceAuthSessions.getByState(state);
+      const sessionOption = yield* input.executorState.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
         return yield* runtimeEffectError("sources/source-auth-service", `Source auth session not found for state ${state}`);
       }
@@ -3124,7 +3124,7 @@ const createRuntimeSourceOAuthSessionService = (
         const reason = trimOrNull(errorDescription) ?? trimOrNull(error) ?? "OAuth authorization failed";
         const failedAt = Date.now();
 
-        yield* input.rows.sourceAuthSessions.update(
+        yield* input.executorState.sourceAuthSessions.update(
           session.id,
           createTerminalSourceAuthSessionPatch({
             sessionDataJson: session.sessionDataJson,
@@ -3189,7 +3189,7 @@ const createRuntimeSourceOAuthSessionService = (
         refreshToken: refreshTokenRef,
       } satisfies Extract<Source["auth"], { kind: "oauth2" }>;
 
-      yield* input.rows.sourceAuthSessions.update(
+      yield* input.executorState.sourceAuthSessions.update(
         session.id,
         createTerminalSourceAuthSessionPatch({
           sessionDataJson: mergeMcpSourceAuthSessionData({
@@ -3217,7 +3217,7 @@ const createRuntimeSourceOAuthSessionService = (
 
   completeProviderOauthCallback: ({ workspaceId, actorAccountId, state, code, error, errorDescription }) =>
     provideLocalWorkspace(Effect.gen(function* () {
-      const sessionOption = yield* input.rows.sourceAuthSessions.getByState(state);
+      const sessionOption = yield* input.executorState.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
         return yield* runtimeEffectError("sources/source-auth-service", `Source auth session not found for state ${state}`);
       }
@@ -3256,7 +3256,7 @@ const createRuntimeSourceOAuthSessionService = (
       const sessionData = decodeProviderOauthBatchSourceAuthSessionData(session);
       if (trimOrNull(error) !== null) {
         const reason = trimOrNull(errorDescription) ?? trimOrNull(error) ?? "OAuth authorization failed";
-        yield* input.rows.sourceAuthSessions.update(
+        yield* input.executorState.sourceAuthSessions.update(
           session.id,
           createTerminalSourceAuthSessionPatch({
             sessionDataJson: session.sessionDataJson,
@@ -3277,7 +3277,7 @@ const createRuntimeSourceOAuthSessionService = (
       }
 
       const oauthClient = yield* resolveWorkspaceOauthClientById({
-        rows: input.rows,
+        executorState: input.executorState,
         workspaceId,
         oauthClientId: sessionData.oauthClientId,
         providerKey: sessionData.providerKey,
@@ -3303,7 +3303,7 @@ const createRuntimeSourceOAuthSessionService = (
         code: authorizationCode,
       });
 
-      const availableGrants = yield* input.rows.providerAuthGrants.listByWorkspaceActorAndProvider({
+      const availableGrants = yield* input.executorState.providerAuthGrants.listByWorkspaceActorAndProvider({
         workspaceId,
         actorAccountId: actorAccountId ?? null,
         providerKey: sessionData.providerKey,
@@ -3318,7 +3318,7 @@ const createRuntimeSourceOAuthSessionService = (
           : sessionData.scopes,
       );
       const nextGrant = yield* upsertProviderAuthGrant({
-        rows: input.rows,
+        executorState: input.executorState,
         workspaceId,
         actorAccountId,
         providerKey: sessionData.providerKey,
@@ -3362,7 +3362,7 @@ const createRuntimeSourceOAuthSessionService = (
         targets,
       });
 
-      yield* input.rows.sourceAuthSessions.update(
+      yield* input.executorState.sourceAuthSessions.update(
         session.id,
         createTerminalSourceAuthSessionPatch({
           sessionDataJson: mergeProviderOauthBatchSourceAuthSessionData({
@@ -3386,7 +3386,7 @@ const createRuntimeSourceOAuthSessionService = (
 
   completeSourceCredentialSetup: ({ workspaceId, sourceId, actorAccountId, state, code, error, errorDescription }) =>
     provideLocalWorkspace(Effect.gen(function* () {
-      const sessionOption = yield* input.rows.sourceAuthSessions.getByState(state);
+      const sessionOption = yield* input.executorState.sourceAuthSessions.getByState(state);
       if (Option.isNone(sessionOption)) {
         return yield* runtimeEffectError("sources/source-auth-service", `Source auth session not found for state ${state}`);
       }
@@ -3429,7 +3429,7 @@ const createRuntimeSourceOAuthSessionService = (
         const reason = trimOrNull(errorDescription) ?? trimOrNull(error) ?? "OAuth authorization failed";
         const failedAt = Date.now();
 
-        yield* input.rows.sourceAuthSessions.update(
+        yield* input.executorState.sourceAuthSessions.update(
           session.id,
           createTerminalSourceAuthSessionPatch({
             sessionDataJson: session.sessionDataJson,
@@ -3448,7 +3448,7 @@ const createRuntimeSourceOAuthSessionService = (
           actorAccountId: session.actorAccountId,
         });
         yield* completeLiveInteraction({
-          rows: input.rows,
+          executorState: input.executorState,
           liveExecutionManager: input.liveExecutionManager,
           session,
           response: {
@@ -3518,7 +3518,7 @@ const createRuntimeSourceOAuthSessionService = (
             grantSet: grantedScopes,
           },
         });
-        const authArtifact = yield* input.rows.authArtifacts.getByWorkspaceSourceAndActor({
+        const authArtifact = yield* input.executorState.authArtifacts.getByWorkspaceSourceAndActor({
           workspaceId: connectedSource.workspaceId,
           sourceId: connectedSource.id,
           actorAccountId: session.actorAccountId ?? null,
@@ -3526,7 +3526,7 @@ const createRuntimeSourceOAuthSessionService = (
         });
         if (Option.isSome(authArtifact)) {
           yield* upsertOauth2AuthorizedUserLeaseFromTokenResponse({
-            rows: input.rows,
+            executorState: input.executorState,
             artifact: authArtifact.value,
             tokenResponse: exchanged,
             storeSecretMaterial: input.storeSecretMaterial,
@@ -3534,7 +3534,7 @@ const createRuntimeSourceOAuthSessionService = (
           });
         }
 
-        yield* input.rows.sourceAuthSessions.update(
+        yield* input.executorState.sourceAuthSessions.update(
           session.id,
           createTerminalSourceAuthSessionPatch({
             sessionDataJson: mergeOauth2PkceSourceAuthSessionData({
@@ -3605,7 +3605,7 @@ const createRuntimeSourceOAuthSessionService = (
           }),
         });
 
-        yield* input.rows.sourceAuthSessions.update(
+        yield* input.executorState.sourceAuthSessions.update(
           session.id,
           createTerminalSourceAuthSessionPatch({
             sessionDataJson: mergeMcpSourceAuthSessionData({
@@ -3644,7 +3644,7 @@ const createRuntimeSourceOAuthSessionService = (
       });
 
       yield* completeLiveInteraction({
-        rows: input.rows,
+        executorState: input.executorState,
         liveExecutionManager: input.liveExecutionManager,
         session,
         response: {
@@ -3697,7 +3697,7 @@ export const RuntimeSourceAuthServiceLive = (input: {
   Layer.effect(
     RuntimeSourceAuthServiceTag,
     Effect.gen(function* () {
-      const rows = yield* ControlPlaneStore;
+      const executorState = yield* ExecutorStateStore;
       const liveExecutionManager = yield* LiveExecutionManagerService;
       const sourceStore = yield* RuntimeSourceStoreService;
       const sourceCatalogSync = yield* RuntimeSourceCatalogSyncService;
@@ -3707,7 +3707,7 @@ export const RuntimeSourceAuthServiceLive = (input: {
       const runtimeLocalWorkspace = yield* getRuntimeLocalWorkspaceOption();
 
       return createRuntimeSourceAuthService({
-        rows,
+        executorState,
         liveExecutionManager,
         sourceStore,
         sourceCatalogSync,

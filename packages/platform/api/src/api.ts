@@ -6,7 +6,7 @@ import { OAuthApi } from "./oauth/api";
 import { PoliciesApi } from "./policies/api";
 import { SourcesApi } from "./sources/api";
 
-export class ControlPlaneApi extends HttpApi.make("controlPlane")
+export class ExecutorApi extends HttpApi.make("executor")
   .add(LocalApi)
   .add(OAuthApi)
   .add(SourcesApi)
@@ -14,9 +14,9 @@ export class ControlPlaneApi extends HttpApi.make("controlPlane")
   .add(ExecutionsApi)
   .annotateContext(
     OpenApi.annotations({
-      title: "Executor Control Plane API",
-      description: "Local-first control plane for workspace sources, policies, auth, and execution",
+      title: "Executor API",
+      description: "Local-first API for workspace sources, policies, auth, and execution",
     }),
   ) {}
 
-export const controlPlaneOpenApiSpec = OpenApi.fromApi(ControlPlaneApi);
+export const executorOpenApiSpec = OpenApi.fromApi(ExecutorApi);

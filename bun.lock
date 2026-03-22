@@ -100,6 +100,19 @@
         "bun-types": "catalog:",
       },
     },
+    "examples/sqlite-sdk-consumer": {
+      "name": "@executor/sqlite-sdk-consumer-example",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/source-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
     "packages/auth/mcp-oauth": {
       "name": "@executor/auth-mcp-oauth",
       "version": "0.0.0",
@@ -735,6 +748,8 @@
     "@executor/source-mcp": ["@executor/source-mcp@workspace:packages/sources/mcp"],
 
     "@executor/source-openapi": ["@executor/source-openapi@workspace:packages/sources/openapi"],
+
+    "@executor/sqlite-sdk-consumer-example": ["@executor/sqlite-sdk-consumer-example@workspace:examples/sqlite-sdk-consumer"],
 
     "@executor/web": ["@executor/web@workspace:apps/web"],
 

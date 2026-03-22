@@ -20,9 +20,9 @@ import { getSourceAdapterForSource } from "../runtime/sources/source-adapters";
 import { mapPersistenceError } from "../runtime/policy/operations-shared";
 import { operationErrors } from "../runtime/policy/operation-errors";
 import {
-  ControlPlaneStore,
-  type ControlPlaneStoreShape,
-} from "../runtime/store";
+  ExecutorStateStore,
+  type ExecutorStateStoreShape,
+} from "../runtime/executor-state-store";
 import { RuntimeSourceCatalogSyncService } from "../runtime/catalog/source/sync";
 import { RuntimeSourceStoreService } from "../runtime/sources/source-store";
 
@@ -38,7 +38,7 @@ const shouldAutoProbeSource = (source: Source): boolean =>
   getSourceAdapterForSource(source).shouldAutoProbe(source);
 
 const syncArtifactsForSource = (input: {
-  store: ControlPlaneStoreShape;
+  store: ExecutorStateStoreShape;
   sourceStore: Effect.Effect.Success<typeof RuntimeSourceStoreService>;
   source: Source;
   actorAccountId: AccountId;
@@ -131,7 +131,7 @@ export const listSources = (input: {
   workspaceId: WorkspaceId;
   accountId: AccountId;
 }) =>
-  Effect.flatMap(ControlPlaneStore, () =>
+  Effect.flatMap(ExecutorStateStore, () =>
     Effect.gen(function* () {
       const sourceStore = yield* RuntimeSourceStoreService;
 
@@ -155,7 +155,7 @@ export const createSource = (input: {
   accountId: AccountId;
   payload: CreateSourcePayload;
 }) =>
-  Effect.flatMap(ControlPlaneStore, (store) =>
+  Effect.flatMap(ExecutorStateStore, (store) =>
     Effect.gen(function* () {
       const sourceStore = yield* RuntimeSourceStoreService;
       const now = Date.now();
@@ -198,7 +198,7 @@ export const getSource = (input: {
   sourceId: SourceId;
   accountId: AccountId;
 }) =>
-  Effect.flatMap(ControlPlaneStore, () =>
+  Effect.flatMap(ExecutorStateStore, () =>
     Effect.gen(function* () {
       const sourceStore = yield* RuntimeSourceStoreService;
 
@@ -231,7 +231,7 @@ export const updateSource = (input: {
   accountId: AccountId;
   payload: UpdateSourcePayload;
 }) =>
-  Effect.flatMap(ControlPlaneStore, (store) =>
+  Effect.flatMap(ExecutorStateStore, (store) =>
     Effect.gen(function* () {
       const sourceStore = yield* RuntimeSourceStoreService;
       const existingSource = yield* sourceStore
@@ -291,7 +291,7 @@ export const removeSource = (input: {
   workspaceId: WorkspaceId;
   sourceId: SourceId;
 }) =>
-  Effect.flatMap(ControlPlaneStore, () =>
+  Effect.flatMap(ExecutorStateStore, () =>
     Effect.gen(function* () {
       const sourceStore = yield* RuntimeSourceStoreService;
       const removed = yield* mapPersistenceError(

@@ -7,10 +7,10 @@ import * as Effect from "effect/Effect";
 
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
-  loadLocalControlPlaneState,
-  localControlPlaneStatePath,
-  writeLocalControlPlaneState,
-} from "./control-plane-store";
+  loadLocalExecutorStateSnapshot,
+  localExecutorStatePath,
+  writeLocalExecutorStateSnapshot,
+} from "./executor-state-store";
 
 const makeContext = (): Effect.Effect<
   ResolvedLocalWorkspaceContext,
@@ -21,13 +21,13 @@ const makeContext = (): Effect.Effect<
     const fs = yield* FileSystem.FileSystem;
     const workspaceRoot = yield* fs.makeTempDirectory({
       directory: tmpdir(),
-      prefix: "executor-control-plane-store-",
+      prefix: "executor-state-store-",
     }).pipe(Effect.orDie);
 
     return {
       cwd: workspaceRoot,
       workspaceRoot,
-      workspaceName: "executor-control-plane-store",
+      workspaceName: "executor-state-store",
       configDirectory: join(workspaceRoot, ".executor"),
       projectConfigPath: join(workspaceRoot, ".executor", "executor.jsonc"),
       homeConfigPath: join(workspaceRoot, ".executor-home.jsonc"),
@@ -37,15 +37,15 @@ const makeContext = (): Effect.Effect<
     };
   });
 
-describe("local-control-plane-store", () => {
-  it.effect("stores secret-bearing control-plane state outside the workspace", () =>
+describe("local-executor-state-store", () => {
+  it.effect("stores secret-bearing executor state outside the workspace", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const context = yield* makeContext();
-      const expectedPath = localControlPlaneStatePath(context);
-      const workspacePath = join(context.stateDirectory, "control-plane-state.json");
+      const expectedPath = localExecutorStatePath(context);
+      const workspacePath = join(context.stateDirectory, "executor-state.json");
 
-      yield* writeLocalControlPlaneState({
+      yield* writeLocalExecutorStateSnapshot({
         context,
         state: {
           version: 1,
@@ -66,7 +66,7 @@ describe("local-control-plane-store", () => {
       expect(yield* fs.exists(expectedPath)).toBe(true);
       expect(yield* fs.exists(workspacePath)).toBe(false);
 
-      const loaded = yield* loadLocalControlPlaneState(context);
+      const loaded = yield* loadLocalExecutorStateSnapshot(context);
       expect(loaded.version).toBe(1);
       expect(loaded.secretMaterials).toEqual([]);
 

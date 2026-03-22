@@ -1,7 +1,7 @@
 import { HttpApiBuilder } from "@effect/platform";
 import * as Effect from "effect/Effect";
 
-import { ControlPlaneApi } from "../api";
+import { ExecutorApi } from "../api";
 import { ControlPlaneStorageError } from "../errors";
 import { getControlPlaneExecutor } from "../executor-context";
 
@@ -12,8 +12,8 @@ const toStorageError = (operation: string) => (cause: unknown) =>
     details: cause instanceof Error ? cause.stack ?? cause.message : String(cause),
   });
 
-export const ControlPlaneLocalLive = HttpApiBuilder.group(
-  ControlPlaneApi,
+export const ExecutorLocalLive = HttpApiBuilder.group(
+  ExecutorApi,
   "local",
   (handlers) =>
     handlers

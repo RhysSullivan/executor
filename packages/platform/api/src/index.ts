@@ -1,10 +1,10 @@
 export {
-  ControlPlaneApi,
-  controlPlaneOpenApiSpec,
+  ExecutorApi,
+  executorOpenApiSpec,
 } from "./api";
 export {
-  createControlPlaneClient,
-  type ControlPlaneClient,
+  createExecutorApiClient,
+  type ExecutorApiClient,
 } from "./client";
 
 export type { LocalInstallation } from "@executor/platform-sdk/schema";
@@ -18,10 +18,9 @@ export {
 } from "./errors";
 
 export {
-  ControlPlaneApiLive,
-  type ControlPlaneApiRuntimeContext,
-  type BuiltControlPlaneApiLayer,
-  createControlPlaneApiLayer,
+  ExecutorApiLive,
+  type ExecutorApiRuntimeContext,
+  type BuiltExecutorApiLayer,
   createExecutorApiLayer,
 } from "./http";
 
@@ -32,7 +31,7 @@ export {
   type CreateExecutionPayload,
   type ResumeExecutionPayload,
 } from "./executions/api";
-export { ControlPlaneExecutionsLive } from "./executions/http";
+export { ExecutorExecutionsLive } from "./executions/http";
 
 export {
   LocalApi,
@@ -45,7 +44,7 @@ export {
   type UpdateSecretResult,
   type DeleteSecretResult,
 } from "./local/api";
-export { ControlPlaneLocalLive } from "./local/http";
+export { ExecutorLocalLive } from "./local/http";
 
 export {
   OAuthApi,
@@ -60,7 +59,7 @@ export {
   type CompleteSourceOAuthResult,
   type SourceOAuthPopupResult,
 } from "./oauth/api";
-export { ControlPlaneOAuthLive } from "./oauth/http";
+export { ExecutorOAuthLive } from "./oauth/http";
 
 export {
   ConnectSourceBatchPayloadSchema,
@@ -81,7 +80,7 @@ export {
   type DiscoverSourcePayload,
   type UpdateSourcePayload,
 } from "./sources/api";
-export { ControlPlaneSourcesLive } from "./sources/http";
+export { ExecutorSourcesLive } from "./sources/http";
 
 export {
   CreatePolicyPayloadSchema,
@@ -90,6 +89,6 @@ export {
   type CreatePolicyPayload,
   type UpdatePolicyPayload,
 } from "./policies/api";
-export { ControlPlanePoliciesLive } from "./policies/http";
+export { ExecutorPoliciesLive } from "./policies/http";
 
 export { resolveRequestedLocalWorkspace } from "./local-context";

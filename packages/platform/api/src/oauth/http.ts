@@ -9,7 +9,7 @@ import * as Either from "effect/Either";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { ControlPlaneApi } from "../api";
+import { ExecutorApi } from "../api";
 import {
   ControlPlaneBadRequestError,
   ControlPlaneStorageError,
@@ -231,8 +231,8 @@ const sourceOAuthPopupResultDocument = (input: {
   </body>
 </html>`;
 
-export const ControlPlaneOAuthLive = HttpApiBuilder.group(
-  ControlPlaneApi,
+export const ExecutorOAuthLive = HttpApiBuilder.group(
+  ExecutorApi,
   "oauth",
   (handlers) =>
     handlers

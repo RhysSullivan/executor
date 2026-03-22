@@ -41,7 +41,7 @@ import {
   WorkspaceStateStore,
   type WorkspaceStateStoreShape,
 } from "../../workspace/storage";
-import { ControlPlaneStore } from "../../store";
+import { ExecutorStateStore } from "../../executor-state-store";
 import { RuntimeSourceStoreService } from "../../sources/source-store";
 import type { CreateWorkspaceInternalToolMap } from "./tool-invoker";
 export {
@@ -58,7 +58,7 @@ const createEmptyLocalToolRuntime = (): LocalToolRuntime => ({
 
 export const createWorkspaceExecutionEnvironmentResolver =
   (input: {
-    controlPlaneStore: Effect.Effect.Success<typeof ControlPlaneStore>;
+    executorStateStore: Effect.Effect.Success<typeof ExecutorStateStore>;
     sourceStore: Effect.Effect.Success<typeof RuntimeSourceStoreService>;
     sourceCatalogSyncService: Effect.Effect.Success<
       typeof RuntimeSourceCatalogSyncService
@@ -97,7 +97,7 @@ export const createWorkspaceExecutionEnvironmentResolver =
       const { catalog, toolInvoker } = createWorkspaceToolInvoker({
         workspaceId,
         accountId,
-        controlPlaneStore: input.controlPlaneStore,
+        executorStateStore: input.executorStateStore,
         sourceStore: input.sourceStore,
         sourceCatalogSyncService: input.sourceCatalogSyncService,
         sourceCatalogStore: input.sourceCatalogStore,
@@ -146,7 +146,7 @@ export const RuntimeExecutionResolverLive = (
     : Layer.effect(
         RuntimeExecutionResolverService,
         Effect.gen(function* () {
-          const controlPlaneStore = yield* ControlPlaneStore;
+          const executorStateStore = yield* ExecutorStateStore;
           const sourceStore = yield* RuntimeSourceStoreService;
           const sourceCatalogSyncService =
             yield* RuntimeSourceCatalogSyncService;
@@ -165,7 +165,7 @@ export const RuntimeExecutionResolverLive = (
           const sourceArtifactStore = yield* SourceArtifactStore;
 
           return createWorkspaceExecutionEnvironmentResolver({
-            controlPlaneStore,
+            executorStateStore,
             sourceStore,
             sourceCatalogSyncService,
             sourceAuthService,

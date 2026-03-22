@@ -16,7 +16,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 
-import type { ControlPlaneStoreShape } from "../store";
+import type { ExecutorStateStoreShape } from "../executor-state-store";
 import { resolveAuthArtifactMaterial, type ResolvedSourceAuthMaterial } from "./auth-artifacts";
 import {
   type DeleteSecretMaterial,
@@ -38,7 +38,7 @@ const secretRefKey = (ref: SecretRef): string =>
   `${ref.providerId}:${ref.handle}`;
 
 const cleanupAuthLeaseSecretRefs = (
-  rows: ControlPlaneStoreShape,
+  executorState: ExecutorStateStoreShape,
   input: {
     previous: Pick<AuthLease, "placementsTemplateJson"> | null;
     next: Pick<AuthLease, "placementsTemplateJson"> | null;
@@ -80,7 +80,7 @@ const leaseIsFresh = (lease: AuthLease | null, now: number): boolean => {
 };
 
 const refreshRefreshableOauth2AuthorizedUserArtifact = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   artifact: AuthArtifact;
   lease: AuthLease | null;
   resolveSecretMaterial: ResolveSecretMaterial;
@@ -160,8 +160,8 @@ const refreshRefreshableOauth2AuthorizedUserArtifact = (input: {
       updatedAt: now,
     };
 
-    yield* input.rows.authLeases.upsert(nextLease);
-    yield* cleanupAuthLeaseSecretRefs(input.rows, {
+    yield* input.executorState.authLeases.upsert(nextLease);
+    yield* cleanupAuthLeaseSecretRefs(input.executorState, {
       previous: input.lease,
       next: nextLease,
     }, input.deleteSecretMaterial);
@@ -180,7 +180,7 @@ const workspaceOauthClientSecretRef = (input: {
       }
     : null;
 
-const cleanupProviderGrantRefreshToken = (rows: ControlPlaneStoreShape, input: {
+const cleanupProviderGrantRefreshToken = (executorState: ExecutorStateStoreShape, input: {
   previous: SecretRef;
   next: SecretRef;
 }, deleteSecretMaterial: DeleteSecretMaterial) =>
@@ -192,7 +192,7 @@ const cleanupProviderGrantRefreshToken = (rows: ControlPlaneStoreShape, input: {
       );
 
 const refreshProviderGrantRefArtifact = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   artifact: AuthArtifact;
   lease: AuthLease | null;
   resolveSecretMaterial: ResolveSecretMaterial;
@@ -206,13 +206,13 @@ const refreshProviderGrantRefArtifact = (input: {
       return yield* runtimeEffectError("auth/auth-leases", `Unsupported auth artifact kind: ${input.artifact.artifactKind}`);
     }
 
-    const grantOption = yield* input.rows.providerAuthGrants.getById(config.grantId);
+    const grantOption = yield* input.executorState.providerAuthGrants.getById(config.grantId);
     if (Option.isNone(grantOption)) {
       return yield* runtimeEffectError("auth/auth-leases", `Provider auth grant not found: ${config.grantId}`);
     }
     const grant = grantOption.value;
 
-    const oauthClientOption = yield* input.rows.workspaceOauthClients.getById(grant.oauthClientId);
+    const oauthClientOption = yield* input.executorState.workspaceOauthClients.getById(grant.oauthClientId);
     if (Option.isNone(oauthClientOption)) {
       return yield* runtimeEffectError("auth/auth-leases", `Workspace OAuth client not found: ${grant.oauthClientId}`);
     }
@@ -260,8 +260,8 @@ const refreshProviderGrantRefArtifact = (input: {
       lastRefreshedAt: now,
       updatedAt: now,
     };
-    yield* input.rows.providerAuthGrants.upsert(nextGrant);
-    yield* cleanupProviderGrantRefreshToken(input.rows, {
+    yield* input.executorState.providerAuthGrants.upsert(nextGrant);
+    yield* cleanupProviderGrantRefreshToken(input.executorState, {
       previous: grant.refreshToken,
       next: rotatedRefreshTokenRef,
     }, input.deleteSecretMaterial);
@@ -303,8 +303,8 @@ const refreshProviderGrantRefArtifact = (input: {
       updatedAt: now,
     };
 
-    yield* input.rows.authLeases.upsert(nextLease);
-    yield* cleanupAuthLeaseSecretRefs(input.rows, {
+    yield* input.executorState.authLeases.upsert(nextLease);
+    yield* cleanupAuthLeaseSecretRefs(input.executorState, {
       previous: input.lease,
       next: nextLease,
     }, input.deleteSecretMaterial);
@@ -312,24 +312,24 @@ const refreshProviderGrantRefArtifact = (input: {
     return nextLease;
   });
 
-export const removeAuthLeaseAndSecrets = (rows: ControlPlaneStoreShape, input: {
+export const removeAuthLeaseAndSecrets = (executorState: ExecutorStateStoreShape, input: {
   authArtifactId: AuthArtifact["id"];
 }, deleteSecretMaterial: DeleteSecretMaterial): Effect.Effect<void, Error, never> =>
   Effect.gen(function* () {
-    const existingLease = yield* rows.authLeases.getByAuthArtifactId(input.authArtifactId);
+    const existingLease = yield* executorState.authLeases.getByAuthArtifactId(input.authArtifactId);
     if (Option.isNone(existingLease)) {
       return;
     }
 
-    yield* rows.authLeases.removeByAuthArtifactId(input.authArtifactId);
-    yield* cleanupAuthLeaseSecretRefs(rows, {
+    yield* executorState.authLeases.removeByAuthArtifactId(input.authArtifactId);
+    yield* cleanupAuthLeaseSecretRefs(executorState, {
       previous: existingLease.value,
       next: null,
     }, deleteSecretMaterial);
   });
 
 export const upsertOauth2AuthorizedUserLeaseFromTokenResponse = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   artifact: AuthArtifact;
   tokenResponse: OAuth2TokenResponse;
   storeSecretMaterial: StoreSecretMaterial;
@@ -344,7 +344,7 @@ export const upsertOauth2AuthorizedUserLeaseFromTokenResponse = (input: {
       return yield* runtimeEffectError("auth/auth-leases", `Unsupported auth artifact kind: ${input.artifact.artifactKind}`);
     }
 
-    const existingLeaseOption = yield* input.rows.authLeases.getByAuthArtifactId(input.artifact.id);
+    const existingLeaseOption = yield* input.executorState.authLeases.getByAuthArtifactId(input.artifact.id);
     const existingLease = Option.isSome(existingLeaseOption) ? existingLeaseOption.value : null;
     const accessTokenRef = yield* input.storeSecretMaterial({
       purpose: "oauth_access_token",
@@ -389,15 +389,15 @@ export const upsertOauth2AuthorizedUserLeaseFromTokenResponse = (input: {
       updatedAt: now,
     };
 
-    yield* input.rows.authLeases.upsert(nextLease);
-    yield* cleanupAuthLeaseSecretRefs(input.rows, {
+    yield* input.executorState.authLeases.upsert(nextLease);
+    yield* cleanupAuthLeaseSecretRefs(input.executorState, {
       previous: existingLease,
       next: nextLease,
     }, input.deleteSecretMaterial);
   });
 
 export const resolveAuthArtifactMaterialWithLeases = (input: {
-  rows: ControlPlaneStoreShape;
+  executorState: ExecutorStateStoreShape;
   artifact: AuthArtifact | null;
   resolveSecretMaterial: ResolveSecretMaterial;
   storeSecretMaterial: StoreSecretMaterial;
@@ -413,7 +413,7 @@ export const resolveAuthArtifactMaterialWithLeases = (input: {
       });
     }
 
-    const existingLeaseOption = yield* input.rows.authLeases.getByAuthArtifactId(input.artifact.id);
+    const existingLeaseOption = yield* input.executorState.authLeases.getByAuthArtifactId(input.artifact.id);
     const existingLease = Option.isSome(existingLeaseOption) ? existingLeaseOption.value : null;
     const decoded = decodeBuiltInAuthArtifactConfig(input.artifact);
     const providerGrantConfig = decodeProviderGrantRefAuthArtifactConfig(input.artifact);
@@ -426,7 +426,7 @@ export const resolveAuthArtifactMaterialWithLeases = (input: {
       const lease = leaseIsFresh(existingLease, Date.now())
         ? existingLease
         : yield* refreshRefreshableOauth2AuthorizedUserArtifact({
-            rows: input.rows,
+            executorState: input.executorState,
             artifact: input.artifact,
             lease: existingLease,
             resolveSecretMaterial: input.resolveSecretMaterial,
@@ -447,7 +447,7 @@ export const resolveAuthArtifactMaterialWithLeases = (input: {
       const lease = leaseIsFresh(existingLease, Date.now())
         ? existingLease
         : yield* refreshProviderGrantRefArtifact({
-            rows: input.rows,
+            executorState: input.executorState,
             artifact: input.artifact,
             lease: existingLease,
             resolveSecretMaterial: input.resolveSecretMaterial,
@@ -474,7 +474,7 @@ export const resolveAuthArtifactMaterialWithLeases = (input: {
       return {
         ...material,
         authProvider: createPersistedMcpAuthProvider({
-          rows: input.rows,
+          executorState: input.executorState,
           artifact: input.artifact,
           config: mcpOAuthConfig,
           resolveSecretMaterial: input.resolveSecretMaterial,
