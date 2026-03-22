@@ -1,6 +1,6 @@
 import { HttpApiBuilder } from "@effect/platform";
 import * as Layer from "effect/Layer";
-import type { Executor } from "@executor/platform-sdk";
+import type { ExecutorEffect } from "@executor/platform-sdk/effect";
 
 import { ExecutorApi } from "./api";
 import { createControlPlaneExecutorLayer } from "./executor-context";
@@ -20,7 +20,7 @@ export const ExecutorApiLive = HttpApiBuilder.api(ExecutorApi).pipe(
 
 export type ExecutorApiRuntimeContext = Layer.Layer.Context<typeof ExecutorApiLive>;
 
-export const createExecutorApiLayer = (executor: Executor) =>
+export const createExecutorApiLayer = (executor: ExecutorEffect) =>
   ExecutorApiLive.pipe(
     Layer.provide(createControlPlaneExecutorLayer(executor)),
   );

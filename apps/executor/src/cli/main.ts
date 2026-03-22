@@ -10,9 +10,9 @@ import {
   NodeRuntime,
 } from "@effect/platform-node";
 import {
-  createExecutorApiClient,
-  type ExecutorApiClient,
-} from "@executor/platform-api";
+  createExecutorApiEffectClient as createExecutorApiClient,
+  type ExecutorApiEffectClient as ExecutorApiClient,
+} from "@executor/platform-api/effect";
 import { createWorkspaceExecutorAdminToolMap } from "@executor/platform-internal";
 import {
   EXECUTOR_SOURCES_ADD_HELP_LINES,
@@ -20,8 +20,8 @@ import {
 } from "@executor/platform-sdk/runtime";
 import {
   createExecutorEffect,
-  type Executor,
-} from "@executor/platform-sdk";
+  type ExecutorEffect as Executor,
+} from "@executor/platform-sdk/effect";
 import { createLocalExecutorBackend } from "@executor/platform-sdk-file";
 import {
   ExecutionIdSchema,

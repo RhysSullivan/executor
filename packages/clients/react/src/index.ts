@@ -36,7 +36,6 @@ import type {
 } from "@executor/platform-sdk/schema";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
 import * as Runtime from "effect/Runtime";
 import * as React from "react";
@@ -189,11 +188,11 @@ const encodeWorkspaceOauthClientsKey = (
     [enabled, workspaceId, accountId, providerKey] satisfies WorkspaceOauthClientsKeyParts,
   );
 
-const causeMessage = (cause: Cause.Cause<unknown>): Error =>
-  new Error(Cause.pretty(cause));
-
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
+
+const causeMessage = (cause: Cause.Cause<unknown>): Error =>
+  new Error(Cause.pretty(cause));
 
 const shouldLogExecutorDevErrors = (): boolean => {
   if (typeof window === "undefined") {
@@ -238,36 +237,32 @@ const logExecutorDevError = (label: string, details: Record<string, unknown>): v
 const runControlPlane = async <A>(input: {
   baseUrl?: string;
   accountId?: string;
-  execute: (client: ExecutorApiClient) => Effect.Effect<A, unknown, never>;
+  execute: (client: ExecutorApiClient) => Promise<A>;
 }): Promise<A> => {
   const baseUrl = input.baseUrl ?? apiBaseUrl;
   const accountId = input.accountId;
 
-  const exit = await Effect.runPromiseExit(
-    createExecutorApiClient({
+  try {
+    const client = await createExecutorApiClient({
       baseUrl,
       ...(accountId !== undefined ? { accountId } : {}),
-    }).pipe(Effect.flatMap(input.execute)),
-  );
-
-  if (Exit.isSuccess(exit)) {
-    return exit.value;
+    });
+    return await input.execute(client);
+  } catch (cause) {
+    const error = toError(cause);
+    logExecutorDevError("control-plane request failed", {
+      baseUrl,
+      accountId,
+      error: describeExecutorDevError(error),
+    });
+    throw error;
   }
-
-  const error = Cause.squash(exit.cause);
-  logExecutorDevError("control-plane request failed", {
-    baseUrl,
-    accountId,
-    error: describeExecutorDevError(error),
-    cause: Cause.pretty(exit.cause),
-  });
-  throw error;
 };
 
 const controlPlaneRequest = <A>(input: {
   baseUrl?: string;
   accountId?: string;
-  execute: (client: ExecutorApiClient) => Effect.Effect<A, unknown, never>;
+  execute: (client: ExecutorApiClient) => Promise<A>;
 }): Effect.Effect<A, Error> =>
   Effect.tryPromise({
     try: () => runControlPlane(input),

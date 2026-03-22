@@ -11,19 +11,17 @@ export const ExecutorExecutionsLive = HttpApiBuilder.group(
     handlers
       .handle("create", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("executions.create", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.executions.create(payload)),
+          Effect.flatMap((executor) => executor.executions.create(payload)),
         ),
       )
       .handle("get", ({ path }) =>
         resolveRequestedLocalWorkspace("executions.get", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.executions.get(path.executionId)),
+          Effect.flatMap((executor) => executor.executions.get(path.executionId)),
         ),
       )
       .handle("resume", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("executions.resume", path.workspaceId).pipe(
-          Effect.flatMap((executor) =>
-            executor.effect.executions.resume(path.executionId, payload)
-          ),
+          Effect.flatMap((executor) => executor.executions.resume(path.executionId, payload)),
         ),
       ),
 );

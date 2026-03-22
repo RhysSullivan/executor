@@ -1,4 +1,4 @@
-import type { Executor } from "@executor/platform-sdk";
+import type { ExecutorEffect } from "@executor/platform-sdk/effect";
 import type { ScopeId as WorkspaceId } from "@executor/platform-sdk/schema";
 import {
   ControlPlaneBadRequestError,
@@ -11,9 +11,9 @@ import * as Layer from "effect/Layer";
 
 export class ControlPlaneExecutor extends Context.Tag(
   "@executor/platform-api/ControlPlaneExecutor",
-)<ControlPlaneExecutor, Executor>() {}
+)<ControlPlaneExecutor, ExecutorEffect>() {}
 
-export const createControlPlaneExecutorLayer = (executor: Executor) =>
+export const createControlPlaneExecutorLayer = (executor: ExecutorEffect) =>
   Layer.succeed(ControlPlaneExecutor, executor);
 
 export const getControlPlaneExecutor = () => ControlPlaneExecutor;

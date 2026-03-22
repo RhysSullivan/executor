@@ -19,35 +19,35 @@ export const ExecutorLocalLive = HttpApiBuilder.group(
     handlers
       .handle("installation", () =>
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
-          executor.effect.local.installation().pipe(
+          executor.local.installation().pipe(
             Effect.mapError(toStorageError("local.installation")),
           )
         )
       )
       .handle("config", () =>
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
-          executor.effect.local.config().pipe(
+          executor.local.config().pipe(
             Effect.mapError(toStorageError("local.config")),
           )
         )
       )
       .handle("listSecrets", () =>
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
-          executor.effect.secrets.list().pipe(
+          executor.secrets.list().pipe(
             Effect.mapError(toStorageError("local.listSecrets")),
           )
         )
       )
       .handle("createSecret", ({ payload }) =>
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
-          executor.effect.secrets.create(payload).pipe(
+          executor.secrets.create(payload).pipe(
             Effect.mapError(toStorageError("local.createSecret")),
           )
         )
       )
       .handle("updateSecret", ({ path, payload }) =>
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
-          executor.effect.secrets.update({
+          executor.secrets.update({
               secretId: path.secretId,
               payload,
             }).pipe(Effect.mapError(toStorageError("local.updateSecret")))
@@ -55,7 +55,7 @@ export const ExecutorLocalLive = HttpApiBuilder.group(
       )
       .handle("deleteSecret", ({ path }) =>
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
-          executor.effect.secrets.remove(path.secretId).pipe(
+          executor.secrets.remove(path.secretId).pipe(
             Effect.mapError(toStorageError("local.deleteSecret")),
           )
         )

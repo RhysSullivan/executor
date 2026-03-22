@@ -58,7 +58,7 @@ import {
 } from "../index";
 import {
   createLocalExecutorRuntime as createExecutorRuntime,
-} from "../../../../sdk-file/src/index";
+} from "../../../../sdk-file/src/runtime";
 import {
   withExecutorApiClient,
 } from "./test-http-client";
@@ -353,7 +353,7 @@ describe("execution-mcp-resume", () => {
         (client) =>
           client.executions.create({
             path: {
-              scopeId: installation.scopeId,
+              workspaceId: installation.scopeId,
             },
             payload: {
               code: 'return await tools.source.form.gated_echo({ value: "from-control-plane" });',
@@ -387,7 +387,7 @@ describe("execution-mcp-resume", () => {
         (client) =>
           client.executions.resume({
             path: {
-              scopeId: installation.scopeId,
+              workspaceId: installation.scopeId,
               executionId: created.execution.id,
             },
             payload: {

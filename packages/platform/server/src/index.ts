@@ -10,13 +10,13 @@ import { FileSystem, HttpApiBuilder, HttpServer } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import {
   createExecutorApiLayer,
-} from "@executor/platform-api";
+} from "@executor/platform-api/http";
 import { createExecutorMcpRequestHandler } from "@executor/executor-mcp";
 import { createWorkspaceExecutorAdminToolMap } from "@executor/platform-internal";
 import {
   createExecutorEffect,
-  type Executor,
-} from "@executor/platform-sdk";
+  type ExecutorEffect as Executor,
+} from "@executor/platform-sdk/effect";
 import { createLocalExecutorBackend } from "@executor/platform-sdk-file";
 import {
   type ResolveExecutionEnvironment,

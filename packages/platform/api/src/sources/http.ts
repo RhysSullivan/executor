@@ -713,7 +713,7 @@ const credentialSubmitErrorResponse = (input: {
     input.workspaceId,
   ).pipe(
     Effect.flatMap((executor) =>
-      executor.effect.local.credentials.get({
+      executor.local.credentials.get({
           sourceId: input.sourceId,
           interactionId: input.interactionId,
         }),
@@ -749,7 +749,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
     handlers
       .handle("discover", ({ payload }) =>
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
-          executor.effect.sources.discover({
+          executor.sources.discover({
               url: payload.url,
               probeAuth: payload.probeAuth,
             }).pipe(
@@ -770,14 +770,14 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
               const baseUrl = resolveRequestOrigin(request);
 
               if (isInteractiveConnectPayload(payload)) {
-                return yield* executor.effect.sources.connect(
+                return yield* executor.sources.connect(
                   toExecutorMcpSourceInput(payload, baseUrl),
                 );
               }
 
               const sourceInput = toExecutorSourceInput(payload);
               if (sourceInput) {
-                return yield* executor.effect.sources.add(sourceInput, {
+                return yield* executor.sources.add(sourceInput, {
                     baseUrl,
                   });
               }
@@ -804,7 +804,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           Effect.flatMap((executor) =>
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;
-              return yield* executor.effect.sources.connectBatch({
+              return yield* executor.sources.connectBatch({
                 ...payload,
                 baseUrl: resolveRequestOrigin(request),
               });
@@ -822,7 +822,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.sources.oauthClients.list(urlParams.providerKey).pipe(
+            executor.sources.oauthClients.list(urlParams.providerKey).pipe(
               Effect.catchAll((cause) =>
                 Effect.fail(
                   toBadRequestError("sources.listWorkspaceOauthClients", cause),
@@ -838,7 +838,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.sources.oauthClients.create(payload).pipe(
+            executor.sources.oauthClients.create(payload).pipe(
               Effect.catchAll((cause) =>
                 Effect.fail(
                   toBadRequestError(
@@ -857,7 +857,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.sources.oauthClients.remove(path.oauthClientId).pipe(
+            executor.sources.oauthClients.remove(path.oauthClientId).pipe(
               Effect.map((result) => ({ removed: result })),
               Effect.catchAll((cause) =>
                 Effect.fail(
@@ -877,7 +877,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.sources.providerGrants.remove(path.grantId).pipe(
+            executor.sources.providerGrants.remove(path.grantId).pipe(
               Effect.map((result) => ({ removed: result })),
               Effect.catchAll((cause) =>
                 Effect.fail(
@@ -893,17 +893,17 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
       )
       .handle("list", ({ path }) =>
         resolveRequestedLocalWorkspace("sources.list", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.sources.list()),
+          Effect.flatMap((executor) => executor.sources.list()),
         ),
       )
       .handle("create", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("sources.create", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.sources.create(payload)),
+          Effect.flatMap((executor) => executor.sources.create(payload)),
         ),
       )
       .handle("get", ({ path }) =>
         resolveRequestedLocalWorkspace("sources.get", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.sources.get(path.sourceId)),
+          Effect.flatMap((executor) => executor.sources.get(path.sourceId)),
         ),
       )
       .handle("inspection", ({ path }) =>
@@ -911,9 +911,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           "sources.inspection",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap((executor) =>
-            executor.effect.sources.inspection.get(path.sourceId),
-          ),
+          Effect.flatMap((executor) => executor.sources.inspection.get(path.sourceId)),
         ),
       )
       .handle("inspectionTool", ({ path }) =>
@@ -922,7 +920,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.sources.inspection.tool({
+            executor.sources.inspection.tool({
                 sourceId: path.sourceId,
                 toolPath: path.toolPath,
               }),
@@ -935,7 +933,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.sources.inspection.discover({
+            executor.sources.inspection.discover({
                 sourceId: path.sourceId,
                 payload,
               }),
@@ -944,15 +942,13 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
       )
       .handle("update", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("sources.update", path.workspaceId).pipe(
-          Effect.flatMap((executor) =>
-            executor.effect.sources.update(path.sourceId, payload)
-          ),
+          Effect.flatMap((executor) => executor.sources.update(path.sourceId, payload)),
         ),
       )
       .handle("remove", ({ path }) =>
         resolveRequestedLocalWorkspace("sources.remove", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.sources.remove(path.sourceId)),
-          Effect.map((result) => ({ removed: result.removed })),
+          Effect.flatMap((executor) => executor.sources.remove(path.sourceId)),
+          Effect.map((removed) => ({ removed })),
         ),
       )
       .handle("credentialPage", ({ path, urlParams }) =>
@@ -961,7 +957,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.local.credentials.get({
+            executor.local.credentials.get({
                 sourceId: path.sourceId,
                 interactionId: urlParams.interactionId,
               }),
@@ -1006,7 +1002,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.local.credentials.submit({
+            executor.local.credentials.submit({
                 sourceId: path.sourceId,
                 interactionId: urlParams.interactionId,
                 action:
@@ -1081,7 +1077,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           path.workspaceId,
         ).pipe(
           Effect.flatMap((executor) =>
-            executor.effect.local.credentials.complete({
+            executor.local.credentials.complete({
                 sourceId: path.sourceId,
                 state: urlParams.state,
                 code: urlParams.code,
@@ -1136,7 +1132,7 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
         ).pipe(
           Effect.flatMap((executor) =>
             Effect.gen(function* () {
-              const completed = yield* executor.effect.oauth.completeProviderCallback({
+              const completed = yield* executor.oauth.completeProviderCallback({
                   scopeId: path.workspaceId,
                   state: urlParams.state,
                   code: urlParams.code,

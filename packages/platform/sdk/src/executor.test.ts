@@ -30,19 +30,23 @@ import {
 
 import {
   createExecutorBackend,
-  createExecutorEffect,
-  type Executor,
 } from "./index";
+import {
+  createExecutorEffect,
+  type ExecutorEffect as Executor,
+} from "./effect";
 import {
   type LocalInstallation,
   ScopeIdSchema,
 } from "./schema";
 import {
   createLocalExecutorServicesEffect,
-} from "../../sdk-file/src/index";
+} from "../../sdk-file/src/effect";
+import {
+  createExecutorApiLayer,
+} from "../../api/src/http";
 import {
   ExecutorApi,
-  createExecutorApiLayer,
 } from "../../api/src/index";
 
 type LocalExecutorServices = Effect.Effect.Success<

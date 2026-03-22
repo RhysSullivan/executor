@@ -81,7 +81,6 @@ import {
 } from "./effect-errors";
 import {
   buildLocalSourceArtifact,
-  createLocalExecutorRuntime as createExecutorRuntime,
   deriveLocalInstallation,
   readLocalSourceArtifact,
   resolveLocalWorkspaceContext,
@@ -89,7 +88,10 @@ import {
   writeLocalSourceArtifact,
   writeProjectLocalExecutorConfig,
   writeLocalWorkspaceState,
-} from "../../../sdk-file/src/index";
+} from "../../../sdk-file/src/effect";
+import {
+  createLocalExecutorRuntime as createExecutorRuntime,
+} from "../../../sdk-file/src/runtime";
 import {
   decodeSourceCredentialInteraction,
   submitSourceCredentialInteraction,

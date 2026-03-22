@@ -4,8 +4,8 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
-  createExecutorApiClient,
-} from "@executor/platform-api";
+  createExecutorApiEffectClient as createExecutorApiClient,
+} from "@executor/platform-api/effect";
 import { type SourceDiscoveryKind } from "@executor/platform-sdk/schema";
 import { createLocalExecutorServer } from "@executor/server";
 

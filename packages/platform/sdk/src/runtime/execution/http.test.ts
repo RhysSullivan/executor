@@ -27,7 +27,7 @@ import {
 
 import {
   createLocalExecutorRuntime as createExecutorRuntime,
-} from "../../../../sdk-file/src/index";
+} from "../../../../sdk-file/src/runtime";
 import {
   withExecutorApiClient,
 } from "./test-http-client";
@@ -100,7 +100,7 @@ describe("execution-http", () => {
         (client) =>
           client.executions.create({
             path: {
-              scopeId: installation.scopeId,
+              workspaceId: installation.scopeId,
             },
             payload: {
               code: "return await tools.math.add({ a: 20, b: 22 });",
@@ -120,7 +120,7 @@ describe("execution-http", () => {
         (client) =>
           client.executions.get({
             path: {
-              scopeId: installation.scopeId,
+              workspaceId: installation.scopeId,
               executionId: createExecution.execution.id,
             },
           }),

@@ -6,6 +6,7 @@
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
     "./client": "./src/client.ts",
+    "./effect": "./src/effect.ts",
     "./http": "./src/http.ts",
     "./errors": "./src/errors.ts",
     "./local/api": "./src/local/api.ts",

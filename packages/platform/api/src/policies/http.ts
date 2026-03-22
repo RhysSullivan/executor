@@ -11,7 +11,7 @@ export const ExecutorPoliciesLive = HttpApiBuilder.group(
     handlers
       .handle("list", ({ path }) =>
         resolveRequestedLocalWorkspace("policies.list", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.policies.list()),
+          Effect.flatMap((executor) => executor.policies.list()),
         ),
       )
       .handle("create", ({ path, payload }) =>
@@ -19,12 +19,12 @@ export const ExecutorPoliciesLive = HttpApiBuilder.group(
           "policies.create",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap((executor) => executor.effect.policies.create(payload)),
+          Effect.flatMap((executor) => executor.policies.create(payload)),
         ),
       )
       .handle("get", ({ path }) =>
         resolveRequestedLocalWorkspace("policies.get", path.workspaceId).pipe(
-          Effect.flatMap((executor) => executor.effect.policies.get(path.policyId)),
+          Effect.flatMap((executor) => executor.policies.get(path.policyId)),
         ),
       )
       .handle("update", ({ path, payload }) =>
@@ -32,9 +32,7 @@ export const ExecutorPoliciesLive = HttpApiBuilder.group(
           "policies.update",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap((executor) =>
-            executor.effect.policies.update(path.policyId, payload)
-          ),
+          Effect.flatMap((executor) => executor.policies.update(path.policyId, payload)),
         ),
       )
       .handle("remove", ({ path }) =>
@@ -42,10 +40,8 @@ export const ExecutorPoliciesLive = HttpApiBuilder.group(
           "policies.remove",
           path.workspaceId,
         ).pipe(
-          Effect.flatMap((executor) => executor.effect.policies.remove(path.policyId)),
-          Effect.map((result) => ({
-            removed: result.removed,
-          })),
+          Effect.flatMap((executor) => executor.policies.remove(path.policyId)),
+          Effect.map((removed) => ({ removed })),
         ),
       ),
 );

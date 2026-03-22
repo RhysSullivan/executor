@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/client.ts",
+    "./effect": "./src/effect.ts",
+    "./runtime": "./src/runtime.ts"
   },
   "scripts": {
     "fixture:release:capture": "bun run ./src/capture-release-workspace-fixture.ts",

@@ -16,10 +16,10 @@ import {
 } from "@executor/effect-test-utils";
 import {
   createExecutorApiLayer,
-} from "@executor/platform-api";
-import { createExecutorEffect } from "@executor/platform-sdk";
+} from "@executor/platform-api/http";
+import { createExecutorEffect } from "@executor/platform-sdk/effect";
 import type { ExecutorRuntime } from "@executor/platform-sdk/runtime";
-import { createLocalExecutorRuntime as createExecutorRuntime } from "@executor/platform-sdk-file";
+import { createLocalExecutorRuntime as createExecutorRuntime } from "@executor/platform-sdk-file/runtime";
 import type {
   LocalInstallation,
   Source,

@@ -6,6 +6,7 @@
     ".": "./src/index.ts",
     "./backend": "./src/backend.ts",
     "./contracts": "./src/contracts.ts",
+    "./effect": "./src/effect.ts",
     "./executor": "./src/executor.ts",
     "./errors": "./src/errors.ts",
     "./operations": "./src/operations.ts",

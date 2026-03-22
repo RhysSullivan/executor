@@ -1,4 +1,4 @@
-import type { ExecutorApiClient } from "@executor/platform-api";
+import type { ExecutorApiEffectClient as ExecutorApiClient } from "@executor/platform-api/effect";
 import { ScopeIdSchema } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 

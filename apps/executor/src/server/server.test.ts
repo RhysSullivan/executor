@@ -20,9 +20,11 @@ import { startMcpElicitationDemoServer } from "@executor/mcp-elicitation-demo";
 import { makeToolInvokerFromTools, toTool } from "@executor/codemode-core";
 import { startOpenApiTestServer } from "@executor/effect-test-utils";
 import {
-  createExecutorApiClient,
   executorOpenApiSpec,
 } from "@executor/platform-api";
+import {
+  createExecutorApiEffectClient as createExecutorApiClient,
+} from "@executor/platform-api/effect";
 import {
   catalogSyncResultFromMcpManifest,
   type ResolveExecutionEnvironment,
@@ -33,7 +35,7 @@ import {
   resolveLocalWorkspaceContext,
   writeLocalSourceArtifact,
   writeProjectLocalExecutorConfig,
-} from "@executor/platform-sdk-file";
+} from "@executor/platform-sdk-file/effect";
 import { SourceIdSchema } from "@executor/platform-sdk/schema";
 import { makeSesExecutor } from "@executor/runtime-ses";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";

@@ -8,13 +8,17 @@ import {
 } from "@effect/platform-node";
 import {
   ExecutorApi,
-  createExecutorApiLayer,
 } from "../../../../api/src/index";
+import {
+  createExecutorApiLayer,
+} from "../../../../api/src/http";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import {
   createExecutorEffect,
+} from "../../effect";
+import {
   type ExecutorRuntime,
 } from "../../index";
 

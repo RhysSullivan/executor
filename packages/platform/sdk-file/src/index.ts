@@ -3,8 +3,6 @@ import { NodeFileSystem } from "@effect/platform-node";
 import {
   createExecutor,
   createExecutorBackend,
-  createExecutorEffect,
-  type CreateExecutorOptions,
   type Executor,
   type ExecutorBackend,
   type ExecutorBackendServices,
@@ -12,6 +10,11 @@ import {
   type ExecutorSourceTypeDeclarationsBackend,
   type ExecutorScopeDescriptor,
 } from "@executor/platform-sdk";
+import {
+  createExecutorEffect,
+  type ExecutorEffect,
+  type CreateExecutorEffectOptions as CreateExecutorOptions,
+} from "@executor/platform-sdk/effect";
 import type {
   LocalExecutorConfig,
   LocalInstallation,
@@ -307,7 +310,7 @@ export const createLocalExecutorRuntime = (
 
 export const createLocalExecutorEffect = (
   options: CreateLocalExecutorBackendOptions & ExecutorRuntimeOptions = {},
-): Effect.Effect<Executor, Error> =>
+): Effect.Effect<ExecutorEffect, Error> =>
   createExecutorEffect({
     backend: createLocalExecutorBackend(options),
     executionResolver: options.executionResolver,
@@ -318,7 +321,14 @@ export const createLocalExecutorEffect = (
 
 export const createLocalExecutor = (
   options: CreateLocalExecutorBackendOptions & ExecutorRuntimeOptions = {},
-): Promise<Executor> => Effect.runPromise(createLocalExecutorEffect(options));
+): Promise<Executor> =>
+  createExecutor({
+    backend: createLocalExecutorBackend(options),
+    executionResolver: options.executionResolver,
+    createInternalToolMap: options.createInternalToolMap,
+    resolveSecretMaterial: options.resolveSecretMaterial,
+    getLocalServerBaseUrl: options.getLocalServerBaseUrl,
+  });
 
 export {
   deriveLocalInstallation,

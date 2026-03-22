@@ -18,20 +18,12 @@ export {
 } from "./errors";
 
 export {
-  ExecutorApiLive,
-  type ExecutorApiRuntimeContext,
-  type BuiltExecutorApiLayer,
-  createExecutorApiLayer,
-} from "./http";
-
-export {
   CreateExecutionPayloadSchema,
   ExecutionsApi,
   ResumeExecutionPayloadSchema,
   type CreateExecutionPayload,
   type ResumeExecutionPayload,
 } from "./executions/api";
-export { ExecutorExecutionsLive } from "./executions/http";
 
 export {
   LocalApi,
@@ -44,7 +36,6 @@ export {
   type UpdateSecretResult,
   type DeleteSecretResult,
 } from "./local/api";
-export { ExecutorLocalLive } from "./local/http";
 
 export {
   OAuthApi,
@@ -59,7 +50,6 @@ export {
   type CompleteSourceOAuthResult,
   type SourceOAuthPopupResult,
 } from "./oauth/api";
-export { ExecutorOAuthLive } from "./oauth/http";
 
 export {
   ConnectSourceBatchPayloadSchema,
@@ -80,7 +70,6 @@ export {
   type DiscoverSourcePayload,
   type UpdateSourcePayload,
 } from "./sources/api";
-export { ExecutorSourcesLive } from "./sources/http";
 
 export {
   CreatePolicyPayloadSchema,
@@ -89,6 +78,3 @@ export {
   type CreatePolicyPayload,
   type UpdatePolicyPayload,
 } from "./policies/api";
-export { ExecutorPoliciesLive } from "./policies/http";
-
-export { resolveRequestedLocalWorkspace } from "./local-context";

@@ -19,7 +19,7 @@ import * as Effect from "effect/Effect";
 
 import {
   createLocalExecutorRuntime as createExecutorRuntime,
-} from "../../../../sdk-file/src/index";
+} from "../../../../sdk-file/src/runtime";
 import {
   withExecutorApiClient,
 } from "./test-http-client";
@@ -74,7 +74,7 @@ describe("execution runtime config", () => {
         (client) =>
           client.executions.create({
             path: {
-              scopeId: installation.scopeId,
+              workspaceId: installation.scopeId,
             },
             payload: {
               code: 'await fetch("https://example.com"); return 1;',
@@ -106,7 +106,7 @@ describe("execution runtime config", () => {
         (client) =>
           client.executions.create({
             path: {
-              scopeId: installation.scopeId,
+              workspaceId: installation.scopeId,
             },
             payload: {
               code: 'await fetch("https://example.com"); return 1;',
@@ -138,7 +138,7 @@ describe("execution runtime config", () => {
         (client) =>
           client.executions.create({
             path: {
-              scopeId: installation.scopeId,
+              workspaceId: installation.scopeId,
             },
             payload: {
               code: 'return typeof Deno !== "undefined";',

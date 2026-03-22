@@ -241,7 +241,7 @@ export const ExecutorOAuthLive = HttpApiBuilder.group(
           Effect.flatMap((executor) =>
             Effect.gen(function* () {
               const request = yield* HttpServerRequest.HttpServerRequest;
-              return yield* executor.effect.oauth.startSourceAuth({
+              return yield* executor.oauth.startSourceAuth({
                   baseUrl: resolveRequestOrigin(request),
                   displayName: payload.name,
                   provider: {
@@ -271,7 +271,7 @@ export const ExecutorOAuthLive = HttpApiBuilder.group(
         Effect.flatMap(getControlPlaneExecutor(), (executor) =>
           Effect.gen(function* () {
             const completed = yield* Effect.either(
-              executor.effect.oauth.completeSourceAuth({
+              executor.oauth.completeSourceAuth({
                   state: urlParams.state,
                   code: urlParams.code,
                   error: urlParams.error,
