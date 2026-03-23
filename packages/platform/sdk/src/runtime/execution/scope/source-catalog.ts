@@ -13,8 +13,6 @@ import {
   RuntimeSourceCatalogStoreService,
   type LoadedSourceCatalogToolIndexEntry,
   catalogToolCatalogEntry,
-  expandCatalogTools,
-  loadedSourceCatalogToolIndexEntryFromLoadedTool,
 } from "../../catalog/source/runtime";
 import type {
   RuntimeLocalScopeState,
@@ -130,40 +128,21 @@ export const loadWorkspaceCatalogTools = (input: {
   scopeId: Source["scopeId"];
   actorScopeId: ScopeId;
   sourceCatalogStore: Effect.Effect.Success<typeof RuntimeSourceCatalogStoreService>;
-  includeSchemas: boolean;
 }): Effect.Effect<
   readonly LoadedSourceCatalogToolIndexEntry[],
   Error,
   ScopeStorageServices
 > =>
-  input.includeSchemas
-    ? Effect.gen(function* () {
-        const catalogs = yield* input.sourceCatalogStore.loadWorkspaceSourceCatalogs({
-          scopeId: input.scopeId,
-          actorScopeId: input.actorScopeId,
-        });
-        const tools = yield* expandCatalogTools({
-          catalogs,
-          includeSchemas: true,
-          includeTypePreviews: true,
-        });
-
-        return tools
-          .map(loadedSourceCatalogToolIndexEntryFromLoadedTool)
-          .filter(
-            (tool) => tool.source.enabled && tool.source.status === "connected",
-          );
-      })
-    : Effect.map(
-        input.sourceCatalogStore.loadWorkspaceSourceCatalogToolIndex({
-          scopeId: input.scopeId,
-          actorScopeId: input.actorScopeId,
-        }),
-        (tools) =>
-          tools.filter(
-            (tool) => tool.source.enabled && tool.source.status === "connected",
-          ),
-      );
+  Effect.map(
+    input.sourceCatalogStore.loadWorkspaceSourceCatalogToolIndex({
+      scopeId: input.scopeId,
+      actorScopeId: input.actorScopeId,
+    }),
+    (tools) =>
+      tools.filter(
+        (tool) => tool.source.enabled && tool.source.status === "connected",
+      ),
+  );
 
 export const loadWorkspaceCatalogToolByPath = (input: {
   scopeId: Source["scopeId"];
@@ -332,13 +311,12 @@ export const createScopeSourceCatalog = (input: {
   const provideWorkspaceStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(scopeStorageLayer));
 
-  const buildSharedCatalog = (includeSchemas: boolean) =>
+  const buildSharedCatalog = () =>
     provideWorkspaceStorage(Effect.gen(function* () {
       const catalogTools = yield* loadWorkspaceCatalogTools({
         scopeId: input.scopeId,
         actorScopeId: input.actorScopeId,
         sourceCatalogStore: input.sourceCatalogStore,
-        includeSchemas,
       });
 
       return createToolCatalogFromEntries({
@@ -352,14 +330,8 @@ export const createScopeSourceCatalog = (input: {
     }));
 
   const leanSharedCatalog = Effect.runSync(
-    Effect.cached(buildSharedCatalog(false)),
+    Effect.cached(buildSharedCatalog()),
   );
-  const schemaSharedCatalog = Effect.runSync(
-    Effect.cached(buildSharedCatalog(true)),
-  );
-
-  const createSharedCatalog = (includeSchemas: boolean): Effect.Effect<ToolCatalog, Error, never> =>
-    includeSchemas ? schemaSharedCatalog : leanSharedCatalog;
 
   return {
     listNamespaces: ({ limit }) =>
@@ -375,14 +347,14 @@ export const createScopeSourceCatalog = (input: {
         input.runtimeLocalScope,
       ),
 
-    listTools: ({ namespace, query, limit, includeSchemas = false }) =>
+    listTools: ({ namespace, query, limit }) =>
       provideRuntimeLocalScope(
-        Effect.flatMap(createSharedCatalog(includeSchemas), (catalog) =>
+        Effect.flatMap(leanSharedCatalog, (catalog) =>
           catalog.listTools({
             ...(namespace !== undefined ? { namespace } : {}),
             ...(query !== undefined ? { query } : {}),
             limit,
-            includeSchemas,
+            includeSchemas: false,
           }),
         ),
         input.runtimeLocalScope,
@@ -390,15 +362,26 @@ export const createScopeSourceCatalog = (input: {
 
     getToolByPath: ({ path, includeSchemas }) =>
       provideRuntimeLocalScope(
-        Effect.flatMap(createSharedCatalog(includeSchemas), (catalog) =>
-          catalog.getToolByPath({ path, includeSchemas }),
-        ),
+        includeSchemas
+          ? Effect.map(
+              provideWorkspaceStorage(loadWorkspaceCatalogToolByPath({
+                scopeId: input.scopeId,
+                actorScopeId: input.actorScopeId,
+                sourceCatalogStore: input.sourceCatalogStore,
+                path,
+                includeSchemas: true,
+              })),
+              (tool) => tool?.descriptor ?? null,
+            )
+          : Effect.flatMap(leanSharedCatalog, (catalog) =>
+              catalog.getToolByPath({ path, includeSchemas: false })
+            ),
         input.runtimeLocalScope,
       ),
 
     searchTools: ({ query, namespace, limit }) =>
       provideRuntimeLocalScope(
-        Effect.flatMap(createSharedCatalog(false), (catalog) =>
+        Effect.flatMap(leanSharedCatalog, (catalog) =>
           catalog.searchTools({
             query,
             ...(namespace !== undefined ? { namespace } : {}),
