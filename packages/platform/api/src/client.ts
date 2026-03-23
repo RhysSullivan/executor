@@ -43,6 +43,9 @@ export type ExecutorApiClient = {
     createWorkspaceOauthClient: PromiseMethod<
       ExecutorApiEffectClient["sources"]["createWorkspaceOauthClient"]
     >;
+    getSourceOauthClient: PromiseMethod<
+      ExecutorApiEffectClient["sources"]["getSourceOauthClient"]
+    >;
     removeWorkspaceOauthClient: PromiseMethod<
       ExecutorApiEffectClient["sources"]["removeWorkspaceOauthClient"]
     >;
@@ -137,6 +140,10 @@ export const createExecutorApiClient = async (input: {
       createWorkspaceOauthClient: wrapMethod(
         effectClientPromise,
         (client) => client.sources.createWorkspaceOauthClient,
+      ),
+      getSourceOauthClient: wrapMethod(
+        effectClientPromise,
+        (client) => client.sources.getSourceOauthClient,
       ),
       removeWorkspaceOauthClient: wrapMethod(
         effectClientPromise,

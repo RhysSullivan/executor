@@ -1158,7 +1158,10 @@ const upsertSourceOauthClient = (input: {
           purpose: "oauth_client_info",
           value: normalizedOauthClient.clientSecret,
         })
-      : null;
+      : Option.isSome(existing) &&
+            existing.value.clientId === normalizedOauthClient.clientId
+        ? previousClientSecretRef
+        : null;
     const now = Date.now();
     const clientId = Option.isSome(existing)
       ? existing.value.id
@@ -2968,6 +2971,15 @@ type RuntimeSourceAuthServiceShape = {
     scopeId: ScopeId;
     providerKey: string;
   }) => Effect.Effect<readonly ScopeOauthClient[], Error, ScopeStorageServices>;
+  getSourceOauthClient: (input: {
+    scopeId: ScopeId;
+    sourceId: Source["id"];
+    actorScopeId?: ScopeId | null;
+  }) => Effect.Effect<{
+    clientId: string;
+    hasClientSecret: boolean;
+    redirectMode: ScopedSourceOauthClientRedirectMode;
+  } | null, Error, ScopeStorageServices>;
   createScopeOauthClient: (
     input: CreateScopeOauthClientInput,
   ) => Effect.Effect<ScopeOauthClient, Error, ScopeStorageServices>;
@@ -3030,6 +3042,7 @@ type RuntimeSourceConnectionServiceShape = Pick<
   | "connectGoogleDiscoveryBatch"
   | "connectMcpSource"
   | "listScopeOauthClients"
+  | "getSourceOauthClient"
   | "createScopeOauthClient"
   | "removeScopeOauthClient"
   | "removeProviderAuthGrant"
@@ -3187,6 +3200,30 @@ const createRuntimeSourceConnectionService = (
           }
 
           return [...clientsById.values()];
+        }),
+      ),
+
+    getSourceOauthClient: ({ scopeId, sourceId, actorScopeId }) =>
+      provideLocalWorkspace(
+        Effect.gen(function* () {
+          const source = yield* input.sourceStore.loadSourceById({
+            scopeId,
+            sourceId,
+            actorScopeId,
+          });
+          const oauthClient = yield* resolveExistingSourceOauthClient({
+            executorState: input.executorState,
+            source,
+          });
+          if (oauthClient === null) {
+            return null;
+          }
+
+          return {
+            clientId: oauthClient.clientId,
+            hasClientSecret: oauthClient.clientSecret !== null,
+            redirectMode: oauthClient.redirectMode,
+          };
         }),
       ),
 

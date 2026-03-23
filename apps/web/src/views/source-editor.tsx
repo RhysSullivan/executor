@@ -19,6 +19,7 @@ import {
   useRemoveProviderAuthGrant,
   useRemoveSource,
   useSecrets,
+  useSourceOauthClient,
   useSources,
   useStartSourceOAuth,
   useSource,
@@ -1124,6 +1125,9 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
   const removeProviderAuthGrant = useRemoveProviderAuthGrant();
   const instanceConfig = useInstanceConfig();
   const secrets = useSecrets();
+  const sourceOauthClient = useSourceOauthClient(
+    props.mode === "edit" ? props.source?.id ?? null : null,
+  );
   const refreshSecrets = useRefreshSecrets();
   const [formState, setFormState] = useState<SourceFormState>(() =>
     props.source ? formStateFromSource(props.source) : defaultFormState(),
@@ -1190,6 +1194,27 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
       current.transport === "stdio" ? { ...current, [key]: value } : current,
     );
   };
+
+  useEffect(() => {
+    if (
+      props.mode !== "edit" ||
+      sourceOauthClient.status !== "ready" ||
+      sourceOauthClient.data === null
+    ) {
+      return;
+    }
+
+    const savedOauthClient = sourceOauthClient.data;
+
+    setFormState((current) =>
+      current.oauthClientId.trim().length > 0
+        ? current
+        : {
+            ...current,
+            oauthClientId: savedOauthClient.clientId,
+          },
+    );
+  }, [props.mode, sourceOauthClient]);
 
   const applyTemplate = (template: SourceTemplate) => {
     setSelectedTemplateId(template.id);
@@ -1290,6 +1315,8 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
     setStatusBanner(null);
 
     try {
+      const connectPayload = buildHttpOauthConnectPayload(formState);
+
       if (props.mode === "edit" && props.source) {
         await updateSource.mutateAsync({
           sourceId: props.source.id,
@@ -1297,9 +1324,7 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
         });
       }
 
-      const result = await connectSource.mutateAsync(
-        buildHttpOauthConnectPayload(formState),
-      );
+      const result = await connectSource.mutateAsync(connectPayload);
 
       if (result.kind === "connected") {
         invalidateExecutorQueries();

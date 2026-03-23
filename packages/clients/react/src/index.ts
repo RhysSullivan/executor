@@ -22,6 +22,7 @@ import type {
   SecretListItem,
   StartSourceOAuthPayload,
   StartSourceOAuthResult,
+  SourceOauthClientState,
   UpdateSecretPayload,
   UpdateSecretResult,
   UpdateSourcePayload,
@@ -80,6 +81,12 @@ type WorkspaceOauthClientsKeyParts = readonly [
   string,
   string,
 ];
+type SourceOauthClientKeyParts = readonly [
+  boolean,
+  Source["scopeId"],
+  string,
+  Source["id"],
+];
 
 type InvalidationTarget = {
   workspaceId?: Source["scopeId"];
@@ -91,6 +98,7 @@ type ActiveQueryCollections = {
   sourceLists: Set<string>;
   sources: Set<string>;
   workspaceOauthClients: Set<string>;
+  sourceOauthClients: Set<string>;
   inspections: Set<string>;
   toolDetails: Set<string>;
   discoveries: Set<string>;
@@ -186,6 +194,16 @@ const encodeWorkspaceOauthClientsKey = (
 ): string =>
   encodeAtomKey(
     [enabled, workspaceId, accountId, providerKey] satisfies WorkspaceOauthClientsKeyParts,
+  );
+
+const encodeSourceOauthClientKey = (
+  enabled: boolean,
+  workspaceId: Source["scopeId"],
+  accountId: string,
+  sourceId: Source["id"],
+): string =>
+  encodeAtomKey(
+    [enabled, workspaceId, accountId, sourceId] satisfies SourceOauthClientKeyParts,
   );
 
 const toError = (cause: unknown): Error =>
@@ -418,6 +436,25 @@ const workspaceOauthClientsAtom = Atom.family((key: string) => {
   ).pipe(Atom.keepAlive);
 });
 
+const sourceOauthClientAtom = Atom.family((key: string) => {
+  const [enabled, workspaceId, accountId, sourceId] =
+    decodeAtomKey<SourceOauthClientKeyParts>(key);
+
+  return Atom.make(
+    enabled
+      ? controlPlaneRequest({
+          accountId,
+          execute: (client) => client.sources.getSourceOauthClient({
+            path: {
+              workspaceId,
+              sourceId,
+            },
+          }),
+        })
+      : Effect.succeed<SourceOauthClientState>(null),
+  ).pipe(Atom.keepAlive);
+});
+
 export type Loadable<T> =
   | { status: "loading" }
   | { status: "error"; error: Error }
@@ -547,6 +584,7 @@ const createActiveQueryCollections = (): ActiveQueryCollections => ({
   sourceLists: new Set(),
   sources: new Set(),
   workspaceOauthClients: new Set(),
+  sourceOauthClients: new Set(),
   inspections: new Set(),
   toolDetails: new Set(),
   discoveries: new Set(),
@@ -593,6 +631,14 @@ const invalidateTrackedQueries = (
     const [enabled, workspaceId, accountId] = decodeAtomKey<WorkspaceOauthClientsKeyParts>(key);
     if (enabled && targetMatches(target, workspaceId, accountId)) {
       registry.refresh(workspaceOauthClientsAtom(key));
+    }
+  });
+
+  activeQueries.sourceOauthClients.forEach((key) => {
+    const [enabled, workspaceId, accountId, sourceId] =
+      decodeAtomKey<SourceOauthClientKeyParts>(key);
+    if (enabled && targetMatches(target, workspaceId, accountId, sourceId)) {
+      registry.refresh(sourceOauthClientAtom(key));
     }
   });
 
@@ -982,6 +1028,41 @@ export const useWorkspaceOauthClients = (
   }
 
   return oauthClients;
+};
+
+export const useSourceOauthClient = (
+  sourceId: string | null,
+): Loadable<SourceOauthClientState> => {
+  const workspace = useWorkspaceRequestContext();
+  const requestedSourceId =
+    workspace.enabled && sourceId !== null
+      ? (sourceId as Source["id"])
+      : PLACEHOLDER_SOURCE_ID;
+  const key = encodeSourceOauthClientKey(
+    workspace.enabled && sourceId !== null,
+    workspace.workspaceId,
+    workspace.accountId,
+    requestedSourceId,
+  );
+  useTrackActiveKey(
+    "sourceOauthClients",
+    key,
+    workspace.enabled && sourceId !== null,
+  );
+  const sourceOauthClient = useLoadableAtom(sourceOauthClientAtom(key));
+
+  if (!workspace.enabled) {
+    return pendingLoadable(workspace.workspace);
+  }
+
+  if (sourceId === null) {
+    return {
+      status: "ready",
+      data: null,
+    };
+  }
+
+  return sourceOauthClient;
 };
 
 export const useSourceInspection = (sourceId: string): Loadable<SourceInspection> => {
@@ -1426,6 +1507,7 @@ export type {
   SourceDiscoveryResult,
   SourceInspection,
   SourceInspectionDiscoverResult,
+  SourceOauthClientState,
   SourceInspectionToolDetail,
   StartSourceOAuthPayload,
   StartSourceOAuthResult,

@@ -57,6 +57,16 @@ export {
   UpdateSourcePayloadSchema,
 };
 
+export const SourceOauthClientStateSchema = Schema.NullOr(
+  Schema.Struct({
+    clientId: Schema.String,
+    hasClientSecret: Schema.Boolean,
+    redirectMode: Schema.Literal("app_callback", "loopback"),
+  }),
+);
+
+export type SourceOauthClientState = typeof SourceOauthClientStateSchema.Type;
+
 const workspaceIdParam = HttpApiSchema.param("workspaceId", WorkspaceIdSchema);
 const sourceIdParam = HttpApiSchema.param("sourceId", SourceIdSchema);
 const toolPathParam = HttpApiSchema.param("toolPath", Schema.String);
@@ -151,6 +161,15 @@ export class SourcesApi extends HttpApiGroup.make("sources")
   .add(
     HttpApiEndpoint.get("get")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}`
       .addSuccess(SourceSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneUnauthorizedError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.get("getSourceOauthClient")`/workspaces/${workspaceIdParam}/sources/${sourceIdParam}/oauth-client`
+      .addSuccess(SourceOauthClientStateSchema)
       .addError(ControlPlaneBadRequestError)
       .addError(ControlPlaneUnauthorizedError)
       .addError(ControlPlaneForbiddenError)

@@ -242,6 +242,11 @@ export type ExecutorEffect = {
       list: (
         providerKey: string,
       ) => Effect.Effect<ReadonlyArray<ScopeOauthClient>, Error, never>;
+      get: (sourceId: Source["id"]) => Effect.Effect<{
+        clientId: string;
+        hasClientSecret: boolean;
+        redirectMode: "app_callback" | "loopback";
+      } | null, Error, never>;
       create: (
         payload: CreateScopeOauthClientPayload,
       ) => Effect.Effect<ScopeOauthClient, Error, never>;
@@ -440,6 +445,14 @@ const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
             service.listScopeOauthClients({
               scopeId,
               providerKey,
+            }),
+          ),
+        get: (sourceId) =>
+          provideSourceAuth((service) =>
+            service.getSourceOauthClient({
+              scopeId,
+              sourceId,
+              actorScopeId,
             }),
           ),
         create: (payload) =>

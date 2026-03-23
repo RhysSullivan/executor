@@ -81,6 +81,7 @@ const toPromiseExecutor = (executor: ExecutorEffect): Executor => {
       oauthClients: {
         list: (providerKey) =>
           run(executor.sources.oauthClients.list(providerKey)),
+        get: (sourceId) => run(executor.sources.oauthClients.get(sourceId)),
         create: (payload) => run(executor.sources.oauthClients.create(payload)),
         remove: (oauthClientId) =>
           run(executor.sources.oauthClients.remove(oauthClientId)),

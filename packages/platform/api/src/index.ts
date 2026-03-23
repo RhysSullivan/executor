@@ -59,6 +59,7 @@ export {
   CreateWorkspaceOauthClientPayloadSchema,
   CreateSourcePayloadSchema,
   DiscoverSourcePayloadSchema,
+  SourceOauthClientStateSchema,
   SourcesApi,
   UpdateSourcePayloadSchema,
   type ConnectSourceBatchPayload,
@@ -68,6 +69,7 @@ export {
   type CreateWorkspaceOauthClientPayload,
   type CreateSourcePayload,
   type DiscoverSourcePayload,
+  type SourceOauthClientState,
   type UpdateSourcePayload,
 } from "./sources/api";
 

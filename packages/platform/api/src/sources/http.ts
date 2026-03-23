@@ -910,6 +910,22 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
           Effect.flatMap((executor) => executor.sources.get(path.sourceId)),
         ),
       )
+      .handle("getSourceOauthClient", ({ path }) =>
+        resolveRequestedLocalWorkspace(
+          "sources.getSourceOauthClient",
+          path.workspaceId,
+        ).pipe(
+          Effect.flatMap((executor) =>
+            executor.sources.oauthClients.get(path.sourceId).pipe(
+              Effect.catchAll((cause) =>
+                Effect.fail(
+                  toBadRequestError("sources.getSourceOauthClient", cause),
+                ),
+              ),
+            ),
+          ),
+        ),
+      )
       .handle("inspection", ({ path }) =>
         resolveRequestedLocalWorkspace(
           "sources.inspection",
