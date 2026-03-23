@@ -1,5 +1,20 @@
 # executor
 
+## 1.2.4
+
+### Patch Changes
+
+- 5617247: Prewarm the lean workspace source index at startup and reuse it across discovery requests so the first tool search no longer pays the full catalog hydration cost.
+- dc94998: Auto migrate sources on startup
+- 74185a9: Move execution to adapters rather than IR model
+- 1f82a22: Avoid generating source tool type previews when building namespace metadata, and cap MCP execute help examples to five tools per source.
+- 5e3cb3e: Add GitHub source support, migrate legacy executor state on load, and fix execute-path runtime regressions.
+- f0a3802: Fix legacy format parsing
+- 44ce032: Avoid ever building a full schema workspace catalog during tool description, and resolve schemaful tool details through direct one-tool lookup instead.
+- ec5e3a3: Fix Google Discovery tool execution for sources stored with discovery document endpoints
+- 839dcb6: Make `executor up` output more helpful and less debug-oriented.
+- 5869ddb: Fix build
+
 ## 1.2.4-beta.9
 
 ### Patch Changes
