@@ -32,5 +32,7 @@
     "@executor/source-mcp": "0.0.0",
     "@executor/source-openapi": "0.0.0"
   },
-  "changesets": []
+  "changesets": [
+    "mcp-stdio-beta"
+  ]
 }
