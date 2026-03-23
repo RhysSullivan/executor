@@ -807,6 +807,7 @@ const buildHttpOauth2Binding = (
   headerName?: string | null;
   prefix?: string | null;
   clientAuthentication: "none" | "client_secret_post";
+  authorizationParams: null;
 } | null => {
   if (!supportsManagedHttpOAuth(state.kind) || state.authKind !== "oauth2") {
     return null;
@@ -827,6 +828,7 @@ const buildHttpOauth2Binding = (
     clientAuthentication: trimToNull(state.oauthClientSecret)
       ? "client_secret_post"
       : "none",
+    authorizationParams: null,
   };
 };
 
@@ -987,9 +989,23 @@ const buildSourcePayload = (state: SourceFormState): CreateSourcePayload => {
   };
 };
 
-const buildUpdatePayload = (state: SourceFormState): UpdateSourcePayload => ({
-  ...buildSourcePayload(state),
-});
+const buildUpdatePayload = (state: SourceFormState): UpdateSourcePayload => {
+  const sourcePayload = buildSourcePayload(state);
+
+  return {
+    name: sourcePayload.name,
+    endpoint: sourcePayload.endpoint,
+    status: sourcePayload.status,
+    enabled: sourcePayload.enabled,
+    namespace: sourcePayload.namespace,
+    binding: sourcePayload.binding,
+    importAuthPolicy: sourcePayload.importAuthPolicy,
+    importAuth: sourcePayload.importAuth,
+    auth: sourcePayload.auth,
+    sourceHash: sourcePayload.sourceHash,
+    lastError: sourcePayload.lastError,
+  };
+};
 
 const buildStartSourceOAuthPayload = (
   state: SourceFormState,
