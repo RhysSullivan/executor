@@ -557,13 +557,7 @@ type LocalServerStatus = {
     accountId: string;
     workspaceId: string;
   } | null;
-  denoVersion: string | null;
 };
-
-const renderDenoSandboxDetail = (denoVersion: string | null): string =>
-  denoVersion !== null
-    ? `deno ${denoVersion}`
-    : "deno not found (run `executor sandbox` to install)";
 
 const getServerStatus = (
   baseUrl: string,
@@ -585,7 +579,6 @@ const getServerStatus = (
     const pid = typeof pidRecord?.pid === "number" ? pidRecord.pid : null;
     const pidRunning = pid !== null ? isPidRunning(pid) : false;
     const logFile = pidRecord?.logFile ?? DEFAULT_SERVER_LOG_FILE;
-    const denoVersion = yield* getDenoVersion();
 
     return {
       baseUrl,
@@ -597,7 +590,6 @@ const getServerStatus = (
       localDataDir: DEFAULT_LOCAL_DATA_DIR,
       webAssetsDir: resolveRuntimeWebAssetsDir(),
       installation,
-      denoVersion,
     } satisfies LocalServerStatus;
   });
 
@@ -612,7 +604,6 @@ const renderStatus = (status: LocalServerStatus): string =>
     `localDataDir: ${status.localDataDir}`,
     `webAssetsDir: ${status.webAssetsDir ?? "missing"}`,
     `workspaceId: ${status.installation?.workspaceId ?? "unavailable"}`,
-    `denoSandbox: ${renderDenoSandboxDetail(status.denoVersion)}`,
   ].join("\n");
 
 const getDoctorReport = (baseUrl: string) =>
@@ -644,10 +635,6 @@ const getDoctorReport = (baseUrl: string) =>
           detail: status.installation
             ? `workspace ${status.installation.workspaceId}`
             : "local installation unavailable",
-        },
-        denoSandbox: {
-          ok: status.denoVersion !== null,
-          detail: renderDenoSandboxDetail(status.denoVersion),
         },
       } as const;
 
@@ -1202,81 +1189,6 @@ const doctorCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Check local executor install and daemon health"));
 
-const getDenoVersion = (): Effect.Effect<string | null, never, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const configuredDenoExecutable = process.env.DENO_BIN?.trim();
-    const bundledDenoExecutable = process.env.HOME?.trim()
-      ? `${process.env.HOME.trim()}/.deno/bin/deno`
-      : null;
-    const bundledDenoExists = bundledDenoExecutable === null
-      ? false
-      : yield* fs.exists(bundledDenoExecutable).pipe(
-          Effect.catchAll(() => Effect.succeed(false)),
-        );
-    const denoExecutable = configuredDenoExecutable
-      || (bundledDenoExists ? bundledDenoExecutable : null)
-      || "deno";
-
-    return yield* Effect.tryPromise({
-      try: () =>
-        new Promise<string | null>((resolveVersion) => {
-          const child = spawn(denoExecutable, ["--version"], {
-            stdio: ["ignore", "pipe", "ignore"],
-            timeout: 5000,
-          });
-
-          let stdout = "";
-          child.stdout?.setEncoding("utf8");
-          child.stdout?.on("data", (chunk: string) => {
-            stdout += chunk;
-          });
-
-          child.once("error", () => resolveVersion(null));
-          child.once("close", (code) => {
-            if (code !== 0) {
-              resolveVersion(null);
-              return;
-            }
-
-            const match = /deno\s+(\S+)/i.exec(stdout);
-            resolveVersion(match ? match[1] : null);
-          });
-        }),
-      catch: () => null,
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-  }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-const sandboxCommand = Command.make(
-  "sandbox",
-  {},
-  () =>
-    Effect.gen(function* () {
-      const version = yield* getDenoVersion();
-
-      if (version !== null) {
-        yield* printText(`Deno sandbox is ready (deno ${version}).`);
-        return;
-      }
-
-      yield* printText(
-        [
-          "Deno is not installed.",
-          "",
-          "The executor sandbox requires Deno to run code in a secure, isolated subprocess.",
-          "",
-          "Install Deno:",
-          "  curl -fsSL https://deno.land/install.sh | sh",
-          "",
-          "Or see: https://docs.deno.com/runtime/getting_started/installation/",
-        ].join("\n"),
-      );
-
-      process.exitCode = 1;
-    }),
-).pipe(Command.withDescription("Check whether the Deno sandbox runtime is available"));
-
-
 const callCommand = Command.make(
   "call",
   {
@@ -1422,7 +1334,6 @@ const root = Command.make("executor").pipe(
     downCommand,
     statusCommand,
     doctorCommand,
-    sandboxCommand,
     callCommand,
     resumeCommand,
     devCommand,
