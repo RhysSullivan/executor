@@ -31,6 +31,9 @@ import { extractOpenApiManifest } from "./extraction";
 import {
   ConnectHttpAuthSchema,
   ConnectHttpImportAuthSchema,
+  ConnectHttpOauth2SetupSchema,
+  ConnectOauthClientSchema,
+  StoredHttpOauth2SetupSchema,
   createSourceCatalogSyncResult,
   decodeBindingConfig,
   decodeExecutableBindingPayload,
@@ -60,6 +63,8 @@ const OpenApiConnectPayloadSchema = Schema.extend(
       kind: Schema.Literal("openapi"),
       specUrl: Schema.Trim.pipe(Schema.nonEmptyString()),
       auth: Schema.optional(ConnectHttpAuthSchema),
+      oauthClient: ConnectOauthClientSchema,
+      oauth2Setup: ConnectHttpOauth2SetupSchema,
     }),
   ),
 );
@@ -70,6 +75,8 @@ const OpenApiExecutorAddInputSchema = Schema.extend(
     kind: Schema.Literal("openapi"),
     endpoint: Schema.String,
     specUrl: Schema.String,
+    oauthClient: ConnectOauthClientSchema,
+    oauth2Setup: ConnectHttpOauth2SetupSchema,
     name: OptionalNullableStringSchema,
     namespace: OptionalNullableStringSchema,
     auth: Schema.optional(ConnectHttpAuthSchema),
@@ -79,16 +86,19 @@ const OpenApiExecutorAddInputSchema = Schema.extend(
 const OpenApiBindingConfigSchema = Schema.Struct({
   specUrl: Schema.Trim.pipe(Schema.nonEmptyString()),
   defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  oauth2: Schema.NullOr(StoredHttpOauth2SetupSchema),
 });
 
 const OpenApiSourceBindingPayloadSchema = Schema.Struct({
   specUrl: Schema.optional(Schema.String),
   defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  oauth2: Schema.optional(Schema.NullOr(StoredHttpOauth2SetupSchema)),
 });
 
 type OpenApiBindingConfig = {
   specUrl: string;
   defaultHeaders: typeof StringMapSchema.Type | null;
+  oauth2: typeof StoredHttpOauth2SetupSchema.Type | null;
 };
 
 const OPENAPI_BINDING_CONFIG_VERSION = 1;
@@ -123,7 +133,7 @@ const openApiBindingConfigFromSource = (
       expectedVersion: OPENAPI_BINDING_CONFIG_VERSION,
       schema: OpenApiSourceBindingPayloadSchema,
       value: source.binding,
-      allowedKeys: ["specUrl", "defaultHeaders"],
+      allowedKeys: ["specUrl", "defaultHeaders", "oauth2"],
     });
 
     const specUrl =
@@ -137,6 +147,7 @@ const openApiBindingConfigFromSource = (
     return {
       specUrl,
       defaultHeaders: bindingConfig.defaultHeaders ?? null,
+      oauth2: bindingConfig.oauth2 ?? null,
     } satisfies OpenApiBindingConfig;
   });
 
@@ -426,6 +437,7 @@ export const openApiSourceAdapter = {
       Effect.map(openApiBindingConfigFromSource(source), (bindingConfig) => ({
         specUrl: bindingConfig.specUrl,
         defaultHeaders: bindingConfig.defaultHeaders,
+        oauth2: bindingConfig.oauth2,
       })),
     ),
   serializeBindingConfig: (source) =>
@@ -450,6 +462,7 @@ export const openApiSourceAdapter = {
         payload: {
           specUrl: payload.specUrl,
           defaultHeaders: payload.defaultHeaders ?? null,
+          oauth2: payload.oauth2 ?? null,
         },
       }),
     ),
@@ -477,6 +490,7 @@ export const openApiSourceAdapter = {
         binding: {
           specUrl: bindingConfig.specUrl,
           defaultHeaders: bindingConfig.defaultHeaders,
+          oauth2: bindingConfig.oauth2,
         },
       };
     }),
@@ -490,6 +504,23 @@ export const openApiSourceAdapter = {
       normalizedUrl,
       headers,
     }),
+  getOauth2SetupConfig: ({ source }) =>
+    Effect.map(openApiBindingConfigFromSource(source), (bindingConfig) =>
+      bindingConfig.oauth2 === null
+        ? null
+        : {
+            providerKey: "generic_http",
+            authorizationEndpoint: bindingConfig.oauth2.authorizationEndpoint,
+            tokenEndpoint: bindingConfig.oauth2.tokenEndpoint,
+            scopes: bindingConfig.oauth2.scopes ?? [],
+            headerName: bindingConfig.oauth2.headerName ?? "Authorization",
+            prefix: bindingConfig.oauth2.prefix ?? "Bearer ",
+            clientAuthentication:
+              bindingConfig.oauth2.clientAuthentication ?? "client_secret_post",
+            authorizationParams:
+              bindingConfig.oauth2.authorizationParams ?? undefined,
+          },
+    ),
   syncCatalog: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
       const bindingConfig = yield* openApiBindingConfigFromSource(source);

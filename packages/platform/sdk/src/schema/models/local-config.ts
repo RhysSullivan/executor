@@ -3,6 +3,7 @@ import {
 } from "effect";
 
 import {
+  StoredHttpOauth2SetupSchema,
   SourceTransportSchema,
   StringArraySchema,
   StringMapSchema,
@@ -77,10 +78,12 @@ const LocalConfigSourceEntryBaseSchema = Schema.Struct({
 const OpenApiLocalConfigBindingSchema = Schema.Struct({
   specUrl: Schema.String,
   defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  oauth2: Schema.optional(Schema.NullOr(StoredHttpOauth2SetupSchema)),
 });
 
 const GraphqlLocalConfigBindingSchema = Schema.Struct({
   defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  oauth2: Schema.optional(Schema.NullOr(StoredHttpOauth2SetupSchema)),
 });
 
 const GoogleDiscoveryLocalConfigBindingSchema = Schema.Struct({

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   type CompleteSourceOAuthResult,
+  type ConnectSourcePayload,
   type CreateSourcePayload,
   type InstanceConfig,
   type Loadable,
@@ -11,6 +12,8 @@ import {
   type UpdateSourcePayload,
   useCreateSecret,
   useCreateSource,
+  useConnectSource,
+  useInvalidateExecutorQueries,
   useInstanceConfig,
   useRefreshSecrets,
   useRemoveProviderAuthGrant,
@@ -65,7 +68,22 @@ type SourceOAuthPopupMessage =
       ok: false;
       sessionId: string | null;
       error: string;
+    }
+  | {
+      type: "executor:source-oauth-result";
+      ok: true;
+      sourceId: string;
+    }
+  | {
+      type: "executor:source-oauth-result";
+      ok: false;
+      error: string;
     };
+
+type OAuthPopupResultMessage = Extract<
+  SourceOAuthPopupMessage,
+  { type: "executor:oauth-result" }
+>;
 
 const SOURCE_OAUTH_POPUP_RESULT_TIMEOUT_MS = 2 * 60_000;
 const SOURCE_OAUTH_POPUP_RESULT_STORAGE_KEY_PREFIX = "executor:oauth-result:";
@@ -93,9 +111,14 @@ type SourceFormBase = {
   oauthAccessHandle: string;
   oauthRefreshProviderId: string;
   oauthRefreshHandle: string;
+  oauthClientId: string;
+  oauthClientSecret: string;
+  oauthAuthorizationEndpoint: string;
+  oauthTokenEndpoint: string;
+  oauthScopesText: string;
   managedAuth: Extract<
     Source["auth"],
-    { kind: "provider_grant_ref" | "mcp_oauth" }
+    { kind: "provider_grant_ref" | "mcp_oauth" | "oauth2_authorized_user" }
   > | null;
 };
 
@@ -230,7 +253,7 @@ const startSourceOAuthPopup = async (input: {
         reject(new Error(message));
       };
 
-      const settleFromPayload = (data: SourceOAuthPopupMessage) => {
+      const settleFromPayload = (data: OAuthPopupResultMessage) => {
         if (!data.ok) {
           settleWithError(data.error || "OAuth failed");
           return;
@@ -280,7 +303,7 @@ const startSourceOAuthPopup = async (input: {
 
       closedPoll = window.setInterval(() => {
         const stored = readStoredSourceOAuthPopupResult(input.sessionId);
-        if (stored) {
+        if (stored?.type === "executor:oauth-result") {
           settleFromPayload(stored);
           return;
         }
@@ -293,7 +316,7 @@ const startSourceOAuthPopup = async (input: {
             const delayedStored = readStoredSourceOAuthPopupResult(
               input.sessionId,
             );
-            if (delayedStored) {
+            if (delayedStored?.type === "executor:oauth-result") {
               settleFromPayload(delayedStored);
               return;
             }
@@ -305,6 +328,132 @@ const startSourceOAuthPopup = async (input: {
   );
 };
 
+const startConnectedSourceOAuthPopup = async (input: {
+  authorizationUrl: string;
+  sessionId: string;
+}): Promise<void> => {
+  if (typeof window === "undefined") {
+    throw new Error("OAuth popup is only available in a browser context");
+  }
+
+  clearStoredSourceOAuthPopupResult(input.sessionId);
+
+  const popup = window.open(
+    input.authorizationUrl,
+    "executor-source-oauth",
+    "popup=yes,width=520,height=720",
+  );
+
+  if (!popup) {
+    throw new Error("Popup blocked. Allow popups and try again.");
+  }
+
+  popup.focus();
+
+  return await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let closedPoll = 0;
+    let resultTimeout = 0;
+
+    const cleanup = () => {
+      window.removeEventListener("message", onMessage);
+      if (closedPoll) {
+        window.clearInterval(closedPoll);
+      }
+      if (resultTimeout) {
+        window.clearTimeout(resultTimeout);
+      }
+      if (!popup.closed) {
+        popup.close();
+      }
+      clearStoredSourceOAuthPopupResult(input.sessionId);
+    };
+
+    const settleWithError = (message: string) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(new Error(message));
+    };
+
+    const settleFromPayload = (data: SourceOAuthPopupMessage) => {
+      if (!data.ok) {
+        settleWithError(data.error || "OAuth failed");
+        return;
+      }
+
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data as SourceOAuthPopupMessage | undefined;
+      if (!data) {
+        return;
+      }
+
+      if (data.type === "executor:oauth-result") {
+        if (data.ok && data.sessionId !== input.sessionId) {
+          return;
+        }
+        if (
+          !data.ok &&
+          data.sessionId !== null &&
+          data.sessionId !== input.sessionId
+        ) {
+          return;
+        }
+      } else if (data.type !== "executor:source-oauth-result") {
+        return;
+      }
+
+      settleFromPayload(data);
+    };
+
+    window.addEventListener("message", onMessage);
+
+    resultTimeout = window.setTimeout(() => {
+      settleWithError(
+        "OAuth popup timed out before completion. Please try again.",
+      );
+    }, SOURCE_OAUTH_POPUP_RESULT_TIMEOUT_MS);
+
+    closedPoll = window.setInterval(() => {
+      const stored = readStoredSourceOAuthPopupResult(input.sessionId);
+      if (stored) {
+        settleFromPayload(stored);
+        return;
+      }
+      if (popup.closed) {
+        window.clearInterval(closedPoll);
+        closedPoll = 0;
+        window.setTimeout(() => {
+          const delayedStored = readStoredSourceOAuthPopupResult(
+            input.sessionId,
+          );
+          if (delayedStored) {
+            settleFromPayload(delayedStored);
+            return;
+          }
+          settleWithError("OAuth popup was closed before completion.");
+        }, 1500);
+      }
+    }, 300);
+  });
+};
+
 const stringMapToEditor = (value: Record<string, string> | null): string =>
   value === null ? "" : JSON.stringify(value, null, 2);
 
@@ -312,6 +461,18 @@ const stringArrayToEditor = (
   value: ReadonlyArray<string> | null | undefined,
 ): string =>
   !value || value.length === 0 ? "" : JSON.stringify(value, null, 2);
+
+const scopesTextFromArray = (
+  value: ReadonlyArray<string> | null | undefined,
+): string => (value && value.length > 0 ? value.join(" ") : "");
+
+const parseScopesText = (value: string): Array<string> =>
+  [...new Set(
+    value
+      .split(/[\s,]+/)
+      .map((scope) => scope.trim())
+      .filter((scope) => scope.length > 0),
+  )];
 
 const readBindingStringMap = (
   source: Source,
@@ -346,6 +507,59 @@ const readBindingStringArray = (
 
 const readBindingString = (source: Source, key: string): string =>
   typeof source.binding[key] === "string" ? String(source.binding[key]) : "";
+
+const readBindingOauth2Setup = (source: Source): {
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  scopes: Array<string>;
+  headerName: string | null;
+  prefix: string | null;
+  clientAuthentication: "none" | "client_secret_post" | null;
+} | null => {
+  const candidate = source.binding.oauth2;
+  if (
+    candidate === null ||
+    candidate === undefined ||
+    typeof candidate !== "object" ||
+    Array.isArray(candidate)
+  ) {
+    return null;
+  }
+
+  const record = candidate as Record<string, unknown>;
+  const authorizationEndpoint =
+    typeof record.authorizationEndpoint === "string"
+      ? record.authorizationEndpoint.trim()
+      : "";
+  const tokenEndpoint =
+    typeof record.tokenEndpoint === "string"
+      ? record.tokenEndpoint.trim()
+      : "";
+  if (!authorizationEndpoint || !tokenEndpoint) {
+    return null;
+  }
+
+  return {
+    authorizationEndpoint,
+    tokenEndpoint,
+    scopes: Array.isArray(record.scopes)
+      ? record.scopes.filter((scope): scope is string => typeof scope === "string")
+      : [],
+    headerName:
+      typeof record.headerName === "string" ? record.headerName : null,
+    prefix: typeof record.prefix === "string" ? record.prefix : null,
+    clientAuthentication:
+      record.clientAuthentication === "none" ||
+      record.clientAuthentication === "client_secret_post"
+        ? record.clientAuthentication
+        : null,
+  };
+};
+
+const supportsManagedHttpOAuth = (
+  kind: Source["kind"],
+): kind is "openapi" | "graphql" =>
+  kind === "openapi" || kind === "graphql";
 
 const readBindingTransport = (source: Source): McpTransportValue => {
   const candidate = source.binding.transport;
@@ -394,6 +608,11 @@ const defaultFormState = (template?: SourceTemplate): SourceFormState => ({
   authKind: template?.kind === "google_discovery" ? "oauth2" : "none",
   authHeaderName: "Authorization",
   authPrefix: "Bearer ",
+  oauthClientId: "",
+  oauthClientSecret: "",
+  oauthAuthorizationEndpoint: "",
+  oauthTokenEndpoint: "",
+  oauthScopesText: "",
   bearerProviderId: "",
   bearerHandle: "",
   oauthAccessProviderId: "",
@@ -415,7 +634,10 @@ const defaultFormState = (template?: SourceTemplate): SourceFormState => ({
       )),
 });
 
-const formStateFromSource = (source: Source): SourceFormState => ({
+const formStateFromSource = (source: Source): SourceFormState => {
+  const oauth2Setup = readBindingOauth2Setup(source);
+
+  return ({
   name: source.name,
   kind: source.kind,
   endpoint: source.endpoint,
@@ -427,15 +649,29 @@ const formStateFromSource = (source: Source): SourceFormState => ({
   defaultHeadersText: stringMapToEditor(
     readBindingStringMap(source, "defaultHeaders"),
   ),
-  authKind: source.auth.kind,
+  authKind:
+    source.auth.kind === "oauth2_authorized_user" ||
+    (source.auth.kind === "none" && oauth2Setup !== null)
+      ? "oauth2"
+      : source.auth.kind,
   authHeaderName:
-    source.auth.kind === "none" || source.auth.kind === "mcp_oauth"
-      ? "Authorization"
+    source.auth.kind === "oauth2_authorized_user"
+      ? source.auth.headerName
+      : source.auth.kind === "none" || source.auth.kind === "mcp_oauth"
+        ? oauth2Setup?.headerName ?? "Authorization"
       : source.auth.headerName,
   authPrefix:
-    source.auth.kind === "none" || source.auth.kind === "mcp_oauth"
-      ? "Bearer "
+    source.auth.kind === "oauth2_authorized_user"
+      ? source.auth.prefix
+      : source.auth.kind === "none" || source.auth.kind === "mcp_oauth"
+        ? oauth2Setup?.prefix ?? "Bearer "
       : source.auth.prefix,
+  oauthClientId:
+    source.auth.kind === "oauth2_authorized_user" ? source.auth.clientId : "",
+  oauthClientSecret: "",
+  oauthAuthorizationEndpoint: oauth2Setup?.authorizationEndpoint ?? "",
+  oauthTokenEndpoint: oauth2Setup?.tokenEndpoint ?? "",
+  oauthScopesText: scopesTextFromArray(oauth2Setup?.scopes),
   bearerProviderId:
     source.auth.kind === "bearer" ? source.auth.token.providerId : "",
   bearerHandle: source.auth.kind === "bearer" ? source.auth.token.handle : "",
@@ -452,6 +688,7 @@ const formStateFromSource = (source: Source): SourceFormState => ({
       ? source.auth.refreshToken.handle
       : "",
   managedAuth:
+    source.auth.kind === "oauth2_authorized_user" ||
     source.auth.kind === "provider_grant_ref" ||
     source.auth.kind === "mcp_oauth"
       ? source.auth
@@ -476,7 +713,8 @@ const formStateFromSource = (source: Source): SourceFormState => ({
         headersText: stringMapToEditor(readBindingStringMap(source, "headers")),
       }
     : {}),
-});
+  });
+};
 
 const buildAuthPayload = (
   state: SourceFormState,
@@ -487,7 +725,8 @@ const buildAuthPayload = (
 
   if (
     (state.authKind === "provider_grant_ref" ||
-      state.authKind === "mcp_oauth") &&
+      state.authKind === "mcp_oauth" ||
+      (state.authKind === "oauth2" && state.managedAuth?.kind === "oauth2_authorized_user")) &&
     state.managedAuth !== null
   ) {
     return state.managedAuth;
@@ -518,9 +757,18 @@ const buildAuthPayload = (
 
   const accessProviderId = state.oauthAccessProviderId.trim();
   const accessHandle = state.oauthAccessHandle.trim();
+  if (
+    supportsManagedHttpOAuth(state.kind) &&
+    (state.oauthAuthorizationEndpoint.trim().length > 0 ||
+      state.oauthTokenEndpoint.trim().length > 0) &&
+    !accessProviderId &&
+    !accessHandle
+  ) {
+    return { kind: "none" };
+  }
   if (!accessProviderId || !accessHandle) {
     throw new Error(
-      "OAuth2 auth requires an access token. Select or create a secret.",
+      "OAuth2 auth requires an access token. Select a secret or use OAuth sign-in.",
     );
   }
 
@@ -547,6 +795,53 @@ const buildAuthPayload = (
             providerId: refreshProviderId,
             handle: refreshHandle,
           },
+  };
+};
+
+const buildHttpOauth2Binding = (
+  state: SourceFormState,
+): {
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  scopes: ReadonlyArray<string>;
+  headerName?: string | null;
+  prefix?: string | null;
+  clientAuthentication: "none" | "client_secret_post";
+} | null => {
+  if (!supportsManagedHttpOAuth(state.kind) || state.authKind !== "oauth2") {
+    return null;
+  }
+
+  const authorizationEndpoint = trimToNull(state.oauthAuthorizationEndpoint);
+  const tokenEndpoint = trimToNull(state.oauthTokenEndpoint);
+  if (authorizationEndpoint === null || tokenEndpoint === null) {
+    return null;
+  }
+
+  return {
+    authorizationEndpoint,
+    tokenEndpoint,
+    scopes: parseScopesText(state.oauthScopesText),
+    headerName: trimToNull(state.authHeaderName),
+    prefix: state.authPrefix.length === 0 ? null : state.authPrefix,
+    clientAuthentication: trimToNull(state.oauthClientSecret)
+      ? "client_secret_post"
+      : "none",
+  };
+};
+
+const buildOauthClientInput = (
+  state: SourceFormState,
+): { clientId: string; clientSecret: string | null; redirectMode: "app_callback" } | null => {
+  const clientId = trimToNull(state.oauthClientId);
+  if (clientId === null) {
+    return null;
+  }
+
+  return {
+    clientId,
+    clientSecret: trimToNull(state.oauthClientSecret),
+    redirectMode: "app_callback",
   };
 };
 
@@ -644,6 +939,7 @@ const buildSourcePayload = (state: SourceFormState): CreateSourcePayload => {
           "Default headers",
           state.defaultHeadersText,
         ),
+        oauth2: buildHttpOauth2Binding(state),
       },
     };
   }
@@ -656,6 +952,7 @@ const buildSourcePayload = (state: SourceFormState): CreateSourcePayload => {
           "Default headers",
           state.defaultHeadersText,
         ),
+        oauth2: buildHttpOauth2Binding(state),
       },
     };
   }
@@ -719,6 +1016,58 @@ const buildStartSourceOAuthPayload = (
   };
 };
 
+const buildHttpOauthConnectPayload = (
+  state: SourceFormState,
+): ConnectSourcePayload => {
+  if (!supportsManagedHttpOAuth(state.kind)) {
+    throw new Error("OAuth sign-in is only available for HTTP sources.");
+  }
+
+  const endpoint = state.endpoint.trim();
+  if (!endpoint) {
+    throw new Error("Source endpoint is required before starting OAuth.");
+  }
+
+  const oauthClient = buildOauthClientInput(state);
+  const oauth2Setup = buildHttpOauth2Binding(state);
+  if (oauthClient === null && oauth2Setup !== null) {
+    throw new Error("OAuth sign-in requires a client ID.");
+  }
+  if (oauth2Setup === null) {
+    throw new Error(
+      "OAuth sign-in requires authorization and token endpoints.",
+    );
+  }
+
+  if (state.kind === "openapi") {
+    const specUrl = state.specUrl.trim();
+    if (!specUrl) {
+      throw new Error("OpenAPI sources require a spec URL.");
+    }
+
+    return {
+      kind: "openapi",
+      endpoint,
+      specUrl,
+      name: trimToNull(state.name),
+      namespace: trimToNull(state.namespace),
+      oauthClient,
+      oauth2Setup,
+      auth: undefined,
+    };
+  }
+
+  return {
+    kind: "graphql",
+    endpoint,
+    name: trimToNull(state.name),
+    namespace: trimToNull(state.namespace),
+    oauthClient,
+    oauth2Setup,
+    auth: undefined,
+  };
+};
+
 export function NewSourcePage() {
   return <SourceEditor key="create" mode="create" />;
 }
@@ -751,6 +1100,8 @@ export function EditSourcePage(props: { sourceId: string }) {
 function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
   const navigate = useNavigate();
   const createSource = useCreateSource();
+  const connectSource = useConnectSource();
+  const invalidateExecutorQueries = useInvalidateExecutorQueries();
   const startSourceOAuth = useStartSourceOAuth();
   const updateSource = useUpdateSource();
   const removeSource = useRemoveSource();
@@ -776,7 +1127,9 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
   const isDeleting = removeSource.status === "pending";
   const isRevokingGrant = removeProviderAuthGrant.status === "pending";
   const isOAuthSubmitting =
-    startSourceOAuth.status === "pending" || oauthPopupBusy;
+    startSourceOAuth.status === "pending" ||
+    connectSource.status === "pending" ||
+    oauthPopupBusy;
   const oauthSecretRefTarget =
     formState.authKind === "oauth2" &&
     formState.oauthAccessHandle.trim().length > 0
@@ -907,6 +1260,71 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
       setStatusBanner({
         tone: "success",
         text: "OAuth credentials are ready. Save the source to connect and index tools.",
+      });
+    } catch (error) {
+      setOauthPopupBusy(false);
+      setStatusBanner({
+        tone: "error",
+        text: error instanceof Error ? error.message : "Failed starting OAuth.",
+      });
+    }
+  };
+
+  const handleHttpOAuthConnect = async () => {
+    setStatusBanner(null);
+
+    try {
+      if (props.mode === "edit" && props.source) {
+        await updateSource.mutateAsync({
+          sourceId: props.source.id,
+          payload: buildUpdatePayload(formState),
+        });
+      }
+
+      const result = await connectSource.mutateAsync(
+        buildHttpOauthConnectPayload(formState),
+      );
+
+      if (result.kind === "connected") {
+        invalidateExecutorQueries();
+        void navigate({
+          to: "/sources/$sourceId",
+          params: { sourceId: result.source.id },
+          search: { tab: "model" },
+        });
+        return;
+      }
+
+      if (result.kind === "credential_required") {
+        setStatusBanner({
+          tone: "error",
+          text:
+            "OAuth setup was saved, but the source still requires credentials. Check the endpoints and client settings, then try again.",
+        });
+        return;
+      }
+
+      setStatusBanner({
+        tone: "info",
+        text: "Finish OAuth in the popup to connect this source.",
+      });
+
+      setOauthPopupBusy(true);
+      await startConnectedSourceOAuthPopup({
+        authorizationUrl: result.authorizationUrl,
+        sessionId: result.sessionId,
+      });
+      setOauthPopupBusy(false);
+      refreshSecrets();
+      invalidateExecutorQueries();
+      setStatusBanner({
+        tone: "success",
+        text: "OAuth completed. The source is now connected.",
+      });
+      void navigate({
+        to: "/sources/$sourceId",
+        params: { sourceId: result.source.id },
+        search: { tab: "model" },
       });
     } catch (error) {
       setOauthPopupBusy(false);
@@ -1349,6 +1767,64 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
                     )}
                 </div>
               )}
+              {supportsManagedHttpOAuth(formState.kind) &&
+                formState.authKind === "oauth2" &&
+                formState.managedAuth?.kind !== "provider_grant_ref" && (
+                  <div className="sm:col-span-2 rounded-xl border border-border bg-gradient-to-b from-card/90 to-card/50 overflow-hidden">
+                    <div className="flex items-start gap-3 px-4 py-3.5">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/8 text-primary mt-0.5">
+                        <svg
+                          className="size-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <rect
+                            x="3"
+                            y="11"
+                            width="18"
+                            height="11"
+                            rx="2"
+                            ry="2"
+                          />
+                          <path d="M7 11V7a5 5 0 0110 0v4" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0 space-y-2">
+                        <div className="space-y-0.5">
+                          <p className="text-[12px] font-medium text-foreground">
+                            Source OAuth2
+                          </p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Save the provider endpoints below, then sign in to
+                            let executor complete the PKCE flow for this
+                            source.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleHttpOAuthConnect}
+                          disabled={
+                            isSubmitting || isDeleting || isOAuthSubmitting
+                          }
+                        >
+                          {isOAuthSubmitting ? (
+                            <IconSpinner className="size-3" />
+                          ) : null}
+                          {formState.managedAuth?.kind ===
+                          "oauth2_authorized_user"
+                            ? "Reconnect with OAuth"
+                            : "Sign in with OAuth"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               {formState.kind === "mcp" && formState.transport === "stdio" ? (
                 <div className="sm:col-span-2 rounded-xl border border-border bg-muted/40 px-4 py-3 text-[12px] text-muted-foreground">
                   Local MCP stdio sources do not use executor-managed HTTP or
@@ -1415,12 +1891,18 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
                         <p className="text-[12px] font-medium text-foreground">
                           {formState.managedAuth.kind === "provider_grant_ref"
                             ? "Shared provider grant"
-                            : "Managed MCP OAuth"}
+                            : formState.managedAuth.kind ===
+                                  "oauth2_authorized_user"
+                              ? "Managed OAuth2 session"
+                              : "Managed MCP OAuth"}
                         </p>
                         <p className="text-[11px] leading-relaxed text-muted-foreground">
                           {formState.managedAuth.kind === "provider_grant_ref"
                             ? "This source uses a shared Google auth grant. Reconnect from Add Source to change the linked account or scopes."
-                            : "Authenticated through a persisted MCP OAuth session. Reconnect the source to refresh or replace the binding."}
+                            : formState.managedAuth.kind ===
+                                  "oauth2_authorized_user"
+                              ? "Executor is managing this OAuth2 session with a stored refresh token. Reconnect to replace the authorization."
+                              : "Authenticated through a persisted MCP OAuth session. Reconnect the source to refresh or replace the binding."}
                         </p>
                       </div>
                     </div>
@@ -1467,6 +1949,66 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
                   </>
                 )}
 
+              {supportsManagedHttpOAuth(formState.kind) &&
+                formState.authKind === "oauth2" &&
+                formState.managedAuth?.kind !== "provider_grant_ref" && (
+                  <>
+                    <Field label="OAuth client ID" className="sm:col-span-2">
+                      <TextInput
+                        type="password"
+                        value={formState.oauthClientId}
+                        onChange={(value) => setField("oauthClientId", value)}
+                        placeholder="client-id"
+                      />
+                    </Field>
+                    <Field
+                      label="OAuth client secret (optional)"
+                      className="sm:col-span-2"
+                    >
+                      <TextInput
+                        type="password"
+                        value={formState.oauthClientSecret}
+                        onChange={(value) =>
+                          setField("oauthClientSecret", value)
+                        }
+                        placeholder="client-secret"
+                      />
+                    </Field>
+                    <Field
+                      label="Authorization endpoint"
+                      className="sm:col-span-2"
+                    >
+                      <TextInput
+                        value={formState.oauthAuthorizationEndpoint}
+                        onChange={(value) =>
+                          setField("oauthAuthorizationEndpoint", value)
+                        }
+                        placeholder="https://provider.example.com/oauth/authorize"
+                        mono
+                      />
+                    </Field>
+                    <Field label="Token endpoint" className="sm:col-span-2">
+                      <TextInput
+                        value={formState.oauthTokenEndpoint}
+                        onChange={(value) =>
+                          setField("oauthTokenEndpoint", value)
+                        }
+                        placeholder="https://provider.example.com/oauth/token"
+                        mono
+                      />
+                    </Field>
+                    <Field label="Scopes" className="sm:col-span-2">
+                      <TextInput
+                        value={formState.oauthScopesText}
+                        onChange={(value) =>
+                          setField("oauthScopesText", value)
+                        }
+                        placeholder="scope.one scope.two"
+                      />
+                    </Field>
+                  </>
+                )}
+
               {formState.authKind === "bearer" &&
                 formState.managedAuth === null &&
                 !(
@@ -1491,9 +2033,13 @@ function SourceEditor(props: { mode: "create" | "edit"; source?: Source }) {
                 !(
                   formState.kind === "mcp" && formState.transport === "stdio"
                 ) &&
-                (formState.kind !== "mcp" ||
-                  formState.oauthAccessHandle.trim().length === 0 ||
-                  showOauthSecretRefs) && (
+                ((supportsManagedHttpOAuth(formState.kind)
+                  ? buildHttpOauth2Binding(formState) === null ||
+                    formState.oauthAccessHandle.trim().length > 0
+                  : true) &&
+                  (formState.kind !== "mcp" ||
+                    formState.oauthAccessHandle.trim().length === 0 ||
+                    showOauthSecretRefs)) && (
                   <>
                     <Field label="Access token" className="sm:col-span-2">
                       <SecretPicker
@@ -1614,6 +2160,7 @@ function Field(props: {
 }
 
 function TextInput(props: {
+  type?: "text" | "password";
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
@@ -1621,6 +2168,7 @@ function TextInput(props: {
 }) {
   return (
     <input
+      type={props.type || "text"}
       value={props.value}
       onChange={(event) => props.onChange(event.target.value)}
       placeholder={props.placeholder}

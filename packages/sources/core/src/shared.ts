@@ -64,6 +64,41 @@ export const ConnectOauthClientSchema = Schema.optional(
   Schema.NullOr(SourceOauthClientInputSchema),
 );
 
+export const OAuth2ClientAuthenticationMethodSchema = Schema.Literal(
+  "none",
+  "client_secret_post",
+);
+
+export const HttpOauth2SetupSchema = Schema.Struct({
+  authorizationEndpoint: TrimmedNonEmptyStringSchema,
+  tokenEndpoint: TrimmedNonEmptyStringSchema,
+  scopes: Schema.optional(StringArraySchema),
+  headerName: OptionalNullableStringSchema,
+  prefix: OptionalNullableStringSchema,
+  clientAuthentication: Schema.optional(
+    OAuth2ClientAuthenticationMethodSchema,
+  ),
+  authorizationParams: Schema.optional(Schema.NullOr(StringMapSchema)),
+});
+
+export type HttpOauth2Setup = typeof HttpOauth2SetupSchema.Type;
+
+export const StoredHttpOauth2SetupSchema = Schema.Struct({
+  authorizationEndpoint: TrimmedNonEmptyStringSchema,
+  tokenEndpoint: TrimmedNonEmptyStringSchema,
+  scopes: StringArraySchema,
+  headerName: Schema.NullOr(Schema.String),
+  prefix: Schema.NullOr(Schema.String),
+  clientAuthentication: Schema.NullOr(OAuth2ClientAuthenticationMethodSchema),
+  authorizationParams: Schema.NullOr(StringMapSchema),
+});
+
+export type StoredHttpOauth2Setup = typeof StoredHttpOauth2SetupSchema.Type;
+
+export const ConnectHttpOauth2SetupSchema = Schema.optional(
+  Schema.NullOr(HttpOauth2SetupSchema),
+);
+
 export const SourceConnectCommonFieldsSchema = Schema.Struct({
   endpoint: TrimmedNonEmptyStringSchema,
   name: OptionalNullableStringSchema,

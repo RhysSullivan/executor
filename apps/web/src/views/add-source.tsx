@@ -91,6 +91,9 @@ type ConnectFormBase = {
   authKind: "none" | "bearer" | "oauth2";
   authHeaderName: string;
   authPrefix: string;
+  oauthAuthorizationEndpoint: string;
+  oauthTokenEndpoint: string;
+  oauthScopesText: string;
   bearerToken: string;
   bearerProviderId: string;
   bearerHandle: string;
@@ -112,6 +115,11 @@ type BatchOAuthRequiredInfo = {
   authorizationUrl: string;
   sourceIds: ReadonlyArray<string>;
 };
+
+type GoogleDiscoveryConnectPayload = Extract<
+  ConnectSourcePayload,
+  { kind: "google_discovery" }
+>;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -266,6 +274,9 @@ const defaultConnectForm = (
       authKind: "none",
       authHeaderName: "Authorization",
       authPrefix: "Bearer ",
+      oauthAuthorizationEndpoint: "",
+      oauthTokenEndpoint: "",
+      oauthScopesText: "",
       bearerToken: "",
       bearerProviderId: "",
       bearerHandle: "",
@@ -318,6 +329,9 @@ const defaultConnectForm = (
     authKind,
     authHeaderName,
     authPrefix,
+    oauthAuthorizationEndpoint: auth.oauthAuthorizationUrl ?? "",
+    oauthTokenEndpoint: auth.oauthTokenUrl ?? "",
+    oauthScopesText: auth.oauthScopes.join(" "),
     bearerToken: "",
     bearerProviderId: "",
     bearerHandle: "",
@@ -347,6 +361,9 @@ const connectFormFromTemplate = (
       ? googleDiscoveryNamespace(template.service)
       : namespaceFromUrl(template.endpoint ?? "")),
   authKind: template.kind === "google_discovery" ? "oauth2" : "none",
+  oauthAuthorizationEndpoint: "",
+  oauthTokenEndpoint: "",
+  oauthScopesText: "",
   workspaceOauthClientId: "",
   ...(template.kind === "mcp" && template.connectionType === "command"
     ? defaultMcpStdioTransportFields({
@@ -455,6 +472,14 @@ const buildConnectPayload = (form: ConnectFormState): ConnectSourcePayload => {
       kind: "openapi",
       endpoint,
       specUrl,
+      oauthClient:
+        form.authKind === "oauth2"
+          ? buildOauthClientInput(form)
+          : null,
+      oauth2Setup:
+        form.authKind === "oauth2"
+          ? buildHttpOauth2Setup(form)
+          : null,
       name: trimToNull(form.name),
       namespace: trimToNull(form.namespace),
       auth,
@@ -487,7 +512,9 @@ const buildConnectPayload = (form: ConnectFormState): ConnectSourcePayload => {
       scopeOauthClientId:
         form.authKind === "oauth2" &&
         form.workspaceOauthClientId.trim().length > 0
-          ? form.workspaceOauthClientId.trim()
+          ? (form.workspaceOauthClientId.trim() as NonNullable<
+              GoogleDiscoveryConnectPayload["scopeOauthClientId"]
+            >)
           : undefined,
       oauthClient:
         form.authKind === "oauth2" &&
@@ -506,9 +533,60 @@ const buildConnectPayload = (form: ConnectFormState): ConnectSourcePayload => {
   return {
     kind: "graphql",
     endpoint,
+    oauthClient:
+      form.authKind === "oauth2"
+        ? buildOauthClientInput(form)
+        : null,
+    oauth2Setup:
+      form.authKind === "oauth2"
+        ? buildHttpOauth2Setup(form)
+        : null,
     name: trimToNull(form.name),
     namespace: trimToNull(form.namespace),
     auth,
+  };
+};
+
+const parseScopesText = (value: string): Array<string> =>
+  [...new Set(
+    value
+      .split(/[\s,]+/)
+      .map((scope) => scope.trim())
+      .filter((scope) => scope.length > 0),
+  )];
+
+const buildOauthClientInput = (form: ConnectFormState) => {
+  const clientId = form.oauthClientId.trim();
+  if (!clientId) {
+    throw new Error("OAuth requires a client ID.");
+  }
+
+  return {
+    clientId,
+    clientSecret: trimToNull(form.oauthClientSecret),
+    redirectMode: "app_callback" as const,
+  };
+};
+
+const buildHttpOauth2Setup = (form: ConnectFormState) => {
+  const authorizationEndpoint = form.oauthAuthorizationEndpoint.trim();
+  const tokenEndpoint = form.oauthTokenEndpoint.trim();
+  if (!authorizationEndpoint) {
+    throw new Error("OAuth requires an authorization endpoint.");
+  }
+  if (!tokenEndpoint) {
+    throw new Error("OAuth requires a token endpoint.");
+  }
+
+  return {
+    authorizationEndpoint,
+    tokenEndpoint,
+    scopes: parseScopesText(form.oauthScopesText),
+    headerName: trimToNull(form.authHeaderName),
+    prefix: form.authPrefix.length === 0 ? null : form.authPrefix,
+    clientAuthentication: trimToNull(form.oauthClientSecret)
+      ? "client_secret_post" as const
+      : "none" as const,
   };
 };
 
@@ -1917,6 +1995,15 @@ export function AddSourcePage() {
                         : "Choosing auth mode 'none' skips the Google OAuth popup. Use 'oauth2' if you want executor to start the sign-in flow for you."}
                     </div>
                   )}
+                  {(connectForm.kind === "openapi" ||
+                    connectForm.kind === "graphql") &&
+                    connectForm.authKind === "oauth2" && (
+                      <div className="sm:col-span-2 rounded-lg border border-border bg-card/60 px-3 py-2 text-[12px] text-muted-foreground">
+                        Executor will start OAuth after you click Connect. Enter
+                        the client credentials and provider endpoints below, or
+                        adjust the discovery defaults before connecting.
+                      </div>
+                    )}
                   {connectForm.kind === "google_discovery" &&
                     connectForm.authKind === "oauth2" && (
                       <>
@@ -1971,6 +2058,76 @@ export function AddSourcePage() {
                             </Field>
                           </>
                         )}
+                      </>
+                    )}
+                  {(connectForm.kind === "openapi" ||
+                    connectForm.kind === "graphql") &&
+                    connectForm.authKind === "oauth2" && (
+                      <>
+                        <Field
+                          label="OAuth client ID"
+                          className="sm:col-span-2"
+                        >
+                          <TextInput
+                            type="password"
+                            value={connectForm.oauthClientId}
+                            onChange={(value) =>
+                              setFormField("oauthClientId", value)
+                            }
+                            placeholder="client-id"
+                          />
+                        </Field>
+                        <Field
+                          label="OAuth client secret (optional)"
+                          className="sm:col-span-2"
+                        >
+                          <TextInput
+                            type="password"
+                            value={connectForm.oauthClientSecret}
+                            onChange={(value) =>
+                              setFormField("oauthClientSecret", value)
+                            }
+                            placeholder="client-secret"
+                          />
+                        </Field>
+                        <Field
+                          label="Authorization endpoint"
+                          className="sm:col-span-2"
+                        >
+                          <TextInput
+                            value={connectForm.oauthAuthorizationEndpoint}
+                            onChange={(value) =>
+                              setFormField(
+                                "oauthAuthorizationEndpoint",
+                                value,
+                              )
+                            }
+                            placeholder="https://provider.example.com/oauth/authorize"
+                            mono
+                          />
+                        </Field>
+                        <Field
+                          label="Token endpoint"
+                          className="sm:col-span-2"
+                        >
+                          <TextInput
+                            value={connectForm.oauthTokenEndpoint}
+                            onChange={(value) =>
+                              setFormField("oauthTokenEndpoint", value)
+                            }
+                            placeholder="https://provider.example.com/oauth/token"
+                            mono
+                          />
+                        </Field>
+                        <Field label="Scopes" className="sm:col-span-2">
+                          <TextInput
+                            value={connectForm.oauthScopesText}
+                            onChange={(value) =>
+                              setFormField("oauthScopesText", value)
+                            }
+                            placeholder="scope.one scope.two"
+                          />
+                        </Field>
                       </>
                     )}
                   {connectForm.authKind !== "none" && (

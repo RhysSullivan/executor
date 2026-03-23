@@ -107,6 +107,8 @@ const toExecutorSourceInput = (
         kind: "openapi",
         endpoint: payload.endpoint,
         specUrl: payload.specUrl,
+        oauthClient: payload.oauthClient,
+        oauth2Setup: payload.oauth2Setup,
         name: payload.name,
         namespace: payload.namespace,
         importAuthPolicy: nullToUndefined(payload.importAuthPolicy),
@@ -117,6 +119,8 @@ const toExecutorSourceInput = (
       return {
         kind: "graphql",
         endpoint: payload.endpoint,
+        oauthClient: payload.oauthClient,
+        oauth2Setup: payload.oauth2Setup,
         name: payload.name,
         namespace: payload.namespace,
         importAuthPolicy: nullToUndefined(payload.importAuthPolicy),

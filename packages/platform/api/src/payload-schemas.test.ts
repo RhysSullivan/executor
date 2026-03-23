@@ -39,12 +39,36 @@ describe("control-plane payload schemas", () => {
         kind: "openapi",
         endpoint: "  https://api.github.com  ",
         specUrl: "  https://example.com/openapi.json  ",
+        oauthClient: {
+          clientId: "  github-client  ",
+          clientSecret: "  github-secret  ",
+        },
+        oauth2Setup: {
+          authorizationEndpoint: "  https://github.com/login/oauth/authorize  ",
+          tokenEndpoint: "  https://github.com/login/oauth/access_token  ",
+          scopes: [" repo ", " read:user "],
+          headerName: "  Authorization  ",
+          prefix: "  Bearer  ",
+          clientAuthentication: "client_secret_post",
+        },
       }),
     ).toEqual({
-        kind: "openapi",
-        endpoint: "https://api.github.com",
-        specUrl: "https://example.com/openapi.json",
-      });
+      kind: "openapi",
+      endpoint: "https://api.github.com",
+      specUrl: "https://example.com/openapi.json",
+      oauthClient: {
+        clientId: "github-client",
+        clientSecret: "github-secret",
+      },
+      oauth2Setup: {
+        authorizationEndpoint: "https://github.com/login/oauth/authorize",
+        tokenEndpoint: "https://github.com/login/oauth/access_token",
+        scopes: [" repo ", " read:user "],
+        headerName: "  Authorization  ",
+        prefix: "  Bearer  ",
+        clientAuthentication: "client_secret_post",
+      },
+    });
 
     expect(
       Schema.decodeUnknownSync(ConnectSourcePayloadSchema)({

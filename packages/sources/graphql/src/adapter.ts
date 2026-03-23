@@ -22,6 +22,9 @@ import { GraphqlLocalConfigBindingSchema } from "./local-config";
 import {
   ConnectHttpAuthSchema,
   ConnectHttpImportAuthSchema,
+  ConnectHttpOauth2SetupSchema,
+  ConnectOauthClientSchema,
+  StoredHttpOauth2SetupSchema,
   createSourceCatalogSyncResult,
   decodeBindingConfig,
   decodeExecutableBindingPayload,
@@ -50,6 +53,8 @@ const GraphqlConnectPayloadSchema = Schema.extend(
     Schema.Struct({
       kind: Schema.Literal("graphql"),
       auth: Schema.optional(ConnectHttpAuthSchema),
+      oauthClient: ConnectOauthClientSchema,
+      oauth2Setup: ConnectHttpOauth2SetupSchema,
     }),
   ),
 );
@@ -59,6 +64,8 @@ const GraphqlExecutorAddInputSchema = Schema.extend(
   Schema.Struct({
     kind: Schema.Literal("graphql"),
     endpoint: Schema.String,
+    oauthClient: ConnectOauthClientSchema,
+    oauth2Setup: ConnectHttpOauth2SetupSchema,
     name: OptionalNullableStringSchema,
     namespace: OptionalNullableStringSchema,
     auth: Schema.optional(ConnectHttpAuthSchema),
@@ -67,12 +74,14 @@ const GraphqlExecutorAddInputSchema = Schema.extend(
 
 const GraphqlBindingConfigSchema = Schema.Struct({
   defaultHeaders: Schema.NullOr(StringMapSchema),
+  oauth2: Schema.NullOr(StoredHttpOauth2SetupSchema),
 });
 
 type GraphqlBindingConfig = typeof GraphqlBindingConfigSchema.Type;
 
 const GraphqlSourceBindingPayloadSchema = Schema.Struct({
   defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
+  oauth2: Schema.optional(Schema.NullOr(StoredHttpOauth2SetupSchema)),
 });
 
 const GRAPHQL_BINDING_CONFIG_VERSION = 1;
@@ -111,11 +120,12 @@ const graphqlBindingConfigFromSource = (
       expectedVersion: GRAPHQL_BINDING_CONFIG_VERSION,
       schema: GraphqlSourceBindingPayloadSchema,
       value: source.binding,
-      allowedKeys: ["defaultHeaders"],
+      allowedKeys: ["defaultHeaders", "oauth2"],
     });
 
     return {
       defaultHeaders: bindingConfig.defaultHeaders ?? null,
+      oauth2: bindingConfig.oauth2 ?? null,
     } satisfies GraphqlBindingConfig;
   });
 
@@ -276,6 +286,7 @@ export const graphqlSourceAdapter = {
     Effect.runSync(
       Effect.map(graphqlBindingConfigFromSource(source), (bindingConfig) => ({
         defaultHeaders: bindingConfig.defaultHeaders,
+        oauth2: bindingConfig.oauth2,
       })),
     ),
   serializeBindingConfig: (source) =>
@@ -322,6 +333,7 @@ export const graphqlSourceAdapter = {
         bindingVersion: GRAPHQL_BINDING_CONFIG_VERSION,
         binding: {
           defaultHeaders: bindingConfig.defaultHeaders,
+          oauth2: bindingConfig.oauth2,
         },
       };
     }),
@@ -335,6 +347,23 @@ export const graphqlSourceAdapter = {
       normalizedUrl,
       headers,
     }),
+  getOauth2SetupConfig: ({ source }) =>
+    Effect.map(graphqlBindingConfigFromSource(source), (bindingConfig) =>
+      bindingConfig.oauth2 === null
+        ? null
+        : {
+            providerKey: "generic_graphql",
+            authorizationEndpoint: bindingConfig.oauth2.authorizationEndpoint,
+            tokenEndpoint: bindingConfig.oauth2.tokenEndpoint,
+            scopes: bindingConfig.oauth2.scopes ?? [],
+            headerName: bindingConfig.oauth2.headerName ?? "Authorization",
+            prefix: bindingConfig.oauth2.prefix ?? "Bearer ",
+            clientAuthentication:
+              bindingConfig.oauth2.clientAuthentication ?? "client_secret_post",
+            authorizationParams:
+              bindingConfig.oauth2.authorizationParams ?? undefined,
+          },
+    ),
   syncCatalog: ({ source, resolveAuthMaterialForSlot }) =>
     Effect.gen(function* () {
       const bindingConfig = yield* graphqlBindingConfigFromSource(source);

@@ -597,6 +597,16 @@ export type ExecutorAddSourceInput =
       interactionId: SourceAuthSession["interactionId"];
       endpoint: string;
       specUrl: string;
+      oauthClient?: SourceOauthClientInput | null;
+      oauth2Setup?: {
+        authorizationEndpoint: string;
+        tokenEndpoint: string;
+        scopes?: ReadonlyArray<string> | null;
+        headerName?: string | null;
+        prefix?: string | null;
+        clientAuthentication?: "none" | "client_secret_post" | null;
+        authorizationParams?: StringMap | null;
+      } | null;
       name?: string | null;
       namespace?: string | null;
       importAuthPolicy?: SourceImportAuthPolicy | null;
@@ -610,6 +620,16 @@ export type ExecutorAddSourceInput =
       executionId: SourceAuthSession["executionId"];
       interactionId: SourceAuthSession["interactionId"];
       endpoint: string;
+      oauthClient?: SourceOauthClientInput | null;
+      oauth2Setup?: {
+        authorizationEndpoint: string;
+        tokenEndpoint: string;
+        scopes?: ReadonlyArray<string> | null;
+        headerName?: string | null;
+        prefix?: string | null;
+        clientAuthentication?: "none" | "client_secret_post" | null;
+        authorizationParams?: StringMap | null;
+      } | null;
       name?: string | null;
       namespace?: string | null;
       importAuthPolicy?: SourceImportAuthPolicy | null;
@@ -766,6 +786,16 @@ export type CompleteProviderOauthCallbackResult = {
   sources: ReadonlyArray<Source>;
 };
 
+type ExecutorHttpOauth2Setup = {
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  scopes: ReadonlyArray<string>;
+  headerName: string;
+  prefix: string;
+  clientAuthentication: "none" | "client_secret_post";
+  authorizationParams: StringMap | null;
+};
+
 const materializeSecretRefInput = (input: {
   rawValue?: string | null;
   ref?: SecretRef | null;
@@ -791,6 +821,99 @@ const materializeSecretRefInput = (input: {
       handle,
     } satisfies SecretRef;
   });
+
+const normalizeExecutorHttpOauth2Setup = (input: {
+  setup?: {
+    authorizationEndpoint: string;
+    tokenEndpoint: string;
+    scopes?: ReadonlyArray<string> | null;
+    headerName?: string | null;
+    prefix?: string | null;
+    clientAuthentication?: "none" | "client_secret_post" | null;
+    authorizationParams?: StringMap | null;
+  } | null;
+}): ExecutorHttpOauth2Setup | null => {
+  if (input.setup == null) {
+    return null;
+  }
+
+  const authorizationEndpoint = trimOrNull(input.setup.authorizationEndpoint);
+  const tokenEndpoint = trimOrNull(input.setup.tokenEndpoint);
+  if (authorizationEndpoint === null || tokenEndpoint === null) {
+    return null;
+  }
+
+  return {
+    authorizationEndpoint,
+    tokenEndpoint,
+    scopes: normalizeScopes(input.setup.scopes ?? []),
+    headerName: trimOrNull(input.setup.headerName) ?? "Authorization",
+    prefix: input.setup.prefix ?? "Bearer ",
+    clientAuthentication:
+      input.setup.clientAuthentication === "none"
+        ? "none"
+        : "client_secret_post",
+    authorizationParams: input.setup.authorizationParams ?? null,
+  };
+};
+
+const readHttpOauth2SetupFromBinding = (
+  source: Source | undefined,
+): ExecutorHttpOauth2Setup | null => {
+  if (!source) {
+    return null;
+  }
+
+  const rawSetup =
+    source.binding !== null &&
+    typeof source.binding === "object" &&
+    !Array.isArray(source.binding) &&
+    typeof source.binding.oauth2 === "object" &&
+    source.binding.oauth2 !== null &&
+    !Array.isArray(source.binding.oauth2)
+      ? source.binding.oauth2 as Record<string, unknown>
+      : null;
+  if (rawSetup === null) {
+    return null;
+  }
+
+  return normalizeExecutorHttpOauth2Setup({
+    setup: {
+      authorizationEndpoint:
+        typeof rawSetup.authorizationEndpoint === "string"
+          ? rawSetup.authorizationEndpoint
+          : "",
+      tokenEndpoint:
+        typeof rawSetup.tokenEndpoint === "string"
+          ? rawSetup.tokenEndpoint
+          : "",
+      scopes: Array.isArray(rawSetup.scopes)
+        ? rawSetup.scopes.filter(
+            (scope): scope is string => typeof scope === "string",
+          )
+        : null,
+      headerName:
+        typeof rawSetup.headerName === "string" ? rawSetup.headerName : null,
+      prefix: typeof rawSetup.prefix === "string" ? rawSetup.prefix : null,
+      clientAuthentication:
+        rawSetup.clientAuthentication === "none" ||
+        rawSetup.clientAuthentication === "client_secret_post"
+          ? rawSetup.clientAuthentication
+          : null,
+      authorizationParams:
+        rawSetup.authorizationParams !== null &&
+        typeof rawSetup.authorizationParams === "object" &&
+        !Array.isArray(rawSetup.authorizationParams)
+          ? Object.fromEntries(
+              Object.entries(rawSetup.authorizationParams).flatMap(
+                ([key, value]) =>
+                  typeof value === "string" ? [[key, value]] : [],
+              ),
+            )
+          : null,
+    },
+  });
+};
 
 const materializeExecutorHttpAuth = (input: {
   existing?: Source;
@@ -2182,6 +2305,9 @@ const addExecutorHttpSource = (input: {
     const existingBinding = existing
       ? yield* sourceBindingStateFromSource(existing)
       : null;
+    const oauth2Setup = normalizeExecutorHttpOauth2Setup({
+      setup: input.sourceInput.oauth2Setup,
+    }) ?? readHttpOauth2SetupFromBinding(existing);
     const now = Date.now();
 
     const auth = yield* materializeExecutorHttpAuth({
@@ -2210,9 +2336,11 @@ const addExecutorHttpSource = (input: {
               ? {
                   specUrl: normalizedSpecUrl,
                   defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                  oauth2: oauth2Setup,
                 }
               : {
                   defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                  oauth2: oauth2Setup,
                 },
             importAuthPolicy: importAuth.importAuthPolicy,
             importAuth: importAuth.importAuth,
@@ -2235,9 +2363,11 @@ const addExecutorHttpSource = (input: {
               ? {
                   specUrl: normalizedSpecUrl,
                   defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                  oauth2: oauth2Setup,
                 }
               : {
                   defaultHeaders: existingBinding?.defaultHeaders ?? null,
+                  oauth2: oauth2Setup,
                 },
             importAuthPolicy: importAuth.importAuthPolicy,
             importAuth: importAuth.importAuth,
@@ -2249,6 +2379,16 @@ const addExecutorHttpSource = (input: {
     const persistedDraft = yield* input.sourceStore.persistSource(draftSource, {
       actorScopeId: input.sourceInput.actorScopeId,
     });
+
+    if (input.sourceInput.oauthClient) {
+      yield* upsertSourceOauthClient({
+        executorState: input.executorState,
+        source: persistedDraft,
+        oauthClient: input.sourceInput.oauthClient,
+        storeSecretMaterial: input.storeSecretMaterial,
+        deleteSecretMaterial: input.deleteSecretMaterial,
+      });
+    }
 
     if (shouldPromptForExecutorHttpRuntimeCredentialSetup({
       existing,

@@ -150,6 +150,20 @@ type GoogleWorkspaceTestServer = {
   close: () => Promise<void>;
 };
 
+type GenericOauthTestServer = {
+  baseUrl: string;
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+  queueTokenResponse: (response: {
+    access_token: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  }) => void;
+  tokenRequests: URLSearchParams[];
+  close: () => Promise<void>;
+};
+
 const runtimeTestOpenApiLive = HttpApiBuilder.group(
   RuntimeTestOpenApi,
   "repos",
@@ -320,6 +334,112 @@ const makeGoogleWorkspaceTestServer = Effect.acquireRelease(
             },
             tokenRequests,
             discoveryAuthorizations,
+            close: () =>
+              new Promise<void>((closeResolve, closeReject) => {
+                server.close((error) => {
+                  if (error) {
+                    closeReject(error);
+                    return;
+                  }
+
+                  closeResolve();
+                });
+              }),
+          });
+        });
+      }),
+  ),
+  (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+);
+
+const makeGenericOauthTestServer = Effect.acquireRelease(
+  Effect.promise<GenericOauthTestServer>(
+    () =>
+      new Promise<GenericOauthTestServer>((resolve, reject) => {
+        const tokenResponses: Array<{
+          access_token: string;
+          refresh_token?: string;
+          expires_in?: number;
+          scope?: string;
+        }> = [];
+        const tokenRequests: URLSearchParams[] = [];
+        let baseUrl = "";
+
+        const server = createServer(async (request, response) => {
+          const requestUrl = new URL(
+            request.url ?? "/",
+            `http://${request.headers.host ?? "127.0.0.1"}`,
+          );
+
+          if (
+            request.method === "POST" &&
+            requestUrl.pathname === "/oauth/token"
+          ) {
+            const chunks: Buffer[] = [];
+            for await (const chunk of request) {
+              chunks.push(Buffer.from(chunk));
+            }
+
+            const params = new URLSearchParams(
+              Buffer.concat(chunks).toString("utf8"),
+            );
+            tokenRequests.push(params);
+
+            const nextResponse = tokenResponses.shift();
+            if (!nextResponse) {
+              response.statusCode = 500;
+              response.setHeader("content-type", "application/json");
+              response.end(
+                JSON.stringify({
+                  error: "missing_token_response",
+                }),
+              );
+              return;
+            }
+
+            response.statusCode = 200;
+            response.setHeader("content-type", "application/json");
+            response.end(
+              JSON.stringify({
+                token_type: "Bearer",
+                expires_in: 3600,
+                ...nextResponse,
+              }),
+            );
+            return;
+          }
+
+          if (
+            request.method === "GET" &&
+            requestUrl.pathname === "/oauth/authorize"
+          ) {
+            response.statusCode = 200;
+            response.setHeader("content-type", "text/plain; charset=utf-8");
+            response.end("ok");
+            return;
+          }
+
+          response.statusCode = 404;
+          response.end();
+        });
+
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          if (!address || typeof address === "string") {
+            reject(new Error("Failed to bind generic OAuth test server"));
+            return;
+          }
+
+          baseUrl = `http://127.0.0.1:${address.port}`;
+          resolve({
+            baseUrl,
+            authorizationEndpoint: `${baseUrl}/oauth/authorize`,
+            tokenEndpoint: `${baseUrl}/oauth/token`,
+            queueTokenResponse: (tokenResponse) => {
+              tokenResponses.push(tokenResponse);
+            },
+            tokenRequests,
             close: () =>
               new Promise<void>((closeResolve, closeReject) => {
                 server.close((error) => {
@@ -1766,6 +1886,138 @@ describe("executor-runtime", () => {
           `/v1/workspaces/${encodeURIComponent(installation.scopeId)}/oauth/provider/callback`,
         );
         expect(result.source.status).toBe("auth_required");
+      }),
+    60_000,
+  );
+
+  it.scoped(
+    "starts and completes PKCE for generic OpenAPI source connects",
+    () =>
+      Effect.gen(function* () {
+        const runtime = yield* makeRuntime;
+        const openApiServer = yield* makeOpenApiSpecServer;
+        const oauthServer = yield* makeGenericOauthTestServer;
+        const installation = runtime.localInstallation;
+
+        const result = yield* withExecutorApiClient({ runtime }, (client) =>
+          client.sources.connect({
+            path: {
+              workspaceId: installation.scopeId,
+            },
+            payload: {
+              kind: "openapi",
+              endpoint: openApiServer.baseUrl,
+              specUrl: openApiServer.specUrl,
+              name: "GitHub",
+              namespace: "github",
+              oauthClient: {
+                clientId: "generic-client-id",
+                clientSecret: "generic-client-secret",
+                redirectMode: "app_callback",
+              },
+              oauth2Setup: {
+                authorizationEndpoint: oauthServer.authorizationEndpoint,
+                tokenEndpoint: oauthServer.tokenEndpoint,
+                scopes: ["repo:read", "user:email"],
+                headerName: "Authorization",
+                prefix: "Bearer ",
+                clientAuthentication: "client_secret_post",
+              },
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("oauth_required");
+        if (result.kind !== "oauth_required") {
+          throw new Error(
+            `Expected oauth_required result, received ${result.kind}`,
+          );
+        }
+
+        expect(result.source.status).toBe("auth_required");
+
+        const authorizationUrl = new URL(result.authorizationUrl);
+        expect(authorizationUrl.origin + authorizationUrl.pathname).toBe(
+          oauthServer.authorizationEndpoint,
+        );
+        expect(authorizationUrl.searchParams.get("client_id")).toBe(
+          "generic-client-id",
+        );
+
+        const redirectUri = authorizationUrl.searchParams.get("redirect_uri");
+        expect(redirectUri).not.toBeNull();
+        expect(new URL(redirectUri!).pathname).toBe(
+          `/v1/workspaces/${encodeURIComponent(installation.scopeId)}/sources/${encodeURIComponent(result.source.id)}/credentials/oauth/complete`,
+        );
+
+        const state = authorizationUrl.searchParams.get("state");
+        expect(state).not.toBeNull();
+        expect(authorizationUrl.searchParams.get("code_challenge")).not.toBeNull();
+        expect(
+          authorizationUrl.searchParams.get("code_challenge_method"),
+        ).toBe("S256");
+
+        oauthServer.queueTokenResponse({
+          access_token: "generic-access-token",
+          refresh_token: "generic-refresh-token",
+          scope: "repo:read user:email",
+        });
+
+        const completion = yield* withExecutorApiClient({ runtime }, (client) =>
+          client.sources.credentialComplete({
+            path: {
+              workspaceId: installation.scopeId,
+              sourceId: result.source.id,
+            },
+            urlParams: {
+              state: state!,
+              code: "oauth-code",
+            },
+          }),
+        );
+
+        expect(completion).toContain("Source connected");
+        expect(oauthServer.tokenRequests).toHaveLength(1);
+        expect(oauthServer.tokenRequests[0]?.get("grant_type")).toBe(
+          "authorization_code",
+        );
+        expect(oauthServer.tokenRequests[0]?.get("code")).toBe("oauth-code");
+        expect(oauthServer.tokenRequests[0]?.get("client_id")).toBe(
+          "generic-client-id",
+        );
+        expect(oauthServer.tokenRequests[0]?.get("client_secret")).toBe(
+          "generic-client-secret",
+        );
+        expect(oauthServer.tokenRequests[0]?.get("redirect_uri")).toBe(
+          redirectUri,
+        );
+        expect(oauthServer.tokenRequests[0]?.get("code_verifier")).not.toBeNull();
+
+        const connected = yield* withExecutorApiClient({ runtime }, (client) =>
+          client.sources.get({
+            path: {
+              workspaceId: installation.scopeId,
+              sourceId: result.source.id,
+            },
+          }),
+        );
+
+        expect(connected.status).toBe("connected");
+        expect(connected.auth.kind).toBe("oauth2_authorized_user");
+        if (connected.auth.kind !== "oauth2_authorized_user") {
+          throw new Error(
+            `Expected oauth2_authorized_user auth, received ${connected.auth.kind}`,
+          );
+        }
+
+        expect(connected.auth.clientId).toBe("generic-client-id");
+        expect(connected.auth.tokenEndpoint).toBe(oauthServer.tokenEndpoint);
+        expect(connected.auth.clientAuthentication).toBe(
+          "client_secret_post",
+        );
+        expect(connected.auth.clientSecret).not.toBeNull();
+        expect(connected.auth.refreshToken.handle.length).toBeGreaterThan(0);
+        expect(connected.auth.grantSet).toEqual(["repo:read", "user:email"]);
       }),
     60_000,
   );

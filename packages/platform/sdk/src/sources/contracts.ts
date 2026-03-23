@@ -20,6 +20,7 @@ import * as Schema from "effect/Schema";
 import {
   ConnectHttpAuthSchema,
   ConnectHttpImportAuthSchema,
+  ConnectHttpOauth2SetupSchema,
   ConnectOauthClientSchema,
   McpConnectFieldsSchema,
   OptionalNullableStringSchema,
@@ -153,6 +154,8 @@ const OpenApiConnectSourcePayloadSchema = Schema.extend(
       kind: Schema.Literal("openapi"),
       specUrl: TrimmedNonEmptyStringSchema,
       auth: Schema.optional(ConnectHttpAuthSchema),
+      oauthClient: ConnectOauthClientSchema,
+      oauth2Setup: ConnectHttpOauth2SetupSchema,
     }),
   ),
 );
@@ -164,6 +167,8 @@ const GraphqlConnectSourcePayloadSchema = Schema.extend(
     Schema.Struct({
       kind: Schema.Literal("graphql"),
       auth: Schema.optional(ConnectHttpAuthSchema),
+      oauthClient: ConnectOauthClientSchema,
+      oauth2Setup: ConnectHttpOauth2SetupSchema,
     }),
   ),
 );
