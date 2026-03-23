@@ -3705,47 +3705,63 @@ const createRuntimeSourceOAuthSessionService = (
         });
         const refreshToken = trimOrNull(exchanged.refresh_token);
         if (refreshToken === null) {
-          return yield* runtimeEffectError("sources/source-auth-service", "OAuth authorization did not return a refresh token");
-        }
-
-        const refreshTokenRef = yield* input.storeSecretMaterial({
-          purpose: "oauth_refresh_token",
-          value: refreshToken,
-          name: `${source.name} Refresh`,
-        });
-        const grantedScopes = trimOrNull(exchanged.scope)
-          ? exchanged.scope!.split(/\s+/).filter((scope) => scope.length > 0)
-          : [...oauthSessionData.scopes];
-        connectedSource = yield* updateSourceStatus(input.sourceStore, source, {
-          actorScopeId: session.actorScopeId,
-          status: "connected",
-          lastError: null,
-          auth: {
-            kind: "oauth2_authorized_user",
-            headerName: oauthSessionData.headerName,
-            prefix: oauthSessionData.prefix,
-            tokenEndpoint: oauthSessionData.tokenEndpoint,
-            clientId: oauthSessionData.clientId,
-            clientAuthentication: oauthSessionData.clientAuthentication,
-            clientSecret: oauthSessionData.clientSecret,
-            refreshToken: refreshTokenRef,
-            grantSet: grantedScopes,
-          },
-        });
-        const authArtifact = yield* input.executorState.authArtifacts.getByScopeSourceAndActor({
-          scopeId: connectedSource.scopeId,
-          sourceId: connectedSource.id,
-          actorScopeId: session.actorScopeId ?? null,
-          slot: "runtime",
-        });
-        if (Option.isSome(authArtifact)) {
-          yield* upsertOauth2AuthorizedUserLeaseFromTokenResponse({
-            executorState: input.executorState,
-            artifact: authArtifact.value,
-            tokenResponse: exchanged,
-            storeSecretMaterial: input.storeSecretMaterial,
-            deleteSecretMaterial: input.deleteSecretMaterial,
+          const accessTokenRef = yield* input.storeSecretMaterial({
+            purpose: "oauth_access_token",
+            value: exchanged.access_token,
+            name: `${source.name} Access Token`,
           });
+          connectedSource = yield* updateSourceStatus(input.sourceStore, source, {
+            actorScopeId: session.actorScopeId,
+            status: "connected",
+            lastError: null,
+            auth: {
+              kind: "oauth2",
+              headerName: oauthSessionData.headerName,
+              prefix: oauthSessionData.prefix,
+              accessToken: accessTokenRef,
+              refreshToken: null,
+            },
+          });
+        } else {
+          const refreshTokenRef = yield* input.storeSecretMaterial({
+            purpose: "oauth_refresh_token",
+            value: refreshToken,
+            name: `${source.name} Refresh`,
+          });
+          const grantedScopes = trimOrNull(exchanged.scope)
+            ? exchanged.scope!.split(/\s+/).filter((scope) => scope.length > 0)
+            : [...oauthSessionData.scopes];
+          connectedSource = yield* updateSourceStatus(input.sourceStore, source, {
+            actorScopeId: session.actorScopeId,
+            status: "connected",
+            lastError: null,
+            auth: {
+              kind: "oauth2_authorized_user",
+              headerName: oauthSessionData.headerName,
+              prefix: oauthSessionData.prefix,
+              tokenEndpoint: oauthSessionData.tokenEndpoint,
+              clientId: oauthSessionData.clientId,
+              clientAuthentication: oauthSessionData.clientAuthentication,
+              clientSecret: oauthSessionData.clientSecret,
+              refreshToken: refreshTokenRef,
+              grantSet: grantedScopes,
+            },
+          });
+          const authArtifact = yield* input.executorState.authArtifacts.getByScopeSourceAndActor({
+            scopeId: connectedSource.scopeId,
+            sourceId: connectedSource.id,
+            actorScopeId: session.actorScopeId ?? null,
+            slot: "runtime",
+          });
+          if (Option.isSome(authArtifact)) {
+            yield* upsertOauth2AuthorizedUserLeaseFromTokenResponse({
+              executorState: input.executorState,
+              artifact: authArtifact.value,
+              tokenResponse: exchanged,
+              storeSecretMaterial: input.storeSecretMaterial,
+              deleteSecretMaterial: input.deleteSecretMaterial,
+            });
+          }
         }
 
         yield* input.executorState.sourceAuthSessions.update(

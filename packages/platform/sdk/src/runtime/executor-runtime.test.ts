@@ -2023,6 +2023,106 @@ describe("executor-runtime", () => {
   );
 
   it.scoped(
+    "falls back to static OAuth2 auth when generic PKCE does not return a refresh token",
+    () =>
+      Effect.gen(function* () {
+        const runtime = yield* makeRuntime;
+        const openApiServer = yield* makeOpenApiSpecServer;
+        const oauthServer = yield* makeGenericOauthTestServer;
+        const installation = runtime.localInstallation;
+
+        const result = yield* withExecutorApiClient({ runtime }, (client) =>
+          client.sources.connect({
+            path: {
+              workspaceId: installation.scopeId,
+            },
+            payload: {
+              kind: "openapi",
+              endpoint: openApiServer.baseUrl,
+              specUrl: openApiServer.specUrl,
+              name: "GitHub",
+              namespace: "github",
+              oauthClient: {
+                clientId: "generic-client-id",
+                clientSecret: "generic-client-secret",
+                redirectMode: "app_callback",
+              },
+              oauth2Setup: {
+                authorizationEndpoint: oauthServer.authorizationEndpoint,
+                tokenEndpoint: oauthServer.tokenEndpoint,
+                scopes: ["tweet.read"],
+                headerName: "Authorization",
+                prefix: "Bearer ",
+                clientAuthentication: "client_secret_post",
+              },
+            },
+          }),
+        );
+
+        expect(result.kind).toBe("oauth_required");
+        if (result.kind !== "oauth_required") {
+          throw new Error(
+            `Expected oauth_required result, received ${result.kind}`,
+          );
+        }
+
+        const state = new URL(result.authorizationUrl).searchParams.get("state");
+        expect(state).not.toBeNull();
+
+        oauthServer.queueTokenResponse({
+          access_token: "generic-access-token",
+          scope: "tweet.read",
+        });
+
+        const completion = yield* withExecutorApiClient({ runtime }, (client) =>
+          client.sources.credentialComplete({
+            path: {
+              workspaceId: installation.scopeId,
+              sourceId: result.source.id,
+            },
+            urlParams: {
+              state: state!,
+              code: "oauth-code",
+            },
+          }),
+        );
+
+        expect(completion).toContain("Source connected");
+
+        const connected = yield* withExecutorApiClient({ runtime }, (client) =>
+          client.sources.get({
+            path: {
+              workspaceId: installation.scopeId,
+              sourceId: result.source.id,
+            },
+          }),
+        );
+
+        expect(connected.status).toBe("connected");
+        expect(connected.auth.kind).toBe("oauth2");
+        if (connected.auth.kind !== "oauth2") {
+          throw new Error(
+            `Expected oauth2 auth, received ${connected.auth.kind}`,
+          );
+        }
+
+        expect(connected.auth.headerName).toBe("Authorization");
+        expect(connected.auth.prefix).toBe("Bearer ");
+        expect(connected.auth.accessToken.handle.length).toBeGreaterThan(0);
+        expect(connected.auth.refreshToken).toBeNull();
+
+        const authArtifacts =
+          yield* executorStateForRuntime(runtime).authArtifacts.listByScopeAndSourceId({
+            scopeId: installation.scopeId,
+            sourceId: result.source.id,
+          });
+        expect(authArtifacts).toHaveLength(1);
+        expect(authArtifacts[0]?.artifactKind).toBe("static_oauth2");
+      }),
+    60_000,
+  );
+
+  it.scoped(
     "reuses existing Google provider grants for batch connects and clears orphan state",
     () =>
       Effect.gen(function* () {
