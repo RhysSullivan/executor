@@ -125,7 +125,7 @@ describe("scope source catalog", () => {
       ]);
     }));
 
-  it.effect("reuses a lean shared catalog for repeated no-schema search and lookup calls", () =>
+  it.effect("reuses the lean shared catalog for repeated search, list, and no-schema lookup calls", () =>
     Effect.gen(function* () {
       const loadWorkspaceSourceCatalogToolIndexCalls: Array<undefined> = [];
 
@@ -195,6 +195,11 @@ describe("scope source catalog", () => {
         limit: 20,
         includeSchemas: false,
       });
+      const listedWithSchemas = yield* catalog.listTools({
+        query: "GitHub list repository issues",
+        limit: 20,
+        includeSchemas: true,
+      });
 
       expect(hits).toHaveLength(1);
       expect(hits[0]?.path).toBe("github.issues.list");
@@ -202,6 +207,115 @@ describe("scope source catalog", () => {
       expect(first?.contract?.inputTypePreview).toBeUndefined();
       expect(second?.contract?.outputTypePreview).toBeUndefined();
       expect(listed).toHaveLength(1);
+      expect(listedWithSchemas).toHaveLength(1);
+      expect(listedWithSchemas[0]?.contract?.inputSchema).toBeUndefined();
       expect(loadWorkspaceSourceCatalogToolIndexCalls).toHaveLength(1);
+    }));
+
+  it.effect("loads schemaful tool descriptions through direct tool lookup instead of a shared schema catalog", () =>
+    Effect.gen(function* () {
+      const loadWorkspaceSourceCatalogToolIndexCalls: Array<undefined> = [];
+      const loadWorkspaceSourceCatalogToolByPathCalls: Array<{
+        path: string;
+        includeSchemas: boolean;
+      }> = [];
+
+      const catalog = createScopeSourceCatalog({
+        scopeId: "ws_test" as any,
+        actorScopeId: "acc_test" as any,
+        sourceCatalogStore: {
+          loadWorkspaceSourceCatalogs: () => Effect.die("unexpected catalog load"),
+          loadWorkspaceSourceCatalogToolIndex: () => {
+            loadWorkspaceSourceCatalogToolIndexCalls.push(undefined);
+
+            return Effect.succeed([{
+              path: "github.issues.list",
+              searchNamespace: "github.issues",
+              searchText: "github issues list repository issues",
+              source: {
+                enabled: true,
+                status: "connected",
+              },
+              sourceRecord: {},
+              capabilityId: "cap_1",
+              executableId: "exec_1",
+              capability: {
+                surface: {
+                  title: "List Repository Issues",
+                },
+              },
+              executable: {
+                display: {
+                  leaf: "list",
+                },
+              },
+              descriptor: {
+                path: "github.issues.list",
+                sourceKey: "github",
+                description: "List issues for a repository",
+                interaction: "auto",
+              },
+              projectedCatalog: {},
+            }] as any);
+          },
+          loadWorkspaceSourceCatalogToolByPath: (input: {
+            path: string;
+            includeSchemas: boolean;
+          }) => {
+            loadWorkspaceSourceCatalogToolByPathCalls.push(input);
+
+            return Effect.succeed({
+              path: "github.issues.list",
+              searchNamespace: "github.issues",
+              searchText: "github issues list repository issues",
+              source: {
+                enabled: true,
+                status: "connected",
+              },
+              sourceRecord: {},
+              capabilityId: "cap_1",
+              executableId: "exec_1",
+              capability: {
+                surface: {
+                  title: "List Repository Issues",
+                },
+              },
+              executable: {
+                display: {
+                  leaf: "list",
+                },
+              },
+              descriptor: {
+                path: "github.issues.list",
+                sourceKey: "github",
+                description: "List issues for a repository",
+                interaction: "auto",
+                contract: {
+                  inputSchema: { type: "object" },
+                },
+              },
+              projectedCatalog: {},
+            } as any);
+          },
+        } as any,
+        scopeConfigStore: noopScopeConfigStore,
+        scopeStateStore: noopScopeStateStore,
+        sourceArtifactStore: noopSourceArtifactStore,
+        runtimeLocalScope: null,
+      });
+
+      const described = yield* catalog.getToolByPath({
+        path: "github.issues.list" as any,
+        includeSchemas: true,
+      });
+
+      expect(described?.contract?.inputSchema).toEqual({ type: "object" });
+      expect(loadWorkspaceSourceCatalogToolIndexCalls).toHaveLength(0);
+      expect(loadWorkspaceSourceCatalogToolByPathCalls).toEqual([{
+        scopeId: "ws_test",
+        actorScopeId: "acc_test",
+        path: "github.issues.list",
+        includeSchemas: true,
+      }]);
     }));
 });
