@@ -40,12 +40,11 @@ Keeping that distinction clear avoids collapsing very different responsibilities
 Broadly:
 
 - control plane owns workspace state, bindings, credentials, and execution lifecycle
-- `packages/sources/mcp` owns MCP tool loading and invocation helpers
 - `packages/hosts/mcp` owns the local MCP server surface
 - `packages/platform/server` mounts the `/mcp` handler
 
 ## Why MCP stays flexible in this model
 
-Because MCP keeps its own adapter/runtime behavior, executor can support protocol-specific features such as sessions, elicitation, and resume without bending the generic imported-tool model to fit them.
+Because the host surface stays separate from source plugins, executor can support protocol-specific features such as sessions, elicitation, and resume without hard-wiring an MCP source adapter into the product shell.
 
 That is the main reason MCP is a first-class category in the architecture.

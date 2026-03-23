@@ -1,11 +1,7 @@
-import { Link } from "@tanstack/react-router";
-import { useSources, type Source } from "@executor/react";
+import { useSources } from "@executor/react";
 import { LoadableBlock } from "../components/loadable";
-import { LocalMcpInstallCard } from "../components/local-mcp-install-card";
-import { SourceFavicon } from "../components/source-favicon";
 import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
-import { IconSources, IconPlus } from "../components/icons";
+import { SourcePluginsResetState } from "../components/source-plugins-reset-state";
 
 export function HomePage() {
   const sources = useSources();
@@ -13,83 +9,64 @@ export function HomePage() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
-        {/* Header */}
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-              Sources
-            </h1>
-            <p className="mt-1.5 text-[14px] text-muted-foreground">
-              Connected tool providers in this workspace.
-            </p>
+        <div className="rounded-3xl border border-border bg-card p-8">
+          <div className="inline-flex rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+            Sources
           </div>
-          <Link to="/sources/add">
-            <Button size="sm">
-              <IconPlus className="size-3.5" />
-              Add source
-            </Button>
-          </Link>
+          <h1 className="mt-5 font-display text-3xl tracking-tight text-foreground lg:text-4xl">
+            Source plugins have been removed from the product shell
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+            The built-in OpenAPI, GraphQL, MCP, and Google Discovery flows are
+            intentionally stripped out. This leaves the workspace UI in a clean
+            slate state while the plugin registration model is rebuilt.
+          </p>
         </div>
 
-        <LocalMcpInstallCard className="mb-8" />
-
-        {/* Source list */}
-        <LoadableBlock loadable={sources} loading="Loading sources...">
-          {(items) =>
-            items.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
-                  <IconSources className="size-5" />
+        <div className="mt-8">
+          <LoadableBlock loadable={sources} loading="Loading sources...">
+            {(items) =>
+              items.length === 0 ? (
+                <SourcePluginsResetState
+                  title="No registered source plugins"
+                  message="No source plugins are registered in this build, so new sources cannot be added from the UI yet."
+                />
+              ) : (
+                <div className="grid gap-3">
+                  {items.map((source) => (
+                    <div
+                      key={source.id}
+                      className="rounded-2xl border border-border bg-card px-5 py-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">
+                            {source.name}
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {source.endpoint}
+                          </div>
+                        </div>
+                        <Badge
+                          variant={
+                            source.status === "connected"
+                              ? "default"
+                              : source.status === "error"
+                                ? "destructive"
+                                : "muted"
+                          }
+                        >
+                          {source.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <p className="text-[14px] font-medium text-foreground/70 mb-1">
-                  No sources yet
-                </p>
-                <p className="text-[13px] text-muted-foreground/60 mb-5">
-                  Add a source to get started.
-                </p>
-                <Link to="/sources/add">
-                  <Button size="sm">
-                    <IconPlus className="size-3.5" />
-                    Add source
-                  </Button>
-                </Link>
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {items.map((source) => (
-                  <SourceCard key={source.id} source={source} />
-                ))}
-              </div>
-            )
-          }
-        </LoadableBlock>
+              )
+            }
+          </LoadableBlock>
+        </div>
       </div>
     </div>
-  );
-}
-
-function SourceCard({ source }: { source: Source }) {
-  return (
-    <Link
-      to="/sources/$sourceId"
-      params={{ sourceId: source.id }}
-      search={{ tab: "model" }}
-      className="group flex flex-col rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/30 hover:shadow-[0_2px_12px_-4px_rgba(0,0,0,0.12)]"
-    >
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/8 text-primary">
-          <SourceFavicon endpoint={source.endpoint} kind={source.kind} className="size-4.5" />
-        </div>
-        <Badge variant={source.status === "connected" ? "default" : source.status === "error" ? "destructive" : "muted"} className="shrink-0">
-          {source.status}
-        </Badge>
-      </div>
-      <h3 className="text-[14px] font-semibold text-foreground group-hover:text-primary transition-colors mb-0.5">
-        {source.name}
-      </h3>
-      <div className="flex items-center gap-2 mt-auto pt-2">
-        <Badge variant="outline" className="text-[9px]">{source.kind}</Badge>
-      </div>
-    </Link>
   );
 }

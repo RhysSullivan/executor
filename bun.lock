@@ -18,7 +18,7 @@
     },
     "apps/executor": {
       "name": "executor",
-      "version": "1.2.4-beta.4",
+      "version": "1.2.5",
       "bin": {
         "executor": "bin/executor",
       },
@@ -27,6 +27,7 @@
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
         "@executor/codemode-core": "workspace:*",
+        "@executor/executor-mcp": "workspace:*",
         "@executor/platform-api": "workspace:*",
         "@executor/platform-internal": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
@@ -189,7 +190,6 @@
         "@executor/codemode-core": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
         "@executor/runtime-ses": "workspace:*",
-        "@executor/source-openapi": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -345,10 +345,6 @@
         "@executor/runtime-ses": "workspace:*",
         "@executor/source-builtins": "workspace:*",
         "@executor/source-core": "workspace:*",
-        "@executor/source-google-discovery": "workspace:*",
-        "@executor/source-graphql": "workspace:*",
-        "@executor/source-mcp": "workspace:*",
-        "@executor/source-openapi": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -374,8 +370,6 @@
         "@executor/ir": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
         "@executor/source-core": "workspace:*",
-        "@executor/source-graphql": "workspace:*",
-        "@executor/source-openapi": "workspace:*",
         "effect": "catalog:",
         "jsonc-parser": "3.3.1",
       },
@@ -417,10 +411,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@executor/source-core": "workspace:*",
-        "@executor/source-google-discovery": "workspace:*",
-        "@executor/source-graphql": "workspace:*",
-        "@executor/source-mcp": "workspace:*",
-        "@executor/source-openapi": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "catalog:",
@@ -440,77 +430,6 @@
       "devDependencies": {
         "@types/node": "catalog:",
         "bun-types": "catalog:",
-      },
-    },
-    "packages/sources/google-discovery": {
-      "name": "@executor/source-google-discovery",
-      "version": "0.0.0",
-      "dependencies": {
-        "@effect/platform": "catalog:",
-        "@executor/codemode-core": "workspace:*",
-        "@executor/ir": "workspace:*",
-        "@executor/source-core": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
-    "packages/sources/graphql": {
-      "name": "@executor/source-graphql",
-      "version": "0.0.0",
-      "dependencies": {
-        "@executor/codemode-core": "workspace:*",
-        "@executor/ir": "workspace:*",
-        "@executor/source-core": "workspace:*",
-        "effect": "catalog:",
-        "graphql": "^16.12.0",
-      },
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-      },
-    },
-    "packages/sources/mcp": {
-      "name": "@executor/source-mcp",
-      "version": "0.0.0",
-      "dependencies": {
-        "@executor/auth-mcp-oauth": "workspace:*",
-        "@executor/codemode-core": "workspace:*",
-        "@executor/ir": "workspace:*",
-        "@executor/runtime-ses": "workspace:*",
-        "@executor/source-core": "workspace:*",
-        "@modelcontextprotocol/sdk": "^1.26.0",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-        "vitest": "catalog:",
-        "zod": "catalog:",
-      },
-    },
-    "packages/sources/openapi": {
-      "name": "@executor/source-openapi",
-      "version": "0.0.0",
-      "dependencies": {
-        "@effect/platform": "catalog:",
-        "@executor/codemode-core": "workspace:*",
-        "@executor/ir": "workspace:*",
-        "@executor/source-core": "workspace:*",
-        "effect": "catalog:",
-        "yaml": "^2.8.1",
-      },
-      "devDependencies": {
-        "@effect/platform-node": "^0.104.1",
-        "@effect/vitest": "catalog:",
-        "@types/node": "catalog:",
-        "bun-types": "catalog:",
-        "vitest": "catalog:",
       },
     },
   },
@@ -759,14 +678,6 @@
     "@executor/source-builtins": ["@executor/source-builtins@workspace:packages/sources/builtins"],
 
     "@executor/source-core": ["@executor/source-core@workspace:packages/sources/core"],
-
-    "@executor/source-google-discovery": ["@executor/source-google-discovery@workspace:packages/sources/google-discovery"],
-
-    "@executor/source-graphql": ["@executor/source-graphql@workspace:packages/sources/graphql"],
-
-    "@executor/source-mcp": ["@executor/source-mcp@workspace:packages/sources/mcp"],
-
-    "@executor/source-openapi": ["@executor/source-openapi@workspace:packages/sources/openapi"],
 
     "@executor/sqlite-sdk-consumer-example": ["@executor/sqlite-sdk-consumer-example@workspace:examples/sqlite-sdk-consumer"],
 
@@ -1401,8 +1312,6 @@
     "gopd": ["gopd@1.2.0", "", {}, "sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg=="],
 
     "graceful-fs": ["graceful-fs@4.2.11", "", {}, "sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ=="],
-
-    "graphql": ["graphql@16.13.1", "", {}, "sha512-gGgrVCoDKlIZ8fIqXBBb0pPKqDgki0Z/FSKNiQzSGj2uEYHr1tq5wmBegGwJx6QB5S5cM0khSBpi/JFHMCvsmQ=="],
 
     "has-symbols": ["has-symbols@1.1.0", "", {}, "sha512-1cDNdwJ2Jaohmb3sg4OmKaMBwuC48sYni5HUw2DvsC8LjGTLK9h+eb1X6RyuOHe4hT0ULCW68iomhjUoKUqlPQ=="],
 

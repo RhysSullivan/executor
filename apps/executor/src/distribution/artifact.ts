@@ -187,12 +187,6 @@ export const buildDistributionPackage = async (
 
   await cp(webDistDir, webDir, { recursive: true });
   await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
-
-  await mkdir(join(binDir, "openapi-extractor-wasm"), { recursive: true });
-  await cp(
-    join(repoRoot, "packages/sources/openapi/src/openapi-extractor-wasm/openapi_extractor_bg.wasm"),
-    join(binDir, "openapi-extractor-wasm/openapi_extractor_bg.wasm"),
-  );
   await cp(
     join(repoRoot, "packages/kernel/runtime-deno-subprocess/src/deno-subprocess-worker.mjs"),
     join(binDir, "deno-subprocess-worker.mjs"),

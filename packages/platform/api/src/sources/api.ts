@@ -1,9 +1,5 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
-  ConnectSourceBatchPayloadSchema,
-  ConnectSourceBatchResultSchema,
-  ConnectSourcePayloadSchema,
-  ConnectSourceResultSchema,
   CreateSourcePayloadSchema,
   CreateScopeOauthClientPayloadSchema as CreateWorkspaceOauthClientPayloadSchema,
   CredentialOauthCompleteUrlParamsSchema,
@@ -36,10 +32,6 @@ import {
 import * as Schema from "effect/Schema";
 
 export type {
-  ConnectSourceBatchPayload,
-  ConnectSourceBatchResult,
-  ConnectSourcePayload,
-  ConnectSourceResult,
   CreateSourcePayload,
   CreateScopeOauthClientPayload as CreateWorkspaceOauthClientPayload,
   DiscoverSourcePayload,
@@ -47,10 +39,6 @@ export type {
 } from "@executor/platform-sdk/contracts";
 
 export {
-  ConnectSourceBatchPayloadSchema,
-  ConnectSourceBatchResultSchema,
-  ConnectSourcePayloadSchema,
-  ConnectSourceResultSchema,
   CreateSourcePayloadSchema,
   CreateWorkspaceOauthClientPayloadSchema,
   DiscoverSourcePayloadSchema,
@@ -78,24 +66,6 @@ export class SourcesApi extends HttpApiGroup.make("sources")
       .addError(ControlPlaneBadRequestError)
       .addError(ControlPlaneUnauthorizedError)
       .addError(ControlPlaneForbiddenError),
-  )
-  .add(
-    HttpApiEndpoint.post("connect")`/workspaces/${workspaceIdParam}/sources/connect`
-      .setPayload(ConnectSourcePayloadSchema)
-      .addSuccess(ConnectSourceResultSchema)
-      .addError(ControlPlaneBadRequestError)
-      .addError(ControlPlaneUnauthorizedError)
-      .addError(ControlPlaneForbiddenError)
-      .addError(ControlPlaneStorageError),
-  )
-  .add(
-    HttpApiEndpoint.post("connectBatch")`/workspaces/${workspaceIdParam}/sources/connect-batch`
-      .setPayload(ConnectSourceBatchPayloadSchema)
-      .addSuccess(ConnectSourceBatchResultSchema)
-      .addError(ControlPlaneBadRequestError)
-      .addError(ControlPlaneUnauthorizedError)
-      .addError(ControlPlaneForbiddenError)
-      .addError(ControlPlaneStorageError),
   )
   .add(
     HttpApiEndpoint.get("listWorkspaceOauthClients")`/workspaces/${workspaceIdParam}/oauth-clients`

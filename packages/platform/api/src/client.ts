@@ -35,8 +35,6 @@ export type ExecutorApiClient = {
   };
   sources: {
     discover: PromiseMethod<ExecutorApiEffectClient["sources"]["discover"]>;
-    connect: PromiseMethod<ExecutorApiEffectClient["sources"]["connect"]>;
-    connectBatch: PromiseMethod<ExecutorApiEffectClient["sources"]["connectBatch"]>;
     listWorkspaceOauthClients: PromiseMethod<
       ExecutorApiEffectClient["sources"]["listWorkspaceOauthClients"]
     >;
@@ -128,8 +126,6 @@ export const createExecutorApiClient = async (input: {
     },
     sources: {
       discover: wrapMethod(effectClientPromise, (client) => client.sources.discover),
-      connect: wrapMethod(effectClientPromise, (client) => client.sources.connect),
-      connectBatch: wrapMethod(effectClientPromise, (client) => client.sources.connectBatch),
       listWorkspaceOauthClients: wrapMethod(
         effectClientPromise,
         (client) => client.sources.listWorkspaceOauthClients,

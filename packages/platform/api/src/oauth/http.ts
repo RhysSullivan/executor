@@ -93,15 +93,13 @@ const resolveRequestOrigin = (request: { url: string; headers: unknown }): strin
 
 const toStartSourceOAuthError = (input: {
   workspaceId: WorkspaceId;
-  provider: string;
-  endpoint: string;
+  providerKey: string;
   cause: Cause.Cause<unknown>;
 }) => {
   const pretty = Cause.pretty(input.cause);
   console.error("oauth.start_source_auth failed", {
     workspaceId: input.workspaceId,
-    provider: input.provider,
-    endpoint: input.endpoint,
+    providerKey: input.providerKey,
     pretty,
   });
 
@@ -245,11 +243,8 @@ export const ExecutorOAuthLive = HttpApiBuilder.group(
                   baseUrl: resolveRequestOrigin(request),
                   displayName: payload.name,
                   provider: {
-                    kind: payload.provider,
-                    endpoint: payload.endpoint,
-                    transport: payload.transport,
-                    queryParams: payload.queryParams,
-                    headers: payload.headers,
+                    providerKey: payload.providerKey,
+                    config: payload.config ?? null,
                   },
                 });
             }).pipe(
@@ -257,8 +252,7 @@ export const ExecutorOAuthLive = HttpApiBuilder.group(
                 Effect.fail(
                   toStartSourceOAuthError({
                     workspaceId: path.workspaceId,
-                    provider: payload.provider,
-                    endpoint: payload.endpoint,
+                    providerKey: payload.providerKey,
                     cause,
                   }),
                 ),

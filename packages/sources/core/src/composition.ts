@@ -49,14 +49,16 @@ const asSchemaTuple = (
   ...Array<Schema.Schema<any, any, never>>,
 ];
 
+const DisabledSourceAdapterSchema = Schema.Struct({
+  __sourcePluginRegistrationRequired: Schema.Literal(true),
+}) as unknown as SourceAdapterInputSchema;
+
 const createSchemaFromAdapters = <TSchema extends SourceAdapterInputSchema>(
   schemas: ReadonlyArray<TSchema>,
-  label: string,
+  _label: string,
 ): TSchema =>
   (schemas.length === 0
-    ? (() => {
-        throw new Error(`Cannot create ${label} without any schemas`);
-      })()
+    ? DisabledSourceAdapterSchema
     : schemas.length === 1
     ? schemas[0]!
     : Schema.Union(...asSchemaTuple(schemas))) as TSchema;

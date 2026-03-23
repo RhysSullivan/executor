@@ -9,9 +9,6 @@
   "ignoreIssues": {
     "packages/kernel/runtime-deno-subprocess/src/deno-subprocess-worker.mjs": [
       "files"
-    ],
-    "packages/sources/openapi/src/openapi-extractor-wasm/openapi_extractor.js": [
-      "exports"
     ]
   },
   "workspaces": {

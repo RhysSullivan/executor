@@ -4,8 +4,6 @@ import {
   createExecutorEffect,
   type CreateExecutorEffectOptions,
   type ExecutorEffect,
-  type ExecutorMcpSourceInput,
-  type ExecutorSourceBatchInput,
   type ExecutorSourceInput,
   type ExecutorSourceOAuthInput,
 } from "./executor-effect";
@@ -23,8 +21,6 @@ type Promiseify<T> = T extends Effect.Effect<infer A, any, any>
 export type Executor = Omit<Promiseify<ExecutorEffect>, "runtime">;
 export type CreateExecutorOptions = CreateExecutorEffectOptions;
 export type {
-  ExecutorMcpSourceInput,
-  ExecutorSourceBatchInput,
   ExecutorSourceInput,
   ExecutorSourceOAuthInput,
 };
@@ -64,8 +60,6 @@ const toPromiseExecutor = (executor: ExecutorEffect): Executor => {
     },
     sources: {
       add: (input, options) => run(executor.sources.add(input, options)),
-      connect: (payload) => run(executor.sources.connect(payload)),
-      connectBatch: (payload) => run(executor.sources.connectBatch(payload)),
       discover: (input) => run(executor.sources.discover(input)),
       list: () => run(executor.sources.list()),
       create: (payload) => run(executor.sources.create(payload)),

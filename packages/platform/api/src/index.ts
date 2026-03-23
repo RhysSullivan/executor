@@ -52,19 +52,11 @@ export {
 } from "./oauth/api";
 
 export {
-  ConnectSourceBatchPayloadSchema,
-  ConnectSourceBatchResultSchema,
-  ConnectSourcePayloadSchema,
-  ConnectSourceResultSchema,
   CreateWorkspaceOauthClientPayloadSchema,
   CreateSourcePayloadSchema,
   DiscoverSourcePayloadSchema,
   SourcesApi,
   UpdateSourcePayloadSchema,
-  type ConnectSourceBatchPayload,
-  type ConnectSourceBatchResult,
-  type ConnectSourcePayload,
-  type ConnectSourceResult,
   type CreateWorkspaceOauthClientPayload,
   type CreateSourcePayload,
   type DiscoverSourcePayload,

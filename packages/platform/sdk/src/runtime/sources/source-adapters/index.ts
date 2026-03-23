@@ -12,6 +12,11 @@ import {
   internalSourceAdapter,
 } from "./internal";
 
+type DisabledSourcePluginPayload = {
+  __sourcePluginRegistrationRequired?: true;
+  [key: string]: unknown;
+};
+
 export type * from "@executor/source-core";
 
 export const builtInSourceAdapters = [
@@ -22,8 +27,8 @@ const composition = createSourceAdapterComposition(builtInSourceAdapters);
 
 export const connectableSourceAdapters = composition.connectableSourceAdapters;
 export const ConnectSourcePayloadSchema =
-  composition.connectPayloadSchema as Schema.Schema<
-    typeof composition.connectPayloadSchema.Type,
+  composition.connectPayloadSchema as unknown as Schema.Schema<
+    typeof composition.connectPayloadSchema.Type | DisabledSourcePluginPayload,
     any,
     never
   >;
@@ -31,14 +36,21 @@ export type ConnectSourcePayload = typeof ConnectSourcePayloadSchema.Type;
 
 export const executorAddableSourceAdapters = composition.executorAddableSourceAdapters;
 export const ExecutorAddSourceInputSchema =
-  composition.executorAddInputSchema as Schema.Schema<
-    typeof composition.executorAddInputSchema.Type,
+  composition.executorAddInputSchema as unknown as Schema.Schema<
+    typeof composition.executorAddInputSchema.Type | DisabledSourcePluginPayload,
     any,
     never
   >;
 export type ExecutorAddSourceInput = typeof ExecutorAddSourceInputSchema.Type;
 
 export const localConfigurableSourceAdapters = composition.localConfigurableSourceAdapters;
+export const hasRegisteredConnectableSourceAdapters =
+  connectableSourceAdapters.length > 0;
+export const hasRegisteredExecutorAddableSourceAdapters =
+  executorAddableSourceAdapters.length > 0;
+export const hasRegisteredExternalSourceAdapters =
+  hasRegisteredConnectableSourceAdapters
+  || hasRegisteredExecutorAddableSourceAdapters;
 
 export const getSourceAdapter = composition.getSourceAdapter;
 export const getSourceAdapterForSource = composition.getSourceAdapterForSource;

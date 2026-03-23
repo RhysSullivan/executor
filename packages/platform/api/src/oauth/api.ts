@@ -1,9 +1,8 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
+  JsonObjectSchema,
   SecretRefSchema,
   SourceAuthSessionIdSchema,
-  SourceTransportSchema,
-  StringMapSchema,
   ScopeIdSchema as WorkspaceIdSchema,
 } from "@executor/platform-sdk/schema";
 import * as Schema from "effect/Schema";
@@ -23,12 +22,9 @@ const HtmlSchema = HttpApiSchema.Text({
 });
 
 export const StartSourceOAuthPayloadSchema = Schema.Struct({
-  provider: Schema.Literal("mcp"),
+  providerKey: TrimmedNonEmptyStringSchema,
   name: Schema.optional(Schema.NullOr(Schema.String)),
-  endpoint: TrimmedNonEmptyStringSchema,
-  transport: Schema.optional(SourceTransportSchema),
-  queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
-  headers: Schema.optional(Schema.NullOr(StringMapSchema)),
+  config: Schema.optional(Schema.NullOr(JsonObjectSchema)),
 });
 
 export type StartSourceOAuthPayload = typeof StartSourceOAuthPayloadSchema.Type;

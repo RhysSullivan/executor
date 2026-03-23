@@ -1,24 +1,13 @@
 import {
   HttpApiBuilder,
-  HttpServerRequest,
   HttpServerResponse,
 } from "@effect/platform";
 import type {
   ExecutionInteraction,
   Source,
   ScopeId as WorkspaceId,
-  ScopeOauthClient as WorkspaceOauthClient,
 } from "@executor/platform-sdk/schema";
-import type {
-  ExecutorMcpSourceInput,
-  ExecutorSourceInput,
-} from "@executor/platform-sdk";
 import * as Effect from "effect/Effect";
-
-import {
-  sourceAdapterRequiresInteractiveConnect,
-} from "@executor/platform-sdk/runtime";
-import { ScopeOauthClientIdSchema as WorkspaceOauthClientIdSchema } from "@executor/platform-sdk/schema";
 
 import {
   ControlPlaneBadRequestError,
@@ -26,50 +15,10 @@ import {
   ControlPlaneStorageError,
 } from "../errors";
 import { ExecutorApi } from "../api";
-import type { ConnectSourcePayload } from "./api";
 import {
   getControlPlaneExecutor,
   resolveRequestedLocalWorkspace,
 } from "../local-context";
-
-const readHeader = (headers: unknown, name: string): string | null => {
-  if (headers == null || typeof headers !== "object") {
-    return null;
-  }
-
-  const record = headers as Record<string, unknown>;
-  const exact = record[name];
-  if (typeof exact === "string" && exact.length > 0) {
-    return exact;
-  }
-
-  const lower = record[name.toLowerCase()];
-  if (typeof lower === "string" && lower.length > 0) {
-    return lower;
-  }
-
-  return null;
-};
-
-const resolveRequestOrigin = (request: {
-  url: string;
-  headers: unknown;
-}): string | null => {
-  try {
-    return new URL(request.url).origin;
-  } catch {
-    const forwardedHost = readHeader(request.headers, "x-forwarded-host");
-    const host = forwardedHost ?? readHeader(request.headers, "host");
-    if (!host) {
-      return null;
-    }
-
-    const forwardedProto = readHeader(request.headers, "x-forwarded-proto");
-    const protocol =
-      forwardedProto && forwardedProto.length > 0 ? forwardedProto : "http";
-    return `${protocol}://${host}`;
-  }
-};
 
 const toBadRequestError = (operation: string, cause: unknown) => {
   const message = cause instanceof Error ? cause.message : String(cause);
@@ -79,86 +28,6 @@ const toBadRequestError = (operation: string, cause: unknown) => {
     details: message,
   });
 };
-
-const isInteractiveConnectPayload = (
-  payload: ConnectSourcePayload,
-): payload is Extract<ConnectSourcePayload, { kind?: "mcp" }> =>
-  payload.kind === undefined ||
-  sourceAdapterRequiresInteractiveConnect(payload.kind);
-
-const nullToUndefined = <T>(value: T | null | undefined): T | undefined =>
-  value ?? undefined;
-
-const toWorkspaceOauthClientId = (
-  value: string | null | undefined,
-): WorkspaceOauthClient["id"] | null | undefined =>
-  value == null ? value : WorkspaceOauthClientIdSchema.make(value);
-
-const toExecutorSourceInput = (
-  payload: ConnectSourcePayload,
-): ExecutorSourceInput | null => {
-  if (isInteractiveConnectPayload(payload)) {
-    return null;
-  }
-
-  switch (payload.kind) {
-    case "openapi":
-      return {
-        kind: "openapi",
-        endpoint: payload.endpoint,
-        specUrl: payload.specUrl,
-        name: payload.name,
-        namespace: payload.namespace,
-        importAuthPolicy: nullToUndefined(payload.importAuthPolicy),
-        importAuth: payload.importAuth,
-        auth: payload.auth,
-      };
-    case "graphql":
-      return {
-        kind: "graphql",
-        endpoint: payload.endpoint,
-        name: payload.name,
-        namespace: payload.namespace,
-        importAuthPolicy: nullToUndefined(payload.importAuthPolicy),
-        importAuth: payload.importAuth,
-        auth: payload.auth,
-      };
-    case "google_discovery":
-      return {
-        kind: "google_discovery",
-        service: payload.service,
-        version: payload.version,
-        discoveryUrl: payload.discoveryUrl,
-        scopes: payload.scopes,
-        scopeOauthClientId: toWorkspaceOauthClientId(
-          payload.scopeOauthClientId,
-        ),
-        oauthClient: payload.oauthClient,
-        name: payload.name,
-        namespace: payload.namespace,
-        importAuthPolicy: nullToUndefined(payload.importAuthPolicy),
-        importAuth: payload.importAuth,
-        auth: payload.auth,
-      };
-  }
-};
-
-const toExecutorMcpSourceInput = (
-  payload: Extract<ConnectSourcePayload, { kind?: "mcp" }>,
-  baseUrl: string | null,
-): ExecutorMcpSourceInput => ({
-  endpoint: payload.endpoint,
-  name: payload.name,
-  namespace: payload.namespace,
-  transport: payload.transport,
-  queryParams: payload.queryParams,
-  headers: payload.headers,
-  command: payload.command,
-  args: payload.args,
-  env: payload.env,
-  cwd: payload.cwd,
-  baseUrl,
-});
 
 const escapeHtml = (value: string): string =>
   value
@@ -758,63 +627,6 @@ export const ExecutorSourcesLive = HttpApiBuilder.group(
             ),
           )
         )
-      )
-      .handle("connect", ({ path, payload }) =>
-        resolveRequestedLocalWorkspace(
-          "sources.connect",
-          path.workspaceId,
-        ).pipe(
-          Effect.flatMap((executor) =>
-            Effect.gen(function* () {
-              const request = yield* HttpServerRequest.HttpServerRequest;
-              const baseUrl = resolveRequestOrigin(request);
-
-              if (isInteractiveConnectPayload(payload)) {
-                return yield* executor.sources.connect(
-                  toExecutorMcpSourceInput(payload, baseUrl),
-                );
-              }
-
-              const sourceInput = toExecutorSourceInput(payload);
-              if (sourceInput) {
-                return yield* executor.sources.add(sourceInput, {
-                    baseUrl,
-                  });
-              }
-
-              return yield* Effect.fail(
-                toBadRequestError(
-                  "sources.connect",
-                  new Error("Unsupported source connect payload"),
-                ),
-              );
-            }).pipe(
-              Effect.catchAll((cause) =>
-                Effect.fail(toBadRequestError("sources.connect", cause)),
-              ),
-            ),
-          ),
-        ),
-      )
-      .handle("connectBatch", ({ path, payload }) =>
-        resolveRequestedLocalWorkspace(
-          "sources.connectBatch",
-          path.workspaceId,
-        ).pipe(
-          Effect.flatMap((executor) =>
-            Effect.gen(function* () {
-              const request = yield* HttpServerRequest.HttpServerRequest;
-              return yield* executor.sources.connectBatch({
-                ...payload,
-                baseUrl: resolveRequestOrigin(request),
-              });
-            }).pipe(
-              Effect.catchAll((cause) =>
-                Effect.fail(toBadRequestError("sources.connectBatch", cause)),
-              ),
-            ),
-          ),
-        ),
       )
       .handle("listWorkspaceOauthClients", ({ path, urlParams }) =>
         resolveRequestedLocalWorkspace(

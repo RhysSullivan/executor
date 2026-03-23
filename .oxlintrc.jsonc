@@ -79,14 +79,5 @@
         "no-unsafe-finally": "off",
       },
     },
-    {
-      // Generated wasm glue is vendored into the repo and not hand-maintained.
-      "files": [
-        "packages/sources/openapi/src/openapi-extractor-wasm/openapi_extractor.js",
-      ],
-      "rules": {
-        "no-unused-vars": "off",
-      },
-    },
   ],
 }

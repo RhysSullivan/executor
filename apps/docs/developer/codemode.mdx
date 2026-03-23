@@ -28,21 +28,17 @@ This package holds the common tool model:
 
 This is the main abstraction boundary that other layers build on.
 
-### `packages/sources/openapi`
+### Source plugins
 
-This package handles OpenAPI-specific extraction and tool generation.
+The old built-in source packages were removed during the source-plugin reset.
 
-Its job is to understand OpenAPI and compile it into the shared codemode tool model, not to own workspace persistence or auth lifecycle.
-
-### `packages/sources/mcp`
-
-This package handles MCP-specific tool discovery and invocation behavior and adapts remote MCP tools into the same shared tool model.
+The current expectation is that source-specific transformation logic will return as explicit plugins layered on top of the shared codemode contracts instead of being baked into the product shell.
 
 ## Why this layer exists
 
 Without the codemode layer, the control plane would have to understand every source format and execution detail directly.
 
-Instead, executor keeps the core model broad and pushes format-specific transformation logic into focused packages.
+Instead, executor keeps the core model broad and leaves source-specific transformation logic to future plugin modules.
 
 That is what makes the system extensible:
 

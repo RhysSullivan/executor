@@ -76,21 +76,8 @@ export const isObjectLikeJsonSchema = (schema: unknown): boolean => {
 };
 
 export const sourceKindFromSource = (
-  source: Pick<Source, "kind">,
-): SourceKind => {
-  switch (source.kind) {
-    case "openapi":
-      return "openapi";
-    case "graphql":
-      return "graphql-schema";
-    case "google_discovery":
-      return "google-discovery";
-    case "mcp":
-      return "mcp";
-    default:
-      return "custom";
-  }
-};
+  _source: Pick<Source, "kind">,
+): SourceKind => "custom";
 
 export const toolPathSegments = (
   source: Pick<Source, "name" | "namespace">,

@@ -3,9 +3,6 @@ import {
   makeToolInvokerFromTools,
   type ToolMap,
 } from "@executor/codemode-core";
-import {
-  clearAllMcpConnectionPools,
-} from "@executor/source-mcp";
 import type {
   LocalInstallation,
 } from "#schema";
@@ -110,7 +107,6 @@ export * from "./catalog/source/runtime";
 export * from "./catalog/source/sync";
 export * from "./sources/source-auth-service";
 export * from "./sources/source-credential-interactions";
-export * from "./sources/source-adapters/mcp";
 export * from "./sources/source-store";
 export * from "./executor-state-store";
 export * from "./execution/scope/environment";
@@ -140,6 +136,9 @@ export {
   connectableSourceAdapters,
   executorAddableSourceAdapters,
   localConfigurableSourceAdapters,
+  hasRegisteredConnectableSourceAdapters,
+  hasRegisteredExecutorAddableSourceAdapters,
+  hasRegisteredExternalSourceAdapters,
   getSourceAdapter,
   getSourceAdapterForSource,
   findSourceAdapterByProviderKey,
@@ -540,9 +539,6 @@ export const createExecutorRuntimeFromServices = (input: {
       managedRuntime,
       runtimeLayer: concreteRuntimeLayer as ExecutorRuntimeLayer,
       close: async () => {
-        await Effect.runPromise(clearAllMcpConnectionPools()).catch(
-          () => undefined,
-        );
         await managedRuntime.dispose().catch(() => undefined);
         await input.services.storage.close?.().catch(() => undefined);
       },

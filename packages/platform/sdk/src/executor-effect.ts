@@ -86,12 +86,8 @@ import type {
   CompleteProviderOauthCallbackResult,
   CompleteSourceCredentialSetupResult,
   CompleteSourceOAuthSessionResult,
-  ConnectGoogleDiscoveryBatchInput,
-  ConnectGoogleDiscoveryBatchResult,
-  ConnectMcpSourceInput,
   ExecutorAddSourceInput,
   ExecutorSourceAddResult,
-  McpSourceConnectResult,
   StartSourceOAuthSessionInput,
   StartSourceOAuthSessionResult,
 } from "./runtime/sources/source-auth-service";
@@ -112,16 +108,6 @@ type MappedProvidedEffect<
 export type ExecutorSourceInput = DistributiveOmit<
   ExecutorAddSourceInput,
   "scopeId" | "actorScopeId" | "executionId" | "interactionId"
->;
-
-export type ExecutorSourceBatchInput = DistributiveOmit<
-  ConnectGoogleDiscoveryBatchInput,
-  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
->;
-
-export type ExecutorMcpSourceInput = DistributiveOmit<
-  ConnectMcpSourceInput,
-  "scopeId" | "actorScopeId"
 >;
 
 export type ExecutorSourceOAuthInput = DistributiveOmit<
@@ -201,12 +187,6 @@ export type ExecutorEffect = {
         baseUrl?: string | null;
       },
     ) => Effect.Effect<ExecutorSourceAddResult, Error, never>;
-    connect: (
-      payload: ExecutorMcpSourceInput,
-    ) => Effect.Effect<McpSourceConnectResult, Error, never>;
-    connectBatch: (
-      payload: ExecutorSourceBatchInput,
-    ) => Effect.Effect<ConnectGoogleDiscoveryBatchResult, Error, never>;
     discover: (input: {
       url: string;
       probeAuth?: Parameters<typeof discoverSource>[0]["probeAuth"];
@@ -385,25 +365,6 @@ const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
             },
             options,
           );
-        }),
-      connect: (payload) =>
-        provideSourceAuth((service) =>
-          service.connectMcpSource({
-            ...payload,
-            scopeId,
-            actorScopeId,
-          }),
-        ),
-      connectBatch: (payload) =>
-        provideSourceAuth((service) => {
-          const session = createSdkSourceSession();
-          return service.connectGoogleDiscoveryBatch({
-            ...payload,
-            scopeId,
-            actorScopeId,
-            executionId: session.executionId,
-            interactionId: session.interactionId,
-          });
         }),
       discover: (input) => provide(discoverSource(input)),
       list: () => provide(listSources({ scopeId, actorScopeId })),

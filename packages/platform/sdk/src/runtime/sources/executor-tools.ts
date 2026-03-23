@@ -1,8 +1,5 @@
 import {
   type ElicitationResponse,
-  type OnElicitation,
-  type ToolInvocationContext,
-  type ToolMetadata,
   toTool,
   type ToolMap,
   type ToolPath,
@@ -32,9 +29,6 @@ import {
 import {
   provideOptionalRuntimeLocalScope,
 } from "../scope/runtime-context";
-import {
-  runtimeEffectError,
-} from "../effect-errors";
 
 /** Run an Effect as a Promise, preserving the original error (not FiberFailure). */
 const runEffect = async <A>(
@@ -60,9 +54,6 @@ const runEffect = async <A>(
 
 import {
   type ExecutorAddSourceInput,
-  type ExecutorCredentialManagedSourceInput,
-  type ExecutorHttpSourceAuthInput,
-  type ExecutorMcpSourceInput,
   type RuntimeSourceAuthService,
 } from "./source-auth-service";
 import {
@@ -72,11 +63,8 @@ import {
 import {
   ExecutorAddSourceInputSchema,
   executorAddableSourceAdapters,
-  sourceAdapterRequiresInteractiveConnect,
+  hasRegisteredExecutorAddableSourceAdapters,
 } from "./source-adapters";
-import {
-  decodeSourceCredentialSelectionContent,
-} from "./source-credential-interactions";
 
 const ExecutorSourcesAddInputSchema = Schema.standardSchemaV1(
   ExecutorAddSourceInputSchema,
@@ -84,44 +72,54 @@ const ExecutorSourcesAddInputSchema = Schema.standardSchemaV1(
 
 const ExecutorSourcesAddOutputSchema = Schema.standardSchemaV1(SourceSchema);
 
-export const EXECUTOR_SOURCES_ADD_INPUT_HINT = deriveSchemaTypeSignature(
-  ExecutorAddSourceInputSchema,
-  320,
-);
+export const EXECUTOR_SOURCES_ADD_INPUT_HINT = hasRegisteredExecutorAddableSourceAdapters
+  ? deriveSchemaTypeSignature(
+      ExecutorAddSourceInputSchema,
+      320,
+    )
+  : "Source plugins are not registered in this build.";
 
 export const EXECUTOR_SOURCES_ADD_OUTPUT_SIGNATURE = deriveSchemaTypeSignature(
   SourceSchema,
   260,
 );
 
-export const EXECUTOR_SOURCES_ADD_INPUT_SCHEMA = deriveSchemaJson(
-  ExecutorAddSourceInputSchema,
-) ?? {};
+export const EXECUTOR_SOURCES_ADD_INPUT_SCHEMA = hasRegisteredExecutorAddableSourceAdapters
+  ? deriveSchemaJson(
+      ExecutorAddSourceInputSchema,
+    ) ?? {}
+  : {};
 
 export const EXECUTOR_SOURCES_ADD_OUTPUT_SCHEMA = deriveSchemaJson(
   SourceSchema,
 ) ?? {};
 
-export const EXECUTOR_SOURCES_ADD_HELP_LINES = [
-  "Source add input shapes:",
-  ...executorAddableSourceAdapters.flatMap((adapter) =>
-    adapter.executorAddInputSchema
-    && adapter.executorAddInputSignatureWidth !== null
-    && adapter.executorAddHelpText
-      ? [
-          `- ${adapter.displayName}: ${deriveSchemaTypeSignature(adapter.executorAddInputSchema, adapter.executorAddInputSignatureWidth)}`,
-          ...adapter.executorAddHelpText.map((line) => `  ${line}`),
-        ]
-      : [],
-  ),
-  "  executor handles the credential setup for you.",
-] as const;
+export const EXECUTOR_SOURCES_ADD_HELP_LINES = hasRegisteredExecutorAddableSourceAdapters
+  ? [
+      "Source add input shapes:",
+      ...executorAddableSourceAdapters.flatMap((adapter) =>
+        adapter.executorAddInputSchema
+        && adapter.executorAddInputSignatureWidth !== null
+        && adapter.executorAddHelpText
+          ? [
+              `- ${adapter.displayName}: ${deriveSchemaTypeSignature(adapter.executorAddInputSchema, adapter.executorAddInputSignatureWidth)}`,
+              ...adapter.executorAddHelpText.map((line) => `  ${line}`),
+            ]
+          : [],
+      ),
+      "  executor handles the credential setup for you.",
+    ] as const
+  : [
+      "Source plugins are not registered in this build.",
+    ] as const;
 
 export const buildExecutorSourcesAddDescription = (): string =>
-  [
-    "Add an MCP, OpenAPI, or GraphQL source to the current scope.",
-    ...EXECUTOR_SOURCES_ADD_HELP_LINES,
-  ].join("\n");
+  hasRegisteredExecutorAddableSourceAdapters
+    ? [
+        "Add a registered source plugin to the current scope.",
+        ...EXECUTOR_SOURCES_ADD_HELP_LINES,
+      ].join("\n")
+    : "Source plugins are not registered in this build.";
 
 const toExecutionId = (value: unknown) => {
   if (typeof value !== "string" || value.trim().length === 0) {
@@ -136,50 +134,10 @@ const asToolPath = (value: string): ToolPath => value as ToolPath;
 const toSerializableValue = <A>(value: A): A =>
   JSON.parse(JSON.stringify(value)) as A;
 
-type ExecutorSourcesAddToolArgs =
-  | Omit<ExecutorMcpSourceInput, "scopeId" | "actorScopeId" | "executionId" | "interactionId">
-  | Omit<
-      ExecutorCredentialManagedSourceInput,
-      "scopeId" | "actorScopeId" | "executionId" | "interactionId"
-    >;
-
-type ExecutorGoogleDiscoveryToolArgs = Omit<
-  Extract<ExecutorCredentialManagedSourceInput, { service: string; version: string }>,
+type ExecutorSourcesAddToolArgs = Omit<
+  ExecutorAddSourceInput,
   "scopeId" | "actorScopeId" | "executionId" | "interactionId"
 >;
-
-type ExecutorOpenApiToolArgs = Omit<
-  Extract<ExecutorCredentialManagedSourceInput, { specUrl: string }>,
-  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
->;
-
-type ExecutorGraphqlToolArgs = Omit<
-  Extract<ExecutorCredentialManagedSourceInput, { kind: "graphql" }>,
-  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
->;
-
-type ExecutorCredentialPromptArgs = {
-  scopeId: ScopeId;
-  sourceId: Source["id"];
-  kind: ExecutorCredentialManagedSourceInput["kind"];
-  endpoint?: string;
-  specUrl?: string;
-  service?: string;
-  version?: string;
-  discoveryUrl?: string | null;
-  name?: string | null;
-  namespace?: string | null;
-};
-
-const isExecutorMcpToolArgs = (
-  args: ExecutorSourcesAddToolArgs,
-): args is Omit<ExecutorMcpSourceInput, "scopeId" | "actorScopeId" | "executionId" | "interactionId"> =>
-  args.kind === undefined || sourceAdapterRequiresInteractiveConnect(args.kind);
-
-const isExecutorCredentialManagedSourceInput = (
-  input: ExecutorAddSourceInput,
-): input is ExecutorCredentialManagedSourceInput =>
-  typeof input.kind === "string";
 
 const prepareExecutorAddSourceInput = (input: {
   args: ExecutorSourcesAddToolArgs;
@@ -187,136 +145,13 @@ const prepareExecutorAddSourceInput = (input: {
   actorScopeId: ScopeId;
   executionId: ReturnType<typeof toExecutionId>;
   interactionId: ReturnType<typeof ExecutionInteractionIdSchema.make>;
-}): ExecutorAddSourceInput => {
-  if (isExecutorMcpToolArgs(input.args)) {
-    return {
-      kind: input.args.kind,
-      endpoint: input.args.endpoint,
-      name: input.args.name ?? null,
-      namespace: input.args.namespace ?? null,
-      transport: input.args.transport ?? null,
-      queryParams: input.args.queryParams ?? null,
-      headers: input.args.headers ?? null,
-      command: input.args.command ?? null,
-      args: input.args.args ?? null,
-      env: input.args.env ?? null,
-      cwd: input.args.cwd ?? null,
-      scopeId: input.scopeId,
-      actorScopeId: input.actorScopeId,
-      executionId: input.executionId,
-      interactionId: input.interactionId,
-    } satisfies ExecutorMcpSourceInput;
-  }
-
-  if ("service" in input.args) {
-    const args = input.args as ExecutorGoogleDiscoveryToolArgs;
-    return {
-      ...args,
-      scopeId: input.scopeId,
-      actorScopeId: input.actorScopeId,
-      executionId: input.executionId,
-      interactionId: input.interactionId,
-    } satisfies Extract<ExecutorCredentialManagedSourceInput, { service: string; version: string }>;
-  }
-
-  if ("specUrl" in input.args) {
-    const args = input.args as ExecutorOpenApiToolArgs;
-    return {
-      ...args,
-      scopeId: input.scopeId,
-      actorScopeId: input.actorScopeId,
-      executionId: input.executionId,
-      interactionId: input.interactionId,
-    } satisfies Extract<ExecutorCredentialManagedSourceInput, { specUrl: string }>;
-  }
-
-  const args = input.args as ExecutorGraphqlToolArgs;
-  return {
-    ...args,
+}): ExecutorAddSourceInput => ({
+    ...input.args,
     scopeId: input.scopeId,
     actorScopeId: input.actorScopeId,
     executionId: input.executionId,
     interactionId: input.interactionId,
-  } satisfies Extract<ExecutorCredentialManagedSourceInput, { kind: "graphql" }>;
-};
-
-const resolveLocalCredentialUrl = (input: {
-  baseUrl: string;
-  scopeId: ScopeId;
-  sourceId: Source["id"];
-  executionId: string;
-  interactionId: string;
-}): string =>
-  new URL(
-    `/v1/workspaces/${encodeURIComponent(input.scopeId)}/sources/${encodeURIComponent(input.sourceId)}/credentials?interactionId=${encodeURIComponent(`${input.executionId}:${input.interactionId}`)}`,
-    input.baseUrl,
-  ).toString();
-
-const promptForSourceCredentialSelection = (input: {
-  args: ExecutorCredentialPromptArgs;
-  credentialSlot: "runtime" | "import";
-  source: Source;
-  executionId: string;
-  interactionId: string;
-  path: ToolPath;
-  sourceKey: string;
-  localServerBaseUrl: string | null;
-  metadata?: ToolMetadata;
-  invocation?: ToolInvocationContext;
-  onElicitation?: OnElicitation;
-}) =>
-  Effect.gen(function* () {
-    if (!input.onElicitation) {
-      return yield* runtimeEffectError("sources/executor-tools", "executor.sources.add requires an elicitation-capable host");
-    }
-
-    if (input.localServerBaseUrl === null) {
-      return yield* runtimeEffectError("sources/executor-tools", "executor.sources.add requires a local server base URL for credential capture");
-    }
-
-    const response: ElicitationResponse = yield* input.onElicitation({
-      interactionId: input.interactionId,
-      path: input.path,
-      sourceKey: input.sourceKey,
-      args: input.args,
-      metadata: input.metadata,
-      context: input.invocation,
-      elicitation: {
-        mode: "url",
-        message:
-          input.credentialSlot === "import"
-            ? `Open the secure credential page to configure import access for ${input.source.name}`
-            : `Open the secure credential page to connect ${input.source.name}`,
-        url: resolveLocalCredentialUrl({
-          baseUrl: input.localServerBaseUrl,
-          scopeId: input.args.scopeId,
-          sourceId: input.args.sourceId,
-          executionId: input.executionId,
-          interactionId: input.interactionId,
-        }),
-        elicitationId: input.interactionId,
-      },
-    }).pipe(Effect.mapError((cause) => cause instanceof Error ? cause : new Error(String(cause))));
-
-    if (response.action !== "accept") {
-      return yield* runtimeEffectError("sources/executor-tools", `Source credential setup was not completed for ${input.source.name}`);
-    }
-
-    const content = yield* Effect.try({
-      try: () => decodeSourceCredentialSelectionContent(response.content),
-      catch: () =>
-        new Error("Credential capture did not return a valid source auth choice for executor.sources.add"),
-    });
-
-    if (content.authKind === "none") {
-      return { kind: "none" } satisfies ExecutorHttpSourceAuthInput;
-    }
-
-    return {
-      kind: "bearer",
-      tokenRef: content.tokenRef,
-    } satisfies ExecutorHttpSourceAuthInput;
-  });
+  } as ExecutorAddSourceInput);
 
 export const createExecutorToolMap = (input: {
   scopeId: ScopeId;
@@ -327,8 +162,11 @@ export const createExecutorToolMap = (input: {
   scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
   runtimeLocalScope: RuntimeLocalScopeState | null;
-}): ToolMap => ({
-  "executor.sources.add": toTool({
+}): ToolMap =>
+  !hasRegisteredExecutorAddableSourceAdapters
+    ? {}
+    : ({
+      "executor.sources.add": toTool({
     tool: {
       description: buildExecutorSourcesAddDescription(),
       inputSchema: ExecutorSourcesAddInputSchema,
@@ -345,7 +183,7 @@ export const createExecutorToolMap = (input: {
           executionId,
           interactionId,
         });
-        let result = await runEffect(
+        const result = await runEffect(
           input.sourceAuthService.addExecutorSource(
             preparedArgs,
             context?.onElicitation
@@ -373,102 +211,10 @@ export const createExecutorToolMap = (input: {
         if (result.kind === "connected") {
           return toSerializableValue(result.source);
         }
-
-        if (result.kind === "credential_required") {
-          let pendingResult = result;
-          if (!isExecutorCredentialManagedSourceInput(preparedArgs)) {
-            throw new Error("Credential-managed source setup expected a named adapter kind");
-          }
-          let pendingArgs: ExecutorCredentialManagedSourceInput = preparedArgs;
-
-          while (pendingResult.kind === "credential_required") {
-            const selectedAuth = await runEffect(
-              promptForSourceCredentialSelection({
-                args: {
-                  ...pendingArgs,
-                  scopeId: input.scopeId,
-                  sourceId: pendingResult.source.id,
-                },
-                credentialSlot: pendingResult.credentialSlot,
-                source: pendingResult.source,
-                executionId,
-                interactionId,
-                path: context?.path ?? asToolPath("executor.sources.add"),
-                sourceKey: context?.sourceKey ?? "executor",
-                localServerBaseUrl: input.sourceAuthService.getLocalServerBaseUrl(),
-                metadata: context?.metadata,
-                invocation: context?.invocation,
-                onElicitation: context?.onElicitation,
-              }),
-              {
-                installationStore: input.installationStore,
-                scopeConfigStore: input.scopeConfigStore,
-                scopeStateStore: input.scopeStateStore,
-                sourceArtifactStore: input.sourceArtifactStore,
-              },
-              input.runtimeLocalScope,
-            );
-
-            pendingArgs = pendingResult.credentialSlot === "import"
-              && pendingArgs.importAuthPolicy === "separate"
-              ? {
-                  ...pendingArgs,
-                  importAuth: selectedAuth,
-                }
-              : {
-                  ...pendingArgs,
-                  auth: selectedAuth,
-                };
-
-            const completed = await runEffect(
-              input.sourceAuthService.addExecutorSource(
-                pendingArgs,
-                context?.onElicitation
-                  ? {
-                    mcpDiscoveryElicitation: {
-                      onElicitation: context.onElicitation,
-                      path: context.path ?? asToolPath("executor.sources.add"),
-                      sourceKey: context.sourceKey,
-                      args,
-                      metadata: context.metadata,
-                      invocation: context.invocation,
-                    },
-                  }
-                  : undefined,
-              ),
-              {
-                installationStore: input.installationStore,
-                scopeConfigStore: input.scopeConfigStore,
-                scopeStateStore: input.scopeStateStore,
-                sourceArtifactStore: input.sourceArtifactStore,
-              },
-              input.runtimeLocalScope,
-            );
-
-            if (completed.kind === "connected") {
-              return toSerializableValue(completed.source);
-            }
-
-            if (completed.kind === "credential_required") {
-              pendingResult = completed;
-              continue;
-            }
-
-            result = completed;
-            break;
-          }
-
-          if (pendingResult.kind === "credential_required") {
-            result = pendingResult;
-          }
-        }
-
-        if (!context?.onElicitation) {
-          throw new Error("executor.sources.add requires an elicitation-capable host");
-        }
-
-        if (result.kind !== "oauth_required") {
-          throw new Error(`Source add did not reach OAuth continuation for ${result.source.id}`);
+        if (!context?.onElicitation || result.kind !== "oauth_required") {
+          throw new Error(
+            `executor.sources.add requires plugin-managed continuation support for ${result.source.id}`,
+          );
         }
 
         const response: ElicitationResponse = await runEffect(
@@ -526,5 +272,5 @@ export const createExecutorToolMap = (input: {
       sourceKey: "executor",
       interaction: "auto",
     },
-  }),
-});
+      }),
+    });

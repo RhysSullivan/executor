@@ -121,17 +121,17 @@ The default runtime executes code inside a QuickJS WebAssembly sandbox so tool c
 
 The workspace can override that in `.executor/executor.jsonc` with `runtime: "quickjs" | "ses" | "deno"`.
 
-### Adapter packages
+### Runtime packages
 
-Several packages exist to turn external systems into callable tools:
+The source-plugin reset intentionally removed the previous built-in source-adapter packages.
+
+The remaining core packages are:
 
 - `packages/kernel/core`: shared tool abstractions, discovery, schemas, and system tools
-- `packages/sources/mcp`: MCP tool loading and invocation
-- `packages/sources/openapi`: OpenAPI extraction, manifests, and tool generation
 - `packages/hosts/mcp`: exposes the local runtime itself as an MCP server
 - `packages/clients/react`: React hooks and client state wrappers for the local UI
 
-These packages are what let the control plane treat multiple source kinds as one logical tool catalog.
+Future source plugins can be added back on top of this runtime boundary.
 
 ## Runtime model
 

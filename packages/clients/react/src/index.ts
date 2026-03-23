@@ -6,11 +6,6 @@ import {
   type ExecutorApiClient,
 } from "@executor/platform-api/client";
 import type {
-  CompleteSourceOAuthResult,
-  ConnectSourceBatchPayload,
-  ConnectSourceBatchResult,
-  ConnectSourcePayload,
-  ConnectSourceResult,
   CreateSecretPayload,
   CreateSecretResult,
   CreateSourcePayload,
@@ -20,8 +15,6 @@ import type {
   InstanceConfig,
   LocalInstallation,
   SecretListItem,
-  StartSourceOAuthPayload,
-  StartSourceOAuthResult,
   UpdateSecretPayload,
   UpdateSecretResult,
   UpdateSourcePayload,
@@ -1183,23 +1176,6 @@ export const useUpdateSource = () =>
     },
   );
 
-export const useStartSourceOAuth = () =>
-  useSourceMutation<StartSourceOAuthPayload, StartSourceOAuthResult>(
-    React.useCallback(
-      ({ workspaceId, accountId, payload }) =>
-        runControlPlane({
-          accountId,
-          execute: (client) => client.oauth.startSourceAuth({
-            path: {
-              workspaceId,
-            },
-            payload,
-          }),
-        }),
-      [],
-    ),
-  );
-
 export const useRemoveSource = () =>
   useSourceMutation<Source["id"], SourceRemoveResult>(
     React.useCallback(
@@ -1250,82 +1226,6 @@ export const useDiscoverSource = () =>
         }),
       [],
     ),
-  );
-
-export const useConnectSource = () =>
-  useSourceMutation<ConnectSourcePayload, ConnectSourceResult, Source>(
-    React.useCallback(
-      ({ workspaceId, accountId, payload }) =>
-        runControlPlane({
-          accountId,
-          execute: (client) => client.sources.connect({
-            path: {
-              workspaceId,
-            },
-            payload,
-          } as any),
-        }),
-      [],
-    ),
-    {
-      onSuccess: (context, _payload, result) => {
-        const listAtom = sourcesAtom(encodeSourcesKey(true, context.workspaceId, context.accountId));
-        const currentList = getCachedAtomValue(context.registry, listAtom);
-        if (currentList !== undefined) {
-          setCachedAtomValue(context.registry, listAtom, upsertSourceInList(currentList, result.source));
-        }
-
-        setCachedAtomValue(
-          context.registry,
-          sourceAtom(encodeSourceKey(true, context.workspaceId, context.accountId, result.source.id)),
-          result.source,
-        );
-        context.invalidateQueries({
-          workspaceId: context.workspaceId,
-          accountId: context.accountId,
-        });
-      },
-    },
-  );
-
-export const useConnectSourceBatch = () =>
-  useSourceMutation<ConnectSourceBatchPayload, ConnectSourceBatchResult>(
-    React.useCallback(
-      ({ workspaceId, accountId, payload }) =>
-        runControlPlane({
-          accountId,
-          execute: (client) => client.sources.connectBatch({
-            path: {
-              workspaceId,
-            },
-            payload,
-          } as any),
-        }),
-      [],
-    ),
-    {
-      onSuccess: (context, _payload, result) => {
-        const listAtom = sourcesAtom(encodeSourcesKey(true, context.workspaceId, context.accountId));
-        const currentList = getCachedAtomValue(context.registry, listAtom);
-        if (currentList !== undefined) {
-          let nextList = currentList;
-          for (const entry of result.results) {
-            nextList = upsertSourceInList(nextList, entry.source);
-            setCachedAtomValue(
-              context.registry,
-              sourceAtom(encodeSourceKey(true, context.workspaceId, context.accountId, entry.source.id)),
-              entry.source,
-            );
-          }
-          setCachedAtomValue(context.registry, listAtom, nextList);
-        }
-
-        context.invalidateQueries({
-          workspaceId: context.workspaceId,
-          accountId: context.accountId,
-        });
-      },
-    },
   );
 
 export const useCreateWorkspaceOauthClient = () =>
@@ -1407,11 +1307,6 @@ export const useRemoveProviderAuthGrant = () =>
   );
 
 export type {
-  CompleteSourceOAuthResult,
-  ConnectSourceBatchPayload,
-  ConnectSourceBatchResult,
-  ConnectSourcePayload,
-  ConnectSourceResult,
   CreateSecretPayload,
   CreateSecretResult,
   CreateSourcePayload,
@@ -1427,8 +1322,6 @@ export type {
   SourceInspection,
   SourceInspectionDiscoverResult,
   SourceInspectionToolDetail,
-  StartSourceOAuthPayload,
-  StartSourceOAuthResult,
   UpdateSecretPayload,
   UpdateSecretResult,
   UpdateSourcePayload,
