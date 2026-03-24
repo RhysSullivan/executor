@@ -1,5 +1,11 @@
 # executor
 
+## 1.2.6
+
+### Patch Changes
+
+- 54d39e4: Disable executor injected tools
+
 ## 1.2.5
 
 ### Patch Changes
