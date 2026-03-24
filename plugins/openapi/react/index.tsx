@@ -10,16 +10,16 @@ import {
   useAtomValue,
   useAtomSet,
   useExecutorMutation,
-  useLocalInstallation,
   usePrefetchToolDetail,
   useSourceDiscovery,
   useSourceInspection,
   useSourceToolDetail,
+  useWorkspaceId,
 } from "@executor/react";
-import { EmptyState, LoadableBlock } from "../../../apps/web/src/components/loadable";
-import { DocumentPanel } from "../../../apps/web/src/components/document-panel";
-import { Markdown } from "../../../apps/web/src/components/markdown";
 import {
+  Badge,
+  DocumentPanel,
+  EmptyState,
   IconCheck,
   IconChevron,
   IconClose,
@@ -28,9 +28,17 @@ import {
   IconPencil,
   IconSearch,
   IconTool,
-} from "../../../apps/web/src/components/icons";
-import { Badge, MethodBadge } from "../../../apps/web/src/components/ui/badge";
-import { cn } from "../../../apps/web/src/lib/utils";
+  LoadableBlock,
+  Markdown,
+  MethodBadge,
+  cn,
+  defineExecutorFrontendPlugin,
+  defineFrontendSourceType,
+  parseSourceToolExplorerSearch,
+  type SourceToolExplorerSearch,
+  useSourcePluginNavigation,
+  useSourcePluginSearch,
+} from "@executor/react/source-plugins";
 import {
   openApiHttpApiExtension,
 } from "@executor/plugin-openapi-http";
@@ -41,34 +49,9 @@ import type {
   OpenApiPreviewResponse,
   OpenApiSourceConfigPayload,
 } from "@executor/plugin-openapi-shared";
-import { useNavigate } from "@tanstack/react-router";
 import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-type FrontendSourceTypeDefinition = {
-  kind: string;
-  displayName: string;
-  renderAddPage: () => ReactNode;
-  renderEditPage?: (input: { source: Source }) => ReactNode;
-  renderDetailPage?: (input: {
-    source: Source;
-    route: {
-      search?: unknown;
-      navigate?: unknown;
-    };
-  }) => ReactNode;
-};
-
-type FrontendPluginRegisterApi = {
-  sources: {
-    registerType: (definition: FrontendSourceTypeDefinition) => void;
-  };
-};
-
-type RouteToolSearch = {
-  tab?: "model" | "discover";
-  tool?: string;
-  query?: string;
-};
+type RouteToolSearch = SourceToolExplorerSearch;
 
 const defaultOpenApiInput = (): OpenApiConnectInput => ({
   name: "My OpenAPI Source",
@@ -185,19 +168,6 @@ const inputFromConfig = (
   baseUrl: config.baseUrl,
   auth: config.auth,
 });
-
-const useWorkspaceId = (): Source["scopeId"] => {
-  const installation = useLocalInstallation();
-  if (installation.status === "ready") {
-    return installation.data.scopeId;
-  }
-
-  if (installation.status === "error") {
-    throw installation.error;
-  }
-
-  throw new Error("Workspace is still loading.");
-};
 
 const useAvailableSecrets = (
   openApiHttpClient: ReturnType<typeof getOpenApiHttpClient>,
@@ -536,7 +506,7 @@ function OpenApiSourceForm(props: {
 function OpenApiAddSourcePage(props: {
   initialValue: OpenApiConnectInput;
 }) {
-  const navigate = useNavigate();
+  const navigation = useSourcePluginNavigation();
   const openApiHttpClient = getOpenApiHttpClient();
   const createSource = useAtomSet(
     openApiHttpClient.mutation("openapi", "createSource"),
@@ -560,14 +530,8 @@ function OpenApiAddSourcePage(props: {
         });
 
         startTransition(() => {
-          void navigate({
-            to: "/sources/$sourceId",
-            params: {
-              sourceId: source.id,
-            },
-            search: {
-              tab: "model",
-            },
+          void navigation.detail(source.id, {
+            tab: "model",
           });
         });
       }}
@@ -578,7 +542,7 @@ function OpenApiAddSourcePage(props: {
 function OpenApiEditSourcePage(props: {
   source: Source;
 }) {
-  const navigate = useNavigate();
+  const navigation = useSourcePluginNavigation();
   const openApiHttpClient = getOpenApiHttpClient();
   const workspaceId = useWorkspaceId();
   const configResult = useAtomValue(
@@ -639,14 +603,8 @@ function OpenApiEditSourcePage(props: {
         });
 
         startTransition(() => {
-          void navigate({
-            to: "/sources/$sourceId",
-            params: {
-              sourceId: source.id,
-            },
-            search: {
-              tab: "model",
-            },
+          void navigation.detail(source.id, {
+            tab: "model",
           });
         });
       }}
@@ -656,17 +614,32 @@ function OpenApiEditSourcePage(props: {
 
 function OpenApiSourceDetailPage(props: {
   source: Source;
-  route: {
-    search?: unknown;
-    navigate?: unknown;
-  };
 }) {
-  const routerNavigate = useNavigate();
+  const navigation = useSourcePluginNavigation();
   const openApiHttpClient = getOpenApiHttpClient();
   const workspaceId = useWorkspaceId();
   const removeSource = useAtomSet(
     openApiHttpClient.mutation("openapi", "removeSource"),
     { mode: "promise" },
+  );
+  const refreshSource = useAtomSet(
+    openApiHttpClient.mutation("openapi", "refreshSource"),
+    { mode: "promise" },
+  );
+  const refreshMutation = useExecutorMutation<Source["id"], Source>(async (sourceId) =>
+    refreshSource({
+      path: {
+        workspaceId,
+        sourceId,
+      },
+      reactivityKeys: {
+        sources: [workspaceId],
+        source: [workspaceId, sourceId],
+        sourceInspection: [workspaceId, sourceId],
+        sourceInspectionTool: [workspaceId, sourceId],
+        sourceDiscovery: [workspaceId, sourceId],
+      },
+    })
   );
   const removeMutation = useExecutorMutation<Source["id"], { removed: boolean }>(async (sourceId) =>
     removeSource({
@@ -684,17 +657,9 @@ function OpenApiSourceDetailPage(props: {
     })
   );
   const inspection = useSourceInspection(props.source.id);
-  const search = (props.route.search ?? {}) as RouteToolSearch;
-  const navigate =
-    props.route.navigate as
-      | ((input: {
-          search: {
-            tab: "model" | "discover";
-            tool?: string;
-            query?: string;
-          };
-        }) => void | Promise<void>)
-      | undefined;
+  const search = parseSourceToolExplorerSearch(
+    useSourcePluginSearch(),
+  ) satisfies RouteToolSearch;
   const tab = search.tab === "discover" ? "discover" : "model";
   const query = search.query ?? "";
   const selectedToolPath =
@@ -711,20 +676,14 @@ function OpenApiSourceDetailPage(props: {
     tool?: string;
     query?: string;
   }) => {
-    if (!navigate) {
-      return;
-    }
-
-    void navigate({
-      search: {
-        tab: next.tab ?? tab,
-        ...(next.tool !== undefined
-          ? { tool: next.tool || undefined }
-          : { tool: search.tool }),
-        ...(next.query !== undefined
-          ? { query: next.query || undefined }
-          : { query }),
-      },
+    void navigation.updateSearch({
+      tab: next.tab ?? tab,
+      ...(next.tool !== undefined
+        ? { tool: next.tool || undefined }
+        : { tool: search.tool }),
+      ...(next.query !== undefined
+        ? { query: next.query || undefined }
+        : { query }),
     });
   };
 
@@ -784,11 +743,17 @@ function OpenApiSourceDetailPage(props: {
                 </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    void routerNavigate({
-                      to: "/sources/$sourceId/edit",
-                      params: { sourceId: props.source.id },
-                    })}
+                  onClick={() => {
+                    void refreshMutation.mutateAsync(props.source.id);
+                  }}
+                  disabled={refreshMutation.status === "pending"}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {refreshMutation.status === "pending" ? "Refreshing..." : "Refresh"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void navigation.edit(props.source.id)}
                   className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
                 >
                   <IconPencil className="size-3" />
@@ -802,7 +767,7 @@ function OpenApiSourceDetailPage(props: {
 
                     void removeMutation.mutateAsync(props.source.id).then(() => {
                       startTransition(() => {
-                        void routerNavigate({ to: "/" });
+                        void navigation.home();
                       });
                     });
                   }}
@@ -896,25 +861,25 @@ function ModelView(props: {
     <>
       <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card/30 lg:w-80 xl:w-[22rem]">
         <div className="shrink-0 border-b border-border px-3 py-2">
-          <div className="relative">
-            <IconSearch className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40" />
+          <div className="flex h-8 items-center gap-2 rounded-md border border-input bg-background px-2.5">
+            <IconSearch className="size-3.5 shrink-0 text-muted-foreground/40" />
             <input
               ref={searchRef}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={`Filter ${props.bundle.toolCount} tools…`}
-              className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-8 text-[13px] outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/30"
+              className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground/40"
             />
             {search.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/40 hover:text-foreground"
+                className="shrink-0 rounded p-0.5 text-muted-foreground/40 hover:text-foreground"
               >
                 <IconClose />
               </button>
             ) : (
-              <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1 py-px text-[10px] text-muted-foreground/50">
+              <kbd className="shrink-0 rounded border border-border bg-muted px-1 py-px text-[10px] leading-none text-muted-foreground/50">
                 /
               </kbd>
             )}
@@ -1434,21 +1399,18 @@ function highlightMatch(text: string, search: string) {
   );
 }
 
-export const OpenApiReactPlugin = {
+const openApiSourceType = defineFrontendSourceType({
   key: "openapi",
-  register(api: FrontendPluginRegisterApi) {
-    api.sources.registerType({
-      kind: "openapi",
-      displayName: "OpenAPI",
-      renderAddPage: () => (
-        <OpenApiAddSourcePage initialValue={defaultOpenApiInput()} />
-      ),
-      renderEditPage: ({ source }) => (
-        <OpenApiEditSourcePage source={source} />
-      ),
-      renderDetailPage: ({ source, route }) => (
-        <OpenApiSourceDetailPage source={source} route={route} />
-      ),
-    });
-  },
-};
+  kind: "openapi",
+  displayName: "OpenAPI",
+  renderAddPage: () => (
+    <OpenApiAddSourcePage initialValue={defaultOpenApiInput()} />
+  ),
+  renderEditPage: OpenApiEditSourcePage,
+  renderDetailPage: OpenApiSourceDetailPage,
+});
+
+export const OpenApiReactPlugin = defineExecutorFrontendPlugin({
+  key: "openapi",
+  sourceTypes: [openApiSourceType],
+});

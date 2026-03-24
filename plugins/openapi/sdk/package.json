@@ -9,6 +9,7 @@
     "*.ts"
   ],
   "scripts": {
+    "test": "vitest run",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -21,8 +22,11 @@
     "yaml": "^2.8.1"
   },
   "devDependencies": {
+    "@effect/platform": "catalog:",
+    "@executor/effect-test-utils": "workspace:*",
     "@types/node": "catalog:",
-    "bun-types": "catalog:"
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
   },
   "version": "0.0.0"
 }

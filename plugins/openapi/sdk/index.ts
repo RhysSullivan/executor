@@ -83,6 +83,9 @@ export type OpenApiSdk = {
   updateSource: (
     input: OpenApiUpdateSourceInput,
   ) => Effect.Effect<Source, Error, never>;
+  refreshSource: (
+    sourceId: Source["id"],
+  ) => Effect.Effect<Source, Error, never>;
   removeSource: (
     sourceId: Source["id"],
   ) => Effect.Effect<boolean, Error, never>;
@@ -338,6 +341,27 @@ const createOpenApiSourceSdk = (
 
       return yield* host.sources.refreshCatalog(savedSource.id);
     }),
+  refreshSource: (sourceId: Source["id"]) =>
+    Effect.gen(function* () {
+      const source = yield* host.sources.get(sourceId);
+      if (source.kind !== "openapi") {
+        return yield* Effect.fail(
+          new Error(`Source ${sourceId} is not an OpenAPI source.`),
+        );
+      }
+
+      const stored = yield* options.storage.get({
+        scopeId: source.scopeId,
+        sourceId: source.id,
+      });
+      if (stored === null) {
+        return yield* Effect.fail(
+          new Error(`OpenAPI source storage missing for ${source.id}`),
+        );
+      }
+
+      return yield* host.sources.refreshCatalog(source.id);
+    }),
   removeSource: (sourceId: Source["id"]) =>
     Effect.gen(function* () {
       const source = yield* host.sources.get(sourceId);
@@ -408,39 +432,78 @@ const resolveBearerToken = (
   }).pipe(Effect.map((token) => token.trim()));
 };
 
+const openApiDocumentHeaders = (input: {
+  stored: OpenApiStoredSourceData;
+  bearerToken: string | null;
+  etag?: string | null;
+}): Headers => {
+  const headers = new Headers();
+
+  for (const [key, value] of Object.entries(input.stored.defaultHeaders ?? {})) {
+    headers.set(key, value);
+  }
+  if (input.bearerToken && input.bearerToken.length > 0) {
+    headers.set("authorization", `Bearer ${input.bearerToken}`);
+  }
+  if (input.etag) {
+    headers.set("if-none-match", input.etag);
+  }
+
+  return headers;
+};
+
+const requestOpenApiDocument = (input: {
+  url: string;
+  stored: OpenApiStoredSourceData;
+  bearerToken: string | null;
+  etag?: string | null;
+}): Effect.Effect<Response, Error, never> =>
+  Effect.tryPromise({
+    try: () =>
+      fetch(input.url, {
+        headers: openApiDocumentHeaders({
+          stored: input.stored,
+          bearerToken: input.bearerToken,
+          etag: input.etag,
+        }),
+      }),
+    catch: (cause) =>
+      cause instanceof Error ? cause : new Error(String(cause)),
+  });
+
 const fetchOpenApiDocument = (
-  options: OpenApiSdkPluginOptions,
-  stored: OpenApiStoredSourceData,
+  input: {
+    stored: OpenApiStoredSourceData;
+    bearerToken: string | null;
+  },
 ): Effect.Effect<{
   text: string;
   etag: string | null;
 }, Error, never> =>
   Effect.gen(function* () {
-    const bearerToken = yield* resolveBearerToken(options, stored);
-    const headers = new Headers();
-
-    for (const [key, value] of Object.entries(stored.defaultHeaders ?? {})) {
-      headers.set(key, value);
-    }
-    if (bearerToken && bearerToken.length > 0) {
-      headers.set("authorization", `Bearer ${bearerToken}`);
-    }
-    if (stored.etag) {
-      headers.set("if-none-match", stored.etag);
-    }
-
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetch(stored.specUrl, {
-          headers,
-        }),
-      catch: (cause) =>
-        cause instanceof Error ? cause : new Error(String(cause)),
+    const conditionalResponse = yield* requestOpenApiDocument({
+      url: input.stored.specUrl,
+      stored: input.stored,
+      bearerToken: input.bearerToken,
+      etag: input.stored.etag,
     });
+    // A 304 has no body. Re-fetch without the ETag so refresh can rebuild the
+    // catalog with the current importer even when the upstream document itself
+    // has not changed.
+    const response =
+      conditionalResponse.status === 304
+        ? yield* requestOpenApiDocument({
+            url: input.stored.specUrl,
+            stored: input.stored,
+            bearerToken: input.bearerToken,
+          })
+        : conditionalResponse;
 
     if (!response.ok) {
-      throw new Error(
-        `Failed fetching OpenAPI spec (${response.status} ${response.statusText})`,
+      return yield* Effect.fail(
+        new Error(
+          `Failed fetching OpenAPI spec (${response.status} ${response.statusText})`,
+        ),
       );
     }
 
@@ -450,7 +513,7 @@ const fetchOpenApiDocument = (
         catch: (cause) =>
           cause instanceof Error ? cause : new Error(String(cause)),
       }),
-      etag: response.headers.get("etag"),
+      etag: response.headers.get("etag") ?? conditionalResponse.headers.get("etag"),
     };
   });
 
@@ -487,8 +550,28 @@ const createOpenApiSourceRuntime = (
         });
       }
 
-      const fetched = yield* fetchOpenApiDocument(options, stored);
-      const manifest = yield* extractOpenApiManifest(source.name, fetched.text);
+      const bearerToken = yield* resolveBearerToken(options, stored);
+      const fetched = yield* fetchOpenApiDocument({
+        stored,
+        bearerToken,
+      });
+      const manifest = yield* extractOpenApiManifest(source.name, fetched.text, {
+        documentUrl: stored.specUrl,
+        loadDocument: async (url) => {
+          const response = await fetch(url, {
+            headers: openApiDocumentHeaders({
+              stored,
+              bearerToken,
+            }),
+          });
+          if (!response.ok) {
+            throw new Error(
+              `Failed fetching OpenAPI document ${url} (${response.status} ${response.statusText})`,
+            );
+          }
+          return response.text();
+        },
+      });
       const definitions = compileOpenApiToolDefinitions(manifest);
       const now = Date.now();
 
@@ -686,6 +769,8 @@ export const openApiSdkPlugin = (
         provideRuntime(sourceSdk.createSource(input)),
       updateSource: (input) =>
         provideRuntime(sourceSdk.updateSource(input)),
+      refreshSource: (sourceId) =>
+        provideRuntime(sourceSdk.refreshSource(sourceId)),
       removeSource: (sourceId) =>
         provideRuntime(sourceSdk.removeSource(sourceId)),
     };

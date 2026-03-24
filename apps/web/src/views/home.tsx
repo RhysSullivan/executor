@@ -1,10 +1,14 @@
 import { Link } from "@tanstack/react-router";
 import { useSources } from "@executor/react";
+import { sourcePluginsIndexPath } from "@executor/react/source-plugins";
 import { LoadableBlock } from "../components/loadable";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { SourcePluginsResetState } from "../components/source-plugins-reset-state";
-import { registeredSourceFrontendTypes } from "../source-plugins";
+import {
+  getSourceFrontendPaths,
+  registeredSourceFrontendTypes,
+} from "../source-plugins";
 
 export function HomePage() {
   const sources = useSources();
@@ -27,7 +31,7 @@ export function HomePage() {
           {registeredSourceFrontendTypes.length > 0 && (
             <div className="mt-5 flex flex-wrap gap-2">
               {registeredSourceFrontendTypes.map((definition) => (
-                <Badge key={definition.kind} variant="outline">
+                <Badge key={definition.key} variant="outline">
                   {definition.displayName}
                 </Badge>
               ))}
@@ -48,7 +52,7 @@ export function HomePage() {
                   title="No sources connected yet"
                   message="Use the add flow to connect an OpenAPI, GraphQL, MCP, or Google Discovery source through its plugin-owned surface."
                   action={(
-                    <Link to="/sources/add">
+                    <Link to={sourcePluginsIndexPath}>
                       <Button size="sm" variant="outline">
                         Add Source
                       </Button>
@@ -57,34 +61,52 @@ export function HomePage() {
                 />
               ) : (
                 <div className="grid gap-3">
-                  {items.map((source) => (
-                    <div
-                      key={source.id}
-                      className="rounded-2xl border border-border bg-card px-5 py-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-foreground">
-                            {source.name}
+                  {items.map((source) => {
+                    const paths = getSourceFrontendPaths(source.kind);
+                    const card = (
+                      <div className="rounded-2xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/25 hover:bg-card/90">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-foreground">
+                              {source.name}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {source.kind}
+                            </div>
                           </div>
-                          <div className="mt-1 text-xs text-muted-foreground">
-                            {source.kind}
-                          </div>
+                          <Badge
+                            variant={
+                              source.status === "connected"
+                                ? "default"
+                                : source.status === "error"
+                                  ? "destructive"
+                                  : "muted"
+                            }
+                          >
+                            {source.status}
+                          </Badge>
                         </div>
-                        <Badge
-                          variant={
-                            source.status === "connected"
-                              ? "default"
-                              : source.status === "error"
-                                ? "destructive"
-                                : "muted"
-                          }
-                        >
-                          {source.status}
-                        </Badge>
                       </div>
-                    </div>
-                  ))}
+                    );
+
+                    if (!paths) {
+                      return (
+                        <div key={source.id}>
+                          {card}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <Link
+                        key={source.id}
+                        to={paths.detail(source.id)}
+                        search={{ tab: "model" }}
+                      >
+                        {card}
+                      </Link>
+                    );
+                  })}
                 </div>
               )
             }

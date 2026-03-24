@@ -1,0 +1,17 @@
+summary: Get Widget
+operationId: widgets.get
+parameters:
+  - $ref: ../components/parameters/widgetId.yaml
+responses:
+  "200":
+    description: Widget details
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas/widget.yaml
+  default:
+    description: Error response
+    content:
+      application/json:
+        schema:
+          $ref: ../root.yaml#/components/schemas/ErrorResponse

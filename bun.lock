@@ -155,7 +155,14 @@
         "@effect/platform": "catalog:",
         "@executor/platform-api": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
+        "@shikijs/langs": "^4.0.1",
+        "@shikijs/themes": "^4.0.1",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
         "effect": "catalog:",
+        "shiki": "^4.0.1",
+        "streamdown": "^2.3.0",
+        "tailwind-merge": "^3.5.0",
       },
       "devDependencies": {
         "@effect/platform-node": "catalog:",
@@ -462,7 +469,6 @@
         "@executor/plugin-google-discovery-http": "workspace:*",
         "@executor/plugin-google-discovery-shared": "workspace:*",
         "@executor/react": "workspace:*",
-        "@tanstack/react-router": "^1.132.7",
         "react": "^19.2.0",
       },
       "devDependencies": {
@@ -524,7 +530,6 @@
         "@executor/plugin-graphql-http": "workspace:*",
         "@executor/plugin-graphql-shared": "workspace:*",
         "@executor/react": "workspace:*",
-        "@tanstack/react-router": "^1.132.7",
         "react": "^19.2.0",
       },
       "devDependencies": {
@@ -585,7 +590,6 @@
         "@executor/plugin-mcp-http": "workspace:*",
         "@executor/plugin-mcp-shared": "workspace:*",
         "@executor/react": "workspace:*",
-        "@tanstack/react-router": "^1.132.7",
         "react": "^19.2.0",
       },
       "devDependencies": {
@@ -647,7 +651,6 @@
         "@executor/plugin-openapi-http": "workspace:*",
         "@executor/plugin-openapi-shared": "workspace:*",
         "@executor/react": "workspace:*",
-        "@tanstack/react-router": "^1.132.7",
         "react": "^19.2.0",
       },
       "devDependencies": {
@@ -669,8 +672,11 @@
         "yaml": "^2.8.1",
       },
       "devDependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/effect-test-utils": "workspace:*",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "plugins/openapi/shared": {

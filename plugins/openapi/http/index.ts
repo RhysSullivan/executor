@@ -50,6 +50,9 @@ type OpenApiExecutorExtension = {
     updateSource: (
       input: OpenApiUpdateSourceInput,
     ) => Effect.Effect<Source, Error, never>;
+    refreshSource: (
+      sourceId: Source["id"],
+    ) => Effect.Effect<Source, Error, never>;
     removeSource: (
       sourceId: Source["id"],
     ) => Effect.Effect<boolean, Error, never>;
@@ -87,6 +90,14 @@ export const OpenApiHttpGroup = HttpApiGroup.make("openapi")
   .add(
     HttpApiEndpoint.put("updateSource")`/workspaces/${workspaceIdParam}/plugins/openapi/sources/${sourceIdParam}`
       .setPayload(OpenApiSourceConfigPayloadSchema)
+      .addSuccess(SourceSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("refreshSource")`/workspaces/${workspaceIdParam}/plugins/openapi/sources/${sourceIdParam}/refresh`
       .addSuccess(SourceSchema)
       .addError(ControlPlaneBadRequestError)
       .addError(ControlPlaneForbiddenError)
@@ -188,6 +199,15 @@ export const openApiHttpPlugin = (): ExecutorHttpPlugin<
               })
             ),
             Effect.mapError(mapPluginStorageError("openapi.updateSource")),
+          )
+        )
+        .handle("refreshSource", ({ path }) =>
+          resolveRequestedLocalWorkspace(
+            "openapi.refreshSource",
+            path.workspaceId,
+          ).pipe(
+            Effect.flatMap(() => executor.openapi.refreshSource(path.sourceId)),
+            Effect.mapError(mapPluginStorageError("openapi.refreshSource")),
           )
         )
         .handle("removeSource", ({ path }) =>

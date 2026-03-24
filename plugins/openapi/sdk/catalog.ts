@@ -54,6 +54,7 @@ import type {
   OpenApiToolDefinition,
 } from "./types";
 import { openApiProviderDataFromDefinition } from "./definitions";
+import { parseOpenApiDocument } from "./document";
 
 export type OpenApiCatalogOperationInput = BaseCatalogOperationInput & {
   providerData: OpenApiToolProviderData;
@@ -728,6 +729,7 @@ const createHttpCapabilityFromOpenApi = (input: {
                       shapeId: input.importer.importSchema(
                         outputSchema,
                         `#/openapi/${input.operation.providerData.toolId}/response`,
+                        input.rootSchema,
                       ),
                     }
                   : {}),
@@ -758,7 +760,7 @@ const createHttpCapabilityFromOpenApi = (input: {
       ? input.importer.importSchema(
           input.operation.inputSchema,
           `#/openapi/${input.operation.providerData.toolId}/call`,
-          input.operation.inputSchema,
+          input.rootSchema,
         )
       : input.importer.importSchema(
           {
@@ -883,7 +885,7 @@ export const createOpenApiCatalogFragment = (input: {
     }
 
     try {
-      return JSON.parse(primaryDocumentText) as unknown;
+      return parseOpenApiDocument(primaryDocumentText);
     } catch {
       return undefined;
     }

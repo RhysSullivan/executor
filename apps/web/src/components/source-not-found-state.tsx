@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { sourcePluginsIndexPath } from "@executor/react/source-plugins";
 
 import { IconEmpty } from "./icons";
 import { cn } from "../lib/utils";
@@ -23,7 +24,7 @@ export function SourceNotFoundState() {
             Back to dashboard
           </Link>
           <Link
-            to="/sources/add"
+            to={sourcePluginsIndexPath}
             className={cn(
               "inline-flex h-7 items-center justify-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground transition-all",
               "hover:bg-primary/90",

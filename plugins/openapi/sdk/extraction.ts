@@ -50,6 +50,31 @@ const stableJsonValue = (value: unknown): unknown => {
 const stableJsonStringify = (value: unknown): string =>
   JSON.stringify(stableJsonValue(value));
 
+const sortedTrimmedStrings = (value: unknown): string[] =>
+  [...new Set(
+    asArray(value).flatMap((entry) => {
+      const stringValue = asTrimmedString(entry);
+      return stringValue ? [stringValue] : [];
+    }),
+  )].sort((left, right) => left.localeCompare(right));
+
+const normalizedSwagger2FlowName = (
+  value: string | undefined,
+): "implicit" | "password" | "clientCredentials" | "authorizationCode" | undefined => {
+  switch (value) {
+    case "implicit":
+      return "implicit";
+    case "password":
+      return "password";
+    case "application":
+      return "clientCredentials";
+    case "accessCode":
+      return "authorizationCode";
+    default:
+      return undefined;
+  }
+};
+
 const resolvePointerSegment = (segment: string): string =>
   segment.replaceAll("~1", "/").replaceAll("~0", "~");
 
@@ -88,6 +113,186 @@ const resolveLocalRef = (
   const { $ref: _ignoredRef, ...rest } = object;
 
   return Object.keys(rest).length > 0 ? { ...resolvedObject, ...rest } : resolvedObject;
+};
+
+export type OpenApiManifestExtractionOptions = {
+  documentUrl?: string;
+  loadDocument?: (url: string) => Promise<string>;
+};
+
+const defaultDocumentLoader = async (url: string): Promise<string> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed fetching OpenAPI document ${url} (${response.status} ${response.statusText})`);
+  }
+
+  return response.text();
+};
+
+const refTargetFor = (
+  currentDocumentUrl: string | undefined,
+  ref: string,
+): { documentUrl?: string; pointer: string } | undefined => {
+  if (ref.startsWith("#")) {
+    return { documentUrl: currentDocumentUrl, pointer: ref };
+  }
+
+  if (!currentDocumentUrl) {
+    return undefined;
+  }
+
+  const resolvedUrl = new URL(ref, currentDocumentUrl);
+  const pointer = resolvedUrl.hash && resolvedUrl.hash.length > 0 ? resolvedUrl.hash : "#";
+  resolvedUrl.hash = "";
+  return {
+    documentUrl: resolvedUrl.toString(),
+    pointer,
+  };
+};
+
+const resolvePointerValue = (
+  document: OpenApiJsonObject,
+  pointer: string,
+): unknown => {
+  if (pointer === "#" || pointer.length === 0) {
+    return document;
+  }
+
+  return pointer
+    .slice(pointer.startsWith("#/") ? 2 : 0)
+    .split("/")
+    .reduce<unknown>((current, segment) => {
+      if (current === undefined || current === null) {
+        return undefined;
+      }
+
+      return asObject(current)[resolvePointerSegment(segment)];
+    }, document);
+};
+
+const loadDereferencedOpenApiDocument = async (input: {
+  document: OpenApiJsonObject;
+  documentUrl?: string;
+  loadDocument?: (url: string) => Promise<string>;
+}): Promise<OpenApiJsonObject> => {
+  if (!input.documentUrl) {
+    return input.document;
+  }
+
+  const loader = input.loadDocument ?? defaultDocumentLoader;
+  const cache = new Map<string, Promise<OpenApiJsonObject>>();
+  cache.set(input.documentUrl, Promise.resolve(input.document));
+
+  const loadParsedDocument = async (documentUrl: string): Promise<OpenApiJsonObject> => {
+    const cached = cache.get(documentUrl);
+    if (cached) {
+      return cached;
+    }
+
+    const next = loader(documentUrl).then((text) => parseOpenApiDocument(text));
+    cache.set(documentUrl, next);
+    return next;
+  };
+
+  const dereference = async (inputValue: {
+    value: unknown;
+    currentDocument: OpenApiJsonObject;
+    currentDocumentUrl?: string;
+    activeRefs: ReadonlySet<string>;
+  }): Promise<unknown> => {
+    const { value, currentDocument, currentDocumentUrl, activeRefs } = inputValue;
+
+    if (Array.isArray(value)) {
+      return Promise.all(
+        value.map((entry) =>
+          dereference({
+            value: entry,
+            currentDocument,
+            currentDocumentUrl,
+            activeRefs,
+          }),
+        ),
+      );
+    }
+
+    if (value === null || typeof value !== "object") {
+      return value;
+    }
+
+    const object = value as Record<string, unknown>;
+    const ref = asTrimmedString(object.$ref);
+    if (ref) {
+      const target = refTargetFor(currentDocumentUrl, ref);
+      if (!target?.documentUrl && !ref.startsWith("#")) {
+        return value;
+      }
+
+      const activeKey = `${target?.documentUrl ?? currentDocumentUrl ?? "root"}|${target?.pointer ?? ref}`;
+      if (activeRefs.has(activeKey)) {
+        return value;
+      }
+
+      const targetDocument =
+        target?.documentUrl && target.documentUrl !== currentDocumentUrl
+          ? await loadParsedDocument(target.documentUrl)
+          : currentDocument;
+      const targetValue = resolvePointerValue(targetDocument, target?.pointer ?? ref);
+      if (targetValue === undefined) {
+        return value;
+      }
+
+      const nextActiveRefs = new Set(activeRefs);
+      nextActiveRefs.add(activeKey);
+
+      const resolvedValue = await dereference({
+        value: targetValue,
+        currentDocument: targetDocument,
+        currentDocumentUrl: target?.documentUrl ?? currentDocumentUrl,
+        activeRefs: nextActiveRefs,
+      });
+      const siblingEntries = Object.fromEntries(
+        await Promise.all(
+          Object.entries(object)
+            .filter(([key]) => key !== "$ref")
+            .map(async ([key, entry]) => [
+              key,
+              await dereference({
+                value: entry,
+                currentDocument,
+                currentDocumentUrl,
+                activeRefs: nextActiveRefs,
+              }),
+            ]),
+        ),
+      );
+      const resolvedObject = asObject(resolvedValue);
+
+      return Object.keys(siblingEntries).length > 0
+        ? { ...resolvedObject, ...siblingEntries }
+        : resolvedObject;
+    }
+
+    return Object.fromEntries(
+      await Promise.all(
+        Object.entries(object).map(async ([key, entry]) => [
+          key,
+          await dereference({
+            value: entry,
+            currentDocument,
+            currentDocumentUrl,
+            activeRefs,
+          }),
+        ]),
+      ),
+    );
+  };
+
+  return dereference({
+    value: input.document,
+    currentDocument: input.document,
+    currentDocumentUrl: input.documentUrl,
+    activeRefs: new Set<string>(),
+  }) as Promise<OpenApiJsonObject>;
 };
 
 const preferredContentEntry = (
@@ -187,6 +392,107 @@ const contentEntriesFromContent = (
       };
     });
 
+const schemaFromSchemaLikeRecord = (
+  document: OpenApiJsonObject,
+  value: unknown,
+): unknown | undefined => {
+  const record = asObject(resolveLocalRef(document, value));
+  if (record.schema !== undefined) {
+    return resolveLocalRef(document, record.schema);
+  }
+
+  const schema: Record<string, unknown> = {};
+  const type = asTrimmedString(record.type);
+
+  if (type === "file") {
+    schema.type = "string";
+    schema.format = "binary";
+  } else if (type) {
+    schema.type = type;
+  }
+
+  for (const key of [
+    "title",
+    "description",
+    "format",
+    "default",
+    "nullable",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "multipleOf",
+    "minLength",
+    "maxLength",
+    "pattern",
+    "minItems",
+    "maxItems",
+    "uniqueItems",
+    "minProperties",
+    "maxProperties",
+    "deprecated",
+  ] as const) {
+    if (record[key] !== undefined) {
+      schema[key] = record[key];
+    }
+  }
+
+  const enumValues = asArray(record.enum);
+  if (enumValues.length > 0) {
+    schema.enum = enumValues;
+  }
+
+  const required = sortedTrimmedStrings(record.required);
+  if (required.length > 0) {
+    schema.required = required;
+  }
+
+  if (record.items !== undefined) {
+    schema.items = resolveLocalRef(document, record.items);
+  }
+
+  if (record.additionalProperties !== undefined) {
+    schema.additionalProperties =
+      typeof record.additionalProperties === "boolean"
+        ? record.additionalProperties
+        : resolveLocalRef(document, record.additionalProperties);
+  }
+
+  const properties = Object.fromEntries(
+    Object.entries(asObject(record.properties))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([propertyName, propertyValue]) => [
+        propertyName,
+        resolveLocalRef(document, propertyValue),
+      ]),
+  );
+  if (Object.keys(properties).length > 0) {
+    schema.properties = properties;
+  }
+
+  const patternProperties = Object.fromEntries(
+    Object.entries(asObject(record.patternProperties))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([pattern, patternValue]) => [pattern, resolveLocalRef(document, patternValue)]),
+  );
+  if (Object.keys(patternProperties).length > 0) {
+    schema.patternProperties = patternProperties;
+  }
+
+  for (const key of ["allOf", "anyOf", "oneOf"] as const) {
+    const entries = asArray(record[key]).map((entry) => resolveLocalRef(document, entry));
+    if (entries.length > 0) {
+      schema[key] = entries;
+    }
+  }
+
+  if (record.not !== undefined) {
+    schema.not = resolveLocalRef(document, record.not);
+  }
+
+  return Object.keys(schema).length > 0 ? schema : undefined;
+};
+
 const headerFromValue = (
   document: OpenApiJsonObject,
   name: string,
@@ -199,6 +505,7 @@ const headerFromValue = (
 
   const content = contentEntriesFromContent(document, header.content);
   const directExamples = content.length > 0 ? [] : examplesFromValue(header);
+  const schema = schemaFromSchemaLikeRecord(document, header);
 
   return {
     name,
@@ -209,9 +516,7 @@ const headerFromValue = (
     ...(typeof header.deprecated === "boolean"
       ? { deprecated: header.deprecated }
       : {}),
-    ...(header.schema !== undefined
-      ? { schema: resolveLocalRef(document, header.schema) }
-      : {}),
+    ...(schema !== undefined ? { schema } : {}),
     ...(content.length > 0 ? { content } : {}),
     ...(asTrimmedString(header.style) ? { style: asTrimmedString(header.style) } : {}),
     ...(typeof header.explode === "boolean" ? { explode: header.explode } : {}),
@@ -259,6 +564,105 @@ const serversFromValue = (value: unknown): ReadonlyArray<OpenApiServer> =>
         },
       ];
     });
+
+const normalizedPathPrefix = (value: string | undefined): string => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed === "/") {
+    return "";
+  }
+
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.endsWith("/")
+    ? withLeadingSlash.slice(0, -1)
+    : withLeadingSlash;
+};
+
+const swagger2ServersFromDocument = (
+  document: OpenApiJsonObject,
+  schemesOverride?: readonly string[],
+): ReadonlyArray<OpenApiServer> => {
+  const host = asTrimmedString(document.host);
+  if (!host) {
+    return [];
+  }
+
+  const schemes = schemesOverride && schemesOverride.length > 0
+    ? [...schemesOverride]
+    : sortedTrimmedStrings(document.schemes);
+  const normalizedSchemes = schemes.length > 0 ? schemes : ["https"];
+  const basePath = normalizedPathPrefix(asTrimmedString(document.basePath));
+
+  return normalizedSchemes.map((scheme) => ({
+    url: `${scheme}://${host}${basePath}`,
+  }));
+};
+
+const documentServersFor = (document: OpenApiJsonObject): ReadonlyArray<OpenApiServer> => {
+  const openApi3Servers = serversFromValue(document.servers);
+  return openApi3Servers.length > 0
+    ? openApi3Servers
+    : swagger2ServersFromDocument(document);
+};
+
+const operationServersFor = (
+  document: OpenApiJsonObject,
+  pathTemplate: string,
+  method: OpenApiHttpMethod,
+): ReadonlyArray<OpenApiServer> | undefined => {
+  const operation = operationFor(document, pathTemplate, method);
+  const pathItem = pathItemFor(document, pathTemplate);
+  const openApi3Servers = [
+    ...serversFromValue(operation.servers),
+    ...serversFromValue(pathItem.servers),
+  ];
+  if (openApi3Servers.length > 0) {
+    return openApi3Servers;
+  }
+
+  const swagger2Schemes = sortedTrimmedStrings(operation.schemes);
+  if (swagger2Schemes.length > 0) {
+    const servers = swagger2ServersFromDocument(document, swagger2Schemes);
+    return servers.length > 0 ? servers : undefined;
+  }
+
+  const pathSchemes = sortedTrimmedStrings(pathItem.schemes);
+  if (pathSchemes.length > 0) {
+    const servers = swagger2ServersFromDocument(document, pathSchemes);
+    return servers.length > 0 ? servers : undefined;
+  }
+
+  return undefined;
+};
+
+const requestContentTypesFor = (
+  document: OpenApiJsonObject,
+  pathTemplate: string,
+  method: OpenApiHttpMethod,
+): string[] => {
+  const operation = operationFor(document, pathTemplate, method);
+  const pathItem = pathItemFor(document, pathTemplate);
+
+  return sortedTrimmedStrings(
+    operation.consumes ?? pathItem.consumes ?? document.consumes,
+  );
+};
+
+const responseContentTypesFor = (
+  document: OpenApiJsonObject,
+  pathTemplate: string,
+  method: OpenApiHttpMethod,
+): string[] => {
+  const operation = operationFor(document, pathTemplate, method);
+  const pathItem = pathItemFor(document, pathTemplate);
+
+  return sortedTrimmedStrings(
+    operation.produces ?? pathItem.produces ?? document.produces,
+  );
+};
 
 const responseStatusRank = (statusCode: string): number => {
   if (/^2\\d\\d$/.test(statusCode)) {
@@ -323,6 +727,42 @@ const mergedParameterRecords = (
   return merged;
 };
 
+const parameterSchemaFor = (
+  document: OpenApiJsonObject,
+  parameter: Record<string, unknown>,
+): unknown | undefined => schemaFromSchemaLikeRecord(document, parameter);
+
+const swagger2BodyParameterFor = (
+  document: OpenApiJsonObject,
+  pathTemplate: string,
+  method: OpenApiHttpMethod,
+): Record<string, unknown> | undefined =>
+  [...mergedParameterRecords(document, pathTemplate, method).values()].find(
+    (parameter) => asTrimmedString(parameter.in) === "body",
+  );
+
+const swagger2FormDataParametersFor = (
+  document: OpenApiJsonObject,
+  pathTemplate: string,
+  method: OpenApiHttpMethod,
+): Array<Record<string, unknown>> =>
+  [...mergedParameterRecords(document, pathTemplate, method).values()]
+    .filter((parameter) => asTrimmedString(parameter.in) === "formData")
+    .sort((left, right) =>
+      (asTrimmedString(left.name) ?? "").localeCompare(asTrimmedString(right.name) ?? ""),
+    );
+
+const openApiRequestBodyContents = (input: {
+  contentTypes: readonly string[];
+  schema: unknown | undefined;
+  examples?: readonly OpenApiExample[];
+}): Array<OpenApiMediaContent> =>
+  input.contentTypes.map((mediaType) => ({
+    mediaType,
+    ...(input.schema !== undefined ? { schema: input.schema } : {}),
+    ...(input.examples && input.examples.length > 0 ? { examples: [...input.examples] } : {}),
+  }));
+
 const requestBodyPayloadFor = (
   document: OpenApiJsonObject,
   pathTemplate: string,
@@ -336,13 +776,143 @@ const requestBodyPayloadFor = (
 
   const contents = contentEntriesFromContent(document, requestBody.content);
   const contentTypes = contents.map((content) => content.mediaType);
+  if (contents.length > 0 || contentTypes.length > 0) {
+    return {
+      required:
+        typeof requestBody.required === "boolean" ? requestBody.required : false,
+      contentTypes,
+      ...(contents.length > 0 ? { contents } : {}),
+    };
+  }
 
-  return {
-    required:
-      typeof requestBody.required === "boolean" ? requestBody.required : false,
-    contentTypes,
-    ...(contents.length > 0 ? { contents } : {}),
-  };
+  const swagger2BodyParameter = swagger2BodyParameterFor(document, pathTemplate, method);
+  if (swagger2BodyParameter) {
+    const schema = parameterSchemaFor(document, swagger2BodyParameter);
+    const examples = examplesFromValue(swagger2BodyParameter);
+    const contentTypes = requestContentTypesFor(document, pathTemplate, method);
+    const normalizedContentTypes = contentTypes.length > 0
+      ? contentTypes
+      : ["application/json"];
+    const bodyContents = openApiRequestBodyContents({
+      contentTypes: normalizedContentTypes,
+      schema,
+      examples,
+    });
+
+    return {
+      required:
+        typeof swagger2BodyParameter.required === "boolean"
+          ? swagger2BodyParameter.required
+          : false,
+      contentTypes: normalizedContentTypes,
+      ...(bodyContents.length > 0 ? { contents: bodyContents } : {}),
+    };
+  }
+
+  const formDataParameters = swagger2FormDataParametersFor(document, pathTemplate, method);
+  if (formDataParameters.length > 0) {
+    const properties = Object.fromEntries(
+      formDataParameters.flatMap((parameter) => {
+        const name = asTrimmedString(parameter.name);
+        const schema = parameterSchemaFor(document, parameter);
+        return name && schema !== undefined ? [[name, schema] as const] : [];
+      }),
+    );
+    const required = formDataParameters.flatMap((parameter) =>
+      typeof parameter.required === "boolean" && parameter.required
+        ? [asTrimmedString(parameter.name)].filter((name): name is string => Boolean(name))
+        : [],
+    );
+    const hasFileParameter = formDataParameters.some(
+      (parameter) => asTrimmedString(parameter.type) === "file",
+    );
+    const contentTypes = requestContentTypesFor(document, pathTemplate, method);
+    const normalizedContentTypes = contentTypes.length > 0
+      ? contentTypes
+      : [hasFileParameter ? "multipart/form-data" : "application/x-www-form-urlencoded"];
+    const schema = {
+      type: "object",
+      properties,
+      ...(required.length > 0 ? { required } : {}),
+      additionalProperties: false,
+    };
+    const bodyContents = openApiRequestBodyContents({
+      contentTypes: normalizedContentTypes,
+      schema,
+    });
+
+    return {
+      required: required.length > 0,
+      contentTypes: normalizedContentTypes,
+      ...(bodyContents.length > 0 ? { contents: bodyContents } : {}),
+    };
+  }
+
+  return null;
+};
+
+const responseSchemaFromResponse = (
+  document: OpenApiJsonObject,
+  response: Record<string, unknown>,
+): unknown | undefined =>
+  contentSchemaFromOperationContent(document, response.content) ??
+  (response.schema !== undefined ? resolveLocalRef(document, response.schema) : undefined);
+
+const responseExamplesFromResponse = (
+  response: Record<string, unknown>,
+): Array<OpenApiExample> => {
+  const mediaExamples = Object.entries(asObject(response.examples))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([mediaType, exampleValue]) => ({
+      mediaType,
+      valueJson: stableJsonStringify(exampleValue),
+    }));
+  return mediaExamples.length > 0 ? mediaExamples : examplesFromValue(response);
+};
+
+const responseContentsFromResponse = (
+  document: OpenApiJsonObject,
+  pathTemplate: string,
+  method: OpenApiHttpMethod,
+  response: Record<string, unknown>,
+): ReadonlyArray<OpenApiMediaContent> => {
+  const contents = contentEntriesFromContent(document, response.content);
+  if (contents.length > 0) {
+    return contents;
+  }
+
+  const schema = responseSchemaFromResponse(document, response);
+  if (schema === undefined) {
+    return [];
+  }
+
+  const contentTypes = responseContentTypesFor(document, pathTemplate, method);
+  const normalizedContentTypes = contentTypes.length > 0
+    ? contentTypes
+    : ["application/json"];
+  const examplesByMediaType = new Map(
+    responseExamplesFromResponse(response).flatMap((example) =>
+      example.mediaType ? [[example.mediaType, [example]] as const] : [],
+    ),
+  );
+  const fallbackExamples = responseExamplesFromResponse(response).filter(
+    (example) => !example.mediaType,
+  );
+
+  return normalizedContentTypes.map((mediaType) => ({
+    mediaType,
+    schema,
+    ...(examplesByMediaType.get(mediaType)?.length
+      ? { examples: examplesByMediaType.get(mediaType) }
+      : fallbackExamples.length > 0
+        ? {
+            examples: fallbackExamples.map((example) => ({
+              ...example,
+              mediaType,
+            })),
+          }
+        : {}),
+  }));
 };
 
 const responseSchemaFor = (
@@ -358,8 +928,8 @@ const responseSchemaFor = (
   const fallbackResponses = responseEntries.filter(([status]) => status === "default");
 
   for (const [, responseValue] of [...preferredResponses, ...fallbackResponses]) {
-    const response = resolveLocalRef(document, responseValue);
-    const schema = contentSchemaFromOperationContent(document, asObject(response).content);
+    const response = asObject(resolveLocalRef(document, responseValue));
+    const schema = responseSchemaFromResponse(document, response);
     if (schema !== undefined) {
       return schema;
     }
@@ -382,13 +952,13 @@ const responseVariantsFor = (
 
   const responses = responseEntries.map(([statusCode, responseValue]) => {
     const response = asObject(resolveLocalRef(document, responseValue));
-    const contents = contentEntriesFromContent(document, response.content);
+    const contents = responseContentsFromResponse(document, pathTemplate, method, response);
     const contentTypes = contents.map((content) => content.mediaType);
-    const preferredContent = preferredContentEntry(response.content);
-    const examples = preferredContent
-      ? examplesFromMediaType(preferredContent[0], preferredContent[1])
-      : [];
+    const examples =
+      contents[0]?.examples ??
+      responseExamplesFromResponse(response);
     const headers = headersFromValue(document, response.headers);
+    const schema = responseSchemaFromResponse(document, response);
 
     return {
       statusCode,
@@ -396,9 +966,7 @@ const responseVariantsFor = (
         ? { description: asTrimmedString(response.description) }
         : {}),
       contentTypes,
-      ...(contentSchemaFromOperationContent(document, response.content) !== undefined
-        ? { schema: contentSchemaFromOperationContent(document, response.content) }
-        : {}),
+      ...(schema !== undefined ? { schema } : {}),
       ...(examples.length > 0 ? { examples } : {}),
       ...(contents.length > 0 ? { contents } : {}),
       ...(headers.length > 0 ? { headers } : {}),
@@ -508,7 +1076,8 @@ const oauthFlowRecord = (
   const result = Object.fromEntries(
     Object.entries(asObject(value))
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([flowName, flowValue]) => {
+      .flatMap(([flowName, flowValue]) => {
+        const normalizedFlowName = normalizedSwagger2FlowName(flowName) ?? flowName;
         const flowRecord = asObject(flowValue);
         const scopes = Object.fromEntries(
           Object.entries(asObject(flowRecord.scopes))
@@ -516,8 +1085,8 @@ const oauthFlowRecord = (
             .map(([scope, description]) => [scope, asTrimmedString(description) ?? ""]),
         );
 
-        return [
-          flowName,
+        return [[
+          normalizedFlowName,
           {
             ...(asTrimmedString(flowRecord.authorizationUrl)
               ? { authorizationUrl: asTrimmedString(flowRecord.authorizationUrl) }
@@ -530,11 +1099,51 @@ const oauthFlowRecord = (
               : {}),
             ...(Object.keys(scopes).length > 0 ? { scopes } : {}),
           },
-        ];
+        ]];
       }),
   );
 
   return Object.keys(result).length > 0 ? result : undefined;
+};
+
+const oauthFlowRecordFromSwagger2Scheme = (
+  scheme: Record<string, unknown>,
+):
+  | Record<
+      string,
+      {
+        authorizationUrl?: string;
+        tokenUrl?: string;
+        refreshUrl?: string;
+        scopes?: Record<string, string>;
+      }
+    >
+  | undefined => {
+  const flowName = normalizedSwagger2FlowName(asTrimmedString(scheme.flow));
+  if (!flowName) {
+    return undefined;
+  }
+
+  const scopes = Object.fromEntries(
+    Object.entries(asObject(scheme.scopes))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([scope, description]) => [scope, asTrimmedString(description) ?? ""]),
+  );
+
+  return {
+    [flowName]: {
+      ...(asTrimmedString(scheme.authorizationUrl)
+        ? { authorizationUrl: asTrimmedString(scheme.authorizationUrl) }
+        : {}),
+      ...(asTrimmedString(scheme.tokenUrl)
+        ? { tokenUrl: asTrimmedString(scheme.tokenUrl) }
+        : {}),
+      ...(asTrimmedString(scheme.refreshUrl)
+        ? { refreshUrl: asTrimmedString(scheme.refreshUrl) }
+        : {}),
+      ...(Object.keys(scopes).length > 0 ? { scopes } : {}),
+    },
+  };
 };
 
 const securitySchemesFor = (
@@ -548,7 +1157,10 @@ const securitySchemesFor = (
   const schemeNames = new Set<string>();
   collectReferencedSecuritySchemeNames(authRequirement, schemeNames);
 
-  const securitySchemes = asObject(asObject(document.components).securitySchemes);
+  const securitySchemes =
+    Object.keys(asObject(asObject(document.components).securitySchemes)).length > 0
+      ? asObject(asObject(document.components).securitySchemes)
+      : asObject(document.securityDefinitions);
   const resolved = [...schemeNames]
     .sort((left, right) => left.localeCompare(right))
     .flatMap((schemeName) => {
@@ -570,6 +1182,10 @@ const securitySchemesFor = (
         schemeType === "openIdConnect"
           ? schemeType
           : "http";
+      const normalizedScheme =
+        schemeType === "basic"
+          ? "basic"
+          : asTrimmedString(scheme.scheme);
 
       const placementIn = asTrimmedString(scheme.in);
       const normalizedPlacementIn: "header" | "query" | "cookie" | undefined =
@@ -588,8 +1204,8 @@ const securitySchemesFor = (
           ...(asTrimmedString(scheme.name)
             ? { placementName: asTrimmedString(scheme.name) }
             : {}),
-          ...(asTrimmedString(scheme.scheme)
-            ? { scheme: asTrimmedString(scheme.scheme) }
+          ...(normalizedScheme
+            ? { scheme: normalizedScheme }
             : {}),
           ...(asTrimmedString(scheme.bearerFormat)
             ? { bearerFormat: asTrimmedString(scheme.bearerFormat) }
@@ -597,7 +1213,13 @@ const securitySchemesFor = (
           ...(asTrimmedString(scheme.openIdConnectUrl)
             ? { openIdConnectUrl: asTrimmedString(scheme.openIdConnectUrl) }
             : {}),
-          ...(oauthFlowRecord(scheme.flows) ? { flows: oauthFlowRecord(scheme.flows) } : {}),
+          ...(oauthFlowRecord(scheme.flows) || oauthFlowRecordFromSwagger2Scheme(scheme)
+            ? {
+                flows:
+                  oauthFlowRecord(scheme.flows) ??
+                  oauthFlowRecordFromSwagger2Scheme(scheme),
+              }
+            : {}),
         },
       ];
     });
@@ -641,6 +1263,9 @@ const buildInputSchema = (input: {
 };
 
 const buildDocumentation = (input: {
+  document: OpenApiJsonObject;
+  pathTemplate: string;
+  method: OpenApiHttpMethod;
   operation: Record<string, unknown>;
   parameters: ReadonlyArray<OpenApiToolParameter>;
   requestBody: OpenApiToolRequestBody | null;
@@ -668,6 +1293,17 @@ const buildDocumentation = (input: {
     input.responses?.find((response) => /^2\\d\\d$/.test(response.statusCode)) ??
     input.responses?.find((response) => response.statusCode === "default") ??
     input.responses?.[0];
+  const openApi3RequestBody = asObject(
+    resolveLocalRef(input.document, input.operation.requestBody),
+  );
+  const swagger2BodyParameter = swagger2BodyParameterFor(
+    input.document,
+    input.pathTemplate,
+    input.method,
+  );
+  const requestBodyDescription =
+    asTrimmedString(openApi3RequestBody.description) ??
+    asTrimmedString(swagger2BodyParameter?.description);
 
   return {
     ...(asTrimmedString(input.operation.summary)
@@ -680,13 +1316,7 @@ const buildDocumentation = (input: {
     ...(input.requestBody
       ? {
           requestBody: {
-            ...(asTrimmedString(asObject(input.operation.requestBody).description)
-              ? {
-                  description: asTrimmedString(
-                    asObject(input.operation.requestBody).description,
-                  ),
-                }
-              : {}),
+            ...(requestBodyDescription ? { description: requestBodyDescription } : {}),
             ...(input.requestBody.contents?.[0]?.examples &&
             input.requestBody.contents[0].examples.length > 0
               ? { examples: input.requestBody.contents[0].examples }
@@ -716,8 +1346,17 @@ const extractToolParameters = (
   pathTemplate: string,
   method: OpenApiHttpMethod,
 ): OpenApiToolParameter[] =>
-  [...mergedParameterRecords(document, pathTemplate, method).values()].map(
-    (parameter) => {
+  [...mergedParameterRecords(document, pathTemplate, method).values()]
+    .filter((parameter) => {
+      const location = asTrimmedString(parameter.in);
+      return (
+        location === "path" ||
+        location === "query" ||
+        location === "header" ||
+        location === "cookie"
+      );
+    })
+    .map((parameter) => {
       const location = asTrimmedString(parameter.in);
       const name = asTrimmedString(parameter.name);
       if (!location || !name) {
@@ -725,6 +1364,8 @@ const extractToolParameters = (
       }
 
       const content = contentEntriesFromContent(document, parameter.content);
+      const schema = parameterSchemaFor(document, parameter);
+      const examples = examplesFromValue(parameter);
 
       return {
         name,
@@ -744,15 +1385,13 @@ const extractToolParameters = (
         ...(typeof parameter.allowReserved === "boolean"
           ? { allowReserved: parameter.allowReserved }
           : {}),
-        ...(parameter.schema !== undefined && content.length === 0
+        ...(schema !== undefined && content.length === 0
           ? {
               content: [
                 {
                   mediaType: "application/json",
-                  schema: resolveLocalRef(document, parameter.schema),
-                  ...(examplesFromValue(parameter).length > 0
-                    ? { examples: examplesFromValue(parameter) }
-                    : {}),
+                  schema,
+                  ...(examples.length > 0 ? { examples } : {}),
                 },
               ],
             }
@@ -764,8 +1403,7 @@ const extractToolParameters = (
             }
           : {}),
       } as OpenApiToolParameter;
-    },
-  );
+    });
 
 const rawToolIdForOperation = (input: {
   method: OpenApiHttpMethod;
@@ -781,13 +1419,19 @@ const rawToolIdForOperation = (input: {
 export const extractOpenApiManifest = (
   sourceName: string,
   openApiDocumentText: string,
+  options: OpenApiManifestExtractionOptions = {},
 ): Effect.Effect<OpenApiToolManifest, Error, never> =>
-  Effect.try({
-    try: () => {
-      const document = parseOpenApiDocument(openApiDocumentText);
+  Effect.tryPromise({
+    try: async () => {
+      const parsedDocument = parseOpenApiDocument(openApiDocumentText);
+      const document = await loadDereferencedOpenApiDocument({
+        document: parsedDocument,
+        documentUrl: options.documentUrl,
+        loadDocument: options.loadDocument,
+      });
       const tools: OpenApiExtractedTool[] = [];
       const paths = asObject(document.paths);
-      const documentServers = serversFromValue(document.servers);
+      const documentServers = documentServersFor(document);
 
       for (const [pathTemplate, pathItemValue] of Object.entries(paths).sort(
         ([left], [right]) => left.localeCompare(right),
@@ -803,21 +1447,16 @@ export const extractOpenApiManifest = (
           const requestBody = requestBodyPayloadFor(document, pathTemplate, method);
           const responses = responseVariantsFor(document, pathTemplate, method);
           const authRequirement = authRequirementFor(document, pathTemplate, method);
-          const servers = (() => {
-            const operationServers = serversFromValue(operation.servers);
-            if (operationServers.length > 0) {
-              return operationServers;
-            }
-
-            const pathServers = serversFromValue(pathItem.servers);
-            return pathServers.length > 0 ? pathServers : undefined;
-          })();
+          const servers = operationServersFor(document, pathTemplate, method);
           const inputSchema = buildInputSchema({
             parameters,
             requestBody,
           });
           const outputSchema = responseSchemaFor(document, pathTemplate, method);
           const documentation = buildDocumentation({
+            document,
+            pathTemplate,
+            method,
             operation,
             parameters,
             requestBody,

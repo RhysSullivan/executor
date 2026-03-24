@@ -10,10 +10,11 @@ import {
 import {
   OpenApiReactPlugin,
 } from "@executor/plugin-openapi-react";
-import type {
-  ExecutorFrontendPlugin,
-  FrontendSourceTypeDefinition,
-} from "./types";
+import {
+  createSourcePluginPaths,
+  registerExecutorFrontendPlugins,
+  type ExecutorFrontendPlugin,
+} from "@executor/react/source-plugins";
 
 const frontendPlugins = [
   McpReactPlugin,
@@ -22,22 +23,20 @@ const frontendPlugins = [
   OpenApiReactPlugin,
 ] as const satisfies readonly ExecutorFrontendPlugin[];
 
-const sourceTypeDefinitions = new Map<string, FrontendSourceTypeDefinition>();
+const frontendSourceRegistry = registerExecutorFrontendPlugins(frontendPlugins);
 
-for (const plugin of frontendPlugins) {
-  plugin.register({
-    sources: {
-      registerType(definition) {
-        sourceTypeDefinitions.set(definition.kind, definition);
-      },
-    },
-  });
-}
-
-export const registeredSourceFrontendTypes = [...sourceTypeDefinitions.values()];
+export const registeredSourceFrontendTypes = frontendSourceRegistry.sourceTypes;
 
 export const getSourceFrontendType = (kind: string) =>
-  sourceTypeDefinitions.get(kind) ?? null;
+  frontendSourceRegistry.getSourceType(kind);
+
+export const getSourceFrontendTypeByKey = (key: string) =>
+  frontendSourceRegistry.getSourceTypeByKey(key);
 
 export const getDefaultSourceFrontendType = () =>
-  registeredSourceFrontendTypes[0] ?? null;
+  frontendSourceRegistry.getDefaultSourceType();
+
+export const getSourceFrontendPaths = (kind: string) => {
+  const definition = getSourceFrontendType(kind);
+  return definition ? createSourcePluginPaths(definition.key) : null;
+};

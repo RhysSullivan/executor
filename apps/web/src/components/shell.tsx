@@ -1,10 +1,12 @@
-import { Link, Outlet, useMatchRoute } from "@tanstack/react-router";
+import { Link, Outlet, useLocation, useMatchRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useSources, type Source } from "@executor/react";
+import { sourcePluginsIndexPath } from "@executor/react/source-plugins";
 import { cn } from "../lib/utils";
 import { IconPlus, IconCopy, IconCheck } from "./icons";
 import { LoadableBlock } from "./loadable";
 import { SourceFavicon } from "./source-favicon";
+import { getSourceFrontendPaths } from "../source-plugins";
 
 // ── Status dot color ─────────────────────────────────────────────────────
 
@@ -217,6 +219,7 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
 // ── AppShell ─────────────────────────────────────────────────────────────
 export function AppShell() {
   const sources = useSources();
+  const location = useLocation();
   const matchRoute = useMatchRoute();
   const isHome = matchRoute({ to: "/" });
   const isSecrets = matchRoute({ to: "/secrets" });
@@ -247,7 +250,7 @@ export function AppShell() {
             <div className="flex items-center justify-between gap-2">
               <span>Sources</span>
               <Link
-                to="/sources/add"
+                to={sourcePluginsIndexPath}
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium normal-case tracking-normal text-primary transition-colors hover:bg-sidebar-active hover:text-foreground"
               >
                 <IconPlus className="size-3" />
@@ -268,7 +271,11 @@ export function AppShell() {
               ) : (
                 <div className="flex flex-col gap-px">
                   {items.map((source) => (
-                    <SourceItem key={source.id} source={source} matchRoute={matchRoute} />
+                    <SourceItem
+                      key={source.id}
+                      pathname={location.pathname}
+                      source={source}
+                    />
                   ))}
                 </div>
               )
@@ -308,20 +315,34 @@ export function AppShell() {
 // ── SourceItem ───────────────────────────────────────────────────────────
 
 function SourceItem(props: {
+  pathname: string;
   source: Source;
-  matchRoute: ReturnType<typeof useMatchRoute>;
 }) {
-  const { source, matchRoute } = props;
-  const active = matchRoute({
-    to: "/sources/$sourceId",
-    params: { sourceId: source.id },
-    fuzzy: true,
-  });
+  const paths = getSourceFrontendPaths(props.source.kind);
+
+  if (!paths) {
+    return (
+      <div className="group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-sidebar-foreground/60">
+        <div className="flex size-3 shrink-0 items-center justify-center text-muted-foreground/50">
+          <SourceFavicon kind={props.source.kind} className="size-3" />
+        </div>
+        <span className="flex-1 truncate">{props.source.name}</span>
+        <span
+          className={cn("size-1.5 shrink-0 rounded-full", statusColor[props.source.status] ?? "bg-muted-foreground/30")}
+          title={props.source.status}
+        />
+      </div>
+    );
+  }
+
+  const detailPath = paths.detail(props.source.id);
+  const active =
+    props.pathname === detailPath
+    || props.pathname.startsWith(`${detailPath}/`);
 
   return (
     <Link
-      to="/sources/$sourceId"
-      params={{ sourceId: source.id }}
+      to={detailPath}
       search={{ tab: "model" }}
       className={cn(
         "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
@@ -331,12 +352,12 @@ function SourceItem(props: {
       )}
     >
       <div className="flex size-3 shrink-0 items-center justify-center text-muted-foreground/50">
-        <SourceFavicon kind={source.kind} className="size-3" />
+        <SourceFavicon kind={props.source.kind} className="size-3" />
       </div>
-      <span className="flex-1 truncate">{source.name}</span>
+      <span className="flex-1 truncate">{props.source.name}</span>
       <span
-        className={cn("size-1.5 shrink-0 rounded-full", statusColor[source.status] ?? "bg-muted-foreground/30")}
-        title={source.status}
+        className={cn("size-1.5 shrink-0 rounded-full", statusColor[props.source.status] ?? "bg-muted-foreground/30")}
+        title={props.source.status}
       />
     </Link>
   );

@@ -1,35 +1,51 @@
 import { startTransition, useEffect, useState, type ReactNode } from "react";
+
+import type { Loadable } from "../../core/types";
 import type {
-  Loadable,
   SourceInspection,
   SourceInspectionToolDetail,
-} from "@executor/react";
+} from "@executor/platform-sdk/schema";
 import {
   useSourceDiscovery,
   useSourceInspection,
   useSourceToolDetail,
-} from "@executor/react";
-import { DocumentPanel } from "../components/document-panel";
-import {
-  EmptyState,
-  LoadableBlock,
-} from "../components/loadable";
-import { Markdown } from "../components/markdown";
+} from "../../hooks/sources";
+import { Badge, MethodBadge } from "./badge";
+import { DocumentPanel } from "./document-panel";
+import { EmptyState, LoadableBlock } from "./loadable";
+import { Markdown } from "./markdown";
 import {
   IconCheck,
   IconCopy,
-  IconPencil,
   IconSearch,
   IconTool,
-} from "../components/icons";
-import { Badge, MethodBadge } from "../components/ui/badge";
-import { cn } from "../lib/utils";
+} from "./icons";
+import { cn } from "../lib/cn";
 
 export type SourceToolExplorerSearch = {
-  tab?: "model" | "discover";
+  tab: "model" | "discover";
   tool?: string;
   query?: string;
 };
+
+const sourceToolExplorerTabs = ["model", "discover"] as const;
+
+export const parseSourceToolExplorerSearch = (
+  search: Record<string, unknown>,
+): SourceToolExplorerSearch => ({
+  tab:
+    typeof search.tab === "string"
+    && sourceToolExplorerTabs.includes(
+      search.tab as SourceToolExplorerSearch["tab"],
+    )
+      ? (search.tab as SourceToolExplorerSearch["tab"])
+      : "model",
+  tool:
+    typeof search.tool === "string" && search.tool.length > 0
+      ? search.tool
+      : undefined,
+  query: typeof search.query === "string" ? search.query : undefined,
+});
 
 const highlight = (text: string, query: string) => {
   const trimmed = query.trim().toLowerCase();
@@ -246,6 +262,7 @@ export const SourceToolExplorer = (props: {
   title: string;
   kind: string;
   search: SourceToolExplorerSearch;
+  modelLayout?: "split" | "detail";
   navigate?: (search: {
     tab: "model" | "discover";
     tool?: string;
@@ -260,6 +277,7 @@ export const SourceToolExplorer = (props: {
   const detail = useSourceToolDetail(props.sourceId, tab === "model" ? toolPath : null);
   const [filter, setFilter] = useState("");
   const navigate = props.navigate;
+  const modelLayout = props.modelLayout ?? "split";
 
   useEffect(() => {
     if (
@@ -396,59 +414,7 @@ export const SourceToolExplorer = (props: {
                 }}
               />
             ) : (
-              <div className="grid gap-4 lg:grid-cols-[18rem_minmax(0,1fr)]">
-                <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
-                  <div className="relative">
-                    <IconSearch className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40" />
-                    <input
-                      value={filter}
-                      onChange={(event) => setFilter(event.target.value)}
-                      placeholder="Filter tools..."
-                      className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    {visibleTools.length === 0 ? (
-                      <EmptyState
-                        title="No tools match"
-                        description="Try a different filter."
-                      />
-                    ) : (
-                      visibleTools.map((tool) => (
-                        <button
-                          key={tool.path}
-                          type="button"
-                          onClick={() => {
-                            if (!navigate) {
-                              return;
-                            }
-
-                            startTransition(() => {
-                              void navigate({
-                                tab: "model",
-                                tool: tool.path,
-                                query: props.search.query,
-                              });
-                            });
-                          }}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
-                            selectedTool?.path === tool.path
-                              ? "border-primary/30 bg-primary/8"
-                              : "border-transparent bg-muted/30 hover:border-border hover:bg-card",
-                          )}
-                        >
-                          <IconTool className="size-3.5 shrink-0 text-muted-foreground/60" />
-                          <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
-                            {highlight(tool.path, filter)}
-                          </span>
-                          {tool.method && <MethodBadge method={tool.method} />}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-
+              modelLayout === "detail" ? (
                 <div className="rounded-2xl border border-border bg-card p-4">
                   <LoadableBlock loadable={detail} loading="Loading tool...">
                     {(loadedDetail) =>
@@ -456,14 +422,93 @@ export const SourceToolExplorer = (props: {
                         <ToolDetailPanel detail={loadedDetail} />
                       ) : (
                         <EmptyState
-                          title="Select a tool"
-                          description="Choose a tool from the list to inspect its contract."
+                          title="Tool unavailable"
+                          description="The selected tool could not be loaded."
                         />
                       )
                     }
                   </LoadableBlock>
                 </div>
-              </div>
+              ) : (
+                <div className="flex min-h-0 flex-col gap-4 md:flex-row">
+                  <div
+                    className={cn(
+                      "space-y-3 rounded-2xl border border-border bg-card p-4 md:w-72 md:shrink-0 xl:w-80",
+                      selectedTool && "order-2 md:order-1",
+                    )}
+                  >
+                    <div className="relative">
+                      <IconSearch className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/40" />
+                      <input
+                        value={filter}
+                        onChange={(event) => setFilter(event.target.value)}
+                        placeholder="Filter tools..."
+                        className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      {visibleTools.length === 0 ? (
+                        <EmptyState
+                          title="No tools match"
+                          description="Try a different filter."
+                        />
+                      ) : (
+                        visibleTools.map((tool) => (
+                          <button
+                            key={tool.path}
+                            type="button"
+                            onClick={() => {
+                              if (!navigate) {
+                                return;
+                              }
+
+                              startTransition(() => {
+                                void navigate({
+                                  tab: "model",
+                                  tool: tool.path,
+                                  query: props.search.query,
+                                });
+                              });
+                            }}
+                            className={cn(
+                              "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                              selectedTool?.path === tool.path
+                                ? "border-primary/30 bg-primary/8"
+                                : "border-transparent bg-muted/30 hover:border-border hover:bg-card",
+                            )}
+                          >
+                            <IconTool className="size-3.5 shrink-0 text-muted-foreground/60" />
+                            <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+                              {highlight(tool.path, filter)}
+                            </span>
+                            {tool.method && <MethodBadge method={tool.method} />}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div
+                    className={cn(
+                      "min-w-0 flex-1 rounded-2xl border border-border bg-card p-4",
+                      selectedTool && "order-1 md:order-2",
+                    )}
+                  >
+                    <LoadableBlock loadable={detail} loading="Loading tool...">
+                      {(loadedDetail) =>
+                        loadedDetail ? (
+                          <ToolDetailPanel detail={loadedDetail} />
+                        ) : (
+                          <EmptyState
+                            title="Select a tool"
+                            description="Choose a tool from the list to inspect its contract."
+                          />
+                        )
+                      }
+                    </LoadableBlock>
+                  </div>
+                </div>
+              )
             )}
           </div>
         );

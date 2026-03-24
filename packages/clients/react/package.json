@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./source-plugins": "./src/source-plugins/index.ts"
   },
   "scripts": {
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
@@ -11,12 +12,19 @@
     "test:watch": "bunx vitest"
   },
   "dependencies": {
+    "@shikijs/langs": "^4.0.1",
+    "@shikijs/themes": "^4.0.1",
     "@effect-atom/atom": "0.5.3",
     "@effect-atom/atom-react": "0.5.0",
     "@effect/platform": "catalog:",
     "@executor/platform-api": "workspace:*",
     "@executor/platform-sdk": "workspace:*",
-    "effect": "catalog:"
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "effect": "catalog:",
+    "shiki": "^4.0.1",
+    "streamdown": "^2.3.0",
+    "tailwind-merge": "^3.5.0"
   },
   "peerDependencies": {
     "react": ">=18 <20"

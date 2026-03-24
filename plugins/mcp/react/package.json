@@ -15,7 +15,6 @@
     "@executor/plugin-mcp-http": "workspace:*",
     "@executor/plugin-mcp-shared": "workspace:*",
     "@executor/react": "workspace:*",
-    "@tanstack/react-router": "^1.132.7",
     "react": "^19.2.0"
   },
   "devDependencies": {

@@ -313,15 +313,12 @@ function SecretRow(props: {
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 <span className="text-[10px] text-muted-foreground/50">Used by</span>
                 {secret.linkedSources.map((ls) => (
-                  <Link
+                  <span
                     key={ls.sourceId}
-                    to="/sources/$sourceId"
-                    params={{ sourceId: ls.sourceId }}
-                    search={{ tab: "model" }}
-                    className="inline-flex items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+                    className="inline-flex items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70"
                   >
                     {ls.sourceName}
-                  </Link>
+                  </span>
                 ))}
               </div>
             )}

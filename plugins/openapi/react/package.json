@@ -15,7 +15,6 @@
     "@executor/plugin-openapi-http": "workspace:*",
     "@executor/plugin-openapi-shared": "workspace:*",
     "@executor/react": "workspace:*",
-    "@tanstack/react-router": "^1.132.7",
     "react": "^19.2.0"
   },
   "devDependencies": {

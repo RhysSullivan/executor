@@ -1,5 +1,4 @@
-import { startTransition, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { startTransition, useMemo, useState } from "react";
 import type { Source } from "@executor/react";
 import {
   Result,
@@ -9,6 +8,16 @@ import {
   useExecutorMutation,
   useLocalInstallation,
 } from "@executor/react";
+import {
+  IconPencil,
+  SourceToolExplorer,
+  defineExecutorFrontendPlugin,
+  defineFrontendSourceType,
+  parseSourceToolExplorerSearch,
+  type SourceToolExplorerSearch,
+  useSourcePluginNavigation,
+  useSourcePluginSearch,
+} from "@executor/react/source-plugins";
 
 import {
   mcpHttpApiExtension,
@@ -19,8 +28,6 @@ import {
   type McpOAuthPopupResult,
   type McpStartOAuthInput,
 } from "@executor/plugin-mcp-shared";
-import { IconPencil } from "../../../apps/web/src/components/icons";
-import { SourceToolExplorer } from "../../../apps/web/src/source-plugins/tool-explorer";
 import {
   asMcpRemoteTransportValue,
   defaultMcpRemoteTransportFields,
@@ -28,38 +35,11 @@ import {
   setMcpTransportFieldsTransport,
   type McpTransportFields,
   type McpTransportValue,
-} from "../../../apps/web/src/views/mcp-transport-state";
+} from "./transport";
 import {
   parseJsonStringArray,
   parseJsonStringMap,
-} from "../../../apps/web/src/views/json-form";
-
-type FrontendSourceTypeDefinition = {
-  kind: string;
-  displayName: string;
-  description?: string;
-  renderAddPage: () => ReactNode;
-  renderEditPage?: (input: { source: Source }) => ReactNode;
-  renderDetailPage?: (input: {
-    source: Source;
-    route: {
-      search?: unknown;
-      navigate?: unknown;
-    };
-  }) => ReactNode;
-};
-
-type FrontendPluginRegisterApi = {
-  sources: {
-    registerType: (definition: FrontendSourceTypeDefinition) => void;
-  };
-};
-
-type RouteToolSearch = {
-  tab?: "model" | "discover";
-  tool?: string;
-  query?: string;
-};
+} from "./json";
 
 const OAUTH_STORAGE_PREFIX = "executor:mcp-oauth:";
 const OAUTH_TIMEOUT_MS = 2 * 60_000;
@@ -169,30 +149,6 @@ const waitForOauthPopupResult = async (
       }
     }, 400);
   });
-
-const navigateFromPluginRoute = (
-  navigate: unknown,
-  next: {
-    tab: "model" | "discover";
-    tool?: string;
-    query?: string;
-  },
-) => {
-  const routeNavigate = navigate as
-    | ((input: {
-        search: {
-          tab: "model" | "discover";
-          tool?: string;
-          query?: string;
-        };
-      }) => void | Promise<void>)
-    | undefined;
-  if (routeNavigate) {
-    void routeNavigate({
-      search: next,
-    });
-  }
-};
 
 function McpSourceForm(props: {
   initialValue: McpConnectInput;
@@ -535,7 +491,7 @@ function McpSourceForm(props: {
 }
 
 function McpAddPage() {
-  const navigate = useNavigate();
+  const navigation = useSourcePluginNavigation();
   const installation = useLocalInstallation();
   const client = getMcpHttpClient();
   const createSource = useAtomSet(
@@ -563,14 +519,8 @@ function McpAddPage() {
         });
 
         startTransition(() => {
-          void navigate({
-            to: "/sources/$sourceId",
-            params: {
-              sourceId: source.id,
-            },
-            search: {
-              tab: "model",
-            },
+          void navigation.detail(source.id, {
+            tab: "model",
           });
         });
       }}
@@ -581,7 +531,7 @@ function McpAddPage() {
 function McpEditPage(props: {
   source: Source;
 }) {
-  const navigate = useNavigate();
+  const navigation = useSourcePluginNavigation();
   const installation = useLocalInstallation();
   const client = getMcpHttpClient();
   const configResult = useAtomValue(
@@ -642,14 +592,8 @@ function McpEditPage(props: {
         });
 
         startTransition(() => {
-          void navigate({
-            to: "/sources/$sourceId",
-            params: {
-              sourceId: source.id,
-            },
-            search: {
-              tab: "model",
-            },
+          void navigation.detail(source.id, {
+            tab: "model",
           });
         });
       }}
@@ -659,12 +603,11 @@ function McpEditPage(props: {
 
 function McpDetailPage(props: {
   source: Source;
-  route: {
-    search?: unknown;
-    navigate?: unknown;
-  };
 }) {
-  const navigate = useNavigate();
+  const navigation = useSourcePluginNavigation();
+  const search = parseSourceToolExplorerSearch(
+    useSourcePluginSearch(),
+  ) satisfies SourceToolExplorerSearch;
   const installation = useLocalInstallation();
   const client = getMcpHttpClient();
   const removeSource = useAtomSet(
@@ -719,20 +662,15 @@ function McpDetailPage(props: {
       sourceId={props.source.id}
       title={props.source.name}
       kind={props.source.kind}
-      search={(props.route.search ?? {}) as RouteToolSearch}
-      navigate={(next) => navigateFromPluginRoute(props.route.navigate, next)}
+      search={search}
+      navigate={(next) => navigation.updateSearch(next)}
       summary={summary}
       actions={(
         <>
           <button
             type="button"
             onClick={() =>
-              void navigate({
-                to: "/sources/$sourceId/edit",
-                params: {
-                  sourceId: props.source.id,
-                },
-              })}
+              void navigation.edit(props.source.id)}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50"
           >
             <IconPencil className="size-3.5" />
@@ -760,9 +698,7 @@ function McpDetailPage(props: {
                 },
               }).then(() => {
                 startTransition(() => {
-                  void navigate({
-                    to: "/",
-                  });
+                  void navigation.home();
                 });
               });
             }}
@@ -776,18 +712,17 @@ function McpDetailPage(props: {
   );
 }
 
-export const McpReactPlugin = {
+const mcpSourceType = defineFrontendSourceType({
   key: "mcp",
-  register(api: FrontendPluginRegisterApi) {
-    api.sources.registerType({
-      kind: "mcp",
-      displayName: "MCP",
-      description: "Connect remote or local MCP servers with plugin-owned OAuth.",
-      renderAddPage: () => <McpAddPage />,
-      renderEditPage: ({ source }) => <McpEditPage source={source} />,
-      renderDetailPage: ({ source, route }) => (
-        <McpDetailPage source={source} route={route} />
-      ),
-    });
-  },
-};
+  kind: "mcp",
+  displayName: "MCP",
+  description: "Connect remote or local MCP servers with plugin-owned OAuth.",
+  renderAddPage: McpAddPage,
+  renderEditPage: McpEditPage,
+  renderDetailPage: McpDetailPage,
+});
+
+export const McpReactPlugin = defineExecutorFrontendPlugin({
+  key: "mcp",
+  sourceTypes: [mcpSourceType],
+});

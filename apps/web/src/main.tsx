@@ -7,29 +7,30 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { ExecutorReactProvider } from "@executor/react";
+import {
+  createSourcePluginPaths,
+  normalizeSourcePluginPath,
+  sourcePluginsIndexPath,
+  type FrontendSourceTypeDefinition,
+  type SourcePluginNavigation,
+  type SourcePluginRouteSearch,
+} from "@executor/react/source-plugins";
 
 import "./globals.css";
 
 import { AppShell } from "./components/shell";
-import { HomePage } from "./views/home";
-import { SecretsPage } from "./views/secrets";
+import {
+  registeredSourceFrontendTypes,
+} from "./source-plugins";
 import {
   SourcePluginAddPage,
-  SourcePluginCreatePage,
+  SourcePluginDetailChildPage,
   SourcePluginDetailPage,
   SourcePluginEditPage,
-  type SourcePluginRouteSearch,
+  SourcePluginsIndexPage,
 } from "./source-plugins/pages";
-
-// ---------------------------------------------------------------------------
-// Route search schema
-// ---------------------------------------------------------------------------
-
-const sourceTabs = ["model", "discover"] as const;
-
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
+import { HomePage } from "./views/home";
+import { SecretsPage } from "./views/secrets";
 
 const rootRoute = createRootRoute({
   component: AppShell,
@@ -41,36 +42,10 @@ const homeRoute = createRoute({
   component: HomePage,
 });
 
-const newSourceRoute = createRoute({
+const sourcePluginsIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/sources/new",
-  component: SourcePluginCreatePage,
-});
-
-const addSourceRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sources/add",
-  component: SourcePluginAddPage,
-});
-
-const sourceRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sources/$sourceId",
-  validateSearch: (search: Record<string, unknown>): SourcePluginRouteSearch => ({
-    tab:
-      typeof search.tab === "string" && sourceTabs.includes(search.tab as SourcePluginRouteSearch["tab"])
-        ? (search.tab as SourcePluginRouteSearch["tab"])
-        : "model",
-    tool: typeof search.tool === "string" && search.tool.length > 0 ? search.tool : undefined,
-    query: typeof search.query === "string" ? search.query : undefined,
-  }),
-  component: SourceDetailPageWrapper,
-});
-
-const editSourceRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sources/$sourceId/edit",
-  component: EditSourcePageWrapper,
+  path: sourcePluginsIndexPath,
+  component: SourcePluginsIndexPage,
 });
 
 const secretsRoute = createRoute({
@@ -79,31 +54,163 @@ const secretsRoute = createRoute({
   component: SecretsPage,
 });
 
+const createPluginNavigation = (
+  definition: FrontendSourceTypeDefinition,
+  input: {
+    navigateTo: (
+      to: string,
+      search?: SourcePluginRouteSearch,
+    ) => void | Promise<void>;
+    updateSearch?: (
+      search: SourcePluginRouteSearch,
+    ) => void | Promise<void>;
+  },
+): SourcePluginNavigation => {
+  const paths = createSourcePluginPaths(definition.key);
 
-function SourceDetailPageWrapper() {
-  const { sourceId } = sourceRoute.useParams();
-  const search = sourceRoute.useSearch();
-  const navigate = useNavigate({ from: sourceRoute.fullPath });
+  return {
+    paths,
+    home: () => input.navigateTo("/"),
+    add: () => input.navigateTo(paths.add),
+    detail: (sourceId, search) => input.navigateTo(paths.detail(sourceId), search),
+    edit: (sourceId, search) => input.navigateTo(paths.edit(sourceId), search),
+    child: ({ sourceId, path, search }) =>
+      input.navigateTo(paths.child(sourceId, path), search),
+    updateSearch: (search) => input.updateSearch?.(search),
+  };
+};
 
-  return (
-    <SourcePluginDetailPage
-      sourceId={sourceId}
-      search={search}
-      navigate={navigate as any}
-    />
-  );
-}
+const sourcePluginRoutes = registeredSourceFrontendTypes.flatMap((definition) => {
+  const paths = createSourcePluginPaths(definition.key);
 
-function EditSourcePageWrapper() {
-  const { sourceId } = editSourceRoute.useParams();
-  return <SourcePluginEditPage sourceId={sourceId} />;
-}
+  const AddRouteComponent = () => {
+    const navigate = useNavigate();
+    const navigation = createPluginNavigation(definition, {
+      navigateTo: (to, search) =>
+        search === undefined ? navigate({ to }) : navigate({ to, search }),
+    });
 
-// ---------------------------------------------------------------------------
-// Router
-// ---------------------------------------------------------------------------
+    return (
+      <SourcePluginAddPage
+        definitionKey={definition.key}
+        navigation={navigation}
+      />
+    );
+  };
 
-const routeTree = rootRoute.addChildren([homeRoute, newSourceRoute, addSourceRoute, sourceRoute, editSourceRoute, secretsRoute]);
+  const addRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: paths.add,
+    component: AddRouteComponent,
+  });
+
+  const EditRouteComponent = () => {
+    const { sourceId } = editRoute.useParams() as {
+      sourceId: string;
+    };
+    const navigate = useNavigate();
+    const navigation = createPluginNavigation(definition, {
+      navigateTo: (to, search) =>
+        search === undefined ? navigate({ to }) : navigate({ to, search }),
+    });
+
+    return (
+      <SourcePluginEditPage
+        definitionKey={definition.key}
+        sourceId={sourceId}
+        params={{ sourceId }}
+        navigation={navigation}
+      />
+    );
+  };
+
+  const editRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: paths.editPattern,
+    component: EditRouteComponent,
+  });
+
+  const DetailRouteComponent = () => {
+    const { sourceId } = detailRoute.useParams() as {
+      sourceId: string;
+    };
+    const search = detailRoute.useSearch();
+    const navigate = useNavigate();
+    const navigateFromRoute = useNavigate({ from: detailRoute.fullPath });
+    const navigation = createPluginNavigation(definition, {
+      navigateTo: (to, nextSearch) =>
+        nextSearch === undefined ? navigate({ to }) : navigate({ to, search: nextSearch }),
+      updateSearch: (nextSearch) => navigateFromRoute({ search: nextSearch }),
+    });
+
+    return (
+      <SourcePluginDetailPage
+        definitionKey={definition.key}
+        sourceId={sourceId}
+        params={{ sourceId }}
+        search={search}
+        navigation={navigation}
+      />
+    );
+  };
+
+  const detailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: paths.detailPattern,
+    component: DetailRouteComponent,
+  });
+
+  const detailChildRoutes = (definition.detailRoutes ?? []).map((detailRouteDefinition) => {
+    const ChildRouteComponent = () => {
+      const params = childRoute.useParams() as Record<string, string | undefined> & {
+        sourceId: string;
+      };
+      const search = childRoute.useSearch();
+      const navigate = useNavigate();
+      const navigateFromRoute = useNavigate({ from: childRoute.fullPath });
+      const navigation = createPluginNavigation(definition, {
+        navigateTo: (to, nextSearch) =>
+          nextSearch === undefined ? navigate({ to }) : navigate({ to, search: nextSearch }),
+        updateSearch: (nextSearch) => navigateFromRoute({ search: nextSearch }),
+      });
+
+      return (
+        <SourcePluginDetailChildPage
+          definitionKey={definition.key}
+          routeKey={detailRouteDefinition.key}
+          sourceId={params.sourceId}
+          params={params}
+          search={search}
+          navigation={navigation}
+        />
+      );
+    };
+
+    const childRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: paths.childPattern(
+        normalizeSourcePluginPath(detailRouteDefinition.path),
+      ),
+      component: ChildRouteComponent,
+    });
+
+    return childRoute;
+  });
+
+  return [
+    addRoute,
+    editRoute,
+    ...detailChildRoutes,
+    detailRoute,
+  ];
+});
+
+const routeTree = rootRoute.addChildren([
+  homeRoute,
+  sourcePluginsIndexRoute,
+  ...sourcePluginRoutes,
+  secretsRoute,
+]);
 
 const router = createRouter({
   routeTree,
@@ -115,10 +222,6 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
-
-// ---------------------------------------------------------------------------
-// App
-// ---------------------------------------------------------------------------
 
 export function App() {
   return (

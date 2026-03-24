@@ -15,7 +15,6 @@
     "@executor/plugin-google-discovery-http": "workspace:*",
     "@executor/plugin-google-discovery-shared": "workspace:*",
     "@executor/react": "workspace:*",
-    "@tanstack/react-router": "^1.132.7",
     "react": "^19.2.0"
   },
   "devDependencies": {
