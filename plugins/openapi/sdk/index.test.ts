@@ -226,6 +226,7 @@ describe("openapi-sdk oauth", () => {
       const sourceStorage = makeSourceStorage();
       const oauthSessions = makeOAuthSessionStorage();
       const tokenRequests: string[] = [];
+      const tokenAuthorizations: string[] = [];
       const { executor } = yield* makeExecutor({
         sourceStorage,
         oauthSessions,
@@ -239,6 +240,22 @@ describe("openapi-sdk oauth", () => {
       yield* withFetchMock(
         async (input, init) => {
           tokenRequests.push(String(input));
+          const authorizationHeader =
+            init?.headers instanceof Headers
+              ? init.headers.get("authorization")
+              : Array.isArray(init?.headers)
+                ? (
+                    init.headers.find(([key]) => key.toLowerCase() === "authorization")?.[1]
+                    ?? null
+                  )
+                : init?.headers && typeof init.headers === "object"
+                  ? (
+                      (init.headers as Record<string, string | undefined>).authorization
+                      ?? (init.headers as Record<string, string | undefined>).Authorization
+                      ?? null
+                    )
+                  : null;
+          tokenAuthorizations.push(authorizationHeader ?? "");
           const body = init?.body;
           const bodyText = body instanceof URLSearchParams ? body.toString() : String(body ?? "");
           tokenRequests.push(bodyText);
@@ -279,7 +296,7 @@ describe("openapi-sdk oauth", () => {
             code: "oauth-code",
           });
 
-          expect(complete.auth.clientAuthentication).toBe("client_secret_post");
+          expect(complete.auth.clientAuthentication).toBe("client_secret_basic");
           expect(complete.auth.clientSecretRef).toBe(clientSecret.id);
           expect(complete.auth.refreshTokenRef).not.toBeNull();
           expect(complete.auth.expiresAt).not.toBeNull();
@@ -304,10 +321,13 @@ describe("openapi-sdk oauth", () => {
       expect(tokenRequests[0]).toBe("https://auth.example.com/token");
       const tokenBody = new URLSearchParams(tokenRequests[1]);
       expect(tokenBody.get("grant_type")).toBe("authorization_code");
-      expect(tokenBody.get("client_id")).toBe("client-id");
-      expect(tokenBody.get("client_secret")).toBe("super-secret");
+      expect(tokenBody.get("client_id")).toBeNull();
+      expect(tokenBody.get("client_secret")).toBeNull();
       expect(tokenBody.get("code")).toBe("oauth-code");
       expect(tokenBody.get("code_verifier")).toBeTruthy();
+      expect(tokenAuthorizations[0]).toBe(
+        `Basic ${Buffer.from("client-id:super-secret", "utf8").toString("base64")}`,
+      );
     })));
   });
 

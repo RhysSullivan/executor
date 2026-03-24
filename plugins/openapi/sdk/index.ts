@@ -1011,7 +1011,7 @@ export const openApiSdkPlugin = (
             const sessionId = `openapi_oauth_${crypto.randomUUID()}`;
             const codeVerifier = createPkceCodeVerifier();
             const clientAuthentication =
-              input.clientSecretRef !== null ? "client_secret_post" : "none";
+              input.clientSecretRef !== null ? "client_secret_basic" : "none";
 
             yield* options.oauthSessions.put({
               sessionId,
