@@ -733,7 +733,7 @@ const fetchOpenApiDocument = (
   etag: string | null;
 }, Error, any> =>
   Effect.gen(function* () {
-    const headers = new Headers(
+    const authenticatedHeaders = new Headers(
       yield* resolveOpenApiAuthHeaders({
         scopeId: input.scopeId,
         sourceId: input.sourceId,
@@ -742,16 +742,34 @@ const fetchOpenApiDocument = (
       }),
     );
     if (input.stored.etag) {
-      headers.set("if-none-match", input.stored.etag);
+      authenticatedHeaders.set("if-none-match", input.stored.etag);
     }
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetch(input.stored.specUrl, {
-          headers,
-        }),
-      catch: (cause) =>
-        cause instanceof Error ? cause : new Error(String(cause)),
-    });
+
+    const fetchWithHeaders = (headers: Headers) =>
+      Effect.tryPromise({
+        try: () =>
+          fetch(input.stored.specUrl, {
+            headers,
+          }),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
+
+    let response = yield* fetchWithHeaders(authenticatedHeaders);
+    const usedAuthorizationHeader = authenticatedHeaders.has("authorization");
+
+    // Some providers publish a public spec endpoint but reject OAuth bearer tokens.
+    // If the authenticated fetch is denied, retry once without the auth header.
+    if (
+      usedAuthorizationHeader
+      && (response.status === 401 || response.status === 403)
+    ) {
+      const fallbackHeaders = new Headers();
+      if (input.stored.etag) {
+        fallbackHeaders.set("if-none-match", input.stored.etag);
+      }
+      response = yield* fetchWithHeaders(fallbackHeaders);
+    }
 
     if (!response.ok) {
       throw new Error(

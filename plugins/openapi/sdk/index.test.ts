@@ -373,4 +373,122 @@ describe("openapi-sdk oauth", () => {
       );
     })));
   });
+
+  it("retries spec fetch without oauth auth when an authenticated public spec request is rejected", async () => {
+    await Effect.runPromise(Effect.scoped(Effect.gen(function* () {
+      const { executor } = yield* makeExecutor({
+        sourceStorage: makeSourceStorage(),
+        oauthSessions: makeOAuthSessionStorage(),
+      });
+      const accessToken = yield* executor.secrets.create({
+        name: "OpenAPI OAuth Access Token",
+        value: "access-token",
+        purpose: "oauth_access_token",
+      });
+      const refreshToken = yield* executor.secrets.create({
+        name: "OpenAPI OAuth Refresh Token",
+        value: "refresh-token",
+        purpose: "oauth_refresh_token",
+      });
+      const requests: Array<{
+        authorization: string | null;
+      }> = [];
+
+      yield* withFetchMock(
+        async (_input, init) => {
+          const authorizationHeader =
+            init?.headers instanceof Headers
+              ? init.headers.get("authorization")
+              : Array.isArray(init?.headers)
+                ? (
+                    init.headers.find(([key]) => key.toLowerCase() === "authorization")?.[1]
+                    ?? null
+                  )
+                : init?.headers && typeof init.headers === "object"
+                  ? (
+                      (init.headers as Record<string, string | undefined>).authorization
+                      ?? (init.headers as Record<string, string | undefined>).Authorization
+                      ?? null
+                    )
+                  : null;
+
+          requests.push({
+            authorization: authorizationHeader,
+          });
+
+          if (authorizationHeader) {
+            return new Response("forbidden", {
+              status: 403,
+              headers: {
+                "content-type": "text/plain",
+              },
+            });
+          }
+
+          return new Response(JSON.stringify({
+            openapi: "3.1.0",
+            info: {
+              title: "OAuth Example",
+              version: "1.0.0",
+            },
+            servers: [{ url: "https://api.example.com" }],
+            paths: {},
+            components: {
+              securitySchemes: {
+                oauthMain: {
+                  type: "oauth2",
+                  flows: {
+                    authorizationCode: {
+                      authorizationUrl: "https://auth.example.com/authorize",
+                      tokenUrl: "https://auth.example.com/token",
+                      scopes: {
+                        read: "Read access",
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          }), {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          });
+        },
+        Effect.gen(function* () {
+          const source = yield* executor.openapi.createSource({
+            name: "OAuth-backed public spec",
+            specUrl: "https://example.com/openapi.json",
+            baseUrl: "https://api.example.com",
+            auth: {
+              kind: "oauth2",
+              schemeName: "oauthMain",
+              flow: "authorizationCode",
+              authorizationEndpoint: "https://auth.example.com/authorize",
+              tokenEndpoint: "https://auth.example.com/token",
+              scopes: ["read"],
+              clientId: "client-id",
+              clientSecretRef: null,
+              clientAuthentication: "none",
+              accessTokenRef: accessToken.id,
+              refreshTokenRef: refreshToken.id,
+              expiresAt: Date.now() + 3_600_000,
+            },
+          });
+
+          expect(source.kind).toBe("openapi");
+        }),
+      );
+
+      expect(requests).toEqual([
+        {
+          authorization: "Bearer access-token",
+        },
+        {
+          authorization: null,
+        },
+      ]);
+    })));
+  });
 });
