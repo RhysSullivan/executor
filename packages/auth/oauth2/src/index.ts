@@ -12,7 +12,8 @@ export type OAuth2TokenResponse = {
 
 export type OAuth2ClientAuthenticationMethod =
   | "none"
-  | "client_secret_post";
+  | "client_secret_post"
+  | "client_secret_basic";
 
 const encodeBase64Url = (input: Buffer): string =>
   input.toString("base64")
@@ -97,9 +98,16 @@ const parseOAuth2TokenResponse = async (response: Response): Promise<OAuth2Token
   };
 };
 
+const basicAuthorizationHeader = (input: {
+  clientId: string;
+  clientSecret: string;
+}): string =>
+  `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`, "utf8").toString("base64")}`;
+
 const postFormToOAuth2TokenEndpoint = (input: {
   tokenEndpoint: string;
   body: URLSearchParams;
+  authorization?: string;
 }): Effect.Effect<OAuth2TokenResponse, Error, never> =>
   Effect.tryPromise({
     try: async () => {
@@ -108,6 +116,7 @@ const postFormToOAuth2TokenEndpoint = (input: {
         headers: {
           "content-type": "application/x-www-form-urlencoded",
           accept: "application/json",
+          ...(input.authorization ? { authorization: input.authorization } : {}),
         },
         body: input.body,
         signal: AbortSignal.timeout(20_000),
@@ -131,19 +140,30 @@ export const exchangeOAuth2AuthorizationCode = (input: {
   Effect.gen(function* () {
     const body = new URLSearchParams({
       grant_type: "authorization_code",
-      client_id: input.clientId,
       redirect_uri: input.redirectUri,
       code_verifier: input.codeVerifier,
       code: input.code,
     });
+    let authorization: string | undefined;
+
+    if (input.clientAuthentication !== "client_secret_basic") {
+      body.set("client_id", input.clientId);
+    }
 
     if (input.clientAuthentication === "client_secret_post" && input.clientSecret) {
       body.set("client_secret", input.clientSecret);
+    }
+    if (input.clientAuthentication === "client_secret_basic" && input.clientSecret) {
+      authorization = basicAuthorizationHeader({
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+      });
     }
 
     return yield* postFormToOAuth2TokenEndpoint({
       tokenEndpoint: input.tokenEndpoint,
       body,
+      authorization,
     });
   });
 
@@ -158,12 +178,22 @@ export const refreshOAuth2AccessToken = (input: {
   Effect.gen(function* () {
     const body = new URLSearchParams({
       grant_type: "refresh_token",
-      client_id: input.clientId,
       refresh_token: input.refreshToken,
     });
+    let authorization: string | undefined;
+
+    if (input.clientAuthentication !== "client_secret_basic") {
+      body.set("client_id", input.clientId);
+    }
 
     if (input.clientAuthentication === "client_secret_post" && input.clientSecret) {
       body.set("client_secret", input.clientSecret);
+    }
+    if (input.clientAuthentication === "client_secret_basic" && input.clientSecret) {
+      authorization = basicAuthorizationHeader({
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+      });
     }
 
     if (input.scopes && input.scopes.length > 0) {
@@ -173,5 +203,6 @@ export const refreshOAuth2AccessToken = (input: {
     return yield* postFormToOAuth2TokenEndpoint({
       tokenEndpoint: input.tokenEndpoint,
       body,
+      authorization,
     });
   });

@@ -54,6 +54,7 @@ import {
   createFileGraphqlSourceStorage,
   createFileMcpOAuthSessionStorage,
   createFileMcpSourceStorage,
+  createFileOpenApiOAuthSessionStorage,
   createFileOpenApiSourceStorage,
   createLocalExecutorServer,
   DEFAULT_SERVER_BASE_URL,
@@ -327,6 +328,9 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
         openApiSdkPlugin({
           storage: createFileOpenApiSourceStorage({
             rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/openapi/sources`,
+          }),
+          oauthSessions: createFileOpenApiOAuthSessionStorage({
+            rootDir: `${DEFAULT_LOCAL_DATA_DIR}/plugins/openapi/oauth-sessions`,
           }),
         }),
       ] as const,

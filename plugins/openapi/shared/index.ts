@@ -14,6 +14,20 @@ export const OpenApiConnectionAuthSchema = Schema.Union(
     kind: Schema.Literal("bearer"),
     tokenSecretRef: Schema.String,
   }),
+  Schema.Struct({
+    kind: Schema.Literal("oauth2"),
+    schemeName: Schema.String,
+    flow: Schema.Literal("authorizationCode"),
+    authorizationEndpoint: Schema.String,
+    tokenEndpoint: Schema.String,
+    scopes: Schema.Array(Schema.String),
+    clientId: Schema.String,
+    clientSecretRef: Schema.NullOr(Schema.String),
+    clientAuthentication: Schema.Literal("none", "client_secret_post", "client_secret_basic"),
+    accessTokenRef: Schema.String,
+    refreshTokenRef: Schema.NullOr(Schema.String),
+    expiresAt: Schema.NullOr(Schema.Number),
+  }),
 );
 
 export const OpenApiConnectInputSchema = Schema.Struct({
@@ -33,7 +47,7 @@ export const OpenApiUpdateSourceInputSchema = Schema.Struct({
 export const OpenApiSourceConfigSchema = Schema.Struct({
   specUrl: Schema.String,
   baseUrl: Schema.NullOr(Schema.String),
-  authStrategy: Schema.Literal("none", "bearer"),
+  authStrategy: Schema.Literal("none", "bearer", "oauth2"),
   documentHash: Schema.String,
 });
 
@@ -50,12 +64,87 @@ export const OpenApiPreviewRequestSchema = Schema.Struct({
   specUrl: Schema.String,
 });
 
+export const OpenApiPreviewOAuthScopeSchema = Schema.Struct({
+  name: Schema.String,
+  description: Schema.NullOr(Schema.String),
+});
+
+export const OpenApiPreviewOAuthFlowSchema = Schema.Struct({
+  name: Schema.String,
+  authorizationUrl: Schema.NullOr(Schema.String),
+  tokenUrl: Schema.NullOr(Schema.String),
+  refreshUrl: Schema.NullOr(Schema.String),
+  scopes: Schema.Array(OpenApiPreviewOAuthScopeSchema),
+  supported: Schema.Boolean,
+});
+
 export const OpenApiPreviewSecuritySchemeSchema = Schema.Struct({
   name: Schema.String,
   kind: Schema.Literal("apiKey", "http", "oauth2", "openIdConnect", "unknown"),
   placement: Schema.NullOr(Schema.String),
   scheme: Schema.NullOr(Schema.String),
+  oauthFlows: Schema.Array(OpenApiPreviewOAuthFlowSchema),
 });
+
+export const OpenApiStartOAuthInputSchema = Schema.Struct({
+  schemeName: Schema.String,
+  flow: Schema.Literal("authorizationCode"),
+  authorizationEndpoint: Schema.String,
+  tokenEndpoint: Schema.String,
+  scopes: Schema.Array(Schema.String),
+  clientId: Schema.String,
+  clientSecretRef: Schema.NullOr(Schema.String),
+  redirectUrl: Schema.String,
+});
+
+export const OpenApiStartOAuthResultSchema = Schema.Struct({
+  sessionId: Schema.String,
+  authorizationUrl: Schema.String,
+  scopes: Schema.Array(Schema.String),
+});
+
+export const OpenApiOAuthSessionSchema = Schema.Struct({
+  schemeName: Schema.String,
+  flow: Schema.Literal("authorizationCode"),
+  authorizationEndpoint: Schema.String,
+  tokenEndpoint: Schema.String,
+  scopes: Schema.Array(Schema.String),
+  clientId: Schema.String,
+  clientSecretRef: Schema.NullOr(Schema.String),
+  clientAuthentication: Schema.Literal("none", "client_secret_post", "client_secret_basic"),
+  redirectUrl: Schema.String,
+  codeVerifier: Schema.String,
+});
+
+const OpenApiOAuthPopupSuccessAuthSchema = Schema.Struct({
+  kind: Schema.Literal("oauth2"),
+  schemeName: Schema.String,
+  flow: Schema.Literal("authorizationCode"),
+  authorizationEndpoint: Schema.String,
+  tokenEndpoint: Schema.String,
+  scopes: Schema.Array(Schema.String),
+  clientId: Schema.String,
+  clientSecretRef: Schema.NullOr(Schema.String),
+  clientAuthentication: Schema.Literal("none", "client_secret_post", "client_secret_basic"),
+  accessTokenRef: Schema.String,
+  refreshTokenRef: Schema.NullOr(Schema.String),
+  expiresAt: Schema.NullOr(Schema.Number),
+});
+
+export const OpenApiOAuthPopupResultSchema = Schema.Union(
+  Schema.Struct({
+    type: Schema.Literal("executor:oauth-result"),
+    ok: Schema.Literal(true),
+    sessionId: Schema.String,
+    auth: OpenApiOAuthPopupSuccessAuthSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("executor:oauth-result"),
+    ok: Schema.Literal(false),
+    sessionId: Schema.NullOr(Schema.String),
+    error: Schema.String,
+  }),
+);
 
 export const OpenApiPreviewResponseSchema = Schema.Struct({
   title: Schema.NullOr(Schema.String),
@@ -74,9 +163,17 @@ export type OpenApiSourceConfigPayload =
 export type OpenApiSourceConfig = typeof OpenApiSourceConfigSchema.Type;
 export type OpenApiStoredSourceData = typeof OpenApiStoredSourceDataSchema.Type;
 export type OpenApiPreviewRequest = typeof OpenApiPreviewRequestSchema.Type;
+export type OpenApiPreviewOAuthScope =
+  typeof OpenApiPreviewOAuthScopeSchema.Type;
+export type OpenApiPreviewOAuthFlow =
+  typeof OpenApiPreviewOAuthFlowSchema.Type;
 export type OpenApiPreviewSecurityScheme =
   typeof OpenApiPreviewSecuritySchemeSchema.Type;
 export type OpenApiPreviewResponse = typeof OpenApiPreviewResponseSchema.Type;
+export type OpenApiStartOAuthInput = typeof OpenApiStartOAuthInputSchema.Type;
+export type OpenApiStartOAuthResult = typeof OpenApiStartOAuthResultSchema.Type;
+export type OpenApiOAuthSession = typeof OpenApiOAuthSessionSchema.Type;
+export type OpenApiOAuthPopupResult = typeof OpenApiOAuthPopupResultSchema.Type;
 export type OpenApiUpdateSourceInput =
   typeof OpenApiUpdateSourceInputSchema.Type;
 
@@ -89,6 +186,9 @@ const asRecord = (value: unknown): JsonRecord | null =>
 
 const asString = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+
+const asRecordEntries = (value: unknown): Array<[string, unknown]> =>
+  Object.entries(asRecord(value) ?? {});
 
 const namespaceFromUrl = (value: string): string | null => {
   try {
@@ -182,6 +282,32 @@ const previewSecuritySchemes = (document: JsonRecord): Array<OpenApiPreviewSecur
         kind,
         placement: asString(scheme?.in),
         scheme: asString(scheme?.scheme),
+        oauthFlows:
+          kind === "oauth2"
+            ? asRecordEntries(scheme?.flows)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([flowName, rawFlow]) => {
+                  const flow = asRecord(rawFlow);
+                  const scopes = asRecordEntries(flow?.scopes)
+                    .sort(([left], [right]) => left.localeCompare(right))
+                    .map(([scopeName, description]) => ({
+                      name: scopeName,
+                      description: asString(description),
+                    }));
+
+                  return {
+                    name: flowName,
+                    authorizationUrl: asString(flow?.authorizationUrl),
+                    tokenUrl: asString(flow?.tokenUrl),
+                    refreshUrl: asString(flow?.refreshUrl),
+                    scopes,
+                    supported:
+                      flowName === "authorizationCode"
+                      && asString(flow?.authorizationUrl) !== null
+                      && asString(flow?.tokenUrl) !== null,
+                  } satisfies OpenApiPreviewOAuthFlow;
+                })
+            : [],
       } satisfies OpenApiPreviewSecurityScheme;
     });
 };

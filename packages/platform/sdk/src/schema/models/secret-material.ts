@@ -23,6 +23,7 @@ export const SecretMaterialSchema = Schema.Struct({
   providerId: Schema.String,
   handle: Schema.String,
   value: Schema.NullOr(Schema.String),
+  expiresAt: Schema.NullOr(TimestampMsSchema),
   createdAt: TimestampMsSchema,
   updatedAt: TimestampMsSchema,
 });

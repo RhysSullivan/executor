@@ -13,6 +13,7 @@ import type {
   Source,
 } from "#schema";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 
 import {
   RuntimeSourceCatalogStoreService,
@@ -32,6 +33,7 @@ import {
 } from "../../scope/storage";
 import type {
   DeleteSecretMaterial,
+  ResolveSecretMaterial,
   ResolveInstanceConfig,
   StoreSecretMaterial,
   UpdateSecretMaterial,
@@ -65,6 +67,16 @@ import {
 import {
   runtimeEffectError,
 } from "../../effect-errors";
+import {
+  LocalInstanceConfigService,
+  SecretMaterialDeleterService,
+  SecretMaterialResolverService,
+  SecretMaterialStorerService,
+  SecretMaterialUpdaterService,
+} from "../../scope/secret-material-providers";
+import {
+  ExecutorStateStore,
+} from "../../executor-state-store";
 
 export type ScopeInternalToolContext = {
   scopeId: Source["scopeId"];
@@ -76,6 +88,7 @@ export type ScopeInternalToolContext = {
   >;
   installationStore: InstallationStoreShape;
   instanceConfigResolver: ResolveInstanceConfig;
+  resolveSecretMaterial: ResolveSecretMaterial;
   storeSecretMaterial: StoreSecretMaterial;
   deleteSecretMaterial: DeleteSecretMaterial;
   updateSecretMaterial: UpdateSecretMaterial;
@@ -102,6 +115,7 @@ export const createScopeToolInvoker = (input: {
   >;
   installationStore: InstallationStoreShape;
   instanceConfigResolver: ResolveInstanceConfig;
+  resolveSecretMaterial: ResolveSecretMaterial;
   storeSecretMaterial: StoreSecretMaterial;
   deleteSecretMaterial: DeleteSecretMaterial;
   updateSecretMaterial: UpdateSecretMaterial;
@@ -125,6 +139,18 @@ export const createScopeToolInvoker = (input: {
   });
   const provideWorkspaceStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(scopeStorageLayer));
+  const persistedInvocationRuntimeLayer = Layer.mergeAll(
+    scopeStorageLayer,
+    Layer.succeed(ExecutorStateStore, input.executorStateStore),
+    Layer.succeed(LocalInstanceConfigService, input.instanceConfigResolver),
+    Layer.succeed(SecretMaterialResolverService, input.resolveSecretMaterial),
+    Layer.succeed(SecretMaterialStorerService, input.storeSecretMaterial),
+    Layer.succeed(SecretMaterialDeleterService, input.deleteSecretMaterial),
+    Layer.succeed(SecretMaterialUpdaterService, input.updateSecretMaterial),
+  );
+  const providePersistedInvocationRuntime = <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => effect.pipe(Effect.provide(persistedInvocationRuntimeLayer));
 
   const executorTools = createExecutorToolMap({
     scopeId: input.scopeId,
@@ -147,6 +173,7 @@ export const createScopeToolInvoker = (input: {
       sourceCatalogSyncService: input.sourceCatalogSyncService,
       installationStore: input.installationStore,
       instanceConfigResolver: input.instanceConfigResolver,
+      resolveSecretMaterial: input.resolveSecretMaterial,
       storeSecretMaterial: input.storeSecretMaterial,
       deleteSecretMaterial: input.deleteSecretMaterial,
       updateSecretMaterial: input.updateSecretMaterial,
@@ -198,7 +225,7 @@ export const createScopeToolInvoker = (input: {
     context?: Record<string, unknown>;
   }) =>
     provideRuntimeLocalScope(
-      provideWorkspaceStorage(
+      providePersistedInvocationRuntime(
         Effect.gen(function* () {
           const catalogTool = yield* loadWorkspaceCatalogToolByPath({
             scopeId: input.scopeId,

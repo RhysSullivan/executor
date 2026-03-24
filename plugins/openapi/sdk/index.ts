@@ -1,12 +1,23 @@
 import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import * as Option from "effect/Option";
 
+import {
+  buildOAuth2AuthorizationUrl,
+  createPkceCodeVerifier,
+  exchangeOAuth2AuthorizationCode,
+  refreshOAuth2AccessToken,
+} from "@executor/auth-oauth2";
 import {
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
-import type { Source } from "@executor/platform-sdk/schema";
+import {
+  SecretMaterialIdSchema,
+  type SecretRef,
+  type Source,
+} from "@executor/platform-sdk/schema";
 import type {
   ExecutorSdkPlugin,
   ExecutorSdkPluginHost,
@@ -14,13 +25,25 @@ import type {
   SourcePluginRuntime,
 } from "@executor/platform-sdk/plugins";
 import {
+  ExecutorStateStore,
+  SecretMaterialResolverService,
+  SecretMaterialStorerService,
+  SecretMaterialUpdaterService,
+  provideExecutorRuntime,
+} from "@executor/platform-sdk/runtime";
+import {
   OpenApiConnectionAuthSchema,
+  OpenApiOAuthSessionSchema,
   deriveOpenApiNamespace,
   previewOpenApiDocument,
   type OpenApiConnectInput,
+  type OpenApiOAuthPopupResult,
+  type OpenApiOAuthSession,
   type OpenApiPreviewRequest,
   type OpenApiPreviewResponse,
   type OpenApiSourceConfigPayload,
+  type OpenApiStartOAuthInput,
+  type OpenApiStartOAuthResult,
   type OpenApiStoredSourceData,
   type OpenApiUpdateSourceInput,
 } from "@executor/plugin-openapi-shared";
@@ -41,9 +64,15 @@ import {
   withSerializedQueryEntries,
 } from "./http-serialization";
 import {
+  type OpenApiSecurityRequirement,
   OpenApiToolProviderDataSchema,
   type OpenApiToolProviderData,
 } from "./types";
+
+const OAUTH_REFRESH_SKEW_MS = 60_000;
+
+const toError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
 
 const stableSourceHash = (value: OpenApiStoredSourceData): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
@@ -64,10 +93,13 @@ export type OpenApiSourceStorage = {
   }) => Effect.Effect<void, Error, never>;
 };
 
-export type OpenApiSecrets = {
-  resolve: (input: {
-    ref: string;
-  }) => Effect.Effect<string, Error, never>;
+export type OpenApiOAuthSessionStorage = {
+  get: (sessionId: string) => Effect.Effect<OpenApiOAuthSession | null, Error, never>;
+  put: (input: {
+    sessionId: string;
+    value: OpenApiOAuthSession;
+  }) => Effect.Effect<void, Error, never>;
+  remove?: (sessionId: string) => Effect.Effect<void, Error, never>;
 };
 
 export type OpenApiSdk = {
@@ -86,11 +118,20 @@ export type OpenApiSdk = {
   removeSource: (
     sourceId: Source["id"],
   ) => Effect.Effect<boolean, Error, never>;
+  startOAuth: (
+    input: OpenApiStartOAuthInput,
+  ) => Effect.Effect<OpenApiStartOAuthResult, Error, never>;
+  completeOAuth: (input: {
+    state: string;
+    code?: string;
+    error?: string;
+    errorDescription?: string;
+  }) => Effect.Effect<Extract<OpenApiOAuthPopupResult, { ok: true }>, Error, never>;
 };
 
 export type OpenApiSdkPluginOptions = {
   storage: OpenApiSourceStorage;
-  secrets?: OpenApiSecrets;
+  oauthSessions: OpenApiOAuthSessionStorage;
 };
 
 const OpenApiExecutorAddInputSchema = Schema.Struct({
@@ -125,6 +166,7 @@ const configFromStoredSourceData = (
 });
 
 const decodeProviderData = Schema.decodeUnknownSync(OpenApiToolProviderDataSchema);
+const decodeSession = Schema.decodeUnknownSync(OpenApiOAuthSessionSchema);
 
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -262,6 +304,146 @@ const responseHeadersRecord = (response: Response): Record<string, string> => {
   return headers;
 };
 
+const headersRecord = (headers: Headers): Record<string, string> => {
+  const record: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    record[key] = value;
+  });
+  return record;
+};
+
+const secretRefFromSecretId = (secretId: string): Effect.Effect<SecretRef, Error, any> =>
+  Effect.gen(function* () {
+    const store = yield* ExecutorStateStore;
+    const material = yield* store.secretMaterials.getById(
+      SecretMaterialIdSchema.make(secretId),
+    );
+    if (Option.isNone(material)) {
+      return yield* Effect.fail(new Error(`Secret not found: ${secretId}`));
+    }
+
+    return {
+      providerId: material.value.providerId,
+      handle: material.value.id,
+    } satisfies SecretRef;
+  });
+
+const resolveSecretValueById = (secretId: string): Effect.Effect<string, Error, any> =>
+  Effect.gen(function* () {
+    const ref = yield* secretRefFromSecretId(secretId);
+    const resolveSecretMaterial = yield* SecretMaterialResolverService;
+    const value = yield* resolveSecretMaterial({
+      ref,
+    });
+    return value.trim();
+  });
+
+const storeSecretValue = (input: {
+  purpose: "oauth_access_token" | "oauth_refresh_token";
+  value: string;
+  name: string;
+  expiresAt?: number | null;
+}): Effect.Effect<string, Error, any> =>
+  Effect.gen(function* () {
+    const storeSecretMaterial = yield* SecretMaterialStorerService;
+    const ref = yield* storeSecretMaterial({
+      purpose: input.purpose,
+      value: input.value,
+      name: input.name,
+      ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+    });
+    return ref.handle;
+  });
+
+const updateSecretValueById = (input: {
+  secretId: string;
+  value: string;
+  expiresAt?: number | null;
+}): Effect.Effect<void, Error, any> =>
+  Effect.gen(function* () {
+    const ref = yield* secretRefFromSecretId(input.secretId);
+    const updateSecretMaterial = yield* SecretMaterialUpdaterService;
+    yield* updateSecretMaterial({
+      ref,
+      value: input.value,
+      ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+    });
+  });
+
+const expiresAtFromExpiresIn = (expiresIn: number | undefined): number | null =>
+  typeof expiresIn === "number" && Number.isFinite(expiresIn)
+    ? Date.now() + Math.max(0, expiresIn) * 1000
+    : null;
+
+const mergeRequiredScopes = (
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+): Set<string> => new Set([...left, ...right]);
+
+const requiredScopesForConfiguredScheme = (input: {
+  authRequirement?: OpenApiSecurityRequirement;
+  schemeName: string;
+}): {
+  matched: boolean;
+  scopes: ReadonlySet<string>;
+} => {
+  const requirement = input.authRequirement;
+  if (!requirement || requirement.kind === "none") {
+    return {
+      matched: true,
+      scopes: new Set(),
+    };
+  }
+
+  switch (requirement.kind) {
+    case "scheme":
+      return requirement.schemeName === input.schemeName
+        ? {
+            matched: true,
+            scopes: new Set(requirement.scopes ?? []),
+          }
+        : {
+            matched: false,
+            scopes: new Set(),
+          };
+    case "anyOf": {
+      for (const item of requirement.items) {
+        const matched = requiredScopesForConfiguredScheme({
+          authRequirement: item,
+          schemeName: input.schemeName,
+        });
+        if (matched.matched) {
+          return matched;
+        }
+      }
+      return {
+        matched: false,
+        scopes: new Set(),
+      };
+    }
+    case "allOf": {
+      let scopes = new Set<string>();
+      for (const item of requirement.items) {
+        const matched = requiredScopesForConfiguredScheme({
+          authRequirement: item,
+          schemeName: input.schemeName,
+        });
+        if (!matched.matched) {
+          return {
+            matched: false,
+            scopes: new Set(),
+          };
+        }
+        scopes = mergeRequiredScopes(scopes, matched.scopes);
+      }
+      return {
+        matched: true,
+        scopes,
+      };
+    }
+  }
+};
+
 const createOpenApiSourceSdk = (
   options: OpenApiSdkPluginOptions,
   host: ExecutorSdkPluginHost,
@@ -367,7 +549,7 @@ const openApiSourceConnector = (
   inputSignatureWidth: 280,
   helpText: [
     "Provide the OpenAPI document URL and optional base URL override.",
-    "Use `auth.kind = \"bearer\"` with a stored secret ref when required.",
+    "Use `auth.kind = \"bearer\"` or `auth.kind = \"oauth2\"` when required.",
   ],
   createSource: ({ args, host }) =>
     createOpenApiSourceSdk(options, host).createSource(args),
@@ -390,53 +572,204 @@ const decodeResponseBody = async (response: Response): Promise<unknown> => {
 };
 
 const resolveBearerToken = (
-  options: OpenApiSdkPluginOptions,
   stored: OpenApiStoredSourceData,
-): Effect.Effect<string | null, Error, never> => {
+): Effect.Effect<string | null, Error, any> => {
   if (stored.auth.kind === "none") {
     return Effect.succeed(null);
   }
 
-  if (!options.secrets) {
-    return Effect.fail(
-      new Error("OpenAPI bearer auth is configured, but no secret resolver is available."),
-    );
+  if (stored.auth.kind !== "bearer") {
+    return Effect.succeed(null);
   }
 
-  return options.secrets.resolve({
-    ref: stored.auth.tokenSecretRef,
-  }).pipe(Effect.map((token) => token.trim()));
+  return resolveSecretValueById(stored.auth.tokenSecretRef);
 };
+
+const resolveOauthAccessToken = (input: {
+  scopeId: string;
+  sourceId: string;
+  auth: Extract<OpenApiStoredSourceData["auth"], { kind: "oauth2" }>;
+  storage: OpenApiSourceStorage;
+}): Effect.Effect<string, Error, any> =>
+  Effect.gen(function* () {
+    const now = Date.now();
+    const needsRefresh =
+      input.auth.refreshTokenRef !== null
+      && input.auth.expiresAt !== null
+      && input.auth.expiresAt <= now + OAUTH_REFRESH_SKEW_MS;
+    if (!needsRefresh) {
+      return yield* resolveSecretValueById(input.auth.accessTokenRef);
+    }
+
+    const refreshToken = yield* resolveSecretValueById(input.auth.refreshTokenRef!);
+    const clientSecret = input.auth.clientSecretRef
+      ? yield* resolveSecretValueById(input.auth.clientSecretRef)
+      : null;
+    const tokenResponse = yield* refreshOAuth2AccessToken({
+      tokenEndpoint: input.auth.tokenEndpoint,
+      clientId: input.auth.clientId,
+      clientAuthentication: input.auth.clientAuthentication,
+      clientSecret,
+      refreshToken,
+      scopes: input.auth.scopes,
+    });
+    const accessTokenExpiresAt = expiresAtFromExpiresIn(tokenResponse.expires_in);
+
+    yield* updateSecretValueById({
+      secretId: input.auth.accessTokenRef,
+      value: tokenResponse.access_token,
+      expiresAt: accessTokenExpiresAt,
+    });
+
+    let refreshTokenRef = input.auth.refreshTokenRef;
+    if (tokenResponse.refresh_token) {
+      if (refreshTokenRef) {
+        yield* updateSecretValueById({
+          secretId: refreshTokenRef,
+          value: tokenResponse.refresh_token,
+          expiresAt: null,
+        });
+      } else {
+        refreshTokenRef = yield* storeSecretValue({
+          purpose: "oauth_refresh_token",
+          value: tokenResponse.refresh_token,
+          name: `${input.sourceId} OpenAPI Refresh Token`,
+          expiresAt: null,
+        });
+      }
+    }
+
+    const stored = yield* input.storage.get({
+      scopeId: input.scopeId,
+      sourceId: input.sourceId,
+    });
+    if (stored?.auth.kind === "oauth2") {
+      yield* input.storage.put({
+        scopeId: input.scopeId,
+        sourceId: input.sourceId,
+        value: {
+          ...stored,
+          auth: {
+            ...stored.auth,
+            refreshTokenRef,
+            expiresAt: accessTokenExpiresAt,
+          },
+        },
+      });
+    }
+
+    return tokenResponse.access_token;
+  }).pipe(Effect.mapError(toError));
+
+const resolveOpenApiAuthHeaders = (input: {
+  scopeId: string;
+  sourceId: string;
+  stored: OpenApiStoredSourceData;
+  providerData?: OpenApiToolProviderData;
+  storage: OpenApiSourceStorage;
+}): Effect.Effect<Record<string, string>, Error, any> =>
+  Effect.gen(function* () {
+    const headers = new Headers();
+
+    for (const [key, value] of Object.entries(input.stored.defaultHeaders ?? {})) {
+      headers.set(key, value);
+    }
+
+    if (input.providerData && input.stored.auth.kind === "oauth2") {
+      const required = requiredScopesForConfiguredScheme({
+        authRequirement: input.providerData.authRequirement,
+        schemeName: input.stored.auth.schemeName,
+      });
+      if (!required.matched) {
+        return yield* Effect.fail(
+          new Error(
+            `Configured OAuth scheme '${input.stored.auth.schemeName}' does not satisfy this OpenAPI operation.`,
+          ),
+        );
+      }
+
+      const configuredScopes = new Set(input.stored.auth.scopes);
+      const missingScopes = [...required.scopes].filter(
+        (scope) => !configuredScopes.has(scope),
+      );
+      if (missingScopes.length > 0) {
+        return yield* Effect.fail(
+          new Error(
+            `Configured OAuth scopes are missing required scopes: ${missingScopes.sort().join(", ")}`,
+          ),
+        );
+      }
+    }
+
+    if (input.stored.auth.kind === "bearer") {
+      const bearerToken = yield* resolveBearerToken(input.stored);
+      if (bearerToken && bearerToken.length > 0) {
+        headers.set("authorization", `Bearer ${bearerToken}`);
+      }
+    }
+
+    if (input.stored.auth.kind === "oauth2") {
+      const token = yield* resolveOauthAccessToken({
+        scopeId: input.scopeId,
+        sourceId: input.sourceId,
+        auth: input.stored.auth,
+        storage: input.storage,
+      });
+      headers.set("authorization", `Bearer ${token.trim()}`);
+    }
+
+    return headersRecord(headers);
+  }).pipe(Effect.mapError(toError));
 
 const fetchOpenApiDocument = (
   options: OpenApiSdkPluginOptions,
-  stored: OpenApiStoredSourceData,
+  input: {
+    scopeId: string;
+    sourceId: string;
+    stored: OpenApiStoredSourceData;
+  },
 ): Effect.Effect<{
   text: string;
   etag: string | null;
-}, Error, never> =>
+}, Error, any> =>
   Effect.gen(function* () {
-    const bearerToken = yield* resolveBearerToken(options, stored);
-    const headers = new Headers();
+    const authenticatedHeaders = new Headers(
+      yield* resolveOpenApiAuthHeaders({
+        scopeId: input.scopeId,
+        sourceId: input.sourceId,
+        stored: input.stored,
+        storage: options.storage,
+      }),
+    );
+    if (input.stored.etag) {
+      authenticatedHeaders.set("if-none-match", input.stored.etag);
+    }
 
-    for (const [key, value] of Object.entries(stored.defaultHeaders ?? {})) {
-      headers.set(key, value);
-    }
-    if (bearerToken && bearerToken.length > 0) {
-      headers.set("authorization", `Bearer ${bearerToken}`);
-    }
-    if (stored.etag) {
-      headers.set("if-none-match", stored.etag);
-    }
+    const fetchWithHeaders = (headers: Headers) =>
+      Effect.tryPromise({
+        try: () =>
+          fetch(input.stored.specUrl, {
+            headers,
+          }),
+        catch: (cause) =>
+          cause instanceof Error ? cause : new Error(String(cause)),
+      });
 
-    const response = yield* Effect.tryPromise({
-      try: () =>
-        fetch(stored.specUrl, {
-          headers,
-        }),
-      catch: (cause) =>
-        cause instanceof Error ? cause : new Error(String(cause)),
-    });
+    let response = yield* fetchWithHeaders(authenticatedHeaders);
+    const usedAuthorizationHeader = authenticatedHeaders.has("authorization");
+
+    // Some providers publish a public spec endpoint but reject OAuth bearer tokens.
+    // If the authenticated fetch is denied, retry once without the auth header.
+    if (
+      usedAuthorizationHeader
+      && (response.status === 401 || response.status === 403)
+    ) {
+      const fallbackHeaders = new Headers();
+      if (input.stored.etag) {
+        fallbackHeaders.set("if-none-match", input.stored.etag);
+      }
+      response = yield* fetchWithHeaders(fallbackHeaders);
+    }
 
     if (!response.ok) {
       throw new Error(
@@ -487,7 +820,11 @@ const createOpenApiSourceRuntime = (
         });
       }
 
-      const fetched = yield* fetchOpenApiDocument(options, stored);
+      const fetched = yield* fetchOpenApiDocument(options, {
+        scopeId: source.scopeId,
+        sourceId: source.id,
+        stored,
+      });
       const manifest = yield* extractOpenApiManifest(source.name, fetched.text);
       const definitions = compileOpenApiToolDefinitions(manifest);
       const now = Date.now();
@@ -547,9 +884,13 @@ const createOpenApiSourceRuntime = (
         args,
         providerData.invocation,
       );
-      const headers: Record<string, string> = {
-        ...(stored.defaultHeaders ?? {}),
-      };
+      const headers = yield* resolveOpenApiAuthHeaders({
+        scopeId: input.source.scopeId,
+        sourceId: input.source.id,
+        stored,
+        providerData,
+        storage: options.storage,
+      });
       const queryEntries: Array<{
         name: string;
         value: string;
@@ -601,11 +942,6 @@ const createOpenApiSourceRuntime = (
           headers["content-type"] = serializedBody.contentType;
           body = serializedBody.body;
         }
-      }
-
-      const bearerToken = yield* resolveBearerToken(options, stored);
-      if (bearerToken && bearerToken.length > 0) {
-        headers.authorization = `Bearer ${bearerToken}`;
       }
 
       const requestUrl = resolveRequestUrl(
@@ -671,15 +1007,14 @@ export const openApiSdkPlugin = (
     const provideRuntime = <A>(
       effect: Effect.Effect<A, Error, any>,
     ): Effect.Effect<A, Error, never> =>
-      effect.pipe(Effect.provide(executor.runtime.managedRuntime));
+      provideExecutorRuntime(effect, executor.runtime);
 
     return {
-    previewDocument: (input) =>
-      Effect.tryPromise({
-        try: () => previewOpenApiDocument(input),
-        catch: (cause) =>
-          cause instanceof Error ? cause : new Error(String(cause)),
-      }),
+      previewDocument: (input) =>
+        Effect.tryPromise({
+          try: () => previewOpenApiDocument(input),
+          catch: toError,
+        }),
       getSourceConfig: (sourceId) =>
         provideRuntime(sourceSdk.getSourceConfig(sourceId)),
       createSource: (input) =>
@@ -688,6 +1023,129 @@ export const openApiSdkPlugin = (
         provideRuntime(sourceSdk.updateSource(input)),
       removeSource: (sourceId) =>
         provideRuntime(sourceSdk.removeSource(sourceId)),
+      startOAuth: (input) =>
+        provideRuntime(
+          Effect.gen(function* () {
+            const sessionId = `openapi_oauth_${crypto.randomUUID()}`;
+            const codeVerifier = createPkceCodeVerifier();
+            const clientAuthentication =
+              input.clientSecretRef !== null ? "client_secret_basic" : "none";
+
+            yield* options.oauthSessions.put({
+              sessionId,
+              value: decodeSession({
+                schemeName: input.schemeName.trim(),
+                flow: "authorizationCode",
+                authorizationEndpoint: input.authorizationEndpoint.trim(),
+                tokenEndpoint: input.tokenEndpoint.trim(),
+                scopes: [...new Set(input.scopes.map((scope) => scope.trim()).filter(Boolean))],
+                clientId: input.clientId.trim(),
+                clientSecretRef: input.clientSecretRef?.trim() || null,
+                clientAuthentication,
+                redirectUrl: input.redirectUrl,
+                codeVerifier,
+              }),
+            });
+
+            const session = yield* options.oauthSessions.get(sessionId);
+            if (session === null) {
+              return yield* Effect.fail(
+                new Error(`OpenAPI OAuth session not found after creation: ${sessionId}`),
+              );
+            }
+
+            return {
+              sessionId,
+              authorizationUrl: buildOAuth2AuthorizationUrl({
+                authorizationEndpoint: session.authorizationEndpoint,
+                clientId: session.clientId,
+                redirectUri: session.redirectUrl,
+                scopes: session.scopes,
+                state: sessionId,
+                codeVerifier: session.codeVerifier,
+              }),
+              scopes: [...session.scopes],
+            };
+          }).pipe(Effect.mapError(toError)),
+        ),
+      completeOAuth: (input) =>
+        provideRuntime(
+          Effect.gen(function* () {
+            if (input.error) {
+              return yield* Effect.fail(
+                new Error(input.errorDescription || input.error || "OpenAPI OAuth failed"),
+              );
+            }
+            if (!input.code) {
+              return yield* Effect.fail(new Error("Missing OpenAPI OAuth code."));
+            }
+
+            const session = yield* options.oauthSessions.get(input.state);
+            if (session === null) {
+              return yield* Effect.fail(
+                new Error(`OpenAPI OAuth session not found: ${input.state}`),
+              );
+            }
+
+            const clientSecret = session.clientSecretRef
+              ? yield* resolveSecretValueById(session.clientSecretRef)
+              : null;
+            const tokenResponse = yield* exchangeOAuth2AuthorizationCode({
+              tokenEndpoint: session.tokenEndpoint,
+              clientId: session.clientId,
+              clientAuthentication: session.clientAuthentication,
+              clientSecret,
+              redirectUri: session.redirectUrl,
+              codeVerifier: session.codeVerifier,
+              code: input.code,
+            });
+            if (!tokenResponse.refresh_token) {
+              return yield* Effect.fail(
+                new Error(
+                  "OpenAPI OAuth did not return a refresh token. This connection requires renewable OAuth credentials.",
+                ),
+              );
+            }
+
+            const accessTokenExpiresAt = expiresAtFromExpiresIn(tokenResponse.expires_in);
+            const accessTokenRef = yield* storeSecretValue({
+              purpose: "oauth_access_token",
+              value: tokenResponse.access_token,
+              name: `${session.schemeName} OpenAPI Access Token`,
+              expiresAt: accessTokenExpiresAt,
+            });
+            const refreshTokenRef = yield* storeSecretValue({
+              purpose: "oauth_refresh_token",
+              value: tokenResponse.refresh_token,
+              name: `${session.schemeName} OpenAPI Refresh Token`,
+              expiresAt: null,
+            });
+
+            if (options.oauthSessions.remove) {
+              yield* options.oauthSessions.remove(input.state);
+            }
+
+            return {
+              type: "executor:oauth-result" as const,
+              ok: true as const,
+              sessionId: input.state,
+              auth: {
+                kind: "oauth2" as const,
+                schemeName: session.schemeName,
+                flow: "authorizationCode" as const,
+                authorizationEndpoint: session.authorizationEndpoint,
+                tokenEndpoint: session.tokenEndpoint,
+                scopes: [...session.scopes],
+                clientId: session.clientId,
+                clientSecretRef: session.clientSecretRef,
+                clientAuthentication: session.clientAuthentication,
+                accessTokenRef,
+                refreshTokenRef,
+                expiresAt: accessTokenExpiresAt,
+              },
+            };
+          }).pipe(Effect.mapError(toError)),
+        ),
     };
   },
 });

@@ -30,6 +30,7 @@ export const SecretListItemSchema = Schema.Struct({
   providerId: Schema.String,
   name: Schema.NullOr(Schema.String),
   purpose: Schema.String,
+  expiresAt: Schema.NullOr(Schema.Number),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
   linkedSources: Schema.Array(SecretLinkedSourceSchema),
@@ -51,6 +52,7 @@ export const CreateSecretResultSchema = Schema.Struct({
   name: Schema.NullOr(Schema.String),
   providerId: Schema.String,
   purpose: Schema.String,
+  expiresAt: Schema.NullOr(Schema.Number),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
 });
@@ -69,6 +71,7 @@ export const UpdateSecretResultSchema = Schema.Struct({
   providerId: Schema.String,
   name: Schema.NullOr(Schema.String),
   purpose: Schema.String,
+  expiresAt: Schema.NullOr(Schema.Number),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
 });

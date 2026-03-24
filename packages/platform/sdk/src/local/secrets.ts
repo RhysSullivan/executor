@@ -132,6 +132,7 @@ export const createLocalSecret = (payload: CreateSecretPayload) =>
       name: created.value.name,
       providerId: created.value.providerId,
       purpose: created.value.purpose,
+      expiresAt: created.value.expiresAt,
       createdAt: created.value.createdAt,
       updatedAt: created.value.updatedAt,
     } satisfies CreateSecretResult;
@@ -184,6 +185,7 @@ export const updateLocalSecret = (input: {
       providerId: updated.providerId,
       name: updated.name,
       purpose: updated.purpose,
+      expiresAt: updated.expiresAt,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     } satisfies UpdateSecretResult;

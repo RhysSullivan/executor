@@ -9,7 +9,9 @@ import {
   defineExecutorPluginHttpApiClient,
   useAtomValue,
   useAtomSet,
+  useCreateSecret,
   useExecutorMutation,
+  useInstanceConfig,
   useLocalInstallation,
   usePrefetchToolDetail,
   useSourceDiscovery,
@@ -36,13 +38,19 @@ import {
 } from "@executor/plugin-openapi-http";
 import type {
   OpenApiConnectInput,
+  OpenApiOAuthPopupResult,
   OpenApiPreviewRequest,
+  OpenApiPreviewOAuthFlow,
   OpenApiPreviewSecurityScheme,
   OpenApiPreviewResponse,
   OpenApiSourceConfigPayload,
+  OpenApiStartOAuthInput,
 } from "@executor/plugin-openapi-shared";
 import { useNavigate } from "@tanstack/react-router";
 import { startTransition, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+
+const OAUTH_STORAGE_PREFIX = "executor:openapi-oauth:";
+const OAUTH_TIMEOUT_MS = 2 * 60_000;
 
 type FrontendSourceTypeDefinition = {
   kind: string;
@@ -177,6 +185,84 @@ const previewSecuritySchemeLabel = (scheme: OpenApiPreviewSecurityScheme): strin
   return "Custom auth";
 };
 
+const waitForOauthPopupResult = async (
+  sessionId: string,
+): Promise<OpenApiOAuthPopupResult> =>
+  new Promise((resolve, reject) => {
+    const storageKey = `${OAUTH_STORAGE_PREFIX}${sessionId}`;
+    const startedAt = Date.now();
+
+    const cleanup = () => {
+      window.removeEventListener("message", handleMessage);
+      window.clearInterval(intervalId);
+    };
+
+    const finish = (result: OpenApiOAuthPopupResult) => {
+      cleanup();
+      try {
+        window.localStorage.removeItem(storageKey);
+      } catch {}
+      resolve(result);
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data as OpenApiOAuthPopupResult | undefined;
+      if (!data || data.type !== "executor:oauth-result") {
+        return;
+      }
+
+      if (data.ok && data.sessionId !== sessionId) {
+        return;
+      }
+
+      finish(data);
+    };
+
+    window.addEventListener("message", handleMessage);
+    const intervalId = window.setInterval(() => {
+      if (Date.now() - startedAt > OAUTH_TIMEOUT_MS) {
+        cleanup();
+        reject(new Error("Timed out waiting for OpenAPI OAuth to finish."));
+        return;
+      }
+
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        if (!raw) {
+          return;
+        }
+
+        finish(JSON.parse(raw) as OpenApiOAuthPopupResult);
+      } catch {
+        // Ignore malformed local storage and continue polling.
+      }
+    }, 400);
+  });
+
+const stringifyScopes = (scopes: ReadonlyArray<string>): string =>
+  scopes.length === 0 ? "" : scopes.join("\n");
+
+const parseScopes = (value: string): string[] =>
+  value
+    .split(/\r?\n/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+
+const supportedAuthorizationCodeFlowForScheme = (
+  scheme: OpenApiPreviewSecurityScheme | null,
+): OpenApiPreviewOAuthFlow | null =>
+  scheme?.kind === "oauth2"
+    ? (
+        scheme.oauthFlows.find(
+          (flow) => flow.name === "authorizationCode" && flow.supported,
+        ) ?? null
+      )
+    : null;
+
 const inputFromConfig = (
   config: OpenApiSourceConfigPayload,
 ): OpenApiConnectInput => ({
@@ -223,8 +309,14 @@ function OpenApiSourceForm(props: {
 }) {
   const openApiHttpClient = getOpenApiHttpClient();
   const availableSecrets = useAvailableSecrets(openApiHttpClient);
+  const instanceConfig = useInstanceConfig();
+  const createSecret = useCreateSecret();
   const previewDocument = useAtomSet(
     openApiHttpClient.mutation("openapi", "previewDocument"),
+    { mode: "promise" },
+  );
+  const startOAuth = useAtomSet(
+    openApiHttpClient.mutation("openapi", "startOAuth"),
     { mode: "promise" },
   );
   const workspaceId = useWorkspaceId();
@@ -238,6 +330,47 @@ function OpenApiSourceForm(props: {
     props.initialValue.auth.kind === "bearer"
       ? props.initialValue.auth.tokenSecretRef
       : "",
+  );
+  const [selectedOauthSchemeName, setSelectedOauthSchemeName] = useState(
+    props.initialValue.auth.kind === "oauth2" ? props.initialValue.auth.schemeName : "",
+  );
+  const [oauthScopesText, setOauthScopesText] = useState(
+    props.initialValue.auth.kind === "oauth2"
+      ? stringifyScopes(props.initialValue.auth.scopes)
+      : "",
+  );
+  const [clientId, setClientId] = useState(
+    props.initialValue.auth.kind === "oauth2" ? props.initialValue.auth.clientId : "",
+  );
+  const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] = useState(
+    props.initialValue.auth.kind === "oauth2"
+      ? props.initialValue.auth.authorizationEndpoint
+      : "",
+  );
+  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState(
+    props.initialValue.auth.kind === "oauth2"
+      ? props.initialValue.auth.tokenEndpoint
+      : "",
+  );
+  const [clientSecretRef, setClientSecretRef] = useState(
+    props.initialValue.auth.kind === "oauth2"
+      ? props.initialValue.auth.clientSecretRef ?? ""
+      : "",
+  );
+  const [isCreatingClientSecret, setIsCreatingClientSecret] = useState(false);
+  const [newClientSecretName, setNewClientSecretName] = useState("");
+  const [newClientSecretValue, setNewClientSecretValue] = useState("");
+  const [newClientSecretProviderId, setNewClientSecretProviderId] = useState("");
+  const [newClientSecretError, setNewClientSecretError] = useState<string | null>(null);
+  const [oauthAuth, setOauthAuth] = useState<
+    Extract<OpenApiConnectInput["auth"], { kind: "oauth2" }> | null
+  >(
+    props.initialValue.auth.kind === "oauth2"
+      ? props.initialValue.auth
+      : null,
+  );
+  const [oauthStatus, setOauthStatus] = useState<"idle" | "pending" | "connected">(
+    props.initialValue.auth.kind === "oauth2" ? "connected" : "idle",
   );
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<OpenApiPreviewResponse | null>(null);
@@ -254,6 +387,58 @@ function OpenApiSourceForm(props: {
     })
   );
   const submitMutation = useExecutorMutation<OpenApiConnectInput, void>(props.onSubmit);
+
+  const oauthSchemeOptions = useMemo(
+    () =>
+      (preview?.securitySchemes ?? []).filter((scheme) =>
+        supportedAuthorizationCodeFlowForScheme(scheme) !== null
+      ),
+    [preview],
+  );
+  const secretProviderOptions = useMemo(
+    () =>
+      instanceConfig.status === "ready"
+        ? instanceConfig.data.secretProviders
+          .filter((provider) => provider.canStore)
+          .map((provider) => ({
+            id: provider.id,
+            name: provider.name,
+          }))
+        : [],
+    [instanceConfig],
+  );
+  const defaultSecretStoreProviderId =
+    instanceConfig.status === "ready"
+      ? instanceConfig.data.defaultSecretStoreProvider
+      : null;
+  const selectedOauthScheme = useMemo(
+    () =>
+      oauthSchemeOptions.find((scheme) => scheme.name === selectedOauthSchemeName) ?? null,
+    [oauthSchemeOptions, selectedOauthSchemeName],
+  );
+  const selectedAuthorizationCodeFlow = useMemo(
+    () => supportedAuthorizationCodeFlowForScheme(selectedOauthScheme),
+    [selectedOauthScheme],
+  );
+
+  const resetOauthState = () => {
+    setOauthAuth(null);
+    setOauthStatus("idle");
+  };
+
+  const applyOauthFlowEndpoints = (flow: OpenApiPreviewOAuthFlow | null) => {
+    setOauthAuthorizationEndpoint(flow?.authorizationUrl ?? "");
+    setOauthTokenEndpoint(flow?.tokenUrl ?? "");
+  };
+
+  useEffect(() => {
+    if (newClientSecretProviderId.length > 0) {
+      return;
+    }
+    if (defaultSecretStoreProviderId) {
+      setNewClientSecretProviderId(defaultSecretStoreProviderId);
+    }
+  }, [defaultSecretStoreProviderId, newClientSecretProviderId]);
 
   const runPreview = async (input: {
     mode: "auto" | "manual";
@@ -281,6 +466,33 @@ function OpenApiSourceForm(props: {
         warnings: [...result.warnings],
         securitySchemes: [...result.securitySchemes],
       });
+      const supportedSchemes = result.securitySchemes.filter((scheme) =>
+        supportedAuthorizationCodeFlowForScheme(scheme) !== null
+      );
+      if (supportedSchemes.length > 0) {
+        const nextScheme =
+          supportedSchemes.find((scheme) => scheme.name === selectedOauthSchemeName)
+          ?? supportedSchemes[0];
+        if (nextScheme?.name !== selectedOauthSchemeName) {
+          resetOauthState();
+          const nextFlow = supportedAuthorizationCodeFlowForScheme(nextScheme ?? null);
+          setOauthScopesText(
+            stringifyScopes(nextFlow?.scopes.map((scope) => scope.name) ?? []),
+          );
+          applyOauthFlowEndpoints(nextFlow);
+        }
+        setSelectedOauthSchemeName(nextScheme?.name ?? "");
+        const nextFlow = supportedAuthorizationCodeFlowForScheme(nextScheme ?? null);
+        if (
+          nextFlow
+          && oauthStatus !== "connected"
+          && oauthScopesText.trim().length === 0
+        ) {
+          setOauthScopesText(stringifyScopes(nextFlow.scopes.map((scope) => scope.name)));
+        }
+      } else {
+        setSelectedOauthSchemeName("");
+      }
       setLastPreviewedSpecUrl(trimmedSpecUrl);
       if (error) {
         setError(null);
@@ -297,6 +509,90 @@ function OpenApiSourceForm(props: {
         setError(cause instanceof Error ? cause.message : "Failed previewing document.");
       }
       setPreview(null);
+    }
+  };
+
+  const runOauth = async () => {
+    const selectedScheme = selectedOauthScheme;
+    const selectedFlow = selectedAuthorizationCodeFlow;
+    if (!selectedScheme || !selectedFlow) {
+      throw new Error("Select an OpenAPI OAuth scheme with an authorization code flow.");
+    }
+    if (!clientId.trim()) {
+      throw new Error("Client ID is required for OpenAPI OAuth.");
+    }
+    if (!oauthAuthorizationEndpoint.trim()) {
+      throw new Error("Authorization URL is required for OpenAPI OAuth.");
+    }
+    if (!oauthTokenEndpoint.trim()) {
+      throw new Error("Token URL is required for OpenAPI OAuth.");
+    }
+
+    const payload: OpenApiStartOAuthInput = {
+      schemeName: selectedScheme.name,
+      flow: "authorizationCode",
+      authorizationEndpoint: oauthAuthorizationEndpoint.trim(),
+      tokenEndpoint: oauthTokenEndpoint.trim(),
+      scopes: parseScopes(oauthScopesText),
+      clientId: clientId.trim(),
+      clientSecretRef: clientSecretRef.trim() || null,
+      redirectUrl: new URL(
+        "/v1/plugins/openapi/oauth/callback",
+        window.location.origin,
+      ).toString(),
+    };
+
+    const started = await startOAuth({
+      path: { workspaceId },
+      payload,
+    });
+
+    window.open(
+      started.authorizationUrl,
+      "executor-openapi-oauth",
+      "width=560,height=760,noopener,noreferrer",
+    );
+
+    const result = await waitForOauthPopupResult(started.sessionId);
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+
+    setOauthScopesText(stringifyScopes(result.auth.scopes));
+    setOauthAuth(result.auth);
+    setOauthStatus("connected");
+  };
+
+  const handleCreateClientSecret = async () => {
+    setNewClientSecretError(null);
+    const trimmedName = newClientSecretName.trim();
+    if (!trimmedName) {
+      setNewClientSecretError("Secret name is required.");
+      return;
+    }
+    if (!newClientSecretValue) {
+      setNewClientSecretError("Secret value is required.");
+      return;
+    }
+
+    try {
+      const created = await createSecret.mutateAsync({
+        name: trimmedName,
+        value: newClientSecretValue,
+        ...(newClientSecretProviderId
+          ? { providerId: newClientSecretProviderId }
+          : {}),
+      });
+      setClientSecretRef(created.id);
+      setIsCreatingClientSecret(false);
+      setNewClientSecretName("");
+      setNewClientSecretValue("");
+      setNewClientSecretError(null);
+      resetOauthState();
+    } catch (cause) {
+      setNewClientSecretError(
+        cause instanceof Error ? cause.message : "Failed storing client secret.",
+      );
     }
   };
 
@@ -319,6 +615,20 @@ function OpenApiSourceForm(props: {
     };
   }, [specUrl, lastPreviewedSpecUrl]);
 
+  useEffect(() => {
+    if (!selectedAuthorizationCodeFlow || authKind !== "oauth2") {
+      return;
+    }
+
+    if (oauthStatus === "connected" || oauthScopesText.trim().length > 0) {
+      return;
+    }
+
+    setOauthScopesText(
+      stringifyScopes(selectedAuthorizationCodeFlow.scopes.map((scope) => scope.name)),
+    );
+  }, [authKind, oauthStatus, oauthScopesText, selectedAuthorizationCodeFlow]);
+
   const handleSubmit = async () => {
     setError(null);
     const trimmedName = name.trim();
@@ -337,6 +647,10 @@ function OpenApiSourceForm(props: {
       setError("Select a secret for bearer auth.");
       return;
     }
+    if (authKind === "oauth2" && !oauthAuth) {
+      setError("Finish OpenAPI OAuth before saving.");
+      return;
+    }
 
     try {
       await submitMutation.mutateAsync({
@@ -349,6 +663,8 @@ function OpenApiSourceForm(props: {
                 kind: "bearer",
                 tokenSecretRef: tokenSecretRef.trim(),
               }
+            : authKind === "oauth2" && oauthAuth
+              ? oauthAuth
             : {
                 kind: "none",
               },
@@ -383,7 +699,12 @@ function OpenApiSourceForm(props: {
             <span className="text-[12px] font-medium text-foreground">Spec URL</span>
             <input
               value={specUrl}
-              onChange={(event) => setSpecUrl(event.target.value)}
+              onChange={(event) => {
+                setSpecUrl(event.target.value);
+                if (authKind === "oauth2") {
+                  resetOauthState();
+                }
+              }}
               onBlur={() => {
                 void runPreview({ mode: "manual" });
               }}
@@ -409,12 +730,19 @@ function OpenApiSourceForm(props: {
             <span className="text-[12px] font-medium text-foreground">Auth</span>
             <select
               value={authKind}
-              onChange={(event) =>
-                setAuthKind(event.target.value as OpenApiConnectInput["auth"]["kind"])}
+              onChange={(event) => {
+                const nextAuthKind = event.target.value as OpenApiConnectInput["auth"]["kind"];
+                setAuthKind(nextAuthKind);
+                setError(null);
+                if (nextAuthKind !== "oauth2") {
+                  resetOauthState();
+                }
+              }}
               className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
             >
               <option value="none">None</option>
               <option value="bearer">Bearer Secret</option>
+              <option value="oauth2">OAuth 2.0</option>
             </select>
           </label>
 
@@ -434,6 +762,263 @@ function OpenApiSourceForm(props: {
                 ))}
               </select>
             </label>
+          )}
+
+          {authKind === "oauth2" && (
+            <div className="space-y-4 rounded-xl border border-border/70 bg-background/50 p-4">
+              <p className="text-xs text-muted-foreground">
+                Executor will store your OAuth access token and refresh token locally as
+                secrets. PKCE is always enabled for this flow.
+              </p>
+
+              <label className="grid gap-1.5">
+                <span className="text-[12px] font-medium text-foreground">OAuth Scheme</span>
+                <select
+                  value={selectedOauthSchemeName}
+                  onChange={(event) => {
+                    const nextSchemeName = event.target.value;
+                    const nextScheme =
+                      oauthSchemeOptions.find((scheme) => scheme.name === nextSchemeName)
+                      ?? null;
+                    setSelectedOauthSchemeName(nextSchemeName);
+                    setOauthScopesText(
+                      stringifyScopes(
+                        supportedAuthorizationCodeFlowForScheme(nextScheme)?.scopes.map(
+                          (scope) => scope.name,
+                        ) ?? [],
+                      ),
+                    );
+                    applyOauthFlowEndpoints(
+                      supportedAuthorizationCodeFlowForScheme(nextScheme),
+                    );
+                    resetOauthState();
+                  }}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                >
+                  <option value="">Select a scheme</option>
+                  {oauthSchemeOptions.map((scheme) => (
+                    <option key={scheme.name} value={scheme.name}>
+                      {scheme.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-[12px] font-medium text-foreground">Flow</span>
+                  <input
+                    value="Authorization Code"
+                    readOnly
+                    className="h-10 w-full rounded-lg border border-input bg-muted/40 px-3 text-[13px] text-muted-foreground outline-none"
+                  />
+                </label>
+
+                <label className="grid gap-1.5">
+                  <span className="text-[12px] font-medium text-foreground">Client ID</span>
+                  <input
+                    value={clientId}
+                    onChange={(event) => {
+                      setClientId(event.target.value);
+                      resetOauthState();
+                    }}
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1.5">
+                  <span className="text-[12px] font-medium text-foreground">Authorization URL</span>
+                  <input
+                    value={oauthAuthorizationEndpoint}
+                    onChange={(event) => {
+                      setOauthAuthorizationEndpoint(event.target.value);
+                      resetOauthState();
+                    }}
+                    placeholder="https://x.com/i/oauth2/authorize"
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  />
+                </label>
+
+                <label className="grid gap-1.5">
+                  <span className="text-[12px] font-medium text-foreground">Token URL</span>
+                  <input
+                    value={oauthTokenEndpoint}
+                    onChange={(event) => {
+                      setOauthTokenEndpoint(event.target.value);
+                      resetOauthState();
+                    }}
+                    placeholder="https://api.x.com/2/oauth2/token"
+                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                  />
+                </label>
+              </div>
+
+              <label className="grid gap-1.5">
+                <span className="text-[12px] font-medium text-foreground">Client Secret</span>
+                <select
+                  value={clientSecretRef}
+                  onChange={(event) => {
+                    setClientSecretRef(event.target.value);
+                    resetOauthState();
+                  }}
+                  className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                >
+                  <option value="">Public client / no secret</option>
+                  {availableSecrets.map((secret) => (
+                    <option key={secret.id} value={secret.id}>
+                      {secret.name || secret.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingClientSecret((current) => !current);
+                    setNewClientSecretError(null);
+                  }}
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
+                >
+                  {isCreatingClientSecret ? "Use an existing secret" : "Paste and store a new secret"}
+                </button>
+
+                {isCreatingClientSecret && (
+                  <div className="space-y-3 rounded-lg border border-border/70 bg-card/60 p-3">
+                    {newClientSecretError && (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+                        {newClientSecretError}
+                      </div>
+                    )}
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="grid gap-1.5">
+                        <span className="text-[12px] font-medium text-foreground">Secret Name</span>
+                        <input
+                          value={newClientSecretName}
+                          onChange={(event) => setNewClientSecretName(event.target.value)}
+                          placeholder="OpenAPI OAuth Client Secret"
+                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                        />
+                      </label>
+
+                      <label className="grid gap-1.5">
+                        <span className="text-[12px] font-medium text-foreground">Store In</span>
+                        <select
+                          value={newClientSecretProviderId}
+                          onChange={(event) => setNewClientSecretProviderId(event.target.value)}
+                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                          disabled={secretProviderOptions.length === 0}
+                        >
+                          {secretProviderOptions.length === 0 ? (
+                            <option value="">No writable secret providers available</option>
+                          ) : (
+                            secretProviderOptions.map((provider) => (
+                              <option key={provider.id} value={provider.id}>
+                                {provider.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="grid gap-1.5">
+                      <span className="text-[12px] font-medium text-foreground">Secret Value</span>
+                      <input
+                        type="password"
+                        value={newClientSecretValue}
+                        onChange={(event) => setNewClientSecretValue(event.target.value)}
+                        placeholder="Paste the OAuth client secret"
+                        className="h-10 w-full rounded-lg border border-input bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                      />
+                    </label>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleCreateClientSecret();
+                        }}
+                        disabled={
+                          createSecret.status === "pending"
+                          || secretProviderOptions.length === 0
+                        }
+                        className="inline-flex h-9 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
+                      >
+                        {createSecret.status === "pending" ? "Storing..." : "Store secret"}
+                      </button>
+                      <div className="text-xs text-muted-foreground">
+                        The secret is stored locally, then selected for this OAuth client.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <label className="grid gap-1.5">
+                <span className="text-[12px] font-medium text-foreground">Scopes</span>
+                <textarea
+                  value={oauthScopesText}
+                  onChange={(event) => {
+                    setOauthScopesText(event.target.value);
+                    resetOauthState();
+                  }}
+                  rows={4}
+                  className="rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                />
+              </label>
+
+              {selectedAuthorizationCodeFlow ? (
+                <div className="rounded-lg border border-border/70 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
+                  <div>Spec authorization URL: {selectedAuthorizationCodeFlow.authorizationUrl}</div>
+                  <div>Spec token URL: {selectedAuthorizationCodeFlow.tokenUrl}</div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-amber-300/40 bg-amber-100/20 px-3 py-2 text-xs text-amber-800">
+                  Choose a previewed OAuth 2.0 scheme with an authorization code flow to connect.
+                </div>
+              )}
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      setError(null);
+                      setOauthStatus("pending");
+                      try {
+                        await runOauth();
+                      } catch (cause) {
+                        setError(cause instanceof Error ? cause.message : "OpenAPI OAuth failed.");
+                        setOauthStatus("idle");
+                        return;
+                      }
+                    })();
+                  }}
+                  disabled={
+                    oauthStatus === "pending"
+                    || !selectedAuthorizationCodeFlow
+                    || !selectedOauthSchemeName
+                  }
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {oauthStatus === "pending"
+                    ? "Connecting..."
+                    : oauthStatus === "connected"
+                      ? "Reconnect OAuth"
+                      : "Connect OAuth"}
+                </button>
+                <div className="text-xs text-muted-foreground">
+                  {oauthStatus === "connected"
+                    ? "Access token and refresh token are ready and will be saved with this source."
+                    : "Executor stores the resulting access and refresh tokens locally as secrets."}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </Section>

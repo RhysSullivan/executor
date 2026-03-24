@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./file-oauth-session-storage": "./file-oauth-session-storage.ts"
   },
   "files": [
     "*.ts"
@@ -12,6 +13,7 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@executor/auth-oauth2": "workspace:*",
     "@executor/ir": "workspace:*",
     "@executor/codemode-core": "workspace:*",
     "@executor/platform-sdk": "workspace:*",
@@ -21,8 +23,11 @@
     "yaml": "^2.8.1"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@executor/platform-sdk-file": "workspace:*",
     "@types/node": "catalog:",
-    "bun-types": "catalog:"
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
   },
   "version": "0.0.0"
 }

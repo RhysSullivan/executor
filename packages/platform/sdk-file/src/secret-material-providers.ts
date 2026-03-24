@@ -69,18 +69,21 @@ type SecretMaterialProvider = {
     purpose: SecretMaterialPurpose;
     value: string;
     name?: string | null;
+    expiresAt?: number | null;
     runtime: SecretMaterialProviderRuntime;
   }) => Effect.Effect<SecretRef, Error, never>;
   update?: (input: {
     ref: SecretRef;
     name?: string | null;
     value?: string;
+    expiresAt?: number | null;
     runtime: SecretMaterialProviderRuntime;
   }) => Effect.Effect<{
     id: string;
     providerId: string;
     name: string | null;
     purpose: string;
+    expiresAt: number | null;
     createdAt: number;
     updatedAt: number;
   }, Error, never>;
@@ -109,6 +112,7 @@ type SecretMaterialSummary = {
   providerId: string;
   name: string | null;
   purpose: string;
+  expiresAt: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -156,12 +160,16 @@ const ensureNonEmptyString = (value: string | undefined): string | null => {
 };
 
 const toSecretMaterialSummary = (
-  material: Pick<SecretMaterial, "id" | "providerId" | "name" | "purpose" | "createdAt" | "updatedAt">,
+  material: Pick<
+    SecretMaterial,
+    "id" | "providerId" | "name" | "purpose" | "expiresAt" | "createdAt" | "updatedAt"
+  >,
 ): SecretMaterialSummary => ({
   id: material.id,
   providerId: material.providerId,
   name: material.name,
   purpose: material.purpose,
+  expiresAt: material.expiresAt,
   createdAt: material.createdAt,
   updatedAt: material.updatedAt,
 });
@@ -371,6 +379,7 @@ const createSecretMaterialMetadata = (input: {
   purpose: SecretMaterialPurpose;
   value: string | null;
   name?: string | null;
+  expiresAt?: number | null;
   runtime: SecretMaterialProviderRuntime;
 }) =>
   Effect.gen(function* () {
@@ -383,6 +392,7 @@ const createSecretMaterialMetadata = (input: {
       name: trimOrNull(input.name),
       purpose: input.purpose,
       value: input.value,
+      expiresAt: input.expiresAt ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -634,17 +644,18 @@ const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
       return stored.value;
     }),
 
-  store: ({ purpose, value, name, runtime }) =>
+  store: ({ purpose, value, name, expiresAt, runtime }) =>
     createSecretMaterialMetadata({
       providerId: LOCAL_SECRET_PROVIDER_ID,
       providerHandle: `local:${randomUUID()}`,
       purpose,
       value,
       name,
+      expiresAt,
       runtime,
     }),
 
-  update: ({ ref, name, value, runtime }) =>
+  update: ({ ref, name, value, expiresAt, runtime }) =>
     Effect.gen(function* () {
       const stored = yield* loadStoredSecretMaterial({
         id: ref.handle,
@@ -657,7 +668,7 @@ const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
           );
       }
 
-      if (name === undefined && value === undefined) {
+      if (name === undefined && value === undefined && expiresAt === undefined) {
         return toSecretMaterialSummary(stored);
       }
 
@@ -666,6 +677,7 @@ const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
         {
           ...(name !== undefined ? { name } : {}),
           ...(value !== undefined ? { value } : {}),
+          ...(expiresAt !== undefined ? { expiresAt } : {}),
         },
       );
       if (Option.isNone(updated)) {
@@ -677,6 +689,7 @@ const createLocalSecretMaterialProvider = (): SecretMaterialProvider => ({
         providerId: updated.value.providerId,
         name: updated.value.name,
         purpose: updated.value.purpose,
+        expiresAt: updated.value.expiresAt,
         createdAt: updated.value.createdAt,
         updatedAt: updated.value.updatedAt,
       } satisfies SecretMaterialSummary;
@@ -704,7 +717,7 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
       });
     }),
 
-  store: ({ purpose, value, name, runtime }) =>
+  store: ({ purpose, value, name, expiresAt, runtime }) =>
     Effect.gen(function* () {
       const providerHandle = randomUUID();
       yield* writeKeychainSecretValue({
@@ -720,11 +733,12 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         purpose,
         value: null,
         name,
+        expiresAt,
         runtime,
       });
     }),
 
-  update: ({ ref, name, value, runtime }) =>
+  update: ({ ref, name, value, expiresAt, runtime }) =>
     Effect.gen(function* () {
       const loaded = yield* loadManagedKeychainRef({
         ref,
@@ -732,7 +746,7 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         operation: "keychain.update",
       });
 
-      if (name === undefined && value === undefined) {
+      if (name === undefined && value === undefined && expiresAt === undefined) {
         return toSecretMaterialSummary(loaded.material);
       }
 
@@ -754,6 +768,7 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         loaded.material.id,
         {
           name: nextName,
+          ...(expiresAt !== undefined ? { expiresAt } : {}),
         },
       );
       if (Option.isNone(updated)) {
@@ -765,6 +780,7 @@ const createKeychainSecretMaterialProvider = (): SecretMaterialProvider => ({
         providerId: updated.value.providerId,
         name: updated.value.name,
         purpose: updated.value.purpose,
+        expiresAt: updated.value.expiresAt,
         createdAt: updated.value.createdAt,
         updatedAt: updated.value.updatedAt,
       } satisfies SecretMaterialSummary;
@@ -1057,7 +1073,7 @@ export const createDefaultSecretMaterialStorer = (input: {
   const providers = createSecretMaterialProviderRegistry();
   const runtime = createSecretMaterialProviderRuntime(input);
 
-  return ({ purpose, value, name, providerId }) =>
+  return ({ purpose, value, name, providerId, expiresAt }) =>
     Effect.gen(function* () {
       const defaultStoreProviderId = yield* resolveDefaultSecretStoreProviderId({
         storeProviderId: parseSecretStoreProviderId(providerId) ?? undefined,
@@ -1076,6 +1092,7 @@ export const createDefaultSecretMaterialStorer = (input: {
         purpose,
         value,
         name,
+        expiresAt,
         runtime,
       });
     });
@@ -1089,7 +1106,7 @@ export const createDefaultSecretMaterialUpdater = (input: {
   const providers = createSecretMaterialProviderRegistry();
   const runtime = createSecretMaterialProviderRuntime(input);
 
-  return ({ ref, name, value }) =>
+  return ({ ref, name, value, expiresAt }) =>
     Effect.gen(function* () {
       const provider = yield* getSecretMaterialProvider({
         providers,
@@ -1104,6 +1121,7 @@ export const createDefaultSecretMaterialUpdater = (input: {
         ref,
         name,
         value,
+        expiresAt,
         runtime,
       });
     });

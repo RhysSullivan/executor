@@ -29,6 +29,7 @@ import {
 import {
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
+  SecretMaterialResolverService,
   SecretMaterialStorerService,
   SecretMaterialUpdaterService,
 } from "../../scope/secret-material-providers";
@@ -81,6 +82,7 @@ export const createScopeExecutionEnvironmentResolver =
     localToolRuntimeLoader: LocalToolRuntimeLoaderShape;
     installationStore: InstallationStoreShape;
     instanceConfigResolver: Effect.Effect.Success<typeof LocalInstanceConfigService>;
+    resolveSecretMaterial: Effect.Effect.Success<typeof SecretMaterialResolverService>;
     storeSecretMaterial: Effect.Effect.Success<typeof SecretMaterialStorerService>;
     deleteSecretMaterial: Effect.Effect.Success<typeof SecretMaterialDeleterService>;
     updateSecretMaterial: Effect.Effect.Success<typeof SecretMaterialUpdaterService>;
@@ -109,6 +111,7 @@ export const createScopeExecutionEnvironmentResolver =
         sourceCatalogStore: input.sourceCatalogStore,
         installationStore: input.installationStore,
         instanceConfigResolver: input.instanceConfigResolver,
+        resolveSecretMaterial: input.resolveSecretMaterial,
         storeSecretMaterial: input.storeSecretMaterial,
         deleteSecretMaterial: input.deleteSecretMaterial,
         updateSecretMaterial: input.updateSecretMaterial,
@@ -158,6 +161,7 @@ export const RuntimeExecutionResolverLive = (
           const localToolRuntimeLoader = yield* LocalToolRuntimeLoaderService;
           const installationStore = yield* InstallationStore;
           const instanceConfigResolver = yield* LocalInstanceConfigService;
+          const resolveSecretMaterial = yield* SecretMaterialResolverService;
           const storeSecretMaterial = yield* SecretMaterialStorerService;
           const deleteSecretMaterial = yield* SecretMaterialDeleterService;
           const updateSecretMaterial = yield* SecretMaterialUpdaterService;
@@ -173,6 +177,7 @@ export const RuntimeExecutionResolverLive = (
             localToolRuntimeLoader,
             installationStore,
             instanceConfigResolver,
+            resolveSecretMaterial,
             storeSecretMaterial,
             deleteSecretMaterial,
             updateSecretMaterial,

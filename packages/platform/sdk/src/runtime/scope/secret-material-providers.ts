@@ -23,6 +23,7 @@ export type StoreSecretMaterial = (input: {
   value: string;
   name?: string | null;
   providerId?: string;
+  expiresAt?: number | null;
 }) => Effect.Effect<SecretRef, Error, never>;
 
 export type DeleteSecretMaterial = (
@@ -33,11 +34,13 @@ export type UpdateSecretMaterial = (input: {
   ref: SecretRef;
   name?: string | null;
   value?: string;
+  expiresAt?: number | null;
 }) => Effect.Effect<{
   id: string;
   providerId: string;
   name: string | null;
   purpose: string;
+  expiresAt: number | null;
   createdAt: number;
   updatedAt: number;
 }, Error, never>;

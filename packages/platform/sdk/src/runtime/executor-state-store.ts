@@ -13,6 +13,7 @@ type SecretMaterialSummary = {
   providerId: string;
   name: string | null;
   purpose: string;
+  expiresAt: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -26,7 +27,7 @@ export type ExecutorStateStoreShape = {
     upsert: (material: SecretMaterial) => Effect.Effect<void, Error, never>;
     updateById: (
       id: SecretMaterial["id"],
-      update: { name?: string | null; value?: string },
+      update: { name?: string | null; value?: string; expiresAt?: number | null },
     ) => Effect.Effect<
       import("effect/Option").Option<SecretMaterialSummary>,
       Error,

@@ -64,6 +64,16 @@ const asRecord = (
     ? (value as Record<string, unknown>)
     : null;
 
+const looksLikeSecretMaterialRecord = (
+  value: Record<string, unknown>,
+): boolean =>
+  typeof value.id === "string"
+  && typeof value.providerId === "string"
+  && typeof value.handle === "string"
+  && typeof value.purpose === "string"
+  && typeof value.createdAt === "number"
+  && typeof value.updatedAt === "number";
+
 const migrateLegacyExecutorStateValue = (
   value: unknown,
 ): {
@@ -107,6 +117,11 @@ const migrateLegacyExecutorStateValue = (
     const migratedEntry = migrateLegacyExecutorStateValue(entry);
     migrated = migrated || migratedEntry.migrated;
     next[nextKey] = migratedEntry.value;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(next, "expiresAt") && looksLikeSecretMaterialRecord(next)) {
+    next.expiresAt = null;
+    migrated = true;
   }
 
   return { value: next, migrated };
@@ -366,7 +381,7 @@ export const createLocalExecutorStateStore = (
 
       updateById: (
         id: SecretMaterial["id"],
-        update: { name?: string | null; value?: string },
+        update: { name?: string | null; value?: string; expiresAt?: number | null },
       ) =>
         stateManager.mutate((state) => {
           let updated: SecretMaterial | null = null;
@@ -379,6 +394,7 @@ export const createLocalExecutorStateStore = (
               ...material,
               ...(update.name !== undefined ? { name: update.name } : {}),
               ...(update.value !== undefined ? { value: update.value } : {}),
+              ...(update.expiresAt !== undefined ? { expiresAt: update.expiresAt } : {}),
               updatedAt: Date.now(),
             } satisfies SecretMaterial;
             return updated;

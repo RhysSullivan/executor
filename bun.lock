@@ -660,6 +660,7 @@
       "name": "@executor/plugin-openapi-sdk",
       "version": "0.0.0",
       "dependencies": {
+        "@executor/auth-oauth2": "workspace:*",
         "@executor/codemode-core": "workspace:*",
         "@executor/ir": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
@@ -669,8 +670,11 @@
         "yaml": "^2.8.1",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@executor/platform-sdk-file": "workspace:*",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "plugins/openapi/shared": {

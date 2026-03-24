@@ -87,7 +87,10 @@ const SourcePluginAddLayout = (props: {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+    <div
+      className="mx-auto max-w-4xl overflow-scroll px-6 py-10 lg:px-10 lg:py-14"
+      style={{ scrollBehavior: "auto" }}
+    >
       {!props.compact && (
         <div className="mb-8">
           <div className="inline-flex rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">

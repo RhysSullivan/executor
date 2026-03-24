@@ -281,6 +281,19 @@ function SecretRow(props: {
     day: "numeric",
     year: "numeric",
   });
+  const expiresAt = secret.expiresAt;
+  const expirationLabel =
+    expiresAt === null
+      ? null
+      : expiresAt <= Date.now()
+        ? "Expired"
+        : `Expires ${new Date(expiresAt).toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}`;
 
   return (
     <div className="px-5 py-3.5">
@@ -308,6 +321,18 @@ function SecretRow(props: {
               <span className="text-[11px] text-muted-foreground/40">
                 {createdDate}
               </span>
+              {expirationLabel && (
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    expiresAt !== null && expiresAt <= Date.now()
+                      ? "text-destructive"
+                      : "text-muted-foreground/55",
+                  )}
+                >
+                  {expirationLabel}
+                </span>
+              )}
             </div>
             {secret.linkedSources.length > 0 && (
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
