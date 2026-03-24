@@ -490,12 +490,6 @@ function OpenApiSourceForm(props: {
         ) {
           setOauthScopesText(stringifyScopes(nextFlow.scopes.map((scope) => scope.name)));
         }
-        if (oauthAuthorizationEndpoint.trim().length === 0) {
-          setOauthAuthorizationEndpoint(nextFlow?.authorizationUrl ?? "");
-        }
-        if (oauthTokenEndpoint.trim().length === 0) {
-          setOauthTokenEndpoint(nextFlow?.tokenUrl ?? "");
-        }
       } else {
         setSelectedOauthSchemeName("");
       }
@@ -634,24 +628,6 @@ function OpenApiSourceForm(props: {
       stringifyScopes(selectedAuthorizationCodeFlow.scopes.map((scope) => scope.name)),
     );
   }, [authKind, oauthStatus, oauthScopesText, selectedAuthorizationCodeFlow]);
-
-  useEffect(() => {
-    if (authKind !== "oauth2") {
-      return;
-    }
-
-    if (oauthAuthorizationEndpoint.trim().length === 0) {
-      setOauthAuthorizationEndpoint(selectedAuthorizationCodeFlow?.authorizationUrl ?? "");
-    }
-    if (oauthTokenEndpoint.trim().length === 0) {
-      setOauthTokenEndpoint(selectedAuthorizationCodeFlow?.tokenUrl ?? "");
-    }
-  }, [
-    authKind,
-    oauthAuthorizationEndpoint,
-    oauthTokenEndpoint,
-    selectedAuthorizationCodeFlow,
-  ]);
 
   const handleSubmit = async () => {
     setError(null);
