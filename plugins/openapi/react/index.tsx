@@ -9,7 +9,9 @@ import {
   defineExecutorPluginHttpApiClient,
   useAtomValue,
   useAtomSet,
+  useCreateSecret,
   useExecutorMutation,
+  useInstanceConfig,
   useLocalInstallation,
   usePrefetchToolDetail,
   useSourceDiscovery,
@@ -307,6 +309,8 @@ function OpenApiSourceForm(props: {
 }) {
   const openApiHttpClient = getOpenApiHttpClient();
   const availableSecrets = useAvailableSecrets(openApiHttpClient);
+  const instanceConfig = useInstanceConfig();
+  const createSecret = useCreateSecret();
   const previewDocument = useAtomSet(
     openApiHttpClient.mutation("openapi", "previewDocument"),
     { mode: "promise" },
@@ -343,6 +347,11 @@ function OpenApiSourceForm(props: {
       ? props.initialValue.auth.clientSecretRef ?? ""
       : "",
   );
+  const [isCreatingClientSecret, setIsCreatingClientSecret] = useState(false);
+  const [newClientSecretName, setNewClientSecretName] = useState("");
+  const [newClientSecretValue, setNewClientSecretValue] = useState("");
+  const [newClientSecretProviderId, setNewClientSecretProviderId] = useState("");
+  const [newClientSecretError, setNewClientSecretError] = useState<string | null>(null);
   const [oauthAuth, setOauthAuth] = useState<
     Extract<OpenApiConnectInput["auth"], { kind: "oauth2" }> | null
   >(
@@ -376,6 +385,22 @@ function OpenApiSourceForm(props: {
       ),
     [preview],
   );
+  const secretProviderOptions = useMemo(
+    () =>
+      instanceConfig.status === "ready"
+        ? instanceConfig.data.secretProviders
+          .filter((provider) => provider.canStore)
+          .map((provider) => ({
+            id: provider.id,
+            name: provider.name,
+          }))
+        : [],
+    [instanceConfig],
+  );
+  const defaultSecretStoreProviderId =
+    instanceConfig.status === "ready"
+      ? instanceConfig.data.defaultSecretStoreProvider
+      : null;
   const selectedOauthScheme = useMemo(
     () =>
       oauthSchemeOptions.find((scheme) => scheme.name === selectedOauthSchemeName) ?? null,
@@ -390,6 +415,15 @@ function OpenApiSourceForm(props: {
     setOauthAuth(null);
     setOauthStatus("idle");
   };
+
+  useEffect(() => {
+    if (newClientSecretProviderId.length > 0) {
+      return;
+    }
+    if (defaultSecretStoreProviderId) {
+      setNewClientSecretProviderId(defaultSecretStoreProviderId);
+    }
+  }, [defaultSecretStoreProviderId, newClientSecretProviderId]);
 
   const runPreview = async (input: {
     mode: "auto" | "manual";
@@ -508,6 +542,39 @@ function OpenApiSourceForm(props: {
     setOauthScopesText(stringifyScopes(result.auth.scopes));
     setOauthAuth(result.auth);
     setOauthStatus("connected");
+  };
+
+  const handleCreateClientSecret = async () => {
+    setNewClientSecretError(null);
+    const trimmedName = newClientSecretName.trim();
+    if (!trimmedName) {
+      setNewClientSecretError("Secret name is required.");
+      return;
+    }
+    if (!newClientSecretValue) {
+      setNewClientSecretError("Secret value is required.");
+      return;
+    }
+
+    try {
+      const created = await createSecret.mutateAsync({
+        name: trimmedName,
+        value: newClientSecretValue,
+        ...(newClientSecretProviderId
+          ? { providerId: newClientSecretProviderId }
+          : {}),
+      });
+      setClientSecretRef(created.id);
+      setIsCreatingClientSecret(false);
+      setNewClientSecretName("");
+      setNewClientSecretValue("");
+      setNewClientSecretError(null);
+      resetOauthState();
+    } catch (cause) {
+      setNewClientSecretError(
+        cause instanceof Error ? cause.message : "Failed storing client secret.",
+      );
+    }
   };
 
   useEffect(() => {
@@ -756,6 +823,91 @@ function OpenApiSourceForm(props: {
                   ))}
                 </select>
               </label>
+
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingClientSecret((current) => !current);
+                    setNewClientSecretError(null);
+                  }}
+                  className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-background px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
+                >
+                  {isCreatingClientSecret ? "Use an existing secret" : "Paste and store a new secret"}
+                </button>
+
+                {isCreatingClientSecret && (
+                  <div className="space-y-3 rounded-lg border border-border/70 bg-card/60 p-3">
+                    {newClientSecretError && (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
+                        {newClientSecretError}
+                      </div>
+                    )}
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="grid gap-1.5">
+                        <span className="text-[12px] font-medium text-foreground">Secret Name</span>
+                        <input
+                          value={newClientSecretName}
+                          onChange={(event) => setNewClientSecretName(event.target.value)}
+                          placeholder="OpenAPI OAuth Client Secret"
+                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                        />
+                      </label>
+
+                      <label className="grid gap-1.5">
+                        <span className="text-[12px] font-medium text-foreground">Store In</span>
+                        <select
+                          value={newClientSecretProviderId}
+                          onChange={(event) => setNewClientSecretProviderId(event.target.value)}
+                          className="h-10 w-full rounded-lg border border-input bg-background px-3 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
+                          disabled={secretProviderOptions.length === 0}
+                        >
+                          {secretProviderOptions.length === 0 ? (
+                            <option value="">No writable secret providers available</option>
+                          ) : (
+                            secretProviderOptions.map((provider) => (
+                              <option key={provider.id} value={provider.id}>
+                                {provider.name}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="grid gap-1.5">
+                      <span className="text-[12px] font-medium text-foreground">Secret Value</span>
+                      <input
+                        type="password"
+                        value={newClientSecretValue}
+                        onChange={(event) => setNewClientSecretValue(event.target.value)}
+                        placeholder="Paste the OAuth client secret"
+                        className="h-10 w-full rounded-lg border border-input bg-background px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/40 focus:border-ring focus:ring-1 focus:ring-ring/25"
+                      />
+                    </label>
+
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleCreateClientSecret();
+                        }}
+                        disabled={
+                          createSecret.status === "pending"
+                          || secretProviderOptions.length === 0
+                        }
+                        className="inline-flex h-9 items-center justify-center rounded-lg border border-input bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent/50 disabled:pointer-events-none disabled:opacity-50"
+                      >
+                        {createSecret.status === "pending" ? "Storing..." : "Store secret"}
+                      </button>
+                      <div className="text-xs text-muted-foreground">
+                        The secret is stored locally, then selected for this OAuth client.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <label className="grid gap-1.5">
                 <span className="text-[12px] font-medium text-foreground">Scopes</span>
