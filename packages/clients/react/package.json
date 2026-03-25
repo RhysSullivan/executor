@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./plugins": "./src/plugins/index.ts",
     "./source-plugins": "./src/source-plugins/index.ts"
   },
   "scripts": {

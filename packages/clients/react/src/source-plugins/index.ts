@@ -1,6 +1,10 @@
 export type {
   ExecutorFrontendPlugin,
-  ExecutorFrontendPluginApi,
+  ExecutorPluginNavigation,
+  ExecutorPluginRouteContextValue,
+  FrontendPluginRouteDefinition,
+  FrontendPluginRouteParams,
+  FrontendPluginRouteSearch,
   FrontendSourceDetailRouteDefinition,
   FrontendSourceTypeDefinition,
   SourcePluginNavigation,
@@ -10,7 +14,12 @@ export type {
 } from "./types";
 
 export {
+  createExecutorPluginPaths,
   createSourcePluginPaths,
+  executorPluginBasePath,
+  executorPluginRoutePath,
+  executorPluginRoutePattern,
+  normalizeExecutorPluginPath,
   normalizeSourcePluginPath,
   sourcePluginAddPath,
   sourcePluginChildPath,
@@ -20,17 +29,33 @@ export {
   sourcePluginEditPath,
   sourcePluginEditPattern,
   sourcePluginsIndexPath,
+  type ExecutorPluginPaths,
   type SourcePluginPaths,
 } from "./paths";
 
 export {
   defineExecutorFrontendPlugin,
+  defineFrontendPluginRoute,
   defineFrontendSourceType,
   registerExecutorFrontendPlugins,
+  type RegisteredFrontendPluginRoute,
+  type RegisteredFrontendSourceType,
 } from "./registry";
 
 export {
+  ExecutorPluginRouteProvider,
+  useExecutorPlugin,
+  useExecutorPluginNavigation,
+  useExecutorPluginPaths,
+  useExecutorPluginRoute,
+  useExecutorPluginRouteDefinition,
+  useExecutorPluginRouteParams,
+  useExecutorPluginSearch,
+} from "./plugin-route-context";
+
+export {
   SourcePluginRouteProvider,
+  useSourcePlugin,
   useSourcePluginDefinition,
   useSourcePluginNavigation,
   useSourcePluginPaths,

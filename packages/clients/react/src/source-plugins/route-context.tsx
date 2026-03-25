@@ -34,6 +34,9 @@ export const useSourcePluginRoute = (): SourcePluginRouteContextValue =>
 export const useSourcePluginDefinition = () =>
   useSourcePluginRouteContext().definition;
 
+export const useSourcePlugin = () =>
+  useSourcePluginRouteContext().plugin;
+
 export const useSourcePluginNavigation = () =>
   useSourcePluginRouteContext().navigation;
 

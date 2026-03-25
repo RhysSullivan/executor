@@ -14,7 +14,7 @@ import {
   createSourcePluginPaths,
   registerExecutorFrontendPlugins,
   type ExecutorFrontendPlugin,
-} from "@executor/react/source-plugins";
+} from "@executor/react/plugins";
 
 const frontendPlugins = [
   McpReactPlugin,
@@ -23,18 +23,37 @@ const frontendPlugins = [
   OpenApiReactPlugin,
 ] as const satisfies readonly ExecutorFrontendPlugin[];
 
-const frontendSourceRegistry = registerExecutorFrontendPlugins(frontendPlugins);
+const frontendPluginRegistry = registerExecutorFrontendPlugins(frontendPlugins);
 
-export const registeredSourceFrontendTypes = frontendSourceRegistry.sourceTypes;
+export const registeredFrontendPlugins = frontendPluginRegistry.plugins;
+export const registeredFrontendPluginRoutes = frontendPluginRegistry.routes;
+export const registeredSourceFrontendTypeEntries =
+  frontendPluginRegistry.sourceTypes;
+export const registeredSourceFrontendTypes =
+  registeredSourceFrontendTypeEntries.map((entry) => entry.definition);
+
+export const getFrontendPlugin = (key: string) =>
+  frontendPluginRegistry.getPlugin(key);
+
+export const getFrontendPluginRoute = (
+  pluginKey: string,
+  routeKey: string,
+) => frontendPluginRegistry.getRoute(pluginKey, routeKey);
+
+export const getSourceFrontendTypeEntry = (kind: string) =>
+  frontendPluginRegistry.getSourceType(kind);
+
+export const getSourceFrontendTypeEntryByKey = (key: string) =>
+  frontendPluginRegistry.getSourceTypeByKey(key);
 
 export const getSourceFrontendType = (kind: string) =>
-  frontendSourceRegistry.getSourceType(kind);
+  getSourceFrontendTypeEntry(kind)?.definition ?? null;
 
 export const getSourceFrontendTypeByKey = (key: string) =>
-  frontendSourceRegistry.getSourceTypeByKey(key);
+  getSourceFrontendTypeEntryByKey(key)?.definition ?? null;
 
 export const getDefaultSourceFrontendType = () =>
-  frontendSourceRegistry.getDefaultSourceType();
+  frontendPluginRegistry.getDefaultSourceType()?.definition ?? null;
 
 export const getSourceFrontendPaths = (kind: string) => {
   const definition = getSourceFrontendType(kind);

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { sourcePluginsIndexPath } from "@executor/react/source-plugins";
+import { sourcePluginsIndexPath } from "@executor/react/plugins";
 
 import { IconEmpty } from "./icons";
 import { cn } from "../lib/utils";

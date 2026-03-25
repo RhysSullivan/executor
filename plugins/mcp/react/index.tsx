@@ -17,7 +17,7 @@ import {
   type SourceToolExplorerSearch,
   useSourcePluginNavigation,
   useSourcePluginSearch,
-} from "@executor/react/source-plugins";
+} from "@executor/react/plugins";
 
 import {
   mcpHttpApiExtension,

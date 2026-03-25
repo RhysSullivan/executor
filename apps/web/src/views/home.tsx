@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useSources } from "@executor/react";
-import { sourcePluginsIndexPath } from "@executor/react/source-plugins";
+import { sourcePluginsIndexPath } from "@executor/react/plugins";
 import { LoadableBlock } from "../components/loadable";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";

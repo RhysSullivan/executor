@@ -1,10 +1,38 @@
 import type { ComponentType } from "react";
 import type { Source } from "@executor/platform-sdk/schema";
 
-import type { SourcePluginPaths } from "./paths";
+import type {
+  ExecutorPluginPaths,
+  SourcePluginPaths,
+} from "./paths";
 
-export type SourcePluginRouteSearch = Record<string, unknown>;
-export type SourcePluginRouteParams = Readonly<Record<string, string | undefined>>;
+export type FrontendPluginRouteSearch = Record<string, unknown>;
+export type FrontendPluginRouteParams = Readonly<Record<string, string | undefined>>;
+
+export type ExecutorPluginNavigation = {
+  paths: ExecutorPluginPaths;
+  home: () => void | Promise<void>;
+  route: (path?: string, search?: FrontendPluginRouteSearch) => void | Promise<void>;
+  updateSearch: (search: FrontendPluginRouteSearch) => void | Promise<void>;
+};
+
+export type FrontendPluginRouteDefinition = {
+  key: string;
+  path?: string;
+  component: ComponentType;
+  navigationLabel?: string;
+};
+
+export type ExecutorPluginRouteContextValue = {
+  plugin: ExecutorFrontendPlugin;
+  route: FrontendPluginRouteDefinition;
+  params: FrontendPluginRouteParams;
+  search: FrontendPluginRouteSearch;
+  navigation: ExecutorPluginNavigation;
+};
+
+export type SourcePluginRouteSearch = FrontendPluginRouteSearch;
+export type SourcePluginRouteParams = FrontendPluginRouteParams;
 
 export type SourcePluginNavigation = {
   paths: SourcePluginPaths;
@@ -18,13 +46,6 @@ export type SourcePluginNavigation = {
     search?: SourcePluginRouteSearch;
   }) => void | Promise<void>;
   updateSearch: (search: SourcePluginRouteSearch) => void | Promise<void>;
-};
-
-export type SourcePluginRouteContextValue = {
-  definition: FrontendSourceTypeDefinition;
-  params: SourcePluginRouteParams;
-  search: SourcePluginRouteSearch;
-  navigation: SourcePluginNavigation;
 };
 
 export type FrontendSourceDetailRouteDefinition = {
@@ -44,15 +65,18 @@ export type FrontendSourceTypeDefinition = {
   detailRoutes?: readonly FrontendSourceDetailRouteDefinition[];
 };
 
-export type ExecutorFrontendPluginApi = {
-  sources: {
-    registerType: (
-      definition: FrontendSourceTypeDefinition,
-    ) => void;
-  };
+export type SourcePluginRouteContextValue = {
+  plugin: ExecutorFrontendPlugin;
+  definition: FrontendSourceTypeDefinition;
+  params: SourcePluginRouteParams;
+  search: SourcePluginRouteSearch;
+  navigation: SourcePluginNavigation;
 };
 
 export type ExecutorFrontendPlugin = {
   key: string;
-  register: (api: ExecutorFrontendPluginApi) => void;
+  displayName?: string;
+  description?: string;
+  routes?: readonly FrontendPluginRouteDefinition[];
+  sourceTypes?: readonly FrontendSourceTypeDefinition[];
 };

@@ -8,21 +8,25 @@ import {
 } from "@tanstack/react-router";
 import { ExecutorReactProvider } from "@executor/react";
 import {
+  createExecutorPluginPaths,
   createSourcePluginPaths,
   normalizeSourcePluginPath,
   sourcePluginsIndexPath,
+  type ExecutorPluginNavigation,
+  type FrontendPluginRouteSearch,
   type FrontendSourceTypeDefinition,
   type SourcePluginNavigation,
-  type SourcePluginRouteSearch,
-} from "@executor/react/source-plugins";
+} from "@executor/react/plugins";
 
 import "./globals.css";
 
 import { AppShell } from "./components/shell";
 import {
+  registeredFrontendPluginRoutes,
   registeredSourceFrontendTypes,
 } from "./source-plugins";
 import {
+  ExecutorPluginRoutePage,
   SourcePluginAddPage,
   SourcePluginDetailChildPage,
   SourcePluginDetailPage,
@@ -54,15 +58,37 @@ const secretsRoute = createRoute({
   component: SecretsPage,
 });
 
-const createPluginNavigation = (
+const createExecutorPluginNavigation = (
+  pluginKey: string,
+  input: {
+    navigateTo: (
+      to: string,
+      search?: FrontendPluginRouteSearch,
+    ) => void | Promise<void>;
+    updateSearch?: (
+      search: FrontendPluginRouteSearch,
+    ) => void | Promise<void>;
+  },
+): ExecutorPluginNavigation => {
+  const paths = createExecutorPluginPaths(pluginKey);
+
+  return {
+    paths,
+    home: () => input.navigateTo("/"),
+    route: (path = "", search) => input.navigateTo(paths.route(path), search),
+    updateSearch: (search) => input.updateSearch?.(search),
+  };
+};
+
+const createSourcePluginNavigation = (
   definition: FrontendSourceTypeDefinition,
   input: {
     navigateTo: (
       to: string,
-      search?: SourcePluginRouteSearch,
+      search?: FrontendPluginRouteSearch,
     ) => void | Promise<void>;
     updateSearch?: (
-      search: SourcePluginRouteSearch,
+      search: FrontendPluginRouteSearch,
     ) => void | Promise<void>;
   },
 ): SourcePluginNavigation => {
@@ -80,12 +106,46 @@ const createPluginNavigation = (
   };
 };
 
+const frontendPluginRoutes = registeredFrontendPluginRoutes.map(({ plugin, route }) => {
+  const paths = createExecutorPluginPaths(plugin.key);
+
+  const PluginRouteComponent = () => {
+    const params = pluginRoute.useParams() as Record<string, string | undefined>;
+    const search = pluginRoute.useSearch();
+    const navigate = useNavigate();
+    const navigateFromRoute = useNavigate({ from: pluginRoute.fullPath });
+    const navigation = createExecutorPluginNavigation(plugin.key, {
+      navigateTo: (to, nextSearch) =>
+        nextSearch === undefined ? navigate({ to }) : navigate({ to, search: nextSearch }),
+      updateSearch: (nextSearch) => navigateFromRoute({ search: nextSearch }),
+    });
+
+    return (
+      <ExecutorPluginRoutePage
+        pluginKey={plugin.key}
+        routeKey={route.key}
+        params={params}
+        search={search}
+        navigation={navigation}
+      />
+    );
+  };
+
+  const pluginRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: paths.routePattern(route.path ?? ""),
+    component: PluginRouteComponent,
+  });
+
+  return pluginRoute;
+});
+
 const sourcePluginRoutes = registeredSourceFrontendTypes.flatMap((definition) => {
   const paths = createSourcePluginPaths(definition.key);
 
   const AddRouteComponent = () => {
     const navigate = useNavigate();
-    const navigation = createPluginNavigation(definition, {
+    const navigation = createSourcePluginNavigation(definition, {
       navigateTo: (to, search) =>
         search === undefined ? navigate({ to }) : navigate({ to, search }),
     });
@@ -109,7 +169,7 @@ const sourcePluginRoutes = registeredSourceFrontendTypes.flatMap((definition) =>
       sourceId: string;
     };
     const navigate = useNavigate();
-    const navigation = createPluginNavigation(definition, {
+    const navigation = createSourcePluginNavigation(definition, {
       navigateTo: (to, search) =>
         search === undefined ? navigate({ to }) : navigate({ to, search }),
     });
@@ -137,7 +197,7 @@ const sourcePluginRoutes = registeredSourceFrontendTypes.flatMap((definition) =>
     const search = detailRoute.useSearch();
     const navigate = useNavigate();
     const navigateFromRoute = useNavigate({ from: detailRoute.fullPath });
-    const navigation = createPluginNavigation(definition, {
+    const navigation = createSourcePluginNavigation(definition, {
       navigateTo: (to, nextSearch) =>
         nextSearch === undefined ? navigate({ to }) : navigate({ to, search: nextSearch }),
       updateSearch: (nextSearch) => navigateFromRoute({ search: nextSearch }),
@@ -168,7 +228,7 @@ const sourcePluginRoutes = registeredSourceFrontendTypes.flatMap((definition) =>
       const search = childRoute.useSearch();
       const navigate = useNavigate();
       const navigateFromRoute = useNavigate({ from: childRoute.fullPath });
-      const navigation = createPluginNavigation(definition, {
+      const navigation = createSourcePluginNavigation(definition, {
         navigateTo: (to, nextSearch) =>
           nextSearch === undefined ? navigate({ to }) : navigate({ to, search: nextSearch }),
         updateSearch: (nextSearch) => navigateFromRoute({ search: nextSearch }),
@@ -208,6 +268,7 @@ const sourcePluginRoutes = registeredSourceFrontendTypes.flatMap((definition) =>
 const routeTree = rootRoute.addChildren([
   homeRoute,
   sourcePluginsIndexRoute,
+  ...frontendPluginRoutes,
   ...sourcePluginRoutes,
   secretsRoute,
 ]);

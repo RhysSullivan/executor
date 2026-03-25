@@ -1,21 +1,42 @@
 import { Link } from "@tanstack/react-router";
 import { useSource } from "@executor/react";
 import {
+  ExecutorPluginRouteProvider,
   LoadableBlock,
   SourcePluginRouteProvider,
   createSourcePluginPaths,
+  type ExecutorPluginNavigation,
+  type FrontendPluginRouteDefinition,
+  type FrontendPluginRouteParams,
+  type FrontendPluginRouteSearch,
   type FrontendSourceDetailRouteDefinition,
   type SourcePluginNavigation,
   type SourcePluginRouteParams,
   type SourcePluginRouteSearch,
-} from "@executor/react/source-plugins";
+} from "@executor/react/plugins";
 
 import { SourcePluginsResetState } from "../components/source-plugins-reset-state";
 import {
-  getSourceFrontendType,
-  getSourceFrontendTypeByKey,
+  getFrontendPlugin,
+  getFrontendPluginRoute,
+  getSourceFrontendTypeEntry,
+  getSourceFrontendTypeEntryByKey,
   registeredSourceFrontendTypes,
 } from "./index";
+
+const FrontendPluginUnavailableState = () => (
+  <SourcePluginsResetState
+    title="Frontend plugins are unavailable"
+    message="No frontend plugins are registered in this build."
+  />
+);
+
+const SourcePluginUnavailableState = () => (
+  <SourcePluginsResetState
+    title="Source plugins are unavailable"
+    message="No source plugins are registered in this build."
+  />
+);
 
 const SourcePluginPicker = (props: {
   activeKey: string | null;
@@ -43,13 +64,6 @@ const SourcePluginPicker = (props: {
   );
 };
 
-const SourcePluginUnavailableState = () => (
-  <SourcePluginsResetState
-    title="Source plugins are unavailable"
-    message="No source plugins are registered in this build."
-  />
-);
-
 const SourcePluginRouteMismatchState = (props: {
   requestedDisplayName: string;
   actualDisplayName: string;
@@ -59,6 +73,47 @@ const SourcePluginRouteMismatchState = (props: {
     message={`This source belongs to ${props.actualDisplayName}, but the current route is mounted for ${props.requestedDisplayName}. Reopen it from the source list to use the canonical plugin route.`}
   />
 );
+
+export function ExecutorPluginRoutePage(input: {
+  pluginKey: string;
+  routeKey: FrontendPluginRouteDefinition["key"];
+  params: FrontendPluginRouteParams;
+  search: FrontendPluginRouteSearch;
+  navigation: ExecutorPluginNavigation;
+}) {
+  const plugin = getFrontendPlugin(input.pluginKey);
+  if (plugin === null) {
+    return <FrontendPluginUnavailableState />;
+  }
+
+  const routeEntry = getFrontendPluginRoute(input.pluginKey, input.routeKey);
+  if (routeEntry === null) {
+    return (
+      <SourcePluginsResetState
+        title="Plugin route is unavailable"
+        message={`No plugin route is registered for "${input.routeKey}" in "${input.pluginKey}".`}
+      />
+    );
+  }
+
+  const PluginPage = routeEntry.route.component;
+
+  return (
+    <ExecutorPluginRouteProvider
+      value={{
+        plugin,
+        route: routeEntry.route,
+        params: input.params,
+        search: input.search,
+        navigation: input.navigation,
+      }}
+    >
+      <div className="h-full min-h-0">
+        <PluginPage />
+      </div>
+    </ExecutorPluginRouteProvider>
+  );
+}
 
 export function SourcePluginsIndexPage() {
   if (registeredSourceFrontendTypes.length === 0) {
@@ -114,17 +169,18 @@ export function SourcePluginAddPage(props: {
   definitionKey: string;
   navigation: SourcePluginNavigation;
 }) {
-  const definition = getSourceFrontendTypeByKey(props.definitionKey);
-  if (definition === null) {
+  const entry = getSourceFrontendTypeEntryByKey(props.definitionKey);
+  if (entry === null) {
     return <SourcePluginUnavailableState />;
   }
 
-  const AddPage = definition.renderAddPage;
+  const AddPage = entry.definition.renderAddPage;
 
   return (
     <SourcePluginRouteProvider
       value={{
-        definition,
+        plugin: entry.plugin,
+        definition: entry.definition,
         params: {},
         search: {},
         navigation: props.navigation,
@@ -136,16 +192,16 @@ export function SourcePluginAddPage(props: {
             Source Plugin
           </div>
           <h1 className="mt-5 font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-            {definition.displayName}
+            {entry.definition.displayName}
           </h1>
-          {definition.description && (
+          {entry.definition.description && (
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {definition.description}
+              {entry.definition.description}
             </p>
           )}
         </div>
 
-        <SourcePluginPicker activeKey={definition.key} />
+        <SourcePluginPicker activeKey={entry.definition.key} />
         <AddPage />
       </div>
     </SourcePluginRouteProvider>
@@ -159,18 +215,18 @@ export function SourcePluginEditPage(input: {
   search?: SourcePluginRouteSearch;
   navigation: SourcePluginNavigation;
 }) {
-  const requestedDefinition = getSourceFrontendTypeByKey(input.definitionKey);
+  const requestedEntry = getSourceFrontendTypeEntryByKey(input.definitionKey);
   const source = useSource(input.sourceId);
 
-  if (requestedDefinition === null) {
+  if (requestedEntry === null) {
     return <SourcePluginUnavailableState />;
   }
 
   return (
     <LoadableBlock loadable={source} loading="Loading source...">
       {(loadedSource) => {
-        const definition = getSourceFrontendType(loadedSource.kind);
-        if (definition === null) {
+        const entry = getSourceFrontendTypeEntry(loadedSource.kind);
+        if (entry === null) {
           return (
             <SourcePluginsResetState
               title="Source plugin is unavailable"
@@ -179,16 +235,16 @@ export function SourcePluginEditPage(input: {
           );
         }
 
-        if (definition.key !== requestedDefinition.key) {
+        if (entry.definition.key !== requestedEntry.definition.key) {
           return (
             <SourcePluginRouteMismatchState
-              requestedDisplayName={requestedDefinition.displayName}
-              actualDisplayName={definition.displayName}
+              requestedDisplayName={requestedEntry.definition.displayName}
+              actualDisplayName={entry.definition.displayName}
             />
           );
         }
 
-        if (definition.renderEditPage === undefined) {
+        if (entry.definition.renderEditPage === undefined) {
           return (
             <SourcePluginsResetState
               title="Source editing is disabled"
@@ -197,12 +253,13 @@ export function SourcePluginEditPage(input: {
           );
         }
 
-        const EditPage = definition.renderEditPage;
+        const EditPage = entry.definition.renderEditPage;
 
         return (
           <SourcePluginRouteProvider
             value={{
-              definition,
+              plugin: entry.plugin,
+              definition: entry.definition,
               params: input.params ?? {
                 sourceId: input.sourceId,
               },
@@ -227,18 +284,18 @@ export function SourcePluginDetailPage(input: {
   search: SourcePluginRouteSearch;
   navigation: SourcePluginNavigation;
 }) {
-  const requestedDefinition = getSourceFrontendTypeByKey(input.definitionKey);
+  const requestedEntry = getSourceFrontendTypeEntryByKey(input.definitionKey);
   const source = useSource(input.sourceId);
 
-  if (requestedDefinition === null) {
+  if (requestedEntry === null) {
     return <SourcePluginUnavailableState />;
   }
 
   return (
     <LoadableBlock loadable={source} loading="Loading source...">
       {(loadedSource) => {
-        const definition = getSourceFrontendType(loadedSource.kind);
-        if (definition === null) {
+        const entry = getSourceFrontendTypeEntry(loadedSource.kind);
+        if (entry === null) {
           return (
             <SourcePluginsResetState
               title="Source plugin is unavailable"
@@ -247,16 +304,16 @@ export function SourcePluginDetailPage(input: {
           );
         }
 
-        if (definition.key !== requestedDefinition.key) {
+        if (entry.definition.key !== requestedEntry.definition.key) {
           return (
             <SourcePluginRouteMismatchState
-              requestedDisplayName={requestedDefinition.displayName}
-              actualDisplayName={definition.displayName}
+              requestedDisplayName={requestedEntry.definition.displayName}
+              actualDisplayName={entry.definition.displayName}
             />
           );
         }
 
-        if (definition.renderDetailPage === undefined) {
+        if (entry.definition.renderDetailPage === undefined) {
           return (
             <SourcePluginsResetState
               title="Source detail is disabled"
@@ -265,12 +322,13 @@ export function SourcePluginDetailPage(input: {
           );
         }
 
-        const DetailPage = definition.renderDetailPage;
+        const DetailPage = entry.definition.renderDetailPage;
 
         return (
           <SourcePluginRouteProvider
             value={{
-              definition,
+              plugin: entry.plugin,
+              definition: entry.definition,
               params: input.params ?? {
                 sourceId: input.sourceId,
               },
@@ -296,18 +354,18 @@ export function SourcePluginDetailChildPage(input: {
   search: SourcePluginRouteSearch;
   navigation: SourcePluginNavigation;
 }) {
-  const requestedDefinition = getSourceFrontendTypeByKey(input.definitionKey);
+  const requestedEntry = getSourceFrontendTypeEntryByKey(input.definitionKey);
   const source = useSource(input.sourceId);
 
-  if (requestedDefinition === null) {
+  if (requestedEntry === null) {
     return <SourcePluginUnavailableState />;
   }
 
   return (
     <LoadableBlock loadable={source} loading="Loading source...">
       {(loadedSource) => {
-        const definition = getSourceFrontendType(loadedSource.kind);
-        if (definition === null) {
+        const entry = getSourceFrontendTypeEntry(loadedSource.kind);
+        if (entry === null) {
           return (
             <SourcePluginsResetState
               title="Source plugin is unavailable"
@@ -316,16 +374,16 @@ export function SourcePluginDetailChildPage(input: {
           );
         }
 
-        if (definition.key !== requestedDefinition.key) {
+        if (entry.definition.key !== requestedEntry.definition.key) {
           return (
             <SourcePluginRouteMismatchState
-              requestedDisplayName={requestedDefinition.displayName}
-              actualDisplayName={definition.displayName}
+              requestedDisplayName={requestedEntry.definition.displayName}
+              actualDisplayName={entry.definition.displayName}
             />
           );
         }
 
-        const detailRoute = definition.detailRoutes?.find((route) =>
+        const detailRoute = entry.definition.detailRoutes?.find((route) =>
           route.key === input.routeKey
         );
 
@@ -343,7 +401,8 @@ export function SourcePluginDetailChildPage(input: {
         return (
           <SourcePluginRouteProvider
             value={{
-              definition,
+              plugin: entry.plugin,
+              definition: entry.definition,
               params: input.params,
               search: input.search,
               navigation: input.navigation,

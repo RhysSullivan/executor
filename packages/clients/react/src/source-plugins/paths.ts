@@ -4,6 +4,12 @@ const trimSlashes = (value: string): string =>
 const joinPath = (...parts: ReadonlyArray<string>): string =>
   `/${parts.map(trimSlashes).filter(Boolean).join("/")}`;
 
+export type ExecutorPluginPaths = {
+  base: string;
+  routePattern: (path?: string) => string;
+  route: (path?: string) => string;
+};
+
 export type SourcePluginPaths = {
   add: string;
   detailPattern: string;
@@ -16,11 +22,32 @@ export type SourcePluginPaths = {
 
 export const sourcePluginsIndexPath = "/sources/add";
 
-export const normalizeSourcePluginPath = (value: string): string =>
+export const normalizeExecutorPluginPath = (value: string): string =>
   trimSlashes(value);
 
+export const normalizeSourcePluginPath = normalizeExecutorPluginPath;
+
+export const executorPluginBasePath = (key: string): string =>
+  joinPath("plugins", key);
+
+export const executorPluginRoutePattern = (
+  key: string,
+  path = "",
+): string => {
+  const relativePath = normalizeExecutorPluginPath(path);
+  return relativePath.length === 0
+    ? executorPluginBasePath(key)
+    : joinPath("plugins", key, relativePath);
+};
+
+export const executorPluginRoutePath = (
+  key: string,
+  path = "",
+): string =>
+  executorPluginRoutePattern(key, path);
+
 export const sourcePluginAddPath = (key: string): string =>
-  joinPath("plugins", key, "add");
+  executorPluginRoutePath(key, "add");
 
 export const sourcePluginDetailPattern = (key: string): string =>
   joinPath("plugins", key, "sources", "$sourceId");
@@ -60,6 +87,12 @@ export const sourcePluginChildPath = (
     ? sourcePluginDetailPath(key, sourceId)
     : joinPath("plugins", key, "sources", sourceId, relativePath);
 };
+
+export const createExecutorPluginPaths = (key: string): ExecutorPluginPaths => ({
+  base: executorPluginBasePath(key),
+  routePattern: (path = "") => executorPluginRoutePattern(key, path),
+  route: (path = "") => executorPluginRoutePath(key, path),
+});
 
 export const createSourcePluginPaths = (key: string): SourcePluginPaths => ({
   add: sourcePluginAddPath(key),

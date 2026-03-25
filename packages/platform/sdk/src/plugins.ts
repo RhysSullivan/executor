@@ -82,14 +82,33 @@ export type SourcePluginRuntime = {
 export const registerExecutorSdkPlugins = (
   plugins: readonly ExecutorSdkPlugin[],
 ) => {
+  const pluginKeys = new Set<string>();
   const sourcePlugins = new Map<string, SourcePluginRuntime>();
   const sourceConnectors = new Map<string, ExecutorSourceConnector<any>>();
 
   for (const plugin of plugins) {
+    if (pluginKeys.has(plugin.key)) {
+      throw new Error(`Duplicate executor SDK plugin registration: ${plugin.key}`);
+    }
+
+    pluginKeys.add(plugin.key);
+
     for (const source of plugin.sources ?? []) {
+      if (sourcePlugins.has(source.kind)) {
+        throw new Error(
+          `Duplicate source plugin registration: ${source.kind}`,
+        );
+      }
+
       sourcePlugins.set(source.kind, source);
     }
     for (const connector of plugin.sourceConnectors ?? []) {
+      if (sourceConnectors.has(connector.kind)) {
+        throw new Error(
+          `Duplicate source connector registration: ${connector.kind}`,
+        );
+      }
+
       sourceConnectors.set(connector.kind, connector);
     }
   }

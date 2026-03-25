@@ -3,6 +3,12 @@
     "vercel-api": {
       "name": "Vercel API",
       "kind": "openapi"
+    },
+    "axiom": {
+      "kind": "mcp"
+    },
+    "linear": {
+      "kind": "graphql"
     }
   }
 }

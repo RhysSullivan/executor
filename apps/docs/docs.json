@@ -11,47 +11,12 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Product",
+        "tab": "Docs",
         "groups": [
           {
-            "group": "Introduction",
+            "group": "Status",
             "pages": [
               "introduction"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Developer",
-        "groups": [
-          {
-            "group": "Control Plane",
-            "pages": [
-              "developer/overview",
-              "developer/core-model",
-              "developer/adapters-and-formats",
-              "developer/credentials-and-auth",
-              "developer/tool-catalog-and-execution",
-              "developer/persistence-and-migrations",
-              "developer/extending-executor"
-            ]
-          },
-          {
-            "group": "CLI",
-            "pages": [
-              "developer/cli"
-            ]
-          },
-          {
-            "group": "MCP",
-            "pages": [
-              "developer/mcp"
-            ]
-          },
-          {
-            "group": "Code Mode",
-            "pages": [
-              "developer/codemode"
             ]
           }
         ]

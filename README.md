@@ -391,5 +391,3 @@ This repository is explicitly on its third major architecture iteration.
 - `apps/` and `packages/` are the active implementation
 - `legacy/` is the original codebase
 - `legacy2/` is the second generation
-
-If you want the system view instead of the product view, read [`ARCHITECTURE.md`](./ARCHITECTURE.md).
