@@ -1,0 +1,27 @@
+{
+  "name": "@executor/sdk",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@executor/codemode-core": "workspace:*",
+    "@executor/platform-sdk": "workspace:*",
+    "@executor/platform-sdk-file": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
+  },
+  "version": "0.0.0"
+}
