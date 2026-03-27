@@ -1,15 +1,6 @@
 import type {
   CodeExecutor,
 } from "@executor/codemode-core";
-import {
-  makeDenoSubprocessExecutor,
-} from "@executor/runtime-deno-subprocess";
-import {
-  makeQuickJsExecutor,
-} from "@executor/runtime-quickjs";
-import {
-  makeSesExecutor,
-} from "@executor/runtime-ses";
 import type {
   LocalExecutorConfig,
   LocalExecutorRuntime,
@@ -21,16 +12,28 @@ export const resolveConfiguredExecutionRuntime = (
   config: LocalExecutorConfig | null | undefined,
 ): LocalExecutorRuntime => config?.runtime ?? DEFAULT_EXECUTION_RUNTIME;
 
-export const createCodeExecutorForRuntime = (
+export const createCodeExecutorForRuntime = async (
   runtime: LocalExecutorRuntime,
-): CodeExecutor => {
+  customExecutor?: CodeExecutor,
+): Promise<CodeExecutor> => {
+  if (customExecutor) return customExecutor;
   switch (runtime) {
-    case "deno":
+    case "deno": {
+      const { makeDenoSubprocessExecutor } = await import(
+        "@executor/runtime-deno-subprocess"
+      );
       return makeDenoSubprocessExecutor();
-    case "ses":
+    }
+    case "ses": {
+      const { makeSesExecutor } = await import("@executor/runtime-ses");
       return makeSesExecutor();
+    }
     case "quickjs":
-    default:
+    default: {
+      const { makeQuickJsExecutor } = await import(
+        "@executor/runtime-quickjs"
+      );
       return makeQuickJsExecutor();
+    }
   }
 };

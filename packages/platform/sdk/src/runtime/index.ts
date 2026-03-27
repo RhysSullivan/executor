@@ -155,6 +155,7 @@ export type ExecutorRuntimeOptions = {
   createInternalToolMap?: CreateScopeInternalToolMap;
   resolveSecretMaterial?: ResolveSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
+  customCodeExecutor?: import("@executor/codemode-core").CodeExecutor;
 };
 
 type ResolveExecutionEnvironment = import("./execution/state").ResolveExecutionEnvironment;
@@ -416,6 +417,7 @@ export const createExecutorRuntimeLayer = (
   const executionResolverLayer = RuntimeExecutionResolverLive({
     executionResolver: input.executionResolver,
     createInternalToolMap: input.createInternalToolMap,
+    customCodeExecutor: input.customCodeExecutor,
   }).pipe(
     Layer.provide(
       Layer.mergeAll(

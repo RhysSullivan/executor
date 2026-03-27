@@ -1,6 +1,5 @@
 {
   "lockfileVersion": 1,
-  "configVersion": 1,
   "workspaces": {
     "": {
       "name": "executor",
@@ -18,7 +17,7 @@
     },
     "apps/executor": {
       "name": "executor",
-      "version": "1.2.4-beta.4",
+      "version": "1.2.6",
       "bin": {
         "executor": "bin/executor",
       },
@@ -27,6 +26,7 @@
         "@effect/platform": "catalog:",
         "@effect/platform-node": "catalog:",
         "@executor/codemode-core": "workspace:*",
+        "@executor/executor-mcp": "workspace:*",
         "@executor/platform-api": "workspace:*",
         "@executor/platform-internal": "workspace:*",
         "@executor/platform-sdk": "workspace:*",
@@ -84,6 +84,17 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.26.0",
         "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "examples/sdk-programmatic": {
+      "name": "@executor/sdk-programmatic-example",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/sdk": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "catalog:",
@@ -384,6 +395,23 @@
         "@types/node": "catalog:",
         "bun-types": "catalog:",
         "typescript": "^5.9.3",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/platform/sdk-programmatic": {
+      "name": "@executor/sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/codemode-core": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/platform-sdk-file": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
         "vitest": "catalog:",
       },
     },
@@ -751,6 +779,10 @@
     "@executor/runtime-quickjs": ["@executor/runtime-quickjs@workspace:packages/kernel/runtime-quickjs"],
 
     "@executor/runtime-ses": ["@executor/runtime-ses@workspace:packages/kernel/runtime-ses"],
+
+    "@executor/sdk": ["@executor/sdk@workspace:packages/platform/sdk-programmatic"],
+
+    "@executor/sdk-programmatic-example": ["@executor/sdk-programmatic-example@workspace:examples/sdk-programmatic"],
 
     "@executor/serve-skills-via-mcp-demo": ["@executor/serve-skills-via-mcp-demo@workspace:examples/serve-skills-via-mcp"],
 

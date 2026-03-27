@@ -1,4 +1,5 @@
 import {
+  type CodeExecutor,
   createToolCatalogFromTools,
   makeToolInvokerFromTools,
 } from "@executor/codemode-core";
@@ -100,6 +101,7 @@ export const createScopeExecutionEnvironmentResolver =
     scopeStateStore: ScopeStateStoreShape;
     sourceArtifactStore: SourceArtifactStoreShape;
     createInternalToolMap?: CreateScopeInternalToolMap;
+    customCodeExecutor?: CodeExecutor;
   }): ResolveExecutionEnvironment =>
   ({ scopeId, actorScopeId, onElicitation }) =>
     Effect.gen(function* () {
@@ -135,8 +137,11 @@ export const createScopeExecutionEnvironmentResolver =
         onElicitation,
       });
 
-      const executor = createCodeExecutorForRuntime(
-        resolveConfiguredExecutionRuntime(loadedConfig?.config),
+      const executor = yield* Effect.promise(() =>
+        createCodeExecutorForRuntime(
+          resolveConfiguredExecutionRuntime(loadedConfig?.config),
+          input.customCodeExecutor,
+        ),
       );
 
       return {
@@ -157,6 +162,7 @@ export const RuntimeExecutionResolverLive = (
   input: {
     executionResolver?: ResolveExecutionEnvironment;
     createInternalToolMap?: CreateScopeInternalToolMap;
+    customCodeExecutor?: CodeExecutor;
   } = {},
 ) =>
   input.executionResolver
@@ -199,6 +205,7 @@ export const RuntimeExecutionResolverLive = (
             scopeStateStore,
             sourceArtifactStore,
             createInternalToolMap: input.createInternalToolMap,
+            customCodeExecutor: input.customCodeExecutor,
           });
         }),
       );

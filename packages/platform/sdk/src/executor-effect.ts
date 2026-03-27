@@ -528,6 +528,7 @@ export const createExecutorEffect = (
       createInternalToolMap: options.createInternalToolMap,
       resolveSecretMaterial: options.resolveSecretMaterial,
       getLocalServerBaseUrl: options.getLocalServerBaseUrl,
+      customCodeExecutor: options.customCodeExecutor,
     }),
     fromRuntime,
   );
