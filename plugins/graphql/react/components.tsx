@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useState, type ReactNode } from "react";
+import { startTransition, useState, type ReactNode } from "react";
 import type {
   Source,
   SourceInspectionToolDetail,
@@ -13,18 +13,12 @@ import {
   useLocalInstallation,
   useSecrets,
   useSource,
-  useSourceDiscovery,
-  useSourceInspection,
-  useSourceToolDetail,
 } from "@executor/react";
 import {
   Badge,
   IconPencil,
-  LoadableBlock,
   SourceToolDetailPanel,
-  SourceToolDiscoveryPanel,
-  SourceToolModelWorkbench,
-  cn,
+  SourceToolExplorer,
   parseSourceToolExplorerSearch,
   useSourcePluginRouteParams,
   type SourceToolExplorerSearch,
@@ -606,61 +600,15 @@ function GraphqlDetailExplorer(props: {
           timeToLive: "1 second",
         }) as never,
   );
-  const inspection = useSourceInspection(props.source.id);
   const tab = search.tab === "discover" ? "discover" : "model";
   const query = search.query ?? "";
-  const selectedToolPath =
-    props.selectedToolPath
-    ?? search.tool
-    ?? (inspection.status === "ready" ? inspection.data.tools[0]?.path ?? null : null);
-  const discovery = useSourceDiscovery({
-    sourceId: props.source.id,
-    query,
-    limit: 20,
-  });
-  const toolDetail = useSourceToolDetail(
-    props.source.id,
-    tab === "model" ? selectedToolPath : null,
-  );
+  const selectedToolPath = props.selectedToolPath ?? search.tool ?? null;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   if (installation.status !== "ready") {
     return <div className="text-sm text-muted-foreground">Loading workspace...</div>;
   }
-
-  useEffect(() => {
-    if (
-      tab !== "model"
-      || selectedToolPath
-      || inspection.status !== "ready"
-    ) {
-      return;
-    }
-
-    const firstTool = inspection.data.tools[0]?.path;
-    if (!firstTool) {
-      return;
-    }
-
-    startTransition(() => {
-      void navigation.child({
-        sourceId: props.source.id,
-        path: graphqlToolRoutePath(firstTool),
-        search: {
-          tab: "model",
-          ...(query ? { query } : {}),
-        },
-      });
-    });
-  }, [
-    inspection,
-    navigation,
-    props.source.id,
-    query,
-    selectedToolPath,
-    tab,
-  ]);
 
   const setRouteState = (next: {
     tab?: "model" | "discover";
@@ -673,6 +621,7 @@ function GraphqlDetailExplorer(props: {
     const searchState = {
       tab: nextTab,
       ...(nextQuery ? { query: nextQuery } : {}),
+      ...(nextTab === "discover" && nextToolPath ? { tool: nextToolPath } : {}),
     } satisfies SourceToolExplorerSearch;
 
     if (nextTab === "discover") {
@@ -719,145 +668,75 @@ function GraphqlDetailExplorer(props: {
     }
   };
 
+  const config = Result.isSuccess(configResult) ? configResult.value : null;
+
   return (
-    <LoadableBlock loadable={inspection} loading="Loading source...">
-      {(loadedInspection) => {
-        const config = Result.isSuccess(configResult) ? configResult.value : null;
-        const activeTool =
-          loadedInspection.tools.find((tool) => tool.path === selectedToolPath)
-          ?? loadedInspection.tools[0]
-          ?? null;
-
-        return (
-          <div className="flex h-full flex-col overflow-hidden">
-            <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm">
-              <div className="flex min-w-0 items-center gap-3">
-                <h2 className="truncate text-sm font-semibold text-foreground">
-                  {loadedInspection.source.name}
-                </h2>
-                <Badge variant="outline">{loadedInspection.source.kind}</Badge>
-                <span className="hidden text-[11px] tabular-nums text-muted-foreground/50 sm:block">
-                  {loadedInspection.toolCount} {loadedInspection.toolCount === 1 ? "tool" : "tools"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-0.5 rounded-lg bg-muted/50 p-0.5">
-                  {(["model", "discover"] as const).map((tabId) => (
-                    <button
-                      key={tabId}
-                      type="button"
-                      onClick={() => {
-                        void setRouteState({ tab: tabId });
-                      }}
-                      className={cn(
-                        "rounded-md px-3 py-1 text-[12px] font-medium transition-colors",
-                        tabId === tab
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {tabId === "model" ? "Tools" : "Search"}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void navigation.edit(props.source.id)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-                >
-                  <IconPencil className="size-3" />
-                  Edit
-                </button>
-                {confirmDelete ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-medium text-destructive">
-                      Confirm delete?
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDelete(false)}
-                      disabled={isDeleting}
-                      className="inline-flex items-center rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleDelete().catch(() => {});
-                      }}
-                      disabled={isDeleting}
-                      className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-                    >
-                      {isDeleting ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setConfirmDelete(true)}
-                    disabled={isDeleting}
-                    className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
+    <SourceToolExplorer
+      sourceId={props.source.id}
+      title={props.source.name}
+      kind={props.source.kind}
+      search={search}
+      selectedToolPath={selectedToolPath}
+      navigate={(next) => setRouteState(next)}
+      summary={config ? (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="font-mono text-foreground">{config.endpoint}</span>
+          <Badge variant="muted">Auth: {config.auth.kind}</Badge>
+        </div>
+      ) : undefined}
+      actions={(
+        <>
+          <button
+            type="button"
+            onClick={() => void navigation.edit(props.source.id)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          >
+            <IconPencil className="size-3" />
+            Edit
+          </button>
+          {confirmDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium text-destructive">
+                Confirm delete?
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                disabled={isDeleting}
+                className="inline-flex items-center rounded-md border border-border bg-card px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleDelete().catch(() => {});
+                }}
+                disabled={isDeleting}
+                className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </button>
             </div>
-
-            {config && (
-              <div className="shrink-0 border-b border-border bg-card/30 px-4 py-2">
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="font-mono text-foreground">{config.endpoint}</span>
-                  <Badge variant="muted">Auth: {config.auth.kind}</Badge>
-                </div>
-              </div>
-            )}
-
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              {tab === "model" ? (
-                <SourceToolModelWorkbench
-                  bundle={loadedInspection}
-                  detail={toolDetail}
-                  selectedToolPath={activeTool?.path ?? null}
-                  onSelectTool={(toolPath) => {
-                    void setRouteState({
-                      tab: "model",
-                      tool: toolPath,
-                    });
-                  }}
-                  sourceId={props.source.id}
-                  renderDetail={(detail) => (
-                    <SourceToolDetailPanel
-                      detail={detail}
-                      renderHeaderMeta={renderGraphqlToolHeaderMeta}
-                    />
-                  )}
-                />
-              ) : (
-                <SourceToolDiscoveryPanel
-                  discovery={discovery}
-                  initialQuery={query}
-                  onOpenTool={(toolPath) => {
-                    void setRouteState({
-                      tab: "model",
-                      tool: toolPath,
-                      query,
-                    });
-                  }}
-                  onSubmitQuery={(nextQuery) => {
-                    void setRouteState({
-                      tab: "discover",
-                      query: nextQuery,
-                    });
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        );
-      }}
-    </LoadableBlock>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              disabled={isDeleting}
+              className="inline-flex items-center rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:pointer-events-none disabled:opacity-50"
+            >
+              Delete
+            </button>
+          )}
+        </>
+      )}
+      renderDetail={(detail) => (
+        <SourceToolDetailPanel
+          detail={detail}
+          renderHeaderMeta={renderGraphqlToolHeaderMeta}
+        />
+      )}
+    />
   );
 }
 

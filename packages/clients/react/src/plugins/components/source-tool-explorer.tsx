@@ -1,24 +1,25 @@
 import { startTransition, useEffect, type ReactNode } from "react";
+import type {
+  SourceInspectionToolDetail,
+} from "../../index";
 
 import {
-  useSourceDiscovery,
   useSourceInspection,
   useSourceToolDetail,
 } from "../../hooks/sources";
 import { Badge } from "./badge";
 import { LoadableBlock } from "./loadable";
 import {
-  SourceToolDiscoveryPanel,
   SourceToolModelWorkbench,
 } from "./source-tool-workbench";
 import type { SourceToolExplorerSearch } from "./source-tool-explorer-search";
-import { cn } from "../lib/cn";
 
 export const SourceToolExplorer = (props: {
   sourceId: string;
   title: string;
   kind: string;
   search: SourceToolExplorerSearch;
+  selectedToolPath?: string | null;
   navigate?: (search: {
     tab: "model" | "discover";
     tool?: string;
@@ -26,47 +27,45 @@ export const SourceToolExplorer = (props: {
   }) => void | Promise<void>;
   actions?: ReactNode;
   summary?: ReactNode;
+  renderDetail?: (detail: SourceInspectionToolDetail) => ReactNode;
 }) => {
   const inspection = useSourceInspection(props.sourceId);
-  const tab = props.search.tab === "discover" ? "discover" : "model";
-  const toolPath = props.search.tool ?? null;
-  const detail = useSourceToolDetail(props.sourceId, tab === "model" ? toolPath : null);
-  const discovery = useSourceDiscovery({
-    sourceId: props.sourceId,
-    query: props.search.query ?? "",
-    limit: 20,
-  });
+  const selectedToolPath = props.selectedToolPath ?? props.search.tool ?? null;
+  const detail = useSourceToolDetail(
+    props.sourceId,
+    selectedToolPath,
+  );
   const navigate = props.navigate;
 
   useEffect(() => {
-    if (
-      tab !== "model"
-      || inspection.status !== "ready"
-      || props.search.tool
-      || !navigate
-    ) {
+    if (inspection.status !== "ready" || !navigate) {
       return;
     }
 
     const firstTool = inspection.data.tools[0]?.path;
-    if (!firstTool) {
+    const nextToolPath = selectedToolPath ?? firstTool;
+    if (!nextToolPath) {
+      return;
+    }
+
+    if (props.search.tab !== "discover" && selectedToolPath) {
       return;
     }
 
     startTransition(() => {
       void navigate({
         tab: "model",
-        tool: firstTool,
-        query: props.search.query,
+        tool: nextToolPath,
+        query: "",
       });
     });
-  }, [inspection, navigate, props.search.query, props.search.tool, tab]);
+  }, [inspection, navigate, props.search.tab, selectedToolPath]);
 
   return (
     <LoadableBlock loadable={inspection} loading="Loading source...">
       {(loadedInspection) => {
         const selectedTool =
-          loadedInspection.tools.find((candidate) => candidate.path === toolPath)
+          loadedInspection.tools.find((candidate) => candidate.path === selectedToolPath)
           ?? loadedInspection.tools[0]
           ?? null;
 
@@ -78,40 +77,11 @@ export const SourceToolExplorer = (props: {
                   {props.title}
                 </h2>
                 <Badge variant="outline">{props.kind}</Badge>
+                <span className="hidden text-[11px] tabular-nums text-muted-foreground/50 sm:block">
+                  {loadedInspection.toolCount} {loadedInspection.toolCount === 1 ? "tool" : "tools"}
+                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-0.5 rounded-lg bg-muted/50 p-0.5">
-                  {(["model", "discover"] as const).map((tabId) => (
-                    <button
-                      key={tabId}
-                      type="button"
-                      onClick={() => {
-                        if (!navigate) {
-                          return;
-                        }
-
-                        startTransition(() => {
-                          void navigate({
-                            tab: tabId,
-                            tool:
-                              tabId === "model"
-                                ? (selectedTool?.path ?? undefined)
-                                : props.search.tool,
-                            query: props.search.query,
-                          });
-                        });
-                      }}
-                      className={cn(
-                        "rounded-md px-3 py-1 text-[12px] font-medium transition-colors",
-                        tabId === tab
-                          ? "bg-background text-foreground shadow-sm"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {tabId === "model" ? "Tools" : "Search"}
-                    </button>
-                  ))}
-                </div>
+              <div className="flex shrink-0 items-center gap-2">
                 {props.actions}
               </div>
             </div>
@@ -123,58 +93,26 @@ export const SourceToolExplorer = (props: {
             )}
 
             <div className="flex min-h-0 flex-1 overflow-hidden">
-              {tab === "model" ? (
-                <SourceToolModelWorkbench
-                  bundle={loadedInspection}
-                  detail={detail}
-                  selectedToolPath={selectedTool?.path ?? null}
-                  onSelectTool={(nextToolPath) => {
-                    if (!navigate) {
-                      return;
-                    }
+              <SourceToolModelWorkbench
+                bundle={loadedInspection}
+                detail={detail}
+                selectedToolPath={selectedTool?.path ?? null}
+                onSelectTool={(nextToolPath) => {
+                  if (!navigate) {
+                    return;
+                  }
 
-                    startTransition(() => {
-                      void navigate({
-                        tab: "model",
-                        tool: nextToolPath,
-                        query: props.search.query,
-                      });
+                  startTransition(() => {
+                    void navigate({
+                      tab: "model",
+                      tool: nextToolPath,
+                      query: "",
                     });
-                  }}
-                  sourceId={props.sourceId}
-                />
-              ) : (
-                <SourceToolDiscoveryPanel
-                  discovery={discovery}
-                  initialQuery={props.search.query ?? ""}
-                  onSubmitQuery={(query) => {
-                    if (!navigate) {
-                      return;
-                    }
-
-                    startTransition(() => {
-                      void navigate({
-                        tab: "discover",
-                        tool: props.search.tool,
-                        query,
-                      });
-                    });
-                  }}
-                  onOpenTool={(nextToolPath) => {
-                    if (!navigate) {
-                      return;
-                    }
-
-                    startTransition(() => {
-                      void navigate({
-                        tab: "model",
-                        tool: nextToolPath,
-                        query: props.search.query,
-                      });
-                    });
-                  }}
-                />
-              )}
+                  });
+                }}
+                sourceId={props.sourceId}
+                renderDetail={props.renderDetail}
+              />
             </div>
           </div>
         );

@@ -622,7 +622,7 @@ export const SourceToolModelWorkbench = (
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto max-w-[300px]">
           {filteredTools.length === 0 ? (
             <div className="p-4 text-center text-[13px] text-muted-foreground/50">
               {terms.length > 0 ? "No tools match your filter" : "No tools available"}

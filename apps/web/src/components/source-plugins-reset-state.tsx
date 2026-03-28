@@ -10,7 +10,7 @@ export function SourcePluginsResetState(
   input: SourcePluginsResetStateProps,
 ) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto max-w-[300px]">
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-10 lg:py-14">
         <div className="rounded-2xl border border-border bg-card p-8">
           <h2 className="font-display text-xl tracking-tight text-foreground">
