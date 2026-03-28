@@ -19,6 +19,8 @@
 .executor/*
 !.executor/executor.json
 !.executor/executor.jsonc
+!.executor/tools/
+!.executor/tools/**
 .executor/artifacts/
 .executor/state/
 .executor/types/

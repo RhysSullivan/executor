@@ -33,6 +33,9 @@
         "@executor/platform-sdk-file": "workspace:*",
         "@executor/plugin-google-discovery-sdk": "workspace:*",
         "@executor/plugin-graphql-sdk": "workspace:*",
+        "@executor/plugin-keychain-secret-store-sdk": "workspace:*",
+        "@executor/plugin-local-secret-store-sdk": "workspace:*",
+        "@executor/plugin-local-tools-sdk": "workspace:*",
         "@executor/plugin-mcp-sdk": "workspace:*",
         "@executor/plugin-openapi-sdk": "workspace:*",
         "@executor/server": "workspace:*",
@@ -57,7 +60,9 @@
         "@executor/plugin-execution-history-react": "workspace:*",
         "@executor/plugin-google-discovery-react": "workspace:*",
         "@executor/plugin-graphql-react": "workspace:*",
+        "@executor/plugin-local-tools-react": "workspace:*",
         "@executor/plugin-mcp-react": "workspace:*",
+        "@executor/plugin-onepassword-react": "workspace:*",
         "@executor/plugin-openapi-react": "workspace:*",
         "@executor/react": "workspace:*",
         "@executor/server": "workspace:*",
@@ -373,9 +378,15 @@
         "@executor/plugin-graphql-http": "workspace:*",
         "@executor/plugin-graphql-sdk": "workspace:*",
         "@executor/plugin-graphql-shared": "workspace:*",
+        "@executor/plugin-keychain-secret-store-sdk": "workspace:*",
+        "@executor/plugin-local-secret-store-sdk": "workspace:*",
+        "@executor/plugin-local-tools-sdk": "workspace:*",
         "@executor/plugin-mcp-http": "workspace:*",
         "@executor/plugin-mcp-sdk": "workspace:*",
         "@executor/plugin-mcp-shared": "workspace:*",
+        "@executor/plugin-onepassword-http": "workspace:*",
+        "@executor/plugin-onepassword-sdk": "workspace:*",
+        "@executor/plugin-onepassword-shared": "workspace:*",
         "@executor/plugin-openapi-http": "workspace:*",
         "@executor/plugin-openapi-sdk": "workspace:*",
         "@executor/plugin-openapi-shared": "workspace:*",
@@ -550,6 +561,58 @@
         "bun-types": "catalog:",
       },
     },
+    "plugins/keychain-secret-store/sdk": {
+      "name": "@executor/plugin-keychain-secret-store-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/platform-sdk": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/local-secret-store/sdk": {
+      "name": "@executor/plugin-local-secret-store-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/platform-sdk": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/local-tools/react": {
+      "name": "@executor/plugin-local-tools-react",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/react": "workspace:*",
+        "react": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/react": "^19.2.10",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/local-tools/sdk": {
+      "name": "@executor/plugin-local-tools-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/codemode-core": "workspace:*",
+        "@executor/ir": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/source-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
     "plugins/mcp/http": {
       "name": "@executor/plugin-mcp-http",
       "version": "0.0.0",
@@ -607,6 +670,62 @@
       "dependencies": {
         "@executor/platform-sdk": "workspace:*",
         "@executor/source-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/onepassword/http": {
+      "name": "@executor/plugin-onepassword-http",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/platform-api": "workspace:*",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-onepassword-shared": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/onepassword/react": {
+      "name": "@executor/plugin-onepassword-react",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/plugin-onepassword-shared": "workspace:*",
+        "@executor/react": "workspace:*",
+        "react": "^19.2.0",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/react": "^19.2.10",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/onepassword/sdk": {
+      "name": "@executor/plugin-onepassword-sdk",
+      "version": "0.0.0",
+      "dependencies": {
+        "@1password/sdk": "0.4.1-beta.1",
+        "@executor/platform-sdk": "workspace:*",
+        "@executor/plugin-onepassword-shared": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "bun-types": "catalog:",
+      },
+    },
+    "plugins/onepassword/shared": {
+      "name": "@executor/plugin-onepassword-shared",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/platform-sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -692,6 +811,10 @@
     "zod": "^4.3.6",
   },
   "packages": {
+    "@1password/sdk": ["@1password/sdk@0.4.1-beta.1", "", { "dependencies": { "@1password/sdk-core": "0.4.1-beta.1" } }, "sha512-QWY6eIIEs9at6kAFbgjZ1vVxg7ygp/MwXJ6/BoBdPkqIk8vfulXu4pjDsVQ87HhddJAD5LVGBXSbQIa+svI3bA=="],
+
+    "@1password/sdk-core": ["@1password/sdk-core@0.4.1-beta.1", "", {}, "sha512-/otbg1JVhsEn6oUIeReoT9TmFr8J7KBwr9UuRVfJFwwGG3bHPF8ewT+LhRimQeJtypqQ69ZVuOYkxknD4iQHxw=="],
+
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.66", "", { "dependencies": { "@ai-sdk/provider": "3.0.8", "@ai-sdk/provider-utils": "4.0.19", "@vercel/oidc": "3.1.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-SIQ0YY0iMuv+07HLsZ+bB990zUJ6S4ujORAh+Jv1V2KGNn73qQKnGO0JBk+w+Res8YqOFSycwDoWcFlQrVxS4A=="],
 
     "@ai-sdk/provider": ["@ai-sdk/provider@3.0.8", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ=="],
@@ -922,6 +1045,14 @@
 
     "@executor/plugin-graphql-shared": ["@executor/plugin-graphql-shared@workspace:plugins/graphql/shared"],
 
+    "@executor/plugin-keychain-secret-store-sdk": ["@executor/plugin-keychain-secret-store-sdk@workspace:plugins/keychain-secret-store/sdk"],
+
+    "@executor/plugin-local-secret-store-sdk": ["@executor/plugin-local-secret-store-sdk@workspace:plugins/local-secret-store/sdk"],
+
+    "@executor/plugin-local-tools-react": ["@executor/plugin-local-tools-react@workspace:plugins/local-tools/react"],
+
+    "@executor/plugin-local-tools-sdk": ["@executor/plugin-local-tools-sdk@workspace:plugins/local-tools/sdk"],
+
     "@executor/plugin-mcp-http": ["@executor/plugin-mcp-http@workspace:plugins/mcp/http"],
 
     "@executor/plugin-mcp-react": ["@executor/plugin-mcp-react@workspace:plugins/mcp/react"],
@@ -929,6 +1060,14 @@
     "@executor/plugin-mcp-sdk": ["@executor/plugin-mcp-sdk@workspace:plugins/mcp/sdk"],
 
     "@executor/plugin-mcp-shared": ["@executor/plugin-mcp-shared@workspace:plugins/mcp/shared"],
+
+    "@executor/plugin-onepassword-http": ["@executor/plugin-onepassword-http@workspace:plugins/onepassword/http"],
+
+    "@executor/plugin-onepassword-react": ["@executor/plugin-onepassword-react@workspace:plugins/onepassword/react"],
+
+    "@executor/plugin-onepassword-sdk": ["@executor/plugin-onepassword-sdk@workspace:plugins/onepassword/sdk"],
+
+    "@executor/plugin-onepassword-shared": ["@executor/plugin-onepassword-shared@workspace:plugins/onepassword/shared"],
 
     "@executor/plugin-openapi-http": ["@executor/plugin-openapi-http@workspace:plugins/openapi/http"],
 

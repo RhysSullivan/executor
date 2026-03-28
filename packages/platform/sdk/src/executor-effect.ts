@@ -4,6 +4,7 @@ import type {
   ScopeId,
   Execution,
   LocalInstallation,
+  SecretStore,
   Source,
 } from "./schema";
 import type {
@@ -11,13 +12,28 @@ import type {
   ResumeExecutionPayload,
 } from "./executions/contracts";
 import type {
+  BrowseSecretStorePayload,
+  BrowseSecretStoreResult,
   CreateSecretPayload,
+  CreateSecretStorePayload,
+  CreateSecretResult,
   DeleteSecretResult,
+  DeleteSecretStoreResult,
+  ImportSecretFromStorePayload,
   UpdateSecretPayload,
+  UpdateSecretStorePayload,
 } from "./local/contracts";
 import {
   getLocalInstallation,
 } from "./local/operations";
+import {
+  createLocalSecretStore,
+  browseLocalSecretStore,
+  deleteLocalSecretStore,
+  importLocalSecretFromStore,
+  listLocalSecretStores,
+  updateLocalSecretStore,
+} from "./local/secret-stores";
 import {
   createLocalSecret,
   deleteLocalSecret,
@@ -49,6 +65,12 @@ import {
   removeSource,
   saveManagedSourceRecord,
 } from "./sources/operations";
+import {
+  createManagedSecretStoreRecord,
+  getManagedSecretStore,
+  removeManagedSecretStoreRecord,
+  saveManagedSecretStoreRecord,
+} from "./runtime/secret-stores";
 import type { ExecutorBackend } from "./backend";
 import {
   provideExecutorRuntime,
@@ -92,6 +114,33 @@ export type ExecutorEffect = {
   local: {
     installation: () => ProvidedEffect<ReturnType<typeof getLocalInstallation>>;
     config: () => ProvidedEffect<ReturnType<typeof getLocalInstanceConfig>>;
+  };
+  secretStores: {
+    list: () => ProvidedEffect<ReturnType<typeof listLocalSecretStores>>;
+    create: (
+      payload: CreateSecretStorePayload,
+    ) => ProvidedEffect<ReturnType<typeof createLocalSecretStore>>;
+    update: (input: {
+      storeId: string;
+      payload: UpdateSecretStorePayload;
+    }) => ProvidedEffect<ReturnType<typeof updateLocalSecretStore>>;
+    browse: (input: {
+      storeId: string;
+      payload: BrowseSecretStorePayload;
+    }) => ProvidedEffect<ReturnType<typeof browseLocalSecretStore>>;
+    import: (input: {
+      storeId: string;
+      payload: ImportSecretFromStorePayload;
+    }) => MappedProvidedEffect<
+      ReturnType<typeof importLocalSecretFromStore>,
+      CreateSecretResult
+    >;
+    remove: (
+      storeId: string,
+    ) => MappedProvidedEffect<
+      ReturnType<typeof deleteLocalSecretStore>,
+      DeleteSecretStoreResult
+    >;
   };
   secrets: {
     list: () => ProvidedEffect<ReturnType<typeof listLocalSecrets>>;
@@ -188,6 +237,14 @@ const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
     local: {
       installation: () => provide(getLocalInstallation()),
       config: () => provide(getLocalInstanceConfig()),
+    },
+    secretStores: {
+      list: () => provide(listLocalSecretStores()),
+      create: (payload) => provide(createLocalSecretStore(payload)),
+      update: (input) => provide(updateLocalSecretStore(input)),
+      browse: (input) => provide(browseLocalSecretStore(input)),
+      import: (input) => provide(importLocalSecretFromStore(input)),
+      remove: (storeId) => provide(deleteLocalSecretStore(storeId)),
     },
     secrets: {
       list: () => provide(listLocalSecrets()),
@@ -353,6 +410,34 @@ export const createExecutorEffect = <
                   scopeId: executor.scopeId,
                   sourceId,
                 }).pipe(Effect.map((result) => result.removed)),
+              ),
+          },
+          secretStores: {
+            create: ({
+              store,
+            }: {
+              store: Omit<
+                SecretStore,
+                "id" | "scopeId" | "createdAt" | "updatedAt"
+              >;
+            }) =>
+              providePluginHostEffect(
+                createManagedSecretStoreRecord({
+                  scopeId: executor.scopeId,
+                  store,
+                }),
+              ),
+            get: (storeId: SecretStore["id"]) =>
+              providePluginHostEffect(
+                getManagedSecretStore(storeId),
+              ),
+            save: (store: SecretStore) =>
+              providePluginHostEffect(
+                saveManagedSecretStoreRecord(store),
+              ),
+            remove: (storeId: SecretStore["id"]) =>
+              providePluginHostEffect(
+                removeManagedSecretStoreRecord(storeId),
               ),
           },
         };

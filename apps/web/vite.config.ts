@@ -62,6 +62,10 @@ export default defineConfig({
   },
   server: {
     port: 8788,
+    allowedHosts: [
+      "rhyss-laptop.tail5665af.ts.net",
+      ".tail5665af.ts.net",
+    ],
     watch: {
       ignored: [
         "!**/node_modules/@executor/**",

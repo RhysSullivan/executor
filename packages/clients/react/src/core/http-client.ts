@@ -7,10 +7,12 @@ import {
 import type * as HttpApi from "@effect/platform/HttpApi";
 import type * as HttpApiGroup from "@effect/platform/HttpApiGroup";
 import {
-  ExecutorApi,
   createExecutorApi,
-  type ExecutorHttpApiExtension,
-} from "@executor/platform-api";
+  ExecutorApi,
+} from "@executor/platform-api/api";
+import type {
+  ExecutorHttpApiExtension,
+} from "@executor/platform-api/plugins";
 
 import { getExecutorApiBaseUrl } from "./base-url";
 

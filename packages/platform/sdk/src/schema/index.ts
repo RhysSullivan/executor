@@ -6,6 +6,7 @@ export * from "./models/source";
 export * from "./models/source-catalog";
 export * from "./models/secret-ref";
 export * from "./models/secret-material";
+export * from "./models/secret-store";
 export * from "./models/policy";
 export * from "./models/local-installation";
 export * from "./models/local-config";

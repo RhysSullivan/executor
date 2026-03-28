@@ -49,6 +49,9 @@ import {
   createExecutorToolMap,
 } from "../../sources/executor-tools";
 import {
+  registeredSourceContributions,
+} from "../../sources/source-plugins";
+import {
   RuntimeSourceCatalogSyncService,
 } from "../../catalog/source/sync";
 import {
@@ -147,10 +150,12 @@ export const createScopeToolInvoker = (input: {
       return catalog;
     },
   });
+  const hasLocalToolsSourceContribution = registeredSourceContributions()
+    .some((source) => source.kind === "local-tools");
   const authoredTools = mergeToolMaps([
     systemTools,
     executorTools,
-    input.localToolRuntime.tools,
+    ...(hasLocalToolsSourceContribution ? [] : [input.localToolRuntime.tools]),
   ]);
   const authoredCatalog = createToolCatalogFromTools({
     tools: authoredTools,

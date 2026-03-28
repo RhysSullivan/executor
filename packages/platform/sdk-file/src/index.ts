@@ -31,6 +31,7 @@ import {
 import * as Effect from "effect/Effect";
 import {
   type LoadedLocalExecutorConfig,
+  migrateLegacyLocalExecutorConfigs,
   type ResolvedLocalWorkspaceContext,
   loadLocalExecutorConfig,
   resolveConfigRelativePath,
@@ -44,6 +45,7 @@ import {
   createDefaultSecretMaterialResolver,
   createDefaultSecretMaterialStorer,
   createDefaultSecretMaterialUpdater,
+  provisionBuiltinSecretStores,
 } from "./secret-material-providers";
 import {
   buildLocalSourceArtifact,
@@ -52,6 +54,7 @@ import {
   writeLocalSourceArtifact,
 } from "./source-artifacts";
 import {
+  deriveLocalInstallation,
   getOrProvisionLocalInstallation,
   loadLocalInstallation,
 } from "./installation";
@@ -235,6 +238,10 @@ export const createLocalExecutorRepositoriesEffect = (
         homeStateDirectory: options.homeStateDirectory,
       }),
     ).pipe(Effect.mapError(toError));
+    yield* bindFileSystem(
+      fileSystem,
+      migrateLegacyLocalExecutorConfigs(workspaceContext),
+    ).pipe(Effect.mapError(toError));
 
     const executorStateStorage = createLocalExecutorStatePersistence(
       workspaceContext,
@@ -245,12 +252,14 @@ export const createLocalExecutorRepositoriesEffect = (
       fileSystem,
     );
     const loadedConfig = yield* workspaceConfigStore.load();
+    yield* provisionBuiltinSecretStores({
+      executorState: executorStateStorage.executorState,
+      scopeId: deriveLocalInstallation(workspaceContext).scopeId,
+    });
     const resolveSecretMaterial: ResolveSecretMaterial =
       runtimeOptions.resolveSecretMaterial
       ?? createDefaultSecretMaterialResolver({
         executorState: executorStateStorage.executorState,
-        localConfig: loadedConfig.config,
-        workspaceRoot: workspaceContext.workspaceRoot,
       });
 
     return {
@@ -274,16 +283,20 @@ export const createLocalExecutorRepositoriesEffect = (
           createBoundSourceTypeDeclarationsRefresher(workspaceContext),
       },
       secrets: {
+        secretStores: executorStateStorage.executorState.secretStores,
         ...executorStateStorage.executorState.secretMaterials,
         resolve: resolveSecretMaterial,
         store: createDefaultSecretMaterialStorer({
           executorState: executorStateStorage.executorState,
+          resolveSecretMaterial,
         }),
         delete: createDefaultSecretMaterialDeleter({
           executorState: executorStateStorage.executorState,
+          resolveSecretMaterial,
         }),
         update: createDefaultSecretMaterialUpdater({
           executorState: executorStateStorage.executorState,
+          resolveSecretMaterial,
         }),
       },
       executions: {
@@ -293,7 +306,9 @@ export const createLocalExecutorRepositoriesEffect = (
         steps: executorStateStorage.executorState.executionSteps,
       },
       instanceConfig: {
-        resolve: createLocalInstanceConfigResolver(),
+        resolve: createLocalInstanceConfigResolver({
+          executorState: executorStateStorage.executorState,
+        }),
       },
       close: executorStateStorage.close,
     } satisfies ExecutorBackendRepositories;
@@ -329,27 +344,32 @@ export const createLocalExecutorEffect = <
 ): Effect.Effect<
   ExecutorEffect & ExecutorSdkPluginExtensions<TPlugins>,
   Error
-> =>
-  createExecutorEffect({
+> => {
+  return createExecutorEffect({
     backend: createLocalExecutorBackend(options),
-    plugins: options.plugins,
+    plugins: (options.plugins ?? []) as TPlugins,
     executionResolver: options.executionResolver,
     resolveSecretMaterial: options.resolveSecretMaterial,
     getLocalServerBaseUrl: options.getLocalServerBaseUrl,
-  } satisfies CreateExecutorEffectOptions & { plugins?: TPlugins });
+  }) as Effect.Effect<
+    ExecutorEffect & ExecutorSdkPluginExtensions<TPlugins>,
+    Error
+  >;
+};
 
 export const createLocalExecutor = <
   const TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
 >(
   options: CreateLocalExecutorOptions<TPlugins> = {},
-): Promise<Executor<TPlugins>> =>
-  createExecutor({
+) => {
+  return createExecutor({
     backend: createLocalExecutorBackend(options),
-    plugins: options.plugins,
+    plugins: (options.plugins ?? []) as TPlugins,
     executionResolver: options.executionResolver,
     resolveSecretMaterial: options.resolveSecretMaterial,
     getLocalServerBaseUrl: options.getLocalServerBaseUrl,
-  });
+  }) as Promise<Executor<TPlugins>>;
+};
 
 export {
   deriveLocalInstallation,

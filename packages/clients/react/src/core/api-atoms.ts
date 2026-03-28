@@ -2,6 +2,7 @@ import {
   Atom,
 } from "@effect-atom/atom-react";
 import type {
+  SecretStore,
   InstanceConfig,
   LocalInstallation,
   SecretListItem,
@@ -46,6 +47,12 @@ export const instanceConfigAtom = (baseUrl: string = getExecutorApiBaseUrl()) =>
 
 export const secretsAtom = (baseUrl: string = getExecutorApiBaseUrl()) =>
   getExecutorApiHttpClient(baseUrl).query("local", "listSecrets", {
+    reactivityKeys: secretsReactivityKey(),
+    timeToLive: "1 minute",
+  });
+
+export const secretStoresAtom = (baseUrl: string = getExecutorApiBaseUrl()) =>
+  getExecutorApiHttpClient(baseUrl).query("local", "listSecretStores", {
     reactivityKeys: secretsReactivityKey(),
     timeToLive: "1 minute",
   });
@@ -168,6 +175,7 @@ export type ExecutorApiAtoms = {
   localInstallationAtom: typeof localInstallationAtom;
   instanceConfigAtom: typeof instanceConfigAtom;
   secretsAtom: typeof secretsAtom;
+  secretStoresAtom: typeof secretStoresAtom;
   executionsAtom: typeof executionsAtom;
   executionAtom: typeof executionAtom;
   sourcesAtom: typeof sourcesAtom;
@@ -181,6 +189,7 @@ export type ExecutorApiAtomValues = {
   localInstallation: LocalInstallation;
   instanceConfig: InstanceConfig;
   secrets: ReadonlyArray<SecretListItem>;
+  secretStores: ReadonlyArray<SecretStore>;
   executions: ReadonlyArray<Execution>;
   execution: ExecutionEnvelope;
   sources: ReadonlyArray<Source>;

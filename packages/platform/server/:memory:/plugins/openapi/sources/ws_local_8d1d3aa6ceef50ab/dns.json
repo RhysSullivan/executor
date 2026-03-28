@@ -1,0 +1,10 @@
+{
+  "specUrl": "http://127.0.0.1:54106/openapi.json",
+  "baseUrl": "http://127.0.0.1:54106",
+  "auth": {
+    "kind": "none"
+  },
+  "defaultHeaders": null,
+  "etag": null,
+  "lastSyncAt": 1774721182506
+}

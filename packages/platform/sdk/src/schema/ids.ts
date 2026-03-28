@@ -11,6 +11,9 @@ export const SourceCatalogRevisionIdSchema = Schema.String.pipe(
 export const SecretMaterialIdSchema = Schema.String.pipe(
   Schema.brand("SecretMaterialId"),
 );
+export const SecretStoreIdSchema = Schema.String.pipe(
+  Schema.brand("SecretStoreId"),
+);
 export const PolicyIdSchema = Schema.String.pipe(Schema.brand("PolicyId"));
 export const ExecutionIdSchema = Schema.String.pipe(Schema.brand("ExecutionId"));
 export const ExecutionInteractionIdSchema = Schema.String.pipe(
@@ -25,6 +28,7 @@ export type SourceId = typeof SourceIdSchema.Type;
 export type SourceCatalogId = typeof SourceCatalogIdSchema.Type;
 export type SourceCatalogRevisionId = typeof SourceCatalogRevisionIdSchema.Type;
 export type SecretMaterialId = typeof SecretMaterialIdSchema.Type;
+export type SecretStoreId = typeof SecretStoreIdSchema.Type;
 export type PolicyId = typeof PolicyIdSchema.Type;
 export type ExecutionId = typeof ExecutionIdSchema.Type;
 export type ExecutionInteractionId = typeof ExecutionInteractionIdSchema.Type;

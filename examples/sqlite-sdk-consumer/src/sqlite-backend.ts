@@ -27,6 +27,7 @@ import type {
   LocalInstallation,
   SecretMaterial,
   SecretRef,
+  SecretStore,
 } from "@executor/platform-sdk/schema";
 import {
   ScopeIdSchema,
@@ -57,14 +58,15 @@ type SourceArtifactBuildInput = Parameters<
 
 type SecretMaterialSummary = {
   id: string;
-  providerId: string;
+  storeId: string;
   name: string | null;
   purpose: string;
   createdAt: number;
   updatedAt: number;
 };
 
-const SQLITE_SECRET_PROVIDER_ID = "sqlite";
+const SQLITE_SECRET_STORE_KIND = "sqlite";
+const SQLITE_SECRET_STORE_ID = "sts_sqlite";
 
 const installations = sqliteTable("installations", {
   key: text("key").primaryKey(),
@@ -250,8 +252,39 @@ const openSqliteStore = (databasePath: string) => {
 
 type SqliteStore = ReturnType<typeof openSqliteStore>;
 
-const createStorageDomains = (store: SqliteStore) => ({
+const createStorageDomains = (
+  store: SqliteStore,
+  installation: LocalInstallation,
+) => ({
   secrets: {
+    secretStores: {
+      getById: (id: SecretStore["id"]) =>
+        id === SQLITE_SECRET_STORE_ID
+          ? {
+              id: SQLITE_SECRET_STORE_ID as SecretStore["id"],
+              scopeId: installation.scopeId,
+              kind: SQLITE_SECRET_STORE_KIND,
+              name: "SQLite Store",
+              status: "connected" as const,
+              enabled: true,
+              createdAt: 0,
+              updatedAt: 0,
+            }
+          : null,
+      listAll: () => [{
+        id: SQLITE_SECRET_STORE_ID,
+        scopeId: installation.scopeId,
+        kind: SQLITE_SECRET_STORE_KIND,
+        name: "SQLite Store",
+        status: "connected",
+        enabled: true,
+        createdAt: 0,
+        updatedAt: 0,
+      }],
+      upsert: (_secretStore: SecretStore) => {},
+      updateById: (_id: SecretStore["id"], _update: Partial<Pick<SecretStore, "name" | "status" | "enabled">>) => null,
+      removeById: (_id: SecretStore["id"]) => false,
+    },
     getById: (id: SecretMaterial["id"]) => {
       const row = store.db.select().from(secretMaterials).where(eq(secretMaterials.id, id)).get();
       return row ? parseJson<SecretMaterial>(row.json) : null;
@@ -259,7 +292,7 @@ const createStorageDomains = (store: SqliteStore) => ({
     listAll: (): readonly SecretMaterialSummary[] =>
       store.db.select().from(secretMaterials).all().map((row) => ({
         id: row.id,
-        providerId: row.providerId,
+        storeId: row.providerId,
         name: row.name,
         purpose: row.purpose,
         createdAt: row.createdAt,
@@ -268,7 +301,7 @@ const createStorageDomains = (store: SqliteStore) => ({
     upsert: (material: SecretMaterial) =>
       store.db.insert(secretMaterials).values({
         id: material.id,
-        providerId: material.providerId,
+        providerId: material.storeId,
         name: material.name,
         purpose: material.purpose,
         createdAt: material.createdAt,
@@ -277,7 +310,7 @@ const createStorageDomains = (store: SqliteStore) => ({
       }).onConflictDoUpdate({
         target: secretMaterials.id,
         set: {
-          providerId: material.providerId,
+          providerId: material.storeId,
           name: material.name,
           purpose: material.purpose,
           createdAt: material.createdAt,
@@ -299,7 +332,7 @@ const createStorageDomains = (store: SqliteStore) => ({
         updatedAt: Date.now(),
       };
       store.db.update(secretMaterials).set({
-        providerId: next.providerId,
+        providerId: next.storeId,
         name: next.name,
         purpose: next.purpose,
         createdAt: next.createdAt,
@@ -308,7 +341,7 @@ const createStorageDomains = (store: SqliteStore) => ({
       }).where(eq(secretMaterials.id, id)).run();
       return {
         id: next.id,
-        providerId: next.providerId,
+        storeId: next.storeId,
         name: next.name,
         purpose: next.purpose,
         createdAt: next.createdAt,
@@ -471,7 +504,19 @@ export const createSqliteExecutorBackend = (
   return createExecutorBackend({
     loadRepositories: () => {
       const store = openSqliteStore(databasePath);
-      const { secrets, executions } = createStorageDomains(store);
+      const installation = (() => {
+        const row = store.db.select().from(installations).where(eq(installations.key, "active")).get();
+        return row
+          ? {
+              scopeId: row.scopeId as LocalInstallation["scopeId"],
+              actorScopeId: row.actorScopeId as LocalInstallation["actorScopeId"],
+              resolutionScopeIds: parseJson<LocalInstallation["resolutionScopeIds"]>(
+                row.resolutionScopeIdsJson,
+              ),
+            }
+          : createInstallation(options);
+      })();
+      const { secrets, executions } = createStorageDomains(store, installation);
 
       return {
         scope: {
@@ -484,30 +529,9 @@ export const createSqliteExecutorBackend = (
         },
         installation: {
           load: () => {
-            const row = store.db.select().from(installations).where(eq(installations.key, "active")).get();
-            return row
-              ? {
-                  scopeId: row.scopeId as LocalInstallation["scopeId"],
-                  actorScopeId: row.actorScopeId as LocalInstallation["actorScopeId"],
-                  resolutionScopeIds: parseJson<LocalInstallation["resolutionScopeIds"]>(
-                    row.resolutionScopeIdsJson,
-                  ),
-                }
-              : createInstallation(options);
+            return installation;
           },
           getOrProvision: () => {
-            const installation = (() => {
-              const row = store.db.select().from(installations).where(eq(installations.key, "active")).get();
-              return row
-                ? {
-                    scopeId: row.scopeId as LocalInstallation["scopeId"],
-                    actorScopeId: row.actorScopeId as LocalInstallation["actorScopeId"],
-                    resolutionScopeIds: parseJson<LocalInstallation["resolutionScopeIds"]>(
-                      row.resolutionScopeIdsJson,
-                    ),
-                  }
-                : createInstallation(options);
-            })();
             store.db.insert(installations).values({
               key: "active",
               scopeId: installation.scopeId,
@@ -587,21 +611,22 @@ export const createSqliteExecutorBackend = (
         },
         secrets: {
           ...secrets,
+          secretStores: secrets.secretStores,
           resolve: ({ ref }) => {
             const material = secrets.getById(
-              ref.handle as SecretMaterial["id"],
+              ref.secretId as SecretMaterial["id"],
             );
             if (!material || material.value === null) {
-              throw new Error(`Missing secret material ${ref.handle}`);
+              throw new Error(`Missing secret material ${ref.secretId}`);
             }
             return material.value;
           },
-          store: ({ purpose, value, name, providerId }) => {
+          store: ({ purpose, value, name, storeId }) => {
             const now = Date.now();
             const id = SecretMaterialIdSchema.make(`secret_${randomUUID()}`);
             const material: SecretMaterial = {
               id,
-              providerId: providerId ?? SQLITE_SECRET_PROVIDER_ID,
+              storeId: (storeId ?? SQLITE_SECRET_STORE_ID) as SecretMaterial["storeId"],
               handle: id,
               name: name ?? null,
               purpose,
@@ -611,19 +636,18 @@ export const createSqliteExecutorBackend = (
             };
             secrets.upsert(material);
             return {
-              providerId: material.providerId,
-              handle: material.handle,
+              secretId: material.id,
             } satisfies SecretRef;
           },
           delete: (ref) =>
-            secrets.removeById(ref.handle as SecretMaterial["id"]),
+            secrets.removeById(ref.secretId as SecretMaterial["id"]),
           update: ({ ref, name, value }) => {
             const updated = secrets.updateById(
-              ref.handle as SecretMaterial["id"],
+              ref.secretId as SecretMaterial["id"],
               { name, value },
             );
             if (!updated) {
-              throw new Error(`Missing secret material ${ref.handle}`);
+              throw new Error(`Missing secret material ${ref.secretId}`);
             }
             return updated;
           },
@@ -632,14 +656,14 @@ export const createSqliteExecutorBackend = (
         instanceConfig: {
           resolve: () => ({
             platform: "sqlite-sdk-example",
-            secretProviders: [
+            secretStorePlugins: [
               {
-                id: SQLITE_SECRET_PROVIDER_ID,
-                name: "SQLite",
-                canStore: true,
+                kind: SQLITE_SECRET_STORE_KIND,
+                displayName: "SQLite",
+                canCreate: false,
               },
             ],
-            defaultSecretStoreProvider: SQLITE_SECRET_PROVIDER_ID,
+            defaultSecretStoreId: SQLITE_SECRET_STORE_ID,
           }),
         },
         close: async () => {

@@ -1,8 +1,10 @@
 import * as Schema from "effect/Schema";
+import {
+  SecretMaterialIdSchema,
+} from "../ids";
 
 export const SecretRefSchema = Schema.Struct({
-  providerId: Schema.String,
-  handle: Schema.String,
+  secretId: SecretMaterialIdSchema,
 });
 
 export type SecretRef = typeof SecretRefSchema.Type;

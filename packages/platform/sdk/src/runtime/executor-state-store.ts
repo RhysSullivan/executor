@@ -6,18 +6,48 @@ import type {
   ExecutionInteraction,
   ExecutionStep,
   SecretMaterial,
+  SecretStore,
 } from "#schema";
 
 type SecretMaterialSummary = {
   id: string;
-  providerId: string;
+  storeId: string;
   name: string | null;
   purpose: string;
   createdAt: number;
   updatedAt: number;
 };
 
+type SecretStoreSummary = {
+  id: string;
+  scopeId: string;
+  kind: string;
+  name: string;
+  status: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type ExecutorStateStoreShape = {
+  secretStores: {
+    getById: (
+      id: SecretStore["id"],
+    ) => Effect.Effect<import("effect/Option").Option<SecretStore>, Error, never>;
+    listAll: () => Effect.Effect<readonly SecretStoreSummary[], Error, never>;
+    upsert: (store: SecretStore) => Effect.Effect<void, Error, never>;
+    updateById: (
+      id: SecretStore["id"],
+      update: Partial<
+        Pick<SecretStore, "name" | "status" | "enabled">
+      >,
+    ) => Effect.Effect<
+      import("effect/Option").Option<SecretStoreSummary>,
+      Error,
+      never
+    >;
+    removeById: (id: SecretStore["id"]) => Effect.Effect<boolean, Error, never>;
+  };
   secretMaterials: {
     getById: (
       id: SecretMaterial["id"],

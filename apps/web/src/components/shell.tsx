@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSources, type Source } from "@executor/react";
 import { sourcePluginsIndexPath } from "@executor/react/plugins";
 import { cn } from "../lib/utils";
-import { IconPlus, IconCopy, IconCheck } from "./icons";
+import { IconPlus, IconCopy, IconCheck, IconClose, IconMenu } from "./icons";
 import { LoadableBlock } from "./loadable";
 import { SourceFavicon } from "./source-favicon";
 import {
@@ -224,6 +224,7 @@ export function AppShell() {
   const sources = useSources();
   const location = useLocation();
   const matchRoute = useMatchRoute();
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const isHome = matchRoute({ to: "/" });
   const isSecrets = matchRoute({ to: "/secrets" });
   const { latestVersion, updateAvailable, channel } = useLatestVersion(VITE_APP_VERSION);
@@ -234,11 +235,125 @@ export function AppShell() {
     ({ route }) => route.nav?.section === "sources",
   );
 
+  useEffect(() => {
+    setMobileSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileSidebarOpen]);
+
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
-      <aside className="flex w-52 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:w-56">
-        {/* Brand */}
+      <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
+        <SidebarContent
+          isHome={!!isHome}
+          isSecrets={!!isSecrets}
+          latestVersion={latestVersion}
+          updateAvailable={updateAvailable}
+          channel={channel}
+          locationPathname={location.pathname}
+          mainPluginNavItems={mainPluginNavItems}
+          sourcePluginNavItems={sourcePluginNavItems}
+          sources={sources}
+        />
+      </aside>
+
+      {mobileSidebarOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          <button
+            type="button"
+            aria-label="Close navigation"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <div className="relative flex h-full w-[84vw] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
+              <Link to="/" className="flex items-center gap-1.5">
+                <span className="font-display text-base tracking-tight text-foreground">
+                  executor
+                </span>
+                <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                  v3
+                </span>
+              </Link>
+              <button
+                type="button"
+                aria-label="Close navigation"
+                onClick={() => setMobileSidebarOpen(false)}
+                className="inline-flex size-8 items-center justify-center rounded-md text-sidebar-foreground transition-colors hover:bg-sidebar-active hover:text-foreground"
+              >
+                <IconClose className="size-3.5" />
+              </button>
+            </div>
+            <SidebarContent
+              isHome={!!isHome}
+              isSecrets={!!isSecrets}
+              latestVersion={latestVersion}
+              updateAvailable={updateAvailable}
+              channel={channel}
+              locationPathname={location.pathname}
+              mainPluginNavItems={mainPluginNavItems}
+              sourcePluginNavItems={sourcePluginNavItems}
+              sources={sources}
+              onNavigate={() => setMobileSidebarOpen(false)}
+              showBrand={false}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Main content */}
+      <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 md:hidden">
+          <button
+            type="button"
+            aria-label="Open navigation"
+            onClick={() => setMobileSidebarOpen(true)}
+            className="inline-flex size-8 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent/50"
+          >
+            <IconMenu className="size-4" />
+          </button>
+          <Link to="/" className="flex items-center gap-1.5">
+            <span className="font-display text-base tracking-tight text-foreground">
+              executor
+            </span>
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+              v3
+            </span>
+          </Link>
+          <div className="w-8 shrink-0" />
+        </div>
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+
+function SidebarContent(props: {
+  isHome: boolean;
+  isSecrets: boolean;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  channel: UpdateChannel;
+  locationPathname: string;
+  mainPluginNavItems: typeof registeredFrontendPluginNavRoutes;
+  sourcePluginNavItems: typeof registeredFrontendPluginNavRoutes;
+  sources: ReturnType<typeof useSources>;
+  onNavigate?: () => void;
+  showBrand?: boolean;
+}) {
+  return (
+    <>
+      {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">
@@ -249,99 +364,107 @@ export function AppShell() {
             </span>
           </Link>
         </div>
+      )}
 
-        {/* Main nav */}
-        <nav className="flex flex-1 flex-col p-2 overflow-y-auto">
-          <NavItem to="/" label="Dashboard" active={!!isHome} />
-          <NavItem to="/secrets" label="Secrets" active={!!isSecrets} />
-          {mainPluginNavItems.map(({ plugin, route, to }) => (
-            <NavItem
-              key={`${plugin.key}:${route.key}`}
-              to={to}
-              label={route.nav?.label ?? route.key}
-              active={location.pathname === to || location.pathname.startsWith(`${to}/`)}
-            />
-          ))}
-
-          {/* Sources */}
-          <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
-            <div className="flex items-center justify-between gap-2">
-              <span>Sources</span>
-              <Link
-                to={sourcePluginsIndexPath}
-                className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium normal-case tracking-normal text-primary transition-colors hover:bg-sidebar-active hover:text-foreground"
-              >
-                <IconPlus className="size-3" />
-                Add
-              </Link>
-            </div>
-          </div>
-          {sourcePluginNavItems.length > 0 && (
-            <div className="mb-2 flex flex-col gap-px">
-              {sourcePluginNavItems.map(({ plugin, route, to }) => (
-                <NavItem
-                  key={`${plugin.key}:${route.key}`}
-                  to={to}
-                  label={route.nav?.label ?? route.key}
-                  active={
-                    location.pathname === to
-                    || location.pathname.startsWith(`${to}/`)
-                  }
-                />
-              ))}
-            </div>
-          )}
-          <LoadableBlock loadable={sources} loading="Loading...">
-            {(items) =>
-              !Array.isArray(items) ? (
-                <div className="px-2.5 py-2 text-[11px] leading-relaxed text-destructive">
-                  Sources returned an unexpected payload.
-                </div>
-              ) : items.length === 0 ? (
-                <div className="px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground/40">
-                  No sources yet
-                </div>
-              ) : (
-                <div className="flex flex-col gap-px">
-                  {items.map((source) => (
-                    <SourceItem
-                      key={source.id}
-                      pathname={location.pathname}
-                      source={source}
-                    />
-                  ))}
-                </div>
-              )
+      <nav className="flex flex-1 flex-col overflow-y-auto p-2">
+        <NavItem
+          to="/"
+          label="Dashboard"
+          active={props.isHome}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          to="/secrets"
+          label="Secrets"
+          active={props.isSecrets}
+          onNavigate={props.onNavigate}
+        />
+        {props.mainPluginNavItems.map(({ plugin, route, to }) => (
+          <NavItem
+            key={`${plugin.key}:${route.key}`}
+            to={to}
+            label={route.nav?.label ?? route.key}
+            active={
+              props.locationPathname === to
+              || props.locationPathname.startsWith(`${to}/`)
             }
-          </LoadableBlock>
-        </nav>
+            onNavigate={props.onNavigate}
+          />
+        ))}
 
-        {/* Update available */}
-        {updateAvailable && latestVersion && (
-          <UpdateCard latestVersion={latestVersion} channel={channel} />
-        )}
-
-        {/* Footer */}
-        <div className="shrink-0 border-t border-sidebar-border px-4 py-2.5">
-          <div className="flex items-center justify-between text-[10px] leading-none">
-            <span className="text-muted-foreground/70 tabular-nums">v{VITE_APP_VERSION}</span>
-            <a
-              href={VITE_GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="text-muted-foreground/70 transition-colors hover:text-foreground"
+        <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
+          <div className="flex items-center justify-between gap-2">
+            <span>Sources</span>
+            <Link
+              to={sourcePluginsIndexPath}
+              onClick={props.onNavigate}
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium normal-case tracking-normal text-primary transition-colors hover:bg-sidebar-active hover:text-foreground"
             >
-              GitHub
-            </a>
+              <IconPlus className="size-3" />
+              Add
+            </Link>
           </div>
         </div>
-      </aside>
+        {props.sourcePluginNavItems.length > 0 && (
+          <div className="mb-2 flex flex-col gap-px">
+            {props.sourcePluginNavItems.map(({ plugin, route, to }) => (
+              <NavItem
+                key={`${plugin.key}:${route.key}`}
+                to={to}
+                label={route.nav?.label ?? route.key}
+                active={
+                  props.locationPathname === to
+                  || props.locationPathname.startsWith(`${to}/`)
+                }
+                onNavigate={props.onNavigate}
+              />
+            ))}
+          </div>
+        )}
+        <LoadableBlock loadable={props.sources} loading="Loading...">
+          {(items) =>
+            !Array.isArray(items) ? (
+              <div className="px-2.5 py-2 text-[11px] leading-relaxed text-destructive">
+                Sources returned an unexpected payload.
+              </div>
+            ) : items.length === 0 ? (
+              <div className="px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground/40">
+                No sources yet
+              </div>
+            ) : (
+              <div className="flex flex-col gap-px">
+                {items.map((source) => (
+                  <SourceItem
+                    key={source.id}
+                    pathname={props.locationPathname}
+                    source={source}
+                    onNavigate={props.onNavigate}
+                  />
+                ))}
+              </div>
+            )
+          }
+        </LoadableBlock>
+      </nav>
 
-      {/* Main content */}
-      <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
-        <Outlet />
-      </main>
-    </div>
+      {props.updateAvailable && props.latestVersion && (
+        <UpdateCard latestVersion={props.latestVersion} channel={props.channel} />
+      )}
+
+      <div className="shrink-0 border-t border-sidebar-border px-4 py-2.5">
+        <div className="flex items-center justify-between text-[10px] leading-none">
+          <span className="text-muted-foreground/70 tabular-nums">v{VITE_APP_VERSION}</span>
+          <a
+            href={VITE_GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            GitHub
+          </a>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -350,6 +473,7 @@ export function AppShell() {
 function SourceItem(props: {
   pathname: string;
   source: Source;
+  onNavigate?: () => void;
 }) {
   const paths = getSourceFrontendPaths(props.source.kind);
 
@@ -377,6 +501,7 @@ function SourceItem(props: {
     <Link
       to={detailPath}
       search={{ tab: "model" }}
+      onClick={props.onNavigate}
       className={cn(
         "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
         active
@@ -398,10 +523,16 @@ function SourceItem(props: {
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
-function NavItem(props: { to: string; label: string; active: boolean }) {
+function NavItem(props: {
+  to: string;
+  label: string;
+  active: boolean;
+  onNavigate?: () => void;
+}) {
   return (
     <Link
       to={props.to}
+      onClick={props.onNavigate}
       className={cn(
         "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
         props.active

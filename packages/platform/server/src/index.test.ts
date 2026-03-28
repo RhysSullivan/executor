@@ -40,6 +40,7 @@ import { googleDiscoveryHttpPlugin } from "@executor/plugin-google-discovery-htt
 import { graphqlHttpPlugin } from "@executor/plugin-graphql-http";
 import { mcpHttpPlugin } from "@executor/plugin-mcp-http";
 import { openApiHttpPlugin } from "@executor/plugin-openapi-http";
+import { onePasswordHttpPlugin } from "@executor/plugin-onepassword-http";
 import { makeSesExecutor } from "@executor/runtime-ses";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -62,6 +63,7 @@ const serverHttpPlugins = [
   graphqlHttpPlugin(),
   googleDiscoveryHttpPlugin(),
   mcpHttpPlugin(),
+  onePasswordHttpPlugin(),
   openApiHttpPlugin(),
 ] as const;
 
@@ -385,6 +387,26 @@ const seedGithubOpenApiSourceInWorkspace = (input: {
   credentialEnvVar?: string;
 }) =>
   Effect.gen(function* () {
+    const tokenEnvVar = input.credentialEnvVar ?? "GITHUB_TOKEN";
+    const tokenValue = process.env[tokenEnvVar];
+    if (!tokenValue) {
+      return yield* Effect.fail(
+        new Error(`Missing token value in environment variable ${tokenEnvVar}`),
+      );
+    }
+
+    const existingSecrets = yield* input.client.local.listSecrets({});
+    const existingTokenSecret = existingSecrets.find((secret) =>
+      secret.name === `${input.name} token`
+    );
+    const tokenSecret = existingTokenSecret
+      ?? (yield* input.client.local.createSecret({
+        payload: {
+          name: `${input.name} token`,
+          value: tokenValue,
+        },
+      }));
+
     const existing = yield* input.client.sources.list({
       path: {
         workspaceId: input.workspaceId as never,
@@ -400,8 +422,7 @@ const seedGithubOpenApiSourceInWorkspace = (input: {
       headerName: "Authorization",
       prefix: "Bearer ",
       tokenSecretRef: {
-        providerId: "env",
-        handle: input.credentialEnvVar ?? "GITHUB_TOKEN",
+        secretId: tokenSecret.id as never,
       },
     };
 
@@ -1325,11 +1346,9 @@ describe("local-executor-server", () => {
       );
 
       const previousGithubToken = process.env.GITHUB_TOKEN;
-      const previousAllowEnvSecrets = process.env.DANGEROUSLY_ALLOW_ENV_SECRETS;
       yield* Effect.acquireRelease(
         Effect.sync(() => {
           process.env.GITHUB_TOKEN = "ghp_test_executor";
-          process.env.DANGEROUSLY_ALLOW_ENV_SECRETS = "true";
         }),
         () =>
           Effect.sync(() => {
@@ -1337,12 +1356,6 @@ describe("local-executor-server", () => {
               delete process.env.GITHUB_TOKEN;
             } else {
               process.env.GITHUB_TOKEN = previousGithubToken;
-            }
-
-            if (previousAllowEnvSecrets === undefined) {
-              delete process.env.DANGEROUSLY_ALLOW_ENV_SECRETS;
-            } else {
-              process.env.DANGEROUSLY_ALLOW_ENV_SECRETS = previousAllowEnvSecrets;
             }
           }),
       );

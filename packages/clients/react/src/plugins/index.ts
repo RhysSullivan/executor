@@ -5,6 +5,8 @@ export type {
   FrontendPluginRouteDefinition,
   FrontendPluginRouteParams,
   FrontendPluginRouteSearch,
+  SecretStoreCreateFormProps,
+  SecretStoreFrontendDefinition,
   SourcePluginNavigation,
   SourcePluginRouteParams,
   SourcePluginRouteSearch,

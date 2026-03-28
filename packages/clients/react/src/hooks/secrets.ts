@@ -3,10 +3,14 @@ import {
   useAtomSet,
 } from "@effect-atom/atom-react";
 import type {
+  CreateSecretStorePayload,
   CreateSecretPayload,
+  DeleteSecretStoreResult,
   CreateSecretResult,
   DeleteSecretResult,
+  SecretStore,
   SecretListItem,
+  UpdateSecretStorePayload,
   UpdateSecretPayload,
   UpdateSecretResult,
 } from "@executor/platform-api";
@@ -14,7 +18,7 @@ import * as React from "react";
 
 import { getExecutorApiBaseUrl } from "../core/base-url";
 import { getExecutorApiHttpClient } from "../core/http-client";
-import { secretsAtom } from "../core/api-atoms";
+import { secretStoresAtom, secretsAtom } from "../core/api-atoms";
 import { useLoadableAtom } from "../core/loadable";
 import { secretsReactivityKey } from "../core/reactivity";
 import type { Loadable } from "../core/types";
@@ -23,8 +27,72 @@ import { useExecutorMutation } from "./mutations";
 export const useSecrets = (): Loadable<ReadonlyArray<SecretListItem>> =>
   useLoadableAtom(secretsAtom(getExecutorApiBaseUrl()));
 
+export const useSecretStores = (): Loadable<ReadonlyArray<SecretStore>> =>
+  useLoadableAtom(secretStoresAtom(getExecutorApiBaseUrl()));
+
 export const useRefreshSecrets = (): (() => void) =>
   useAtomRefresh(secretsAtom(getExecutorApiBaseUrl()));
+
+export const useRefreshSecretStores = (): (() => void) =>
+  useAtomRefresh(secretStoresAtom(getExecutorApiBaseUrl()));
+
+export const useCreateSecretStore = () => {
+  const mutate = useAtomSet(
+    getExecutorApiHttpClient().mutation("local", "createSecretStore"),
+    { mode: "promise" },
+  );
+
+  return useExecutorMutation<CreateSecretStorePayload, SecretStore>(
+    React.useCallback(
+      (payload) =>
+        mutate({
+          payload,
+          reactivityKeys: secretsReactivityKey(),
+        }),
+      [mutate],
+    ),
+  );
+};
+
+export const useUpdateSecretStore = () => {
+  const mutate = useAtomSet(
+    getExecutorApiHttpClient().mutation("local", "updateSecretStore"),
+    { mode: "promise" },
+  );
+
+  return useExecutorMutation<
+    { storeId: string; payload: UpdateSecretStorePayload },
+    SecretStore
+  >(
+    React.useCallback(
+      (input) =>
+        mutate({
+          path: { storeId: input.storeId },
+          payload: input.payload,
+          reactivityKeys: secretsReactivityKey(),
+        }),
+      [mutate],
+    ),
+  );
+};
+
+export const useDeleteSecretStore = () => {
+  const mutate = useAtomSet(
+    getExecutorApiHttpClient().mutation("local", "deleteSecretStore"),
+    { mode: "promise" },
+  );
+
+  return useExecutorMutation<string, DeleteSecretStoreResult>(
+    React.useCallback(
+      (storeId) =>
+        mutate({
+          path: { storeId },
+          reactivityKeys: secretsReactivityKey(),
+        }),
+      [mutate],
+    ),
+  );
+};
 
 export const useCreateSecret = () => {
   const mutate = useAtomSet(

@@ -1,0 +1,25 @@
+{
+  "name": "@executor/plugin-onepassword-sdk",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "*.ts"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@1password/sdk": "0.4.1-beta.1",
+    "@executor/platform-sdk": "workspace:*",
+    "@executor/plugin-onepassword-shared": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "bun-types": "catalog:"
+  },
+  "version": "0.0.0"
+}

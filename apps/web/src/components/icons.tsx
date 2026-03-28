@@ -150,3 +150,11 @@ export function IconArrowLeft({ className, ...props }: IconProps) {
     </svg>
   );
 }
+
+export function IconMenu({ className, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={cn("size-4", className)} {...props}>
+      <path d="M3 4.5h10M3 8h10M3 11.5h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}

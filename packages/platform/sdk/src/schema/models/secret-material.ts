@@ -7,6 +7,7 @@ import {
 } from "../common";
 import {
   SecretMaterialIdSchema,
+  SecretStoreIdSchema,
 } from "../ids";
 
 export const SecretMaterialPurposeSchema = Schema.Literal(
@@ -20,7 +21,7 @@ export const SecretMaterialSchema = Schema.Struct({
   id: SecretMaterialIdSchema,
   name: Schema.NullOr(Schema.String),
   purpose: SecretMaterialPurposeSchema,
-  providerId: Schema.String,
+  storeId: SecretStoreIdSchema,
   handle: Schema.String,
   value: Schema.NullOr(Schema.String),
   createdAt: TimestampMsSchema,

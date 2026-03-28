@@ -80,6 +80,15 @@ const toPromiseExecutor = <
       installation: () => run(executor.local.installation()),
       config: () => run(executor.local.config()),
     },
+    secretStores: {
+      list: () => run(executor.secretStores.list()),
+      create: (payload: Parameters<typeof executor.secretStores.create>[0]) =>
+        run(executor.secretStores.create(payload)),
+      update: (input: Parameters<typeof executor.secretStores.update>[0]) =>
+        run(executor.secretStores.update(input)),
+      remove: (storeId: Parameters<typeof executor.secretStores.remove>[0]) =>
+        run(executor.secretStores.remove(storeId)),
+    },
     secrets: {
       list: () => run(executor.secrets.list()),
       create: (payload: Parameters<typeof executor.secrets.create>[0]) =>
@@ -142,6 +151,7 @@ const toPromiseExecutor = <
     "resolutionScopeIds",
     "close",
     "local",
+    "secretStores",
     "secrets",
     "policies",
     "sources",

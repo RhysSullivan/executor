@@ -1,0 +1,13 @@
+{
+  "endpoint": "http://127.0.0.1:54054/mcp",
+  "transport": "streamable-http",
+  "queryParams": null,
+  "headers": null,
+  "command": null,
+  "args": null,
+  "env": null,
+  "cwd": null,
+  "auth": {
+    "kind": "none"
+  }
+}

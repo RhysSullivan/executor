@@ -31,8 +31,16 @@ export {
 
 export {
   LocalApi,
+  type BrowseSecretStorePayload,
+  type BrowseSecretStoreResult,
   type SecretProvider,
+  type SecretStore,
+  type SecretStoreBrowseEntry,
+  type ImportSecretFromStorePayload,
   type InstanceConfig,
+  type CreateSecretStorePayload,
+  type UpdateSecretStorePayload,
+  type DeleteSecretStoreResult,
   type SecretListItem,
   type CreateSecretPayload,
   type CreateSecretResult,

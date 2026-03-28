@@ -89,6 +89,7 @@ import {
 } from "./sources/source-store";
 
 export * from "./execution/state";
+export * from "./secret-stores";
 export * from "./sources/executor-tools";
 export * from "./execution/live";
 export * from "./catalog/schema-type-signature";
@@ -137,9 +138,12 @@ export type {
 } from "./local-tool-runtime";
 export {
   registeredSourceContributions,
+  registeredSecretStoreContributions,
   hasRegisteredExternalSourcePlugins,
   getSourceContribution,
   getSourceContributionForSource,
+  getSecretStoreContribution,
+  getSecretStoreContributionForStore,
 } from "./sources/source-plugins";
 
 export type ExecutorRuntimeOptions = {
@@ -219,6 +223,9 @@ export const prewarmWorkspaceSourceCatalogToolIndex = (input: {
   });
 
 export type RuntimeSecretsStorageServices =
+  & {
+    secretStores: ExecutorStateStoreShape["secretStores"];
+  }
   & ExecutorStateStoreShape["secretMaterials"]
   & RuntimeSecretMaterialServices;
 
@@ -310,6 +317,7 @@ const makeInstanceConfigLayer = (input: RuntimeInstanceConfigService) =>
 const toExecutorStateStoreShape = (
   input: RuntimeStorageServices,
 ): ExecutorStateStoreShape => ({
+  secretStores: input.secrets.secretStores,
   secretMaterials: input.secrets,
   executions: input.executions.runs,
   executionInteractions: input.executions.interactions,

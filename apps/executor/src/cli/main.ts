@@ -21,6 +21,15 @@ import {
   graphqlSdkPlugin,
 } from "@executor/plugin-graphql-sdk";
 import {
+  keychainSecretStoreSdkPlugin,
+} from "@executor/plugin-keychain-secret-store-sdk";
+import {
+  localSecretStoreSdkPlugin,
+} from "@executor/plugin-local-secret-store-sdk";
+import {
+  localToolsSdkPlugin,
+} from "@executor/plugin-local-tools-sdk";
+import {
   mcpSdkPlugin,
 } from "@executor/plugin-mcp-sdk";
 import {
@@ -34,7 +43,9 @@ import {
   createExecutorEffect,
   type ExecutorEffect as Executor,
 } from "@executor/platform-sdk/effect";
-import { createLocalExecutorBackend } from "@executor/platform-sdk-file";
+import {
+  createLocalExecutorBackend,
+} from "@executor/platform-sdk-file";
 import {
   ExecutionIdSchema,
   type ExecutionEnvelope,
@@ -300,9 +311,13 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
   Effect.acquireUseRelease(
     createExecutorEffect({
       backend: createLocalExecutorBackend({
+        cwd: process.cwd(),
         localDataDir: CLI_LOCAL_DATA_DIR,
       }),
       plugins: [
+        localSecretStoreSdkPlugin,
+        keychainSecretStoreSdkPlugin,
+        localToolsSdkPlugin(),
         graphqlSdkPlugin({
           storage: createFileGraphqlSourceStorage({
             rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/graphql/sources`,

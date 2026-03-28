@@ -1,0 +1,55 @@
+{
+  "endpoint": "http://127.0.0.1:53929/mcp",
+  "redirectUrl": "http://127.0.0.1:53930/v1/plugins/mcp/oauth/callback",
+  "codeVerifier": "UHBnonYD3tG2uUy9hF3NR-T24ViJUtWiJMfHldJaIEp",
+  "resourceMetadataUrl": null,
+  "authorizationServerUrl": "http://127.0.0.1:53929",
+  "resourceMetadata": {
+    "resource": "http://127.0.0.1:53929/mcp",
+    "authorization_servers": [
+      "http://127.0.0.1:53929"
+    ],
+    "scopes_supported": [
+      "openid",
+      "offline_access"
+    ],
+    "bearer_methods_supported": [
+      "header"
+    ]
+  },
+  "authorizationServerMetadata": {
+    "issuer": "http://127.0.0.1:53929",
+    "authorization_endpoint": "http://127.0.0.1:53929/authorize",
+    "token_endpoint": "http://127.0.0.1:53929/token",
+    "registration_endpoint": "http://127.0.0.1:53929/register",
+    "response_types_supported": [
+      "code"
+    ],
+    "grant_types_supported": [
+      "authorization_code",
+      "refresh_token"
+    ],
+    "token_endpoint_auth_methods_supported": [
+      "none"
+    ],
+    "code_challenge_methods_supported": [
+      "S256"
+    ]
+  },
+  "clientInformation": {
+    "redirect_uris": [
+      "http://127.0.0.1:53930/v1/plugins/mcp/oauth/callback"
+    ],
+    "token_endpoint_auth_method": "none",
+    "grant_types": [
+      "authorization_code",
+      "refresh_token"
+    ],
+    "response_types": [
+      "code"
+    ],
+    "client_name": "Executor Local",
+    "client_id": "client_47ba0105-db15-4301-ae15-26261f6af319",
+    "client_id_issued_at": 1774721141
+  }
+}

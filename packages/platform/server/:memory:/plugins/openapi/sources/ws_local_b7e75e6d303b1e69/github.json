@@ -1,0 +1,15 @@
+{
+  "specUrl": "http://127.0.0.1:54082/openapi.json",
+  "baseUrl": "http://127.0.0.1:54082",
+  "auth": {
+    "kind": "bearer",
+    "tokenSecretRef": {
+      "secretId": "sec_16e24603-3db8-4fe8-827b-94d312cc2791"
+    },
+    "headerName": "Authorization",
+    "prefix": "Bearer "
+  },
+  "defaultHeaders": null,
+  "etag": null,
+  "lastSyncAt": 1774721182272
+}

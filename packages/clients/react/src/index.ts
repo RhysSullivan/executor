@@ -10,12 +10,17 @@ export {
 } from "@effect-atom/atom-react";
 
 export type {
+  BrowseSecretStoreResult,
+  CreateSecretStorePayload,
   CreateSecretPayload,
   CreateSecretResult,
+  DeleteSecretStoreResult,
   DeleteSecretResult,
   InstanceConfig,
   LocalInstallation,
   SecretListItem,
+  SecretStore,
+  UpdateSecretStorePayload,
   UpdateSecretPayload,
   UpdateSecretResult,
 } from "@executor/platform-api";
@@ -52,6 +57,9 @@ export {
   ExecutorReactProvider,
 } from "./provider";
 export {
+  SecretReferenceField,
+} from "./components/secret-reference-field";
+export {
   useExecutorMutation,
 } from "./hooks/mutations";
 export {
@@ -60,10 +68,15 @@ export {
   useRefreshLocalInstallation,
 } from "./hooks/local";
 export {
+  useCreateSecretStore,
   useCreateSecret,
+  useDeleteSecretStore,
   useDeleteSecret,
+  useRefreshSecretStores,
   useRefreshSecrets,
+  useSecretStores,
   useSecrets,
+  useUpdateSecretStore,
   useUpdateSecret,
 } from "./hooks/secrets";
 export {

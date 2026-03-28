@@ -1,0 +1,73 @@
+{
+  "endpoint": "http://127.0.0.1:54092/mcp",
+  "transport": "streamable-http",
+  "queryParams": null,
+  "headers": null,
+  "command": null,
+  "args": null,
+  "env": null,
+  "cwd": null,
+  "auth": {
+    "kind": "oauth2",
+    "redirectUri": "http://127.0.0.1:54094/v1/plugins/mcp/oauth/callback",
+    "accessTokenRef": {
+      "secretId": "sec_471c240c-42f5-44c7-8436-21296ede39cd"
+    },
+    "refreshTokenRef": {
+      "secretId": "sec_d1cc408e-d563-43b1-8a1c-7887dd054b46"
+    },
+    "tokenType": "Bearer",
+    "expiresAt": 1774724782375,
+    "scope": "openid offline_access",
+    "resourceMetadataUrl": null,
+    "authorizationServerUrl": "http://127.0.0.1:54092",
+    "resourceMetadata": {
+      "resource": "http://127.0.0.1:54092/mcp",
+      "authorization_servers": [
+        "http://127.0.0.1:54092"
+      ],
+      "scopes_supported": [
+        "openid",
+        "offline_access"
+      ],
+      "bearer_methods_supported": [
+        "header"
+      ]
+    },
+    "authorizationServerMetadata": {
+      "issuer": "http://127.0.0.1:54092",
+      "authorization_endpoint": "http://127.0.0.1:54092/authorize",
+      "token_endpoint": "http://127.0.0.1:54092/token",
+      "registration_endpoint": "http://127.0.0.1:54092/register",
+      "response_types_supported": [
+        "code"
+      ],
+      "grant_types_supported": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "token_endpoint_auth_methods_supported": [
+        "none"
+      ],
+      "code_challenge_methods_supported": [
+        "S256"
+      ]
+    },
+    "clientInformation": {
+      "redirect_uris": [
+        "http://127.0.0.1:54094/v1/plugins/mcp/oauth/callback"
+      ],
+      "token_endpoint_auth_method": "none",
+      "grant_types": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "response_types": [
+        "code"
+      ],
+      "client_name": "Executor Local",
+      "client_id": "client_c1aac2f6-50d6-4d7c-9bbd-50b109465eba",
+      "client_id_issued_at": 1774721182
+    }
+  }
+}

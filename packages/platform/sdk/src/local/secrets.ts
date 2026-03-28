@@ -3,6 +3,7 @@ import * as Option from "effect/Option";
 
 import {
   SecretMaterialIdSchema,
+  type SecretStore,
 } from "../schema";
 import {
   type CreateSecretPayload,
@@ -72,8 +73,21 @@ export const listLocalSecrets = () =>
         ),
       );
 
+    const secretStores = yield* store.secretStores
+      .listAll()
+      .pipe(
+        Effect.mapError(() =>
+          secretStorageError("secrets.list", "Failed listing secret stores."),
+        ),
+      );
+    const secretStoresById = new Map(
+      secretStores.map((secretStore) => [secretStore.id, secretStore]),
+    );
+
     return secretMaterials.map((row) => ({
       ...row,
+      storeName: secretStoresById.get(row.storeId)?.name ?? row.storeId,
+      storeKind: secretStoresById.get(row.storeId)?.kind ?? "unknown",
       linkedSources: linkedSourcesMap.get(row.id) ?? [],
     }));
   });
@@ -98,7 +112,7 @@ export const createLocalSecret = (payload: CreateSecretPayload) =>
       name,
       purpose,
       value,
-      providerId: payload.providerId,
+      storeId: payload.storeId,
     }).pipe(
       Effect.mapError((cause) =>
         secretStorageError(
@@ -107,7 +121,7 @@ export const createLocalSecret = (payload: CreateSecretPayload) =>
         ),
       ),
     );
-    const secretId = SecretMaterialIdSchema.make(ref.handle);
+    const secretId = SecretMaterialIdSchema.make(ref.secretId);
     const created = yield* store.secretMaterials
       .getById(secretId)
       .pipe(
@@ -122,14 +136,14 @@ export const createLocalSecret = (payload: CreateSecretPayload) =>
     if (Option.isNone(created)) {
       return yield* secretStorageError(
         "secrets.create",
-        `Created secret not found: ${ref.handle}`,
+        `Created secret not found: ${ref.secretId}`,
       );
     }
 
     return {
       id: created.value.id,
       name: created.value.name,
-      providerId: created.value.providerId,
+      storeId: created.value.storeId,
       purpose: created.value.purpose,
       createdAt: created.value.createdAt,
       updatedAt: created.value.updatedAt,
@@ -168,8 +182,7 @@ export const updateLocalSecret = (input: {
     const updateSecretMaterial = yield* SecretMaterialUpdaterService;
     const updated = yield* updateSecretMaterial({
       ref: {
-        providerId: existing.value.providerId,
-        handle: existing.value.id,
+        secretId: existing.value.id,
       },
       ...update,
     }).pipe(
@@ -180,7 +193,7 @@ export const updateLocalSecret = (input: {
 
     return {
       id: updated.id,
-      providerId: updated.providerId,
+      storeId: updated.storeId,
       name: updated.name,
       purpose: updated.purpose,
       createdAt: updated.createdAt,
@@ -211,8 +224,7 @@ export const deleteLocalSecret = (secretId: string) =>
 
     const deleteSecretMaterial = yield* SecretMaterialDeleterService;
     const removed = yield* deleteSecretMaterial({
-      providerId: existing.value.providerId,
-      handle: existing.value.id,
+      secretId: existing.value.id,
     }).pipe(
       Effect.mapError(() =>
         secretStorageError("secrets.delete", "Failed removing secret."),

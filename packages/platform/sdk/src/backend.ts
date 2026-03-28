@@ -168,6 +168,14 @@ const toSourceTypeDeclarationsBackend = (
 const toSecretsBackend = (
   input: ExecutorSecretRepository,
 ): RuntimeSecretsStorageServices => ({
+  secretStores: {
+    getById: (id) => toOptionEffect(input.secretStores.getById(id)),
+    listAll: () => toEffect(input.secretStores.listAll()),
+    upsert: (store) => toEffect(input.secretStores.upsert(store)),
+    updateById: (id, patch) =>
+      toOptionEffect(input.secretStores.updateById(id, patch)),
+    removeById: (id) => toEffect(input.secretStores.removeById(id)),
+  },
   getById: (id) => toOptionEffect(input.getById(id)),
   listAll: () => toEffect(input.listAll()),
   upsert: (material) => toEffect(input.upsert(material)),

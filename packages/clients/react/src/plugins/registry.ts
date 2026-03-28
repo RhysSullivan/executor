@@ -28,6 +28,7 @@ export const registerExecutorFrontendPlugins = (
 ) => {
   const pluginsByKey = new Map<string, ExecutorFrontendPlugin>();
   const routesByPluginAndKey = new Map<string, RegisteredFrontendPluginRoute>();
+  const secretStoresByKind = new Map<string, ExecutorFrontendPlugin>();
 
   for (const plugin of plugins) {
     if (pluginsByKey.has(plugin.key)) {
@@ -35,6 +36,16 @@ export const registerExecutorFrontendPlugins = (
     }
 
     pluginsByKey.set(plugin.key, plugin);
+
+    if (plugin.secretStore) {
+      if (secretStoresByKind.has(plugin.secretStore.kind)) {
+        throw new Error(
+          `Duplicate frontend secret store registration: ${plugin.secretStore.kind}`,
+        );
+      }
+
+      secretStoresByKind.set(plugin.secretStore.kind, plugin);
+    }
 
     const pluginRouteKeys = new Set<string>();
     const pluginRoutePaths = new Set<string>();

@@ -33,6 +33,9 @@ export type FileLoadedExecutorConfig = LoadedLocalExecutorConfig & {
 export const encodeLocalExecutorConfig = (config: LocalExecutorConfig): string =>
   `${JSON.stringify(config, null, 2)}\n`;
 
+const encodeUnknownConfigDocument = (config: unknown): string =>
+  `${JSON.stringify(config, null, 2)}\n`;
+
 export const resolveConfigRelativePath = (input: {
   path: string;
   scopeRoot: string;
@@ -221,6 +224,130 @@ const parseJsonc = (input: { path: string; content: string }): LocalExecutorConf
       details: unknownLocalErrorDetails(cause),
     });
   }
+};
+
+const parseUnknownJsoncDocument = (input: {
+  path: string;
+  content: string;
+}): unknown => {
+  const errors: JsoncParseError[] = [];
+
+  try {
+    const parsed = parseJsoncDocument(input.content, errors, {
+      allowTrailingComma: true,
+    });
+    if (errors.length > 0) {
+      throw new LocalExecutorConfigDecodeError({
+        message: `Invalid executor config at ${input.path}: ${formatJsoncParseErrors(input.content, errors)}`,
+        path: input.path,
+        details: formatJsoncParseErrors(input.content, errors),
+      });
+    }
+
+    return parsed;
+  } catch (cause) {
+    if (cause instanceof LocalExecutorConfigDecodeError) {
+      throw cause;
+    }
+    throw new LocalExecutorConfigDecodeError({
+      message: `Invalid executor config at ${input.path}: ${unknownLocalErrorDetails(cause)}`,
+      path: input.path,
+      details: unknownLocalErrorDetails(cause),
+    });
+  }
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+
+const migrateLegacySourceEntries = (
+  sources: unknown,
+): {
+  sources: unknown;
+  changed: boolean;
+} => {
+  const sourceMap = asRecord(sources);
+  if (!sourceMap) {
+    return {
+      sources,
+      changed: false,
+    };
+  }
+
+  let changed = false;
+  const migratedEntries = Object.entries(sourceMap).flatMap(([key, value]) => {
+    const source = asRecord(value);
+    if (!source) {
+      return [[key, value] as const];
+    }
+
+    const hasConnection = asRecord(source.connection) !== null;
+    const kind = typeof source.kind === "string" ? source.kind : null;
+    const isLegacyPresetStub =
+      kind !== null
+      && hasConnection === false;
+
+    if (isLegacyPresetStub) {
+      changed = true;
+      return [];
+    }
+
+    return [[key, value] as const];
+  });
+
+  if (!changed) {
+    return {
+      sources,
+      changed: false,
+    };
+  }
+
+  return {
+    sources: migratedEntries.length > 0
+      ? Object.fromEntries(migratedEntries)
+      : undefined,
+    changed: true,
+  };
+};
+
+const migrateLegacyLocalExecutorConfigDocument = (
+  value: unknown,
+): {
+  value: unknown;
+  changed: boolean;
+} => {
+  const root = asRecord(value);
+  if (!root) {
+    return {
+      value,
+      changed: false,
+    };
+  }
+
+  const migratedSources = migrateLegacySourceEntries(root.sources);
+  if (!migratedSources.changed) {
+    return {
+      value,
+      changed: false,
+    };
+  }
+
+  const nextRoot: Record<string, unknown> = {
+    ...root,
+  };
+
+  if (migratedSources.sources === undefined) {
+    delete nextRoot.sources;
+  } else {
+    nextRoot.sources = migratedSources.sources;
+  }
+
+  return {
+    value: nextRoot,
+    changed: true,
+  };
 };
 
 const mergeSourceMaps = (
@@ -424,6 +551,51 @@ export const readOptionalLocalExecutorConfig = (
               details: unknownLocalErrorDetails(cause),
             }),
     });
+  });
+
+export const migrateLegacyLocalExecutorConfigFile = (
+  path: string,
+): Effect.Effect<
+  boolean,
+  LocalFileSystemError | LocalExecutorConfigDecodeError,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const exists = yield* fs.exists(path).pipe(
+      Effect.mapError(mapFileSystemError(path, "check config path")),
+    );
+    if (!exists) {
+      return false;
+    }
+
+    const content = yield* fs.readFileString(path, "utf8").pipe(
+      Effect.mapError(mapFileSystemError(path, "read config")),
+    );
+    const parsed = parseUnknownJsoncDocument({ path, content });
+    const migrated = migrateLegacyLocalExecutorConfigDocument(parsed);
+
+    if (!migrated.changed) {
+      return false;
+    }
+
+    const decoded = decodeLocalExecutorConfig(migrated.value);
+    yield* fs.writeFileString(path, encodeUnknownConfigDocument(decoded)).pipe(
+      Effect.mapError(mapFileSystemError(path, "write config")),
+    );
+    return true;
+  });
+
+export const migrateLegacyLocalExecutorConfigs = (
+  context: ResolvedLocalWorkspaceContext,
+): Effect.Effect<
+  void,
+  LocalFileSystemError | LocalExecutorConfigDecodeError,
+  FileSystem.FileSystem
+> =>
+  Effect.gen(function* () {
+    yield* migrateLegacyLocalExecutorConfigFile(context.homeConfigPath);
+    yield* migrateLegacyLocalExecutorConfigFile(context.projectConfigPath);
   });
 
 export const loadLocalExecutorConfig = (

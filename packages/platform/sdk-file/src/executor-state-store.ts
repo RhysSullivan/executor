@@ -12,6 +12,8 @@ import {
   ExecutionStepSchema,
   SecretMaterialSchema,
   type SecretMaterial,
+  SecretStoreSchema,
+  type SecretStore,
 } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -26,9 +28,12 @@ import {
 
 const LOCAL_EXECUTOR_STATE_VERSION = 1 as const;
 const LOCAL_EXECUTOR_STATE_BASENAME = "executor-state.json";
+const LEGACY_LOCAL_SECRET_STORE_ID = "sts_builtin_local";
+const LEGACY_KEYCHAIN_SECRET_STORE_ID = "sts_builtin_keychain";
 
 const LocalExecutorStateSnapshotSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_EXECUTOR_STATE_VERSION),
+  secretStores: Schema.Array(SecretStoreSchema),
   secretMaterials: Schema.Array(SecretMaterialSchema),
   executions: Schema.Array(ExecutionSchema),
   executionInteractions: Schema.Array(ExecutionInteractionSchema),
@@ -48,6 +53,7 @@ const decodeLocalExecutorStateSnapshot = Schema.decodeUnknown(
 
 const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
   version: LOCAL_EXECUTOR_STATE_VERSION,
+  secretStores: [],
   secretMaterials: [],
   executions: [],
   executionInteractions: [],
@@ -64,8 +70,31 @@ const asRecord = (
     ? (value as Record<string, unknown>)
     : null;
 
+const legacySecretStoreIdForProviderId = (providerId: string): string =>
+  providerId === "local"
+    ? LEGACY_LOCAL_SECRET_STORE_ID
+    : providerId === "keychain"
+      ? LEGACY_KEYCHAIN_SECRET_STORE_ID
+      : `sts_legacy_${providerId}`;
+
+const legacySecretStoreNameForProviderId = (providerId: string): string => {
+  switch (providerId) {
+    case "local":
+      return "Local Store";
+    case "keychain":
+      return process.platform === "darwin"
+        ? "macOS Keychain"
+        : "Desktop Keyring";
+    default:
+      return `Legacy ${providerId}`;
+  }
+};
+
 const migrateLegacyExecutorStateValue = (
   value: unknown,
+  input: {
+    scopeId: string;
+  },
 ): {
   value: unknown;
   migrated: boolean;
@@ -73,7 +102,7 @@ const migrateLegacyExecutorStateValue = (
   if (Array.isArray(value)) {
     let migrated = false;
     const next = value.map((item) => {
-      const result = migrateLegacyExecutorStateValue(item);
+      const result = migrateLegacyExecutorStateValue(item, input);
       migrated = migrated || result.migrated;
       return result.value;
     });
@@ -104,9 +133,70 @@ const migrateLegacyExecutorStateValue = (
       migrated = true;
     }
 
-    const migratedEntry = migrateLegacyExecutorStateValue(entry);
+    const migratedEntry = migrateLegacyExecutorStateValue(entry, input);
     migrated = migrated || migratedEntry.migrated;
     next[nextKey] = migratedEntry.value;
+  }
+
+  if (next.version === LOCAL_EXECUTOR_STATE_VERSION) {
+    const secretMaterialsValue = Array.isArray(next.secretMaterials)
+      ? next.secretMaterials
+      : [];
+    const secretStoresValue = Array.isArray(next.secretStores)
+      ? next.secretStores
+      : [];
+    const secretStoresById = new Map<string, Record<string, unknown>>();
+
+    for (const entry of secretStoresValue) {
+      const record = asRecord(entry);
+      if (record !== null && typeof record.id === "string") {
+        secretStoresById.set(record.id, record);
+      }
+    }
+
+    const migratedSecretMaterials = secretMaterialsValue.map((entry) => {
+      const record = asRecord(entry);
+      if (record === null) {
+        return entry;
+      }
+
+      if (typeof record.providerId !== "string" || typeof record.storeId === "string") {
+        return entry;
+      }
+
+      const providerId = record.providerId;
+      const storeId = legacySecretStoreIdForProviderId(providerId);
+      const createdAt =
+        typeof record.createdAt === "number" ? record.createdAt : 0;
+      const updatedAt =
+        typeof record.updatedAt === "number" ? record.updatedAt : createdAt;
+
+      secretStoresById.set(storeId, {
+        id: storeId,
+        scopeId: input.scopeId,
+        name: legacySecretStoreNameForProviderId(providerId),
+        kind: providerId,
+        status: providerId === "local" || providerId === "keychain"
+          ? "connected"
+          : "error",
+        enabled: true,
+        createdAt,
+        updatedAt,
+      });
+
+      migrated = true;
+      return {
+        ...record,
+        storeId,
+      };
+    });
+
+    if (!Array.isArray(next.secretStores)) {
+      migrated = true;
+    }
+
+    next.secretStores = [...secretStoresById.values()];
+    next.secretMaterials = migratedSecretMaterials;
   }
 
   return { value: next, migrated };
@@ -168,7 +258,9 @@ const readStateFromDisk = (
       try: () => JSON.parse(content) as unknown,
       catch: mapFileSystemError(path, "parse executor state"),
     });
-    const migrated = migrateLegacyExecutorStateValue(parsed);
+    const migrated = migrateLegacyExecutorStateValue(parsed, {
+      scopeId: deriveLocalInstallation(context).scopeId,
+    });
     const decoded = yield* decodeLocalExecutorStateSnapshot(migrated.value).pipe(
       Effect.mapError(mapFileSystemError(path, "decode executor state")),
     );
@@ -233,6 +325,10 @@ export const mergeImportedLocalExecutorStateSnapshot = (input: {
   imported: Partial<Omit<LocalExecutorStateSnapshot, "version">>;
 }): LocalExecutorStateSnapshot => ({
   version: LOCAL_EXECUTOR_STATE_VERSION,
+  secretStores: mergeById(
+    input.current.secretStores,
+    input.imported.secretStores ?? [],
+  ),
   secretMaterials: mergeById(
     input.current.secretMaterials,
     input.imported.secretMaterials ?? [],
@@ -334,6 +430,81 @@ export const createLocalExecutorStateStore = (
   const stateManager = createStateManager(context, fileSystem);
 
   return {
+    secretStores: {
+      getById: (id: SecretStore["id"]) =>
+        stateManager.read((state) => {
+          const store = state.secretStores.find(
+            (candidate) => candidate.id === id,
+          );
+          return store
+            ? Option.some(cloneValue(store))
+            : Option.none<SecretStore>();
+        }),
+
+      listAll: () =>
+        stateManager.read((state) => sortByUpdatedAtAndIdDesc(state.secretStores)),
+
+      upsert: (store: SecretStore) =>
+        stateManager.mutate((state) => {
+          const nextStores = state.secretStores.filter(
+            (candidate) => candidate.id !== store.id,
+          );
+          nextStores.push(cloneValue(store));
+
+          return {
+            state: {
+              ...state,
+              secretStores: nextStores,
+            },
+            value: undefined,
+          } satisfies StateMutationResult<void>;
+        }),
+
+      updateById: (
+        id: SecretStore["id"],
+        update: Partial<
+          Pick<SecretStore, "name" | "status" | "enabled">
+        >,
+      ) =>
+        stateManager.mutate((state) => {
+          let updated: SecretStore | null = null;
+          const nextStores = state.secretStores.map((store) => {
+            if (store.id !== id) {
+              return store;
+            }
+
+            updated = {
+              ...store,
+              ...cloneValue(update),
+              updatedAt: Date.now(),
+            } satisfies SecretStore;
+            return updated;
+          });
+
+          return {
+            state: {
+              ...state,
+              secretStores: nextStores,
+            },
+            value: updated ? Option.some(cloneValue(updated)) : Option.none<SecretStore>(),
+          } satisfies StateMutationResult<Option.Option<SecretStore>>;
+        }),
+
+      removeById: (id: SecretStore["id"]) =>
+        stateManager.mutate((state) => {
+          const nextStores = state.secretStores.filter(
+            (candidate) => candidate.id !== id,
+          );
+
+          return {
+            state: {
+              ...state,
+              secretStores: nextStores,
+            },
+            value: nextStores.length !== state.secretStores.length,
+          } satisfies StateMutationResult<boolean>;
+        }),
+    },
     secretMaterials: {
       getById: (id: SecretMaterial["id"]) =>
         stateManager.read((state) => {

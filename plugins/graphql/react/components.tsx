@@ -4,14 +4,13 @@ import type {
   SourceInspectionToolDetail,
 } from "@executor/react";
 import {
+  SecretReferenceField,
   defineExecutorPluginHttpApiClient,
   Result,
   useAtomSet,
   useAtomValue,
-  useCreateSecret,
   useExecutorMutation,
   useLocalInstallation,
-  useSecrets,
   useSource,
 } from "@executor/react";
 import {
@@ -55,7 +54,6 @@ const defaultGraphqlInput = (): GraphqlConnectInput => ({
 
 const DEFAULT_BEARER_HEADER_NAME = "Authorization";
 const DEFAULT_BEARER_PREFIX = "Bearer ";
-const CREATE_SECRET_VALUE = "__create_graphql_secret__";
 
 const presetString = (
   search: Record<string, unknown>,
@@ -170,134 +168,6 @@ const authFromSecretValue = (
   };
 };
 
-function SecretSelectOrCreateField(props: {
-  label: string;
-  value: string;
-  emptyLabel: string;
-  draftNamePlaceholder: string;
-  draftValuePlaceholder: string;
-  onChange: (value: string) => void;
-}) {
-  const secrets = useSecrets();
-  const createSecret = useCreateSecret();
-  const [draftName, setDraftName] = useState("");
-  const [draftValue, setDraftValue] = useState("");
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-
-  const handleSelectChange = (nextValue: string) => {
-    if (nextValue === CREATE_SECRET_VALUE) {
-      setShowCreate(true);
-      props.onChange("");
-      return;
-    }
-
-    setShowCreate(false);
-    setCreateError(null);
-    props.onChange(nextValue);
-  };
-
-  const handleCreate = async () => {
-    const trimmedName = draftName.trim();
-    if (!trimmedName) {
-      setCreateError("Secret name is required.");
-      return;
-    }
-    if (!draftValue.trim()) {
-      setCreateError("Secret value is required.");
-      return;
-    }
-
-    try {
-      setCreateError(null);
-      const created = await createSecret.mutateAsync({
-        name: trimmedName,
-        value: draftValue,
-      });
-      props.onChange(JSON.stringify({
-        providerId: created.providerId,
-        handle: created.id,
-      }));
-      setDraftName("");
-      setDraftValue("");
-      setShowCreate(false);
-    } catch (cause) {
-      setCreateError(cause instanceof Error ? cause.message : "Failed creating secret.");
-    }
-  };
-
-  return (
-    <div className="grid gap-2">
-      <span className="text-xs font-medium text-foreground">{props.label}</span>
-      <select
-        value={showCreate ? CREATE_SECRET_VALUE : props.value}
-        onChange={(event) => handleSelectChange(event.target.value)}
-        className="h-10 rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-      >
-        <option value="">{props.emptyLabel}</option>
-        {secrets.status === "ready" &&
-          secrets.data.map((secret) => (
-            <option
-              key={`${secret.providerId}:${secret.id}`}
-              value={JSON.stringify({
-                providerId: secret.providerId,
-                handle: secret.id,
-              })}
-            >
-              {secret.name ?? secret.id}
-            </option>
-          ))}
-        <option value={CREATE_SECRET_VALUE}>Create new secret</option>
-      </select>
-
-      {showCreate && (
-        <div className="space-y-3 rounded-lg border border-border/70 bg-background/50 p-3">
-          <input
-            value={draftName}
-            onChange={(event) => setDraftName(event.target.value)}
-            placeholder={props.draftNamePlaceholder}
-            className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-          />
-          <textarea
-            value={draftValue}
-            onChange={(event) => setDraftValue(event.target.value)}
-            rows={3}
-            placeholder={props.draftValuePlaceholder}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-          />
-          {createError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
-              {createError}
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void handleCreate();
-              }}
-              disabled={createSecret.status === "pending"}
-              className="inline-flex h-8 items-center justify-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity disabled:pointer-events-none disabled:opacity-50"
-            >
-              {createSecret.status === "pending" ? "Creating..." : "Create Secret"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowCreate(false);
-                setCreateError(null);
-              }}
-              className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 const graphqlToolRoutePath = (toolPath: string): string =>
   `tool/${encodeURIComponent(toolPath)}`;
 
@@ -383,7 +253,7 @@ function GraphqlSourceForm(props: {
 
         {authKind === "bearer" && (
           <div className="space-y-4 border-l-2 border-border pl-4">
-            <SecretSelectOrCreateField
+            <SecretReferenceField
               label="Secret"
               value={secretRef}
               emptyLabel="Select a secret"

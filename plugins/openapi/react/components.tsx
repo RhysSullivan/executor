@@ -4,14 +4,13 @@ import type {
 } from "@executor/react";
 import {
   Result,
+  SecretReferenceField,
   defineExecutorPluginHttpApiClient,
   useAtomValue,
   useAtomSet,
-  useCreateSecret,
   useExecutorMutation,
-  useSecrets,
   useSource,
-  useWorkspaceId,
+  useWorkspaceRequestContext,
 } from "@executor/react";
 import {
   DocumentPanel,
@@ -49,7 +48,6 @@ const defaultOpenApiInput = (): OpenApiConnectInput => ({
 
 const DEFAULT_BEARER_HEADER_NAME = "Authorization";
 const DEFAULT_BEARER_PREFIX = "Bearer ";
-const CREATE_SECRET_VALUE = "__create_openapi_secret__";
 
 const presetString = (
   search: Record<string, unknown>,
@@ -237,136 +235,9 @@ const authFromSecretValue = (
   };
 };
 
-function SecretSelectOrCreateField(props: {
-  label: string;
-  value: string;
-  emptyLabel: string;
-  draftNamePlaceholder: string;
-  draftValuePlaceholder: string;
-  onChange: (value: string) => void;
-}) {
-  const secrets = useSecrets();
-  const createSecret = useCreateSecret();
-  const [draftName, setDraftName] = useState("");
-  const [draftValue, setDraftValue] = useState("");
-  const [createError, setCreateError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-
-  const handleSelectChange = (nextValue: string) => {
-    if (nextValue === CREATE_SECRET_VALUE) {
-      setShowCreate(true);
-      props.onChange("");
-      return;
-    }
-
-    setShowCreate(false);
-    setCreateError(null);
-    props.onChange(nextValue);
-  };
-
-  const handleCreate = async () => {
-    const trimmedName = draftName.trim();
-    if (!trimmedName) {
-      setCreateError("Secret name is required.");
-      return;
-    }
-    if (!draftValue.trim()) {
-      setCreateError("Secret value is required.");
-      return;
-    }
-
-    try {
-      setCreateError(null);
-      const created = await createSecret.mutateAsync({
-        name: trimmedName,
-        value: draftValue,
-      });
-      props.onChange(JSON.stringify({
-        providerId: created.providerId,
-        handle: created.id,
-      }));
-      setDraftName("");
-      setDraftValue("");
-      setShowCreate(false);
-    } catch (cause) {
-      setCreateError(cause instanceof Error ? cause.message : "Failed creating secret.");
-    }
-  };
-
-  return (
-    <div className="grid gap-2">
-      <span className="text-xs font-medium text-foreground">{props.label}</span>
-      <select
-        value={showCreate ? CREATE_SECRET_VALUE : props.value}
-        onChange={(event) => handleSelectChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-      >
-        <option value="">{props.emptyLabel}</option>
-        {secrets.status === "ready" &&
-          secrets.data.map((secret) => (
-            <option
-              key={`${secret.providerId}:${secret.id}`}
-              value={JSON.stringify({
-                providerId: secret.providerId,
-                handle: secret.id,
-              })}
-            >
-              {secret.name ?? secret.id}
-            </option>
-          ))}
-        <option value={CREATE_SECRET_VALUE}>Create new secret</option>
-      </select>
-
-      {showCreate && (
-        <div className="space-y-3 border-l-2 border-border pl-4">
-          <input
-            value={draftName}
-            onChange={(event) => setDraftName(event.target.value)}
-            placeholder={props.draftNamePlaceholder}
-            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-          />
-          <textarea
-            value={draftValue}
-            onChange={(event) => setDraftValue(event.target.value)}
-            rows={3}
-            placeholder={props.draftValuePlaceholder}
-            className="w-full rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring/25"
-          />
-          {createError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-xs text-destructive">
-              {createError}
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void handleCreate();
-              }}
-              disabled={createSecret.status === "pending"}
-              className="inline-flex h-8 items-center justify-center rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground transition-opacity disabled:pointer-events-none disabled:opacity-50"
-            >
-              {createSecret.status === "pending" ? "Creating..." : "Create Secret"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowCreate(false);
-                setCreateError(null);
-              }}
-              className="inline-flex h-8 items-center justify-center rounded-lg border border-input bg-card px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent/50"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function OpenApiSourceForm(props: {
   mode: "create" | "edit";
+  workspaceId: Source["scopeId"];
   initialValue: OpenApiConnectInput;
   submitLabel: string;
   busyLabel: string;
@@ -377,7 +248,6 @@ function OpenApiSourceForm(props: {
     openApiHttpClient.mutation("openapi", "previewDocument"),
     { mode: "promise" },
   );
-  const workspaceId = useWorkspaceId();
   const [name, setName] = useState(props.initialValue.name);
   const [specUrl, setSpecUrl] = useState(props.initialValue.specUrl);
   const [baseUrl, setBaseUrl] = useState(props.initialValue.baseUrl ?? "");
@@ -403,7 +273,7 @@ function OpenApiSourceForm(props: {
     OpenApiPreviewResponse
   >(async (payload) =>
     previewDocument({
-      path: { workspaceId },
+      path: { workspaceId: props.workspaceId },
       payload,
     })
   );
@@ -568,7 +438,7 @@ function OpenApiSourceForm(props: {
 
           {authKind === "bearer" && (
             <div className="space-y-4 border-l-2 border-border pl-4">
-              <SecretSelectOrCreateField
+              <SecretReferenceField
                 label="Secret"
                 value={tokenSecretRef}
                 emptyLabel="Select a secret"
@@ -683,24 +553,33 @@ export function OpenApiAddSourcePage() {
   const navigation = useSourcePluginNavigation();
   const initialValue = openApiInputFromSearch(useSourcePluginSearch());
   const openApiHttpClient = getOpenApiHttpClient();
+  const workspace = useWorkspaceRequestContext();
   const createSource = useAtomSet(
     openApiHttpClient.mutation("openapi", "createSource"),
     { mode: "promise" },
   );
-  const workspaceId = useWorkspaceId();
+
+  if (!workspace.enabled) {
+    return (
+      <Section title="Add Source">
+        <div className="text-sm text-muted-foreground">Loading workspace...</div>
+      </Section>
+    );
+  }
 
   return (
     <OpenApiSourceForm
       mode="create"
+      workspaceId={workspace.workspaceId}
       initialValue={initialValue}
       submitLabel="Create Source"
       busyLabel="Creating..."
       onSubmit={async (payload) => {
         const source = await createSource({
-          path: { workspaceId },
+          path: { workspaceId: workspace.workspaceId },
           payload,
           reactivityKeys: {
-            sources: [workspaceId],
+            sources: [workspace.workspaceId],
           },
         });
 
@@ -717,17 +596,38 @@ export function OpenApiAddSourcePage() {
 export function OpenApiEditSourcePage(props: {
   source: Source;
 }) {
+  const workspace = useWorkspaceRequestContext();
+
+  if (!workspace.enabled) {
+    return (
+      <Section title="Edit Source">
+        <div className="text-sm text-muted-foreground">Loading workspace...</div>
+      </Section>
+    );
+  }
+
+  return (
+    <OpenApiEditSourcePageReady
+      source={props.source}
+      workspaceId={workspace.workspaceId}
+    />
+  );
+}
+
+function OpenApiEditSourcePageReady(props: {
+  source: Source;
+  workspaceId: Source["scopeId"];
+}) {
   const navigation = useSourcePluginNavigation();
   const openApiHttpClient = getOpenApiHttpClient();
-  const workspaceId = useWorkspaceId();
   const configResult = useAtomValue(
     openApiHttpClient.query("openapi", "getSourceConfig", {
       path: {
-        workspaceId,
+        workspaceId: props.workspaceId,
         sourceId: props.source.id,
       },
       reactivityKeys: {
-        source: [workspaceId, props.source.id],
+        source: [props.workspaceId, props.source.id],
       },
       timeToLive: "30 seconds",
     }),
@@ -758,22 +658,23 @@ export function OpenApiEditSourcePage(props: {
   return (
     <OpenApiSourceForm
       mode="edit"
+      workspaceId={props.workspaceId}
       initialValue={inputFromConfig(configResult.value)}
       submitLabel="Save Changes"
       busyLabel="Saving..."
       onSubmit={async (config) => {
         const source = await updateSource({
           path: {
-            workspaceId,
+            workspaceId: props.workspaceId,
             sourceId: props.source.id,
           },
           payload: config,
           reactivityKeys: {
-            sources: [workspaceId],
-            source: [workspaceId, props.source.id],
-            sourceInspection: [workspaceId, props.source.id],
-            sourceInspectionTool: [workspaceId, props.source.id],
-            sourceDiscovery: [workspaceId, props.source.id],
+            sources: [props.workspaceId],
+            source: [props.workspaceId, props.source.id],
+            sourceInspection: [props.workspaceId, props.source.id],
+            sourceInspectionTool: [props.workspaceId, props.source.id],
+            sourceDiscovery: [props.workspaceId, props.source.id],
           },
         });
 
@@ -790,9 +691,30 @@ export function OpenApiEditSourcePage(props: {
 export function OpenApiSourceDetailPage(props: {
   source: Source;
 }) {
+  const workspace = useWorkspaceRequestContext();
+
+  if (!workspace.enabled) {
+    return (
+      <Section title="Source">
+        <div className="text-sm text-muted-foreground">Loading workspace...</div>
+      </Section>
+    );
+  }
+
+  return (
+    <OpenApiSourceDetailPageReady
+      source={props.source}
+      workspaceId={workspace.workspaceId}
+    />
+  );
+}
+
+function OpenApiSourceDetailPageReady(props: {
+  source: Source;
+  workspaceId: Source["scopeId"];
+}) {
   const navigation = useSourcePluginNavigation();
   const openApiHttpClient = getOpenApiHttpClient();
-  const workspaceId = useWorkspaceId();
   const removeSource = useAtomSet(
     openApiHttpClient.mutation("openapi", "removeSource"),
     { mode: "promise" },
@@ -804,30 +726,30 @@ export function OpenApiSourceDetailPage(props: {
   const refreshMutation = useExecutorMutation<Source["id"], Source>(async (sourceId) =>
     refreshSource({
       path: {
-        workspaceId,
+        workspaceId: props.workspaceId,
         sourceId,
       },
       reactivityKeys: {
-        sources: [workspaceId],
-        source: [workspaceId, sourceId],
-        sourceInspection: [workspaceId, sourceId],
-        sourceInspectionTool: [workspaceId, sourceId],
-        sourceDiscovery: [workspaceId, sourceId],
+        sources: [props.workspaceId],
+        source: [props.workspaceId, sourceId],
+        sourceInspection: [props.workspaceId, sourceId],
+        sourceInspectionTool: [props.workspaceId, sourceId],
+        sourceDiscovery: [props.workspaceId, sourceId],
       },
     })
   );
   const removeMutation = useExecutorMutation<Source["id"], { removed: boolean }>(async (sourceId) =>
     removeSource({
       path: {
-        workspaceId,
+        workspaceId: props.workspaceId,
         sourceId,
       },
       reactivityKeys: {
-        sources: [workspaceId],
-        source: [workspaceId, sourceId],
-        sourceInspection: [workspaceId, sourceId],
-        sourceInspectionTool: [workspaceId, sourceId],
-        sourceDiscovery: [workspaceId, sourceId],
+        sources: [props.workspaceId],
+        source: [props.workspaceId, sourceId],
+        sourceInspection: [props.workspaceId, sourceId],
+        sourceInspectionTool: [props.workspaceId, sourceId],
+        sourceDiscovery: [props.workspaceId, sourceId],
       },
     })
   );

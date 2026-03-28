@@ -1,12 +1,19 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import {
+  BrowseSecretStorePayloadSchema,
+  BrowseSecretStoreResultSchema,
   CreateSecretPayloadSchema,
   CreateSecretResultSchema,
+  CreateSecretStorePayloadSchema,
   DeleteSecretResultSchema,
+  DeleteSecretStoreResultSchema,
+  ImportSecretFromStorePayloadSchema,
   InstanceConfigSchema,
   SecretListItemSchema,
+  SecretStoreSchema,
   UpdateSecretPayloadSchema,
   UpdateSecretResultSchema,
+  UpdateSecretStorePayloadSchema,
 } from "@executor/platform-sdk/contracts";
 import {
   ControlPlaneBadRequestError,
@@ -17,15 +24,23 @@ import { LocalInstallationSchema } from "@executor/platform-sdk/schema";
 import * as Schema from "effect/Schema";
 
 export type {
+  BrowseSecretStorePayload,
+  BrowseSecretStoreResult,
   CreateSecretPayload,
   CreateSecretResult,
   DeleteSecretResult,
+  DeleteSecretStoreResult,
+  CreateSecretStorePayload,
+  ImportSecretFromStorePayload,
   InstanceConfig,
   SecretLinkedSource,
   SecretListItem,
   SecretProvider,
+  SecretStoreBrowseEntry,
+  SecretStore,
   UpdateSecretPayload,
   UpdateSecretResult,
+  UpdateSecretStorePayload,
 } from "@executor/platform-sdk/contracts";
 
 export class LocalApi extends HttpApiGroup.make("local")
@@ -39,6 +54,48 @@ export class LocalApi extends HttpApiGroup.make("local")
   .add(
     HttpApiEndpoint.get("config")`/local/config`
       .addSuccess(InstanceConfigSchema)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.get("listSecretStores")`/local/secret-stores`
+      .addSuccess(Schema.Array(SecretStoreSchema))
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("createSecretStore")`/local/secret-stores`
+      .setPayload(CreateSecretStorePayloadSchema)
+      .addSuccess(SecretStoreSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateSecretStore")`/local/secret-stores/${HttpApiSchema.param("storeId", Schema.String)}`
+      .setPayload(UpdateSecretStorePayloadSchema)
+      .addSuccess(SecretStoreSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.del("deleteSecretStore")`/local/secret-stores/${HttpApiSchema.param("storeId", Schema.String)}`
+      .addSuccess(DeleteSecretStoreResultSchema)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("browseSecretStore")`/local/secret-stores/${HttpApiSchema.param("storeId", Schema.String)}/browse`
+      .setPayload(BrowseSecretStorePayloadSchema)
+      .addSuccess(BrowseSecretStoreResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("importSecretFromStore")`/local/secret-stores/${HttpApiSchema.param("storeId", Schema.String)}/import`
+      .setPayload(ImportSecretFromStorePayloadSchema)
+      .addSuccess(CreateSecretResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneNotFoundError)
       .addError(ControlPlaneStorageError),
   )
   .add(

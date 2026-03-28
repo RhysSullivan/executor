@@ -1,9 +1,11 @@
 import type { ComponentType } from "react";
+import type { SecretListItem } from "@executor/platform-api";
 
 import type {
   ExecutorPluginPaths,
   SourcePluginPaths,
 } from "./paths";
+import type { Loadable } from "../core/types";
 
 export type FrontendPluginRouteSearch = Record<string, unknown>;
 export type FrontendPluginRouteParams = Readonly<Record<string, string | undefined>>;
@@ -50,9 +52,25 @@ export type SourcePluginNavigation = {
   updateSearch: (search: SourcePluginRouteSearch) => void | Promise<void>;
 };
 
+export type SecretStoreCreateFormProps = {
+  isSubmitting: boolean;
+  onCancel: () => void;
+  onSubmit: (input: {
+    name: string;
+    config: Record<string, unknown>;
+  }) => Promise<void>;
+  secrets: Loadable<ReadonlyArray<SecretListItem>>;
+};
+
+export type SecretStoreFrontendDefinition = {
+  kind: string;
+  CreateStoreForm?: ComponentType<SecretStoreCreateFormProps>;
+};
+
 export type ExecutorFrontendPlugin = {
   key: string;
   displayName?: string;
   description?: string;
   routes?: readonly FrontendPluginRouteDefinition[];
+  secretStore?: SecretStoreFrontendDefinition;
 };

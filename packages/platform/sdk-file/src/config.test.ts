@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect";
 import {
   loadLocalExecutorConfig,
   mergeLocalExecutorConfigs,
+  migrateLegacyLocalExecutorConfigFile,
   resolveDefaultHomeConfigCandidates,
   resolveDefaultHomeStateDirectory,
   resolveLocalWorkspaceContext,
@@ -136,4 +137,54 @@ describe("local-config", () => {
 
     expect(merged?.runtime).toBe("deno");
   });
+
+  it.effect("migrates legacy preset source stubs before strict decode", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* makeWorkspaceRoot();
+      const homeConfigPath = join(workspaceRoot, "executor-home.jsonc");
+
+      yield* fs.writeFileString(
+        homeConfigPath,
+        `{
+  "sources": {
+    "axiom": {
+      "name": "Axiom MCP",
+      "kind": "mcp"
+    },
+    "stripe-api": {
+      "name": "Stripe API",
+      "namespace": "stripe.api",
+      "kind": "openapi"
+    },
+    "kept": {
+      "name": "Kept",
+      "kind": "openapi",
+      "connection": {
+        "endpoint": "https://example.com"
+      },
+      "binding": {
+        "specUrl": "https://example.com/openapi.json"
+      }
+    }
+  }
+}
+`,
+      );
+
+      const changed = yield* migrateLegacyLocalExecutorConfigFile(homeConfigPath);
+      const migratedContent = yield* fs.readFileString(homeConfigPath, "utf8");
+      const context = yield* resolveLocalWorkspaceContext({
+        workspaceRoot,
+        homeConfigPath,
+      });
+      const loaded = yield* loadLocalExecutorConfig(context);
+
+      expect(changed).toBe(true);
+      expect(migratedContent).not.toContain("\"axiom\"");
+      expect(migratedContent).not.toContain("\"stripe-api\"");
+      expect(loaded.config?.sources?.kept?.kind).toBe("openapi");
+      expect(loaded.config?.sources?.axiom).toBeUndefined();
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
 });
