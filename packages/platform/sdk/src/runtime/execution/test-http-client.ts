@@ -8,10 +8,10 @@ import {
 } from "@effect/platform-node";
 import {
   ExecutorApi,
-} from "../../../../api/src/index";
+} from "@executor/platform-api";
 import {
   createExecutorApiLayer,
-} from "../../../../api/src/http";
+} from "@executor/platform-api/http";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 

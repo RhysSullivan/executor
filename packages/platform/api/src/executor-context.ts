@@ -1,9 +1,7 @@
 import type { ExecutorEffect } from "@executor/platform-sdk/effect";
 import type { ScopeId as WorkspaceId } from "@executor/platform-sdk/schema";
 import {
-  ControlPlaneBadRequestError,
   ControlPlaneForbiddenError,
-  ControlPlaneUnauthorizedError,
 } from "@executor/platform-sdk/errors";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";

@@ -4,17 +4,11 @@ export * from "./ids";
 
 export * from "./models/source";
 export * from "./models/source-catalog";
-export * from "./models/auth-artifact";
-export * from "./models/auth-lease";
-export * from "./models/source-oauth-client";
-export * from "./models/scope-oauth-client";
-export * from "./models/provider-auth-grant";
+export * from "./models/secret-ref";
 export * from "./models/secret-material";
-export * from "./models/source-auth-session";
 export * from "./models/policy";
 export * from "./models/local-installation";
 export * from "./models/local-config";
 export * from "./models/execution";
 export * from "./models/source-inspection";
-export * from "./models/source-discovery";
 export * from "./models/code-migration";

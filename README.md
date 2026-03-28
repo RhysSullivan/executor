@@ -229,24 +229,33 @@ Examples:
 
 ```ts
 return await tools.executor.sources.add({
-  endpoint: "https://example.com/mcp",
+  kind: "mcp",
   name: "Example",
-  namespace: "example",
+  endpoint: "https://example.com/mcp",
+  transport: "auto",
+  queryParams: null,
+  headers: null,
+  command: null,
+  args: null,
+  env: null,
+  cwd: null,
+  auth: { kind: "none" },
 });
 ```
 
 ```ts
 return await tools.executor.sources.add({
   kind: "openapi",
-  endpoint: "https://api.github.com",
+  name: "GitHub",
   specUrl:
     "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
-  name: "GitHub",
-  namespace: "github",
+  baseUrl: null,
+  auth: { kind: "none" },
 });
 ```
 
-For HTTP-style sources, `executor` can drive the credential flow for you.
+`executor.sources.add(...)` accepts the final plugin-specific source config.
+Browser OAuth and popup-driven auth flows live on the plugin-owned HTTP and web surfaces.
 
 ## How execution works
 
@@ -382,5 +391,3 @@ This repository is explicitly on its third major architecture iteration.
 - `apps/` and `packages/` are the active implementation
 - `legacy/` is the original codebase
 - `legacy2/` is the second generation
-
-If you want the system view instead of the product view, read [`ARCHITECTURE.md`](./ARCHITECTURE.md).

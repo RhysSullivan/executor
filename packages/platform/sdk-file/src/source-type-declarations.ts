@@ -14,7 +14,7 @@ import {
   joinTypeNameSegments,
   projectedCatalogTypeRoots,
   shapeAllowsOmittedArgs,
-} from "../../sdk/src/runtime/catalog/catalog-typescript";
+} from "@executor/platform-sdk/runtime";
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
   LocalFileSystemError,

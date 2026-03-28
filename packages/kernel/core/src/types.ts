@@ -98,8 +98,8 @@ export type ToolMetadata = {
   elicitation?: ElicitationRequest;
   contract?: ToolContract;
   sourceKey?: string;
-  providerKind?: string;
-  providerData?: unknown;
+  pluginKind?: string;
+  pluginData?: unknown;
 };
 
 export type ToolExecutionContext = {
@@ -145,8 +145,8 @@ export type ToolDescriptor = {
   interaction?: "auto" | "required";
   elicitation?: ElicitationRequest;
   contract?: ToolContract;
-  providerKind?: string;
-  providerData?: unknown;
+  pluginKind?: string;
+  pluginData?: unknown;
 };
 
 export const ToolDescriptorSchema = Schema.Struct({
@@ -158,8 +158,8 @@ export const ToolDescriptorSchema = Schema.Struct({
   ),
   elicitation: Schema.optional(Schema.Unknown),
   contract: Schema.optional(ToolContractSchema),
-  providerKind: Schema.optional(Schema.String),
-  providerData: Schema.optional(Schema.Unknown),
+  pluginKind: Schema.optional(Schema.String),
+  pluginData: Schema.optional(Schema.Unknown),
 });
 
 export type ToolNamespace = {

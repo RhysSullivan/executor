@@ -1,4 +1,3 @@
-import * as React from "react";
 import {
   RouterProvider,
   createRootRoute,
@@ -7,31 +6,25 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { ExecutorReactProvider } from "@executor/react";
+import {
+  createExecutorPluginPaths,
+  sourcePluginsIndexPath,
+  type ExecutorPluginNavigation,
+  type FrontendPluginRouteSearch,
+} from "@executor/react/plugins";
 
 import "./globals.css";
 
 import { AppShell } from "./components/shell";
+import {
+  registeredFrontendPluginRoutes,
+} from "./plugins";
+import {
+  ExecutorPluginRoutePage,
+  SourcePluginsIndexPage,
+} from "./plugins/pages";
 import { HomePage } from "./views/home";
-import { EditSourcePage, NewSourcePage } from "./views/source-editor";
-import { SourceDetailPage } from "./views/source-detail";
 import { SecretsPage } from "./views/secrets";
-import { AddSourcePage } from "./views/add-source";
-
-// ---------------------------------------------------------------------------
-// Route search schema
-// ---------------------------------------------------------------------------
-
-type SourceRouteSearch = {
-  tab: "model" | "discover";
-  tool?: string;
-  query?: string;
-};
-
-const sourceTabs = ["model", "discover"] as const;
-
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
 
 const rootRoute = createRootRoute({
   component: AppShell,
@@ -43,36 +36,10 @@ const homeRoute = createRoute({
   component: HomePage,
 });
 
-const newSourceRoute = createRoute({
+const sourcePluginsIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/sources/new",
-  component: NewSourcePage,
-});
-
-const addSourceRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sources/add",
-  component: AddSourcePage,
-});
-
-const sourceRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sources/$sourceId",
-  validateSearch: (search: Record<string, unknown>): SourceRouteSearch => ({
-    tab:
-      typeof search.tab === "string" && sourceTabs.includes(search.tab as SourceRouteSearch["tab"])
-        ? (search.tab as SourceRouteSearch["tab"])
-        : "model",
-    tool: typeof search.tool === "string" && search.tool.length > 0 ? search.tool : undefined,
-    query: typeof search.query === "string" ? search.query : undefined,
-  }),
-  component: SourceDetailPageWrapper,
-});
-
-const editSourceRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sources/$sourceId/edit",
-  component: EditSourcePageWrapper,
+  path: sourcePluginsIndexPath,
+  component: SourcePluginsIndexPage,
 });
 
 const secretsRoute = createRoute({
@@ -81,35 +48,73 @@ const secretsRoute = createRoute({
   component: SecretsPage,
 });
 
+const createExecutorPluginNavigation = (
+  pluginKey: string,
+  input: {
+    navigateTo: (
+      to: string,
+      search?: FrontendPluginRouteSearch,
+    ) => void | Promise<void>;
+    updateSearch?: (
+      search: FrontendPluginRouteSearch,
+    ) => void | Promise<void>;
+  },
+): ExecutorPluginNavigation => {
+  const paths = createExecutorPluginPaths(pluginKey);
 
-function SourceDetailPageWrapper() {
-  const { sourceId } = sourceRoute.useParams();
-  const search = sourceRoute.useSearch();
-  const navigate = useNavigate({ from: sourceRoute.fullPath });
+  return {
+    paths,
+    home: () => input.navigateTo("/"),
+    route: (path = "", search) => input.navigateTo(paths.route(path), search),
+    updateSearch: (search) => input.updateSearch?.(search),
+  };
+};
 
-  return (
-    <SourceDetailPage
-      sourceId={sourceId}
-      search={search}
-      navigate={navigate as any}
-    />
-  );
-}
+const frontendPluginRoutes = registeredFrontendPluginRoutes.map(({ plugin, route }) => {
+  const paths = createExecutorPluginPaths(plugin.key);
 
-function EditSourcePageWrapper() {
-  const { sourceId } = editSourceRoute.useParams();
-  return <EditSourcePage sourceId={sourceId} />;
-}
+  const PluginRouteComponent = () => {
+    const params = pluginRoute.useParams() as Record<string, string | undefined>;
+    const search = pluginRoute.useSearch();
+    const navigate = useNavigate();
+    const navigateFromRoute = useNavigate({ from: pluginRoute.fullPath });
+    const navigation = createExecutorPluginNavigation(plugin.key, {
+      navigateTo: (to, nextSearch) =>
+        nextSearch === undefined ? navigate({ to }) : navigate({ to, search: nextSearch }),
+      updateSearch: (nextSearch) => navigateFromRoute({ search: nextSearch }),
+    });
 
-// ---------------------------------------------------------------------------
-// Router
-// ---------------------------------------------------------------------------
+    return (
+      <ExecutorPluginRoutePage
+        pluginKey={plugin.key}
+        routeKey={route.key}
+        params={params}
+        search={search}
+        navigation={navigation}
+      />
+    );
+  };
 
-const routeTree = rootRoute.addChildren([homeRoute, newSourceRoute, addSourceRoute, sourceRoute, editSourceRoute, secretsRoute]);
+  const pluginRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: paths.routePattern(route.path ?? ""),
+    component: PluginRouteComponent,
+  });
+
+  return pluginRoute;
+});
+
+const routeTree = rootRoute.addChildren([
+  homeRoute,
+  secretsRoute,
+  sourcePluginsIndexRoute,
+  ...frontendPluginRoutes,
+]);
 
 const router = createRouter({
   routeTree,
   defaultPreload: "intent",
+  defaultPreloadStaleTime: 0,
 });
 
 declare module "@tanstack/react-router" {
@@ -118,16 +123,8 @@ declare module "@tanstack/react-router" {
   }
 }
 
-// ---------------------------------------------------------------------------
-// App
-// ---------------------------------------------------------------------------
-
-export function App() {
-  return (
-    <React.StrictMode>
-      <ExecutorReactProvider>
-        <RouterProvider router={router} />
-      </ExecutorReactProvider>
-    </React.StrictMode>
-  );
-}
+export const App = () => (
+  <ExecutorReactProvider>
+    <RouterProvider router={router} />
+  </ExecutorReactProvider>
+);

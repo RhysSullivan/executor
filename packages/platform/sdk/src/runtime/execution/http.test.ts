@@ -27,7 +27,7 @@ import {
 
 import {
   createLocalExecutorRuntime as createExecutorRuntime,
-} from "../../../../sdk-file/src/runtime";
+} from "@executor/platform-sdk-file/runtime";
 import {
   withExecutorApiClient,
 } from "./test-http-client";
@@ -129,6 +129,47 @@ describe("execution-http", () => {
       expect(getExecution.execution.id).toBe(createExecution.execution.id);
       expect(getExecution.execution.status).toBe("completed");
       expect(getExecution.pendingInteraction).toBeNull();
+    }),
+    60_000,
+  );
+
+  it.scoped("lists executions through the HTTP API", () =>
+    Effect.gen(function* () {
+      const runtime = yield* makeRuntime;
+      const installation = runtime.localInstallation;
+
+      const created = yield* withExecutorApiClient(
+        {
+          runtime,
+          actorScopeId: installation.actorScopeId,
+        },
+        (client) =>
+          client.executions.create({
+            path: {
+              workspaceId: installation.scopeId,
+            },
+            payload: {
+              code: "return await tools.math.add({ a: 1, b: 2 });",
+            },
+          }),
+      );
+
+      const executions = yield* withExecutorApiClient(
+        {
+          runtime,
+          actorScopeId: installation.actorScopeId,
+        },
+        (client) =>
+          client.executions.list({
+            path: {
+              workspaceId: installation.scopeId,
+            },
+          }),
+      );
+
+      expect(executions.some((execution) => execution.id === created.execution.id)).toBe(
+        true,
+      );
     }),
     60_000,
   );

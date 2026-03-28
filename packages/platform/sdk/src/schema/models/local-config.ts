@@ -2,12 +2,6 @@ import {
   Schema,
 } from "effect";
 
-import {
-  SourceTransportSchema,
-  StringArraySchema,
-  StringMapSchema,
-} from "@executor/source-core";
-
 export const LocalExecutorRuntimeSchema = Schema.Literal(
   "quickjs",
   "ses",
@@ -62,82 +56,17 @@ export const LocalConfigSecretInputSchema = Schema.Union(
   LocalConfigExplicitSecretRefSchema,
 );
 
-export const LocalConfigSourceConnectionSchema = Schema.Struct({
-  endpoint: Schema.String,
-  auth: Schema.optional(LocalConfigSecretInputSchema),
-});
-
 const LocalConfigSourceEntryBaseSchema = Schema.Struct({
   name: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   enabled: Schema.optional(Schema.Boolean),
-  connection: LocalConfigSourceConnectionSchema,
 });
 
-const OpenApiLocalConfigBindingSchema = Schema.Struct({
-  specUrl: Schema.String,
-  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
-});
-
-const GraphqlLocalConfigBindingSchema = Schema.Struct({
-  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
-});
-
-const GoogleDiscoveryLocalConfigBindingSchema = Schema.Struct({
-  service: Schema.String,
-  version: Schema.String,
-  discoveryUrl: Schema.optional(Schema.NullOr(Schema.String)),
-  defaultHeaders: Schema.optional(Schema.NullOr(StringMapSchema)),
-  scopes: Schema.optional(Schema.Array(Schema.String)),
-});
-
-const McpLocalConfigBindingSchema = Schema.Struct({
-  transport: Schema.optional(Schema.NullOr(SourceTransportSchema)),
-  queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
-  headers: Schema.optional(Schema.NullOr(StringMapSchema)),
-  command: Schema.optional(Schema.NullOr(Schema.String)),
-  args: Schema.optional(Schema.NullOr(StringArraySchema)),
-  env: Schema.optional(Schema.NullOr(StringMapSchema)),
-  cwd: Schema.optional(Schema.NullOr(Schema.String)),
-});
-
-const OpenApiLocalConfigSourceSchema = Schema.extend(
+export const LocalConfigSourceSchema = Schema.extend(
   LocalConfigSourceEntryBaseSchema,
   Schema.Struct({
-    kind: Schema.Literal("openapi"),
-    binding: OpenApiLocalConfigBindingSchema,
+    kind: Schema.String,
   }),
-);
-
-const GraphqlLocalConfigSourceSchema = Schema.extend(
-  LocalConfigSourceEntryBaseSchema,
-  Schema.Struct({
-    kind: Schema.Literal("graphql"),
-    binding: GraphqlLocalConfigBindingSchema,
-  }),
-);
-
-const GoogleDiscoveryLocalConfigSourceSchema = Schema.extend(
-  LocalConfigSourceEntryBaseSchema,
-  Schema.Struct({
-    kind: Schema.Literal("google_discovery"),
-    binding: GoogleDiscoveryLocalConfigBindingSchema,
-  }),
-);
-
-const McpLocalConfigSourceSchema = Schema.extend(
-  LocalConfigSourceEntryBaseSchema,
-  Schema.Struct({
-    kind: Schema.Literal("mcp"),
-    binding: McpLocalConfigBindingSchema,
-  }),
-);
-
-export const LocalConfigSourceSchema = Schema.Union(
-  OpenApiLocalConfigSourceSchema,
-  GraphqlLocalConfigSourceSchema,
-  GoogleDiscoveryLocalConfigSourceSchema,
-  McpLocalConfigSourceSchema,
 );
 
 export type LocalConfigSource = typeof LocalConfigSourceSchema.Type;

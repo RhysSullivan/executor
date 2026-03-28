@@ -101,7 +101,7 @@ const loadSourceCatalogOrEmpty = (input: {
 const executableDetails = (tool: LoadedSourceCatalogTool) => {
   const display = tool.executable.display ?? {};
   return {
-    protocol: display.protocol ?? tool.executable.adapterKey,
+    protocol: display.protocol ?? tool.executable.pluginKey,
     method: display.method ?? null,
     pathTemplate: display.pathTemplate ?? null,
     rawToolId: display.rawToolId ?? tool.path.split(".").at(-1) ?? null,
@@ -255,7 +255,7 @@ export const inspectionToolDetailFromTool = (
         jsonSection("Capability", tool.capability),
         jsonSection("Executable", {
           id: tool.executable.id,
-          adapterKey: tool.executable.adapterKey,
+          pluginKey: tool.executable.pluginKey,
           bindingVersion: tool.executable.bindingVersion,
           binding: tool.executable.binding,
           projection: tool.executable.projection,

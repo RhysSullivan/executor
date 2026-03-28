@@ -1,10 +1,15 @@
-import { Link, Outlet, useMatchRoute } from "@tanstack/react-router";
+import { Link, Outlet, useLocation, useMatchRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useSources, type Source } from "@executor/react";
+import { sourcePluginsIndexPath } from "@executor/react/plugins";
 import { cn } from "../lib/utils";
 import { IconPlus, IconCopy, IconCheck } from "./icons";
 import { LoadableBlock } from "./loadable";
 import { SourceFavicon } from "./source-favicon";
+import {
+  getSourceFrontendPaths,
+  registeredFrontendPluginNavRoutes,
+} from "../plugins";
 
 // ── Status dot color ─────────────────────────────────────────────────────
 
@@ -217,10 +222,18 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
 // ── AppShell ─────────────────────────────────────────────────────────────
 export function AppShell() {
   const sources = useSources();
+  const location = useLocation();
   const matchRoute = useMatchRoute();
   const isHome = matchRoute({ to: "/" });
   const isSecrets = matchRoute({ to: "/secrets" });
   const { latestVersion, updateAvailable, channel } = useLatestVersion(VITE_APP_VERSION);
+  const mainPluginNavItems = registeredFrontendPluginNavRoutes.filter(
+    ({ route }) => (route.nav?.section ?? "main") === "main",
+  );
+  const sourcePluginNavItems = registeredFrontendPluginNavRoutes.filter(
+    ({ route }) => route.nav?.section === "sources",
+  );
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
@@ -241,13 +254,21 @@ export function AppShell() {
         <nav className="flex flex-1 flex-col p-2 overflow-y-auto">
           <NavItem to="/" label="Dashboard" active={!!isHome} />
           <NavItem to="/secrets" label="Secrets" active={!!isSecrets} />
+          {mainPluginNavItems.map(({ plugin, route, to }) => (
+            <NavItem
+              key={`${plugin.key}:${route.key}`}
+              to={to}
+              label={route.nav?.label ?? route.key}
+              active={location.pathname === to || location.pathname.startsWith(`${to}/`)}
+            />
+          ))}
 
           {/* Sources */}
           <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
             <div className="flex items-center justify-between gap-2">
               <span>Sources</span>
               <Link
-                to="/sources/add"
+                to={sourcePluginsIndexPath}
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium normal-case tracking-normal text-primary transition-colors hover:bg-sidebar-active hover:text-foreground"
               >
                 <IconPlus className="size-3" />
@@ -255,16 +276,39 @@ export function AppShell() {
               </Link>
             </div>
           </div>
+          {sourcePluginNavItems.length > 0 && (
+            <div className="mb-2 flex flex-col gap-px">
+              {sourcePluginNavItems.map(({ plugin, route, to }) => (
+                <NavItem
+                  key={`${plugin.key}:${route.key}`}
+                  to={to}
+                  label={route.nav?.label ?? route.key}
+                  active={
+                    location.pathname === to
+                    || location.pathname.startsWith(`${to}/`)
+                  }
+                />
+              ))}
+            </div>
+          )}
           <LoadableBlock loadable={sources} loading="Loading...">
             {(items) =>
-              items.length === 0 ? (
+              !Array.isArray(items) ? (
+                <div className="px-2.5 py-2 text-[11px] leading-relaxed text-destructive">
+                  Sources returned an unexpected payload.
+                </div>
+              ) : items.length === 0 ? (
                 <div className="px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground/40">
                   No sources yet
                 </div>
               ) : (
                 <div className="flex flex-col gap-px">
                   {items.map((source) => (
-                    <SourceItem key={source.id} source={source} matchRoute={matchRoute} />
+                    <SourceItem
+                      key={source.id}
+                      pathname={location.pathname}
+                      source={source}
+                    />
                   ))}
                 </div>
               )
@@ -294,7 +338,7 @@ export function AppShell() {
       </aside>
 
       {/* Main content */}
-      <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
+      <main className="flex min-h-0 flex-1 flex-col min-w-0 overflow-hidden">
         <Outlet />
       </main>
     </div>
@@ -304,20 +348,34 @@ export function AppShell() {
 // ── SourceItem ───────────────────────────────────────────────────────────
 
 function SourceItem(props: {
+  pathname: string;
   source: Source;
-  matchRoute: ReturnType<typeof useMatchRoute>;
 }) {
-  const { source, matchRoute } = props;
-  const active = matchRoute({
-    to: "/sources/$sourceId",
-    params: { sourceId: source.id },
-    fuzzy: true,
-  });
+  const paths = getSourceFrontendPaths(props.source.kind);
+
+  if (!paths) {
+    return (
+      <div className="group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] text-sidebar-foreground/60">
+        <div className="flex size-3 shrink-0 items-center justify-center text-muted-foreground/50">
+          <SourceFavicon source={props.source} className="size-3" />
+        </div>
+        <span className="flex-1 truncate">{props.source.name}</span>
+        <span
+          className={cn("size-1.5 shrink-0 rounded-full", statusColor[props.source.status] ?? "bg-muted-foreground/30")}
+          title={props.source.status}
+        />
+      </div>
+    );
+  }
+
+  const detailPath = paths.detail(props.source.id);
+  const active =
+    props.pathname === detailPath
+    || props.pathname.startsWith(`${detailPath}/`);
 
   return (
     <Link
-      to="/sources/$sourceId"
-      params={{ sourceId: source.id }}
+      to={detailPath}
       search={{ tab: "model" }}
       className={cn(
         "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
@@ -327,12 +385,12 @@ function SourceItem(props: {
       )}
     >
       <div className="flex size-3 shrink-0 items-center justify-center text-muted-foreground/50">
-        <SourceFavicon endpoint={source.endpoint} kind={source.kind} className="size-3" />
+        <SourceFavicon source={props.source} className="size-3" />
       </div>
-      <span className="flex-1 truncate">{source.name}</span>
+      <span className="flex-1 truncate">{props.source.name}</span>
       <span
-        className={cn("size-1.5 shrink-0 rounded-full", statusColor[source.status] ?? "bg-muted-foreground/30")}
-        title={source.status}
+        className={cn("size-1.5 shrink-0 rounded-full", statusColor[props.source.status] ?? "bg-muted-foreground/30")}
+        title={props.source.status}
       />
     </Link>
   );

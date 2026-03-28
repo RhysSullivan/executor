@@ -158,7 +158,7 @@ export const EntityBaseSchema = Schema.Struct({
 
 export const ImportMetadataSchema = Schema.Struct({
   sourceKind: SourceKindSchema,
-  adapterKey: Schema.String,
+  pluginKey: Schema.String,
   importerVersion: Schema.String,
   importedAt: Schema.String,
   sourceConfigHash: Schema.String,
@@ -696,7 +696,7 @@ export const ExecutableSchema = Schema.extend(
     id: ExecutableIdSchema,
     capabilityId: CapabilityIdSchema,
     scopeId: ScopeIdSchema,
-    adapterKey: Schema.String,
+    pluginKey: Schema.String,
     bindingVersion: Schema.Number,
     binding: Schema.Unknown,
     projection: ExecutableProjectionSchema,

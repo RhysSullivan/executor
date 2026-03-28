@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 import {
   type InstanceConfig,
   type SecretListItem,
@@ -42,7 +41,7 @@ export function SecretsPage() {
       : null;
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-10 lg:py-14">
         {/* Header */}
         <div className="flex items-end justify-between mb-8">
@@ -259,19 +258,16 @@ function SecretRow(props: {
   const { secret, providerLabel, isEditing } = props;
   const deleteSecret = useDeleteSecret();
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleDelete = async () => {
-    const confirmed = window.confirm(
-      `Delete "${secret.name || secret.id}"? This cannot be undone. Sources using this secret will lose access.`,
-    );
-    if (!confirmed) return;
-
     setIsDeleting(true);
     try {
       await deleteSecret.mutateAsync(secret.id);
     } catch {
       // refresh will show the secret still there
     } finally {
+      setConfirmDelete(false);
       setIsDeleting(false);
     }
   };
@@ -313,15 +309,12 @@ function SecretRow(props: {
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 <span className="text-[10px] text-muted-foreground/50">Used by</span>
                 {secret.linkedSources.map((ls) => (
-                  <Link
+                  <span
                     key={ls.sourceId}
-                    to="/sources/$sourceId"
-                    params={{ sourceId: ls.sourceId }}
-                    search={{ tab: "model" }}
-                    className="inline-flex items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+                    className="inline-flex items-center gap-1 rounded-md bg-accent/60 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70"
                   >
                     {ls.sourceName}
-                  </Link>
+                  </span>
                 ))}
               </div>
             )}
@@ -341,15 +334,42 @@ function SecretRow(props: {
             <IconPencil className="size-3" />
             Edit
           </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-destructive hover:bg-destructive/8 disabled:opacity-50"
-          >
-            {isDeleting ? <IconSpinner className="size-3" /> : <IconTrash className="size-3" />}
-            Delete
-          </button>
+          {confirmDelete ? (
+            <>
+              <span className="text-[10px] font-medium text-destructive">
+                Confirm delete?
+              </span>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleDelete();
+                }}
+                disabled={isDeleting}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/8 disabled:opacity-50"
+              >
+                {isDeleting ? <IconSpinner className="size-3" /> : <IconTrash className="size-3" />}
+                {isDeleting ? "Deleting..." : "Delete"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              disabled={isDeleting}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-destructive hover:bg-destructive/8 disabled:opacity-50"
+            >
+              {isDeleting ? <IconSpinner className="size-3" /> : <IconTrash className="size-3" />}
+              Delete
+            </button>
+          )}
         </div>
       </div>
 

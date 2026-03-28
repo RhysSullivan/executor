@@ -12,9 +12,13 @@ import {
 } from "@executor/platform-sdk";
 import {
   createExecutorEffect,
+  type CreateExecutorEffectOptions,
   type ExecutorEffect,
-  type CreateExecutorEffectOptions as CreateExecutorOptions,
 } from "@executor/platform-sdk/effect";
+import type {
+  ExecutorSdkPlugin,
+  ExecutorSdkPluginExtensions,
+} from "@executor/platform-sdk/plugins";
 import type {
   LocalExecutorConfig,
   LocalInstallation,
@@ -25,7 +29,6 @@ import {
   type ResolveSecretMaterial,
 } from "@executor/platform-sdk/runtime";
 import * as Effect from "effect/Effect";
-import type { LocalToolRuntime } from "../../sdk/src/runtime/local-tool-runtime";
 import {
   type LoadedLocalExecutorConfig,
   type ResolvedLocalWorkspaceContext,
@@ -263,18 +266,6 @@ export const createLocalExecutorRepositoriesEffect = (
           workspaceContext,
           fileSystem,
         ),
-        sourceAuth: {
-          artifacts: executorStateStorage.executorState.authArtifacts,
-          leases: executorStateStorage.executorState.authLeases,
-          sourceOauthClients:
-            executorStateStorage.executorState.sourceOauthClients,
-          scopeOauthClients:
-            executorStateStorage.executorState.scopeOauthClients,
-          providerGrants:
-            executorStateStorage.executorState.providerAuthGrants,
-          sourceSessions:
-            executorStateStorage.executorState.sourceAuthSessions,
-        },
         localTools: createBoundLocalToolRuntimeLoader(
           workspaceContext,
           fileSystem,
@@ -321,29 +312,41 @@ export const createLocalExecutorRuntime = (
 ): Effect.Effect<ExecutorRuntime, Error> =>
   createLocalExecutorBackend(options).createRuntime({
     executionResolver: options.executionResolver,
-    createInternalToolMap: options.createInternalToolMap,
     resolveSecretMaterial: options.resolveSecretMaterial,
     getLocalServerBaseUrl: options.getLocalServerBaseUrl,
   });
 
-export const createLocalExecutorEffect = (
-  options: CreateLocalExecutorBackendOptions & ExecutorRuntimeOptions = {},
-): Effect.Effect<ExecutorEffect, Error> =>
+type CreateLocalExecutorOptions<
+  TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
+> = CreateLocalExecutorBackendOptions & ExecutorRuntimeOptions & {
+  plugins?: TPlugins;
+};
+
+export const createLocalExecutorEffect = <
+  const TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
+>(
+  options: CreateLocalExecutorOptions<TPlugins> = {},
+): Effect.Effect<
+  ExecutorEffect & ExecutorSdkPluginExtensions<TPlugins>,
+  Error
+> =>
   createExecutorEffect({
     backend: createLocalExecutorBackend(options),
+    plugins: options.plugins,
     executionResolver: options.executionResolver,
-    createInternalToolMap: options.createInternalToolMap,
     resolveSecretMaterial: options.resolveSecretMaterial,
     getLocalServerBaseUrl: options.getLocalServerBaseUrl,
-  } satisfies CreateExecutorOptions);
+  } satisfies CreateExecutorEffectOptions & { plugins?: TPlugins });
 
-export const createLocalExecutor = (
-  options: CreateLocalExecutorBackendOptions & ExecutorRuntimeOptions = {},
-): Promise<Executor> =>
+export const createLocalExecutor = <
+  const TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
+>(
+  options: CreateLocalExecutorOptions<TPlugins> = {},
+): Promise<Executor<TPlugins>> =>
   createExecutor({
     backend: createLocalExecutorBackend(options),
+    plugins: options.plugins,
     executionResolver: options.executionResolver,
-    createInternalToolMap: options.createInternalToolMap,
     resolveSecretMaterial: options.resolveSecretMaterial,
     getLocalServerBaseUrl: options.getLocalServerBaseUrl,
   });

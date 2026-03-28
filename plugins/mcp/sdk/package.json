@@ -1,0 +1,34 @@
+{
+  "name": "@executor/plugin-mcp-sdk",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "*.ts"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/codemode-core": "workspace:*",
+    "@executor/ir": "workspace:*",
+    "@executor/platform-sdk": "workspace:*",
+    "@executor/plugin-mcp-shared": "workspace:*",
+    "@executor/source-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@executor/runtime-ses": "workspace:*",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  },
+  "version": "0.0.0"
+}

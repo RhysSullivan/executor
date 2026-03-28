@@ -1,0 +1,33 @@
+{
+  "name": "@executor/plugin-openapi-sdk",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "*.ts"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/ir": "workspace:*",
+    "@executor/codemode-core": "workspace:*",
+    "@executor/platform-sdk": "workspace:*",
+    "@executor/plugin-openapi-shared": "workspace:*",
+    "@executor/source-core": "workspace:*",
+    "effect": "catalog:",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@executor/effect-test-utils": "workspace:*",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
+  },
+  "version": "0.0.0"
+}

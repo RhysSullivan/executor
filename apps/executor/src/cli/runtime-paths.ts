@@ -1,8 +1,11 @@
 import { existsSync } from "node:fs";
-import { dirname, extname, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  DEFAULT_EXECUTOR_DATA_DIR,
+  DEFAULT_LOCAL_DATA_DIR,
+  EXECUTOR_LOCAL_DATA_DIR_ENV,
   EXECUTOR_WEB_ASSETS_DIR_ENV,
 } from "@executor/server";
 
@@ -35,6 +38,8 @@ const getSourceEntrypoint = (): string | null => {
     ? resolved
     : null;
 };
+
+const isSourceCliLaunch = (): boolean => getSourceEntrypoint() !== null;
 
 const resolveBundledNodeLauncher = (): string | null => {
   const candidate = resolve(sourceDir, "executor.js");
@@ -74,6 +79,16 @@ export const resolveSelfCommand = (args: readonly string[]): readonly string[] =
   return sourceEntrypoint === null
     ? [process.execPath, ...args]
     : [process.execPath, sourceEntrypoint, ...args];
+};
+
+export const resolveCliLocalDataDir = (): string => {
+  if (trim(process.env[EXECUTOR_LOCAL_DATA_DIR_ENV])) {
+    return DEFAULT_LOCAL_DATA_DIR;
+  }
+
+  return isSourceCliLaunch()
+    ? join(DEFAULT_EXECUTOR_DATA_DIR, "control-plane-web-dev")
+    : DEFAULT_LOCAL_DATA_DIR;
 };
 
 export const resolveRuntimeWebAssetsDir = (): string | null => {

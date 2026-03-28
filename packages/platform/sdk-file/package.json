@@ -17,8 +17,6 @@
     "@effect/platform-node": "catalog:",
     "@executor/codemode-core": "workspace:*",
     "@executor/source-core": "workspace:*",
-    "@executor/source-graphql": "workspace:*",
-    "@executor/source-openapi": "workspace:*",
     "@executor/ir": "workspace:*",
     "@executor/platform-sdk": "workspace:*",
     "effect": "catalog:",

@@ -1,0 +1,25 @@
+{
+  "name": "@executor/plugin-execution-history-react",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "components.tsx",
+    "index.ts"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/react": "workspace:*",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.10",
+    "bun-types": "catalog:"
+  },
+  "version": "0.0.0"
+}

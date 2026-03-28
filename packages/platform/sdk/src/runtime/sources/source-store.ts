@@ -16,9 +16,6 @@ import {
   ScopeStateStore,
 } from "../scope/storage";
 import {
-  SecretMaterialDeleterService,
-} from "../scope/secret-material-providers";
-import {
   RuntimeLocalScopeService,
 } from "../scope/runtime-context";
 import {
@@ -128,13 +125,11 @@ export const removeSourceById = (
   Error,
   | ScopeStorageServices
   | SourceTypeDeclarationsRefresherService
-  | SecretMaterialDeleterService
 > =>
-  Effect.gen(function* () {
-    const deps = yield* loadRuntimeSourceStoreDeps(executorState, input.scopeId);
-    const deleteSecretMaterial = yield* SecretMaterialDeleterService;
-    return yield* removeSourceByIdWithDeps(deps, input, deleteSecretMaterial);
-  });
+  Effect.flatMap(
+    loadRuntimeSourceStoreDeps(executorState, input.scopeId),
+    (deps) => removeSourceByIdWithDeps(deps, input),
+  );
 
 export const persistSource = (
   executorState: ExecutorStateStoreShape,
@@ -147,13 +142,11 @@ export const persistSource = (
   Error,
   | ScopeStorageServices
   | SourceTypeDeclarationsRefresherService
-  | SecretMaterialDeleterService
 > =>
-  Effect.gen(function* () {
-    const deps = yield* loadRuntimeSourceStoreDeps(executorState, source.scopeId);
-    const deleteSecretMaterial = yield* SecretMaterialDeleterService;
-    return yield* persistSourceWithDeps(deps, source, options, deleteSecretMaterial);
-  });
+  Effect.flatMap(
+    loadRuntimeSourceStoreDeps(executorState, source.scopeId),
+    (deps) => persistSourceWithDeps(deps, source, options),
+  );
 
 export class RuntimeSourceStoreService extends Context.Tag(
   "#runtime/RuntimeSourceStoreService",
@@ -169,7 +162,6 @@ export const RuntimeSourceStoreLive = Layer.effect(
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceTypeDeclarationsRefresher =
       yield* SourceTypeDeclarationsRefresherService;
-    const deleteSecretMaterial = yield* SecretMaterialDeleterService;
 
     const deps: RuntimeSourceStoreDeps = {
       executorState,
@@ -188,9 +180,9 @@ export const RuntimeSourceStoreLive = Layer.effect(
       loadSourceById: (input) =>
         loadSourceByIdWithDeps(deps, input),
       removeSourceById: (input) =>
-        removeSourceByIdWithDeps(deps, input, deleteSecretMaterial),
+        removeSourceByIdWithDeps(deps, input),
       persistSource: (source, options = {}) =>
-        persistSourceWithDeps(deps, source, options, deleteSecretMaterial),
+        persistSourceWithDeps(deps, source, options),
     });
   }),
 );

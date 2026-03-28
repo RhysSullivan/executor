@@ -14,9 +14,20 @@ import {
   type ExecutorApiEffectClient as ExecutorApiClient,
 } from "@executor/platform-api/effect";
 import { runExecutorMcpStdioServer } from "@executor/executor-mcp";
-import { createWorkspaceExecutorAdminToolMap } from "@executor/platform-internal";
 import {
-  EXECUTOR_SOURCES_ADD_HELP_LINES,
+  googleDiscoverySdkPlugin,
+} from "@executor/plugin-google-discovery-sdk";
+import {
+  graphqlSdkPlugin,
+} from "@executor/plugin-graphql-sdk";
+import {
+  mcpSdkPlugin,
+} from "@executor/plugin-mcp-sdk";
+import {
+  openApiSdkPlugin,
+} from "@executor/plugin-openapi-sdk";
+import {
+  getExecutorSourcesAddHelpLines,
   RuntimeExecutionResolverService,
 } from "@executor/platform-sdk/runtime";
 import {
@@ -37,10 +48,15 @@ import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 
 import {
+  createFileGoogleDiscoveryOAuthSessionStorage,
+  createFileGoogleDiscoverySourceStorage,
+  createFileGraphqlSourceStorage,
+  createFileMcpOAuthSessionStorage,
+  createFileMcpSourceStorage,
+  createFileOpenApiSourceStorage,
   createLocalExecutorServer,
   DEFAULT_SERVER_BASE_URL,
   DEFAULT_SERVER_HOST,
-  DEFAULT_LOCAL_DATA_DIR,
   DEFAULT_SERVER_LOG_FILE,
   DEFAULT_SERVER_PID_FILE,
   DEFAULT_SERVER_PORT,
@@ -49,10 +65,7 @@ import {
   runLocalExecutorServer,
 } from "@executor/server";
 import {
-  seedDemoMcpSourceInWorkspace,
-  seedGithubOpenApiSourceInWorkspace,
-} from "./dev";
-import {
+  resolveCliLocalDataDir,
   resolveRuntimeWebAssetsDir,
   resolveSelfCommand,
 } from "./runtime-paths";
@@ -74,7 +87,6 @@ import {
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
-
 const sleep = (ms: number) =>
   Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
@@ -166,6 +178,7 @@ const getBootstrapClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
 const decodeExecutionId = Schema.decodeUnknown(ExecutionIdSchema);
 const require = createRequire(import.meta.url);
 const CLI_NAME = "executor";
+const CLI_LOCAL_DATA_DIR = resolveCliLocalDataDir();
 const CLI_VERSION = (() => {
   const candidatePaths = [
     "../package.json",
@@ -217,13 +230,13 @@ const buildWorkflowText = (namespaces: readonly string[] = []): string =>
     '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
     "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
     "3) Call selected tools.<path>(input).",
-    '4) To connect a source, call tools.executor.sources.add(...) for MCP, OpenAPI, or GraphQL APIs.',
-    ...EXECUTOR_SOURCES_ADD_HELP_LINES,
+    "4) Use source plugins to inspect or add API sources.",
+    ...getExecutorSourcesAddHelpLines(),
     "5) If execution pauses for interaction, resume it with `executor resume --execution-id ...`.",
     "Do not use fetch; use tools.* only.",
   ].join("\n");
 
-const DEFAULT_RUN_WORKFLOW = buildWorkflowText();
+const getDefaultRunWorkflow = () => buildWorkflowText();
 
 const indentBlock = (value: string, prefix: string = "  "): string =>
   value
@@ -268,7 +281,7 @@ const buildRunWorkflowText = (
   catalog?: ToolCatalog,
 ): Effect.Effect<string, Error, never> => {
   if (!catalog) {
-    return Effect.succeed(DEFAULT_RUN_WORKFLOW);
+    return Effect.succeed(getDefaultRunWorkflow());
   }
 
   return catalog.listNamespaces({ limit: 200 }).pipe(
@@ -287,9 +300,36 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
   Effect.acquireUseRelease(
     createExecutorEffect({
       backend: createLocalExecutorBackend({
-        localDataDir: DEFAULT_LOCAL_DATA_DIR,
+        localDataDir: CLI_LOCAL_DATA_DIR,
       }),
-      createInternalToolMap: createWorkspaceExecutorAdminToolMap,
+      plugins: [
+        graphqlSdkPlugin({
+          storage: createFileGraphqlSourceStorage({
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/graphql/sources`,
+          }),
+        }),
+        googleDiscoverySdkPlugin({
+          storage: createFileGoogleDiscoverySourceStorage({
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/google-discovery/sources`,
+          }),
+          oauthSessions: createFileGoogleDiscoveryOAuthSessionStorage({
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/google-discovery/oauth-sessions`,
+          }),
+        }),
+        mcpSdkPlugin({
+          storage: createFileMcpSourceStorage({
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/mcp/sources`,
+          }),
+          oauthSessions: createFileMcpOAuthSessionStorage({
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/mcp/oauth-sessions`,
+          }),
+        }),
+        openApiSdkPlugin({
+          storage: createFileOpenApiSourceStorage({
+            rootDir: `${CLI_LOCAL_DATA_DIR}/plugins/openapi/sources`,
+          }),
+        }),
+      ] as const,
     }).pipe(Effect.mapError(toError)),
     (executor) =>
       Effect.gen(function* () {
@@ -312,7 +352,7 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
     Effect.catchAllCause((cause) =>
       Effect.succeed(
         [
-          DEFAULT_RUN_WORKFLOW,
+          getDefaultRunWorkflow(),
           "",
           formatCatalogUnavailableMessage(cause),
         ].join("\n"),
@@ -389,8 +429,6 @@ const printCallHelp = (workflow: string) =>
       "",
       '  executor call \'const matches = await tools.discover({ query: "github issues", limit: 5 }); return matches;\'',
       '  executor call \'const matches = await tools.discover({ query: "repo details", limit: 1 }); const path = matches.bestPath; return await tools.describe.tool({ path, includeSchemas: true });\'',
-      '  executor call \'return await tools.executor.sources.add({ endpoint: "https://example.com/mcp", name: "Example", namespace: "example" });\'',
-      '  executor call \'return await tools.executor.sources.add({ kind: "openapi", endpoint: "https://api.github.com", specUrl: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json", name: "GitHub", namespace: "github" });\'',
       "  cat script.ts | executor call --stdin",
       "  executor call --file script.ts",
       "  executor call --no-open --file script.ts",
@@ -418,7 +456,6 @@ const getLocalAuthedClient = (baseUrl: string = DEFAULT_SERVER_BASE_URL) =>
     const installation = yield* bootstrapClient.local.installation({});
     const client = yield* createExecutorApiClient({
       baseUrl,
-      accountId: installation.actorScopeId,
     });
 
     return {
@@ -440,7 +477,7 @@ const getDefaultServerOptions = (port: number = DEFAULT_SERVER_PORT) => {
   return {
     host: DEFAULT_SERVER_HOST,
     port,
-    localDataDir: DEFAULT_LOCAL_DATA_DIR,
+    localDataDir: CLI_LOCAL_DATA_DIR,
     pidFile: DEFAULT_SERVER_PID_FILE,
     ui: assetsDir ? { assetsDir } : undefined,
   };
@@ -602,7 +639,7 @@ const getServerStatus = (
       pid,
       pidRunning,
       logFile,
-      localDataDir: DEFAULT_LOCAL_DATA_DIR,
+      localDataDir: CLI_LOCAL_DATA_DIR,
       webAssetsDir: resolveRuntimeWebAssetsDir(),
       installation,
     } satisfies LocalServerStatus;
@@ -1036,54 +1073,6 @@ const printExecution = (envelope: ExecutionEnvelope) =>
     }));
   });
 
-const seedDemoMcpSource = (input: {
-  baseUrl: string;
-  endpoint: string;
-  name: string;
-  namespace: string;
-}) =>
-  Effect.gen(function* () {
-    yield* ensureServer(input.baseUrl);
-    const { installation, client } = yield* getLocalAuthedClient(input.baseUrl);
-    const result = yield* seedDemoMcpSourceInWorkspace({
-      client,
-      workspaceId: installation.scopeId,
-      endpoint: input.endpoint,
-      name: input.name,
-      namespace: input.namespace,
-    });
-
-    yield* Effect.sync(() => {
-      console.log(JSON.stringify(result));
-    });
-  });
-
-const seedGithubOpenApiSource = (input: {
-  baseUrl: string;
-  endpoint: string;
-  specUrl: string;
-  name: string;
-  namespace: string;
-  credentialEnvVar?: string;
-}) =>
-  Effect.gen(function* () {
-    yield* ensureServer(input.baseUrl);
-    const { installation, client } = yield* getLocalAuthedClient(input.baseUrl);
-    const result = yield* seedGithubOpenApiSourceInWorkspace({
-      client,
-      workspaceId: installation.scopeId,
-      endpoint: input.endpoint,
-      specUrl: input.specUrl,
-      name: input.name,
-      namespace: input.namespace,
-      credentialEnvVar: input.credentialEnvVar,
-    });
-
-    yield* Effect.sync(() => {
-      console.log(JSON.stringify(result));
-    });
-  });
-
 const driveExecution = (input: {
   client: ExecutorApiClient;
   workspaceId: ExecutionEnvelope["execution"]["scopeId"];
@@ -1359,64 +1348,7 @@ const resumeCommand = Command.make(
     }),
 ).pipe(Command.withDescription("Resume a paused execution"));
 
-const devSeedMcpDemoCommand = Command.make(
-  "seed-mcp-demo",
-  {
-    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
-    endpoint: Options.text("endpoint").pipe(
-      Options.withDefault("http://127.0.0.1:58506/mcp"),
-    ),
-    name: Options.text("name").pipe(Options.withDefault("Demo")),
-    namespace: Options.text("namespace").pipe(Options.withDefault("demo")),
-  },
-  ({ baseUrl, endpoint, name, namespace }) =>
-    seedDemoMcpSource({
-      baseUrl,
-      endpoint,
-      name,
-      namespace,
-    }),
-).pipe(
-  Command.withDescription(
-    "Seed the localhost MCP elicitation demo source into the default workspace",
-  ),
-);
-
-const devSeedGithubCommand = Command.make(
-  "seed-github",
-  {
-    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_SERVER_BASE_URL)),
-    endpoint: Options.text("endpoint").pipe(
-      Options.withDefault("https://api.github.com"),
-    ),
-    specUrl: Options.text("spec-url").pipe(
-      Options.withDefault(
-        "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
-      ),
-    ),
-    name: Options.text("name").pipe(Options.withDefault("GitHub")),
-    namespace: Options.text("namespace").pipe(Options.withDefault("github")),
-    credentialEnvVar: Options.text("credential-env-var").pipe(
-      Options.withDefault("GITHUB_TOKEN"),
-    ),
-  },
-  ({ baseUrl, endpoint, specUrl, name, namespace, credentialEnvVar }) =>
-    seedGithubOpenApiSource({
-      baseUrl,
-      endpoint,
-      specUrl,
-      name,
-      namespace,
-      credentialEnvVar,
-    }),
-).pipe(
-  Command.withDescription(
-    "Seed a GitHub OpenAPI source into the default workspace",
-  ),
-);
-
 const devCommand = Command.make("dev").pipe(
-  Command.withSubcommands([devSeedMcpDemoCommand, devSeedGithubCommand] as const),
   Command.withDescription("Development helpers"),
 );
 

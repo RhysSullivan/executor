@@ -3,9 +3,6 @@ import type {
   OnElicitation,
 } from "@executor/codemode-core";
 import {
-  clearMcpConnectionPoolRun,
-} from "@executor/source-mcp";
-import {
   ExecutionInteractionIdSchema,
   type Execution,
   type ExecutionInteraction,
@@ -18,6 +15,10 @@ import * as Layer from "effect/Layer";
 import type {
   ExecutorStateStoreShape,
 } from "../executor-state-store";
+
+const clearExecutionRunResources = (
+  _executionId: Execution["id"],
+): Effect.Effect<void, never, never> => Effect.void;
 
 type VisibleExecutionState =
   | "running"
@@ -108,12 +109,6 @@ const interactionPurposeFromInput = (input: Parameters<OnElicitation>[0]): strin
   const explicitPurpose = input.context?.interactionPurpose;
   if (typeof explicitPurpose === "string" && explicitPurpose.length > 0) {
     return explicitPurpose;
-  }
-
-  if (input.path === "executor.sources.add") {
-    return input.elicitation.mode === "url"
-      ? "source_connect_oauth2"
-      : "source_connect_secret";
   }
 
   return "elicitation";
@@ -247,7 +242,7 @@ export const createLiveExecutionManager = () => {
 
     finishRun: ({ executionId, state }) =>
       publishState({ executionId, state }).pipe(
-        Effect.zipRight(clearMcpConnectionPoolRun(executionId)),
+        Effect.zipRight(clearExecutionRunResources(executionId)),
         Effect.ensuring(
           Effect.sync(() => {
             runs.delete(executionId);
@@ -256,7 +251,7 @@ export const createLiveExecutionManager = () => {
       ),
 
     clearRun: (executionId) =>
-      clearMcpConnectionPoolRun(executionId).pipe(
+      clearExecutionRunResources(executionId).pipe(
         Effect.ensuring(
           Effect.sync(() => {
             runs.delete(executionId);

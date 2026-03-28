@@ -55,10 +55,6 @@ const describePauseReason = (interaction: ExecutionInteraction): string => {
   switch (interaction.purpose) {
     case "tool_execution_gate":
       return "this tool call requires approval before executor can continue";
-    case "source_connect_oauth2":
-      return "executor needs browser authentication to finish connecting the source";
-    case "source_connect_secret":
-      return "executor needs credentials to finish connecting the source";
     default:
       return "executor needs additional input before it can continue";
   }

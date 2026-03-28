@@ -8,25 +8,6 @@ export const SourceCatalogIdSchema = Schema.String.pipe(Schema.brand("SourceCata
 export const SourceCatalogRevisionIdSchema = Schema.String.pipe(
   Schema.brand("SourceCatalogRevisionId"),
 );
-export const SourceAuthSessionIdSchema = Schema.String.pipe(
-  Schema.brand("SourceAuthSessionId"),
-);
-export const AuthArtifactIdSchema = Schema.String.pipe(
-  Schema.brand("AuthArtifactId"),
-);
-export const AuthLeaseIdSchema = Schema.String.pipe(
-  Schema.brand("AuthLeaseId"),
-);
-export const CredentialIdSchema = AuthArtifactIdSchema;
-export const ScopedSourceOauthClientIdSchema = Schema.String.pipe(
-  Schema.brand("ScopedSourceOauthClientId"),
-);
-export const ScopeOauthClientIdSchema = Schema.String.pipe(
-  Schema.brand("ScopeOauthClientId"),
-);
-export const ProviderAuthGrantIdSchema = Schema.String.pipe(
-  Schema.brand("ProviderAuthGrantId"),
-);
 export const SecretMaterialIdSchema = Schema.String.pipe(
   Schema.brand("SecretMaterialId"),
 );
@@ -43,13 +24,6 @@ export type ScopeId = typeof ScopeIdSchema.Type;
 export type SourceId = typeof SourceIdSchema.Type;
 export type SourceCatalogId = typeof SourceCatalogIdSchema.Type;
 export type SourceCatalogRevisionId = typeof SourceCatalogRevisionIdSchema.Type;
-export type SourceAuthSessionId = typeof SourceAuthSessionIdSchema.Type;
-export type AuthArtifactId = typeof AuthArtifactIdSchema.Type;
-export type AuthLeaseId = typeof AuthLeaseIdSchema.Type;
-export type CredentialId = typeof CredentialIdSchema.Type;
-export type ScopedSourceOauthClientId = typeof ScopedSourceOauthClientIdSchema.Type;
-export type ScopeOauthClientId = typeof ScopeOauthClientIdSchema.Type;
-export type ProviderAuthGrantId = typeof ProviderAuthGrantIdSchema.Type;
 export type SecretMaterialId = typeof SecretMaterialIdSchema.Type;
 export type PolicyId = typeof PolicyIdSchema.Type;
 export type ExecutionId = typeof ExecutionIdSchema.Type;

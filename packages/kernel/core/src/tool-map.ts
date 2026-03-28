@@ -448,9 +448,9 @@ export function toolDescriptorsFromTools(input: {
       interaction: metadata?.interaction,
       elicitation: metadata?.elicitation,
       contract,
-      ...(metadata?.providerKind ? { providerKind: metadata.providerKind } : {}),
-      ...(metadata?.providerData !== undefined
-        ? { providerData: metadata.providerData }
+      ...(metadata?.pluginKind ? { pluginKind: metadata.pluginKind } : {}),
+      ...(metadata?.pluginData !== undefined
+        ? { pluginData: metadata.pluginData }
         : {}),
     } satisfies ToolDescriptor;
   });

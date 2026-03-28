@@ -4,6 +4,8 @@ import { cn } from "../lib/utils";
 
 type LocalMcpInstallMode = "stdio" | "http";
 
+const isDevBuild = import.meta.env.DEV;
+
 export function LocalMcpInstallCard(props: {
   title?: string;
   description?: string;
@@ -17,7 +19,9 @@ export function LocalMcpInstallCard(props: {
   }, []);
 
   const command = mode === "stdio"
-    ? 'npx add-mcp "executor mcp --stdio" --name "executor-stdio"'
+    ? isDevBuild
+      ? 'npx add-mcp "bun run executor mcp --stdio" --name "executor-stdio"'
+      : 'npx add-mcp "executor mcp --stdio" --name "executor-stdio"'
     : origin
       ? `npx add-mcp "${origin}/mcp" --transport http --name "executor"`
       : 'npx add-mcp "<this-server>/mcp" --transport http --name "executor"';
@@ -57,9 +61,22 @@ export function LocalMcpInstallCard(props: {
       </div>
       <CodeBlock code={command} lang="bash" className="rounded-xl border border-border bg-background/70" />
       {mode === "stdio" ? (
-        <p className="mt-3 text-[12px] text-muted-foreground">
-          Requires the `executor` CLI to be available on your PATH. Uses a distinct MCP name to avoid colliding with an existing remote `executor` entry.
-        </p>
+        <div className="mt-3 space-y-1 text-[12px] text-muted-foreground">
+          {!isDevBuild ? (
+            <p>
+              Requires the `executor` CLI on your PATH. Uses a distinct MCP name to avoid colliding with an existing remote `executor` entry.
+            </p>
+          ) : (
+            <>
+              <p>
+                Uses the repo-local dev CLI: <code>bun run executor mcp --stdio</code>.
+              </p>
+              <p>
+                Run the `add-mcp` command from the repository root, or set your MCP client working directory to this repo before using the saved entry.
+              </p>
+            </>
+          )}
+        </div>
       ) : null}
     </section>
   );

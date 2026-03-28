@@ -19,7 +19,7 @@ import * as Effect from "effect/Effect";
 
 import {
   createLocalExecutorRuntime as createExecutorRuntime,
-} from "../../../../sdk-file/src/runtime";
+} from "@executor/platform-sdk-file/runtime";
 import {
   withExecutorApiClient,
 } from "./test-http-client";

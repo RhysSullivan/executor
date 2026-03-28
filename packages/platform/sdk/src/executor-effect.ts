@@ -3,33 +3,20 @@ import * as Effect from "effect/Effect";
 import type {
   ScopeId,
   Execution,
-  ExecutionEnvelope,
-  ExecutionInteraction,
   LocalInstallation,
-  LocalScopePolicy,
-  ProviderAuthGrant,
-  ScopeOauthClient,
   Source,
 } from "./schema";
-import { ExecutionIdSchema } from "./schema";
 import type {
   CreateExecutionPayload,
   ResumeExecutionPayload,
 } from "./executions/contracts";
 import type {
   CreateSecretPayload,
-  CreateSecretResult,
   DeleteSecretResult,
-  InstanceConfig,
-  SecretListItem,
   UpdateSecretPayload,
-  UpdateSecretResult,
 } from "./local/contracts";
 import {
-  completeSourceCredentialSetup,
   getLocalInstallation,
-  getSourceCredentialInteraction,
-  submitSourceCredentialInteraction,
 } from "./local/operations";
 import {
   createLocalSecret,
@@ -49,56 +36,41 @@ import {
   removePolicy,
   updatePolicy,
 } from "./policies/operations";
-import type {
-  CreateScopeOauthClientPayload,
-  CreateSourcePayload,
-  UpdateSourcePayload,
-} from "./sources/contracts";
-import { discoverSource } from "./sources/discovery";
 import {
   discoverSourceInspectionTools,
   getSourceInspection,
   getSourceInspectionToolDetail,
 } from "./sources/inspection";
 import {
-  createSource,
+  createManagedSourceRecord,
   getSource,
+  refreshManagedSourceCatalog,
   listSources,
   removeSource,
-  updateSource,
+  saveManagedSourceRecord,
 } from "./sources/operations";
 import type { ExecutorBackend } from "./backend";
 import {
   provideExecutorRuntime,
-  type CreateScopeInternalToolMap,
   type ExecutorRuntime,
   type ExecutorRuntimeOptions,
-  type ResolveExecutionEnvironment,
-  type ResolveSecretMaterial,
-  RuntimeSourceAuthServiceTag,
 } from "./runtime";
 import {
   createExecution,
   getExecution,
+  listExecutions,
   resumeExecution,
 } from "./runtime/execution/service";
 import type {
-  CompleteProviderOauthCallbackResult,
-  CompleteSourceCredentialSetupResult,
-  CompleteSourceOAuthSessionResult,
-  ConnectGoogleDiscoveryBatchInput,
-  ConnectGoogleDiscoveryBatchResult,
-  ConnectMcpSourceInput,
-  ExecutorAddSourceInput,
-  ExecutorSourceAddResult,
-  McpSourceConnectResult,
-  StartSourceOAuthSessionInput,
-  StartSourceOAuthSessionResult,
-} from "./runtime/sources/source-auth-service";
+  ExecutorSdkPluginHost,
+  ExecutorSdkPlugin,
+  ExecutorSdkPluginExtensions,
+  PluginCleanup,
+} from "./plugins";
+import {
+  configureExecutorSourcePlugins,
+} from "./runtime/sources/source-plugins";
 
-type DistributiveOmit<T, Keys extends PropertyKey> = T extends unknown
-  ? Omit<T, Keys>
-  : never;
 type ProvidedEffect<T extends Effect.Effect<any, any, any>> = Effect.Effect<
   Effect.Effect.Success<T>,
   Effect.Effect.Error<T>,
@@ -109,28 +81,9 @@ type MappedProvidedEffect<
   A,
 > = Effect.Effect<A, Effect.Effect.Error<T>, never>;
 
-export type ExecutorSourceInput = DistributiveOmit<
-  ExecutorAddSourceInput,
-  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
->;
-
-export type ExecutorSourceBatchInput = DistributiveOmit<
-  ConnectGoogleDiscoveryBatchInput,
-  "scopeId" | "actorScopeId" | "executionId" | "interactionId"
->;
-
-export type ExecutorMcpSourceInput = DistributiveOmit<
-  ConnectMcpSourceInput,
-  "scopeId" | "actorScopeId"
->;
-
-export type ExecutorSourceOAuthInput = DistributiveOmit<
-  StartSourceOAuthSessionInput,
-  "scopeId" | "actorScopeId"
->;
-
 export type ExecutorEffect = {
   runtime: ExecutorRuntime;
+  scope: ExecutorRuntime["scope"];
   installation: LocalInstallation;
   scopeId: ScopeId;
   actorScopeId: ScopeId;
@@ -139,30 +92,6 @@ export type ExecutorEffect = {
   local: {
     installation: () => ProvidedEffect<ReturnType<typeof getLocalInstallation>>;
     config: () => ProvidedEffect<ReturnType<typeof getLocalInstanceConfig>>;
-    credentials: {
-      get: (input: {
-        sourceId: Source["id"];
-        interactionId: ExecutionInteraction["id"];
-      }) => ProvidedEffect<ReturnType<typeof getSourceCredentialInteraction>>;
-      submit: (input: {
-        sourceId: Source["id"];
-        interactionId: ExecutionInteraction["id"];
-        action: "submit" | "continue" | "cancel";
-        token?: string | null;
-      }) => ProvidedEffect<
-        ReturnType<typeof submitSourceCredentialInteraction>
-      >;
-      complete: (input: {
-        sourceId: Source["id"];
-        state: string;
-        code?: string | null;
-        error?: string | null;
-        errorDescription?: string | null;
-      }) => MappedProvidedEffect<
-        ReturnType<typeof completeSourceCredentialSetup>,
-        CompleteSourceCredentialSetupResult
-      >;
-    };
   };
   secrets: {
     list: () => ProvidedEffect<ReturnType<typeof listLocalSecrets>>;
@@ -195,31 +124,8 @@ export type ExecutorEffect = {
     ) => MappedProvidedEffect<ReturnType<typeof removePolicy>, boolean>;
   };
   sources: {
-    add: (
-      input: ExecutorSourceInput,
-      options?: {
-        baseUrl?: string | null;
-      },
-    ) => Effect.Effect<ExecutorSourceAddResult, Error, never>;
-    connect: (
-      payload: ExecutorMcpSourceInput,
-    ) => Effect.Effect<McpSourceConnectResult, Error, never>;
-    connectBatch: (
-      payload: ExecutorSourceBatchInput,
-    ) => Effect.Effect<ConnectGoogleDiscoveryBatchResult, Error, never>;
-    discover: (input: {
-      url: string;
-      probeAuth?: Parameters<typeof discoverSource>[0]["probeAuth"];
-    }) => ProvidedEffect<ReturnType<typeof discoverSource>>;
     list: () => ProvidedEffect<ReturnType<typeof listSources>>;
-    create: (
-      payload: CreateSourcePayload,
-    ) => ProvidedEffect<ReturnType<typeof createSource>>;
     get: (sourceId: Source["id"]) => ProvidedEffect<ReturnType<typeof getSource>>;
-    update: (
-      sourceId: Source["id"],
-      payload: UpdateSourcePayload,
-    ) => ProvidedEffect<ReturnType<typeof updateSource>>;
     remove: (
       sourceId: Source["id"],
     ) => MappedProvidedEffect<ReturnType<typeof removeSource>, boolean>;
@@ -238,43 +144,9 @@ export type ExecutorEffect = {
         ReturnType<typeof discoverSourceInspectionTools>
       >;
     };
-    oauthClients: {
-      list: (
-        providerKey: string,
-      ) => Effect.Effect<ReadonlyArray<ScopeOauthClient>, Error, never>;
-      create: (
-        payload: CreateScopeOauthClientPayload,
-      ) => Effect.Effect<ScopeOauthClient, Error, never>;
-      remove: (
-        oauthClientId: ScopeOauthClient["id"],
-      ) => Effect.Effect<boolean, Error, never>;
-    };
-    providerGrants: {
-      remove: (
-        grantId: ProviderAuthGrant["id"],
-      ) => Effect.Effect<boolean, Error, never>;
-    };
-  };
-  oauth: {
-    startSourceAuth: (
-      input: ExecutorSourceOAuthInput,
-    ) => Effect.Effect<StartSourceOAuthSessionResult, Error, never>;
-    completeSourceAuth: (input: {
-      state: string;
-      code?: string | null;
-      error?: string | null;
-      errorDescription?: string | null;
-    }) => Effect.Effect<CompleteSourceOAuthSessionResult, Error, never>;
-    completeProviderCallback: (input: {
-      scopeId?: ScopeId;
-      actorScopeId?: ScopeId | null;
-      state: string;
-      code?: string | null;
-      error?: string | null;
-      errorDescription?: string | null;
-    }) => Effect.Effect<CompleteProviderOauthCallbackResult, Error, never>;
   };
   executions: {
+    list: () => ProvidedEffect<ReturnType<typeof listExecutions>>;
     create: (
       payload: CreateExecutionPayload,
     ) => ProvidedEffect<ReturnType<typeof createExecution>>;
@@ -292,27 +164,22 @@ export type CreateExecutorEffectOptions = ExecutorRuntimeOptions & {
   backend: ExecutorBackend;
 };
 
+type CreateExecutorEffectOptionsWithPlugins<
+  TPlugins extends readonly ExecutorSdkPlugin<any, any>[],
+> = CreateExecutorEffectOptions & {
+  plugins?: TPlugins;
+};
+
 const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
   const installation = runtime.localInstallation;
   const scopeId = installation.scopeId;
   const actorScopeId = installation.actorScopeId;
   const provide = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     provideExecutorRuntime(effect, runtime);
-  const provideSourceAuth = <A, E>(
-    execute: (
-      service: Effect.Effect.Success<typeof RuntimeSourceAuthServiceTag>,
-    ) => Effect.Effect<A, E, any>,
-  ) => provide(Effect.flatMap(RuntimeSourceAuthServiceTag, execute));
-  const createSdkSourceSession = () => {
-    const id = crypto.randomUUID();
-    return {
-      executionId: ExecutionIdSchema.make(`exec_sdk_${id}`),
-      interactionId: `executor.sdk.${id}` as never,
-    };
-  };
 
   return {
     runtime,
+    scope: runtime.scope,
     installation,
     scopeId,
     actorScopeId,
@@ -321,37 +188,6 @@ const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
     local: {
       installation: () => provide(getLocalInstallation()),
       config: () => provide(getLocalInstanceConfig()),
-      credentials: {
-        get: ({ sourceId, interactionId }) =>
-          provide(
-            getSourceCredentialInteraction({
-              scopeId,
-              sourceId,
-              interactionId,
-            }),
-          ),
-        submit: ({ sourceId, interactionId, action, token }) =>
-          provide(
-            submitSourceCredentialInteraction({
-              scopeId,
-              sourceId,
-              interactionId,
-              action,
-              token,
-            }),
-          ),
-        complete: ({ sourceId, state, code, error, errorDescription }) =>
-          provide(
-            completeSourceCredentialSetup({
-              scopeId,
-              sourceId,
-              state,
-              code,
-              error,
-              errorDescription,
-            }),
-          ),
-      },
     },
     secrets: {
       list: () => provide(listLocalSecrets()),
@@ -372,45 +208,8 @@ const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
         ),
     },
     sources: {
-      add: (input, options) =>
-        provideSourceAuth((service) => {
-          const session = createSdkSourceSession();
-          return service.addExecutorSource(
-            {
-              ...input,
-              scopeId,
-              actorScopeId,
-              executionId: session.executionId,
-              interactionId: session.interactionId,
-            },
-            options,
-          );
-        }),
-      connect: (payload) =>
-        provideSourceAuth((service) =>
-          service.connectMcpSource({
-            ...payload,
-            scopeId,
-            actorScopeId,
-          }),
-        ),
-      connectBatch: (payload) =>
-        provideSourceAuth((service) => {
-          const session = createSdkSourceSession();
-          return service.connectGoogleDiscoveryBatch({
-            ...payload,
-            scopeId,
-            actorScopeId,
-            executionId: session.executionId,
-            interactionId: session.interactionId,
-          });
-        }),
-      discover: (input) => provide(discoverSource(input)),
       list: () => provide(listSources({ scopeId, actorScopeId })),
-      create: (payload) => provide(createSource({ scopeId, actorScopeId, payload })),
       get: (sourceId) => provide(getSource({ scopeId, sourceId, actorScopeId })),
-      update: (sourceId, payload) =>
-        provide(updateSource({ scopeId, sourceId, actorScopeId, payload })),
       remove: (sourceId) =>
         provide(removeSource({ scopeId, sourceId })).pipe(
           Effect.map((result) => result.removed),
@@ -434,69 +233,9 @@ const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
             }),
           ),
       },
-      oauthClients: {
-        list: (providerKey) =>
-          provideSourceAuth((service) =>
-            service.listScopeOauthClients({
-              scopeId,
-              providerKey,
-            }),
-          ),
-        create: (payload) =>
-          provideSourceAuth((service) =>
-            service.createScopeOauthClient({
-              scopeId,
-              providerKey: payload.providerKey,
-              label: payload.label,
-              oauthClient: payload.oauthClient,
-            }),
-          ),
-        remove: (oauthClientId) =>
-          provideSourceAuth((service) =>
-            service.removeScopeOauthClient({
-              scopeId,
-              oauthClientId,
-            }),
-          ),
-      },
-      providerGrants: {
-        remove: (grantId) =>
-          provideSourceAuth((service) =>
-            service.removeProviderAuthGrant({
-              scopeId,
-              grantId,
-            }),
-          ),
-      },
-    },
-    oauth: {
-      startSourceAuth: (input) =>
-        provideSourceAuth((service) =>
-          service.startSourceOAuthSession({
-            ...input,
-            scopeId,
-            actorScopeId,
-          }),
-        ),
-      completeSourceAuth: ({ state, code, error, errorDescription }) =>
-        provideSourceAuth((service) =>
-          service.completeSourceOAuthSession({
-            state,
-            code,
-            error,
-            errorDescription,
-          }),
-        ),
-      completeProviderCallback: (input) =>
-        provideSourceAuth((service) =>
-          service.completeProviderOauthCallback({
-            ...input,
-            scopeId: input.scopeId ?? scopeId,
-            actorScopeId: input.actorScopeId ?? actorScopeId,
-          }),
-        ),
     },
     executions: {
+      list: () => provide(listExecutions({ scopeId })),
       create: (payload) =>
         provide(
           createExecution({
@@ -519,15 +258,164 @@ const fromRuntime = (runtime: ExecutorRuntime): ExecutorEffect => {
   };
 };
 
-export const createExecutorEffect = (
-  options: CreateExecutorEffectOptions,
-): Effect.Effect<ExecutorEffect, Error> =>
-  Effect.map(
+export const createExecutorEffect = <
+  const TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
+>(
+  options: CreateExecutorEffectOptionsWithPlugins<TPlugins>,
+): Effect.Effect<ExecutorEffect & ExecutorSdkPluginExtensions<TPlugins>, Error> => {
+  configureExecutorSourcePlugins(options.plugins ?? []);
+
+  return Effect.flatMap(
     options.backend.createRuntime({
       executionResolver: options.executionResolver,
-      createInternalToolMap: options.createInternalToolMap,
       resolveSecretMaterial: options.resolveSecretMaterial,
       getLocalServerBaseUrl: options.getLocalServerBaseUrl,
     }),
-    fromRuntime,
+    (runtime) =>
+      Effect.gen(function* () {
+        const executor = fromRuntime(runtime);
+        const providePluginHostEffect = <A>(
+          effect: Effect.Effect<A, unknown, any>,
+        ): Effect.Effect<A, Error, never> =>
+          provideExecutorRuntime(effect, runtime).pipe(
+            Effect.mapError((cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+            ),
+          );
+        const providePluginExtensionValue = (value: unknown): unknown => {
+          if (Effect.isEffect(value)) {
+            return providePluginHostEffect(value);
+          }
+
+          if (typeof value === "function") {
+            return (...args: Array<unknown>) =>
+              providePluginExtensionValue(value(...args));
+          }
+
+          if (Array.isArray(value)) {
+            return value.map(providePluginExtensionValue);
+          }
+
+          if (value !== null && typeof value === "object") {
+            return Object.fromEntries(
+              Object.entries(value).map(([key, nestedValue]) => [
+                key,
+                providePluginExtensionValue(nestedValue),
+              ]),
+            );
+          }
+
+          return value;
+        };
+        const sourceHost = {
+          sources: {
+            create: ({
+              source,
+            }: {
+              source: Omit<
+                Source,
+                "id" | "scopeId" | "createdAt" | "updatedAt"
+              >;
+            }) =>
+              providePluginHostEffect(
+                createManagedSourceRecord({
+                  scopeId: executor.scopeId,
+                  actorScopeId: executor.actorScopeId,
+                  source,
+                }),
+              ),
+            get: (sourceId: Source["id"]) =>
+              providePluginHostEffect(
+                getSource({
+                  scopeId: executor.scopeId,
+                  sourceId,
+                  actorScopeId: executor.actorScopeId,
+                }),
+              ),
+            save: (source: Source) =>
+              providePluginHostEffect(
+                saveManagedSourceRecord({
+                  actorScopeId: executor.actorScopeId,
+                  source,
+                }),
+              ),
+            refreshCatalog: (sourceId: Source["id"]) =>
+              providePluginHostEffect(
+                refreshManagedSourceCatalog({
+                  scopeId: executor.scopeId,
+                  sourceId,
+                  actorScopeId: executor.actorScopeId,
+                }),
+              ),
+            remove: (sourceId: Source["id"]) =>
+              providePluginHostEffect(
+                removeSource({
+                  scopeId: executor.scopeId,
+                  sourceId,
+                }).pipe(Effect.map((result) => result.removed)),
+              ),
+          },
+        };
+        const host: ExecutorSdkPluginHost = sourceHost;
+        const extensions = Object.fromEntries(
+          (options.plugins ?? []).map((plugin) => [
+            plugin.key,
+            providePluginExtensionValue(
+              plugin.extendExecutor?.({
+                executor,
+                scope: executor.scope,
+                host,
+              }) ?? {},
+            ),
+          ]),
+        );
+
+        const startedExecutor = Object.assign(
+          executor,
+          extensions,
+        ) as ExecutorEffect & ExecutorSdkPluginExtensions<TPlugins>;
+
+        const cleanups: PluginCleanup[] = [];
+
+        for (const plugin of options.plugins ?? []) {
+          if (!plugin.start) {
+            continue;
+          }
+
+          const extension = (
+            startedExecutor as Record<string, unknown>
+          )[plugin.key] as Record<string, unknown> | undefined;
+          const cleanup = yield* providePluginHostEffect(
+            plugin.start({
+              executor: startedExecutor,
+              scope: startedExecutor.scope,
+              host,
+              extension: (extension ?? {}) as never,
+            }),
+          );
+
+          if (cleanup) {
+            cleanups.push(cleanup);
+          }
+        }
+
+        startedExecutor.close = async () => {
+          for (const cleanup of [...cleanups].reverse()) {
+            await cleanup.close();
+          }
+
+          await runtime.close();
+        };
+
+        return startedExecutor;
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.tryPromise({
+            try: () => runtime.close(),
+            catch: (cause) =>
+              cause instanceof Error ? cause : new Error(String(cause)),
+          }).pipe(Effect.catchAll(() => Effect.void)),
+        ),
+      ),
   );
+};

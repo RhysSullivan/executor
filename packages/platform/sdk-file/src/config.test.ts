@@ -38,9 +38,6 @@ describe("local-config", () => {
   "sources": {
     "github": {
       "kind": "openapi",
-      "connection": {
-        "endpoint": "https://api.github.com",
-      },
       "binding": {
         "specUrl": "https://example.com/openapi.json",
       },
@@ -54,9 +51,6 @@ describe("local-config", () => {
       const loaded = yield* loadLocalExecutorConfig(context);
 
       expect(loaded.config?.sources?.github?.kind).toBe("openapi");
-      expect(loaded.config?.sources?.github?.connection.endpoint).toBe(
-        "https://api.github.com",
-      );
       expect(loaded.config?.runtime).toBe("ses");
       expect(context.homeStateDirectory.toLowerCase()).toContain("executor");
     }).pipe(Effect.provide(NodeFileSystem.layer)),
@@ -74,8 +68,8 @@ describe("local-config", () => {
   "sources": {
     "github": {
       "kind": "openapi"
-      "connection": {
-        "endpoint": "https://api.github.com"
+      "binding": {
+        "specUrl": "https://api.github.com/openapi.json"
       }
     }
   }

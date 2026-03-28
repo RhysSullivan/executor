@@ -10,12 +10,9 @@ import * as Effect from "effect/Effect";
 import type {
   LoadedSourceCatalogToolIndexEntry,
 } from "../catalog/source/runtime";
-import type {
-  ResolvedSourceAuthMaterial,
-} from "../auth/source-auth-material";
 import {
-  getSourceAdapter,
-} from "../sources/source-adapters";
+  getSourceContribution,
+} from "../sources/source-plugins";
 import {
   runtimeEffectError,
 } from "../effect-errors";
@@ -55,28 +52,26 @@ export const invokeIrTool = (input: {
   scopeId: Source["scopeId"];
   actorScopeId: ScopeId;
   tool: LoadedSourceCatalogToolIndexEntry;
-  auth: ResolvedSourceAuthMaterial;
   args: unknown;
   onElicitation?: OnElicitation;
   context?: Record<string, unknown>;
 }) => {
-  const adapter = getSourceAdapter(input.tool.executable.adapterKey);
-  if (adapter.key !== input.tool.source.kind) {
+  const definition = getSourceContribution(input.tool.executable.pluginKey);
+  if (definition.kind !== input.tool.source.kind) {
     return Effect.fail(
       runtimeEffectError("execution/ir-execution", 
-        `Executable ${input.tool.executable.id} expects adapter ${adapter.key}, but source ${input.tool.source.id} is ${input.tool.source.kind}`,
+        `Executable ${input.tool.executable.id} expects source type ${definition.kind}, but source ${input.tool.source.id} is ${input.tool.source.kind}`,
       ),
     );
   }
 
-  return adapter.invoke({
+  return definition.invoke({
     source: input.tool.source,
     capability: input.tool.capability,
     executable: input.tool.executable,
     descriptor: input.tool.descriptor,
     catalog: input.tool.projectedCatalog,
     args: input.args,
-    auth: input.auth,
     onElicitation: input.onElicitation,
     context: input.context,
   });

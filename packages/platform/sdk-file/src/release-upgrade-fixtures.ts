@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { resolveLocalWorkspaceContext } from "./config";
@@ -48,27 +50,45 @@ export const defaultReleaseWorkspaceFixtureDirectoryName = (input: {
 }): string =>
   `${sanitizeFixtureSegment(input.releaseVersion)}-${sanitizeFixtureSegment(input.sourceId)}-workspace`;
 
-export const releaseWorkspaceFixtures: readonly ReleaseWorkspaceFixture[] =
-  readdirSync(releaseWorkspaceFixturesRoot, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .flatMap((entry) => {
-      const rootDirectory = join(releaseWorkspaceFixturesRoot, entry.name);
-      const manifestPath = join(rootDirectory, "fixture.json");
+const loadReleaseWorkspaceFixtures = () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const entries = yield* fs.readDirectory(releaseWorkspaceFixturesRoot);
+    const fixtures: ReleaseWorkspaceFixture[] = [];
 
-      if (!existsSync(manifestPath)) {
-        return [];
+    for (const entry of entries.sort((left, right) => left.localeCompare(right))) {
+      const rootDirectory = join(releaseWorkspaceFixturesRoot, entry);
+      const info = yield* fs.stat(rootDirectory);
+      if (info.type !== "Directory") {
+        continue;
+      }
+
+      const manifestPath = join(rootDirectory, "fixture.json");
+      const exists = yield* fs.exists(manifestPath);
+      if (!exists) {
+        continue;
       }
 
       const manifest = decodeReleaseWorkspaceFixtureManifest(
-        readFileSync(manifestPath, "utf8"),
+        yield* fs.readFileString(manifestPath, "utf8"),
       );
-      return [{ ...manifest, rootDirectory }];
-    })
-    .sort(
+      fixtures.push({ ...manifest, rootDirectory });
+    }
+
+    return fixtures.sort(
       (left, right) =>
         left.releaseVersion.localeCompare(right.releaseVersion) ||
         left.id.localeCompare(right.id),
     );
+  });
+
+export const releaseWorkspaceFixtures: readonly ReleaseWorkspaceFixture[] =
+  Effect.runSync(
+    loadReleaseWorkspaceFixtures().pipe(
+      Effect.provide(NodeFileSystem.layer),
+      Effect.orDie,
+    ),
+  );
 
 export const resolveReleaseWorkspaceFixtureContext = (
   fixture: ReleaseWorkspaceFixture,

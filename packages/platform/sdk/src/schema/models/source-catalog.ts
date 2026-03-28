@@ -10,12 +10,9 @@ import {
   SourceCatalogRevisionIdSchema,
 } from "../ids";
 
-export const SourceCatalogKindSchema = Schema.Literal(
-  "imported",
-  "internal",
-);
+export const SourceCatalogKindSchema = Schema.Literal("imported");
 
-export const SourceCatalogAdapterKeySchema = Schema.String;
+export const SourceCatalogPluginKeySchema = Schema.String;
 
 export const SourceCatalogVisibilitySchema = Schema.Literal(
   "private",
@@ -27,8 +24,7 @@ export const SourceCatalogVisibilitySchema = Schema.Literal(
 export const StoredSourceCatalogRecordSchema = Schema.Struct({
   id: SourceCatalogIdSchema,
   kind: SourceCatalogKindSchema,
-  adapterKey: SourceCatalogAdapterKeySchema,
-  providerKey: Schema.String,
+  pluginKey: SourceCatalogPluginKeySchema,
   name: Schema.String,
   summary: Schema.NullOr(Schema.String),
   visibility: SourceCatalogVisibilitySchema,
@@ -50,7 +46,7 @@ export const StoredSourceCatalogRevisionRecordSchema = Schema.Struct({
 });
 
 export type SourceCatalogKind = typeof SourceCatalogKindSchema.Type;
-export type SourceCatalogAdapterKey = typeof SourceCatalogAdapterKeySchema.Type;
+export type SourceCatalogPluginKey = typeof SourceCatalogPluginKeySchema.Type;
 export type SourceCatalogVisibility = typeof SourceCatalogVisibilitySchema.Type;
 export type StoredSourceCatalogRecord = typeof StoredSourceCatalogRecordSchema.Type;
 export type StoredSourceCatalogRevisionRecord = typeof StoredSourceCatalogRevisionRecordSchema.Type;

@@ -17,25 +17,23 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import {
+  ExecutorStateStore,
+  runtimeEffectError,
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
   SecretMaterialUpdaterService,
+  fromConfigSecretProviderId,
+  getRuntimeLocalScopeOption,
+  type ExecutorStateStoreShape,
   type ResolveSecretMaterial,
   type ResolveInstanceConfig,
   type SecretMaterialResolveContext,
   type StoreSecretMaterial,
   type DeleteSecretMaterial,
   type UpdateSecretMaterial,
-} from "../../sdk/src/runtime/scope/secret-material-providers";
-import { fromConfigSecretProviderId } from "../../sdk/src/runtime/scope/config-secrets";
-import { getRuntimeLocalScopeOption } from "../../sdk/src/runtime/scope/runtime-context";
-import {
-  ExecutorStateStore,
-  type ExecutorStateStoreShape,
-} from "../../sdk/src/runtime/executor-state-store";
-import { runtimeEffectError } from "../../sdk/src/runtime/effect-errors";
+} from "@executor/platform-sdk/runtime";
 import { resolveConfigRelativePath } from "./config";
 
 export const ENV_SECRET_PROVIDER_ID = "env";

@@ -4,26 +4,14 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 
 import {
-  AuthArtifactSchema,
-  AuthLeaseSchema,
-  type AuthArtifact,
-  type AuthLease,
   type Execution,
   type ExecutionInteraction,
   type ExecutionStep,
   ExecutionInteractionSchema,
   ExecutionSchema,
   ExecutionStepSchema,
-  type ProviderAuthGrant,
-  ProviderAuthGrantSchema,
   SecretMaterialSchema,
   type SecretMaterial,
-  type SourceAuthSession,
-  SourceAuthSessionSchema,
-  type ScopeOauthClient,
-  ScopeOauthClientSchema,
-  type ScopedSourceOauthClient,
-  ScopedSourceOauthClientSchema,
 } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -41,12 +29,6 @@ const LOCAL_EXECUTOR_STATE_BASENAME = "executor-state.json";
 
 const LocalExecutorStateSnapshotSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_EXECUTOR_STATE_VERSION),
-  authArtifacts: Schema.Array(AuthArtifactSchema),
-  authLeases: Schema.Array(AuthLeaseSchema),
-  sourceOauthClients: Schema.Array(ScopedSourceOauthClientSchema),
-  scopeOauthClients: Schema.Array(ScopeOauthClientSchema),
-  providerAuthGrants: Schema.Array(ProviderAuthGrantSchema),
-  sourceAuthSessions: Schema.Array(SourceAuthSessionSchema),
   secretMaterials: Schema.Array(SecretMaterialSchema),
   executions: Schema.Array(ExecutionSchema),
   executionInteractions: Schema.Array(ExecutionInteractionSchema),
@@ -66,12 +48,6 @@ const decodeLocalExecutorStateSnapshot = Schema.decodeUnknown(
 
 const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
   version: LOCAL_EXECUTOR_STATE_VERSION,
-  authArtifacts: [],
-  authLeases: [],
-  sourceOauthClients: [],
-  scopeOauthClients: [],
-  providerAuthGrants: [],
-  sourceAuthSessions: [],
   secretMaterials: [],
   executions: [],
   executionInteractions: [],
@@ -143,18 +119,6 @@ const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
     path,
     details: unknownLocalErrorDetails(cause),
   });
-
-const actorEquals = (
-  left: string | null | undefined,
-  right: string | null | undefined,
-): boolean => (left ?? null) === (right ?? null);
-
-const sortByUpdatedAtAndIdAsc = <T extends { updatedAt: number; id: string }>(
-  values: readonly T[],
-): T[] =>
-  [...values].sort((left, right) =>
-    left.updatedAt - right.updatedAt || left.id.localeCompare(right.id),
-  );
 
 const sortByUpdatedAtAndIdDesc = <T extends { updatedAt: number; id: string }>(
   values: readonly T[],
@@ -264,140 +228,11 @@ const mergeById = <T extends { id: string }>(
   return [...merged.values()];
 };
 
-const mergeAuthLeases = (
-  current: readonly AuthLease[],
-  imported: readonly AuthLease[],
-): AuthLease[] => {
-  const merged = new Map<string, AuthLease>();
-
-  for (const lease of imported) {
-    merged.set(lease.authArtifactId, cloneValue(lease));
-  }
-
-  for (const lease of current) {
-    merged.set(lease.authArtifactId, cloneValue(lease));
-  }
-
-  return [...merged.values()];
-};
-
-const mergeAuthArtifacts = (
-  current: readonly AuthArtifact[],
-  imported: readonly AuthArtifact[],
-): AuthArtifact[] => {
-  const merged = new Map<string, AuthArtifact>();
-
-  for (const artifact of imported) {
-    merged.set(
-      [
-        artifact.scopeId,
-        artifact.sourceId,
-        artifact.actorScopeId ?? "",
-        artifact.slot,
-      ].join("::"),
-      cloneValue(artifact),
-    );
-  }
-
-  for (const artifact of current) {
-    merged.set(
-      [
-        artifact.scopeId,
-        artifact.sourceId,
-        artifact.actorScopeId ?? "",
-        artifact.slot,
-      ].join("::"),
-      cloneValue(artifact),
-    );
-  }
-
-  return [...merged.values()];
-};
-
-const mergeSourceOauthClients = (
-  current: readonly ScopedSourceOauthClient[],
-  imported: readonly ScopedSourceOauthClient[],
-): ScopedSourceOauthClient[] => {
-  const merged = new Map<string, ScopedSourceOauthClient>();
-
-  for (const oauthClient of imported) {
-    merged.set(
-      [oauthClient.scopeId, oauthClient.sourceId, oauthClient.providerKey].join(
-        "::",
-      ),
-      cloneValue(oauthClient),
-    );
-  }
-
-  for (const oauthClient of current) {
-    merged.set(
-      [oauthClient.scopeId, oauthClient.sourceId, oauthClient.providerKey].join(
-        "::",
-      ),
-      cloneValue(oauthClient),
-    );
-  }
-
-  return [...merged.values()];
-};
-
-const mergeWorkspaceOauthClients = (
-  current: readonly ScopeOauthClient[],
-  imported: readonly ScopeOauthClient[],
-): ScopeOauthClient[] => {
-  const merged = new Map<string, ScopeOauthClient>();
-
-  for (const oauthClient of imported) {
-    merged.set(
-      [oauthClient.scopeId, oauthClient.providerKey, oauthClient.id].join("::"),
-      cloneValue(oauthClient),
-    );
-  }
-
-  for (const oauthClient of current) {
-    merged.set(
-      [oauthClient.scopeId, oauthClient.providerKey, oauthClient.id].join("::"),
-      cloneValue(oauthClient),
-    );
-  }
-
-  return [...merged.values()];
-};
-
-const mergeProviderAuthGrants = (
-  current: readonly ProviderAuthGrant[],
-  imported: readonly ProviderAuthGrant[],
-): ProviderAuthGrant[] => mergeById(current, imported);
-
 export const mergeImportedLocalExecutorStateSnapshot = (input: {
   current: LocalExecutorStateSnapshot;
   imported: Partial<Omit<LocalExecutorStateSnapshot, "version">>;
 }): LocalExecutorStateSnapshot => ({
   version: LOCAL_EXECUTOR_STATE_VERSION,
-  authArtifacts: mergeAuthArtifacts(
-    input.current.authArtifacts,
-    input.imported.authArtifacts ?? [],
-  ),
-  authLeases: mergeAuthLeases(
-    input.current.authLeases,
-    input.imported.authLeases ?? [],
-  ),
-  sourceOauthClients: mergeSourceOauthClients(
-    input.current.sourceOauthClients,
-    input.imported.sourceOauthClients ?? [],
-  ),
-  scopeOauthClients: mergeWorkspaceOauthClients(
-    input.current.scopeOauthClients,
-    input.imported.scopeOauthClients ?? [],
-  ),
-  providerAuthGrants: mergeProviderAuthGrants(
-    input.current.providerAuthGrants,
-    input.imported.providerAuthGrants ?? [],
-  ),
-  sourceAuthSessions: mergeById(
-    input.current.sourceAuthSessions,
-    input.imported.sourceAuthSessions ?? [],
-  ),
   secretMaterials: mergeById(
     input.current.secretMaterials,
     input.imported.secretMaterials ?? [],
@@ -499,474 +334,6 @@ export const createLocalExecutorStateStore = (
   const stateManager = createStateManager(context, fileSystem);
 
   return {
-    authArtifacts: {
-      listByScopeId: (scopeId: AuthArtifact["scopeId"]) =>
-        stateManager.read((state) =>
-          sortByUpdatedAtAndIdAsc(
-            state.authArtifacts.filter((artifact) => artifact.scopeId === scopeId),
-          ),
-        ),
-
-      listByScopeAndSourceId: (input: {
-        scopeId: AuthArtifact["scopeId"];
-        sourceId: AuthArtifact["sourceId"];
-      }) =>
-        stateManager.read((state) =>
-          sortByUpdatedAtAndIdAsc(
-            state.authArtifacts.filter(
-              (artifact) =>
-                artifact.scopeId === input.scopeId
-                && artifact.sourceId === input.sourceId,
-            ),
-          ),
-        ),
-
-      getByScopeSourceAndActor: (input: {
-        scopeId: AuthArtifact["scopeId"];
-        sourceId: AuthArtifact["sourceId"];
-        actorScopeId: AuthArtifact["actorScopeId"];
-        slot: AuthArtifact["slot"];
-      }) =>
-        stateManager.read((state) => {
-          const artifact = state.authArtifacts.find(
-            (candidate) =>
-              candidate.scopeId === input.scopeId
-              && candidate.sourceId === input.sourceId
-              && candidate.slot === input.slot
-              && actorEquals(candidate.actorScopeId, input.actorScopeId),
-          );
-
-          return artifact ? Option.some(cloneValue(artifact)) : Option.none<AuthArtifact>();
-        }),
-
-      upsert: (artifact: AuthArtifact) =>
-        stateManager.mutate((state) => {
-          const nextArtifacts = state.authArtifacts.filter(
-            (candidate) =>
-              !(
-                candidate.scopeId === artifact.scopeId
-                && candidate.sourceId === artifact.sourceId
-                && candidate.slot === artifact.slot
-                && actorEquals(candidate.actorScopeId, artifact.actorScopeId)
-              ),
-          );
-          nextArtifacts.push(cloneValue(artifact));
-
-          return {
-            state: {
-              ...state,
-              authArtifacts: nextArtifacts,
-            },
-            value: undefined,
-          } satisfies StateMutationResult<void>;
-        }),
-
-      removeByScopeSourceAndActor: (input: {
-        scopeId: AuthArtifact["scopeId"];
-        sourceId: AuthArtifact["sourceId"];
-        actorScopeId: AuthArtifact["actorScopeId"];
-        slot?: AuthArtifact["slot"];
-      }) =>
-        stateManager.mutate((state) => {
-          const nextArtifacts = state.authArtifacts.filter(
-            (candidate) =>
-              candidate.scopeId !== input.scopeId
-              || candidate.sourceId !== input.sourceId
-              || !actorEquals(candidate.actorScopeId, input.actorScopeId)
-              || (input.slot !== undefined && candidate.slot !== input.slot),
-          );
-
-          return {
-            state: {
-              ...state,
-              authArtifacts: nextArtifacts,
-            },
-            value: nextArtifacts.length !== state.authArtifacts.length,
-          } satisfies StateMutationResult<boolean>;
-        }),
-
-      removeByScopeAndSourceId: (input: {
-        scopeId: AuthArtifact["scopeId"];
-        sourceId: AuthArtifact["sourceId"];
-      }) =>
-        stateManager.mutate((state) => {
-          const nextArtifacts = state.authArtifacts.filter(
-            (candidate) =>
-              candidate.scopeId !== input.scopeId
-              || candidate.sourceId !== input.sourceId,
-          );
-
-          return {
-            state: {
-              ...state,
-              authArtifacts: nextArtifacts,
-            },
-            value: state.authArtifacts.length - nextArtifacts.length,
-          } satisfies StateMutationResult<number>;
-        }),
-    },
-
-    authLeases: {
-      listAll: () =>
-        stateManager.read((state) => sortByUpdatedAtAndIdAsc(state.authLeases)),
-
-      getByAuthArtifactId: (authArtifactId: AuthLease["authArtifactId"]) =>
-        stateManager.read((state) => {
-          const lease = state.authLeases.find(
-            (candidate) => candidate.authArtifactId === authArtifactId,
-          );
-          return lease ? Option.some(cloneValue(lease)) : Option.none<AuthLease>();
-        }),
-
-      upsert: (lease: AuthLease) =>
-        stateManager.mutate((state) => {
-          const nextLeases = state.authLeases.filter(
-            (candidate) => candidate.authArtifactId !== lease.authArtifactId,
-          );
-          nextLeases.push(cloneValue(lease));
-
-          return {
-            state: {
-              ...state,
-              authLeases: nextLeases,
-            },
-            value: undefined,
-          } satisfies StateMutationResult<void>;
-        }),
-
-      removeByAuthArtifactId: (authArtifactId: AuthLease["authArtifactId"]) =>
-        stateManager.mutate((state) => {
-          const nextLeases = state.authLeases.filter(
-            (candidate) => candidate.authArtifactId !== authArtifactId,
-          );
-
-          return {
-            state: {
-              ...state,
-              authLeases: nextLeases,
-            },
-            value: nextLeases.length !== state.authLeases.length,
-          } satisfies StateMutationResult<boolean>;
-        }),
-    },
-
-    sourceOauthClients: {
-      getByScopeSourceAndProvider: (input: {
-        scopeId: ScopedSourceOauthClient["scopeId"];
-        sourceId: ScopedSourceOauthClient["sourceId"];
-        providerKey: string;
-      }) =>
-        stateManager.read((state) => {
-          const oauthClient = state.sourceOauthClients.find(
-            (candidate) =>
-              candidate.scopeId === input.scopeId
-              && candidate.sourceId === input.sourceId
-              && candidate.providerKey === input.providerKey,
-          );
-
-          return oauthClient
-            ? Option.some(cloneValue(oauthClient))
-            : Option.none<ScopedSourceOauthClient>();
-        }),
-
-      upsert: (oauthClient: ScopedSourceOauthClient) =>
-        stateManager.mutate((state) => {
-          const nextOauthClients = state.sourceOauthClients.filter(
-            (candidate) =>
-              !(
-                candidate.scopeId === oauthClient.scopeId
-                && candidate.sourceId === oauthClient.sourceId
-                && candidate.providerKey === oauthClient.providerKey
-              ),
-          );
-          nextOauthClients.push(cloneValue(oauthClient));
-
-          return {
-            state: {
-              ...state,
-              sourceOauthClients: nextOauthClients,
-            },
-            value: undefined,
-          } satisfies StateMutationResult<void>;
-        }),
-
-      removeByScopeAndSourceId: (input: {
-        scopeId: ScopedSourceOauthClient["scopeId"];
-        sourceId: ScopedSourceOauthClient["sourceId"];
-      }) =>
-        stateManager.mutate((state) => {
-          const nextOauthClients = state.sourceOauthClients.filter(
-            (candidate) =>
-              candidate.scopeId !== input.scopeId
-              || candidate.sourceId !== input.sourceId,
-          );
-
-          return {
-            state: {
-              ...state,
-              sourceOauthClients: nextOauthClients,
-            },
-            value: state.sourceOauthClients.length - nextOauthClients.length,
-          } satisfies StateMutationResult<number>;
-        }),
-    },
-
-    scopeOauthClients: {
-      listByScopeAndProvider: (input: {
-        scopeId: ScopeOauthClient["scopeId"];
-        providerKey: string;
-      }) =>
-        stateManager.read((state) =>
-          sortByUpdatedAtAndIdAsc(
-            state.scopeOauthClients.filter(
-              (candidate) =>
-                candidate.scopeId === input.scopeId
-                && candidate.providerKey === input.providerKey,
-            ),
-          ),
-        ),
-
-      getById: (id: ScopeOauthClient["id"]) =>
-        stateManager.read((state) => {
-          const oauthClient = state.scopeOauthClients.find(
-            (candidate) => candidate.id === id,
-          );
-
-          return oauthClient
-            ? Option.some(cloneValue(oauthClient))
-            : Option.none<ScopeOauthClient>();
-        }),
-
-      upsert: (oauthClient: ScopeOauthClient) =>
-        stateManager.mutate((state) => {
-          const nextOauthClients = state.scopeOauthClients.filter(
-            (candidate) => candidate.id !== oauthClient.id,
-          );
-          nextOauthClients.push(cloneValue(oauthClient));
-
-          return {
-            state: {
-              ...state,
-              scopeOauthClients: nextOauthClients,
-            },
-            value: undefined,
-          } satisfies StateMutationResult<void>;
-        }),
-
-      removeById: (id: ScopeOauthClient["id"]) =>
-        stateManager.mutate((state) => {
-          const nextOauthClients = state.scopeOauthClients.filter(
-            (candidate) => candidate.id !== id,
-          );
-
-          return {
-            state: {
-              ...state,
-              scopeOauthClients: nextOauthClients,
-            },
-            value: nextOauthClients.length !== state.scopeOauthClients.length,
-          } satisfies StateMutationResult<boolean>;
-        }),
-    },
-
-    providerAuthGrants: {
-      listByScopeId: (scopeId: ProviderAuthGrant["scopeId"]) =>
-        stateManager.read((state) =>
-          sortByUpdatedAtAndIdAsc(
-            state.providerAuthGrants.filter(
-              (grant) => grant.scopeId === scopeId,
-            ),
-          ),
-        ),
-
-      listByScopeActorAndProvider: (input: {
-        scopeId: ProviderAuthGrant["scopeId"];
-        actorScopeId: ProviderAuthGrant["actorScopeId"];
-        providerKey: string;
-      }) =>
-        stateManager.read((state) =>
-          sortByUpdatedAtAndIdAsc(
-            state.providerAuthGrants.filter(
-              (grant) =>
-                grant.scopeId === input.scopeId
-                && grant.providerKey === input.providerKey
-                && actorEquals(grant.actorScopeId, input.actorScopeId),
-            ),
-          ),
-        ),
-
-      getById: (id: ProviderAuthGrant["id"]) =>
-        stateManager.read((state) => {
-          const grant = state.providerAuthGrants.find(
-            (candidate) => candidate.id === id,
-          );
-
-          return grant
-            ? Option.some(cloneValue(grant))
-            : Option.none<ProviderAuthGrant>();
-        }),
-
-      upsert: (grant: ProviderAuthGrant) =>
-        stateManager.mutate((state) => {
-          const nextGrants = state.providerAuthGrants.filter(
-            (candidate) => candidate.id !== grant.id,
-          );
-          nextGrants.push(cloneValue(grant));
-
-          return {
-            state: {
-              ...state,
-              providerAuthGrants: nextGrants,
-            },
-            value: undefined,
-          } satisfies StateMutationResult<void>;
-        }),
-
-      removeById: (id: ProviderAuthGrant["id"]) =>
-        stateManager.mutate((state) => {
-          const nextGrants = state.providerAuthGrants.filter(
-            (candidate) => candidate.id !== id,
-          );
-
-          return {
-            state: {
-              ...state,
-              providerAuthGrants: nextGrants,
-            },
-            value: nextGrants.length !== state.providerAuthGrants.length,
-          } satisfies StateMutationResult<boolean>;
-        }),
-    },
-
-    sourceAuthSessions: {
-      listAll: () =>
-        stateManager.read((state) => sortByUpdatedAtAndIdAsc(state.sourceAuthSessions)),
-
-      listByScopeId: (scopeId: SourceAuthSession["scopeId"]) =>
-        stateManager.read((state) =>
-          sortByUpdatedAtAndIdAsc(
-            state.sourceAuthSessions.filter(
-              (session) => session.scopeId === scopeId,
-            ),
-          ),
-        ),
-
-      getById: (id: SourceAuthSession["id"]) =>
-        stateManager.read((state) => {
-          const session = state.sourceAuthSessions.find(
-            (candidate) => candidate.id === id,
-          );
-          return session
-            ? Option.some(cloneValue(session))
-            : Option.none<SourceAuthSession>();
-        }),
-
-      getByState: (stateValue: SourceAuthSession["state"]) =>
-        stateManager.read((state) => {
-          const session = state.sourceAuthSessions.find(
-            (candidate) => candidate.state === stateValue,
-          );
-          return session
-            ? Option.some(cloneValue(session))
-            : Option.none<SourceAuthSession>();
-        }),
-
-      getPendingByScopeSourceAndActor: (input: {
-        scopeId: SourceAuthSession["scopeId"];
-        sourceId: SourceAuthSession["sourceId"];
-        actorScopeId: SourceAuthSession["actorScopeId"];
-        credentialSlot?: SourceAuthSession["credentialSlot"];
-      }) =>
-        stateManager.read((state) => {
-          const session = sortByUpdatedAtAndIdAsc(
-            state.sourceAuthSessions.filter(
-              (candidate) =>
-                candidate.scopeId === input.scopeId
-                && candidate.sourceId === input.sourceId
-                && candidate.status === "pending"
-                && actorEquals(candidate.actorScopeId, input.actorScopeId)
-                && (input.credentialSlot === undefined
-                  || candidate.credentialSlot === input.credentialSlot),
-            ),
-          )[0] ?? null;
-
-          return session
-            ? Option.some(cloneValue(session))
-            : Option.none<SourceAuthSession>();
-        }),
-
-      insert: (session: SourceAuthSession) =>
-        stateManager.mutate((state) => ({
-          state: {
-            ...state,
-            sourceAuthSessions: [...state.sourceAuthSessions, cloneValue(session)],
-          },
-          value: undefined,
-        } satisfies StateMutationResult<void>)),
-
-      update: (
-        id: SourceAuthSession["id"],
-        patch: Partial<Omit<SourceAuthSession, "id" | "scopeId" | "sourceId" | "createdAt">>,
-      ) =>
-        stateManager.mutate((state) => {
-          let updated: SourceAuthSession | null = null;
-          const nextSessions = state.sourceAuthSessions.map((session) => {
-            if (session.id !== id) {
-              return session;
-            }
-
-            updated = {
-              ...session,
-              ...cloneValue(patch),
-            } satisfies SourceAuthSession;
-            return updated;
-          });
-
-          return {
-            state: {
-              ...state,
-              sourceAuthSessions: nextSessions,
-            },
-            value: updated ? Option.some(cloneValue(updated)) : Option.none<SourceAuthSession>(),
-          } satisfies StateMutationResult<Option.Option<SourceAuthSession>>;
-        }),
-
-      upsert: (session: SourceAuthSession) =>
-        stateManager.mutate((state) => {
-          const nextSessions = state.sourceAuthSessions.filter(
-            (candidate) => candidate.id !== session.id,
-          );
-          nextSessions.push(cloneValue(session));
-
-          return {
-            state: {
-              ...state,
-              sourceAuthSessions: nextSessions,
-            },
-            value: undefined,
-          } satisfies StateMutationResult<void>;
-        }),
-
-      removeByScopeAndSourceId: (
-        scopeId: SourceAuthSession["scopeId"],
-        sourceId: SourceAuthSession["sourceId"],
-      ) =>
-        stateManager.mutate((state) => {
-          const nextSessions = state.sourceAuthSessions.filter(
-            (candidate) =>
-              candidate.scopeId !== scopeId || candidate.sourceId !== sourceId,
-          );
-
-          return {
-            state: {
-              ...state,
-              sourceAuthSessions: nextSessions,
-            },
-            value: nextSessions.length !== state.sourceAuthSessions.length,
-          } satisfies StateMutationResult<boolean>;
-        }),
-    },
-
     secretMaterials: {
       getById: (id: SecretMaterial["id"]) =>
         stateManager.read((state) => {
@@ -1041,8 +408,16 @@ export const createLocalExecutorStateStore = (
           } satisfies StateMutationResult<boolean>;
         }),
     },
-
     executions: {
+      listByScope: (scopeId: Execution["scopeId"]) =>
+        stateManager.read((state) =>
+          cloneValue(
+            state.executions
+              .filter((candidate) => candidate.scopeId === scopeId)
+              .sort((left, right) => right.createdAt - left.createdAt),
+          )
+        ),
+
       getById: (executionId: Execution["id"]) =>
         stateManager.read((state) => {
           const execution = state.executions.find(

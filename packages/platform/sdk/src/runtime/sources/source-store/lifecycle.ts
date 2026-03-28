@@ -4,30 +4,7 @@ import type {
 } from "#schema";
 import * as Effect from "effect/Effect";
 
-import {
-  removeAuthLeaseAndSecrets,
-} from "../../auth/auth-leases";
-import {
-  clearProviderGrantOrphanedAt,
-  markProviderGrantOrphanedIfUnused,
-} from "../../auth/provider-grant-lifecycle";
-import type {
-  DeleteSecretMaterial,
-} from "../../scope/secret-material-providers";
-import type {
-  LocalScopeState,
-} from "../../scope-state";
-import {
-  stableSourceCatalogId,
-  stableSourceCatalogRevisionId,
-  splitSourceForStorage,
-} from "../source-definitions";
-import {
-  cleanupAuthArtifactSecretRefs,
-  providerGrantIdsFromArtifacts,
-  removeAuthArtifactsForSource,
-  selectExactAuthArtifact,
-} from "./auth";
+import type { LocalScopeState } from "../../scope-state";
 import {
   configSourceFromLocalSource,
   cloneJson,
@@ -49,7 +26,6 @@ export const removeSourceByIdWithDeps = (
     scopeId: ScopeId;
     sourceId: Source["id"];
   },
-  deleteSecretMaterial: DeleteSecretMaterial,
 ): Effect.Effect<boolean, Error, never> =>
   Effect.gen(function* () {
     const localScope = yield* resolveRuntimeLocalScopeFromDeps(
@@ -84,31 +60,6 @@ export const removeSourceByIdWithDeps = (
     yield* localScope.sourceArtifactStore.remove({
       sourceId: input.sourceId,
     });
-    const existingAuthArtifacts =
-      yield* deps.executorState.authArtifacts.listByScopeAndSourceId({
-        scopeId: input.scopeId,
-        sourceId: input.sourceId,
-      });
-    const removedGrantIds = providerGrantIdsFromArtifacts(existingAuthArtifacts);
-
-    yield* deps.executorState.sourceAuthSessions.removeByScopeAndSourceId(
-      input.scopeId,
-      input.sourceId,
-    );
-    yield* deps.executorState.sourceOauthClients.removeByScopeAndSourceId({
-      scopeId: input.scopeId,
-      sourceId: input.sourceId,
-    });
-    yield* removeAuthArtifactsForSource(deps.executorState, input, deleteSecretMaterial);
-    yield* Effect.forEach(
-      [...removedGrantIds],
-      (grantId) =>
-        markProviderGrantOrphanedIfUnused(deps.executorState, {
-          scopeId: input.scopeId,
-          grantId,
-        }),
-      { discard: true },
-    );
     yield* syncScopeSourceTypeDeclarationsWithDeps(deps, input.scopeId);
 
     return true;
@@ -120,7 +71,6 @@ export const persistSourceWithDeps = (
   options: {
     actorScopeId?: ScopeId | null;
   } = {},
-  deleteSecretMaterial: DeleteSecretMaterial,
 ): Effect.Effect<Source, Error, never> =>
   Effect.gen(function* () {
     const localScope = yield* resolveRuntimeLocalScopeFromDeps(
@@ -138,30 +88,13 @@ export const persistSourceWithDeps = (
               new Set(Object.keys(localScope.loadedConfig.config?.sources ?? {})),
             ),
     } satisfies Source;
-    const existingAuthArtifacts =
-      yield* deps.executorState.authArtifacts.listByScopeAndSourceId({
-        scopeId: nextSource.scopeId,
-        sourceId: nextSource.id,
-      });
-    const existingRuntimeAuthArtifact = selectExactAuthArtifact({
-      authArtifacts: existingAuthArtifacts,
-      actorScopeId: options.actorScopeId,
-      slot: "runtime",
-    });
-    const existingImportAuthArtifact = selectExactAuthArtifact({
-      authArtifacts: existingAuthArtifacts,
-      actorScopeId: options.actorScopeId,
-      slot: "import",
-    });
+
     const projectConfig = cloneJson(localScope.loadedConfig.projectConfig ?? {});
     const sources = {
       ...projectConfig.sources,
     };
-    const existingConfigSource = sources[nextSource.id];
     sources[nextSource.id] = configSourceFromLocalSource({
       source: nextSource,
-      existingConfigAuth: existingConfigSource?.connection.auth,
-      config: localScope.loadedConfig.config,
     });
     yield* localScope.scopeConfigStore.writeProject({
       config: {
@@ -170,100 +103,6 @@ export const persistSourceWithDeps = (
       },
     });
 
-    const { runtimeAuthArtifact, importAuthArtifact } = splitSourceForStorage({
-      source: nextSource,
-      catalogId: stableSourceCatalogId(nextSource),
-      catalogRevisionId: stableSourceCatalogRevisionId(nextSource),
-      actorScopeId: options.actorScopeId,
-      existingRuntimeAuthArtifactId: existingRuntimeAuthArtifact?.id ?? null,
-      existingImportAuthArtifactId: existingImportAuthArtifact?.id ?? null,
-    });
-
-    if (runtimeAuthArtifact === null) {
-      if (existingRuntimeAuthArtifact !== null) {
-        yield* removeAuthLeaseAndSecrets(deps.executorState, {
-          authArtifactId: existingRuntimeAuthArtifact.id,
-        }, deleteSecretMaterial);
-      }
-      yield* deps.executorState.authArtifacts.removeByScopeSourceAndActor({
-        scopeId: nextSource.scopeId,
-        sourceId: nextSource.id,
-        actorScopeId: options.actorScopeId ?? null,
-        slot: "runtime",
-      });
-    } else {
-      yield* deps.executorState.authArtifacts.upsert(runtimeAuthArtifact);
-      if (
-        existingRuntimeAuthArtifact !== null &&
-        existingRuntimeAuthArtifact.id !== runtimeAuthArtifact.id
-      ) {
-        yield* removeAuthLeaseAndSecrets(deps.executorState, {
-          authArtifactId: existingRuntimeAuthArtifact.id,
-        }, deleteSecretMaterial);
-      }
-    }
-
-    yield* cleanupAuthArtifactSecretRefs(deps.executorState, {
-      previous: existingRuntimeAuthArtifact ?? null,
-      next: runtimeAuthArtifact,
-    }, deleteSecretMaterial);
-
-    if (importAuthArtifact === null) {
-      if (existingImportAuthArtifact !== null) {
-        yield* removeAuthLeaseAndSecrets(deps.executorState, {
-          authArtifactId: existingImportAuthArtifact.id,
-        }, deleteSecretMaterial);
-      }
-      yield* deps.executorState.authArtifacts.removeByScopeSourceAndActor({
-        scopeId: nextSource.scopeId,
-        sourceId: nextSource.id,
-        actorScopeId: options.actorScopeId ?? null,
-        slot: "import",
-      });
-    } else {
-      yield* deps.executorState.authArtifacts.upsert(importAuthArtifact);
-      if (
-        existingImportAuthArtifact !== null &&
-        existingImportAuthArtifact.id !== importAuthArtifact.id
-      ) {
-        yield* removeAuthLeaseAndSecrets(deps.executorState, {
-          authArtifactId: existingImportAuthArtifact.id,
-        }, deleteSecretMaterial);
-      }
-    }
-
-    yield* cleanupAuthArtifactSecretRefs(deps.executorState, {
-      previous: existingImportAuthArtifact ?? null,
-      next: importAuthArtifact,
-    }, deleteSecretMaterial);
-
-    const previousGrantIds = providerGrantIdsFromArtifacts([
-      existingRuntimeAuthArtifact,
-      existingImportAuthArtifact,
-    ]);
-    const nextGrantIds = providerGrantIdsFromArtifacts([
-      runtimeAuthArtifact,
-      importAuthArtifact,
-    ]);
-
-    yield* Effect.forEach(
-      [...nextGrantIds],
-      (grantId) =>
-        clearProviderGrantOrphanedAt(deps.executorState, {
-          grantId,
-        }),
-      { discard: true },
-    );
-    yield* Effect.forEach(
-      [...previousGrantIds].filter((grantId) => !nextGrantIds.has(grantId)),
-      (grantId) =>
-        markProviderGrantOrphanedIfUnused(deps.executorState, {
-          scopeId: nextSource.scopeId,
-          grantId,
-        }),
-      { discard: true },
-    );
-
     const existingSourceState = localScope.scopeState.sources[nextSource.id];
     const scopeState: LocalScopeState = {
       ...localScope.scopeState,
@@ -271,8 +110,8 @@ export const persistSourceWithDeps = (
         ...localScope.scopeState.sources,
         [nextSource.id]: {
           status: nextSource.status,
-          lastError: nextSource.lastError,
-          sourceHash: nextSource.sourceHash,
+          lastError: existingSourceState?.lastError ?? null,
+          sourceHash: existingSourceState?.sourceHash ?? null,
           createdAt: existingSourceState?.createdAt ?? nextSource.createdAt,
           updatedAt: nextSource.updatedAt,
         },

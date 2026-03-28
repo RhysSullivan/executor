@@ -23,6 +23,16 @@ const githubUrl = (executorPackage.homepage ?? repositoryUrl ?? "https://github.
   .replace(/^git\+/, "")
   .replace(/\.git$/, "");
 
+const webPackage = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as {
+  dependencies?: Record<string, string>;
+};
+
+const workspaceExecutorPackages = Object.keys(webPackage.dependencies ?? {}).filter(
+  (name) => name.startsWith("@executor/"),
+);
+
 export default defineConfig({
   root: "src",
   plugins: [
@@ -47,7 +57,15 @@ export default defineConfig({
     outDir: "../dist",
     emptyOutDir: true,
   },
+  optimizeDeps: {
+    exclude: workspaceExecutorPackages,
+  },
   server: {
     port: 8788,
+    watch: {
+      ignored: [
+        "!**/node_modules/@executor/**",
+      ],
+    },
   },
 });

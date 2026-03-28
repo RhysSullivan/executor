@@ -1,13 +1,13 @@
 import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
-import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
-
-import type { LocalScopeState } from "../../sdk/src/runtime/scope-state";
 import {
   defaultLocalScopeState,
   LocalScopeStateSchema,
-} from "../../sdk/src/runtime/scope-state";
+  type LocalScopeState,
+} from "@executor/platform-sdk/runtime";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
   LocalFileSystemError,

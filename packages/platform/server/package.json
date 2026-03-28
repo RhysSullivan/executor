@@ -6,8 +6,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test",
-    "test:watch": "bun test --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -15,8 +15,19 @@
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@executor/executor-mcp": "workspace:*",
+    "@executor/plugin-google-discovery-http": "workspace:*",
+    "@executor/plugin-google-discovery-shared": "workspace:*",
+    "@executor/plugin-google-discovery-sdk": "workspace:*",
+    "@executor/plugin-graphql-http": "workspace:*",
+    "@executor/plugin-graphql-shared": "workspace:*",
+    "@executor/plugin-graphql-sdk": "workspace:*",
+    "@executor/plugin-mcp-http": "workspace:*",
+    "@executor/plugin-mcp-shared": "workspace:*",
+    "@executor/plugin-mcp-sdk": "workspace:*",
+    "@executor/plugin-openapi-http": "workspace:*",
+    "@executor/plugin-openapi-shared": "workspace:*",
+    "@executor/plugin-openapi-sdk": "workspace:*",
     "@executor/platform-api": "workspace:*",
-    "@executor/platform-internal": "workspace:*",
     "@executor/platform-sdk": "workspace:*",
     "@executor/platform-sdk-file": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
@@ -28,8 +39,15 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@executor/effect-test-utils": "workspace:*",
+    "@executor/mcp-elicitation-demo": "workspace:*",
+    "@executor/runtime-ses": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/node": "catalog:",
-    "bun-types": "catalog:"
+    "bun-types": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
   },
   "version": "0.0.0"
 }

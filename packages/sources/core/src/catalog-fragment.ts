@@ -117,7 +117,7 @@ const createServiceScope = (input: {
 export const buildCatalogFragment = (input: {
   source: Pick<
     Source,
-    "id" | "kind" | "name" | "endpoint" | "namespace" | "binding" | "auth"
+    "id" | "kind" | "name" | "namespace"
   >;
   documents: readonly CatalogSourceDocumentInput[];
   serviceScopeDefaults?: Scope["defaults"];
@@ -131,14 +131,14 @@ export const buildCatalogFragment = (input: {
       : [
           {
             documentKind: "synthetic",
-            documentKey: input.source.endpoint,
+            documentKey: input.source.id,
             fetchedAt: Date.now(),
             contentText: "{}",
           },
         ];
   const primaryDocument = documents[0]!;
   const primaryDocumentKey =
-    primaryDocument.documentKey ?? input.source.endpoint ?? input.source.id;
+    primaryDocument.documentKey ?? input.source.id;
   const primaryDocumentId = documentIdFor(
     input.source,
     `${primaryDocument.documentKind}:${primaryDocument.documentKey}`,

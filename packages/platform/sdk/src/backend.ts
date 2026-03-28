@@ -11,7 +11,6 @@ import {
   type BoundScopeStateStore,
   type ExecutorRuntime,
   type ExecutorRuntimeOptions,
-  type RuntimeAuthStorageServices,
   type RuntimeExecutionStorageServices,
   type RuntimeInstanceConfigService,
   type RuntimeSecretsStorageServices,
@@ -59,14 +58,6 @@ export type ExecutorWorkspaceLocalToolRepository = PublicizeObject<
 export type ExecutorWorkspaceSourceTypeDeclarationsRepository = PublicizeObject<
   BoundSourceTypeDeclarationsRefresher
 >;
-export type ExecutorWorkspaceSourceAuthRepository = {
-  artifacts: PublicizeObject<RuntimeAuthStorageServices["artifacts"]>;
-  leases: PublicizeObject<RuntimeAuthStorageServices["leases"]>;
-  sourceOauthClients: PublicizeObject<RuntimeAuthStorageServices["sourceOauthClients"]>;
-  scopeOauthClients: PublicizeObject<RuntimeAuthStorageServices["scopeOauthClients"]>;
-  providerGrants: PublicizeObject<RuntimeAuthStorageServices["providerGrants"]>;
-  sourceSessions: PublicizeObject<RuntimeAuthStorageServices["sourceSessions"]>;
-};
 export type ExecutorSecretRepository = PublicizeObject<RuntimeSecretsStorageServices>;
 export type ExecutorExecutionRepository = {
   runs: PublicizeObject<RuntimeExecutionStorageServices["runs"]>;
@@ -81,7 +72,6 @@ export type ExecutorWorkspaceRepository = {
   config: ExecutorWorkspaceConfigRepository;
   state: ExecutorWorkspaceStateRepository;
   sourceArtifacts: ExecutorWorkspaceSourceArtifactRepository;
-  sourceAuth: ExecutorWorkspaceSourceAuthRepository;
   localTools?: ExecutorWorkspaceLocalToolRepository;
   sourceTypeDeclarations?: ExecutorWorkspaceSourceTypeDeclarationsRepository;
 };
@@ -175,66 +165,6 @@ const toSourceTypeDeclarationsBackend = (
     toEffect(input.refreshSourceInBackground(payload)).pipe(Effect.orDie),
 });
 
-const toAuthBackend = (
-  input: ExecutorWorkspaceSourceAuthRepository,
-): RuntimeAuthStorageServices => ({
-  artifacts: {
-    listByScopeId: (scopeId) => toEffect(input.artifacts.listByScopeId(scopeId)),
-    listByScopeAndSourceId: (payload) =>
-      toEffect(input.artifacts.listByScopeAndSourceId(payload)),
-    getByScopeSourceAndActor: (payload) =>
-      toOptionEffect(input.artifacts.getByScopeSourceAndActor(payload)),
-    upsert: (artifact) => toEffect(input.artifacts.upsert(artifact)),
-    removeByScopeSourceAndActor: (payload) =>
-      toEffect(input.artifacts.removeByScopeSourceAndActor(payload)),
-    removeByScopeAndSourceId: (payload) =>
-      toEffect(input.artifacts.removeByScopeAndSourceId(payload)),
-  },
-  leases: {
-    listAll: () => toEffect(input.leases.listAll()),
-    getByAuthArtifactId: (authArtifactId) =>
-      toOptionEffect(input.leases.getByAuthArtifactId(authArtifactId)),
-    upsert: (lease) => toEffect(input.leases.upsert(lease)),
-    removeByAuthArtifactId: (authArtifactId) =>
-      toEffect(input.leases.removeByAuthArtifactId(authArtifactId)),
-  },
-  sourceOauthClients: {
-    getByScopeSourceAndProvider: (payload) =>
-      toOptionEffect(input.sourceOauthClients.getByScopeSourceAndProvider(payload)),
-    upsert: (oauthClient) => toEffect(input.sourceOauthClients.upsert(oauthClient)),
-    removeByScopeAndSourceId: (payload) =>
-      toEffect(input.sourceOauthClients.removeByScopeAndSourceId(payload)),
-  },
-  scopeOauthClients: {
-    listByScopeAndProvider: (payload) =>
-      toEffect(input.scopeOauthClients.listByScopeAndProvider(payload)),
-    getById: (id) => toOptionEffect(input.scopeOauthClients.getById(id)),
-    upsert: (oauthClient) => toEffect(input.scopeOauthClients.upsert(oauthClient)),
-    removeById: (id) => toEffect(input.scopeOauthClients.removeById(id)),
-  },
-  providerGrants: {
-    listByScopeId: (scopeId) => toEffect(input.providerGrants.listByScopeId(scopeId)),
-    listByScopeActorAndProvider: (payload) =>
-      toEffect(input.providerGrants.listByScopeActorAndProvider(payload)),
-    getById: (id) => toOptionEffect(input.providerGrants.getById(id)),
-    upsert: (grant) => toEffect(input.providerGrants.upsert(grant)),
-    removeById: (id) => toEffect(input.providerGrants.removeById(id)),
-  },
-  sourceSessions: {
-    listAll: () => toEffect(input.sourceSessions.listAll()),
-    listByScopeId: (scopeId) => toEffect(input.sourceSessions.listByScopeId(scopeId)),
-    getById: (id) => toOptionEffect(input.sourceSessions.getById(id)),
-    getByState: (state) => toOptionEffect(input.sourceSessions.getByState(state)),
-    getPendingByScopeSourceAndActor: (payload) =>
-      toOptionEffect(input.sourceSessions.getPendingByScopeSourceAndActor(payload)),
-    insert: (session) => toEffect(input.sourceSessions.insert(session)),
-    update: (id, patch) => toOptionEffect(input.sourceSessions.update(id, patch)),
-    upsert: (session) => toEffect(input.sourceSessions.upsert(session)),
-    removeByScopeAndSourceId: (scopeId, sourceId) =>
-      toEffect(input.sourceSessions.removeByScopeAndSourceId(scopeId, sourceId)),
-  },
-});
-
 const toSecretsBackend = (
   input: ExecutorSecretRepository,
 ): RuntimeSecretsStorageServices => ({
@@ -253,6 +183,7 @@ const toExecutionsBackend = (
   input: ExecutorExecutionRepository,
 ): RuntimeExecutionStorageServices => ({
   runs: {
+    listByScope: (scopeId) => toEffect(input.runs.listByScope(scopeId)),
     getById: (executionId) => toOptionEffect(input.runs.getById(executionId)),
     getByScopeAndId: (scopeId, executionId) =>
       toOptionEffect(input.runs.getByScopeAndId(scopeId, executionId)),
@@ -308,7 +239,6 @@ export const createExecutorBackend = (input: {
             sourceArtifacts: toSourceArtifactBackend(
               repositories.workspace.sourceArtifacts,
             ),
-            auth: toAuthBackend(repositories.workspace.sourceAuth),
             secrets: toSecretsBackend(repositories.secrets),
             executions: toExecutionsBackend(repositories.executions),
             close: repositories.close,

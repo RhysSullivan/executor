@@ -31,15 +31,6 @@ import {
 const LEGACY_LOCAL_SOURCE_ARTIFACT_VERSION = 3 as const;
 const LOCAL_SOURCE_ARTIFACT_VERSION = 4 as const;
 
-const LegacyLocalSourceArtifactSchema = Schema.Struct({
-  version: Schema.Literal(LEGACY_LOCAL_SOURCE_ARTIFACT_VERSION),
-  sourceId: SourceIdSchema,
-  catalogId: SourceCatalogIdSchema,
-  generatedAt: TimestampMsSchema,
-  revision: StoredSourceCatalogRevisionRecordSchema,
-  snapshot: CatalogSnapshotV1Schema,
-});
-
 export const LocalSourceArtifactSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_SOURCE_ARTIFACT_VERSION),
   sourceId: SourceIdSchema,
@@ -50,7 +41,6 @@ export const LocalSourceArtifactSchema = Schema.Struct({
 });
 
 export type LocalSourceArtifact = typeof LocalSourceArtifactSchema.Type;
-type LegacyLocalSourceArtifact = typeof LegacyLocalSourceArtifactSchema.Type;
 
 const ReadableLegacyLocalSourceArtifactSchema = Schema.Struct({
   version: Schema.Literal(LEGACY_LOCAL_SOURCE_ARTIFACT_VERSION),

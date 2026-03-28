@@ -11,9 +11,6 @@ import {
   SourceArtifactStore,
 } from "../../scope/storage";
 import {
-  getSourceAdapterForSource,
-} from "../../sources/source-adapters";
-import {
   RuntimeSourceStoreService,
 } from "../../sources/source-store";
 import {
@@ -22,8 +19,7 @@ import {
 
 const shouldReconcileSource = (source: Source): boolean =>
   source.enabled
-  && source.status === "connected"
-  && getSourceAdapterForSource(source).catalogKind !== "internal";
+  && source.status === "connected";
 
 export const reconcileMissingSourceCatalogArtifacts = (input: {
   scopeId: ScopeId;
@@ -37,7 +33,7 @@ export const reconcileMissingSourceCatalogArtifacts = (input: {
   | RuntimeSourceCatalogSyncService
 > =>
   Effect.gen(function* () {
-    const runtimeLocalScope = yield* RuntimeLocalScopeService;
+    yield* RuntimeLocalScopeService;
     const sourceStore = yield* RuntimeSourceStoreService;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceCatalogSync = yield* RuntimeSourceCatalogSyncService;

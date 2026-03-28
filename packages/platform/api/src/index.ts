@@ -1,11 +1,15 @@
 export {
+  CoreExecutorApi,
+  createExecutorApi,
+  createExecutorOpenApiSpec,
   ExecutorApi,
   executorOpenApiSpec,
 } from "./api";
-export {
-  createExecutorApiClient,
-  type ExecutorApiClient,
-} from "./client";
+export type {
+  ExecutorHttpApiExtension,
+  ExecutorHttpPlugin,
+  ExecutorHttpPluginGroups,
+} from "./plugins";
 
 export type { LocalInstallation } from "@executor/platform-sdk/schema";
 
@@ -38,37 +42,7 @@ export {
 } from "./local/api";
 
 export {
-  OAuthApi,
-  StartSourceOAuthPayloadSchema,
-  StartSourceOAuthResultSchema,
-  CompleteSourceOAuthResultSchema,
-  SourceOAuthPopupFailureResultSchema,
-  SourceOAuthPopupResultSchema,
-  SourceOAuthPopupSuccessResultSchema,
-  type StartSourceOAuthPayload,
-  type StartSourceOAuthResult,
-  type CompleteSourceOAuthResult,
-  type SourceOAuthPopupResult,
-} from "./oauth/api";
-
-export {
-  ConnectSourceBatchPayloadSchema,
-  ConnectSourceBatchResultSchema,
-  ConnectSourcePayloadSchema,
-  ConnectSourceResultSchema,
-  CreateWorkspaceOauthClientPayloadSchema,
-  CreateSourcePayloadSchema,
-  DiscoverSourcePayloadSchema,
   SourcesApi,
-  UpdateSourcePayloadSchema,
-  type ConnectSourceBatchPayload,
-  type ConnectSourceBatchResult,
-  type ConnectSourcePayload,
-  type ConnectSourceResult,
-  type CreateWorkspaceOauthClientPayload,
-  type CreateSourcePayload,
-  type DiscoverSourcePayload,
-  type UpdateSourcePayload,
 } from "./sources/api";
 
 export {

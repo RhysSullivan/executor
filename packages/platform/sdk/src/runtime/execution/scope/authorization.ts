@@ -27,6 +27,9 @@ import {
 import {
   loadRuntimeLocalScopePolicies,
 } from "../../../policies/operations";
+import {
+  runtimeEffectError,
+} from "../../effect-errors";
 
 const asToolPath = (value: string): ToolPath => value as ToolPath;
 
@@ -79,7 +82,9 @@ export const toSecretResolutionContext = (
 };
 
 const failAuthorization = (message: string): Effect.Effect<never, Error, never> =>
-  Effect.fail(new Error(message));
+  Effect.fail(
+    runtimeEffectError("execution/scope/authorization", message),
+  );
 
 type ScopeToolElicitation = Parameters<
   typeof makeToolInvokerFromTools

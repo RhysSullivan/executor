@@ -394,7 +394,7 @@ export const removePolicy = (input: {
   policyId: PolicyId;
 }) =>
   Effect.gen(function* () {
-    const runtimeLocalScope = yield* loadScopePolicyContext(
+    yield* loadScopePolicyContext(
       policyOps.remove,
       input.scopeId,
     );

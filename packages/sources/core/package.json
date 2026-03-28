@@ -12,7 +12,6 @@
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@executor/auth-oauth2": "workspace:*",
     "@executor/codemode-core": "workspace:*",
     "@executor/ir": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",

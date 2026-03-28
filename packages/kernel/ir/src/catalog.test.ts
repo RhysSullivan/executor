@@ -54,6 +54,7 @@ const baseProvenance = (pointer: string): ProvenanceRef[] => [{
 const createHttpCatalog = (input: {
   collideIds?: boolean;
   method?: string;
+  noContentSuccess?: boolean;
 } = {}): CatalogV1 => {
   const catalog = createEmptyCatalogV1();
 
@@ -327,16 +328,22 @@ const createHttpCatalog = (input: {
     id: responseId,
     kind: "response",
     docs: {
-      summary: "Updated event",
+      summary: input.noContentSuccess ? "No content" : "Updated event",
     },
-    contents: [
-      {
-        mediaType: "application/json",
-        shapeId: resultShapeId,
-      },
-    ],
+    ...(input.noContentSuccess
+      ? {}
+      : {
+          contents: [
+            {
+              mediaType: "application/json",
+              shapeId: resultShapeId,
+            },
+          ],
+        }),
     synthetic: false,
-    provenance: baseProvenance("#/paths/~1events/responses/200"),
+    provenance: baseProvenance(
+      input.noContentSuccess ? "#/paths/~1events/responses/204" : "#/paths/~1events/responses/200",
+    ),
   });
 
   put(catalog.responseSets as Record<typeof responseSetId, CatalogV1["responseSets"][typeof responseSetId]>, responseSetId, {
@@ -345,7 +352,7 @@ const createHttpCatalog = (input: {
       {
         match: {
           kind: "exact",
-          status: 200,
+          status: input.noContentSuccess ? 204 : 200,
         },
         responseId,
         traits: ["success"],
@@ -369,7 +376,7 @@ const createHttpCatalog = (input: {
     id: executableId,
     capabilityId,
     scopeId,
-    adapterKey: "openapi",
+    pluginKey: "openapi",
     bindingVersion: 1,
     binding: {},
     projection: {
@@ -606,7 +613,7 @@ const createGraphqlCatalog = (): CatalogV1 => {
     id: executableId,
     capabilityId,
     scopeId,
-    adapterKey: "graphql",
+    pluginKey: "graphql",
     bindingVersion: 1,
     binding: {},
     projection: {
@@ -670,7 +677,7 @@ describe("IR catalog", () => {
     const snapshot = createCatalogSnapshotV1({
       import: {
         sourceKind: "openapi",
-        adapterKey: "openapi",
+        pluginKey: "openapi",
         importerVersion: "1.0.0",
         importedAt: "2026-03-14T00:00:00.000Z",
         sourceConfigHash: "hash_source",
@@ -713,7 +720,11 @@ describe("IR catalog", () => {
 
     const merged = mergeCatalogFragments([fragmentA, fragmentB]);
     expect(merged.documents[docId]?.title).toBe("A");
-    expect(Object.values(merged.diagnostics).some((diagnostic) => diagnostic.code === "merge_conflict_preserved_first")).toBe(true);
+    expect(
+      Object.values(merged.diagnostics).some(
+        (diagnostic) => diagnostic.code === "merge_conflict_preserved_first",
+      ),
+    ).toBe(true);
   });
 
   it("reports invariant violations for unresolved shapes without diagnostics", () => {
@@ -801,6 +812,27 @@ describe("IR catalog", () => {
     expect(searchDoc.tags).toEqual(["calendar", "events"]);
   });
 
+  it("projects no-content HTTP successes as null data", () => {
+    const projected = projectCatalogForAgentSdk({
+      catalog: createHttpCatalog({ noContentSuccess: true }),
+    });
+
+    const descriptor = projected.toolDescriptors[CapabilityIdSchema.make("cap_events_update")];
+    const resultShape = descriptor.resultShapeId
+      ? projected.catalog.symbols[descriptor.resultShapeId]
+      : undefined;
+    if (resultShape?.kind !== "shape" || resultShape.node.type !== "object") {
+      throw new Error("Expected projected HTTP result envelope");
+    }
+
+    const dataShape = projected.catalog.symbols[resultShape.node.fields.data.shapeId];
+    if (dataShape?.kind !== "shape" || dataShape.node.type !== "const") {
+      throw new Error("Expected no-content success data to project as null");
+    }
+
+    expect(dataShape.node.value).toBeNull();
+  });
+
   it("groups colliding HTTP parameter names into path/query containers", () => {
     const projected = projectCatalogForAgentSdk({
       catalog: createHttpCatalog({ collideIds: true }),
@@ -815,7 +847,11 @@ describe("IR catalog", () => {
     expect(Object.keys(callShape.node.fields)).toContain("path");
     expect(Object.keys(callShape.node.fields)).toContain("query");
     expect(Object.keys(callShape.node.fields)).not.toContain("id");
-    expect(Object.values(projected.catalog.diagnostics).some((diagnostic) => diagnostic.code === "projection_collision_grouped_fields")).toBe(true);
+    expect(
+      Object.values(projected.catalog.diagnostics).some(
+        (diagnostic) => diagnostic.code === "projection_collision_grouped_fields",
+      ),
+    ).toBe(true);
   });
 
   it("keeps GraphQL selection explicit for caller-driven outputs", () => {

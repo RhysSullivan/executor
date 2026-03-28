@@ -84,3 +84,4 @@ personal-notes/
 .tmp/
 executor/.env.executor-push
 ignored/
+agent-notes/

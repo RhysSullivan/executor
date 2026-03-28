@@ -433,9 +433,11 @@ export const shapeToJsonSchema = (catalog: CatalogV1, rootShapeId: string): unkn
       Match.when({ type: "conditional" }, (node) =>
         withDocs({
           if: buildInline(node.ifShapeId, [`${label}_if`]),
-          ...(node.thenShapeId
-            ? { then: buildInline(node.thenShapeId, [`${label}_then`]) }
-            : {}),
+          ...Object.fromEntries(
+            node.thenShapeId
+              ? [["then", buildInline(node.thenShapeId, [`${label}_then`])]]
+              : [],
+          ),
           ...(node.elseShapeId
             ? { else: buildInline(node.elseShapeId, [`${label}_else`]) }
             : {}),
@@ -597,11 +599,11 @@ const codemodeDescriptorFromCapability = (input: {
       ...(inputSchema !== undefined ? { inputSchema } : {}),
       ...(outputSchema !== undefined ? { outputSchema } : {}),
     },
-    providerKind: input.executable.adapterKey,
-    providerData: {
+    pluginKind: input.executable.pluginKey,
+    pluginData: {
       capabilityId: input.capability.id,
       executableId: input.executable.id,
-      adapterKey: input.executable.adapterKey,
+      pluginKey: input.executable.pluginKey,
       display: input.executable.display,
     },
   };
@@ -675,14 +677,9 @@ const sourceRecordFromCatalogArtifact = (input: {
   catalogRevisionId: input.artifact.revision.id,
   name: input.source.name,
   kind: input.source.kind,
-  endpoint: input.source.endpoint,
   status: input.source.status,
   enabled: input.source.enabled,
   namespace: input.source.namespace,
-  importAuthPolicy: input.source.importAuthPolicy,
-  bindingConfigJson: JSON.stringify(input.source.binding),
-  sourceHash: input.source.sourceHash,
-  lastError: input.source.lastError,
   createdAt: input.source.createdAt,
   updatedAt: input.source.updatedAt,
 });
@@ -748,13 +745,12 @@ const ensureRuntimeCatalogWorkspace = (
   scopeId: ScopeId,
 ) =>
   Effect.gen(function* () {
-  if (deps.runtimeLocalScope.installation.scopeId !== scopeId) {
-    return yield* Effect.fail(
-      runtimeEffectError("catalog/source/runtime",
+    if (deps.runtimeLocalScope.installation.scopeId !== scopeId) {
+      return yield* runtimeEffectError(
+        "catalog/source/runtime",
         `Runtime local scope mismatch: expected ${scopeId}, got ${deps.runtimeLocalScope.installation.scopeId}`,
-      ),
-    );
-  }
+      );
+    }
   });
 
 const buildSnapshotFromArtifact = (input: {

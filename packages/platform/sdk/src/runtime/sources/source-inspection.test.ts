@@ -31,7 +31,7 @@ describe("source inspection", () => {
       },
       executable: {
         id: "exec_graphql_administrableTeams",
-        adapterKey: "graphql",
+        pluginKey: "graphql",
         bindingVersion: 1,
         binding: {
           operationKind: "query",

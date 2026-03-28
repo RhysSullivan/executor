@@ -1,64 +1,13 @@
 {
   "sources": {
-    "github": {
-      "kind": "openapi",
-      "name": "GitHub",
-      "connection": {
-        "endpoint": "https://api.github.com"
-      },
-      "binding": {
-        "specUrl": "https://example.com/github-openapi.yaml",
-        "defaultHeaders": null
-      }
+    "github-v3-rest-api": {
+      "name": "GitHub v3 REST API",
+      "kind": "openapi"
     },
-    "google-gmail": {
-      "name": "Gmail",
-      "namespace": "google.gmail",
-      "connection": {
-        "endpoint": "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest"
-      },
-      "kind": "google_discovery",
-      "binding": {
-        "service": "gmail",
-        "version": "v1",
-        "discoveryUrl": "https://www.googleapis.com/discovery/v1/apis/gmail/v1/rest",
-        "defaultHeaders": null,
-        "scopes": [
-          "scope:gmail.readonly"
-        ]
-      }
-    },
-    "google-calendar": {
-      "name": "Google Calendar",
-      "namespace": "google.calendar",
-      "connection": {
-        "endpoint": "https://calendar-json.googleapis.com/$discovery/rest?version=v3"
-      },
-      "kind": "google_discovery",
-      "binding": {
-        "service": "calendar",
-        "version": "v3",
-        "discoveryUrl": "https://calendar-json.googleapis.com/$discovery/rest?version=v3",
-        "defaultHeaders": null,
-        "scopes": [
-          "scope:calendar.readonly"
-        ]
-      }
-    },
-    "google-drive": {
-      "name": "Drive",
-      "namespace": "google.drive",
-      "connection": {
-        "endpoint": "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
-      },
-      "kind": "google_discovery",
-      "binding": {
-        "service": "drive",
-        "version": "v3",
-        "discoveryUrl": "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
-        "defaultHeaders": null,
-        "scopes": []
-      }
+    "axiom-mcp": {
+      "kind": "mcp",
+      "name": "Axiom MCP",
+      "namespace": "axiom.mcp"
     }
   }
 }

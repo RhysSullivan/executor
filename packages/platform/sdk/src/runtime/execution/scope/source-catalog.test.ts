@@ -263,7 +263,6 @@ describe("scope source catalog", () => {
             includeSchemas: boolean;
           }) => {
             loadWorkspaceSourceCatalogToolByPathCalls.push(input);
-
             return Effect.succeed({
               path: "github.issues.list",
               searchNamespace: "github.issues",
@@ -291,7 +290,9 @@ describe("scope source catalog", () => {
                 description: "List issues for a repository",
                 interaction: "auto",
                 contract: {
-                  inputSchema: { type: "object" },
+                  inputSchema: {
+                    type: "object",
+                  },
                 },
               },
               projectedCatalog: {},
@@ -304,17 +305,20 @@ describe("scope source catalog", () => {
         runtimeLocalScope: null,
       });
 
-      const described = yield* catalog.getToolByPath({
+      const tool = yield* catalog.getToolByPath({
         path: "github.issues.list" as any,
         includeSchemas: true,
       });
 
-      expect(described?.contract?.inputSchema).toEqual({ type: "object" });
+      expect(tool?.path).toBe("github.issues.list");
+      expect(tool?.contract?.inputSchema).toEqual({
+        type: "object",
+      });
       expect(loadWorkspaceSourceCatalogToolIndexCalls).toHaveLength(0);
       expect(loadWorkspaceSourceCatalogToolByPathCalls).toEqual([{
         scopeId: "ws_test",
-        actorScopeId: "acc_test",
         path: "github.issues.list",
+        actorScopeId: "acc_test",
         includeSchemas: true,
       }]);
     }));

@@ -14,10 +14,9 @@ import {
   type LocalConfigSecretProvider,
   type LocalConfigSource,
 } from "@executor/platform-sdk/schema";
+import type { LoadedLocalExecutorConfig } from "@executor/platform-sdk/runtime";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
-import type { ExecutorScopeDescriptor } from "@executor/platform-sdk";
-import type { LoadedLocalExecutorConfig } from "../../sdk/src/runtime/scope-config";
 import {
   LocalExecutorConfigDecodeError,
   LocalFileSystemError,
@@ -51,7 +50,7 @@ export const resolveConfigRelativePath = (input: {
   return resolve(input.scopeRoot, trimmed);
 };
 
-export type { LoadedLocalExecutorConfig } from "../../sdk/src/runtime/scope-config";
+export type { LoadedLocalExecutorConfig } from "@executor/platform-sdk/runtime";
 
 const PROJECT_CONFIG_BASENAME = "executor.jsonc";
 const PROJECT_CONFIG_DIRECTORY = ".executor";

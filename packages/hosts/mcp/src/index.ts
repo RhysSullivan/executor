@@ -2,7 +2,7 @@ import type {
   ExecutionEnvelope,
 } from "@executor/platform-sdk/schema";
 import {
-  EXECUTOR_SOURCES_ADD_HELP_LINES,
+  getExecutorSourcesAddHelpLines,
   RuntimeSourceCatalogStoreService,
   createExecution,
   getExecution,
@@ -172,13 +172,11 @@ const buildExecuteWorkflowText = (
     '1) const matches = await tools.discover({ query: "<intent>", limit: 12 });',
     "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
     "3) Call selected tools.<path>(input).",
-    '4) To connect a source, call tools.executor.sources.add(...) for MCP, OpenAPI, or GraphQL APIs.',
-    ...EXECUTOR_SOURCES_ADD_HELP_LINES,
+    "4) Use source plugins to inspect or add API sources.",
+    ...getExecutorSourcesAddHelpLines(),
     "5) If execution pauses for interaction, resume it with the returned resumePayload or the available resume flow.",
     "Do not use fetch; use tools.* only.",
   ].join("\n");
-
-const defaultExecuteDescription = buildExecuteWorkflowText();
 
 const loadExecuteDescription = (runtime: ExecutorRuntime): Promise<string> =>
   runControlPlane(
@@ -203,11 +201,11 @@ const loadExecuteDescription = (runtime: ExecutorRuntime): Promise<string> =>
         .filter((catalog) => catalog.toolPaths.length > 0);
 
       if (sourceToolExamples.length === 0) {
-        return defaultExecuteDescription;
+        return buildExecuteWorkflowText();
       }
 
       return buildExecuteWorkflowText(sourceToolExamples);
-    }).pipe(Effect.catchAll(() => Effect.succeed(defaultExecuteDescription))),
+    }).pipe(Effect.catchAll(() => Effect.succeed(buildExecuteWorkflowText()))),
   );
 
 const summarizeExecution = (execution: ExecutionEnvelope["execution"]): string => {

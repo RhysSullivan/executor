@@ -9,7 +9,6 @@ import {
   type CreateSecretResult,
   type DeleteSecretResult,
   type InstanceConfig,
-  type SecretListItem,
   type UpdateSecretPayload,
   type UpdateSecretResult,
 } from "./contracts";

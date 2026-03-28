@@ -76,21 +76,8 @@ export const isObjectLikeJsonSchema = (schema: unknown): boolean => {
 };
 
 export const sourceKindFromSource = (
-  source: Pick<Source, "kind">,
-): SourceKind => {
-  switch (source.kind) {
-    case "openapi":
-      return "openapi";
-    case "graphql":
-      return "graphql-schema";
-    case "google_discovery":
-      return "google-discovery";
-    case "mcp":
-      return "mcp";
-    default:
-      return "custom";
-  }
-};
+  _source: Pick<Source, "kind">,
+): SourceKind => "custom";
 
 export const toolPathSegments = (
   source: Pick<Source, "name" | "namespace">,
@@ -133,20 +120,16 @@ export const interactionForEffect = (
 });
 
 export const createCatalogImportMetadata = (input: {
-  source: Pick<Source, "kind" | "endpoint" | "sourceHash" | "binding" | "auth">;
-  adapterKey: string;
+  source: Pick<Source, "id" | "kind">;
+  pluginKey: string;
 }): ImportMetadata => ({
   sourceKind: sourceKindFromSource(input.source),
-  adapterKey: input.adapterKey,
+  pluginKey: input.pluginKey,
   importerVersion: "ir.v1.snapshot_builder",
   importedAt: new Date().toISOString(),
-  sourceConfigHash:
-    input.source.sourceHash ??
-    stableHash({
-      endpoint: input.source.endpoint,
-      binding: input.source.binding,
-      auth: input.source.auth?.kind ?? null,
-    }),
+  sourceConfigHash: stableHash({
+    sourceId: input.source.id,
+  }),
 });
 
 export const docsFrom = (input: {

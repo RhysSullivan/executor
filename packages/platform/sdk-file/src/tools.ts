@@ -7,10 +7,8 @@ import {
   makeToolInvokerFromTools,
   type ExecutableTool,
   type StandardSchema,
-  type ToolCatalog,
   type ToolDefinition,
   type ToolInput,
-  type ToolInvoker,
   type ToolMap,
   type ToolMetadata,
   type ToolPath,
@@ -18,7 +16,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as ts from "typescript";
 
-import type { LocalToolRuntime } from "../../sdk/src/runtime/local-tool-runtime";
+import type { LocalToolRuntime } from "@executor/platform-sdk/runtime";
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
   LocalFileSystemError,

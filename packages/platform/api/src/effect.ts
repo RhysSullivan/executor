@@ -4,13 +4,16 @@ import {
 } from "@effect/platform";
 import * as Effect from "effect/Effect";
 
-import { ExecutorApi } from "./api";
+import { createExecutorApi } from "./api";
+import type { ExecutorHttpPlugin } from "./plugins";
 
-export const createExecutorApiEffectClient = (input: {
+export const createExecutorApiEffectClient = <
+  const TPlugins extends readonly ExecutorHttpPlugin[] = [],
+>(input: {
   baseUrl: string;
-  accountId?: string;
+  plugins?: TPlugins;
 }) =>
-  HttpApiClient.make(ExecutorApi, {
+  HttpApiClient.make(createExecutorApi({ plugins: input.plugins }), {
     baseUrl: input.baseUrl,
   }).pipe(Effect.provide(FetchHttpClient.layer));
 

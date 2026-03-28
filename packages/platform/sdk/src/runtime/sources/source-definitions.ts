@@ -1,44 +1,22 @@
-import {
-  sha256Hex,
-} from "@executor/codemode-core";
+import { sha256Hex } from "@executor/codemode-core";
 
 import type {
-  CreateSourcePayload,
-  UpdateSourcePayload,
-} from "../../sources/contracts";
-import type {
   ScopeId,
-  AuthArtifact,
   Source,
-  SourceAuth,
-  SourceImportAuthPolicy,
-  SourceCatalogAdapterKey,
   SourceCatalogId,
   SourceCatalogKind,
+  SourceCatalogPluginKey,
   SourceCatalogRevisionId,
-  StoredSourceRecord,
   StoredSourceCatalogRecord,
   StoredSourceCatalogRevisionRecord,
 } from "#schema";
 import {
-  AuthArtifactIdSchema,
-  ProviderAuthGrantIdSchema,
   SourceCatalogIdSchema,
   SourceCatalogRevisionIdSchema,
 } from "#schema";
 import * as Effect from "effect/Effect";
 
-import {
-  getSourceAdapter,
-  getSourceAdapterForSource,
-} from "./source-adapters";
-import {
-  authArtifactFromSourceAuth,
-  sourceAuthFromAuthArtifact,
-} from "../auth/auth-artifacts";
-import {
-  runtimeEffectError,
-} from "../effect-errors";
+import { getSourceContributionForSource } from "./source-plugins";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) {
@@ -52,20 +30,18 @@ const trimOrNull = (value: string | null | undefined): string | null => {
 type SourceCatalogSourceConfig = Record<string, unknown>;
 
 const sourceConfigFromSource = (source: Source): SourceCatalogSourceConfig =>
-  getSourceAdapterForSource(source).sourceConfigFromSource(source);
+  getSourceContributionForSource(source).catalogIdentity?.({
+    source,
+  }) ?? {
+    kind: source.kind,
+    namespace: source.namespace,
+  };
 
-const sourceCatalogKindFromSource = (source: Source): SourceCatalogKind => {
-  const adapter = getSourceAdapterForSource(source);
-  return adapter.catalogKind;
-};
+const sourceCatalogKindFromSource = (source: Source): SourceCatalogKind =>
+  getSourceContributionForSource(source).catalogKind;
 
-const sourceCatalogAdapterKeyFromSource = (source: Source): SourceCatalogAdapterKey => {
-  return getSourceAdapterForSource(source).key;
-};
-
-const sourceCatalogProviderKeyFromSource = (source: Source): string => {
-  return getSourceAdapterForSource(source).providerKey;
-};
+const sourceCatalogPluginKeyFromSource = (source: Source): SourceCatalogPluginKey =>
+  getSourceContributionForSource(source).kind;
 
 const stableHash = (value: string): string =>
   sha256Hex(value).slice(0, 24);
@@ -73,13 +49,20 @@ const stableHash = (value: string): string =>
 const sourceCatalogSignature = (source: Source): string =>
   JSON.stringify({
     catalogKind: sourceCatalogKindFromSource(source),
-    adapterKey: sourceCatalogAdapterKeyFromSource(source),
-    providerKey: sourceCatalogProviderKeyFromSource(source),
+    pluginKey: sourceCatalogPluginKeyFromSource(source),
+    sourceId: source.id,
     sourceConfig: sourceConfigFromSource(source),
   });
 
 export const sourceConfigSignature = (source: Source): string =>
-  JSON.stringify(sourceConfigFromSource(source));
+  JSON.stringify({
+    sourceId: source.id,
+    kind: source.kind,
+    name: source.name,
+    namespace: source.namespace,
+    enabled: source.enabled,
+    updatedAt: source.updatedAt,
+  });
 
 export const stableSourceCatalogId = (source: Source): SourceCatalogId =>
   SourceCatalogIdSchema.make(`src_catalog_${stableHash(sourceCatalogSignature(source))}`);
@@ -89,280 +72,39 @@ export const stableSourceCatalogRevisionId = (
 ): SourceCatalogRevisionId =>
   SourceCatalogRevisionIdSchema.make(`src_catalog_rev_${stableHash(sourceConfigSignature(source))}`);
 
-const normalizeAuth = (
-  auth: SourceAuth | undefined,
-): Effect.Effect<SourceAuth, Error, never> =>
-  Effect.gen(function* () {
-    if (auth === undefined || auth.kind === "none") {
-      return { kind: "none" } satisfies SourceAuth;
-    }
-
-    if (auth.kind === "bearer") {
-      const headerName = trimOrNull(auth.headerName) ?? "Authorization";
-      const prefix = auth.prefix ?? "Bearer ";
-      const providerId = trimOrNull(auth.token.providerId);
-      const handle = trimOrNull(auth.token.handle);
-      if (providerId === null || handle === null) {
-        return yield* runtimeEffectError("sources/source-definitions", "Bearer auth requires a token secret ref");
-      }
-
-      return {
-        kind: "bearer",
-        headerName,
-        prefix,
-        token: {
-          providerId,
-          handle,
-        },
-      } satisfies SourceAuth;
-    }
-
-    if (auth.kind === "oauth2_authorized_user") {
-      const headerName = trimOrNull(auth.headerName) ?? "Authorization";
-      const prefix = auth.prefix ?? "Bearer ";
-      const refreshProviderId = trimOrNull(auth.refreshToken.providerId);
-      const refreshHandle = trimOrNull(auth.refreshToken.handle);
-      if (refreshProviderId === null || refreshHandle === null) {
-        return yield* runtimeEffectError("sources/source-definitions", "OAuth2 authorized-user auth requires a refresh token secret ref");
-      }
-
-      let clientSecret: { providerId: string; handle: string } | null = null;
-      if (auth.clientSecret !== null) {
-        const clientSecretProviderId = trimOrNull(auth.clientSecret.providerId);
-        const clientSecretHandle = trimOrNull(auth.clientSecret.handle);
-        if (clientSecretProviderId === null || clientSecretHandle === null) {
-          return yield* runtimeEffectError("sources/source-definitions", "OAuth2 authorized-user client secret ref must include providerId and handle");
-        }
-        clientSecret = {
-          providerId: clientSecretProviderId,
-          handle: clientSecretHandle,
-        };
-      }
-
-      const tokenEndpoint = trimOrNull(auth.tokenEndpoint);
-      const clientId = trimOrNull(auth.clientId);
-      if (tokenEndpoint === null || clientId === null) {
-        return yield* runtimeEffectError("sources/source-definitions", "OAuth2 authorized-user auth requires tokenEndpoint and clientId");
-      }
-
-      return {
-        kind: "oauth2_authorized_user",
-        headerName,
-        prefix,
-        tokenEndpoint,
-        clientId,
-        clientAuthentication: auth.clientAuthentication,
-        clientSecret,
-        refreshToken: {
-          providerId: refreshProviderId,
-          handle: refreshHandle,
-        },
-        grantSet: auth.grantSet ?? null,
-      } satisfies SourceAuth;
-    }
-
-    if (auth.kind === "provider_grant_ref") {
-      const headerName = trimOrNull(auth.headerName) ?? "Authorization";
-      const prefix = auth.prefix ?? "Bearer ";
-      const grantId = trimOrNull(auth.grantId);
-      if (grantId === null) {
-        return yield* runtimeEffectError("sources/source-definitions", "Provider grant auth requires a grantId");
-      }
-
-      return {
-        kind: "provider_grant_ref",
-        grantId: ProviderAuthGrantIdSchema.make(grantId),
-        providerKey: trimOrNull(auth.providerKey) ?? "",
-        requiredScopes: auth.requiredScopes
-          .map((scope) => scope.trim())
-          .filter((scope) => scope.length > 0),
-        headerName,
-        prefix,
-      } satisfies SourceAuth;
-    }
-
-    if (auth.kind === "mcp_oauth") {
-      const redirectUri = trimOrNull(auth.redirectUri);
-      const accessProviderId = trimOrNull(auth.accessToken.providerId);
-      const accessHandle = trimOrNull(auth.accessToken.handle);
-      if (redirectUri === null || accessProviderId === null || accessHandle === null) {
-        return yield* runtimeEffectError("sources/source-definitions", "MCP OAuth auth requires redirectUri and access token secret ref");
-      }
-
-      let refreshToken: { providerId: string; handle: string } | null = null;
-      if (auth.refreshToken !== null) {
-        const refreshProviderId = trimOrNull(auth.refreshToken.providerId);
-        const refreshHandle = trimOrNull(auth.refreshToken.handle);
-        if (refreshProviderId === null || refreshHandle === null) {
-          return yield* runtimeEffectError("sources/source-definitions", "MCP OAuth refresh token ref must include providerId and handle");
-        }
-
-        refreshToken = {
-          providerId: refreshProviderId,
-          handle: refreshHandle,
-        };
-      }
-
-      const tokenType = trimOrNull(auth.tokenType) ?? "Bearer";
-
-      return {
-        kind: "mcp_oauth",
-        redirectUri,
-        accessToken: {
-          providerId: accessProviderId,
-          handle: accessHandle,
-        },
-        refreshToken,
-        tokenType,
-        expiresIn: auth.expiresIn ?? null,
-        scope: trimOrNull(auth.scope),
-        resourceMetadataUrl: trimOrNull(auth.resourceMetadataUrl),
-        authorizationServerUrl: trimOrNull(auth.authorizationServerUrl),
-        resourceMetadataJson: trimOrNull(auth.resourceMetadataJson),
-        authorizationServerMetadataJson: trimOrNull(auth.authorizationServerMetadataJson),
-        clientInformationJson: trimOrNull(auth.clientInformationJson),
-      } satisfies SourceAuth;
-    }
-
-    const headerName = trimOrNull(auth.headerName) ?? "Authorization";
-    const prefix = auth.prefix ?? "Bearer ";
-    const accessProviderId = trimOrNull(auth.accessToken.providerId);
-    const accessHandle = trimOrNull(auth.accessToken.handle);
-    if (accessProviderId === null || accessHandle === null) {
-      return yield* runtimeEffectError("sources/source-definitions", "OAuth2 auth requires an access token secret ref");
-    }
-
-    let refreshToken: { providerId: string; handle: string } | null = null;
-    if (auth.refreshToken !== null) {
-      const refreshProviderId = trimOrNull(auth.refreshToken.providerId);
-      const refreshHandle = trimOrNull(auth.refreshToken.handle);
-      if (refreshProviderId === null || refreshHandle === null) {
-        return yield* runtimeEffectError("sources/source-definitions", "OAuth2 refresh token ref must include providerId and handle");
-      }
-
-      refreshToken = {
-        providerId: refreshProviderId,
-        handle: refreshHandle,
-      };
-    }
-
-    return {
-      kind: "oauth2",
-      headerName,
-      prefix,
-      accessToken: {
-        providerId: accessProviderId,
-        handle: accessHandle,
-      },
-      refreshToken,
-    } satisfies SourceAuth;
-  });
-
-const normalizeImportAuthPolicy = (
-  sourceKind: Source["kind"],
-  policy: SourceImportAuthPolicy | undefined,
-): SourceImportAuthPolicy => policy ?? getSourceAdapter(sourceKind).defaultImportAuthPolicy;
-
-const validateSourceImportAuth = (source: Source): Effect.Effect<Source, Error, never> =>
-  Effect.gen(function* () {
-    if (source.importAuthPolicy !== "separate" && source.importAuth.kind !== "none") {
-      return yield* runtimeEffectError("sources/source-definitions", "importAuth must be none unless importAuthPolicy is separate");
-    }
-
-    return source;
-  });
-
 const validateSourceByKind = (source: Source): Effect.Effect<Source, Error, never> =>
-  Effect.flatMap(
-    validateSourceImportAuth(source),
-    (validated) =>
-      Effect.map(
-        getSourceAdapterForSource(validated).validateSource(validated),
-        (result) => result as Source,
-      ),
-  );
+  Effect.succeed(source);
 
-export const createSourceFromPayload = (input: {
+export const normalizeSourceForCreate = (input: {
   scopeId: ScopeId;
   sourceId: Source["id"];
-  payload: CreateSourcePayload;
+  source: Omit<
+    Source,
+    "id" | "scopeId" | "createdAt" | "updatedAt"
+  >;
   now: number;
 }): Effect.Effect<Source, Error, never> =>
-  Effect.gen(function* () {
-    const auth = yield* normalizeAuth(input.payload.auth);
-    const importAuth = yield* normalizeAuth(input.payload.importAuth);
-    const importAuthPolicy = normalizeImportAuthPolicy(
-      input.payload.kind,
-      input.payload.importAuthPolicy,
-    );
-
-    return yield* validateSourceByKind({
-      id: input.sourceId,
-      scopeId: input.scopeId,
-      name: input.payload.name.trim(),
-      kind: input.payload.kind,
-      endpoint: input.payload.endpoint.trim(),
-      status: input.payload.status ?? "draft",
-      enabled: input.payload.enabled ?? true,
-      namespace: trimOrNull(input.payload.namespace),
-      bindingVersion: getSourceAdapter(input.payload.kind).bindingConfigVersion,
-      binding: input.payload.binding ?? {},
-      importAuthPolicy,
-      importAuth,
-      auth,
-      sourceHash: trimOrNull(input.payload.sourceHash),
-      lastError: trimOrNull(input.payload.lastError),
-      createdAt: input.now,
-      updatedAt: input.now,
-    });
+  validateSourceByKind({
+    id: input.sourceId,
+    scopeId: input.scopeId,
+    name: input.source.name.trim(),
+    kind: input.source.kind,
+    status: input.source.status,
+    enabled: input.source.enabled,
+    namespace: trimOrNull(input.source.namespace),
+    createdAt: input.now,
+    updatedAt: input.now,
   });
 
-export const updateSourceFromPayload = (input: {
+export const normalizeSourceForSave = (input: {
   source: Source;
-  payload: UpdateSourcePayload;
   now: number;
 }): Effect.Effect<Source, Error, never> =>
-  Effect.gen(function* () {
-    const nextAuth = input.payload.auth === undefined
-      ? input.source.auth
-      : yield* normalizeAuth(input.payload.auth);
-    const nextImportAuth = input.payload.importAuth === undefined
-      ? input.source.importAuth
-      : yield* normalizeAuth(input.payload.importAuth);
-    const nextImportAuthPolicy = normalizeImportAuthPolicy(
-      input.source.kind,
-      input.payload.importAuthPolicy ?? input.source.importAuthPolicy,
-    );
-
-    return yield* validateSourceByKind({
-      ...input.source,
-      name: input.payload.name !== undefined ? input.payload.name.trim() : input.source.name,
-      endpoint:
-        input.payload.endpoint !== undefined
-          ? input.payload.endpoint.trim()
-          : input.source.endpoint,
-      status: input.payload.status ?? input.source.status,
-      enabled: input.payload.enabled ?? input.source.enabled,
-      namespace: input.payload.namespace !== undefined
-        ? trimOrNull(input.payload.namespace)
-        : input.source.namespace,
-      bindingVersion: input.payload.binding !== undefined
-        ? getSourceAdapter(input.source.kind).bindingConfigVersion
-        : input.source.bindingVersion,
-      binding: input.payload.binding !== undefined
-        ? input.payload.binding
-        : input.source.binding,
-      importAuthPolicy: nextImportAuthPolicy,
-      importAuth: nextImportAuth,
-      auth: nextAuth,
-      sourceHash: input.payload.sourceHash !== undefined
-        ? trimOrNull(input.payload.sourceHash)
-        : input.source.sourceHash,
-      lastError: input.payload.lastError !== undefined
-        ? trimOrNull(input.payload.lastError)
-        : input.source.lastError,
-      updatedAt: input.now,
-    });
+  validateSourceByKind({
+    ...input.source,
+    name: input.source.name.trim(),
+    namespace: trimOrNull(input.source.namespace),
+    updatedAt: input.now,
   });
 
 export const createSourceCatalogRecord = (input: {
@@ -372,8 +114,7 @@ export const createSourceCatalogRecord = (input: {
 }): StoredSourceCatalogRecord => ({
   id: input.catalogId ?? stableSourceCatalogId(input.source),
   kind: sourceCatalogKindFromSource(input.source),
-  adapterKey: sourceCatalogAdapterKeyFromSource(input.source),
-  providerKey: sourceCatalogProviderKeyFromSource(input.source),
+  pluginKey: sourceCatalogPluginKeyFromSource(input.source),
   name: input.source.name,
   summary: null,
   visibility: "scope",
@@ -403,128 +144,3 @@ export const createSourceCatalogRevisionRecord = (input: {
   createdAt: input.source.createdAt,
   updatedAt: input.source.updatedAt,
 });
-
-export const splitSourceForStorage = (input: {
-  source: Source;
-  catalogId: SourceCatalogId;
-  catalogRevisionId: SourceCatalogRevisionId;
-  actorScopeId?: ScopeId | null;
-  existingRuntimeAuthArtifactId?: AuthArtifact["id"] | null;
-  existingImportAuthArtifactId?: AuthArtifact["id"] | null;
-}): {
-  sourceRecord: StoredSourceRecord;
-  runtimeAuthArtifact: AuthArtifact | null;
-  importAuthArtifact: AuthArtifact | null;
-} => {
-  const sourceRecord: StoredSourceRecord = {
-    id: input.source.id,
-    scopeId: input.source.scopeId,
-    catalogId: input.catalogId,
-    catalogRevisionId: input.catalogRevisionId,
-    name: input.source.name,
-    kind: input.source.kind,
-    endpoint: input.source.endpoint,
-    status: input.source.status,
-    enabled: input.source.enabled,
-    namespace: input.source.namespace,
-    importAuthPolicy: input.source.importAuthPolicy,
-    bindingConfigJson: getSourceAdapterForSource(input.source).serializeBindingConfig(input.source),
-    sourceHash: input.source.sourceHash,
-    lastError: input.source.lastError,
-    createdAt: input.source.createdAt,
-    updatedAt: input.source.updatedAt,
-  };
-
-  return {
-    sourceRecord,
-    runtimeAuthArtifact: authArtifactFromSourceAuth({
-      source: input.source,
-      auth: input.source.auth,
-      slot: "runtime",
-      actorScopeId: input.actorScopeId,
-      existingAuthArtifactId: input.existingRuntimeAuthArtifactId
-        ?? AuthArtifactIdSchema.make(`auth_art_${crypto.randomUUID()}`),
-    }),
-    importAuthArtifact: input.source.importAuthPolicy === "separate"
-      ? authArtifactFromSourceAuth({
-          source: input.source,
-          auth: input.source.importAuth,
-          slot: "import",
-          actorScopeId: input.actorScopeId,
-          existingAuthArtifactId: input.existingImportAuthArtifactId
-            ?? AuthArtifactIdSchema.make(`auth_art_${crypto.randomUUID()}`),
-        })
-      : null,
-  };
-};
-
-export const projectSourceFromStorage = (input: {
-  sourceRecord: StoredSourceRecord;
-  runtimeAuthArtifact: AuthArtifact | null;
-  importAuthArtifact: AuthArtifact | null;
-}): Effect.Effect<Source, Error, never> =>
-  Effect.gen(function* () {
-    const adapter = getSourceAdapter(input.sourceRecord.kind);
-    const bindingConfig = yield* adapter.deserializeBindingConfig({
-      id: input.sourceRecord.id,
-      bindingConfigJson: input.sourceRecord.bindingConfigJson,
-    });
-
-    return {
-      id: input.sourceRecord.id,
-      scopeId: input.sourceRecord.scopeId,
-      name: input.sourceRecord.name,
-      kind: input.sourceRecord.kind,
-      endpoint: input.sourceRecord.endpoint,
-      status: input.sourceRecord.status,
-      enabled: input.sourceRecord.enabled,
-      namespace: input.sourceRecord.namespace,
-      bindingVersion: bindingConfig.version,
-      binding: bindingConfig.payload,
-      importAuthPolicy: input.sourceRecord.importAuthPolicy,
-      importAuth:
-        input.sourceRecord.importAuthPolicy === "separate"
-          ? sourceAuthFromAuthArtifact(input.importAuthArtifact)
-          : { kind: "none" },
-      auth: sourceAuthFromAuthArtifact(input.runtimeAuthArtifact),
-      sourceHash: input.sourceRecord.sourceHash,
-      lastError: input.sourceRecord.lastError,
-      createdAt: input.sourceRecord.createdAt,
-      updatedAt: input.sourceRecord.updatedAt,
-    } satisfies Source;
-  }).pipe(
-    Effect.mapError((cause) =>
-      cause instanceof Error ? cause : new Error(String(cause)),
-    ),
-  );
-
-export const projectSourcesFromStorage = (input: {
-  sourceRecords: ReadonlyArray<StoredSourceRecord>;
-  authArtifacts: ReadonlyArray<AuthArtifact>;
-}): Effect.Effect<ReadonlyArray<Source>, Error, never> => {
-  const authArtifactsBySourceId = new Map<string, {
-    runtime: AuthArtifact | null;
-    import: AuthArtifact | null;
-  }>();
-
-  for (const authArtifact of input.authArtifacts) {
-    const existing = authArtifactsBySourceId.get(authArtifact.sourceId) ?? {
-      runtime: null,
-      import: null,
-    };
-    const current = authArtifact.slot === "runtime" ? existing.runtime : existing.import;
-    if (current === null || (current.actorScopeId === null && authArtifact.actorScopeId !== null)) {
-      authArtifactsBySourceId.set(authArtifact.sourceId, {
-        ...existing,
-        [authArtifact.slot]: authArtifact,
-      });
-    }
-  }
-
-  return Effect.forEach(input.sourceRecords, (sourceRecord) =>
-    projectSourceFromStorage({
-      sourceRecord,
-      runtimeAuthArtifact: authArtifactsBySourceId.get(sourceRecord.id)?.runtime ?? null,
-      importAuthArtifact: authArtifactsBySourceId.get(sourceRecord.id)?.import ?? null,
-    }));
-};

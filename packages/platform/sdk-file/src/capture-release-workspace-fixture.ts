@@ -169,8 +169,8 @@ const copyRecursive = (
     }
 
     if (info.type !== "File") {
-      return yield* Effect.fail(
-        fail(`Unsupported filesystem entry while copying fixture: ${sourcePath}`),
+      return yield* fail(
+        `Unsupported filesystem entry while copying fixture: ${sourcePath}`,
       );
     }
 
@@ -187,13 +187,7 @@ const copyRecursive = (
 
 const sanitizeSourceConfig = (
   sourceConfig: NonNullable<LocalExecutorConfig["sources"]>[string],
-): NonNullable<LocalExecutorConfig["sources"]>[string] => {
-  const { auth: _ignoredAuth, ...connection } = sourceConfig.connection;
-  return {
-    ...sourceConfig,
-    connection,
-  };
-};
+): NonNullable<LocalExecutorConfig["sources"]>[string] => sourceConfig;
 
 const main = Effect.gen(function* () {
   const args = yield* Effect.try({
@@ -236,10 +230,8 @@ const main = Effect.gen(function* () {
 
   const sourceConfig = projectConfig?.sources?.[args.sourceId];
   if (!sourceConfig) {
-    return yield* Effect.fail(
-      fail(
+    return yield* fail(
       `Source ${args.sourceId} was not found in ${context.projectConfigPath}`,
-      ),
     );
   }
 
@@ -252,10 +244,8 @@ const main = Effect.gen(function* () {
   );
   const sourceState = workspaceState.sources[args.sourceId];
   if (!sourceState) {
-    return yield* Effect.fail(
-      fail(
+    return yield* fail(
       `Source ${args.sourceId} was not found in ${context.stateDirectory}/workspace-state.json`,
-      ),
     );
   }
 
@@ -268,9 +258,7 @@ const main = Effect.gen(function* () {
     Effect.mapError(mapFileSystemError(sourceArtifactPath, "check source artifact")),
   );
   if (!artifactExists) {
-    return yield* Effect.fail(
-      fail(`Source artifact not found at ${sourceArtifactPath}`),
-    );
+    return yield* fail(`Source artifact not found at ${sourceArtifactPath}`);
   }
 
   const outputDirectory =
@@ -288,10 +276,8 @@ const main = Effect.gen(function* () {
     Effect.mapError(mapFileSystemError(outputDirectory, "check output directory")),
   );
   if (outputExists && !args.overwrite) {
-    return yield* Effect.fail(
-      fail(
-        `Output directory already exists: ${outputDirectory}. Pass --overwrite to replace it.`,
-      ),
+    return yield* fail(
+      `Output directory already exists: ${outputDirectory}. Pass --overwrite to replace it.`,
     );
   }
 

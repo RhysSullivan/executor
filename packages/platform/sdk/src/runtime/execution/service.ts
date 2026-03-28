@@ -58,6 +58,7 @@ import {
 
 const executionOps = {
   create: operationErrors("executions.create"),
+  list: operationErrors("executions.list"),
   get: operationErrors("executions.get"),
   resume: operationErrors("executions.resume"),
 } as const;
@@ -902,6 +903,13 @@ export const getExecution = (input: {
       executionId: input.executionId,
       operation: executionOps.get,
     })
+  );
+
+export const listExecutions = (input: {
+  scopeId: ScopeId;
+}) =>
+  Effect.flatMap(ExecutorStateStore, (store) =>
+    executionOps.list.mapStorage(store.executions.listByScope(input.scopeId))
   );
 
 export const submitExecutionInteractionResponse = (input: {

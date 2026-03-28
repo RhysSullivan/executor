@@ -1,0 +1,32 @@
+{
+  "name": "@executor/plugin-graphql-sdk",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "*.ts"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/codemode-core": "workspace:*",
+    "@executor/ir": "workspace:*",
+    "@executor/platform-sdk": "workspace:*",
+    "@executor/plugin-graphql-shared": "workspace:*",
+    "@executor/source-core": "workspace:*",
+    "effect": "catalog:",
+    "graphql": "^16.12.0"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
+  },
+  "version": "0.0.0"
+}

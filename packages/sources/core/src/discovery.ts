@@ -215,9 +215,6 @@ export const executeHttpProbe = (input: {
     catch: (cause) => cause instanceof Error ? cause : new Error(String(cause)),
   });
 
-export const looksLikeGraphqlEndpoint = (normalizedUrl: string): boolean =>
-  /graphql/i.test(new URL(normalizedUrl).pathname);
-
 export const tryParseJson = (value: string): unknown => {
   try {
     return JSON.parse(value) as unknown;
@@ -244,7 +241,7 @@ export const fallbackSourceDiscoveryResult = (
     ),
     toolCount: null,
     warnings: [
-      "Could not confirm whether the URL is Google Discovery, OpenAPI, GraphQL, or MCP.",
+      "Could not confirm whether the URL matches any registered source plugin.",
     ],
   };
 };

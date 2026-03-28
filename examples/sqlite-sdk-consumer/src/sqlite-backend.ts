@@ -20,19 +20,13 @@ import {
   type ExecutorWorkspaceSourceArtifactRepository,
 } from "@executor/platform-sdk";
 import type {
-  AuthArtifact,
-  AuthLease,
   Execution,
   ExecutionInteraction,
   ExecutionStep,
   LocalExecutorConfig,
   LocalInstallation,
-  ProviderAuthGrant,
-  ScopeOauthClient,
-  ScopedSourceOauthClient,
   SecretMaterial,
   SecretRef,
-  SourceAuthSession,
 } from "@executor/platform-sdk/schema";
 import {
   ScopeIdSchema,
@@ -94,54 +88,6 @@ const sourceArtifacts = sqliteTable("source_artifacts", {
   artifactJson: text("artifact_json").notNull(),
 });
 
-const authArtifacts = sqliteTable("auth_artifacts", {
-  id: text("id").primaryKey(),
-  scopeId: text("scope_id").notNull(),
-  sourceId: text("source_id").notNull(),
-  actorScopeId: text("actor_scope_id"),
-  slot: text("slot").notNull(),
-  json: text("json").notNull(),
-});
-
-const authLeases = sqliteTable("auth_leases", {
-  authArtifactId: text("auth_artifact_id").primaryKey(),
-  json: text("json").notNull(),
-});
-
-const sourceOauthClients = sqliteTable("source_oauth_clients", {
-  id: text("id").primaryKey(),
-  scopeId: text("scope_id").notNull(),
-  sourceId: text("source_id").notNull(),
-  providerKey: text("provider_key").notNull(),
-  json: text("json").notNull(),
-});
-
-const scopeOauthClients = sqliteTable("scope_oauth_clients", {
-  id: text("id").primaryKey(),
-  scopeId: text("scope_id").notNull(),
-  providerKey: text("provider_key").notNull(),
-  json: text("json").notNull(),
-});
-
-const providerAuthGrants = sqliteTable("provider_auth_grants", {
-  id: text("id").primaryKey(),
-  scopeId: text("scope_id").notNull(),
-  actorScopeId: text("actor_scope_id"),
-  providerKey: text("provider_key").notNull(),
-  json: text("json").notNull(),
-});
-
-const sourceAuthSessions = sqliteTable("source_auth_sessions", {
-  id: text("id").primaryKey(),
-  scopeId: text("scope_id").notNull(),
-  sourceId: text("source_id").notNull(),
-  actorScopeId: text("actor_scope_id"),
-  state: text("state").notNull(),
-  status: text("status").notNull(),
-  credentialSlot: text("credential_slot"),
-  json: text("json").notNull(),
-});
-
 const secretMaterials = sqliteTable("secret_materials", {
   id: text("id").primaryKey(),
   providerId: text("provider_id").notNull(),
@@ -175,25 +121,15 @@ const executionSteps = sqliteTable("execution_steps", {
 const makeHash = (value: string): string =>
   createHash("sha256").update(value).digest("hex").slice(0, 24);
 
-const sameActor = (
-  left: string | null | undefined,
-  right: string | null | undefined,
-): boolean => (left ?? null) === (right ?? null);
-
 const parseJson = <T>(value: string): T => JSON.parse(value) as T;
 
 const createSourceArtifact = (input: SourceArtifactBuildInput): SourceArtifact => {
   const snapshot = snapshotFromSourceCatalogSyncResult(input.syncResult);
   const sourceConfigJson = JSON.stringify({
     kind: input.source.kind,
-    endpoint: input.source.endpoint,
     namespace: input.source.namespace,
     name: input.source.name,
     enabled: input.source.enabled,
-    binding: input.source.binding,
-    auth: input.source.auth,
-    importAuth: input.source.importAuth,
-    importAuthPolicy: input.source.importAuthPolicy,
   });
   const importMetadataJson = JSON.stringify(snapshot.import);
   const catalogId = SourceCatalogIdSchema.make(`src_catalog_${makeHash(sourceConfigJson)}`);
@@ -273,54 +209,6 @@ const openSqliteStore = (databasePath: string) => {
         artifact_json TEXT NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS auth_artifacts (
-        id TEXT PRIMARY KEY NOT NULL,
-        scope_id TEXT NOT NULL,
-        source_id TEXT NOT NULL,
-        actor_scope_id TEXT,
-        slot TEXT NOT NULL,
-        json TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS auth_leases (
-        auth_artifact_id TEXT PRIMARY KEY NOT NULL,
-        json TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS source_oauth_clients (
-        id TEXT PRIMARY KEY NOT NULL,
-        scope_id TEXT NOT NULL,
-        source_id TEXT NOT NULL,
-        provider_key TEXT NOT NULL,
-        json TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS scope_oauth_clients (
-        id TEXT PRIMARY KEY NOT NULL,
-        scope_id TEXT NOT NULL,
-        provider_key TEXT NOT NULL,
-        json TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS provider_auth_grants (
-        id TEXT PRIMARY KEY NOT NULL,
-        scope_id TEXT NOT NULL,
-        actor_scope_id TEXT,
-        provider_key TEXT NOT NULL,
-        json TEXT NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS source_auth_sessions (
-        id TEXT PRIMARY KEY NOT NULL,
-        scope_id TEXT NOT NULL,
-        source_id TEXT NOT NULL,
-        actor_scope_id TEXT,
-        state TEXT NOT NULL,
-        status TEXT NOT NULL,
-        credential_slot TEXT,
-        json TEXT NOT NULL
-      );
-
       CREATE TABLE IF NOT EXISTS secret_materials (
         id TEXT PRIMARY KEY NOT NULL,
         provider_id TEXT NOT NULL,
@@ -363,358 +251,6 @@ const openSqliteStore = (databasePath: string) => {
 type SqliteStore = ReturnType<typeof openSqliteStore>;
 
 const createStorageDomains = (store: SqliteStore) => ({
-  auth: {
-    artifacts: {
-    listByScopeId: (scopeId: AuthArtifact["scopeId"]) =>
-      store.db.select().from(authArtifacts).where(eq(authArtifacts.scopeId, scopeId)).all()
-        .map((row) => parseJson<AuthArtifact>(row.json)),
-    listByScopeAndSourceId: (input: {
-      scopeId: AuthArtifact["scopeId"];
-      sourceId: AuthArtifact["sourceId"];
-    }) =>
-      store.db.select().from(authArtifacts).where(
-        and(
-          eq(authArtifacts.scopeId, input.scopeId),
-          eq(authArtifacts.sourceId, input.sourceId),
-        ),
-      ).all().map((row) => parseJson<AuthArtifact>(row.json)),
-    getByScopeSourceAndActor: (input: {
-      scopeId: AuthArtifact["scopeId"];
-      sourceId: AuthArtifact["sourceId"];
-      actorScopeId: AuthArtifact["actorScopeId"];
-      slot: AuthArtifact["slot"];
-    }) =>
-      store.db.select().from(authArtifacts).where(
-        and(
-          eq(authArtifacts.scopeId, input.scopeId),
-          eq(authArtifacts.sourceId, input.sourceId),
-          eq(authArtifacts.slot, input.slot),
-        ),
-      ).all().map((row) => parseJson<AuthArtifact>(row.json))
-        .find((item) => sameActor(item.actorScopeId, input.actorScopeId)) ?? null,
-    upsert: (artifact: AuthArtifact) =>
-      store.db.insert(authArtifacts).values({
-        id: artifact.id,
-        scopeId: artifact.scopeId,
-        sourceId: artifact.sourceId,
-        actorScopeId: artifact.actorScopeId,
-        slot: artifact.slot,
-        json: JSON.stringify(artifact),
-      }).onConflictDoUpdate({
-        target: authArtifacts.id,
-        set: {
-          scopeId: artifact.scopeId,
-          sourceId: artifact.sourceId,
-          actorScopeId: artifact.actorScopeId,
-          slot: artifact.slot,
-          json: JSON.stringify(artifact),
-        },
-      }).run(),
-    removeByScopeSourceAndActor: (input: {
-      scopeId: AuthArtifact["scopeId"];
-      sourceId: AuthArtifact["sourceId"];
-      actorScopeId: AuthArtifact["actorScopeId"];
-      slot?: AuthArtifact["slot"];
-    }) => {
-      const rows = store.db.select().from(authArtifacts).where(
-        and(
-          eq(authArtifacts.scopeId, input.scopeId),
-          eq(authArtifacts.sourceId, input.sourceId),
-        ),
-      ).all();
-      const match = rows.find((row) => {
-        const item = parseJson<AuthArtifact>(row.json);
-        return sameActor(item.actorScopeId, input.actorScopeId)
-          && (input.slot === undefined || item.slot === input.slot);
-      });
-      if (!match) return false;
-      store.db.delete(authArtifacts).where(eq(authArtifacts.id, match.id)).run();
-      return true;
-    },
-    removeByScopeAndSourceId: (input: {
-      scopeId: AuthArtifact["scopeId"];
-      sourceId: AuthArtifact["sourceId"];
-    }) => {
-      const rows = store.db.select({ id: authArtifacts.id }).from(authArtifacts).where(
-        and(
-          eq(authArtifacts.scopeId, input.scopeId),
-          eq(authArtifacts.sourceId, input.sourceId),
-        ),
-      ).all();
-      store.db.delete(authArtifacts).where(
-        and(
-          eq(authArtifacts.scopeId, input.scopeId),
-          eq(authArtifacts.sourceId, input.sourceId),
-        ),
-      ).run();
-      return rows.length;
-    },
-  },
-    leases: {
-    listAll: () =>
-      store.db.select().from(authLeases).all().map((row) => parseJson<AuthLease>(row.json)),
-    getByAuthArtifactId: (authArtifactId: AuthLease["authArtifactId"]) => {
-      const row = store.db.select().from(authLeases).where(
-        eq(authLeases.authArtifactId, authArtifactId),
-      ).get();
-      return row ? parseJson<AuthLease>(row.json) : null;
-    },
-    upsert: (lease: AuthLease) =>
-      store.db.insert(authLeases).values({
-        authArtifactId: lease.authArtifactId,
-        json: JSON.stringify(lease),
-      }).onConflictDoUpdate({
-        target: authLeases.authArtifactId,
-        set: { json: JSON.stringify(lease) },
-      }).run(),
-    removeByAuthArtifactId: (authArtifactId: AuthLease["authArtifactId"]) => {
-      const row = store.db.select({ id: authLeases.authArtifactId }).from(authLeases).where(
-        eq(authLeases.authArtifactId, authArtifactId),
-      ).get();
-      if (!row) return false;
-      store.db.delete(authLeases).where(eq(authLeases.authArtifactId, authArtifactId)).run();
-      return true;
-    },
-  },
-    sourceOauthClients: {
-    getByScopeSourceAndProvider: (input: {
-      scopeId: ScopedSourceOauthClient["scopeId"];
-      sourceId: ScopedSourceOauthClient["sourceId"];
-      providerKey: string;
-    }) => {
-      const row = store.db.select().from(sourceOauthClients).where(
-        and(
-          eq(sourceOauthClients.scopeId, input.scopeId),
-          eq(sourceOauthClients.sourceId, input.sourceId),
-          eq(sourceOauthClients.providerKey, input.providerKey),
-        ),
-      ).get();
-      return row ? parseJson<ScopedSourceOauthClient>(row.json) : null;
-    },
-    upsert: (oauthClient: ScopedSourceOauthClient) =>
-      store.db.insert(sourceOauthClients).values({
-        id: oauthClient.id,
-        scopeId: oauthClient.scopeId,
-        sourceId: oauthClient.sourceId,
-        providerKey: oauthClient.providerKey,
-        json: JSON.stringify(oauthClient),
-      }).onConflictDoUpdate({
-        target: sourceOauthClients.id,
-        set: {
-          scopeId: oauthClient.scopeId,
-          sourceId: oauthClient.sourceId,
-          providerKey: oauthClient.providerKey,
-          json: JSON.stringify(oauthClient),
-        },
-      }).run(),
-    removeByScopeAndSourceId: (input: {
-      scopeId: ScopedSourceOauthClient["scopeId"];
-      sourceId: ScopedSourceOauthClient["sourceId"];
-    }) => {
-      const rows = store.db.select({ id: sourceOauthClients.id }).from(sourceOauthClients).where(
-        and(
-          eq(sourceOauthClients.scopeId, input.scopeId),
-          eq(sourceOauthClients.sourceId, input.sourceId),
-        ),
-      ).all();
-      store.db.delete(sourceOauthClients).where(
-        and(
-          eq(sourceOauthClients.scopeId, input.scopeId),
-          eq(sourceOauthClients.sourceId, input.sourceId),
-        ),
-      ).run();
-      return rows.length;
-    },
-  },
-    scopeOauthClients: {
-    listByScopeAndProvider: (input: {
-      scopeId: ScopeOauthClient["scopeId"];
-      providerKey: string;
-    }) =>
-      store.db.select().from(scopeOauthClients).where(
-        and(
-          eq(scopeOauthClients.scopeId, input.scopeId),
-          eq(scopeOauthClients.providerKey, input.providerKey),
-        ),
-      ).all().map((row) => parseJson<ScopeOauthClient>(row.json)),
-    getById: (id: ScopeOauthClient["id"]) => {
-      const row = store.db.select().from(scopeOauthClients).where(eq(scopeOauthClients.id, id)).get();
-      return row ? parseJson<ScopeOauthClient>(row.json) : null;
-    },
-    upsert: (oauthClient: ScopeOauthClient) =>
-      store.db.insert(scopeOauthClients).values({
-        id: oauthClient.id,
-        scopeId: oauthClient.scopeId,
-        providerKey: oauthClient.providerKey,
-        json: JSON.stringify(oauthClient),
-      }).onConflictDoUpdate({
-        target: scopeOauthClients.id,
-        set: {
-          scopeId: oauthClient.scopeId,
-          providerKey: oauthClient.providerKey,
-          json: JSON.stringify(oauthClient),
-        },
-      }).run(),
-    removeById: (id: ScopeOauthClient["id"]) => {
-      const row = store.db.select({ id: scopeOauthClients.id }).from(scopeOauthClients).where(
-        eq(scopeOauthClients.id, id),
-      ).get();
-      if (!row) return false;
-      store.db.delete(scopeOauthClients).where(eq(scopeOauthClients.id, id)).run();
-      return true;
-    },
-  },
-    providerGrants: {
-    listByScopeId: (scopeId: ProviderAuthGrant["scopeId"]) =>
-      store.db.select().from(providerAuthGrants).where(
-        eq(providerAuthGrants.scopeId, scopeId),
-      ).all().map((row) => parseJson<ProviderAuthGrant>(row.json)),
-    listByScopeActorAndProvider: (input: {
-      scopeId: ProviderAuthGrant["scopeId"];
-      actorScopeId: ProviderAuthGrant["actorScopeId"];
-      providerKey: string;
-    }) =>
-      store.db.select().from(providerAuthGrants).where(
-        and(
-          eq(providerAuthGrants.scopeId, input.scopeId),
-          eq(providerAuthGrants.providerKey, input.providerKey),
-        ),
-      ).all().map((row) => parseJson<ProviderAuthGrant>(row.json))
-        .filter((item) => sameActor(item.actorScopeId, input.actorScopeId)),
-    getById: (id: ProviderAuthGrant["id"]) => {
-      const row = store.db.select().from(providerAuthGrants).where(
-        eq(providerAuthGrants.id, id),
-      ).get();
-      return row ? parseJson<ProviderAuthGrant>(row.json) : null;
-    },
-    upsert: (grant: ProviderAuthGrant) =>
-      store.db.insert(providerAuthGrants).values({
-        id: grant.id,
-        scopeId: grant.scopeId,
-        actorScopeId: grant.actorScopeId,
-        providerKey: grant.providerKey,
-        json: JSON.stringify(grant),
-      }).onConflictDoUpdate({
-        target: providerAuthGrants.id,
-        set: {
-          scopeId: grant.scopeId,
-          actorScopeId: grant.actorScopeId,
-          providerKey: grant.providerKey,
-          json: JSON.stringify(grant),
-        },
-      }).run(),
-    removeById: (id: ProviderAuthGrant["id"]) => {
-      const row = store.db.select({ id: providerAuthGrants.id }).from(providerAuthGrants).where(
-        eq(providerAuthGrants.id, id),
-      ).get();
-      if (!row) return false;
-      store.db.delete(providerAuthGrants).where(eq(providerAuthGrants.id, id)).run();
-      return true;
-    },
-  },
-    sourceSessions: {
-    listAll: () =>
-      store.db.select().from(sourceAuthSessions).all().map((row) => parseJson<SourceAuthSession>(row.json)),
-    listByScopeId: (scopeId: SourceAuthSession["scopeId"]) =>
-      store.db.select().from(sourceAuthSessions).where(
-        eq(sourceAuthSessions.scopeId, scopeId),
-      ).all().map((row) => parseJson<SourceAuthSession>(row.json)),
-    getById: (id: SourceAuthSession["id"]) => {
-      const row = store.db.select().from(sourceAuthSessions).where(eq(sourceAuthSessions.id, id)).get();
-      return row ? parseJson<SourceAuthSession>(row.json) : null;
-    },
-    getByState: (state: SourceAuthSession["state"]) => {
-      const row = store.db.select().from(sourceAuthSessions).where(
-        eq(sourceAuthSessions.state, state),
-      ).get();
-      return row ? parseJson<SourceAuthSession>(row.json) : null;
-    },
-    getPendingByScopeSourceAndActor: (input: {
-      scopeId: SourceAuthSession["scopeId"];
-      sourceId: SourceAuthSession["sourceId"];
-      actorScopeId: SourceAuthSession["actorScopeId"];
-      credentialSlot?: SourceAuthSession["credentialSlot"];
-    }) =>
-      store.db.select().from(sourceAuthSessions).where(
-        and(
-          eq(sourceAuthSessions.scopeId, input.scopeId),
-          eq(sourceAuthSessions.sourceId, input.sourceId),
-          eq(sourceAuthSessions.status, "pending"),
-        ),
-      ).all().map((row) => parseJson<SourceAuthSession>(row.json))
-        .find((item) =>
-          sameActor(item.actorScopeId, input.actorScopeId)
-          && (input.credentialSlot === undefined || item.credentialSlot === input.credentialSlot)
-        ) ?? null,
-    insert: (session: SourceAuthSession) =>
-      store.db.insert(sourceAuthSessions).values({
-        id: session.id,
-        scopeId: session.scopeId,
-        sourceId: session.sourceId,
-        actorScopeId: session.actorScopeId,
-        state: session.state,
-        status: session.status,
-        credentialSlot: session.credentialSlot,
-        json: JSON.stringify(session),
-      }).run(),
-    update: (
-      id: SourceAuthSession["id"],
-      patch: Partial<Omit<SourceAuthSession, "id" | "scopeId" | "sourceId" | "createdAt">>,
-    ) => {
-      const current = store.db.select().from(sourceAuthSessions).where(eq(sourceAuthSessions.id, id)).get();
-      if (!current) return null;
-      const next = { ...parseJson<SourceAuthSession>(current.json), ...patch };
-      store.db.update(sourceAuthSessions).set({
-        state: next.state,
-        status: next.status,
-        credentialSlot: next.credentialSlot,
-        actorScopeId: next.actorScopeId,
-        json: JSON.stringify(next),
-      }).where(eq(sourceAuthSessions.id, id)).run();
-      return next;
-    },
-    upsert: (session: SourceAuthSession) =>
-      store.db.insert(sourceAuthSessions).values({
-        id: session.id,
-        scopeId: session.scopeId,
-        sourceId: session.sourceId,
-        actorScopeId: session.actorScopeId,
-        state: session.state,
-        status: session.status,
-        credentialSlot: session.credentialSlot,
-        json: JSON.stringify(session),
-      }).onConflictDoUpdate({
-        target: sourceAuthSessions.id,
-        set: {
-          scopeId: session.scopeId,
-          sourceId: session.sourceId,
-          actorScopeId: session.actorScopeId,
-          state: session.state,
-          status: session.status,
-          credentialSlot: session.credentialSlot,
-          json: JSON.stringify(session),
-        },
-      }).run(),
-    removeByScopeAndSourceId: (
-      scopeId: SourceAuthSession["scopeId"],
-      sourceId: SourceAuthSession["sourceId"],
-    ) => {
-      const rows = store.db.select({ id: sourceAuthSessions.id }).from(sourceAuthSessions).where(
-        and(
-          eq(sourceAuthSessions.scopeId, scopeId),
-          eq(sourceAuthSessions.sourceId, sourceId),
-        ),
-      ).all();
-      store.db.delete(sourceAuthSessions).where(
-        and(
-          eq(sourceAuthSessions.scopeId, scopeId),
-          eq(sourceAuthSessions.sourceId, sourceId),
-        ),
-      ).run();
-      return rows.length > 0;
-    },
-  },
-  },
   secrets: {
     getById: (id: SecretMaterial["id"]) => {
       const row = store.db.select().from(secretMaterials).where(eq(secretMaterials.id, id)).get();
@@ -790,6 +326,12 @@ const createStorageDomains = (store: SqliteStore) => ({
   },
   executions: {
     runs: {
+    listByScope: (scopeId: Execution["scopeId"]) =>
+      store.db.select().from(executions).where(
+        eq(executions.scopeId, scopeId),
+      ).all()
+        .map((row) => parseJson<Execution>(row.json))
+        .sort((left, right) => right.createdAt - left.createdAt),
     getById: (executionId: Execution["id"]) => {
       const row = store.db.select().from(executions).where(eq(executions.id, executionId)).get();
       return row ? parseJson<Execution>(row.json) : null;
@@ -929,7 +471,7 @@ export const createSqliteExecutorBackend = (
   return createExecutorBackend({
     loadRepositories: () => {
       const store = openSqliteStore(databasePath);
-      const { auth, secrets, executions } = createStorageDomains(store);
+      const { secrets, executions } = createStorageDomains(store);
 
       return {
         scope: {
@@ -1042,7 +584,6 @@ export const createSqliteExecutorBackend = (
               store.db.delete(sourceArtifacts).where(eq(sourceArtifacts.sourceId, sourceId)).run();
             },
           },
-          sourceAuth: auth,
         },
         secrets: {
           ...secrets,

@@ -1,0 +1,26 @@
+{
+  "name": "@executor/plugin-mcp-http",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "index.ts"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@executor/platform-api": "workspace:*",
+    "@executor/platform-sdk": "workspace:*",
+    "@executor/plugin-mcp-shared": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "bun-types": "catalog:"
+  },
+  "version": "0.0.0"
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@executor/plugin-google-discovery-react",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "components.tsx",
+    "icons.ts",
+    "index.ts"
+  ],
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@executor/plugin-google-discovery-http": "workspace:*",
+    "@executor/plugin-google-discovery-shared": "workspace:*",
+    "@executor/react": "workspace:*",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "^19.2.10",
+    "bun-types": "catalog:"
+  },
+  "version": "0.0.0"
+}

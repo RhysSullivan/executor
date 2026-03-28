@@ -1,0 +1,14 @@
+type: object
+additionalProperties: false
+required:
+  - id
+  - name
+properties:
+  id:
+    type: string
+  name:
+    type: string
+  tags:
+    type: array
+    items:
+      type: string

@@ -3,9 +3,6 @@ import {
   makeToolInvokerFromTools,
   type ToolMap,
 } from "@executor/codemode-core";
-import {
-  clearAllMcpConnectionPools,
-} from "@executor/source-mcp";
 import type {
   LocalInstallation,
 } from "#schema";
@@ -13,9 +10,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 
-import {
-  RuntimeSourceAuthMaterialLive,
-} from "./auth/source-auth-material";
 import {
   RuntimeSourceCatalogStoreService,
   RuntimeSourceCatalogStoreLive,
@@ -37,10 +31,6 @@ import {
 import {
   RuntimeExecutionResolverLive,
 } from "./execution/scope/environment";
-import type {
-  CreateScopeInternalToolMap,
-  ScopeInternalToolContext,
-} from "./execution/scope/tool-invoker";
 import type {
   LoadedLocalExecutorConfig,
 } from "./scope-config";
@@ -78,7 +68,6 @@ import {
   LocalToolRuntimeLoaderService,
 } from "./local-tool-runtime";
 import {
-  InstallationStore,
   makeLocalStorageLayer,
   type InstallationStoreShape,
   type SourceArtifactStoreShape,
@@ -96,9 +85,6 @@ import {
   type ExecutorStateStoreShape,
 } from "./executor-state-store";
 import {
-  RuntimeSourceAuthServiceLive,
-} from "./sources/source-auth-service";
-import {
   RuntimeSourceStoreLive,
 } from "./sources/source-store";
 
@@ -106,21 +92,19 @@ export * from "./execution/state";
 export * from "./sources/executor-tools";
 export * from "./execution/live";
 export * from "./catalog/schema-type-signature";
+export * from "./catalog/catalog-typescript";
 export * from "./catalog/source/runtime";
 export * from "./catalog/source/sync";
-export * from "./sources/source-auth-service";
-export * from "./sources/source-credential-interactions";
-export * from "./sources/source-adapters/mcp";
 export * from "./sources/source-store";
 export * from "./executor-state-store";
+export * from "./effect-errors";
 export * from "./execution/scope/environment";
 export * from "../sources/inspection";
-export * from "../sources/discovery";
 export * from "./execution/service";
-export type {
-  CreateScopeInternalToolMap,
-  ScopeInternalToolContext,
-} from "./execution/scope/tool-invoker";
+export * from "./source-artifacts";
+export * from "./scope-config";
+export * from "./scope-state";
+export * from "./scope/config-secrets";
 export {
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
@@ -132,27 +116,34 @@ export type {
   DeleteSecretMaterial,
   ResolveInstanceConfig,
   ResolveSecretMaterial,
+  SecretMaterialResolveContext,
   StoreSecretMaterial,
   UpdateSecretMaterial,
 } from "./scope/secret-material-providers";
 export {
-  builtInSourceAdapters,
-  connectableSourceAdapters,
-  executorAddableSourceAdapters,
-  localConfigurableSourceAdapters,
-  getSourceAdapter,
-  getSourceAdapterForSource,
-  findSourceAdapterByProviderKey,
-  sourceBindingStateFromSource,
-  sourceAdapterCatalogKind,
-  sourceAdapterRequiresInteractiveConnect,
-  sourceAdapterUsesCredentialManagedAuth,
-  isInternalSourceAdapter,
-} from "./sources/source-adapters";
+  getRuntimeLocalScopeOption,
+  provideOptionalRuntimeLocalScope,
+  requireRuntimeLocalActorScopeId,
+  requireRuntimeLocalScope,
+  RuntimeLocalScopeService,
+} from "./scope/runtime-context";
+export type { RuntimeLocalScopeState } from "./scope/runtime-context";
+export {
+  LocalToolRuntimeLoaderService,
+} from "./local-tool-runtime";
+export type {
+  LocalToolRuntime,
+  LocalToolRuntimeLoaderShape,
+} from "./local-tool-runtime";
+export {
+  registeredSourceContributions,
+  hasRegisteredExternalSourcePlugins,
+  getSourceContribution,
+  getSourceContributionForSource,
+} from "./sources/source-plugins";
 
 export type ExecutorRuntimeOptions = {
   executionResolver?: ResolveExecutionEnvironment;
-  createInternalToolMap?: CreateScopeInternalToolMap;
   resolveSecretMaterial?: ResolveSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
 };
@@ -215,15 +206,6 @@ export type RuntimeSecretMaterialServices = {
   update: UpdateSecretMaterial;
 };
 
-export type RuntimeAuthStorageServices = {
-  artifacts: ExecutorStateStoreShape["authArtifacts"];
-  leases: ExecutorStateStoreShape["authLeases"];
-  sourceOauthClients: ExecutorStateStoreShape["sourceOauthClients"];
-  scopeOauthClients: ExecutorStateStoreShape["scopeOauthClients"];
-  providerGrants: ExecutorStateStoreShape["providerAuthGrants"];
-  sourceSessions: ExecutorStateStoreShape["sourceAuthSessions"];
-};
-
 export const prewarmWorkspaceSourceCatalogToolIndex = (input: {
   scopeId: LocalInstallation["scopeId"];
   actorScopeId: LocalInstallation["actorScopeId"];
@@ -255,7 +237,6 @@ export type RuntimeStorageServices = {
   scopeConfig: BoundScopeConfigStore;
   scopeState: BoundScopeStateStore;
   sourceArtifacts: BoundSourceArtifactStore;
-  auth: RuntimeAuthStorageServices;
   secrets: RuntimeSecretsStorageServices;
   executions: RuntimeExecutionStorageServices;
   close?: () => Promise<void>;
@@ -329,12 +310,6 @@ const makeInstanceConfigLayer = (input: RuntimeInstanceConfigService) =>
 const toExecutorStateStoreShape = (
   input: RuntimeStorageServices,
 ): ExecutorStateStoreShape => ({
-  authArtifacts: input.auth.artifacts,
-  authLeases: input.auth.leases,
-  sourceOauthClients: input.auth.sourceOauthClients,
-  scopeOauthClients: input.auth.scopeOauthClients,
-  providerAuthGrants: input.auth.providerGrants,
-  sourceAuthSessions: input.auth.sourceSessions,
   secretMaterials: input.secrets,
   executions: input.executions.runs,
   executionInteractions: input.executions.interactions,
@@ -389,33 +364,14 @@ export const createExecutorRuntimeLayer = (
     Layer.provide(Layer.mergeAll(baseLayer, sourceStoreLayer)),
   );
 
-  const sourceAuthMaterialLayer = RuntimeSourceAuthMaterialLive.pipe(
-    Layer.provide(Layer.mergeAll(baseLayer, secretMaterialLayer)),
-  );
-
   const sourceCatalogSyncLayer = RuntimeSourceCatalogSyncLive.pipe(
     Layer.provide(
-      Layer.mergeAll(baseLayer, secretMaterialLayer, sourceAuthMaterialLayer),
-    ),
-  );
-
-  const sourceAuthLayer = RuntimeSourceAuthServiceLive({
-    getLocalServerBaseUrl: input.getLocalServerBaseUrl,
-  }).pipe(
-    Layer.provide(
-      Layer.mergeAll(
-        baseLayer,
-        instanceConfigLayer,
-        secretMaterialLayer,
-        sourceStoreLayer,
-        sourceCatalogSyncLayer,
-      ),
+      Layer.mergeAll(baseLayer, secretMaterialLayer),
     ),
   );
 
   const executionResolverLayer = RuntimeExecutionResolverLive({
     executionResolver: input.executionResolver,
-    createInternalToolMap: input.createInternalToolMap,
   }).pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -423,9 +379,7 @@ export const createExecutorRuntimeLayer = (
         instanceConfigLayer,
         secretMaterialLayer,
         sourceStoreLayer,
-        sourceAuthMaterialLayer,
         sourceCatalogSyncLayer,
-        sourceAuthLayer,
         sourceCatalogStoreLayer,
         localToolRuntimeLayer,
       ),
@@ -437,16 +391,15 @@ export const createExecutorRuntimeLayer = (
     instanceConfigLayer,
     secretMaterialLayer,
     sourceStoreLayer,
-    sourceAuthMaterialLayer,
     sourceCatalogSyncLayer,
     sourceCatalogStoreLayer,
     localToolRuntimeLayer,
-    sourceAuthLayer,
     executionResolverLayer,
   ) as ExecutorRuntimeLayer;
 };
 
 export type ExecutorRuntime = {
+  scope: ExecutorScopeContext;
   storage: RuntimeStorageServices;
   localInstallation: LocalInstallation;
   managedRuntime: ManagedRuntime.ManagedRuntime<any, never>;
@@ -535,14 +488,12 @@ export const createExecutorRuntimeFromServices = (input: {
     );
 
     return {
+      scope: runtimeWorkspace,
       storage: input.services.storage,
       localInstallation,
       managedRuntime,
       runtimeLayer: concreteRuntimeLayer as ExecutorRuntimeLayer,
       close: async () => {
-        await Effect.runPromise(clearAllMcpConnectionPools()).catch(
-          () => undefined,
-        );
         await managedRuntime.dispose().catch(() => undefined);
         await input.services.storage.close?.().catch(() => undefined);
       },

@@ -4,11 +4,11 @@ import {
   createExecutorEffect,
   type CreateExecutorEffectOptions,
   type ExecutorEffect,
-  type ExecutorMcpSourceInput,
-  type ExecutorSourceBatchInput,
-  type ExecutorSourceInput,
-  type ExecutorSourceOAuthInput,
 } from "./executor-effect";
+import type {
+  ExecutorSdkPlugin,
+  ExecutorSdkPluginExtensions,
+} from "./plugins";
 
 type Promiseify<T> = T extends Effect.Effect<infer A, any, any>
   ? Promise<A>
@@ -20,20 +20,57 @@ type Promiseify<T> = T extends Effect.Effect<infer A, any, any>
         ? { [Key in keyof T]: Promiseify<T[Key]> }
         : T;
 
-export type Executor = Omit<Promiseify<ExecutorEffect>, "runtime">;
-export type CreateExecutorOptions = CreateExecutorEffectOptions;
-export type {
-  ExecutorMcpSourceInput,
-  ExecutorSourceBatchInput,
-  ExecutorSourceInput,
-  ExecutorSourceOAuthInput,
+export type Executor<
+  TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
+> = Omit<
+  Promiseify<ExecutorEffect & ExecutorSdkPluginExtensions<TPlugins>>,
+  "runtime"
+>;
+export type CreateExecutorOptions<
+  TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
+> = CreateExecutorEffectOptions & {
+  plugins?: TPlugins;
 };
 
-const toPromiseExecutor = (executor: ExecutorEffect): Executor => {
-  const run = <A, E>(effect: Effect.Effect<A, E, never>) =>
-    Effect.runPromise(effect);
+const toPromiseExecutor = <
+  TPlugins extends readonly ExecutorSdkPlugin<any, any>[],
+>(
+  executor: ExecutorEffect & ExecutorSdkPluginExtensions<TPlugins>,
+): Executor<TPlugins> => {
+  const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.runPromise(effect as Effect.Effect<A, E, never>);
+  const promiseifyValue = (value: unknown): unknown => {
+    if (Effect.isEffect(value)) {
+      return run(value);
+    }
 
-  return {
+    if (value instanceof Promise) {
+      return value;
+    }
+
+    if (typeof value === "function") {
+      return (...args: Array<unknown>) =>
+        promiseifyValue(value(...args));
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(promiseifyValue);
+    }
+
+    if (value !== null && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, nestedValue]) => [
+          key,
+          promiseifyValue(nestedValue),
+        ]),
+      );
+    }
+
+    return value;
+  };
+
+  const base = {
+    scope: executor.scope,
     installation: executor.installation,
     scopeId: executor.scopeId,
     actorScopeId: executor.actorScopeId,
@@ -42,70 +79,89 @@ const toPromiseExecutor = (executor: ExecutorEffect): Executor => {
     local: {
       installation: () => run(executor.local.installation()),
       config: () => run(executor.local.config()),
-      credentials: {
-        get: (input) => run(executor.local.credentials.get(input)),
-        submit: (input) => run(executor.local.credentials.submit(input)),
-        complete: (input) => run(executor.local.credentials.complete(input)),
-      },
     },
     secrets: {
       list: () => run(executor.secrets.list()),
-      create: (payload) => run(executor.secrets.create(payload)),
-      update: (input) => run(executor.secrets.update(input)),
-      remove: (secretId) => run(executor.secrets.remove(secretId)),
+      create: (payload: Parameters<typeof executor.secrets.create>[0]) =>
+        run(executor.secrets.create(payload)),
+      update: (input: Parameters<typeof executor.secrets.update>[0]) =>
+        run(executor.secrets.update(input)),
+      remove: (secretId: Parameters<typeof executor.secrets.remove>[0]) =>
+        run(executor.secrets.remove(secretId)),
     },
     policies: {
       list: () => run(executor.policies.list()),
-      create: (payload) => run(executor.policies.create(payload)),
-      get: (policyId) => run(executor.policies.get(policyId)),
-      update: (policyId, payload) =>
+      create: (payload: Parameters<typeof executor.policies.create>[0]) =>
+        run(executor.policies.create(payload)),
+      get: (policyId: Parameters<typeof executor.policies.get>[0]) =>
+        run(executor.policies.get(policyId)),
+      update: (
+        policyId: Parameters<typeof executor.policies.update>[0],
+        payload: Parameters<typeof executor.policies.update>[1],
+      ) =>
         run(executor.policies.update(policyId, payload)),
-      remove: (policyId) => run(executor.policies.remove(policyId)),
+      remove: (policyId: Parameters<typeof executor.policies.remove>[0]) =>
+        run(executor.policies.remove(policyId)),
     },
     sources: {
-      add: (input, options) => run(executor.sources.add(input, options)),
-      connect: (payload) => run(executor.sources.connect(payload)),
-      connectBatch: (payload) => run(executor.sources.connectBatch(payload)),
-      discover: (input) => run(executor.sources.discover(input)),
       list: () => run(executor.sources.list()),
-      create: (payload) => run(executor.sources.create(payload)),
-      get: (sourceId) => run(executor.sources.get(sourceId)),
-      update: (sourceId, payload) =>
-        run(executor.sources.update(sourceId, payload)),
-      remove: (sourceId) => run(executor.sources.remove(sourceId)),
+      get: (sourceId: Parameters<typeof executor.sources.get>[0]) =>
+        run(executor.sources.get(sourceId)),
+      remove: (sourceId: Parameters<typeof executor.sources.remove>[0]) =>
+        run(executor.sources.remove(sourceId)),
       inspection: {
-        get: (sourceId) => run(executor.sources.inspection.get(sourceId)),
-        tool: (input) => run(executor.sources.inspection.tool(input)),
-        discover: (input) => run(executor.sources.inspection.discover(input)),
+        get: (sourceId: Parameters<typeof executor.sources.inspection.get>[0]) =>
+          run(executor.sources.inspection.get(sourceId)),
+        tool: (input: Parameters<typeof executor.sources.inspection.tool>[0]) =>
+          run(executor.sources.inspection.tool(input)),
+        discover: (
+          input: Parameters<typeof executor.sources.inspection.discover>[0],
+        ) => run(executor.sources.inspection.discover(input)),
       },
-      oauthClients: {
-        list: (providerKey) =>
-          run(executor.sources.oauthClients.list(providerKey)),
-        create: (payload) => run(executor.sources.oauthClients.create(payload)),
-        remove: (oauthClientId) =>
-          run(executor.sources.oauthClients.remove(oauthClientId)),
-      },
-      providerGrants: {
-        remove: (grantId) =>
-          run(executor.sources.providerGrants.remove(grantId)),
-      },
-    },
-    oauth: {
-      startSourceAuth: (input) => run(executor.oauth.startSourceAuth(input)),
-      completeSourceAuth: (input) =>
-        run(executor.oauth.completeSourceAuth(input)),
-      completeProviderCallback: (input) =>
-        run(executor.oauth.completeProviderCallback(input)),
     },
     executions: {
-      create: (payload) => run(executor.executions.create(payload)),
-      get: (executionId) => run(executor.executions.get(executionId)),
-      resume: (executionId, payload) =>
+      list: () => run(executor.executions.list()),
+      create: (payload: Parameters<typeof executor.executions.create>[0]) =>
+        run(executor.executions.create(payload)),
+      get: (executionId: Parameters<typeof executor.executions.get>[0]) =>
+        run(executor.executions.get(executionId)),
+      resume: (
+        executionId: Parameters<typeof executor.executions.resume>[0],
+        payload: Parameters<typeof executor.executions.resume>[1],
+      ) =>
         run(executor.executions.resume(executionId, payload)),
     },
   };
+
+  const coreKeys = new Set([
+    "runtime",
+    "installation",
+    "scope",
+    "scopeId",
+    "actorScopeId",
+    "resolutionScopeIds",
+    "close",
+    "local",
+    "secrets",
+    "policies",
+    "sources",
+    "executions",
+  ]);
+
+  const pluginExtensions = Object.fromEntries(
+    Object.entries(executor)
+      .filter(([key]) => !coreKeys.has(key))
+      .map(([key, value]) => [key, promiseifyValue(value)]),
+  );
+
+  return Object.assign(base, pluginExtensions) as unknown as Executor<TPlugins>;
 };
 
-export const createExecutor = async (
-  options: CreateExecutorOptions,
-): Promise<Executor> => toPromiseExecutor(await Effect.runPromise(createExecutorEffect(options)));
+export const createExecutor = async <
+  const TPlugins extends readonly ExecutorSdkPlugin<any, any>[] = [],
+>(
+  options: CreateExecutorOptions<TPlugins>,
+): Promise<Executor<TPlugins>> =>
+  toPromiseExecutor(
+    await Effect.runPromise(createExecutorEffect(options)),
+  );

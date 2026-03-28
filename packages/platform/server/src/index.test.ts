@@ -1,0 +1,1759 @@
+import { type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+
+import {
+  FileSystem,
+  HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
+} from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
+import { describe, expect, it } from "@effect/vitest";
+import { assertTrue } from "@effect/vitest/utils";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
+
+import { startMcpElicitationDemoServer } from "@executor/mcp-elicitation-demo";
+import { startOpenApiTestServer } from "@executor/effect-test-utils";
+import {
+  createExecutorOpenApiSpec,
+} from "@executor/platform-api";
+import {
+  createExecutorApiEffectClient as createExecutorApiClient,
+} from "@executor/platform-api/effect";
+import {
+  type ResolveExecutionEnvironment,
+} from "@executor/platform-sdk/runtime";
+import {
+  buildLocalSourceArtifact,
+  getOrProvisionLocalInstallation,
+  resolveLocalWorkspaceContext,
+  writeLocalSourceArtifact,
+  writeProjectLocalExecutorConfig,
+} from "@executor/platform-sdk-file/effect";
+import { SourceIdSchema } from "@executor/platform-sdk/schema";
+import { googleDiscoveryHttpPlugin } from "@executor/plugin-google-discovery-http";
+import { graphqlHttpPlugin } from "@executor/plugin-graphql-http";
+import { mcpHttpPlugin } from "@executor/plugin-mcp-http";
+import { openApiHttpPlugin } from "@executor/plugin-openapi-http";
+import { makeSesExecutor } from "@executor/runtime-ses";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+
+import { createLocalExecutorServer } from "./index";
+import { createFileMcpSourceStorage } from "./mcp-source-storage";
+import { makeToolInvokerFromTools, toTool } from "../../../kernel/core/src/index";
+import {
+  contentHash,
+  createCatalogImportMetadata,
+  createSourceCatalogSyncResult,
+} from "../../../sources/core/src/index";
+import { createMcpCatalogFragment } from "../../../../plugins/mcp/sdk/catalog";
+
+const serverHttpPlugins = [
+  graphqlHttpPlugin(),
+  googleDiscoveryHttpPlugin(),
+  mcpHttpPlugin(),
+  openApiHttpPlugin(),
+] as const;
+
+const executionResolver: ResolveExecutionEnvironment = () =>
+  Effect.succeed({
+    executor: makeSesExecutor(),
+    toolInvoker: makeToolInvokerFromTools({
+      tools: {
+        "math.add": {
+          description: "Add two numbers",
+          inputSchema: Schema.standardSchemaV1(
+            Schema.Struct({
+              a: Schema.optional(Schema.Number),
+              b: Schema.optional(Schema.Number),
+            }),
+          ),
+          execute: ({ a, b }) => ({ sum: (a ?? 0) + (b ?? 0) }),
+        },
+      },
+    }),
+  });
+
+const makeTempWorkspaceRoot = () =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) =>
+      fs.makeTempDirectoryScoped({ prefix: "executor-server-test-" })),
+    Effect.provide(NodeFileSystem.layer),
+  );
+
+const createIsolatedLocalExecutorServer = (
+  options: Parameters<typeof createLocalExecutorServer>[0] = {},
+) =>
+  Effect.gen(function* () {
+    const workspaceRoot = yield* makeTempWorkspaceRoot();
+    const server = yield* createLocalExecutorServer({
+      ...options,
+      workspaceRoot,
+    });
+    return {
+      ...server,
+      workspaceRoot,
+    };
+  });
+
+const writeConfiguredLocalMcpSource = (input: {
+  workspaceRoot: string;
+  localDataDir: string;
+  sourceId: string;
+  endpoint: string;
+  name?: string;
+}) =>
+  Effect.gen(function* () {
+    const sourceId = SourceIdSchema.make(input.sourceId);
+    const context = yield* resolveLocalWorkspaceContext({
+      workspaceRoot: input.workspaceRoot,
+    });
+    const installation = yield* getOrProvisionLocalInstallation({ context });
+
+    yield* writeProjectLocalExecutorConfig({
+      context,
+      config: {
+        sources: {
+          [input.sourceId]: {
+            kind: "mcp",
+            name: input.name ?? "Demo",
+          },
+        },
+      },
+    });
+
+    yield* createFileMcpSourceStorage({
+      rootDir: resolve(input.localDataDir, "plugins", "mcp", "sources"),
+    }).put({
+      scopeId: installation.scopeId,
+      sourceId,
+      value: {
+        endpoint: input.endpoint,
+        transport: "streamable-http",
+        queryParams: null,
+        headers: null,
+        command: null,
+        args: null,
+        env: null,
+        cwd: null,
+        auth: {
+          kind: "none",
+        },
+      },
+    });
+
+    const source = {
+      id: sourceId,
+      scopeId: installation.scopeId,
+      name: input.name ?? "Demo",
+      kind: "mcp" as const,
+      status: "connected" as const,
+      enabled: true,
+      namespace: "demo",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    const manifest = {
+      version: 2 as const,
+      server: null,
+      tools: [{
+        toolId: "gated_echo",
+        toolName: "gated_echo",
+        displayTitle: "gated_echo",
+        title: "gated_echo",
+        description: "Asks for approval before echoing a value",
+        annotations: {
+          title: "gated_echo",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+        execution: {
+          taskSupport: "optional" as const,
+        },
+        icons: null,
+        meta: null,
+        rawTool: null,
+        inputSchema: {
+          type: "object",
+          properties: {
+            value: {
+              type: "string",
+            },
+          },
+          required: ["value"],
+          additionalProperties: false,
+        },
+        outputSchema: {
+          type: "string",
+        },
+      }],
+    };
+    const manifestJson = JSON.stringify(manifest);
+    const syncResult = createSourceCatalogSyncResult({
+      fragment: createMcpCatalogFragment({
+        source,
+        documents: [{
+          documentKind: "mcp_manifest",
+          documentKey: input.endpoint,
+          contentText: manifestJson,
+          fetchedAt: Date.now(),
+        }],
+        operations: manifest.tools.map((entry) => ({
+          toolId: entry.toolId,
+          title: entry.displayTitle,
+          description: entry.description,
+          effect: "write" as const,
+          inputSchema: entry.inputSchema,
+          outputSchema: entry.outputSchema,
+          providerData: {
+            toolId: entry.toolId,
+            toolName: entry.toolName,
+            displayTitle: entry.displayTitle,
+            title: entry.title,
+            description: entry.description,
+            annotations: entry.annotations,
+            execution: entry.execution,
+            icons: entry.icons,
+            meta: entry.meta,
+            rawTool: entry.rawTool,
+            server: manifest.server,
+          },
+        })),
+      }),
+      importMetadata: {
+        ...createCatalogImportMetadata({
+          source,
+          pluginKey: "mcp",
+        }),
+        importerVersion: "ir.v1.mcp",
+        sourceConfigHash: contentHash(JSON.stringify({
+          endpoint: input.endpoint,
+        })),
+      },
+      sourceHash: contentHash(manifestJson),
+    });
+
+    yield* writeLocalSourceArtifact({
+      context,
+      sourceId,
+      artifact: buildLocalSourceArtifact({
+        source,
+        syncResult,
+      }),
+    });
+  }).pipe(Effect.provide(NodeFileSystem.layer));
+
+const makeServer = createIsolatedLocalExecutorServer({
+  port: 0,
+  localDataDir: ":memory:",
+  executionResolver,
+});
+
+const makeApiClient = (baseUrl: string) =>
+  createExecutorApiClient({
+    baseUrl,
+    plugins: serverHttpPlugins,
+  });
+
+type ExecutorApiClient = Effect.Effect.Success<ReturnType<typeof makeApiClient>>;
+
+const createApiClientHarness = () =>
+  Effect.gen(function* () {
+    const server = yield* createIsolatedLocalExecutorServer({
+      port: 0,
+      localDataDir: ":memory:",
+    });
+    const client = yield* makeApiClient(server.baseUrl);
+    const installation = yield* client.local.installation({});
+
+    return {
+      server,
+      installation,
+      client,
+    };
+  });
+
+const seedDemoMcpSourceInWorkspace = (input: {
+  client: ExecutorApiClient;
+  workspaceId: string;
+  endpoint: string;
+  name: string;
+}) =>
+  Effect.gen(function* () {
+    const existing = yield* input.client.sources.list({
+      path: {
+        workspaceId: input.workspaceId as never,
+      },
+    });
+
+    const existingByName = existing.find(
+      (source) => source.kind === "mcp" && source.name === input.name,
+    );
+
+    if (existingByName !== undefined) {
+      const config = yield* input.client.mcp.getSourceConfig({
+        path: {
+          workspaceId: input.workspaceId as never,
+          sourceId: existingByName.id,
+        },
+      });
+
+      if (
+        existingByName.namespace === "demo"
+        && config.endpoint === input.endpoint
+        && config.transport === "streamable-http"
+        && config.auth.kind === "none"
+      ) {
+        return {
+          action: "noop" as const,
+          sourceId: existingByName.id,
+        };
+      }
+
+      const updated = yield* input.client.mcp.updateSource({
+        path: {
+          workspaceId: input.workspaceId as never,
+          sourceId: existingByName.id,
+        },
+        payload: {
+          name: input.name,
+          endpoint: input.endpoint,
+          transport: "streamable-http",
+          queryParams: null,
+          headers: null,
+          command: null,
+          args: null,
+          env: null,
+          cwd: null,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+
+      return {
+        action: "updated" as const,
+        sourceId: updated.id,
+      };
+    }
+
+    const created = yield* input.client.mcp.createSource({
+      path: {
+        workspaceId: input.workspaceId as never,
+      },
+      payload: {
+        name: input.name,
+        endpoint: input.endpoint,
+        transport: "streamable-http",
+        queryParams: null,
+        headers: null,
+        command: null,
+        args: null,
+        env: null,
+        cwd: null,
+        auth: {
+          kind: "none",
+        },
+      },
+    });
+
+    return {
+      action: "created" as const,
+      sourceId: created.id,
+    };
+  });
+
+const seedGithubOpenApiSourceInWorkspace = (input: {
+  client: ExecutorApiClient;
+  workspaceId: string;
+  baseUrl: string;
+  specUrl: string;
+  name: string;
+  credentialEnvVar?: string;
+}) =>
+  Effect.gen(function* () {
+    const existing = yield* input.client.sources.list({
+      path: {
+        workspaceId: input.workspaceId as never,
+      },
+    });
+
+    const existingByName = existing.find(
+      (source) => source.kind === "openapi" && source.name === input.name,
+    );
+
+    const auth = {
+      kind: "bearer" as const,
+      headerName: "Authorization",
+      prefix: "Bearer ",
+      tokenSecretRef: {
+        providerId: "env",
+        handle: input.credentialEnvVar ?? "GITHUB_TOKEN",
+      },
+    };
+
+    if (existingByName !== undefined) {
+      const config = yield* input.client.openapi.getSourceConfig({
+        path: {
+          workspaceId: input.workspaceId as never,
+          sourceId: existingByName.id,
+        },
+      });
+
+      if (
+        existingByName.namespace === "github"
+        && config.specUrl === input.specUrl
+        && config.baseUrl === input.baseUrl
+        && JSON.stringify(config.auth) === JSON.stringify(auth)
+      ) {
+        return {
+          action: "noop" as const,
+          sourceId: existingByName.id,
+        };
+      }
+
+      const updated = yield* input.client.openapi.updateSource({
+        path: {
+          workspaceId: input.workspaceId as never,
+          sourceId: existingByName.id,
+        },
+        payload: {
+          name: input.name,
+          specUrl: input.specUrl,
+          baseUrl: input.baseUrl,
+          auth,
+        },
+      });
+
+      return {
+        action: "updated" as const,
+        sourceId: updated.id,
+      };
+    }
+
+    const created = yield* input.client.openapi.createSource({
+      path: {
+        workspaceId: input.workspaceId as never,
+      },
+      payload: {
+        name: input.name,
+        specUrl: input.specUrl,
+        baseUrl: input.baseUrl,
+        auth,
+      },
+    });
+
+    return {
+      action: "created" as const,
+      sourceId: created.id,
+    };
+  });
+
+const gatedExecutionResolver: ResolveExecutionEnvironment = ({ onElicitation }) =>
+  Effect.succeed({
+    executor: makeSesExecutor(),
+    toolInvoker: makeToolInvokerFromTools({
+      tools: {
+        "demo.gated_echo": toTool({
+          tool: {
+            description: "Asks for approval before echoing a value",
+            inputSchema: Schema.standardSchemaV1(
+              Schema.Struct({
+                value: Schema.String,
+                approve: Schema.optional(Schema.Boolean),
+              }),
+            ),
+            execute: ({ value, approve }: { value: string; approve?: boolean }) =>
+              approve === true ? `approved:${value}` : `denied:${value}`,
+          },
+          metadata: {
+            sourceKey: "demo",
+            elicitation: {
+              mode: "form",
+              message: "Approve gated echo?",
+              requestedSchema: {
+                type: "object",
+                properties: {
+                  approve: {
+                    type: "boolean",
+                    title: "Approve",
+                  },
+                },
+                required: ["approve"],
+              },
+            },
+          },
+        }),
+      },
+      onElicitation,
+    }),
+  });
+
+type ExecutorMcpClient = {
+  client: Client;
+  close: () => Promise<void>;
+};
+
+type ElicitationHandler = NonNullable<Parameters<Client["setRequestHandler"]>[1]>;
+
+const makeExecutorMcpClient = (input: {
+  baseUrl: string;
+  capabilities?: Record<string, unknown>;
+  onElicitation?: ElicitationHandler;
+}) =>
+  Effect.acquireRelease(
+    Effect.promise<ExecutorMcpClient>(async () => {
+      const client = new Client(
+        { name: "executor-mcp-test-client", version: "1.0.0" },
+        { capabilities: input.capabilities ?? {} },
+      );
+      if (input.onElicitation) {
+        client.setRequestHandler(ElicitRequestSchema, input.onElicitation);
+      }
+
+      const transport = new StreamableHTTPClientTransport(new URL(`${input.baseUrl}/mcp`));
+      await client.connect(transport);
+
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    }),
+    ({ close }) => Effect.promise(() => close()).pipe(Effect.orDie),
+  );
+
+const ownerParam = HttpApiSchema.param("owner", Schema.String);
+const repoParam = HttpApiSchema.param("repo", Schema.String);
+
+class ExecutorDemoReposApi extends HttpApiGroup.make("repos")
+  .add(
+    HttpApiEndpoint.get("getRepo")`/repos/${ownerParam}/${repoParam}`
+      .addSuccess(Schema.Unknown),
+  )
+{}
+
+class ExecutorDemoApi extends HttpApi.make("executorDemo").add(ExecutorDemoReposApi) {}
+
+class ExecutorDnsRecordsApi extends HttpApiGroup.make("records")
+  .add(
+    HttpApiEndpoint.post("createRecord")`/records`
+      .setPayload(
+        Schema.Struct({
+          type: Schema.optional(Schema.String),
+          name: Schema.optional(Schema.String),
+          value: Schema.String,
+        }),
+      )
+      .addSuccess(Schema.Unknown),
+  )
+{}
+
+class ExecutorDnsApi extends HttpApi.make("executorDns").add(
+  ExecutorDnsRecordsApi,
+) {}
+
+const startOpenApiDemoServer = async () => {
+  const seenAuthHeaders: Array<string | null> = [];
+  const executorDemoLive = HttpApiBuilder.group(
+    ExecutorDemoApi,
+    "repos",
+    (handlers) =>
+      handlers.handle("getRepo", ({ path, request }) => {
+        const authorization = request.headers.authorization;
+        if (typeof authorization === "string") {
+          seenAuthHeaders.push(authorization);
+        } else {
+          seenAuthHeaders.push(null);
+        }
+
+        return Effect.succeed({
+          full_name: `${path.owner}/${path.repo}`,
+          private: false,
+        });
+      }),
+  );
+
+  const server = await startOpenApiTestServer({
+    apiLayer: HttpApiBuilder.api(ExecutorDemoApi).pipe(
+      Layer.provide(executorDemoLive),
+    ),
+  });
+
+  return {
+    ...server,
+    seenAuthHeaders,
+  };
+};
+
+const startMutatingOpenApiDemoServer = async () => {
+  const createdBodies: Array<Record<string, unknown>> = [];
+  const executorDnsLive = HttpApiBuilder.group(
+    ExecutorDnsApi,
+    "records",
+    (handlers) =>
+      handlers.handle("createRecord", ({ payload }) => {
+        createdBodies.push(payload);
+
+        return Effect.succeed({
+          ok: true,
+          id: `rec_${createdBodies.length}`,
+          record: payload,
+        });
+      }),
+  );
+
+  const server = await startOpenApiTestServer({
+    apiLayer: HttpApiBuilder.api(ExecutorDnsApi).pipe(
+      Layer.provide(executorDnsLive),
+    ),
+  });
+
+  return {
+    ...server,
+    createdBodies,
+  };
+};
+
+const DEMO_OAUTH_ACCESS_TOKEN = "demo-access-token";
+const DEMO_OAUTH_REFRESH_TOKEN = "demo-refresh-token";
+
+const startOAuthProtectedMcpServer = async () => {
+  const host = "127.0.0.1";
+  const app = createMcpExpressApp({ host });
+  const transports: Record<string, StreamableHTTPServerTransport> = {};
+  const servers: Record<string, McpServer> = {};
+
+  const createAuthorizedServer = () => {
+    const server = new McpServer(
+      {
+        name: "executor-oauth-mcp-demo",
+        version: "1.0.0",
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      },
+    );
+
+    server.registerTool(
+      "whoami",
+      {
+        description: "Return the active identity for the OAuth demo source.",
+        inputSchema: {},
+      },
+      async () => ({
+        content: [{ type: "text", text: "oauth-demo" }],
+      }),
+    );
+
+    return server;
+  };
+
+  const listener = await new Promise<import("node:http").Server>((resolve, reject) => {
+    const server = app.listen(0, host);
+
+    const onListening = () => {
+      server.off("error", onError);
+      resolve(server);
+    };
+
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+
+    server.once("listening", onListening);
+    server.once("error", onError);
+  });
+
+  const address = listener.address();
+  if (!address || typeof address === "string") {
+    throw new Error("Failed to bind OAuth MCP demo server");
+  }
+
+  const baseUrl = `http://${host}:${address.port}`;
+  const endpoint = `${baseUrl}/mcp`;
+  const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource/mcp`;
+
+  const requireBearerAuth = (req: IncomingMessage, res: ServerResponse) => {
+    const authorization = req.headers.authorization;
+    if (authorization === `Bearer ${DEMO_OAUTH_ACCESS_TOKEN}`) {
+      return true;
+    }
+
+    res.statusCode = 401;
+    res.setHeader(
+      "WWW-Authenticate",
+      `Bearer resource_metadata="${resourceMetadataUrl}"`,
+    );
+    res.setHeader("content-type", "application/json");
+    res.end(
+      JSON.stringify({
+        error: "unauthorized",
+      }),
+    );
+    return false;
+  };
+
+  app.get("/.well-known/oauth-protected-resource/mcp", (_req: any, res: any) => {
+    res.status(200).json({
+      resource: endpoint,
+      authorization_servers: [baseUrl],
+      scopes_supported: ["openid", "offline_access"],
+      bearer_methods_supported: ["header"],
+    });
+  });
+
+  app.get("/.well-known/oauth-authorization-server", (_req: any, res: any) => {
+    res.status(200).json({
+      issuer: baseUrl,
+      authorization_endpoint: `${baseUrl}/authorize`,
+      token_endpoint: `${baseUrl}/token`,
+      registration_endpoint: `${baseUrl}/register`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+    });
+  });
+
+  app.post("/register", (req: any, res: any) => {
+    res.status(201).json({
+      ...req.body,
+      client_id: `client_${randomUUID()}`,
+      client_id_issued_at: Math.floor(Date.now() / 1000),
+    });
+  });
+
+  app.get("/authorize", (req: any, res: any) => {
+    const redirectUri = new URL(String(req.query.redirect_uri));
+    redirectUri.searchParams.set("code", "demo-code");
+    if (typeof req.query.state === "string") {
+      redirectUri.searchParams.set("state", req.query.state);
+    }
+
+    res.redirect(302, redirectUri.toString());
+  });
+
+  app.post("/token", (_req: any, res: any) => {
+    res.status(200).json({
+      access_token: DEMO_OAUTH_ACCESS_TOKEN,
+      token_type: "Bearer",
+      expires_in: 3600,
+      refresh_token: DEMO_OAUTH_REFRESH_TOKEN,
+      scope: "openid offline_access",
+    });
+  });
+
+  app.post("/mcp", async (req: any, res: any) => {
+    if (!requireBearerAuth(req, res)) {
+      return;
+    }
+
+    const sessionIdHeader = req.headers["mcp-session-id"];
+    const sessionId =
+      typeof sessionIdHeader === "string"
+        ? sessionIdHeader
+        : Array.isArray(sessionIdHeader)
+          ? sessionIdHeader[0]
+          : undefined;
+
+    try {
+      let transport: StreamableHTTPServerTransport;
+
+      if (sessionId && transports[sessionId]) {
+        transport = transports[sessionId];
+      } else {
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (newSessionId) => {
+            transports[newSessionId] = transport;
+          },
+        });
+
+        transport.onclose = () => {
+          const closedSessionId = transport.sessionId;
+          if (closedSessionId && transports[closedSessionId]) {
+            delete transports[closedSessionId];
+          }
+          if (closedSessionId && servers[closedSessionId]) {
+            void servers[closedSessionId].close().catch(() => undefined);
+            delete servers[closedSessionId];
+          }
+        };
+
+        const server = createAuthorizedServer();
+        await server.connect(transport);
+        const newSessionId = transport.sessionId;
+        if (newSessionId) {
+          servers[newSessionId] = server;
+        }
+      }
+
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: "2.0",
+          error: {
+            code: -32603,
+            message: error instanceof Error ? error.message : "Internal server error",
+          },
+          id: null,
+        });
+      }
+    }
+  });
+
+  app.get("/mcp", async (req: any, res: any) => {
+    if (!requireBearerAuth(req, res)) {
+      return;
+    }
+
+    const sessionIdHeader = req.headers["mcp-session-id"];
+    const sessionId =
+      typeof sessionIdHeader === "string"
+        ? sessionIdHeader
+        : Array.isArray(sessionIdHeader)
+          ? sessionIdHeader[0]
+          : undefined;
+
+    if (!sessionId || !transports[sessionId]) {
+      res.status(400).send("Invalid or missing session ID");
+      return;
+    }
+
+    await transports[sessionId].handleRequest(req, res);
+  });
+
+  app.delete("/mcp", async (req: any, res: any) => {
+    if (!requireBearerAuth(req, res)) {
+      return;
+    }
+
+    const sessionIdHeader = req.headers["mcp-session-id"];
+    const sessionId =
+      typeof sessionIdHeader === "string"
+        ? sessionIdHeader
+        : Array.isArray(sessionIdHeader)
+          ? sessionIdHeader[0]
+          : undefined;
+
+    if (!sessionId || !transports[sessionId]) {
+      res.status(400).send("Invalid or missing session ID");
+      return;
+    }
+
+    const transport = transports[sessionId];
+    await transport.handleRequest(req, res, req.body);
+    await transport.close();
+    delete transports[sessionId];
+
+    if (servers[sessionId]) {
+      await servers[sessionId].close().catch(() => undefined);
+      delete servers[sessionId];
+    }
+  });
+
+  return {
+    baseUrl,
+    endpoint,
+    close: async () => {
+      for (const transport of Object.values(transports)) {
+        await transport.close().catch(() => undefined);
+      }
+
+      for (const server of Object.values(servers)) {
+        await server.close().catch(() => undefined);
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        listener.close((error) => (error ? reject(error) : resolve()));
+      });
+    },
+  };
+};
+
+const extractOAuthPopupPayload = (html: string): {
+  ok: true;
+  sessionId: string;
+  auth: Record<string, unknown>;
+} => {
+  const match = html.match(/const payload = (\{[\s\S]*?\});/);
+  if (!match?.[1]) {
+    throw new Error("Missing OAuth payload in callback HTML");
+  }
+
+  const parsed = JSON.parse(match[1]) as {
+    ok?: boolean;
+    sessionId?: string;
+    auth?: Record<string, unknown>;
+  };
+
+  if (parsed.ok !== true || typeof parsed.sessionId !== "string" || !parsed.auth) {
+    throw new Error("OAuth callback did not contain a successful payload");
+  }
+
+  return {
+    ok: true,
+    sessionId: parsed.sessionId,
+    auth: parsed.auth,
+  };
+};
+
+describe("local-executor-server", () => {
+  it.scoped("serves the control-plane OpenAPI spec at /v1/openapi.json", () =>
+    Effect.gen(function* () {
+      const server = yield* makeServer;
+      const response = yield* Effect.promise(() =>
+        fetch(`${server.baseUrl}/v1/openapi.json`, {
+          headers: {
+            accept: "application/json",
+          },
+        }),
+      );
+      const spec = yield* Effect.promise(() => response.json());
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(spec).toEqual(createExecutorOpenApiSpec({
+        plugins: serverHttpPlugins,
+      }));
+    }),
+  );
+
+  it.scoped("serves the control-plane API and executes code", () =>
+    Effect.gen(function* () {
+      const server = yield* makeServer;
+      const client = yield* makeApiClient(server.baseUrl);
+      const installation = yield* client.local.installation({});
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: "return await tools.math.add({ a: 20, b: 22 });",
+        },
+      });
+
+      expect(execution.execution.status).toBe("completed");
+      expect(execution.execution.resultJson).toBe(JSON.stringify({ sum: 42 }));
+    }),
+    15_000,
+  );
+
+  it.scoped("includes completed MCP return values in text content", () =>
+    Effect.gen(function* () {
+      const server = yield* makeServer;
+      const mcp = yield* makeExecutorMcpClient({
+        baseUrl: server.baseUrl,
+      });
+
+      const executed = yield* Effect.promise(
+        () =>
+          mcp.client.callTool({
+            name: "execute",
+            arguments: {
+              code: "return await tools.math.add({ a: 20, b: 22 });",
+            },
+          }) as Promise<{
+            content?: Array<{
+              type?: string;
+              text?: string;
+            }>;
+            structuredContent?: {
+              status?: string;
+              result?: unknown;
+            };
+          }>,
+      );
+
+      expect(executed.structuredContent?.status).toBe("completed");
+      expect(executed.structuredContent?.result).toEqual({ sum: 42 });
+      expect(executed.content?.find((item) => item.type === "text")?.text).toContain("Result:");
+      expect(executed.content?.find((item) => item.type === "text")?.text).toContain('"sum": 42');
+    }),
+  );
+
+  it.scoped("serves only execute over MCP when elicitation is supported", () =>
+    Effect.gen(function* () {
+      const server = yield* createIsolatedLocalExecutorServer({
+        port: 0,
+        localDataDir: ":memory:",
+        executionResolver: gatedExecutionResolver,
+      });
+      const mcp = yield* makeExecutorMcpClient({
+        baseUrl: server.baseUrl,
+        capabilities: {
+          elicitation: {
+            form: {},
+            url: {},
+          },
+        },
+        onElicitation: async () => ({
+          action: "accept",
+          content: {
+            approve: true,
+          },
+        }),
+      });
+
+      const listed = yield* Effect.promise(
+        () =>
+          mcp.client.listTools() as Promise<{
+            tools: Array<{ name: string; description?: string }>;
+          }>,
+      );
+
+      expect(listed.tools.map((tool) => tool.name)).toEqual(["execute"]);
+      expect(listed.tools[0]?.description).toContain("Workflow:");
+      expect(listed.tools[0]?.description).toContain("tools.discover");
+      expect(listed.tools[0]?.description).toContain("Use source plugins");
+
+      const executed = yield* Effect.promise(
+        () =>
+          mcp.client.callTool({
+            name: "execute",
+            arguments: {
+              code: 'return await tools.demo.gated_echo({ value: "from-mcp" });',
+            },
+          }) as Promise<{
+            content?: Array<{
+              type?: string;
+              text?: string;
+            }>;
+            structuredContent?: {
+              status?: string;
+              result?: unknown;
+            };
+          }>,
+      );
+
+      expect(executed.structuredContent?.status).toBe("completed");
+      expect(executed.structuredContent?.result).toBe("approved:from-mcp");
+      expect(executed.content?.find((item) => item.type === "text")?.text).toContain("approved:from-mcp");
+    }),
+  );
+
+  it.scoped("serves execute and resume over MCP when elicitation is unavailable", () =>
+    Effect.gen(function* () {
+      const server = yield* createIsolatedLocalExecutorServer({
+        port: 0,
+        localDataDir: ":memory:",
+        executionResolver: gatedExecutionResolver,
+      });
+      const mcp = yield* makeExecutorMcpClient({
+        baseUrl: server.baseUrl,
+      });
+
+      const listed = yield* Effect.promise(
+        () =>
+          mcp.client.listTools() as Promise<{
+            tools: Array<{ name: string; description?: string }>;
+          }>,
+      );
+      expect(listed.tools.map((tool) => tool.name).sort()).toEqual(["execute", "resume"]);
+      expect(listed.tools.find((tool) => tool.name === "execute")?.description).toContain("Workflow:");
+      expect(listed.tools.find((tool) => tool.name === "execute")?.description).toContain("tools.discover");
+
+      const executed = yield* Effect.promise(
+        () =>
+          mcp.client.callTool({
+            name: "execute",
+            arguments: {
+              code: 'return await tools.demo.gated_echo({ value: "manual-mcp" });',
+            },
+          }) as Promise<{
+            structuredContent?: {
+              status?: string;
+              interaction?: {
+                message?: string;
+              };
+              resumePayload?: {
+                executionId?: string;
+              };
+            };
+          }>,
+      );
+
+      expect(executed.structuredContent?.status).toBe("waiting_for_interaction");
+      expect(executed.structuredContent?.interaction?.message).toContain("Approve gated echo");
+      expect(executed.structuredContent?.resumePayload?.executionId).toBeTruthy();
+
+      const resumed = yield* Effect.promise(
+        () =>
+          mcp.client.callTool({
+            name: "resume",
+            arguments: {
+              resumePayload: executed.structuredContent?.resumePayload,
+              response: {
+                action: "accept",
+                content: {
+                  approve: true,
+                },
+              },
+            },
+          }) as Promise<{
+            content?: Array<{
+              type?: string;
+              text?: string;
+            }>;
+            structuredContent?: {
+              status?: string;
+              result?: unknown;
+            };
+          }>,
+      );
+
+      expect(resumed.structuredContent?.status).toBe("completed");
+      expect(resumed.structuredContent?.result).toBe("approved:manual-mcp");
+      expect(resumed.content?.find((item) => item.type === "text")?.text).toContain("approved:manual-mcp");
+    }),
+    60_000,
+  );
+
+  it.scoped("adds an MCP source through the API client and calls it end to end", () =>
+    Effect.gen(function* () {
+      const demoServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMcpElicitationDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const created = yield* client.mcp.createSource({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          name: "Demo",
+          endpoint: demoServer.endpoint,
+          transport: "streamable-http",
+          queryParams: null,
+          headers: null,
+          command: null,
+          args: null,
+          env: null,
+          cwd: null,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+
+      expect(created.status).toBe("connected");
+      expect(created.name).toBe("Demo");
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: 'return await tools.demo.gated_echo({ value: "from-api-client" });',
+          interactionMode: "live_form",
+        },
+      });
+
+      expect(execution.execution.status).toBe("waiting_for_interaction");
+      expect(execution.pendingInteraction).not.toBeNull();
+      if (execution.pendingInteraction === null) {
+        throw new Error("Expected pending MCP interaction");
+      }
+      expect(execution.pendingInteraction.kind).toBe("form");
+      expect(execution.pendingInteraction.payloadJson).toContain("Allow gated_echo?");
+
+      const approved = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.scopeId,
+          executionId: execution.execution.id,
+        },
+        payload: {
+          interactionMode: "live_form",
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approved.execution.status).toBe("completed");
+      expect(approved.pendingInteraction).toBeNull();
+      expect(approved.execution.resultJson).toContain("approved:from-api-client");
+    }),
+    15_000,
+  );
+
+  it.scoped("can run the same MCP elicitation flow more than once without interaction id collisions", () =>
+    Effect.gen(function* () {
+      const demoServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMcpElicitationDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      yield* client.mcp.createSource({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          name: "Demo",
+          endpoint: demoServer.endpoint,
+          transport: "streamable-http",
+          queryParams: null,
+          headers: null,
+          command: null,
+          args: null,
+          env: null,
+          cwd: null,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+
+      for (const value of ["first", "second"]) {
+        const created = yield* client.executions.create({
+          path: {
+            workspaceId: installation.scopeId,
+          },
+          payload: {
+            code: `return await tools.demo.gated_echo({ value: "${value}" });`,
+            interactionMode: "live_form",
+          },
+        });
+
+        expect(created.execution.status).toBe("waiting_for_interaction");
+        expect(created.pendingInteraction).not.toBeNull();
+
+        const approved = yield* client.executions.resume({
+          path: {
+            workspaceId: installation.scopeId,
+            executionId: created.execution.id,
+          },
+          payload: {
+            interactionMode: "live_form",
+            responseJson: JSON.stringify({
+              action: "accept",
+              content: {
+                approve: true,
+              },
+            }),
+          },
+        });
+
+        expect(approved.execution.status).toBe("completed");
+        expect(approved.pendingInteraction).toBeNull();
+        expect(approved.execution.resultJson).toContain(`approved:${value}`);
+      }
+    }),
+    15_000,
+  );
+
+  it.scoped("does not create a duplicate when the demo MCP source already exists", () =>
+    Effect.gen(function* () {
+      const demoServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMcpElicitationDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const existing = yield* client.mcp.createSource({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          name: "Demo",
+          endpoint: demoServer.endpoint,
+          transport: "streamable-http",
+          queryParams: null,
+          headers: null,
+          command: null,
+          args: null,
+          env: null,
+          cwd: null,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+
+      const seeded = yield* seedDemoMcpSourceInWorkspace({
+        client,
+        workspaceId: installation.scopeId,
+        endpoint: demoServer.endpoint,
+        name: "Demo",
+      });
+
+      expect(seeded.action).toBe("noop");
+      expect(seeded.sourceId).toBe(existing.id);
+
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+      });
+
+      expect(sources).toHaveLength(1);
+      expect(sources[0]?.name).toBe("Demo");
+    }),
+    15_000,
+  );
+
+  it.scoped("loads OpenAPI sources from executor state and calls them", () =>
+    Effect.gen(function* () {
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+
+      const previousGithubToken = process.env.GITHUB_TOKEN;
+      const previousAllowEnvSecrets = process.env.DANGEROUSLY_ALLOW_ENV_SECRETS;
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          process.env.GITHUB_TOKEN = "ghp_test_executor";
+          process.env.DANGEROUSLY_ALLOW_ENV_SECRETS = "true";
+        }),
+        () =>
+          Effect.sync(() => {
+            if (previousGithubToken === undefined) {
+              delete process.env.GITHUB_TOKEN;
+            } else {
+              process.env.GITHUB_TOKEN = previousGithubToken;
+            }
+
+            if (previousAllowEnvSecrets === undefined) {
+              delete process.env.DANGEROUSLY_ALLOW_ENV_SECRETS;
+            } else {
+              process.env.DANGEROUSLY_ALLOW_ENV_SECRETS = previousAllowEnvSecrets;
+            }
+          }),
+      );
+
+      const { installation, client } = yield* createApiClientHarness();
+
+      yield* seedGithubOpenApiSourceInWorkspace({
+        client,
+        workspaceId: installation.scopeId,
+        baseUrl: openApiServer.baseUrl,
+        specUrl: openApiServer.specUrl,
+        name: "GitHub",
+      });
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: 'return await tools.github.repos.getRepo({ owner: "vercel", repo: "ai" });',
+        },
+      });
+
+      expect(execution.execution.status).toBe("completed");
+      expect(execution.pendingInteraction).toBeNull();
+      expect(execution.execution.resultJson).toContain("\"full_name\":\"vercel/ai\"");
+      expect(openApiServer.seenAuthHeaders).toEqual(["Bearer ghp_test_executor"]);
+    }),
+    15_000,
+  );
+
+  it.scoped("adds an OpenAPI source through the API client and calls it end to end", () =>
+    Effect.gen(function* () {
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const created = yield* client.openapi.createSource({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          name: "GitHub",
+          specUrl: openApiServer.specUrl,
+          baseUrl: openApiServer.baseUrl,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+
+      expect(created.status).toBe("connected");
+      expect(created.namespace).toBe("github");
+
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+      });
+
+      expect(sources).toHaveLength(1);
+      expect(sources[0]?.namespace).toBe("github");
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: 'return await tools.github.repos.getRepo({ owner: "vercel", repo: "ai" });',
+        },
+      });
+
+      expect(execution.execution.status).toBe("completed");
+      expect(execution.pendingInteraction).toBeNull();
+      expect(execution.execution.resultJson).toContain("\"full_name\":\"vercel/ai\"");
+      expect(openApiServer.seenAuthHeaders).toEqual([null]);
+    }),
+    15_000,
+  );
+
+  it.scoped("adds an OAuth-protected MCP source through the API client and resumes after callback", () =>
+    Effect.gen(function* () {
+      const oauthServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOAuthProtectedMcpServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client, server } = yield* createApiClientHarness();
+
+      const started = yield* client.mcp.startOAuth({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          endpoint: oauthServer.endpoint,
+          queryParams: null,
+          redirectUrl: `${server.baseUrl}/v1/plugins/mcp/oauth/callback`,
+        },
+      });
+
+      const callbackResponse = yield* Effect.promise(() =>
+        fetch(started.authorizationUrl, {
+          redirect: "follow",
+        }),
+      );
+      assertTrue(callbackResponse.ok);
+      const callbackHtml = yield* Effect.promise(() => callbackResponse.text());
+      expect(callbackHtml).toContain("Authentication complete");
+
+      const popupPayload = extractOAuthPopupPayload(callbackHtml);
+      expect(popupPayload.sessionId).toBe(started.sessionId);
+
+      const created = yield* client.mcp.createSource({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          name: "Axiom",
+          endpoint: oauthServer.endpoint,
+          transport: "streamable-http",
+          queryParams: null,
+          headers: null,
+          command: null,
+          args: null,
+          env: null,
+          cwd: null,
+          auth: popupPayload.auth as any,
+        },
+      });
+
+      expect(created.name).toBe("Axiom");
+      expect(created.status).toBe("connected");
+
+      const toolCall = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: "return await tools.axiom.whoami({});",
+        },
+      });
+
+      expect(toolCall.execution.status).toBe("waiting_for_interaction");
+      expect(toolCall.pendingInteraction).not.toBeNull();
+      if (toolCall.pendingInteraction === null) {
+        throw new Error("Expected pending tool approval interaction");
+      }
+      expect(toolCall.pendingInteraction.kind).toBe("form");
+      expect(toolCall.pendingInteraction.payloadJson).toContain("Allow whoami?");
+
+      const approvedToolCall = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.scopeId,
+          executionId: toolCall.execution.id,
+        },
+        payload: {
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approvedToolCall.execution.status).toBe("completed");
+      expect(approvedToolCall.pendingInteraction).toBeNull();
+      expect(approvedToolCall.execution.resultJson).toContain("oauth-demo");
+    }),
+    15_000,
+  );
+
+  it.scoped("adds an OpenAPI source via executor.sources.add and calls it end to end", () =>
+    Effect.gen(function* () {
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const added = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: `return await tools.executor.sources.add({
+            kind: "openapi",
+            name: "GitHub",
+            specUrl: ${JSON.stringify(openApiServer.specUrl)},
+            baseUrl: ${JSON.stringify(openApiServer.baseUrl)},
+            auth: { kind: "none" }
+          });`,
+        },
+      });
+
+      expect(added.execution.status).toBe("completed");
+      expect(added.pendingInteraction).toBeNull();
+      expect(added.execution.resultJson).toContain("\"name\":\"GitHub\"");
+
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+      });
+
+      expect(sources.some((source) => source.namespace === "github")).toBe(true);
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: 'return await tools.github.repos.getRepo({ owner: "vercel", repo: "ai" });',
+        },
+      });
+
+      expect(execution.execution.status).toBe("completed");
+      expect(execution.pendingInteraction).toBeNull();
+      expect(execution.execution.resultJson).toContain("\"full_name\":\"vercel/ai\"");
+    }),
+    15_000,
+  );
+
+  it.scoped("gates mutating OpenAPI tools by default and allows them via workspace policy", () =>
+    Effect.gen(function* () {
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMutatingOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const { installation, client } = yield* createApiClientHarness();
+
+      const created = yield* client.openapi.createSource({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          name: "DNS",
+          specUrl: openApiServer.specUrl,
+          baseUrl: openApiServer.baseUrl,
+          auth: {
+            kind: "none",
+          },
+        },
+      });
+      expect(created.status).toBe("connected");
+
+      const gated = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: 'return await tools.dns.records.createRecord({ body: { type: "TXT", name: "", value: "hello world" } });',
+        },
+      });
+
+      expect(gated.execution.status).toBe("waiting_for_interaction");
+      expect(gated.pendingInteraction).not.toBeNull();
+      if (gated.pendingInteraction === null) {
+        throw new Error("Expected pending approval interaction");
+      }
+      expect(gated.pendingInteraction.kind).toBe("form");
+      expect(gated.pendingInteraction.payloadJson).toContain("Allow records.createRecord?");
+      expect(gated.pendingInteraction.payloadJson).toContain("\"approve\"");
+
+      const approved = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.scopeId,
+          executionId: gated.execution.id,
+        },
+        payload: {
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(approved.execution.status).toBe("completed");
+      expect(openApiServer.createdBodies).toHaveLength(1);
+
+      const policy = yield* client.policies.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          resourcePattern: "dns.records.createRecord",
+          effect: "allow",
+          approvalMode: "auto",
+        },
+      });
+      expect(policy.key).toBe("dns.records.createRecord");
+
+      const automatic = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: 'return await tools.dns.records.createRecord({ body: { type: "TXT", name: "", value: "hello again" } });',
+        },
+      });
+
+      expect(automatic.execution.status).toBe("completed");
+      expect(automatic.pendingInteraction).toBeNull();
+      expect(openApiServer.createdBodies).toHaveLength(2);
+    }),
+    15_000,
+  );
+
+  it.scoped("starts source OAuth without creating a source and stores secrets on callback", () =>
+    Effect.gen(function* () {
+      const oauthServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOAuthProtectedMcpServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+
+      const { installation, client, server } = yield* createApiClientHarness();
+
+      const started = yield* client.mcp.startOAuth({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          endpoint: oauthServer.endpoint,
+          queryParams: null,
+          redirectUrl: `${server.baseUrl}/v1/plugins/mcp/oauth/callback`,
+        },
+      });
+
+      expect(started.sessionId).toBeTruthy();
+      expect(started.authorizationUrl).toBeDefined();
+
+      const callbackResponse = yield* Effect.promise(() =>
+        fetch(started.authorizationUrl, {
+          redirect: "follow",
+        }),
+      );
+
+      assertTrue(callbackResponse.ok);
+      const callbackHtml = yield* Effect.promise(() => callbackResponse.text());
+      expect(callbackHtml).toContain("Authentication complete");
+      expect(callbackHtml).toContain("executor:oauth-result");
+
+      const sources = yield* client.sources.list({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+      });
+      expect(sources).toHaveLength(0);
+
+      const secrets = yield* client.local.listSecrets({});
+      expect(secrets.some((secret) => secret.purpose === "oauth_access_token")).toBe(true);
+      expect(secrets.some((secret) => secret.purpose === "oauth_refresh_token")).toBe(true);
+    }),
+    15_000,
+  );
+
+  it.scoped("marks execution failed when a configured MCP endpoint is invalid", () =>
+    Effect.gen(function* () {
+      const localDataDir = yield* makeTempWorkspaceRoot();
+      const server = yield* createIsolatedLocalExecutorServer({
+        port: 0,
+        localDataDir,
+      });
+
+      const client = yield* makeApiClient(server.baseUrl);
+      const installation = yield* client.local.installation({});
+      yield* writeConfiguredLocalMcpSource({
+        workspaceRoot: server.workspaceRoot,
+        localDataDir,
+        sourceId: "demo",
+        endpoint: "http://127.0.0.1:PORT/mcp",
+        name: "Demo",
+      });
+
+      const execution = yield* client.executions.create({
+        path: {
+          workspaceId: installation.scopeId,
+        },
+        payload: {
+          code: 'return await tools.demo.gated_echo({ value: "broken" });',
+        },
+      });
+
+      expect(execution.execution.status).toBe("waiting_for_interaction");
+      expect(execution.pendingInteraction).not.toBeNull();
+      if (execution.pendingInteraction !== null) {
+        expect(execution.pendingInteraction.kind).toBe("form");
+        expect(execution.pendingInteraction.payloadJson).toContain("Allow gated_echo?");
+      }
+
+      const resumed = yield* client.executions.resume({
+        path: {
+          workspaceId: installation.scopeId,
+          executionId: execution.execution.id,
+        },
+        payload: {
+          responseJson: JSON.stringify({
+            action: "accept",
+            content: {
+              approve: true,
+            },
+          }),
+        },
+      });
+
+      expect(resumed.execution.status).toBe("failed");
+      expect(resumed.pendingInteraction).toBeNull();
+      expect(resumed.execution.errorText).toMatch(/Invalid URL|Failed connecting to MCP server/);
+    }),
+  );
+});

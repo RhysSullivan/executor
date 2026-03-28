@@ -1,4 +1,5 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
+import * as Schema from "effect/Schema";
 import {
   CreateExecutionPayloadSchema,
   ResumeExecutionPayloadSchema,
@@ -8,6 +9,7 @@ export type {
   ResumeExecutionPayload,
 } from "@executor/platform-sdk/contracts";
 import {
+  ExecutionSchema,
   ExecutionIdSchema,
   ExecutionEnvelopeSchema,
   ScopeIdSchema as WorkspaceIdSchema,
@@ -30,6 +32,15 @@ const workspaceIdParam = HttpApiSchema.param("workspaceId", WorkspaceIdSchema);
 const executionIdParam = HttpApiSchema.param("executionId", ExecutionIdSchema);
 
 export class ExecutionsApi extends HttpApiGroup.make("executions")
+  .add(
+    HttpApiEndpoint.get("list")`/workspaces/${workspaceIdParam}/executions`
+      .addSuccess(Schema.Array(ExecutionSchema))
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneUnauthorizedError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneNotFoundError)
+      .addError(ControlPlaneStorageError),
+  )
   .add(
     HttpApiEndpoint.post("create")`/workspaces/${workspaceIdParam}/executions`
       .setPayload(CreateExecutionPayloadSchema)

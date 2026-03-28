@@ -5,7 +5,6 @@ import {
   mergeToolCatalogs,
   mergeToolMaps,
   type ToolCatalog,
-  type ToolMap,
   type ToolInvoker,
 } from "@executor/codemode-core";
 import type {
@@ -15,11 +14,18 @@ import type {
 import * as Effect from "effect/Effect";
 
 import {
-  RuntimeSourceAuthMaterialService,
-} from "../../auth/source-auth-material";
-import {
   RuntimeSourceCatalogStoreService,
 } from "../../catalog/source/runtime";
+import {
+  SecretMaterialDeleterService,
+  SecretMaterialResolverService,
+  SecretMaterialStorerService,
+  SecretMaterialUpdaterService,
+  type DeleteSecretMaterial,
+  type ResolveSecretMaterial,
+  type StoreSecretMaterial,
+  type UpdateSecretMaterial,
+} from "../../scope/secret-material-providers";
 import type {
   RuntimeLocalScopeState,
 } from "../../scope/runtime-context";
@@ -34,17 +40,8 @@ import {
   type ScopeStateStoreShape,
 } from "../../scope/storage";
 import type {
-  DeleteSecretMaterial,
-  ResolveInstanceConfig,
-  StoreSecretMaterial,
-  UpdateSecretMaterial,
-} from "../../scope/secret-material-providers";
-import type {
   ExecutorStateStoreShape,
 } from "../../executor-state-store";
-import {
-  RuntimeSourceAuthService,
-} from "../../sources/source-auth-service";
 import {
   type RuntimeSourceStore,
 } from "../../sources/source-store";
@@ -59,7 +56,6 @@ import {
 } from "../ir-execution";
 import {
   authorizePersistedToolInvocation,
-  toSecretResolutionContext,
 } from "./authorization";
 import {
   provideRuntimeLocalScope,
@@ -71,30 +67,7 @@ import {
 import {
   runtimeEffectError,
 } from "../../effect-errors";
-
-export type ScopeInternalToolContext = {
-  scopeId: Source["scopeId"];
-  actorScopeId: ScopeId;
-  executorStateStore: ExecutorStateStoreShape;
-  sourceStore: RuntimeSourceStore;
-  sourceCatalogSyncService: Effect.Effect.Success<
-    typeof RuntimeSourceCatalogSyncService
-  >;
-  sourceAuthService: RuntimeSourceAuthService;
-  installationStore: InstallationStoreShape;
-  instanceConfigResolver: ResolveInstanceConfig;
-  storeSecretMaterial: StoreSecretMaterial;
-  deleteSecretMaterial: DeleteSecretMaterial;
-  updateSecretMaterial: UpdateSecretMaterial;
-  scopeConfigStore: ScopeConfigStoreShape;
-  scopeStateStore: ScopeStateStoreShape;
-  sourceArtifactStore: SourceArtifactStoreShape;
-  runtimeLocalScope: RuntimeLocalScopeState | null;
-};
-
-export type CreateScopeInternalToolMap = (
-  input: ScopeInternalToolContext,
-) => ToolMap;
+import * as Layer from "effect/Layer";
 
 export const createScopeToolInvoker = (input: {
   scopeId: Source["scopeId"];
@@ -108,20 +81,17 @@ export const createScopeToolInvoker = (input: {
     typeof RuntimeSourceCatalogStoreService
   >;
   installationStore: InstallationStoreShape;
-  instanceConfigResolver: ResolveInstanceConfig;
-  storeSecretMaterial: StoreSecretMaterial;
-  deleteSecretMaterial: DeleteSecretMaterial;
-  updateSecretMaterial: UpdateSecretMaterial;
   scopeConfigStore: ScopeConfigStoreShape;
   scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
-  sourceAuthMaterialService: Effect.Effect.Success<
-    typeof RuntimeSourceAuthMaterialService
-  >;
-  sourceAuthService: RuntimeSourceAuthService;
   runtimeLocalScope: RuntimeLocalScopeState | null;
   localToolRuntime: LocalToolRuntime;
-  createInternalToolMap?: CreateScopeInternalToolMap;
+  secretMaterialServices: {
+    resolve: ResolveSecretMaterial;
+    store: StoreSecretMaterial;
+    delete: DeleteSecretMaterial;
+    update: UpdateSecretMaterial;
+  };
   onElicitation?: Parameters<
     typeof makeToolInvokerFromTools
   >[0]["onElicitation"];
@@ -134,37 +104,30 @@ export const createScopeToolInvoker = (input: {
     scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
   });
+  const secretMaterialLayer = Layer.mergeAll(
+    Layer.succeed(SecretMaterialResolverService, input.secretMaterialServices.resolve),
+    Layer.succeed(SecretMaterialStorerService, input.secretMaterialServices.store),
+    Layer.succeed(SecretMaterialDeleterService, input.secretMaterialServices.delete),
+    Layer.succeed(SecretMaterialUpdaterService, input.secretMaterialServices.update),
+  );
   const provideWorkspaceStorage = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(scopeStorageLayer));
+  const provideSecretMaterialServices = <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ) => effect.pipe(Effect.provide(secretMaterialLayer));
 
   const executorTools = createExecutorToolMap({
     scopeId: input.scopeId,
     actorScopeId: input.actorScopeId,
-    sourceAuthService: input.sourceAuthService,
+    executorStateStore: input.executorStateStore,
+    sourceStore: input.sourceStore,
+    sourceCatalogSyncService: input.sourceCatalogSyncService,
     installationStore: input.installationStore,
     scopeConfigStore: input.scopeConfigStore,
     scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
     runtimeLocalScope: input.runtimeLocalScope,
   });
-  const internalTools =
-    input.createInternalToolMap?.({
-      scopeId: input.scopeId,
-      actorScopeId: input.actorScopeId,
-      executorStateStore: input.executorStateStore,
-      sourceStore: input.sourceStore,
-      sourceCatalogSyncService: input.sourceCatalogSyncService,
-      sourceAuthService: input.sourceAuthService,
-      installationStore: input.installationStore,
-      instanceConfigResolver: input.instanceConfigResolver,
-      storeSecretMaterial: input.storeSecretMaterial,
-      deleteSecretMaterial: input.deleteSecretMaterial,
-      updateSecretMaterial: input.updateSecretMaterial,
-      scopeConfigStore: input.scopeConfigStore,
-      scopeStateStore: input.scopeStateStore,
-      sourceArtifactStore: input.sourceArtifactStore,
-      runtimeLocalScope: input.runtimeLocalScope,
-    }) ?? {};
   const sourceCatalog = createScopeSourceCatalog({
     scopeId: input.scopeId,
     actorScopeId: input.actorScopeId,
@@ -187,7 +150,6 @@ export const createScopeToolInvoker = (input: {
   const authoredTools = mergeToolMaps([
     systemTools,
     executorTools,
-    internalTools,
     input.localToolRuntime.tools,
   ]);
   const authoredCatalog = createToolCatalogFromTools({
@@ -208,7 +170,8 @@ export const createScopeToolInvoker = (input: {
     context?: Record<string, unknown>;
   }) =>
     provideRuntimeLocalScope(
-      provideWorkspaceStorage(
+      provideSecretMaterialServices(
+        provideWorkspaceStorage(
         Effect.gen(function* () {
           const catalogTool = yield* loadWorkspaceCatalogToolByPath({
             scopeId: input.scopeId,
@@ -232,21 +195,16 @@ export const createScopeToolInvoker = (input: {
             onElicitation: input.onElicitation,
           });
 
-          const auth = yield* input.sourceAuthMaterialService.resolve({
-            source: catalogTool.source,
-            actorScopeId: input.actorScopeId,
-            context: toSecretResolutionContext(invocation.context),
-          });
           return yield* invokeIrTool({
             scopeId: input.scopeId,
             actorScopeId: input.actorScopeId,
             tool: catalogTool,
-            auth,
             args: invocation.args,
             onElicitation: input.onElicitation,
             context: invocation.context,
           });
         }),
+        ),
       ),
       input.runtimeLocalScope,
     );
@@ -254,13 +212,17 @@ export const createScopeToolInvoker = (input: {
   return {
     catalog,
     toolInvoker: {
-      invoke: ({ path, args, context }) =>
-        provideRuntimeLocalScope(
-          authoredToolPaths.has(path)
-            ? authoredInvoker.invoke({ path, args, context })
-            : invokePersistedTool({ path, args, context }),
-          input.runtimeLocalScope,
-        ),
+      invoke: ({ path, args, context }) => {
+        const effect = authoredToolPaths.has(path)
+          ? authoredInvoker.invoke({ path, args, context })
+          : invokePersistedTool({ path, args, context }) as Effect.Effect<
+              unknown,
+              unknown,
+              never
+            >;
+
+        return provideRuntimeLocalScope(effect, input.runtimeLocalScope);
+      },
     },
   };
 };

@@ -9,6 +9,11 @@ export const ExecutorExecutionsLive = HttpApiBuilder.group(
   "executions",
   (handlers) =>
     handlers
+      .handle("list", ({ path }) =>
+        resolveRequestedLocalWorkspace("executions.list", path.workspaceId).pipe(
+          Effect.flatMap((executor) => executor.executions.list()),
+        ),
+      )
       .handle("create", ({ path, payload }) =>
         resolveRequestedLocalWorkspace("executions.create", path.workspaceId).pipe(
           Effect.flatMap((executor) => executor.executions.create(payload)),

@@ -5,15 +5,13 @@
   "exports": {
     ".": "./src/index.ts",
     "./api": "./src/api.ts",
-    "./client": "./src/client.ts",
     "./effect": "./src/effect.ts",
     "./http": "./src/http.ts",
+    "./plugins": "./src/plugins.ts",
     "./errors": "./src/errors.ts",
     "./local/api": "./src/local/api.ts",
     "./local/http": "./src/local/http.ts",
     "./local-context": "./src/local-context.ts",
-    "./oauth/api": "./src/oauth/api.ts",
-    "./oauth/http": "./src/oauth/http.ts",
     "./policies/api": "./src/policies/api.ts",
     "./policies/http": "./src/policies/http.ts",
     "./sources/api": "./src/sources/api.ts",
@@ -22,7 +20,7 @@
     "./executions/http": "./src/executions/http.ts"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json"
   },

@@ -6,10 +6,7 @@ import {
 } from "./source-models";
 
 export const SourceDiscoveryKindSchema = Schema.Literal(
-  "mcp",
-  "openapi",
-  "google_discovery",
-  "graphql",
+  "plugin",
   "unknown",
 );
 

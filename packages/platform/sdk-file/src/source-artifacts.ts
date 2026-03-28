@@ -3,15 +3,13 @@ import { FileSystem } from "@effect/platform";
 
 import type { NativeBlob } from "@executor/ir/model";
 import * as Effect from "effect/Effect";
-import type { Source } from "@executor/platform-sdk/schema";
-import type { SourceCatalogSyncResult } from "@executor/source-core";
 import {
   buildLocalSourceArtifact,
   decodeStoredLocalSourceArtifact,
   hydrateLocalSourceArtifactDocuments,
   splitLocalSourceArtifactDocuments,
   type LocalSourceArtifact,
-} from "../../sdk/src/runtime/source-artifacts";
+} from "@executor/platform-sdk/runtime";
 import type { ResolvedLocalWorkspaceContext } from "./config";
 import {
   LocalFileSystemError,
