@@ -11,7 +11,6 @@ import {
   LocalExecutorConfigSchema,
   type LocalExecutorConfig,
   type LocalConfigPolicy,
-  type LocalConfigSecretProvider,
   type LocalConfigSource,
 } from "@executor/platform-sdk/schema";
 import type { LoadedLocalExecutorConfig } from "@executor/platform-sdk/runtime";
@@ -249,19 +248,6 @@ const mergePolicyMaps = (
   };
 };
 
-const mergeSecretProviderMaps = (
-  base: Record<string, LocalConfigSecretProvider> | undefined,
-  extra: Record<string, LocalConfigSecretProvider> | undefined,
-): Record<string, LocalConfigSecretProvider> | undefined => {
-  if (!base && !extra) {
-    return undefined;
-  }
-  return {
-    ...base,
-    ...extra,
-  };
-};
-
 export const mergeLocalExecutorConfigs = (
   base: LocalExecutorConfig | null,
   extra: LocalExecutorConfig | null,
@@ -278,16 +264,6 @@ export const mergeLocalExecutorConfigs = (
     },
     sources: mergeSourceMaps(base?.sources, extra?.sources),
     policies: mergePolicyMaps(base?.policies, extra?.policies),
-    secrets: {
-      providers: mergeSecretProviderMaps(
-        base?.secrets?.providers,
-        extra?.secrets?.providers,
-      ),
-      defaults: {
-        ...base?.secrets?.defaults,
-        ...extra?.secrets?.defaults,
-      },
-    },
   });
 };
 

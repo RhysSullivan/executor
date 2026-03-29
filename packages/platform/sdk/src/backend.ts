@@ -176,6 +176,13 @@ const toSecretsBackend = (
       toOptionEffect(input.secretStores.updateById(id, patch)),
     removeById: (id) => toEffect(input.secretStores.removeById(id)),
   },
+  secretMaterialStoredData: {
+    getBySecretId: (secretId) =>
+      toOptionEffect(input.secretMaterialStoredData.getBySecretId(secretId)),
+    upsert: (record) => toEffect(input.secretMaterialStoredData.upsert(record)),
+    removeBySecretId: (secretId) =>
+      toEffect(input.secretMaterialStoredData.removeBySecretId(secretId)),
+  },
   getById: (id) => toOptionEffect(input.getById(id)),
   listAll: () => toEffect(input.listAll()),
   upsert: (material) => toEffect(input.upsert(material)),

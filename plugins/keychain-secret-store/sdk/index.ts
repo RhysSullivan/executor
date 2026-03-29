@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import {
+  Entry,
+} from "@napi-rs/keyring";
 
 import * as Effect from "effect/Effect";
 
@@ -13,15 +15,12 @@ import {
 export const KEYCHAIN_SECRET_STORE_KIND = "keychain";
 export const KEYCHAIN_SECRET_STORE_ID = "sts_builtin_keychain";
 
-const DEFAULT_KEYCHAIN_SERVICE_NAME = "executor";
-const KEYCHAIN_COMMAND_TIMEOUT_MS = 5_000;
-const KEYCHAIN_SERVICE_NAME_ENV = "EXECUTOR_KEYCHAIN_SERVICE_NAME";
-
-type SpawnResult = {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
+type KeychainSecretStoredData = {
+  account: string;
 };
+
+const DEFAULT_KEYCHAIN_SERVICE_NAME = "executor";
+const KEYCHAIN_SERVICE_NAME_ENV = "EXECUTOR_KEYCHAIN_SERVICE_NAME";
 
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
@@ -35,280 +34,99 @@ const trimOrNull = (value: string | null | undefined): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const ensureNonEmptyString = (value: string | undefined | null): string | null => {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
-};
-
 const resolveKeychainServiceName = (value: string | undefined): string =>
   trimOrNull(value)
   ?? trimOrNull(process.env[KEYCHAIN_SERVICE_NAME_ENV])
   ?? DEFAULT_KEYCHAIN_SERVICE_NAME;
 
-const runCommand = (input: {
-  command: string;
-  args: ReadonlyArray<string>;
-  stdin?: string;
-  operation: string;
-  timeoutMs?: number;
-}): Effect.Effect<SpawnResult, Error, never> =>
-  Effect.tryPromise({
-    try: () =>
-      new Promise<SpawnResult>((resolve, reject) => {
-        const child = spawn(input.command, [...input.args], {
-          stdio: "pipe",
-          env: process.env,
-        });
+const isSupportedPlatform = () =>
+  process.platform === "darwin"
+  || process.platform === "linux"
+  || process.platform === "win32";
 
-        let stdout = "";
-        let stderr = "";
-        let settled = false;
-        const timeout = input.timeoutMs === undefined
-          ? null
-          : setTimeout(() => {
-            if (settled) {
-              return;
-            }
+const keychainDisplayName = () =>
+  process.platform === "darwin"
+    ? "macOS Keychain"
+    : process.platform === "win32"
+      ? "Windows Credential Manager"
+      : "Desktop Keyring";
 
-            settled = true;
-            child.kill("SIGKILL");
-            reject(
-              new Error(
-                `${input.operation}: '${input.command}' timed out after ${input.timeoutMs}ms`,
-              ),
-            );
-          }, input.timeoutMs);
+const createKeyringEntry = (input: {
+  providerHandle: string;
+  keychainServiceName: string;
+}) =>
+  Effect.try({
+    try: () => {
+      if (!isSupportedPlatform()) {
+        throw runtimeEffectError(
+          "plugin-keychain-secret-store",
+          `system-keyring: unsupported on platform '${process.platform}'`,
+        );
+      }
 
-        child.stdout.on("data", (chunk) => {
-          stdout += chunk.toString("utf8");
-        });
-
-        child.stderr.on("data", (chunk) => {
-          stderr += chunk.toString("utf8");
-        });
-
-        child.on("error", (error) => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          if (timeout) {
-            clearTimeout(timeout);
-          }
-          reject(error);
-        });
-
-        child.on("close", (code) => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          if (timeout) {
-            clearTimeout(timeout);
-          }
-          resolve({
-            exitCode: code ?? 0,
-            stdout,
-            stderr,
-          });
-        });
-
-        if (input.stdin !== undefined) {
-          child.stdin.write(input.stdin);
-        }
-
-        child.stdin.end();
-      }),
+      return new Entry(input.keychainServiceName, input.providerHandle);
+    },
     catch: toError,
   });
-
-const ensureCommandSuccess = (input: {
-  result: SpawnResult;
-  operation: string;
-  message: string;
-}): Effect.Effect<SpawnResult, Error, never> => {
-  if (input.result.exitCode === 0) {
-    return Effect.succeed(input.result);
-  }
-
-  const details = ensureNonEmptyString(input.result.stderr)
-    ?? ensureNonEmptyString(input.result.stdout)
-    ?? "command returned non-zero exit code";
-
-  return Effect.fail(
-    runtimeEffectError(
-      "plugin-keychain-secret-store",
-      `${input.operation}: ${input.message}: ${details}`,
-    ),
-  );
-};
 
 const readKeychainSecretValue = (input: {
   providerHandle: string;
   keychainServiceName: string;
-}) => {
-  switch (process.platform) {
-    case "darwin":
-      return runCommand({
-        command: "security",
-        args: [
-          "find-generic-password",
-          "-a",
-          input.providerHandle,
-          "-s",
-          input.keychainServiceName,
-          "-w",
-        ],
-        operation: "keychain.get",
-        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
+}) =>
+  Effect.flatMap(
+    createKeyringEntry(input),
+    (entry) =>
+      Effect.try({
+        try: () => entry.getPassword(),
+        catch: toError,
       }).pipe(
-        Effect.flatMap((result) =>
-          ensureCommandSuccess({
-            result,
-            operation: "keychain.get",
-            message: "Failed loading secret from macOS keychain",
-          })),
-        Effect.map((result) => result.stdout.trimEnd()),
-      );
-    case "linux":
-      return runCommand({
-        command: "secret-tool",
-        args: [
-          "lookup",
-          "service",
-          input.keychainServiceName,
-          "account",
-          input.providerHandle,
-        ],
-        operation: "keychain.get",
-        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
-      }).pipe(
-        Effect.flatMap((result) =>
-          ensureCommandSuccess({
-            result,
-            operation: "keychain.get",
-            message: "Failed loading secret from desktop keyring",
-          })),
-        Effect.map((result) => result.stdout.trimEnd()),
-      );
-    default:
-      return Effect.fail(
-        runtimeEffectError(
-          "plugin-keychain-secret-store",
-          `keychain.get: unsupported on platform '${process.platform}'`,
-        ),
-      );
-  }
-};
+        Effect.flatMap((value) =>
+          value !== null
+            ? Effect.succeed(value)
+            : Effect.fail(
+                runtimeEffectError(
+                  "plugin-keychain-secret-store",
+                  `keychain.get: secret not found for service '${input.keychainServiceName}' and account '${input.providerHandle}'`,
+                ),
+              )),
+      ),
+  );
 
 const writeKeychainSecretValue = (input: {
   providerHandle: string;
   name?: string | null;
   value: string;
   keychainServiceName: string;
-}) => {
-  const secretName = trimOrNull(input.name);
-
-  switch (process.platform) {
-    case "darwin":
-      return runCommand({
-        command: "security",
-        args: [
-          "add-generic-password",
-          "-a",
-          input.providerHandle,
-          "-s",
-          input.keychainServiceName,
-          "-w",
-          input.value,
-          "-U",
-          ...(secretName ? ["-l", secretName] : []),
-        ],
-        operation: "keychain.put",
-        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
-      }).pipe(
-        Effect.flatMap((result) =>
-          ensureCommandSuccess({
-            result,
-            operation: "keychain.put",
-            message: "Failed storing secret in macOS keychain",
-          })),
-        Effect.asVoid,
-      );
-    case "linux":
-      return runCommand({
-        command: "secret-tool",
-        args: [
-          "store",
-          "--label",
-          secretName ?? input.keychainServiceName,
-          "service",
-          input.keychainServiceName,
-          "account",
-          input.providerHandle,
-        ],
-        stdin: input.value,
-        operation: "keychain.put",
-        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
-      }).pipe(
-        Effect.flatMap((result) =>
-          ensureCommandSuccess({
-            result,
-            operation: "keychain.put",
-            message: "Failed storing secret in desktop keyring",
-          })),
-        Effect.asVoid,
-      );
-    default:
-      return Effect.fail(
-        runtimeEffectError(
-          "plugin-keychain-secret-store",
-          `keychain.put: unsupported on platform '${process.platform}'`,
-        ),
-      );
-  }
-};
+}) =>
+  Effect.flatMap(
+    createKeyringEntry(input),
+    (entry) =>
+      Effect.try({
+        try: () => entry.setPassword(input.value),
+        catch: (cause) =>
+          runtimeEffectError(
+            "plugin-keychain-secret-store",
+            `keychain.put: Failed storing secret in ${keychainDisplayName().toLowerCase()}: ${toError(cause).message}`,
+          ),
+      }).pipe(Effect.asVoid),
+  );
 
 const deleteKeychainSecretValue = (input: {
   providerHandle: string;
   keychainServiceName: string;
-}) => {
-  switch (process.platform) {
-    case "darwin":
-      return runCommand({
-        command: "security",
-        args: [
-          "delete-generic-password",
-          "-a",
-          input.providerHandle,
-          "-s",
-          input.keychainServiceName,
-        ],
-        operation: "keychain.delete",
-        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
-      }).pipe(Effect.map((result) => result.exitCode === 0));
-    case "linux":
-      return runCommand({
-        command: "secret-tool",
-        args: [
-          "clear",
-          "service",
-          input.keychainServiceName,
-          "account",
-          input.providerHandle,
-        ],
-        operation: "keychain.delete",
-        timeoutMs: KEYCHAIN_COMMAND_TIMEOUT_MS,
-      }).pipe(Effect.map((result) => result.exitCode === 0));
-    default:
-      return Effect.fail(
-        runtimeEffectError(
-          "plugin-keychain-secret-store",
-          `keychain.delete: unsupported on platform '${process.platform}'`,
-        ),
-      );
-  }
-};
+}) =>
+  Effect.flatMap(
+    createKeyringEntry(input),
+    (entry) =>
+      Effect.try({
+        try: () => entry.deletePassword(),
+        catch: (cause) =>
+          runtimeEffectError(
+            "plugin-keychain-secret-store",
+            `keychain.delete: Failed deleting secret from ${keychainDisplayName().toLowerCase()}: ${toError(cause).message}`,
+          ),
+      }),
+  );
 
 const builtinSecretStoreStorage = <TStored>(value: TStored) => ({
   get: () => Effect.succeed(value),
@@ -316,19 +134,29 @@ const builtinSecretStoreStorage = <TStored>(value: TStored) => ({
   remove: () => Effect.void,
 });
 
-export const keychainSecretStoreSdkPlugin = defineExecutorSecretStorePlugin({
+export const keychainSecretStoreSdkPlugin = defineExecutorSecretStorePlugin<
+  typeof KEYCHAIN_SECRET_STORE_KIND,
+  unknown,
+  { name: string },
+  { kind: typeof KEYCHAIN_SECRET_STORE_KIND; name: string },
+  {},
+  KeychainSecretStoredData,
+  {
+    storeId: string;
+    config: { kind: typeof KEYCHAIN_SECRET_STORE_KIND; name: string };
+  }
+>({
   key: KEYCHAIN_SECRET_STORE_KIND,
   secretStore: {
     kind: KEYCHAIN_SECRET_STORE_KIND,
-    displayName:
-      process.platform === "darwin" ? "macOS Keychain" : "Desktop Keyring",
+    displayName: keychainDisplayName(),
     builtin: {
       storeId: KEYCHAIN_SECRET_STORE_ID,
       defaultPriority: 10,
-      enabled: () => process.platform === "darwin" || process.platform === "linux",
+      enabled: isSupportedPlatform,
       createStore: () => ({
         kind: KEYCHAIN_SECRET_STORE_KIND,
-        name: process.platform === "darwin" ? "macOS Keychain" : "Desktop Keyring",
+        name: keychainDisplayName(),
         status: "connected",
         enabled: true,
       }),
@@ -352,50 +180,50 @@ export const keychainSecretStoreSdkPlugin = defineExecutorSecretStorePlugin({
         kind: KEYCHAIN_SECRET_STORE_KIND,
         name: store.name,
       }),
-      resolveSecret: ({ secret }) =>
+      resolveSecret: ({ secretStored }) =>
         readKeychainSecretValue({
-          providerHandle: secret.handle,
+          providerHandle: secretStored.account,
           keychainServiceName: resolveKeychainServiceName(undefined),
         }),
       createSecret: ({ value, name }) =>
         Effect.gen(function* () {
-          const providerHandle = randomUUID();
+          const account = randomUUID();
           yield* writeKeychainSecretValue({
-            providerHandle,
+            providerHandle: account,
             name,
             value,
             keychainServiceName: resolveKeychainServiceName(undefined),
           });
           return {
-            handle: providerHandle,
             name: trimOrNull(name),
-            value: null,
+            secretStored: {
+              account,
+            } satisfies KeychainSecretStoredData,
           };
         }),
-      updateSecret: ({ secret, name, value }) =>
+      updateSecret: ({ secret, secretStored, name, value }) =>
         Effect.gen(function* () {
           const keychainServiceName = resolveKeychainServiceName(undefined);
           const nextName = trimOrNull(name ?? secret.name);
           const nextValue = value
             ?? (yield* readKeychainSecretValue({
-              providerHandle: secret.handle,
+              providerHandle: secretStored.account,
               keychainServiceName,
             }));
           yield* writeKeychainSecretValue({
-            providerHandle: secret.handle,
+            providerHandle: secretStored.account,
             name: nextName,
             value: nextValue,
             keychainServiceName,
           });
           return {
-            handle: secret.handle,
             name: nextName,
-            value: null,
+            secretStored,
           };
         }),
-      deleteSecret: ({ secret }) =>
+      deleteSecret: ({ secretStored }) =>
         deleteKeychainSecretValue({
-          providerHandle: secret.handle,
+          providerHandle: secretStored.account,
           keychainServiceName: resolveKeychainServiceName(undefined),
         }),
       capabilities: () => ({

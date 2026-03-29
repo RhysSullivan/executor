@@ -112,7 +112,6 @@ export * from "./execution/service";
 export * from "./source-artifacts";
 export * from "./scope-config";
 export * from "./scope-state";
-export * from "./scope/config-secrets";
 export * from "./sources/source-store/config";
 export * from "./sources/source-store/plugin-local-config";
 export {
@@ -244,6 +243,7 @@ export const prewarmWorkspaceSourceCatalogToolIndex = (input: {
 export type RuntimeSecretsStorageServices =
   & {
     secretStores: ExecutorStateStoreShape["secretStores"];
+    secretMaterialStoredData: ExecutorStateStoreShape["secretMaterialStoredData"];
   }
   & ExecutorStateStoreShape["secretMaterials"]
   & RuntimeSecretMaterialServices;
@@ -343,7 +343,14 @@ const toExecutorStateStoreShape = (
   input: RuntimeStorageServices,
 ): ExecutorStateStoreShape => ({
   secretStores: input.secrets.secretStores,
-  secretMaterials: input.secrets,
+  secretMaterials: {
+    getById: input.secrets.getById,
+    listAll: input.secrets.listAll,
+    upsert: input.secrets.upsert,
+    updateById: input.secrets.updateById,
+    removeById: input.secrets.removeById,
+  },
+  secretMaterialStoredData: input.secrets.secretMaterialStoredData,
   executions: input.executions.runs,
   executionInteractions: input.executions.interactions,
   executionSteps: input.executions.steps,

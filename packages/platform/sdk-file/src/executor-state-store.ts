@@ -26,13 +26,21 @@ import {
   unknownLocalErrorDetails,
 } from "./errors";
 
-const LOCAL_EXECUTOR_STATE_VERSION = 1 as const;
+const LOCAL_EXECUTOR_STATE_VERSION = 2 as const;
 const LOCAL_EXECUTOR_STATE_BASENAME = "executor-state.json";
+
+const SecretMaterialStoredDataRecordSchema = Schema.Struct({
+  secretId: Schema.String,
+  data: Schema.Unknown,
+});
+
+type SecretMaterialStoredDataRecord = typeof SecretMaterialStoredDataRecordSchema.Type;
 
 const LocalExecutorStateSnapshotSchema = Schema.Struct({
   version: Schema.Literal(LOCAL_EXECUTOR_STATE_VERSION),
   secretStores: Schema.Array(SecretStoreSchema),
   secretMaterials: Schema.Array(SecretMaterialSchema),
+  secretMaterialStoredData: Schema.Array(SecretMaterialStoredDataRecordSchema),
   executions: Schema.Array(ExecutionSchema),
   executionInteractions: Schema.Array(ExecutionInteractionSchema),
   executionSteps: Schema.Array(ExecutionStepSchema),
@@ -53,6 +61,7 @@ const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
   version: LOCAL_EXECUTOR_STATE_VERSION,
   secretStores: [],
   secretMaterials: [],
+  secretMaterialStoredData: [],
   executions: [],
   executionInteractions: [],
   executionSteps: [],
@@ -60,7 +69,6 @@ const defaultLocalExecutorStateSnapshot = (): LocalExecutorStateSnapshot => ({
 
 const cloneValue = <T>(value: T): T =>
   JSON.parse(JSON.stringify(value)) as T;
-
 const mapFileSystemError = (path: string, action: string) => (cause: unknown) =>
   new LocalFileSystemError({
     message: `Failed to ${action} ${path}: ${unknownLocalErrorDetails(cause)}`,
@@ -156,18 +164,19 @@ export const writeLocalExecutorStateSnapshot = (input: {
 }): Effect.Effect<void, LocalFileSystemError> =>
   bindNodeFileSystem(writeStateToDisk(input.context, input.state));
 
-const mergeById = <T extends { id: string }>(
+const mergeByKey = <T>(
   current: readonly T[],
   imported: readonly T[],
+  getKey: (value: T) => string,
 ): T[] => {
   const merged = new Map<string, T>();
 
   for (const item of imported) {
-    merged.set(item.id, cloneValue(item));
+    merged.set(getKey(item), cloneValue(item));
   }
 
   for (const item of current) {
-    merged.set(item.id, cloneValue(item));
+    merged.set(getKey(item), cloneValue(item));
   }
 
   return [...merged.values()];
@@ -178,22 +187,35 @@ export const mergeImportedLocalExecutorStateSnapshot = (input: {
   imported: Partial<Omit<LocalExecutorStateSnapshot, "version">>;
 }): LocalExecutorStateSnapshot => ({
   version: LOCAL_EXECUTOR_STATE_VERSION,
-  secretStores: mergeById(
+  secretStores: mergeByKey(
     input.current.secretStores,
     input.imported.secretStores ?? [],
+    (item) => item.id,
   ),
-  secretMaterials: mergeById(
+  secretMaterials: mergeByKey(
     input.current.secretMaterials,
     input.imported.secretMaterials ?? [],
+    (item) => item.id,
   ),
-  executions: mergeById(input.current.executions, input.imported.executions ?? []),
-  executionInteractions: mergeById(
+  secretMaterialStoredData: mergeByKey(
+    input.current.secretMaterialStoredData,
+    input.imported.secretMaterialStoredData ?? [],
+    (item) => item.secretId,
+  ),
+  executions: mergeByKey(
+    input.current.executions,
+    input.imported.executions ?? [],
+    (item) => item.id,
+  ),
+  executionInteractions: mergeByKey(
     input.current.executionInteractions,
     input.imported.executionInteractions ?? [],
+    (item) => item.id,
   ),
-  executionSteps: mergeById(
+  executionSteps: mergeByKey(
     input.current.executionSteps,
     input.imported.executionSteps ?? [],
+    (item) => item.id,
   ),
 });
 
@@ -390,7 +412,7 @@ export const createLocalExecutorStateStore = (
 
       updateById: (
         id: SecretMaterial["id"],
-        update: { name?: string | null; value?: string },
+        update: { name?: string | null },
       ) =>
         stateManager.mutate((state) => {
           let updated: SecretMaterial | null = null;
@@ -402,7 +424,6 @@ export const createLocalExecutorStateStore = (
             updated = {
               ...material,
               ...(update.name !== undefined ? { name: update.name } : {}),
-              ...(update.value !== undefined ? { value: update.value } : {}),
               updatedAt: Date.now(),
             } satisfies SecretMaterial;
             return updated;
@@ -429,6 +450,48 @@ export const createLocalExecutorStateStore = (
               secretMaterials: nextMaterials,
             },
             value: nextMaterials.length !== state.secretMaterials.length,
+          } satisfies StateMutationResult<boolean>;
+        }),
+    },
+    secretMaterialStoredData: {
+      getBySecretId: (secretId: SecretMaterial["id"]) =>
+        stateManager.read((state) => {
+          const record = state.secretMaterialStoredData.find(
+            (candidate) => candidate.secretId === secretId,
+          );
+          return record
+            ? Option.some(cloneValue(record))
+            : Option.none<SecretMaterialStoredDataRecord>();
+        }),
+
+      upsert: (record: SecretMaterialStoredDataRecord) =>
+        stateManager.mutate((state) => {
+          const nextRecords = state.secretMaterialStoredData.filter(
+            (candidate) => candidate.secretId !== record.secretId,
+          );
+          nextRecords.push(cloneValue(record));
+
+          return {
+            state: {
+              ...state,
+              secretMaterialStoredData: nextRecords,
+            },
+            value: undefined,
+          } satisfies StateMutationResult<void>;
+        }),
+
+      removeBySecretId: (secretId: SecretMaterial["id"]) =>
+        stateManager.mutate((state) => {
+          const nextRecords = state.secretMaterialStoredData.filter(
+            (candidate) => candidate.secretId !== secretId,
+          );
+
+          return {
+            state: {
+              ...state,
+              secretMaterialStoredData: nextRecords,
+            },
+            value: nextRecords.length !== state.secretMaterialStoredData.length,
           } satisfies StateMutationResult<boolean>;
         }),
     },

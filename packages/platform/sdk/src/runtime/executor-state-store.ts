@@ -18,6 +18,11 @@ type SecretMaterialSummary = {
   updatedAt: number;
 };
 
+export type SecretMaterialStoredDataRecord = {
+  secretId: string;
+  data: unknown;
+};
+
 type SecretStoreSummary = {
   id: string;
   scopeId: string;
@@ -56,13 +61,28 @@ export type ExecutorStateStoreShape = {
     upsert: (material: SecretMaterial) => Effect.Effect<void, Error, never>;
     updateById: (
       id: SecretMaterial["id"],
-      update: { name?: string | null; value?: string },
+      update: { name?: string | null },
     ) => Effect.Effect<
       import("effect/Option").Option<SecretMaterialSummary>,
       Error,
       never
     >;
     removeById: (id: SecretMaterial["id"]) => Effect.Effect<boolean, Error, never>;
+  };
+  secretMaterialStoredData: {
+    getBySecretId: (
+      secretId: SecretMaterial["id"],
+    ) => Effect.Effect<
+      import("effect/Option").Option<SecretMaterialStoredDataRecord>,
+      Error,
+      never
+    >;
+    upsert: (
+      record: SecretMaterialStoredDataRecord,
+    ) => Effect.Effect<void, Error, never>;
+    removeBySecretId: (
+      secretId: SecretMaterial["id"],
+    ) => Effect.Effect<boolean, Error, never>;
   };
   executions: {
     listByScope: (

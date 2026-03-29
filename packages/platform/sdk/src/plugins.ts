@@ -1,4 +1,5 @@
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 
 import type { SourceCatalogSyncResult } from "@executor/source-core";
 import type {
@@ -21,6 +22,9 @@ import type {
 } from "@executor/source-core";
 import type * as Schema from "effect/Schema";
 import { runtimeEffectError } from "./runtime/effect-errors";
+import {
+  ExecutorStateStore,
+} from "./runtime/executor-state-store";
 import { ScopeConfigStore } from "./runtime/scope/storage";
 
 export type PluginCleanup = {
@@ -329,6 +333,7 @@ export type ExecutorSecretStorePluginDefinition<
   TConnectInput,
   TStoreConfig,
   TStored,
+  TSecretStored,
   _TUpdateInput extends {
     storeId: string;
     config: TStoreConfig;
@@ -369,6 +374,7 @@ export type ExecutorSecretStorePluginDefinition<
     }) => Effect.Effect<void, Error, any>;
     resolveSecret: (input: {
       secret: SecretMaterial;
+      secretStored: TSecretStored;
       store: SecretStore;
       stored: TStored | null;
       context?: {
@@ -382,23 +388,23 @@ export type ExecutorSecretStorePluginDefinition<
       value: string;
       name?: string | null;
     }) => Effect.Effect<{
-      handle: string;
       name: string | null;
-      value?: string | null;
+      secretStored: TSecretStored;
     }, Error, any>;
     updateSecret?: (input: {
       secret: SecretMaterial;
+      secretStored: TSecretStored;
       store: SecretStore;
       stored: TStored | null;
       name?: string | null;
       value?: string;
     }) => Effect.Effect<{
-      handle?: string;
       name: string | null;
-      value?: string | null;
+      secretStored?: TSecretStored;
     }, Error, any>;
     deleteSecret?: (input: {
       secret: SecretMaterial;
+      secretStored: TSecretStored;
       store: SecretStore;
       stored: TStored | null;
     }) => Effect.Effect<boolean, Error, any>;
@@ -417,9 +423,8 @@ export type ExecutorSecretStorePluginDefinition<
       purpose: SecretMaterialPurpose;
       name?: string | null;
     }) => Effect.Effect<{
-      handle: string;
       name: string | null;
-      value?: string | null;
+      secretStored: TSecretStored;
     }, Error, any>;
     capabilities?: (input: {
       store: SecretStore;
@@ -479,6 +484,7 @@ export type ExecutorSecretStorePluginInput<
   TConnectInput = unknown,
   TStoreConfig = unknown,
   TStored = unknown,
+  TSecretStored = unknown,
   TUpdateInput extends {
     storeId: string;
     config: TStoreConfig;
@@ -494,6 +500,7 @@ export type ExecutorSecretStorePluginInput<
     TConnectInput,
     TStoreConfig,
     TStored,
+    TSecretStored,
     TUpdateInput
   >;
   extendExecutor?: (input: ExecutorSdkPluginContext & {
@@ -771,7 +778,7 @@ const createExecutorSourcePluginApi = <
 const loadStoreOfKind = (
   storeId: SecretStore["id"],
   input: {
-    definition: ExecutorSecretStorePluginDefinition<any, any, any, any, any>;
+    definition: ExecutorSecretStorePluginDefinition<any, any, any, any, any, any>;
     host: ExecutorSecretStorePluginInternalHost;
   },
 ): Effect.Effect<SecretStore, Error, any> =>
@@ -787,11 +794,28 @@ const loadStoreOfKind = (
     return store;
   });
 
+const loadSecretMaterialStoredData = <TSecretStored>(
+  secretId: SecretMaterial["id"],
+): Effect.Effect<TSecretStored, Error, any> =>
+  Effect.gen(function* () {
+    const executorState = yield* ExecutorStateStore;
+    const stored = yield* executorState.secretMaterialStoredData.getBySecretId(secretId);
+    if (Option.isNone(stored)) {
+      return yield* runtimeEffectError(
+        "plugins",
+        `Secret storage missing for ${secretId}.`,
+      );
+    }
+
+    return stored.value.data as TSecretStored;
+  });
+
 const createExecutorSecretStorePluginApi = <
   TAddInput,
   TConnectInput,
   TStoreConfig,
   TStored,
+  TSecretStored,
   _TUpdateInput extends {
     storeId: string;
     config: TStoreConfig;
@@ -802,6 +826,7 @@ const createExecutorSecretStorePluginApi = <
     TConnectInput,
     TStoreConfig,
     TStored,
+    TSecretStored,
     _TUpdateInput
   >,
   host: ExecutorSecretStorePluginInternalHost,
@@ -962,9 +987,8 @@ type ExecutorSecretStoreContribution<TInput = unknown> = {
     value: string;
     name?: string | null;
   }) => Effect.Effect<{
-    handle: string;
     name: string | null;
-    value?: string | null;
+    secretStored: unknown;
   }, Error, any>;
   updateSecret: (input: {
     secret: SecretMaterial;
@@ -972,9 +996,8 @@ type ExecutorSecretStoreContribution<TInput = unknown> = {
     name?: string | null;
     value?: string;
   }) => Effect.Effect<{
-    handle?: string;
     name: string | null;
-    value?: string | null;
+    secretStored?: unknown;
   }, Error, any>;
   deleteSecret: (input: {
     secret: SecretMaterial;
@@ -993,9 +1016,8 @@ type ExecutorSecretStoreContribution<TInput = unknown> = {
     purpose: SecretMaterialPurpose;
     name?: string | null;
   }) => Effect.Effect<{
-    handle: string;
     name: string | null;
-    value?: string | null;
+    secretStored: unknown;
   }, Error, any>;
 };
 
@@ -1076,6 +1098,7 @@ const createExecutorSecretStoreContribution = <
   TConnectInput,
   TStoreConfig,
   TStored,
+  TSecretStored,
   TUpdateInput extends {
     storeId: string;
     config: TStoreConfig;
@@ -1086,6 +1109,7 @@ const createExecutorSecretStoreContribution = <
     TConnectInput,
     TStoreConfig,
     TStored,
+    TSecretStored,
     TUpdateInput
   >,
 ): ExecutorSecretStoreContribution<TAddInput> => ({
@@ -1153,13 +1177,17 @@ const createExecutorSecretStoreContribution = <
     ),
   resolveSecret: ({ secret, store, context }) =>
     Effect.flatMap(
-      definition.storage.get({
-        scopeId: store.scopeId,
-        storeId: store.id,
+      Effect.all({
+        stored: definition.storage.get({
+          scopeId: store.scopeId,
+          storeId: store.id,
+        }),
+        secretStored: loadSecretMaterialStoredData<TSecretStored>(secret.id),
       }),
-      (stored) =>
+      ({ stored, secretStored }) =>
         definition.store.resolveSecret({
           secret,
+          secretStored,
           store,
           stored,
           context,
@@ -1188,13 +1216,17 @@ const createExecutorSecretStoreContribution = <
   updateSecret: ({ secret, store, name, value }) =>
     definition.store.updateSecret
       ? Effect.flatMap(
-          definition.storage.get({
-            scopeId: store.scopeId,
-            storeId: store.id,
+          Effect.all({
+            stored: definition.storage.get({
+              scopeId: store.scopeId,
+              storeId: store.id,
+            }),
+            secretStored: loadSecretMaterialStoredData<TSecretStored>(secret.id),
           }),
-          (stored) =>
+          ({ stored, secretStored }) =>
             definition.store.updateSecret!({
               secret,
+              secretStored,
               store,
               stored,
               name,
@@ -1208,13 +1240,17 @@ const createExecutorSecretStoreContribution = <
   deleteSecret: ({ secret, store }) =>
     definition.store.deleteSecret
       ? Effect.flatMap(
-          definition.storage.get({
-            scopeId: store.scopeId,
-            storeId: store.id,
+          Effect.all({
+            stored: definition.storage.get({
+              scopeId: store.scopeId,
+              storeId: store.id,
+            }),
+            secretStored: loadSecretMaterialStoredData<TSecretStored>(secret.id),
           }),
-          (stored) =>
+          ({ stored, secretStored }) =>
             definition.store.deleteSecret!({
               secret,
+              secretStored,
               store,
               stored,
             }),
@@ -1377,6 +1413,7 @@ export const defineExecutorSecretStorePlugin = <
   TConnectInput,
   TStoreConfig,
   TStored,
+  TSecretStored,
   TUpdateInput extends {
     storeId: string;
     config: TStoreConfig;
@@ -1389,6 +1426,7 @@ export const defineExecutorSecretStorePlugin = <
     TConnectInput,
     TStoreConfig,
     TStored,
+    TSecretStored,
     TUpdateInput,
     TExtension
   >,

@@ -557,7 +557,6 @@ const googleDiscoveryStoredSourceDataFromLocalConfig = (input: {
   if (Option.isSome(current)) {
     return current.value.config;
   }
-
   throw new Error("Unsupported Google Discovery local source config.");
 };
 

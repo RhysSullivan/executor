@@ -8,54 +8,6 @@ export const LocalExecutorRuntimeSchema = Schema.Literal(
   "deno",
 );
 
-export const LocalConfigSecretProviderSourceSchema = Schema.Literal(
-  "env",
-  "file",
-  "exec",
-  "params",
-);
-
-export const LocalConfigEnvSecretProviderSchema = Schema.Struct({
-  source: Schema.Literal("env"),
-});
-
-export const LocalConfigFileSecretProviderModeSchema = Schema.Literal(
-  "singleValue",
-  "json",
-);
-
-export const LocalConfigFileSecretProviderSchema = Schema.Struct({
-  source: Schema.Literal("file"),
-  path: Schema.String,
-  mode: Schema.optional(LocalConfigFileSecretProviderModeSchema),
-});
-
-export const LocalConfigExecSecretProviderSchema = Schema.Struct({
-  source: Schema.Literal("exec"),
-  command: Schema.String,
-  args: Schema.optional(Schema.Array(Schema.String)),
-  env: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
-  allowSymlinkCommand: Schema.optional(Schema.Boolean),
-  trustedDirs: Schema.optional(Schema.Array(Schema.String)),
-});
-
-export const LocalConfigSecretProviderSchema = Schema.Union(
-  LocalConfigEnvSecretProviderSchema,
-  LocalConfigFileSecretProviderSchema,
-  LocalConfigExecSecretProviderSchema,
-);
-
-export const LocalConfigExplicitSecretRefSchema = Schema.Struct({
-  source: LocalConfigSecretProviderSourceSchema,
-  provider: Schema.String,
-  id: Schema.String,
-});
-
-export const LocalConfigSecretInputSchema = Schema.Union(
-  Schema.String,
-  LocalConfigExplicitSecretRefSchema,
-);
-
 export const LocalConfigSourceConnectionSchema = Schema.Struct({
   endpoint: Schema.optional(Schema.NullOr(Schema.String)),
   auth: Schema.optional(Schema.Unknown),
@@ -90,22 +42,6 @@ export const LocalConfigPolicySchema = Schema.Struct({
   priority: Schema.optional(Schema.Number),
 });
 
-export const LocalConfigSecretsSchema = Schema.Struct({
-  providers: Schema.optional(
-    Schema.Record({
-      key: Schema.String,
-      value: LocalConfigSecretProviderSchema,
-    }),
-  ),
-  defaults: Schema.optional(
-    Schema.Struct({
-      env: Schema.optional(Schema.String),
-      file: Schema.optional(Schema.String),
-      exec: Schema.optional(Schema.String),
-    }),
-  ),
-});
-
 export const LocalConfigWorkspaceSchema = Schema.Struct({
   name: Schema.optional(Schema.String),
 });
@@ -125,17 +61,8 @@ export const LocalExecutorConfigSchema = Schema.Struct({
       value: LocalConfigPolicySchema,
     }),
   ),
-  secrets: Schema.optional(LocalConfigSecretsSchema),
 });
 
-export type LocalConfigSecretProviderSource =
-  typeof LocalConfigSecretProviderSourceSchema.Type;
-export type LocalConfigSecretProvider =
-  typeof LocalConfigSecretProviderSchema.Type;
-export type LocalConfigExplicitSecretRef =
-  typeof LocalConfigExplicitSecretRefSchema.Type;
-export type LocalConfigSecretInput = typeof LocalConfigSecretInputSchema.Type;
 export type LocalConfigPolicy = typeof LocalConfigPolicySchema.Type;
-export type LocalConfigSecrets = typeof LocalConfigSecretsSchema.Type;
 export type LocalExecutorRuntime = typeof LocalExecutorRuntimeSchema.Type;
 export type LocalExecutorConfig = typeof LocalExecutorConfigSchema.Type;

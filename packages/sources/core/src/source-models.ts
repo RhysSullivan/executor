@@ -1,8 +1,7 @@
 import * as Schema from "effect/Schema";
 
 export const SecretRefSchema = Schema.Struct({
-  providerId: Schema.String,
-  handle: Schema.String,
+  secretId: Schema.String,
 });
 
 export const CredentialSlotSchema = Schema.Literal("runtime", "import");

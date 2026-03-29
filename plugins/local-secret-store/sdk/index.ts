@@ -1,16 +1,15 @@
-import { randomUUID } from "node:crypto";
-
 import * as Effect from "effect/Effect";
 
 import {
   defineExecutorSecretStorePlugin,
 } from "@executor/platform-sdk/plugins";
-import {
-  runtimeEffectError,
-} from "@executor/platform-sdk/runtime";
 
 export const LOCAL_SECRET_STORE_KIND = "local";
 export const LOCAL_SECRET_STORE_ID = "sts_builtin_local";
+
+type LocalSecretStoredData = {
+  value: string;
+};
 
 const builtinSecretStoreStorage = <TStored>(value: TStored) => ({
   get: () => Effect.succeed(value),
@@ -27,7 +26,18 @@ const trimOrNull = (value: string | null | undefined): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-export const localSecretStoreSdkPlugin = defineExecutorSecretStorePlugin({
+export const localSecretStoreSdkPlugin = defineExecutorSecretStorePlugin<
+  typeof LOCAL_SECRET_STORE_KIND,
+  unknown,
+  { name: string },
+  { kind: typeof LOCAL_SECRET_STORE_KIND; name: string },
+  {},
+  LocalSecretStoredData,
+  {
+    storeId: string;
+    config: { kind: typeof LOCAL_SECRET_STORE_KIND; name: string };
+  }
+>({
   key: LOCAL_SECRET_STORE_KIND,
   secretStore: {
     kind: LOCAL_SECRET_STORE_KIND,
@@ -61,29 +71,20 @@ export const localSecretStoreSdkPlugin = defineExecutorSecretStorePlugin({
         kind: LOCAL_SECRET_STORE_KIND,
         name: store.name,
       }),
-      resolveSecret: ({ secret }) => {
-        if (secret.value === null) {
-          return Effect.fail(
-            runtimeEffectError(
-              "plugin-local-secret-store",
-              `Local secret ${secret.id} does not have a stored value`,
-            ),
-          );
-        }
-
-        return Effect.succeed(secret.value);
-      },
+      resolveSecret: ({ secretStored }) => Effect.succeed(secretStored.value),
       createSecret: ({ value, name }) =>
         Effect.succeed({
-          handle: `local:${randomUUID()}`,
           name: trimOrNull(name),
-          value,
+          secretStored: {
+            value,
+          } satisfies LocalSecretStoredData,
         }),
-      updateSecret: ({ secret, name, value }) =>
+      updateSecret: ({ secret, secretStored, name, value }) =>
         Effect.succeed({
-          handle: secret.handle,
           name: trimOrNull(name ?? secret.name),
-          ...(value !== undefined ? { value } : {}),
+          secretStored: {
+            value: value ?? secretStored.value,
+          } satisfies LocalSecretStoredData,
         }),
       deleteSecret: () => Effect.succeed(true),
       capabilities: () => ({

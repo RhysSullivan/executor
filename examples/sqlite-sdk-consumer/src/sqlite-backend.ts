@@ -65,6 +65,10 @@ type SecretMaterialSummary = {
   updatedAt: number;
 };
 
+type SqliteSecretStoredData = {
+  value: string;
+};
+
 const SQLITE_SECRET_STORE_KIND = "sqlite";
 const SQLITE_SECRET_STORE_ID = "sts_sqlite";
 
@@ -92,11 +96,16 @@ const sourceArtifacts = sqliteTable("source_artifacts", {
 
 const secretMaterials = sqliteTable("secret_materials", {
   id: text("id").primaryKey(),
-  providerId: text("provider_id").notNull(),
+  storeId: text("store_id").notNull(),
   name: text("name"),
   purpose: text("purpose").notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
+  json: text("json").notNull(),
+});
+
+const secretMaterialStoredData = sqliteTable("secret_material_stored_data", {
+  secretId: text("secret_id").primaryKey(),
   json: text("json").notNull(),
 });
 
@@ -213,11 +222,16 @@ const openSqliteStore = (databasePath: string) => {
 
       CREATE TABLE IF NOT EXISTS secret_materials (
         id TEXT PRIMARY KEY NOT NULL,
-        provider_id TEXT NOT NULL,
+        store_id TEXT NOT NULL,
         name TEXT,
         purpose TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
+        json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS secret_material_stored_data (
+        secret_id TEXT PRIMARY KEY NOT NULL,
         json TEXT NOT NULL
       );
 
@@ -241,6 +255,7 @@ const openSqliteStore = (databasePath: string) => {
         json TEXT NOT NULL
       );
     `);
+
   return {
     sqlite,
     db,
@@ -292,7 +307,7 @@ const createStorageDomains = (
     listAll: (): readonly SecretMaterialSummary[] =>
       store.db.select().from(secretMaterials).all().map((row) => ({
         id: row.id,
-        storeId: row.providerId,
+        storeId: row.storeId,
         name: row.name,
         purpose: row.purpose,
         createdAt: row.createdAt,
@@ -301,7 +316,7 @@ const createStorageDomains = (
     upsert: (material: SecretMaterial) =>
       store.db.insert(secretMaterials).values({
         id: material.id,
-        providerId: material.storeId,
+        storeId: material.storeId,
         name: material.name,
         purpose: material.purpose,
         createdAt: material.createdAt,
@@ -310,7 +325,7 @@ const createStorageDomains = (
       }).onConflictDoUpdate({
         target: secretMaterials.id,
         set: {
-          providerId: material.storeId,
+          storeId: material.storeId,
           name: material.name,
           purpose: material.purpose,
           createdAt: material.createdAt,
@@ -320,7 +335,7 @@ const createStorageDomains = (
       }).run(),
     updateById: (
       id: SecretMaterial["id"],
-      update: { name?: string | null; value?: string },
+      update: { name?: string | null },
     ) => {
       const row = store.db.select().from(secretMaterials).where(eq(secretMaterials.id, id)).get();
       if (!row) return null;
@@ -328,11 +343,10 @@ const createStorageDomains = (
       const next = {
         ...current,
         name: update.name === undefined ? current.name : update.name,
-        value: update.value === undefined ? current.value : update.value,
         updatedAt: Date.now(),
       };
       store.db.update(secretMaterials).set({
-        providerId: next.storeId,
+        storeId: next.storeId,
         name: next.name,
         purpose: next.purpose,
         createdAt: next.createdAt,
@@ -355,6 +369,40 @@ const createStorageDomains = (
       if (!row) return false;
       store.db.delete(secretMaterials).where(eq(secretMaterials.id, id)).run();
       return true;
+    },
+    secretMaterialStoredData: {
+      getBySecretId: (secretId: SecretMaterial["id"]) => {
+        const row = store.db.select().from(secretMaterialStoredData).where(
+          eq(secretMaterialStoredData.secretId, secretId),
+        ).get();
+        return row
+          ? {
+              secretId,
+              data: parseJson<SqliteSecretStoredData>(row.json),
+            }
+          : null;
+      },
+      upsert: (record: { secretId: SecretMaterial["id"]; data: unknown }) => {
+        store.db.insert(secretMaterialStoredData).values({
+          secretId: record.secretId,
+          json: JSON.stringify(record.data),
+        }).onConflictDoUpdate({
+          target: secretMaterialStoredData.secretId,
+          set: {
+            json: JSON.stringify(record.data),
+          },
+        }).run();
+      },
+      removeBySecretId: (secretId: SecretMaterial["id"]) => {
+        const row = store.db.select({ secretId: secretMaterialStoredData.secretId }).from(
+          secretMaterialStoredData,
+        ).where(eq(secretMaterialStoredData.secretId, secretId)).get();
+        if (!row) return false;
+        store.db.delete(secretMaterialStoredData).where(
+          eq(secretMaterialStoredData.secretId, secretId),
+        ).run();
+        return true;
+      },
     },
   },
   executions: {
@@ -612,14 +660,18 @@ export const createSqliteExecutorBackend = (
         secrets: {
           ...secrets,
           secretStores: secrets.secretStores,
+          secretMaterialStoredData: secrets.secretMaterialStoredData,
           resolve: ({ ref }) => {
             const material = secrets.getById(
               ref.secretId as SecretMaterial["id"],
             );
-            if (!material || material.value === null) {
+            const stored = secrets.secretMaterialStoredData.getBySecretId(
+              ref.secretId as SecretMaterial["id"],
+            );
+            if (!material || !stored) {
               throw new Error(`Missing secret material ${ref.secretId}`);
             }
-            return material.value;
+            return (stored.data as SqliteSecretStoredData).value;
           },
           store: ({ purpose, value, name, storeId }) => {
             const now = Date.now();
@@ -627,27 +679,43 @@ export const createSqliteExecutorBackend = (
             const material: SecretMaterial = {
               id,
               storeId: (storeId ?? SQLITE_SECRET_STORE_ID) as SecretMaterial["storeId"],
-              handle: id,
               name: name ?? null,
               purpose,
-              value,
               createdAt: now,
               updatedAt: now,
             };
             secrets.upsert(material);
+            secrets.secretMaterialStoredData.upsert({
+              secretId: id,
+              data: {
+                value,
+              } satisfies SqliteSecretStoredData,
+            });
             return {
               secretId: material.id,
             } satisfies SecretRef;
           },
-          delete: (ref) =>
-            secrets.removeById(ref.secretId as SecretMaterial["id"]),
+          delete: (ref) => {
+            secrets.secretMaterialStoredData.removeBySecretId(
+              ref.secretId as SecretMaterial["id"],
+            );
+            return secrets.removeById(ref.secretId as SecretMaterial["id"]);
+          },
           update: ({ ref, name, value }) => {
             const updated = secrets.updateById(
               ref.secretId as SecretMaterial["id"],
-              { name, value },
+              { name },
             );
             if (!updated) {
               throw new Error(`Missing secret material ${ref.secretId}`);
+            }
+            if (value !== undefined) {
+              secrets.secretMaterialStoredData.upsert({
+                secretId: ref.secretId as SecretMaterial["id"],
+                data: {
+                  value,
+                } satisfies SqliteSecretStoredData,
+              });
             }
             return updated;
           },

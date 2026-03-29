@@ -255,15 +255,17 @@ export const createDefaultSecretMaterialStorer = (input: {
       const material: SecretMaterial = {
         id: `sec_${randomUUID()}` as SecretMaterial["id"],
         storeId: store.id,
-        handle: created.handle,
         name: created.name,
         purpose,
-        value: created.value ?? null,
         createdAt: now,
         updatedAt: now,
       };
 
       yield* input.executorState.secretMaterials.upsert(material);
+      yield* input.executorState.secretMaterialStoredData.upsert({
+        secretId: material.id,
+        data: created.secretStored,
+      });
 
       return {
         secretId: material.id,
@@ -309,12 +311,16 @@ export const createDefaultSecretMaterialUpdater = (input: {
 
       const nextMaterial: SecretMaterial = {
         ...material,
-        ...(updated.handle ? { handle: updated.handle } : {}),
         name: updated.name,
-        value: updated.value ?? material.value,
         updatedAt: Date.now(),
       };
       yield* input.executorState.secretMaterials.upsert(nextMaterial);
+      if (updated.secretStored !== undefined) {
+        yield* input.executorState.secretMaterialStoredData.upsert({
+          secretId: nextMaterial.id,
+          data: updated.secretStored,
+        });
+      }
 
       return {
         id: nextMaterial.id,
@@ -359,6 +365,7 @@ export const createDefaultSecretMaterialDeleter = (input: {
         return false;
       }
 
+      yield* input.executorState.secretMaterialStoredData.removeBySecretId(material.id);
       return yield* input.executorState.secretMaterials.removeById(material.id);
     });
 };
@@ -442,6 +449,7 @@ export const SecretMaterialLive = (input: {
     SecretMaterialResolverLive(input),
     SecretMaterialStorerLive({
       executorState: input.executorState,
+      pluginRegistry: input.pluginRegistry,
       resolveSecretMaterial:
         input.resolveSecretMaterial
         ?? createDefaultSecretMaterialResolver({
@@ -449,11 +457,11 @@ export const SecretMaterialLive = (input: {
           pluginRegistry: input.pluginRegistry,
           keychainServiceName: input.keychainServiceName,
         }),
-      pluginRegistry: input.pluginRegistry,
       keychainServiceName: input.keychainServiceName,
     }),
     SecretMaterialDeleterLive({
       executorState: input.executorState,
+      pluginRegistry: input.pluginRegistry,
       resolveSecretMaterial:
         input.resolveSecretMaterial
         ?? createDefaultSecretMaterialResolver({
@@ -461,11 +469,11 @@ export const SecretMaterialLive = (input: {
           pluginRegistry: input.pluginRegistry,
           keychainServiceName: input.keychainServiceName,
         }),
-      pluginRegistry: input.pluginRegistry,
       keychainServiceName: input.keychainServiceName,
     }),
     SecretMaterialUpdaterLive({
       executorState: input.executorState,
+      pluginRegistry: input.pluginRegistry,
       resolveSecretMaterial:
         input.resolveSecretMaterial
         ?? createDefaultSecretMaterialResolver({
@@ -473,7 +481,6 @@ export const SecretMaterialLive = (input: {
           pluginRegistry: input.pluginRegistry,
           keychainServiceName: input.keychainServiceName,
         }),
-      pluginRegistry: input.pluginRegistry,
       keychainServiceName: input.keychainServiceName,
     }),
   );

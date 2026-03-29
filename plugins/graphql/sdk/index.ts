@@ -342,7 +342,6 @@ const graphqlStoredSourceDataFromLocalConfig = (input: {
   if (Option.isSome(current)) {
     return normalizeStoredSourceData(current.value.config);
   }
-
   throw new Error("Unsupported GraphQL local source config.");
 };
 

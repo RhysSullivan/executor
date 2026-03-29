@@ -71,7 +71,10 @@ const serializeJson = (value: unknown): string | null => {
 };
 
 const SENSITIVE_INTERACTION_CONTENT_KEYS = new Set([
-  "tokenRef",
+  "tokenSecretRef",
+  "accessTokenRef",
+  "refreshTokenRef",
+  "clientSecretRef",
   "tokenSecretMaterialId",
 ]);
 

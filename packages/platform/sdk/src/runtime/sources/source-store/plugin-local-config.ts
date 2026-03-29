@@ -3,7 +3,6 @@ import type {
   Source,
 } from "#schema";
 import * as Schema from "effect/Schema";
-
 import {
   cloneJson,
   configSourceBaseFromLocalSource,

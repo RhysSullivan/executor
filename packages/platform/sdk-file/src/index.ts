@@ -25,9 +25,9 @@ import type {
 } from "@executor/platform-sdk/schema";
 import {
   type ExecutorRuntime,
+  emptyExecutorPluginRegistry,
   type ExecutorRuntimeOptions,
   type ResolveSecretMaterial,
-  emptyExecutorPluginRegistry,
 } from "@executor/platform-sdk/runtime";
 import * as Effect from "effect/Effect";
 import {
@@ -283,6 +283,8 @@ export const createLocalExecutorRepositoriesEffect = (
       },
       secrets: {
         secretStores: executorStateStorage.executorState.secretStores,
+        secretMaterialStoredData:
+          executorStateStorage.executorState.secretMaterialStoredData,
         ...executorStateStorage.executorState.secretMaterials,
         resolve: resolveSecretMaterial,
         store: createDefaultSecretMaterialStorer({

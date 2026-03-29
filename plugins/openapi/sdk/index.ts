@@ -202,7 +202,6 @@ const openApiStoredSourceDataFromLocalConfig = (input: {
       lastSyncAt: null,
     });
   }
-
   throw new Error("Unsupported OpenAPI local source config.");
 };
 

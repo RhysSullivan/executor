@@ -22,8 +22,6 @@ export const SecretMaterialSchema = Schema.Struct({
   name: Schema.NullOr(Schema.String),
   purpose: SecretMaterialPurposeSchema,
   storeId: SecretStoreIdSchema,
-  handle: Schema.String,
-  value: Schema.NullOr(Schema.String),
   createdAt: TimestampMsSchema,
   updatedAt: TimestampMsSchema,
 });

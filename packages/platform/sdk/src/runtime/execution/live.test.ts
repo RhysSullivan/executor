@@ -14,9 +14,8 @@ describe("live-execution", () => {
       action: "accept",
       content: {
         authKind: "bearer",
-        tokenRef: {
-          providerId: "local",
-          handle: "sec_123",
+        tokenSecretRef: {
+          secretId: "sec_123",
         },
       },
     });

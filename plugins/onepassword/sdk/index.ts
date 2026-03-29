@@ -58,6 +58,10 @@ export type OnePasswordStoreStorage = {
   }) => Effect.Effect<void, Error, never>;
 };
 
+type OnePasswordSecretStoredData = {
+  uri: string;
+};
+
 const ONEPASSWORD_REQUEST_TIMEOUT_MS = 15_000;
 
 const timedOutOnePasswordRequestError = (operation: string) =>
@@ -373,9 +377,10 @@ const importSecretFromSelection = (input: {
     }
 
     return {
-      handle: `op://${input.stored!.vaultId}/${item.id}/${field.id}`,
+      secretStored: {
+        uri: `op://${input.stored!.vaultId}/${item.id}/${field.id}`,
+      } satisfies OnePasswordSecretStoredData,
       name: input.name?.trim() || `${item.title} · ${field.title}`,
-      value: null,
     };
   });
 
@@ -385,29 +390,37 @@ const createImportedSecretRecord = (input: {
       storage: {
         secrets: {
           upsert: (value: SecretMaterial) => Effect.Effect<void, Error, never>;
+          secretMaterialStoredData: {
+            upsert: (value: {
+              secretId: SecretMaterial["id"];
+              data: OnePasswordSecretStoredData;
+            }) => Effect.Effect<void, Error, never>;
+          };
         };
       };
     };
   };
   store: SecretStore;
-  handle: string;
+  secretStored: OnePasswordSecretStoredData;
   name: string | null;
   purpose?: SecretMaterialPurpose;
-}): Effect.Effect<OnePasswordImportSecretResult, Error, never> =>
+}): Effect.Effect<OnePasswordImportSecretResult, Error, any> =>
   Effect.gen(function* () {
     const now = Date.now();
     const secret: SecretMaterial = {
       id: SecretMaterialIdSchema.make(`sec_${crypto.randomUUID()}`),
       storeId: input.store.id,
-      handle: input.handle,
       name: input.name,
       purpose: input.purpose ?? "auth_material",
-      value: null,
       createdAt: now,
       updatedAt: now,
     };
 
     yield* input.executor.runtime.storage.secrets.upsert(secret);
+    yield* input.executor.runtime.storage.secrets.secretMaterialStoredData.upsert({
+      secretId: secret.id,
+      data: input.secretStored,
+    });
 
     return {
       id: secret.id,
@@ -419,14 +432,14 @@ const createImportedSecretRecord = (input: {
     };
   });
 
-const parseSecretReference = (handle: string): {
+const parseSecretReference = (uri: string): {
   vaultId: string;
   itemId: string;
   fieldId: string;
 } => {
-  const match = /^op:\/\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(handle);
+  const match = /^op:\/\/([^/]+)\/([^/]+)\/([^/]+)$/.exec(uri);
   if (!match) {
-    throw new Error(`Invalid 1Password secret reference: ${handle}`);
+    throw new Error(`Invalid 1Password secret reference: ${uri}`);
   }
 
   return {
@@ -461,6 +474,7 @@ export const onePasswordSdkPlugin = (input: {
     OnePasswordConnectInput,
     OnePasswordStoreConfigPayload,
     OnePasswordStoredStoreData,
+    OnePasswordSecretStoredData,
     OnePasswordUpdateStoreInput
   >({
     key: ONEPASSWORD_SECRET_STORE_KIND,
@@ -502,12 +516,12 @@ export const onePasswordSdkPlugin = (input: {
           vaultId: stored.vaultId,
           auth: stored.auth,
         } satisfies OnePasswordStoreConfigPayload),
-        resolveSecret: ({ secret, stored }) =>
+        resolveSecret: ({ secretStored, stored }) =>
           Effect.flatMap(makeClient(stored), (client) =>
             Effect.tryPromise({
               try: () =>
                 runOnePasswordRequest("secret resolution", () =>
-                  client.secrets.resolve(secret.handle)
+                  client.secrets.resolve(secretStored.uri)
                 ),
               catch: (cause) =>
                 cause instanceof Error ? cause : new Error(String(cause)),
@@ -533,18 +547,20 @@ export const onePasswordSdkPlugin = (input: {
                 );
 
                 return {
-                  handle: `op://${stored!.vaultId}/${item.id}/${ONEPASSWORD_SECRET_FIELD_ID}`,
+                  secretStored: {
+                    uri: `op://${stored!.vaultId}/${item.id}/${ONEPASSWORD_SECRET_FIELD_ID}`,
+                  } satisfies OnePasswordSecretStoredData,
                   name: item.title,
                 };
               },
               catch: (cause) =>
                 cause instanceof Error ? cause : new Error(String(cause)),
             })),
-        updateSecret: ({ secret, stored, name, value }) =>
+        updateSecret: ({ secret, secretStored, stored, name, value }) =>
           Effect.flatMap(makeClient(stored), (client) =>
             Effect.tryPromise({
               try: async () => {
-                const parsed = parseSecretReference(secret.handle);
+                const parsed = parseSecretReference(secretStored.uri);
                 const item = await runOnePasswordRequest("secret update", () =>
                   client.items.get(parsed.vaultId, parsed.itemId)
                 );
@@ -559,16 +575,17 @@ export const onePasswordSdkPlugin = (input: {
                 );
                 return {
                   name: updated.title,
+                  secretStored,
                 };
               },
               catch: (cause) =>
                 cause instanceof Error ? cause : new Error(String(cause)),
             })),
-        deleteSecret: ({ secret, stored }) =>
+        deleteSecret: ({ secretStored, stored }) =>
           Effect.flatMap(makeClient(stored), (client) =>
             Effect.tryPromise({
               try: async () => {
-                const parsed = parseSecretReference(secret.handle);
+                const parsed = parseSecretReference(secretStored.uri);
                 await runOnePasswordRequest("secret deletion", () =>
                   client.items.delete(parsed.vaultId, parsed.itemId)
                 );
@@ -662,7 +679,7 @@ export const onePasswordSdkPlugin = (input: {
           return yield* createImportedSecretRecord({
             executor,
             store,
-            handle: imported.handle,
+            secretStored: imported.secretStored,
             name: imported.name,
           });
         }),

@@ -82,7 +82,7 @@ const getSecretStoreContributionOption = (kind: string) =>
     try {
       return Option.some(getSecretStoreContribution(pluginRegistry, kind));
     } catch {
-      return Option.none<typeof getSecretStoreContribution extends (registry: any, kind: string) => infer T ? T : never>();
+      return Option.none<any>();
     }
   });
 
@@ -125,10 +125,9 @@ const toSecretStoreContract = (
 
 const createImportedSecretRecord = (input: {
   store: SecretStore;
-  handle: string;
+  secretStored: unknown;
   name: string | null;
   purpose: SecretMaterialPurpose;
-  value?: string | null;
 }) =>
   Effect.gen(function* () {
     const executorState = yield* ExecutorStateStore;
@@ -136,15 +135,17 @@ const createImportedSecretRecord = (input: {
     const material: SecretMaterial = {
       id: SecretMaterialIdSchema.make(`sec_${crypto.randomUUID()}`),
       storeId: input.store.id,
-      handle: input.handle,
       name: input.name,
       purpose: input.purpose,
-      value: input.value ?? null,
       createdAt: now,
       updatedAt: now,
     };
 
     yield* executorState.secretMaterials.upsert(material);
+    yield* executorState.secretMaterialStoredData.upsert({
+      secretId: material.id,
+      data: input.secretStored,
+    });
 
     return {
       id: material.id,
@@ -384,7 +385,7 @@ export const browseLocalSecretStore = (input: {
           cause instanceof Error ? cause.message : "Failed browsing secret store.",
         ),
       ),
-      Effect.map((result) => result satisfies BrowseSecretStoreResult),
+      Effect.map((result) => result as BrowseSecretStoreResult),
     );
   });
 
@@ -437,9 +438,8 @@ export const importLocalSecretFromStore = (input: {
 
     return yield* createImportedSecretRecord({
       store,
-      handle: created.handle,
+      secretStored: created.secretStored,
       name: created.name,
       purpose: input.payload.purpose ?? "auth_material",
-      value: created.value,
     });
   });
