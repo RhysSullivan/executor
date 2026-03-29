@@ -1,0 +1,41 @@
+{
+  "sources": {
+    "vercel": {
+      "name": "Vercel API",
+      "connection": {
+        "endpoint": "https://api.vercel.com/"
+      },
+      "kind": "openapi",
+      "binding": {
+        "specUrl": "https://openapi.vercel.sh/",
+        "defaultHeaders": null
+      }
+    },
+    "deepwiki": {
+      "name": "DeepWiki MCP",
+      "connection": {
+        "endpoint": "https://mcp.deepwiki.com/mcp"
+      },
+      "kind": "mcp",
+      "binding": {
+        "transport": "auto",
+        "queryParams": null,
+        "headers": null,
+        "command": null,
+        "args": null,
+        "env": null,
+        "cwd": null
+      }
+    },
+    "linear": {
+      "kind": "graphql",
+      "name": "Linear GraphQL",
+      "connection": {
+        "endpoint": "https://api.linear.app/graphql"
+      },
+      "binding": {
+        "defaultHeaders": null
+      }
+    }
+  }
+}

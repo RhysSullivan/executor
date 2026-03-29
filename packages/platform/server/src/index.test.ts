@@ -35,7 +35,12 @@ import {
   writeLocalSourceArtifact,
   writeProjectLocalExecutorConfig,
 } from "@executor/platform-sdk-file/effect";
-import { SourceIdSchema } from "@executor/platform-sdk/schema";
+import {
+  type LocalConfigSource,
+  SourceCatalogIdSchema,
+  SourceCatalogRevisionIdSchema,
+  SourceIdSchema,
+} from "@executor/platform-sdk/schema";
 import { googleDiscoveryHttpPlugin } from "@executor/plugin-google-discovery-http";
 import { graphqlHttpPlugin } from "@executor/plugin-graphql-http";
 import { mcpHttpPlugin } from "@executor/plugin-mcp-http";
@@ -56,6 +61,7 @@ import {
   contentHash,
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
+  snapshotFromSourceCatalogSyncResult,
 } from "../../../sources/core/src/index";
 import { createMcpCatalogFragment } from "../../../../plugins/mcp/sdk/catalog";
 
@@ -255,6 +261,103 @@ const writeConfiguredLocalMcpSource = (input: {
         source,
         syncResult,
       }),
+    });
+  }).pipe(Effect.provide(NodeFileSystem.layer));
+
+const writeLegacyConfiguredWorkspaceSources = (input: {
+  workspaceRoot: string;
+  sources: Record<string, LocalConfigSource>;
+}) =>
+  Effect.gen(function* () {
+    const context = yield* resolveLocalWorkspaceContext({
+      workspaceRoot: input.workspaceRoot,
+    });
+    const installation = yield* getOrProvisionLocalInstallation({ context });
+
+    yield* writeProjectLocalExecutorConfig({
+      context,
+      config: {
+        sources: input.sources,
+      },
+    });
+
+    return {
+      context,
+      installation,
+    };
+  }).pipe(Effect.provide(NodeFileSystem.layer));
+
+const writeMissingSourceCatalogArtifact = (input: {
+  context: Effect.Effect.Success<ReturnType<typeof writeLegacyConfiguredWorkspaceSources>>["context"];
+  installation: Effect.Effect.Success<ReturnType<typeof writeLegacyConfiguredWorkspaceSources>>["installation"];
+  source: {
+    id: string;
+    name: string;
+    kind: "mcp" | "openapi" | "graphql" | "google_discovery";
+    namespace: string;
+  };
+  pluginKey: string;
+  importerVersion: string;
+}) =>
+  Effect.gen(function* () {
+    const now = Date.now();
+    const source = {
+      id: SourceIdSchema.make(input.source.id),
+      scopeId: input.installation.scopeId,
+      name: input.source.name,
+      kind: input.source.kind,
+      status: "connected" as const,
+      enabled: true,
+      namespace: input.source.namespace,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const syncResult = createSourceCatalogSyncResult({
+      fragment: {
+        version: "ir.v1.fragment",
+      },
+      importMetadata: {
+        ...createCatalogImportMetadata({
+          source,
+          pluginKey: input.pluginKey,
+        }),
+        importerVersion: input.importerVersion,
+        sourceConfigHash: "missing",
+      },
+      sourceHash: null,
+    });
+    const snapshot = snapshotFromSourceCatalogSyncResult(syncResult);
+    const catalogId = SourceCatalogIdSchema.make(`test_catalog_${input.source.id}`);
+    const importMetadataJson = JSON.stringify(snapshot.import);
+
+    yield* writeLocalSourceArtifact({
+      context: input.context,
+      sourceId: source.id,
+      artifact: {
+        version: 4,
+        sourceId: source.id,
+        catalogId,
+        generatedAt: now,
+        revision: {
+          id: SourceCatalogRevisionIdSchema.make(`test_catalog_rev_${input.source.id}`),
+          catalogId,
+          revisionNumber: 1,
+          sourceConfigJson: JSON.stringify({
+            sourceId: source.id,
+            kind: source.kind,
+            name: source.name,
+            namespace: source.namespace,
+            enabled: source.enabled,
+            updatedAt: source.updatedAt,
+          }),
+          importMetadataJson,
+          importMetadataHash: contentHash(importMetadataJson),
+          snapshotHash: contentHash(JSON.stringify(snapshot)),
+          createdAt: now,
+          updatedAt: now,
+        },
+        snapshot,
+      },
     });
   }).pipe(Effect.provide(NodeFileSystem.layer));
 
@@ -1713,6 +1816,127 @@ describe("local-executor-server", () => {
       expect(secrets.some((secret) => secret.purpose === "oauth_refresh_token")).toBe(true);
     }),
     15_000,
+  );
+
+  it.scoped("recovers config-backed MCP and OpenAPI sources from config-only state", () =>
+    Effect.gen(function* () {
+      const workspaceRoot = yield* makeTempWorkspaceRoot();
+      const localDataDir = yield* makeTempWorkspaceRoot();
+      const demoServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startMcpElicitationDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+      const openApiServer = yield* Effect.acquireRelease(
+        Effect.promise(() => startOpenApiDemoServer()),
+        (server) => Effect.promise(() => server.close()).pipe(Effect.orDie),
+      );
+
+      const workspace = yield* writeLegacyConfiguredWorkspaceSources({
+        workspaceRoot,
+        sources: {
+          deepwiki: {
+            kind: "mcp",
+            name: "DeepWiki MCP",
+            connection: {
+              endpoint: demoServer.endpoint,
+            },
+            binding: {
+              transport: "streamable-http",
+              queryParams: null,
+              headers: null,
+              command: null,
+              args: null,
+              env: null,
+              cwd: null,
+            },
+          },
+          vercel: {
+            kind: "openapi",
+            name: "Vercel API",
+            connection: {
+              endpoint: openApiServer.baseUrl,
+            },
+            binding: {
+              specUrl: openApiServer.specUrl,
+              defaultHeaders: null,
+            },
+          },
+        },
+      });
+
+      yield* writeMissingSourceCatalogArtifact({
+        context: workspace.context,
+        installation: workspace.installation,
+        source: {
+          id: "deepwiki",
+          name: "DeepWiki MCP",
+          kind: "mcp",
+          namespace: "deepwiki",
+        },
+        pluginKey: "mcp",
+        importerVersion: "ir.v1.mcp",
+      });
+      yield* writeMissingSourceCatalogArtifact({
+        context: workspace.context,
+        installation: workspace.installation,
+        source: {
+          id: "vercel",
+          name: "Vercel API",
+          kind: "openapi",
+          namespace: "vercel",
+        },
+        pluginKey: "openapi",
+        importerVersion: "ir.v1.openapi",
+      });
+
+      const server = yield* createLocalExecutorServer({
+        workspaceRoot,
+        localDataDir,
+        port: 0,
+      });
+      const client = yield* makeApiClient(server.baseUrl);
+
+      const mcpConfig = yield* client.mcp.getSourceConfig({
+        path: {
+          workspaceId: workspace.installation.scopeId,
+          sourceId: "deepwiki" as never,
+        },
+      });
+      expect(mcpConfig.endpoint).toBe(demoServer.endpoint);
+      expect(mcpConfig.transport).toBe("streamable-http");
+
+      const openApiConfig = yield* client.openapi.getSourceConfig({
+        path: {
+          workspaceId: workspace.installation.scopeId,
+          sourceId: "vercel" as never,
+        },
+      });
+      expect(openApiConfig.specUrl).toBe(openApiServer.specUrl);
+      expect(openApiConfig.baseUrl).toBe(openApiServer.baseUrl);
+
+      const mcpInspectionResponse = yield* Effect.promise(() =>
+        fetch(
+          `${server.baseUrl}/v1/workspaces/${workspace.installation.scopeId}/sources/deepwiki/inspection`,
+        ),
+      );
+      assertTrue(mcpInspectionResponse.ok);
+      const mcpInspection = yield* Effect.promise(
+        () => mcpInspectionResponse.json() as Promise<{ toolCount: number }>,
+      );
+      expect(mcpInspection.toolCount).toBeGreaterThan(0);
+
+      const openApiInspectionResponse = yield* Effect.promise(() =>
+        fetch(
+          `${server.baseUrl}/v1/workspaces/${workspace.installation.scopeId}/sources/vercel/inspection`,
+        ),
+      );
+      assertTrue(openApiInspectionResponse.ok);
+      const openApiInspection = yield* Effect.promise(
+        () => openApiInspectionResponse.json() as Promise<{ toolCount: number }>,
+      );
+      expect(openApiInspection.toolCount).toBeGreaterThan(0);
+    }),
+    20_000,
   );
 
   it.scoped("marks execution failed when a configured MCP endpoint is invalid", () =>

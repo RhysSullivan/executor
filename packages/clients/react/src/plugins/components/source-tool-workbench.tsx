@@ -304,12 +304,18 @@ const SourceToolTreeNodeView = (props: {
             variant="ghost"
             size="icon"
             onClick={() => setOpen((value) => !value)}
+            aria-expanded={open}
             className="shrink-0 size-auto rounded p-0.5 text-muted-foreground/30 hover:text-muted-foreground"
             style={{ marginLeft: paddingLeft }}
           >
             <IconChevron
-              className={cn("shrink-0 transition-transform duration-150", open && "rotate-90")}
-              style={{ width: 8, height: 8 }}
+              className="shrink-0 transition-transform duration-150"
+              style={{
+                width: 8,
+                height: 8,
+                transform: open ? "rotate(90deg)" : "rotate(0deg)",
+                transformOrigin: "50% 50%",
+              }}
             />
           </Button>
           <SourceToolListItem
@@ -328,6 +334,7 @@ const SourceToolTreeNodeView = (props: {
           type="button"
           variant="ghost"
           onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
           className={cn(
             "group flex h-auto w-full items-center gap-1.5 rounded-md py-1 pr-2.5 text-[12px] hover:bg-accent/40",
             open ? "text-foreground/80" : "text-muted-foreground/60",
@@ -335,11 +342,13 @@ const SourceToolTreeNodeView = (props: {
           style={{ paddingLeft }}
         >
           <IconChevron
-            className={cn(
-              "shrink-0 text-muted-foreground/30 transition-transform duration-150",
-              open && "rotate-90",
-            )}
-            style={{ width: 8, height: 8 }}
+            className="shrink-0 text-muted-foreground/30 transition-transform duration-150"
+            style={{
+              width: 8,
+              height: 8,
+              transform: open ? "rotate(90deg)" : "rotate(0deg)",
+              transformOrigin: "50% 50%",
+            }}
           />
           <IconFolder
             className={cn("shrink-0", open ? "text-primary/60" : "text-muted-foreground/30")}
@@ -632,7 +641,7 @@ export const SourceToolModelWorkbench = (
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto w-[300px]">
           {filteredTools.length === 0 ? (
             <div className="p-4 text-center text-[13px] text-muted-foreground/50">
               {terms.length > 0 ? "No tools match your filter" : "No tools available"}

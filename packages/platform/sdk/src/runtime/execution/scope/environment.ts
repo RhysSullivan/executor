@@ -48,6 +48,9 @@ import {
   RuntimeSourceStoreService,
 } from "../../sources/source-store";
 import {
+  ExecutorPluginRegistryService,
+} from "../../sources/source-plugins";
+import {
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
@@ -71,6 +74,7 @@ const createEmptyLocalToolRuntime = (): LocalToolRuntime => ({
 
 export const createScopeExecutionEnvironmentResolver =
   (input: {
+    pluginRegistry: Effect.Effect.Success<typeof ExecutorPluginRegistryService>;
     executorStateStore: Effect.Effect.Success<typeof ExecutorStateStore>;
     sourceStore: Effect.Effect.Success<typeof RuntimeSourceStoreService>;
     sourceCatalogSyncService: Effect.Effect.Success<
@@ -103,6 +107,7 @@ export const createScopeExecutionEnvironmentResolver =
           ? createEmptyLocalToolRuntime()
           : yield* input.localToolRuntimeLoader.load();
       const { catalog, toolInvoker } = createScopeToolInvoker({
+        pluginRegistry: input.pluginRegistry,
         scopeId,
         actorScopeId,
         executorStateStore: input.executorStateStore,
@@ -147,6 +152,7 @@ export const RuntimeExecutionResolverLive = (
     : Layer.effect(
         RuntimeExecutionResolverService,
         Effect.gen(function* () {
+          const pluginRegistry = yield* ExecutorPluginRegistryService;
           const executorStateStore = yield* ExecutorStateStore;
           const sourceStore = yield* RuntimeSourceStoreService;
           const sourceCatalogSyncService =
@@ -163,6 +169,7 @@ export const RuntimeExecutionResolverLive = (
           const updateSecretMaterial = yield* SecretMaterialUpdaterService;
 
           return createScopeExecutionEnvironmentResolver({
+            pluginRegistry,
             executorStateStore,
             sourceStore,
             sourceCatalogSyncService,

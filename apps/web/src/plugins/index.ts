@@ -12,32 +12,25 @@ import {
   GraphqlReactPlugin,
 } from "@executor/plugin-graphql-react";
 import {
-  LocalToolsReactPlugin,
-} from "@executor/plugin-local-tools-react";
-import {
   McpReactPlugin,
 } from "@executor/plugin-mcp-react";
 import {
   OpenApiReactPlugin,
 } from "@executor/plugin-openapi-react";
 import {
-  OnePasswordReactPlugin,
-} from "@executor/plugin-onepassword-react";
-import {
   createExecutorPluginPaths,
   createSourcePluginPaths,
   registerExecutorFrontendPlugins,
   type ExecutorFrontendPlugin,
 } from "@executor/react/plugins";
+import { getFallbackSourceFaviconUrl } from "../lib/source-favicon";
 
 const frontendPlugins = [
   ExecutionHistoryReactPlugin,
-  LocalToolsReactPlugin,
   McpReactPlugin,
   GraphqlReactPlugin,
   GoogleDiscoveryReactPlugin,
   OpenApiReactPlugin,
-  OnePasswordReactPlugin,
 ] as const satisfies readonly ExecutorFrontendPlugin[];
 
 const frontendPluginRegistry = registerExecutorFrontendPlugins(frontendPlugins);
@@ -85,10 +78,15 @@ export const getSourceFrontendPaths = (kind: string) => {
   return plugin ? createSourcePluginPaths(plugin.key) : null;
 };
 
+const isGoogleDiscoverySource = (kind: string): boolean =>
+  kind === "google_discovery"
+  || kind === "google-discovery";
+
 export const getSourceFrontendIconUrl = (source: Source) =>
-  source.kind === "google-discovery"
+  (isGoogleDiscoverySource(source.kind)
     ? getGoogleDiscoveryIconUrl(source)
-    : null;
+    : null)
+  ?? getFallbackSourceFaviconUrl(source);
 
 export const getSecretStoreFrontendPlugin = (kind: string) =>
   registeredFrontendPlugins.find((plugin) => plugin.secretStore?.kind === kind) ?? null;

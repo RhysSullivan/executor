@@ -2,7 +2,7 @@ import type {
   ExecutionEnvelope,
 } from "@executor/platform-sdk/schema";
 import {
-  getExecutorSourcesAddHelpLines,
+  getExecutorInternalToolHelpLines,
   RuntimeSourceCatalogStoreService,
   createExecution,
   getExecution,
@@ -152,6 +152,7 @@ type CatalogLike = {
 const executeDescriptionToolsPerSource = 5;
 
 const buildExecuteWorkflowText = (
+  runtime: ExecutorRuntime,
   sourceToolExamples: ReadonlyArray<{
     sourceName: string;
     toolPaths: readonly string[];
@@ -173,7 +174,7 @@ const buildExecuteWorkflowText = (
     "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
     "3) Call selected tools.<path>(input).",
     "4) Use source plugins to inspect or add API sources.",
-    ...getExecutorSourcesAddHelpLines(),
+    ...getExecutorInternalToolHelpLines(runtime.pluginRegistry),
     "5) If execution pauses for interaction, resume it with the returned resumePayload or the available resume flow.",
     "Do not use fetch; use tools.* only.",
   ].join("\n");
@@ -201,11 +202,13 @@ const loadExecuteDescription = (runtime: ExecutorRuntime): Promise<string> =>
         .filter((catalog) => catalog.toolPaths.length > 0);
 
       if (sourceToolExamples.length === 0) {
-        return buildExecuteWorkflowText();
+        return buildExecuteWorkflowText(runtime);
       }
 
-      return buildExecuteWorkflowText(sourceToolExamples);
-    }).pipe(Effect.catchAll(() => Effect.succeed(buildExecuteWorkflowText()))),
+      return buildExecuteWorkflowText(runtime, sourceToolExamples);
+    }).pipe(
+      Effect.catchAll(() => Effect.succeed(buildExecuteWorkflowText(runtime))),
+    ),
   );
 
 const summarizeExecution = (execution: ExecutionEnvelope["execution"]): string => {

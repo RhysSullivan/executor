@@ -4,25 +4,38 @@ import {
   applyJsonBodyPlacements,
 } from "@executor/codemode-core";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import {
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
-import type { Source } from "@executor/platform-sdk/schema";
+import type {
+  LocalExecutorConfig,
+  Source,
+} from "@executor/platform-sdk/schema";
+import {
+  SourceSchema,
+} from "@executor/platform-sdk/schema";
 import {
   defineExecutorSourcePlugin,
 } from "@executor/platform-sdk/plugins";
 import {
   SecretMaterialResolverService,
+  createPluginLocalConfigEntrySchema,
+  decodeCurrentOrLegacyLocalConfigAuth,
+  pluginLocalConfigSourceFromConfig,
   provideExecutorRuntime,
   runtimeEffectError,
 } from "@executor/platform-sdk/runtime";
 import {
   deriveGraphqlNamespace,
+  GraphqlConnectInputSchema,
   GraphqlConnectionAuthSchema,
+  GraphqlSourceConfigPayloadSchema,
   GraphqlStoredSourceDataSchema,
+  GraphqlUpdateSourceInputSchema,
   type GraphqlConnectInput,
   type GraphqlSourceConfigPayload,
   type GraphqlStoredSourceData,
@@ -43,6 +56,10 @@ import {
   GraphqlToolProviderDataSchema,
   type GraphqlToolProviderData,
 } from "./provider-data";
+
+const GraphqlSourceIdInputSchema = Schema.Struct({
+  sourceId: Schema.String,
+});
 
 const decodeStoredSourceData = Schema.decodeUnknownSync(GraphqlStoredSourceDataSchema);
 const decodeProviderData = Schema.decodeUnknownSync(GraphqlToolProviderDataSchema);
@@ -133,6 +150,32 @@ const asStringRecord = (value: unknown): Record<string, string> =>
       typeof entry === "string" ? [[key, entry]] : [],
     ),
   );
+
+const decodeGraphqlCurrentLocalConfigOption = Schema.decodeUnknownOption(
+  createPluginLocalConfigEntrySchema({
+    kind: "graphql",
+    config: GraphqlStoredSourceDataSchema,
+  }),
+);
+
+const decodeGraphqlLegacyLocalConfigOption = Schema.decodeUnknownOption(
+  Schema.Struct({
+    kind: Schema.Literal("graphql"),
+    name: Schema.optional(Schema.String),
+    namespace: Schema.optional(Schema.String),
+    enabled: Schema.optional(Schema.Boolean),
+    connection: Schema.Struct({
+      endpoint: Schema.String,
+      auth: Schema.optional(Schema.Unknown),
+    }),
+    binding: Schema.Struct({
+      defaultHeaders: Schema.optional(
+        Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
+      ),
+    }),
+    config: Schema.optional(Schema.Unknown),
+  }),
+);
 
 const withoutUndefinedEntries = (
   record: Readonly<Record<string, unknown>>,
@@ -311,6 +354,41 @@ const graphqlConnectInputFromAddInput = (
   auth: input.auth,
 });
 
+const graphqlStoredSourceDataFromLocalConfig = (input: {
+  config: unknown;
+  loadedConfig: LocalExecutorConfig | null;
+}): GraphqlStoredSourceData => {
+  const current = decodeGraphqlCurrentLocalConfigOption(input.config);
+  if (Option.isSome(current)) {
+    return normalizeStoredSourceData(current.value.config);
+  }
+
+  const legacy = decodeGraphqlLegacyLocalConfigOption(input.config);
+  if (Option.isSome(legacy)) {
+    return storedSourceDataFromInput({
+      name: legacy.value.name ?? "GraphQL",
+      endpoint: legacy.value.connection.endpoint,
+      defaultHeaders: legacy.value.binding.defaultHeaders ?? null,
+      auth: decodeCurrentOrLegacyLocalConfigAuth({
+        auth: legacy.value.connection.auth,
+        authSchema: GraphqlConnectionAuthSchema,
+        loadedConfig: input.loadedConfig,
+        onLegacySecretRef: (tokenSecretRef) => ({
+          kind: "bearer",
+          tokenSecretRef,
+          headerName: null,
+          prefix: null,
+        }),
+        fallback: {
+          kind: "none",
+        },
+      }),
+    });
+  }
+
+  throw new Error("Unsupported GraphQL local source config.");
+};
+
 export const graphqlSdkPlugin = (options: {
   storage: GraphqlSourceStorage;
 }) => defineExecutorSourcePlugin<
@@ -363,6 +441,18 @@ export const graphqlSdkPlugin = (options: {
       toConfig: ({ source, stored }) =>
         sourceConfigFromStored(source, normalizeStoredSourceData(stored)),
     },
+    localConfig: {
+      toConfigSource: ({ source, stored }) =>
+        pluginLocalConfigSourceFromConfig({
+          source,
+          config: normalizeStoredSourceData(stored),
+        }),
+      recoverStored: ({ config, loadedConfig }) =>
+        graphqlStoredSourceDataFromLocalConfig({
+          config,
+          loadedConfig,
+        }),
+    },
     catalog: {
       kind: "imported",
       identity: ({ source }) => ({
@@ -372,20 +462,10 @@ export const graphqlSdkPlugin = (options: {
       sync: ({ source, stored }) =>
         Effect.gen(function* () {
           if (stored === null) {
-            return createSourceCatalogSyncResult({
-              fragment: {
-                version: "ir.v1.fragment",
-              },
-              importMetadata: {
-                ...createCatalogImportMetadata({
-                  source,
-                  pluginKey: "graphql",
-                }),
-                importerVersion: "ir.v1.graphql",
-                sourceConfigHash: "missing",
-              },
-              sourceHash: null,
-            });
+            return yield* runtimeEffectError(
+              "plugins/graphql/sdk",
+              `GraphQL source storage missing for ${source.id}`,
+            );
           }
 
           const normalizedStored = normalizeStoredSourceData(stored);
@@ -522,6 +602,36 @@ export const graphqlSdkPlugin = (options: {
         }),
     },
   },
+  tools: [
+    {
+      name: "getSourceConfig",
+      description: "Load the saved configuration for a GraphQL source.",
+      inputSchema: GraphqlSourceIdInputSchema,
+      outputSchema: GraphqlSourceConfigPayloadSchema,
+      execute: ({ args, source }) => source.getSourceConfig(args.sourceId),
+    },
+    {
+      name: "createSource",
+      description: "Create a GraphQL source.",
+      inputSchema: GraphqlConnectInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.createSource(args),
+    },
+    {
+      name: "updateSource",
+      description: "Update a GraphQL source configuration.",
+      inputSchema: GraphqlUpdateSourceInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.updateSource(args),
+    },
+    {
+      name: "removeSource",
+      description: "Remove a GraphQL source and its stored plugin data.",
+      inputSchema: GraphqlSourceIdInputSchema,
+      outputSchema: Schema.Boolean,
+      execute: ({ args, source }) => source.removeSource(args.sourceId),
+    },
+  ] as const,
   extendExecutor: ({ source, executor }) => {
     const provideRuntime = <A>(
       effect: Effect.Effect<A, Error, any>,

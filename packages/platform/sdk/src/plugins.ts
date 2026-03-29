@@ -6,12 +6,14 @@ import type {
 } from "@executor/source-core";
 import type { ExecutorEffect } from "./executor-effect";
 import type { ExecutorScopeContext } from "./scope";
-import type {
-  Source as ExecutorSource,
-  SecretMaterial,
-  SecretMaterialPurpose,
-  SecretRef,
-  SecretStore,
+import {
+  type LocalConfigSource,
+  type LocalExecutorConfig,
+  type Source as ExecutorSource,
+  type SecretMaterial,
+  type SecretMaterialPurpose,
+  type SecretRef,
+  type SecretStore,
 } from "./schema";
 import type {
   SourceInvokeInput,
@@ -19,12 +21,13 @@ import type {
 } from "@executor/source-core";
 import type * as Schema from "effect/Schema";
 import { runtimeEffectError } from "./runtime/effect-errors";
+import { ScopeConfigStore } from "./runtime/scope/storage";
 
 export type PluginCleanup = {
   close: () => void | Promise<void>;
 };
 
-export type ExecutorSdkPluginHost = {};
+export type ExecutorSdkPluginHost = ExecutorSourcePluginInternalHost;
 
 export type ExecutorSdkPluginContext = {
   executor: ExecutorEffect & Record<string, unknown>;
@@ -41,6 +44,7 @@ export type ExecutorSdkPluginStartContext<
 type ExecutorSdkPluginInternals = {
   sources?: readonly ExecutorSourceContribution<any>[];
   secretStores?: readonly ExecutorSecretStoreContribution<any>[];
+  managementTools?: readonly ExecutorManagementToolContribution<any, any>[];
 };
 
 const executorSdkPluginInternalsSymbol = Symbol.for(
@@ -184,6 +188,45 @@ export type ExecutorSecretStorePluginApi<
   ) => Effect.Effect<boolean, Error, any>;
 };
 
+export type ExecutorManagementToolContribution<
+  TInput = unknown,
+  TOutput = unknown,
+> = {
+  path: `executor.${string}`;
+  description: string;
+  inputSchema: Schema.Schema<TInput, any, never>;
+  outputSchema: Schema.Schema<TOutput, any, never>;
+  execute: (input: {
+    args: TInput;
+    host: ExecutorSdkPluginHost;
+  }) => Effect.Effect<TOutput, Error, any>;
+};
+
+export type ExecutorSourcePluginManagementToolDefinition<
+  TName extends string = string,
+  TInput = unknown,
+  TOutput = unknown,
+  TConnectInput = unknown,
+  TSourceConfig = unknown,
+  TUpdateInput extends {
+    sourceId: string;
+    config: TSourceConfig;
+  } = {
+    sourceId: string;
+    config: TSourceConfig;
+  },
+> = {
+  name: TName;
+  description: string;
+  inputSchema: Schema.Schema<TInput, any, never>;
+  outputSchema: Schema.Schema<TOutput, any, never>;
+  execute: (input: {
+    args: TInput;
+    source: ExecutorSourcePluginApi<TConnectInput, TSourceConfig, TUpdateInput>;
+    host: ExecutorSourcePluginInternalHost;
+  }) => Effect.Effect<TOutput, Error, any>;
+};
+
 export type ExecutorSourcePluginDefinition<
   TAddInput,
   TConnectInput,
@@ -226,6 +269,17 @@ export type ExecutorSourcePluginDefinition<
       source: ExecutorSource;
       stored: TStored | null;
     }) => Effect.Effect<void, Error, any>;
+  };
+  localConfig?: {
+    toConfigSource: (input: {
+      source: ExecutorSource;
+      stored: TStored;
+    }) => LocalConfigSource;
+    recoverStored: (input: {
+      source: ExecutorSource;
+      config: LocalConfigSource;
+      loadedConfig: LocalExecutorConfig | null;
+    }) => Effect.Effect<TStored, Error, any> | TStored;
   };
   catalog: {
     kind: SourceCatalogKind;
@@ -397,6 +451,14 @@ export type ExecutorSourcePluginInput<
     TStored,
     TUpdateInput
   >;
+  tools?: readonly ExecutorSourcePluginManagementToolDefinition<
+    string,
+    any,
+    any,
+    TConnectInput,
+    TSourceConfig,
+    TUpdateInput
+  >[];
   extendExecutor?: (input: ExecutorSdkPluginContext & {
     source: ExecutorSourcePluginApi<TConnectInput, TSourceConfig, TUpdateInput>;
   }) => TExtension;
@@ -467,6 +529,121 @@ const loadSourceOfKind = (
     return source;
   });
 
+const cloneJson = <T>(value: T): T =>
+  JSON.parse(JSON.stringify(value)) as T;
+
+const fromMaybeEffect = <A>(
+  value: Effect.Effect<A, Error, any> | A,
+): Effect.Effect<A, Error, any> =>
+  Effect.isEffect(value)
+    ? value
+    : Effect.succeed(value);
+
+const persistSourceLocalConfig = <
+  TAddInput,
+  TConnectInput,
+  TSourceConfig,
+  TStored,
+  TUpdateInput extends {
+    sourceId: string;
+    config: TSourceConfig;
+  },
+>(
+  definition: ExecutorSourcePluginDefinition<
+    TAddInput,
+    TConnectInput,
+    TSourceConfig,
+    TStored,
+    TUpdateInput
+  >,
+  input: {
+    source: ExecutorSource;
+    stored: TStored;
+  },
+): Effect.Effect<void, Error, ScopeConfigStore> =>
+  definition.localConfig
+    ? Effect.gen(function* () {
+        const localConfig = definition.localConfig!;
+        const scopeConfigStore = yield* ScopeConfigStore;
+        const loadedConfig = yield* scopeConfigStore.load();
+        const projectConfig = cloneJson(loadedConfig.projectConfig ?? {});
+        const sources = {
+          ...projectConfig.sources,
+          [input.source.id]: localConfig.toConfigSource({
+            source: input.source,
+            stored: input.stored,
+          }),
+        };
+
+        yield* scopeConfigStore.writeProject({
+          config: {
+            ...projectConfig,
+            sources,
+          },
+        });
+      })
+    : Effect.void;
+
+const loadStoredOrRecover = <
+  TAddInput,
+  TConnectInput,
+  TSourceConfig,
+  TStored,
+  TUpdateInput extends {
+    sourceId: string;
+    config: TSourceConfig;
+  },
+>(
+  definition: ExecutorSourcePluginDefinition<
+    TAddInput,
+    TConnectInput,
+    TSourceConfig,
+    TStored,
+    TUpdateInput
+  >,
+  source: ExecutorSource,
+): Effect.Effect<TStored | null, Error, ScopeConfigStore> =>
+  Effect.gen(function* () {
+    const localConfig = definition.localConfig;
+    const stored = yield* definition.storage.get({
+      scopeId: source.scopeId,
+      sourceId: source.id,
+    });
+    if (stored !== null || localConfig === undefined) {
+      return stored;
+    }
+
+    const scopeConfigStore = yield* ScopeConfigStore;
+    const loadedConfig = yield* scopeConfigStore.load();
+    const config = loadedConfig.config?.sources?.[source.id] ?? null;
+    if (config === null) {
+      return null;
+    }
+
+    if (config.kind !== definition.kind) {
+      return yield* runtimeEffectError(
+        "plugins",
+        `Source ${source.id} config kind ${config.kind} does not match ${definition.kind}.`,
+      );
+    }
+
+    const recovered = yield* fromMaybeEffect(
+      localConfig.recoverStored({
+        source,
+        config,
+        loadedConfig: loadedConfig.config,
+      }),
+    );
+
+    yield* definition.storage.put({
+      scopeId: source.scopeId,
+      sourceId: source.id,
+      value: recovered,
+    });
+
+    return recovered;
+  });
+
 const createExecutorSourcePluginApi = <
   TAddInput,
   TConnectInput,
@@ -497,10 +674,7 @@ const createExecutorSourcePluginApi = <
         definition,
         host,
       });
-      const stored = yield* definition.storage.get({
-        scopeId: source.scopeId,
-        sourceId: source.id,
-      });
+      const stored = yield* loadStoredOrRecover(definition, source);
       if (stored === null) {
         return yield* runtimeEffectError(
           "plugins",
@@ -525,6 +699,10 @@ const createExecutorSourcePluginApi = <
         sourceId: source.id,
         value: created.stored,
       });
+      yield* persistSourceLocalConfig(definition, {
+        source,
+        stored: created.stored,
+      });
 
       return yield* host.sources.refreshCatalog(source.id);
     }),
@@ -544,6 +722,10 @@ const createExecutorSourcePluginApi = <
         scopeId: saved.scopeId,
         sourceId: saved.id,
         value: updated.stored,
+      });
+      yield* persistSourceLocalConfig(definition, {
+        source: saved,
+        stored: updated.stored,
       });
 
       return yield* host.sources.refreshCatalog(saved.id);
@@ -716,6 +898,7 @@ const createExecutorSecretStorePluginApi = <
 });
 
 type ExecutorSourceContribution<TInput = unknown> = {
+  pluginKey: string;
   kind: string;
   displayName: string;
   inputSchema: Schema.Schema<TInput, any, never>;
@@ -816,7 +999,26 @@ type ExecutorSecretStoreContribution<TInput = unknown> = {
   }, Error, any>;
 };
 
+export type ExecutorSdkPluginRegistry = {
+  plugins: readonly ExecutorSdkPlugin<any, any>[];
+  sources: readonly ExecutorSourceContribution<any>[];
+  secretStores: readonly ExecutorSecretStoreContribution<any>[];
+  managementTools: readonly ExecutorManagementToolContribution<any, any>[];
+  getSourceContribution: (kind: string) => ExecutorSourceContribution<any>;
+  getSourceContributionForSource: (
+    source: Pick<ExecutorSource, "kind">,
+  ) => ExecutorSourceContribution<any>;
+  getSecretStoreContribution: (kind: string) => ExecutorSecretStoreContribution<any>;
+  getSecretStoreContributionForStore: (
+    store: Pick<SecretStore, "kind">,
+  ) => ExecutorSecretStoreContribution<any>;
+  getManagementTool: (
+    path: string,
+  ) => ExecutorManagementToolContribution<any, any>;
+};
+
 const createExecutorSourceContribution = <
+  TKey extends string,
   TAddInput,
   TConnectInput,
   TSourceConfig,
@@ -826,46 +1028,44 @@ const createExecutorSourceContribution = <
     config: TSourceConfig;
   },
 >(
-  definition: ExecutorSourcePluginDefinition<
-    TAddInput,
-    TConnectInput,
-    TSourceConfig,
-    TStored,
-    TUpdateInput
-  >,
+  input: {
+    key: TKey;
+    source: ExecutorSourcePluginDefinition<
+      TAddInput,
+      TConnectInput,
+      TSourceConfig,
+      TStored,
+      TUpdateInput
+    >;
+  },
 ): ExecutorSourceContribution<TAddInput> => ({
-  kind: definition.kind,
-  displayName: definition.displayName,
-  inputSchema: definition.add.inputSchema,
-  inputSignatureWidth: definition.add.inputSignatureWidth,
-  helpText: definition.add.helpText,
-  catalogKind: definition.catalog.kind,
-  catalogIdentity: definition.catalog.identity,
+  pluginKey: input.key,
+  kind: input.source.kind,
+  displayName: input.source.displayName,
+  inputSchema: input.source.add.inputSchema,
+  inputSignatureWidth: input.source.add.inputSignatureWidth,
+  helpText: input.source.add.helpText,
+  catalogKind: input.source.catalog.kind,
+  catalogIdentity: input.source.catalog.identity,
   createSource: ({ args, host }) =>
-    createExecutorSourcePluginApi(definition, host).createSource(
-      definition.add.toConnectInput(args),
+    createExecutorSourcePluginApi(input.source, host).createSource(
+      input.source.add.toConnectInput(args),
     ),
   syncCatalog: ({ source }) =>
     Effect.flatMap(
-      definition.storage.get({
-        scopeId: source.scopeId,
-        sourceId: source.id,
-      }),
+      loadStoredOrRecover(input.source, source),
       (stored) =>
-        definition.catalog.sync({
+        input.source.catalog.sync({
           source,
           stored,
         }),
     ),
-  invoke: (input) =>
+  invoke: (invokeInput) =>
     Effect.flatMap(
-      definition.storage.get({
-        scopeId: input.source.scopeId,
-        sourceId: input.source.id,
-      }),
+      loadStoredOrRecover(input.source, invokeInput.source),
       (stored) =>
-        definition.catalog.invoke({
-          ...input,
+        input.source.catalog.invoke({
+          ...invokeInput,
           stored,
         }),
     ),
@@ -1064,6 +1264,53 @@ const createExecutorSecretStoreContribution = <
         ),
 });
 
+const createExecutorSourceManagementToolContribution = <
+  TKey extends string,
+  TName extends string,
+  TInput,
+  TOutput,
+  TConnectInput,
+  TSourceConfig,
+  TStored,
+  TUpdateInput extends {
+    sourceId: string;
+    config: TSourceConfig;
+  },
+>(
+  input: {
+    key: TKey;
+    source: ExecutorSourcePluginDefinition<
+      any,
+      TConnectInput,
+      TSourceConfig,
+      TStored,
+      TUpdateInput
+    >;
+    tool: ExecutorSourcePluginManagementToolDefinition<
+      TName,
+      TInput,
+      TOutput,
+      TConnectInput,
+      TSourceConfig,
+      TUpdateInput
+    >;
+  },
+): ExecutorManagementToolContribution<TInput, TOutput> => ({
+  path: `executor.${input.key}.${input.tool.name}`,
+  description: input.tool.description,
+  inputSchema: input.tool.inputSchema,
+  outputSchema: input.tool.outputSchema,
+  execute: ({ args, host }) =>
+    input.tool.execute({
+      args,
+      host: host as ExecutorSourcePluginInternalHost,
+      source: createExecutorSourcePluginApi(
+        input.source,
+        host as ExecutorSourcePluginInternalHost,
+      ),
+    }),
+});
+
 export const defineExecutorSourcePlugin = <
   const TKey extends string,
   TAddInput,
@@ -1110,7 +1357,17 @@ export const defineExecutorSourcePlugin = <
             })
         : undefined,
       [executorSdkPluginInternalsSymbol]: {
-        sources: [createExecutorSourceContribution(input.source)],
+        sources: [createExecutorSourceContribution({
+          key: input.key,
+          source: input.source,
+        })],
+        managementTools: (input.tools ?? []).map((tool) =>
+          createExecutorSourceManagementToolContribution({
+            key: input.key,
+            source: input.source,
+            tool,
+          })
+        ),
       },
     }))(input.extendExecutor, input.start);
 
@@ -1179,6 +1436,10 @@ export const registerExecutorSdkPlugins = (
   const pluginKeys = new Set<string>();
   const sources = new Map<string, ExecutorSourceContribution<any>>();
   const secretStores = new Map<string, ExecutorSecretStoreContribution<any>>();
+  const managementTools = new Map<
+    string,
+    ExecutorManagementToolContribution<any, any>
+  >();
 
   for (const plugin of plugins) {
     if (pluginKeys.has(plugin.key)) {
@@ -1208,6 +1469,14 @@ export const registerExecutorSdkPlugins = (
 
       secretStores.set(secretStore.kind, secretStore);
     }
+
+    for (const tool of internals?.managementTools ?? []) {
+      if (managementTools.has(tool.path)) {
+        throw new Error(`Duplicate executor management tool: ${tool.path}`);
+      }
+
+      managementTools.set(tool.path, tool);
+    }
   }
 
   const getSourceContribution = (kind: string) => {
@@ -1235,13 +1504,24 @@ export const registerExecutorSdkPlugins = (
     store: Pick<SecretStore, "kind">,
   ) => getSecretStoreContribution(store.kind);
 
+  const getManagementTool = (path: string) => {
+    const tool = managementTools.get(path);
+    if (!tool) {
+      throw new Error(`Unsupported executor management tool: ${path}`);
+    }
+
+    return tool;
+  };
+
   return {
     plugins,
     sources: [...sources.values()],
     secretStores: [...secretStores.values()],
+    managementTools: [...managementTools.values()],
     getSourceContribution,
     getSourceContributionForSource,
     getSecretStoreContribution,
     getSecretStoreContributionForStore,
-  };
+    getManagementTool,
+  } satisfies ExecutorSdkPluginRegistry;
 };

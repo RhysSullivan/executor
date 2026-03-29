@@ -13,7 +13,7 @@ import {
   type FrontendPluginRouteSearch,
 } from "@executor/react/plugins";
 
-import { DefaultSourceIcon } from "../components/source-favicon";
+import { SourcePresetFavicon } from "../components/source-favicon";
 import { LocalMcpInstallCard } from "../components/local-mcp-install-card";
 import { SourcePluginsResetState } from "../components/source-plugins-reset-state";
 import {
@@ -202,7 +202,7 @@ export function SourcePluginsIndexPage() {
                         >
                           <div className="mb-2 flex items-center gap-2.5">
                             <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                              <DefaultSourceIcon kind={preset.kind} className="size-4" />
+                              <SourcePresetFavicon preset={preset} className="size-4" />
                             </div>
                             <div className="min-w-0">
                               <div className="truncate text-sm font-semibold text-foreground">

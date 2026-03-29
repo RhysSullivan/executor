@@ -45,6 +45,9 @@ import type {
 import {
   type RuntimeSourceStore,
 } from "../../sources/source-store";
+import type {
+  ExecutorSdkPluginRegistry,
+} from "../../../plugins";
 import {
   createExecutorToolMap,
 } from "../../sources/executor-tools";
@@ -73,6 +76,7 @@ import {
 import * as Layer from "effect/Layer";
 
 export const createScopeToolInvoker = (input: {
+  pluginRegistry: ExecutorSdkPluginRegistry;
   scopeId: Source["scopeId"];
   actorScopeId: ScopeId;
   executorStateStore: ExecutorStateStoreShape;
@@ -120,6 +124,7 @@ export const createScopeToolInvoker = (input: {
   ) => effect.pipe(Effect.provide(secretMaterialLayer));
 
   const executorTools = createExecutorToolMap({
+    pluginRegistry: input.pluginRegistry,
     scopeId: input.scopeId,
     actorScopeId: input.actorScopeId,
     executorStateStore: input.executorStateStore,
@@ -130,6 +135,7 @@ export const createScopeToolInvoker = (input: {
     scopeStateStore: input.scopeStateStore,
     sourceArtifactStore: input.sourceArtifactStore,
     runtimeLocalScope: input.runtimeLocalScope,
+    secretMaterialServices: input.secretMaterialServices,
   });
   const sourceCatalog = createScopeSourceCatalog({
     scopeId: input.scopeId,
@@ -201,6 +207,7 @@ export const createScopeToolInvoker = (input: {
           });
 
           return yield* invokeIrTool({
+            pluginRegistry: input.pluginRegistry,
             scopeId: input.scopeId,
             actorScopeId: input.actorScopeId,
             tool: catalogTool,

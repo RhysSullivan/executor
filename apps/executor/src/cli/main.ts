@@ -36,9 +36,12 @@ import {
   openApiSdkPlugin,
 } from "@executor/plugin-openapi-sdk";
 import {
-  getExecutorSourcesAddHelpLines,
+  getExecutorInternalToolHelpLines,
   RuntimeExecutionResolverService,
 } from "@executor/platform-sdk/runtime";
+import type {
+  ExecutorSdkPluginRegistry,
+} from "@executor/platform-sdk/plugins";
 import {
   createExecutorEffect,
   type ExecutorEffect as Executor,
@@ -228,7 +231,10 @@ const toEffectCliArgv = (args: readonly string[]): string[] => [
   ...args,
 ];
 
-const buildWorkflowText = (namespaces: readonly string[] = []): string =>
+const buildWorkflowText = (
+  namespaces: readonly string[] = [],
+  pluginRegistry?: ExecutorSdkPluginRegistry,
+): string =>
   [
     "Execute TypeScript in sandbox; call tools via discovery workflow.",
     ...(namespaces.length > 0
@@ -242,12 +248,15 @@ const buildWorkflowText = (namespaces: readonly string[] = []): string =>
     "2) const details = await tools.describe.tool({ path, includeSchemas: true });",
     "3) Call selected tools.<path>(input).",
     "4) Use source plugins to inspect or add API sources.",
-    ...getExecutorSourcesAddHelpLines(),
+    ...(pluginRegistry
+      ? getExecutorInternalToolHelpLines(pluginRegistry)
+      : ["Use executor.* tools to inspect or manage API sources."]),
     "5) If execution pauses for interaction, resume it with `executor resume --execution-id ...`.",
     "Do not use fetch; use tools.* only.",
   ].join("\n");
 
-const getDefaultRunWorkflow = () => buildWorkflowText();
+const getDefaultRunWorkflow = (pluginRegistry?: ExecutorSdkPluginRegistry) =>
+  buildWorkflowText([], pluginRegistry);
 
 const indentBlock = (value: string, prefix: string = "  "): string =>
   value
@@ -290,9 +299,10 @@ const closeExecutor = (executor: Executor) =>
 
 const buildRunWorkflowText = (
   catalog?: ToolCatalog,
+  pluginRegistry?: ExecutorSdkPluginRegistry,
 ): Effect.Effect<string, Error, never> => {
   if (!catalog) {
-    return Effect.succeed(getDefaultRunWorkflow());
+    return Effect.succeed(getDefaultRunWorkflow(pluginRegistry));
   }
 
   return catalog.listNamespaces({ limit: 200 }).pipe(
@@ -301,6 +311,7 @@ const buildRunWorkflowText = (
         namespaces.length > 0
           ? namespaces.map((namespace) => namespace.displayName ?? namespace.namespace)
           : ["none discovered yet"],
+        pluginRegistry,
       )
     ),
     Effect.mapError(toError),
@@ -360,7 +371,10 @@ const loadRunWorkflowText = (): Effect.Effect<string, Error, never> =>
           Effect.mapError(toError),
         );
 
-        return yield* buildRunWorkflowText(environment.catalog);
+        return yield* buildRunWorkflowText(
+          environment.catalog,
+          executor.runtime.pluginRegistry,
+        );
       }),
     closeExecutor,
   ).pipe(

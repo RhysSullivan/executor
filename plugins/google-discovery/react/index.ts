@@ -9,7 +9,10 @@ import {
   GoogleDiscoveryDetailRoute,
   GoogleDiscoveryEditRoute,
 } from "./components";
-export { getGoogleDiscoveryIconUrl } from "./icons";
+export {
+  getGoogleDiscoveryIconUrl,
+  getGoogleDiscoveryIconUrlForService,
+} from "./icons";
 
 export const GoogleDiscoveryReactPlugin = defineExecutorFrontendPlugin({
   key: GOOGLE_DISCOVERY_PLUGIN_KEY,

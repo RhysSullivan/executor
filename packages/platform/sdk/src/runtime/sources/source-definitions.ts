@@ -16,7 +16,9 @@ import {
 } from "#schema";
 import * as Effect from "effect/Effect";
 
-import { getSourceContributionForSource } from "./source-plugins";
+import type {
+  ExecutorSdkPluginRegistry,
+} from "../../plugins";
 
 const trimOrNull = (value: string | null | undefined): string | null => {
   if (value === null || value === undefined) {
@@ -29,29 +31,56 @@ const trimOrNull = (value: string | null | undefined): string | null => {
 
 type SourceCatalogSourceConfig = Record<string, unknown>;
 
-const sourceConfigFromSource = (source: Source): SourceCatalogSourceConfig =>
-  getSourceContributionForSource(source).catalogIdentity?.({
+const getSourceContributionOption = (
+  source: Source,
+  pluginRegistry?: ExecutorSdkPluginRegistry,
+) => {
+  if (!pluginRegistry) {
+    return null;
+  }
+
+  try {
+    return pluginRegistry.getSourceContributionForSource(source);
+  } catch {
+    return null;
+  }
+};
+
+const sourceConfigFromSource = (
+  source: Source,
+  pluginRegistry?: ExecutorSdkPluginRegistry,
+): SourceCatalogSourceConfig =>
+  getSourceContributionOption(source, pluginRegistry)?.catalogIdentity?.({
     source,
   }) ?? {
     kind: source.kind,
     namespace: source.namespace,
   };
 
-const sourceCatalogKindFromSource = (source: Source): SourceCatalogKind =>
-  getSourceContributionForSource(source).catalogKind;
+const sourceCatalogKindFromSource = (
+  source: Source,
+  pluginRegistry?: ExecutorSdkPluginRegistry,
+): SourceCatalogKind =>
+  getSourceContributionOption(source, pluginRegistry)?.catalogKind ?? "imported";
 
-const sourceCatalogPluginKeyFromSource = (source: Source): SourceCatalogPluginKey =>
-  getSourceContributionForSource(source).kind;
+const sourceCatalogPluginKeyFromSource = (
+  source: Source,
+  pluginRegistry?: ExecutorSdkPluginRegistry,
+): SourceCatalogPluginKey =>
+  getSourceContributionOption(source, pluginRegistry)?.kind ?? source.kind;
 
 const stableHash = (value: string): string =>
   sha256Hex(value).slice(0, 24);
 
-const sourceCatalogSignature = (source: Source): string =>
+const sourceCatalogSignature = (
+  source: Source,
+  pluginRegistry?: ExecutorSdkPluginRegistry,
+): string =>
   JSON.stringify({
-    catalogKind: sourceCatalogKindFromSource(source),
-    pluginKey: sourceCatalogPluginKeyFromSource(source),
+    catalogKind: sourceCatalogKindFromSource(source, pluginRegistry),
+    pluginKey: sourceCatalogPluginKeyFromSource(source, pluginRegistry),
     sourceId: source.id,
-    sourceConfig: sourceConfigFromSource(source),
+    sourceConfig: sourceConfigFromSource(source, pluginRegistry),
   });
 
 export const sourceConfigSignature = (source: Source): string =>
@@ -64,8 +93,13 @@ export const sourceConfigSignature = (source: Source): string =>
     updatedAt: source.updatedAt,
   });
 
-export const stableSourceCatalogId = (source: Source): SourceCatalogId =>
-  SourceCatalogIdSchema.make(`src_catalog_${stableHash(sourceCatalogSignature(source))}`);
+export const stableSourceCatalogId = (
+  source: Source,
+  pluginRegistry?: ExecutorSdkPluginRegistry,
+): SourceCatalogId =>
+  SourceCatalogIdSchema.make(
+    `src_catalog_${stableHash(sourceCatalogSignature(source, pluginRegistry))}`,
+  );
 
 export const stableSourceCatalogRevisionId = (
   source: Source,
@@ -109,12 +143,13 @@ export const normalizeSourceForSave = (input: {
 
 export const createSourceCatalogRecord = (input: {
   source: Source;
+  pluginRegistry?: ExecutorSdkPluginRegistry;
   catalogId?: SourceCatalogId | null;
   latestRevisionId: SourceCatalogRevisionId;
 }): StoredSourceCatalogRecord => ({
-  id: input.catalogId ?? stableSourceCatalogId(input.source),
-  kind: sourceCatalogKindFromSource(input.source),
-  pluginKey: sourceCatalogPluginKeyFromSource(input.source),
+  id: input.catalogId ?? stableSourceCatalogId(input.source, input.pluginRegistry),
+  kind: sourceCatalogKindFromSource(input.source, input.pluginRegistry),
+  pluginKey: sourceCatalogPluginKeyFromSource(input.source, input.pluginRegistry),
   name: input.source.name,
   summary: null,
   visibility: "scope",
@@ -125,6 +160,7 @@ export const createSourceCatalogRecord = (input: {
 
 export const createSourceCatalogRevisionRecord = (input: {
   source: Source;
+  pluginRegistry?: ExecutorSdkPluginRegistry;
   catalogId: SourceCatalogId;
   catalogRevisionId?: SourceCatalogRevisionId | null;
   revisionNumber: number;

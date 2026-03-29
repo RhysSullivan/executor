@@ -95,6 +95,7 @@ export const persistSourceWithDeps = (
     };
     sources[nextSource.id] = configSourceFromLocalSource({
       source: nextSource,
+      existingConfig: localScope.loadedConfig.config?.sources?.[nextSource.id] ?? null,
     });
     yield* localScope.scopeConfigStore.writeProject({
       config: {

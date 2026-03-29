@@ -3,6 +3,8 @@ import type {
   Source,
 } from "#schema";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
 
 import {
   RuntimeLocalScopeService,
@@ -17,9 +19,32 @@ import {
   RuntimeSourceCatalogSyncService,
 } from "./sync";
 
+const decodeArtifactImportMetadataOption = Schema.decodeUnknownOption(
+  Schema.parseJson(
+    Schema.Struct({
+      sourceConfigHash: Schema.String,
+    }),
+  ),
+);
+
 const shouldReconcileSource = (source: Source): boolean =>
   source.enabled
   && source.status === "connected";
+
+const artifactNeedsRefresh = (artifact: {
+  revision: {
+    importMetadataJson: string | null;
+  };
+} | null): boolean => {
+  if (artifact === null) {
+    return true;
+  }
+
+  const decoded = decodeArtifactImportMetadataOption(
+    artifact.revision.importMetadataJson,
+  );
+  return Option.isSome(decoded) && decoded.value.sourceConfigHash === "missing";
+};
 
 export const reconcileMissingSourceCatalogArtifacts = (input: {
   scopeId: ScopeId;
@@ -49,7 +74,7 @@ export const reconcileMissingSourceCatalogArtifacts = (input: {
       const artifact = yield* sourceArtifactStore.read({
         sourceId: source.id,
       });
-      if (artifact !== null) {
+      if (!artifactNeedsRefresh(artifact)) {
         continue;
       }
 

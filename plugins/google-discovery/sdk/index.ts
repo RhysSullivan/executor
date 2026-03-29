@@ -1,15 +1,25 @@
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import {
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
-import type { Source } from "@executor/platform-sdk/schema";
+import type {
+  LocalExecutorConfig,
+  Source,
+} from "@executor/platform-sdk/schema";
+import {
+  SourceSchema,
+} from "@executor/platform-sdk/schema";
 import {
   defineExecutorSourcePlugin,
 } from "@executor/platform-sdk/plugins";
 import {
+  createPluginLocalConfigEntrySchema,
+  decodeCurrentOrLegacyLocalConfigAuth,
+  pluginLocalConfigSourceFromConfig,
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
@@ -21,11 +31,18 @@ import {
   GOOGLE_DISCOVERY_EXECUTOR_KEY,
   GOOGLE_DISCOVERY_SOURCE_KIND,
   GoogleDiscoveryBatchSourceInputSchema,
+  GoogleDiscoveryConnectInputSchema,
   GoogleDiscoveryConnectionAuthSchema,
+  GoogleDiscoveryOAuthPopupResultSchema,
   GoogleDiscoveryOAuthSessionSchema,
+  GoogleDiscoverySourceConfigPayloadSchema,
+  GoogleDiscoveryStartBatchOAuthInputSchema,
+  GoogleDiscoveryStartOAuthInputSchema,
+  GoogleDiscoveryStartOAuthResultSchema,
   defaultGoogleDiscoveryUrl,
   deriveGoogleDiscoveryNamespace,
   GoogleDiscoveryStoredSourceDataSchema,
+  GoogleDiscoveryUpdateSourceInputSchema,
   type GoogleDiscoveryBatchSourceInput,
   type GoogleDiscoveryConnectInput,
   type GoogleDiscoveryConnectionAuth,
@@ -62,6 +79,16 @@ import {
   refreshOAuth2AccessToken,
 } from "./oauth2";
 
+const GoogleDiscoverySourceIdInputSchema = Schema.Struct({
+  sourceId: Schema.String,
+});
+const GoogleDiscoveryCompleteOAuthInputSchema = Schema.Struct({
+  state: Schema.String,
+  code: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+  errorDescription: Schema.optional(Schema.String),
+});
+
 const decodeStoredSourceData = Schema.decodeUnknownSync(
   GoogleDiscoveryStoredSourceDataSchema,
 );
@@ -70,6 +97,34 @@ const decodeBatchSourceInput = Schema.decodeUnknownSync(
 );
 const decodeSession = Schema.decodeUnknownSync(GoogleDiscoveryOAuthSessionSchema);
 const decodeProviderData = Schema.decodeUnknownSync(GoogleDiscoveryToolProviderDataSchema);
+const decodeGoogleDiscoveryCurrentLocalConfigOption = Schema.decodeUnknownOption(
+  createPluginLocalConfigEntrySchema({
+    kind: GOOGLE_DISCOVERY_SOURCE_KIND,
+    config: GoogleDiscoveryStoredSourceDataSchema,
+  }),
+);
+const decodeGoogleDiscoveryLegacyLocalConfigOption = Schema.decodeUnknownOption(
+  Schema.Struct({
+    kind: Schema.Literal(GOOGLE_DISCOVERY_SOURCE_KIND),
+    name: Schema.optional(Schema.String),
+    namespace: Schema.optional(Schema.String),
+    enabled: Schema.optional(Schema.Boolean),
+    connection: Schema.Struct({
+      endpoint: Schema.optional(Schema.NullOr(Schema.String)),
+      auth: Schema.optional(Schema.Unknown),
+    }),
+    binding: Schema.Struct({
+      service: Schema.String,
+      version: Schema.String,
+      discoveryUrl: Schema.optional(Schema.NullOr(Schema.String)),
+      defaultHeaders: Schema.optional(
+        Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
+      ),
+      scopes: Schema.optional(Schema.Array(Schema.String)),
+    }),
+    config: Schema.optional(Schema.Unknown),
+  }),
+);
 
 export type GoogleDiscoverySourceStorage = {
   get: (input: {
@@ -518,6 +573,44 @@ const googleDiscoveryConnectInputFromAddInput = (
   auth: input.auth,
 });
 
+const googleDiscoveryStoredSourceDataFromLocalConfig = (input: {
+  config: unknown;
+  loadedConfig: LocalExecutorConfig | null;
+}): GoogleDiscoveryStoredSourceData => {
+  const current = decodeGoogleDiscoveryCurrentLocalConfigOption(input.config);
+  if (Option.isSome(current)) {
+    return current.value.config;
+  }
+
+  const legacy = decodeGoogleDiscoveryLegacyLocalConfigOption(input.config);
+  if (Option.isSome(legacy)) {
+    return storedSourceDataFromInput({
+      name:
+        legacy.value.name
+        ?? `${legacy.value.binding.service} ${legacy.value.binding.version}`,
+      service: legacy.value.binding.service,
+      version: legacy.value.binding.version,
+      discoveryUrl: legacy.value.binding.discoveryUrl ?? null,
+      defaultHeaders: legacy.value.binding.defaultHeaders ?? null,
+      scopes: legacy.value.binding.scopes ?? [],
+      auth: decodeCurrentOrLegacyLocalConfigAuth({
+        auth: legacy.value.connection.auth,
+        authSchema: GoogleDiscoveryConnectionAuthSchema,
+        loadedConfig: input.loadedConfig,
+        onLegacySecretRef: (tokenSecretRef) => ({
+          kind: "bearer",
+          tokenSecretRef,
+        }),
+        fallback: {
+          kind: "none",
+        },
+      }),
+    });
+  }
+
+  throw new Error("Unsupported Google Discovery local source config.");
+};
+
 export const googleDiscoverySdkPlugin = (options: {
   storage: GoogleDiscoverySourceStorage;
   oauthSessions: GoogleDiscoveryOAuthSessionStorage;
@@ -575,6 +668,18 @@ export const googleDiscoverySdkPlugin = (options: {
           }
         }),
     },
+    localConfig: {
+      toConfigSource: ({ source, stored }) =>
+        pluginLocalConfigSourceFromConfig({
+          source,
+          config: stored,
+        }),
+      recoverStored: ({ config, loadedConfig }) =>
+        googleDiscoveryStoredSourceDataFromLocalConfig({
+          config,
+          loadedConfig,
+        }),
+    },
     catalog: {
       kind: "imported",
       identity: ({ source }) => ({
@@ -584,20 +689,10 @@ export const googleDiscoverySdkPlugin = (options: {
       sync: ({ source, stored }) =>
         Effect.gen(function* () {
           if (stored === null) {
-            return createSourceCatalogSyncResult({
-              fragment: {
-                version: "ir.v1.fragment",
-              },
-              importMetadata: {
-                ...createCatalogImportMetadata({
-                  source,
-                  pluginKey: GOOGLE_DISCOVERY_SOURCE_KIND,
-                }),
-                importerVersion: "ir.v1.google_discovery",
-                sourceConfigHash: "missing",
-              },
-              sourceHash: null,
-            });
+            return yield* runtimeEffectError(
+              "plugins/google-discovery/sdk",
+              `Google Discovery source storage missing for ${source.id}`,
+            );
           }
 
           const headers = yield* resolveGoogleAuthHeaders({
@@ -725,6 +820,323 @@ export const googleDiscoverySdkPlugin = (options: {
         }),
     },
   },
+  tools: [
+    {
+      name: "getSourceConfig",
+      description: "Load the saved configuration for a Google Discovery source.",
+      inputSchema: GoogleDiscoverySourceIdInputSchema,
+      outputSchema: GoogleDiscoverySourceConfigPayloadSchema,
+      execute: ({ args, source }) => source.getSourceConfig(args.sourceId),
+    },
+    {
+      name: "createSource",
+      description: "Create a Google Discovery source.",
+      inputSchema: GoogleDiscoveryConnectInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.createSource(args),
+    },
+    {
+      name: "updateSource",
+      description: "Update a Google Discovery source configuration.",
+      inputSchema: GoogleDiscoveryUpdateSourceInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.updateSource(args),
+    },
+    {
+      name: "removeSource",
+      description:
+        "Remove a Google Discovery source and its stored plugin data.",
+      inputSchema: GoogleDiscoverySourceIdInputSchema,
+      outputSchema: Schema.Boolean,
+      execute: ({ args, source }) => source.removeSource(args.sourceId),
+    },
+    {
+      name: "startOAuth",
+      description: "Start a Google OAuth flow for a single API source.",
+      inputSchema: GoogleDiscoveryStartOAuthInputSchema,
+      outputSchema: GoogleDiscoveryStartOAuthResultSchema,
+      execute: ({ args }) =>
+        Effect.gen(function* () {
+          const discoveryUrl =
+            args.discoveryUrl?.trim()
+            || defaultGoogleDiscoveryUrl(args.service, args.version);
+          let scopes: ReadonlyArray<string>;
+          if (args.scopes.length > 0) {
+            const configuredScopes: Array<string> = args.scopes
+              .map((scope: string) => scope.trim())
+              .filter((scope: string) => scope.length > 0);
+            scopes = [...new Set(configuredScopes)];
+          } else {
+            scopes = yield* fetchGoogleDiscoveryDocumentWithHeaders({
+              url: discoveryUrl,
+              headers: args.defaultHeaders ?? {},
+            }).pipe(
+              Effect.flatMap((document) =>
+                inferScopesFromDiscoveryDocument({
+                  service: args.service,
+                  document,
+                })
+              ),
+            );
+          }
+          const sessionId = `gdisc_oauth_${crypto.randomUUID()}`;
+          const codeVerifier = createPkceCodeVerifier();
+
+          yield* options.oauthSessions.put({
+            sessionId,
+            value: decodeSession({
+              kind: "single",
+              service: args.service.trim(),
+              version: args.version.trim(),
+              discoveryUrl,
+              defaultHeaders: args.defaultHeaders,
+              scopes: [...scopes],
+              clientId: args.clientId.trim(),
+              clientSecretRef: args.clientSecretRef,
+              clientAuthentication: args.clientAuthentication,
+              redirectUrl: args.redirectUrl,
+              codeVerifier,
+            }),
+          });
+
+          return {
+            sessionId,
+            authorizationUrl: buildOAuth2AuthorizationUrl({
+              authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
+              clientId: args.clientId.trim(),
+              redirectUri: args.redirectUrl,
+              scopes,
+              state: sessionId,
+              codeVerifier,
+              extraParams: {
+                access_type: "offline",
+                prompt: "consent",
+                include_granted_scopes: "true",
+              },
+            }),
+            scopes: [...scopes],
+          };
+        }),
+    },
+    {
+      name: "startBatchOAuth",
+      description: "Start one Google OAuth flow for multiple API sources.",
+      inputSchema: GoogleDiscoveryStartBatchOAuthInputSchema,
+      outputSchema: GoogleDiscoveryStartOAuthResultSchema,
+      execute: ({ args }) =>
+        Effect.gen(function* () {
+          const normalizedSources: Array<GoogleDiscoveryBatchSourceInput> =
+            args.sources.map((source: GoogleDiscoveryBatchSourceInput) =>
+              normalizeBatchSourceInput(source)
+            );
+          if (normalizedSources.length === 0) {
+            return yield* runtimeEffectError(
+              "plugins/google-discovery/sdk",
+              "Select at least one Google API to connect.",
+            );
+          }
+
+          const inferredScopes: ReadonlyArray<ReadonlyArray<string>> = yield* Effect.forEach(
+            normalizedSources,
+            (source: GoogleDiscoveryBatchSourceInput) =>
+              resolveScopesForBatchSource({
+                source,
+              }),
+          );
+          const scopes: ReadonlyArray<string> = [
+            ...new Set(inferredScopes.flat()),
+          ];
+          const sessionId = `gdisc_oauth_${crypto.randomUUID()}`;
+          const codeVerifier = createPkceCodeVerifier();
+
+          yield* options.oauthSessions.put({
+            sessionId,
+            value: decodeSession({
+              kind: "batch",
+              sources: normalizedSources.map((
+                source: GoogleDiscoveryBatchSourceInput,
+                index: number,
+              ) => ({
+                ...source,
+                scopes: inferredScopes[index] ?? [],
+              })),
+              scopes,
+              clientId: args.clientId.trim(),
+              clientSecretRef: args.clientSecretRef,
+              clientAuthentication: args.clientAuthentication,
+              redirectUrl: args.redirectUrl,
+              codeVerifier,
+            }),
+          });
+
+          return {
+            sessionId,
+            authorizationUrl: buildOAuth2AuthorizationUrl({
+              authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
+              clientId: args.clientId.trim(),
+              redirectUri: args.redirectUrl,
+              scopes,
+              state: sessionId,
+              codeVerifier,
+              extraParams: {
+                access_type: "offline",
+                prompt: "consent",
+                include_granted_scopes: "true",
+              },
+            }),
+            scopes,
+          };
+        }),
+    },
+    {
+      name: "completeOAuth",
+      description:
+        "Complete a Google OAuth callback and return the connected auth payload.",
+      inputSchema: GoogleDiscoveryCompleteOAuthInputSchema,
+      outputSchema: GoogleDiscoveryOAuthPopupResultSchema,
+      execute: ({ args, source }) =>
+        Effect.gen(function* () {
+          if (args.error) {
+            return yield* runtimeEffectError(
+              "plugins/google-discovery/sdk",
+              args.errorDescription || args.error || "Google OAuth failed",
+            );
+          }
+          if (!args.code) {
+            return yield* runtimeEffectError(
+              "plugins/google-discovery/sdk",
+              "Missing Google OAuth code.",
+            );
+          }
+
+          const session = yield* options.oauthSessions.get(args.state);
+          if (session === null) {
+            return yield* runtimeEffectError(
+              "plugins/google-discovery/sdk",
+              `Google OAuth session not found: ${args.state}`,
+            );
+          }
+
+          const resolveSecretMaterial = yield* SecretMaterialResolverService;
+          const clientSecret = session.clientSecretRef
+            ? yield* resolveSecretMaterial({
+                ref: session.clientSecretRef,
+              })
+            : null;
+          const tokenResponse = yield* exchangeOAuth2AuthorizationCode({
+            tokenEndpoint: GOOGLE_TOKEN_ENDPOINT,
+            clientId: session.clientId,
+            clientAuthentication: session.clientAuthentication,
+            clientSecret,
+            redirectUri: session.redirectUrl,
+            codeVerifier: session.codeVerifier,
+            code: args.code,
+          });
+          const expiresAt =
+            typeof tokenResponse.expires_in === "number"
+              ? Date.now() + tokenResponse.expires_in * 1000
+              : null;
+          const storeSecretMaterial = yield* SecretMaterialStorerService;
+
+          if (session.kind === "single") {
+            const accessTokenRef = yield* storeSecretMaterial({
+              purpose: "oauth_access_token",
+              value: tokenResponse.access_token,
+              name: `${session.service} Google Access Token`,
+            });
+            const refreshTokenRef = tokenResponse.refresh_token
+              ? yield* storeSecretMaterial({
+                  purpose: "oauth_refresh_token",
+                  value: tokenResponse.refresh_token,
+                  name: `${session.service} Google Refresh Token`,
+                })
+              : null;
+
+            if (options.oauthSessions.remove) {
+              yield* options.oauthSessions.remove(args.state);
+            }
+
+            return {
+              type: "executor:oauth-result" as const,
+              ok: true as const,
+              sessionId: args.state,
+              mode: "single" as const,
+              auth: {
+                kind: "oauth2" as const,
+                clientId: session.clientId,
+                clientSecretRef: session.clientSecretRef,
+                clientAuthentication: session.clientAuthentication,
+                authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
+                tokenEndpoint: GOOGLE_TOKEN_ENDPOINT,
+                scopes: session.scopes,
+                accessTokenRef,
+                refreshTokenRef,
+                expiresAt,
+              },
+            };
+          }
+
+          const createdSources = [];
+          for (const sessionSource of session.sources) {
+            const accessTokenRef = yield* storeSecretMaterial({
+              purpose: "oauth_access_token",
+              value: tokenResponse.access_token,
+              name: `${sessionSource.service} Google Access Token`,
+            });
+            const refreshTokenRef = tokenResponse.refresh_token
+              ? yield* storeSecretMaterial({
+                  purpose: "oauth_refresh_token",
+                  value: tokenResponse.refresh_token,
+                  name: `${sessionSource.service} Google Refresh Token`,
+                })
+              : null;
+
+            const createdSource = yield* source.createSource({
+              name: sessionSource.name,
+              service: sessionSource.service,
+              version: sessionSource.version,
+              discoveryUrl: sessionSource.discoveryUrl,
+              defaultHeaders: sessionSource.defaultHeaders,
+              scopes:
+                sessionSource.scopes.length > 0
+                  ? sessionSource.scopes
+                  : session.scopes,
+              auth: {
+                kind: "oauth2",
+                clientId: session.clientId,
+                clientSecretRef: session.clientSecretRef,
+                clientAuthentication: session.clientAuthentication,
+                authorizationEndpoint: GOOGLE_AUTHORIZATION_ENDPOINT,
+                tokenEndpoint: GOOGLE_TOKEN_ENDPOINT,
+                scopes:
+                  sessionSource.scopes.length > 0
+                    ? sessionSource.scopes
+                    : session.scopes,
+                accessTokenRef,
+                refreshTokenRef,
+                expiresAt,
+              },
+            });
+            createdSources.push(createdSource);
+          }
+
+          if (options.oauthSessions.remove) {
+            yield* options.oauthSessions.remove(args.state);
+          }
+
+          return {
+            type: "executor:oauth-result" as const,
+            ok: true as const,
+            sessionId: args.state,
+            mode: "batch" as const,
+            sources: createdSources.map((createdSource) => ({
+              id: createdSource.id,
+              name: createdSource.name,
+            })),
+          };
+        }),
+    },
+  ] as const,
   extendExecutor: ({ source, executor }) => {
     const provideRuntime = <A>(
       effect: Effect.Effect<A, Error, any>,

@@ -38,17 +38,41 @@ export const deriveLocalSourceId = (
   return SourceIdSchema.make(candidate);
 };
 
+export const configSourceBaseFromLocalSource = (input: {
+  source: Source;
+}): Omit<LocalConfigSource, "kind" | "config" | "connection" | "binding"> => ({
+  ...(trimOrNull(input.source.name) !== trimOrNull(input.source.id)
+    ? { name: input.source.name }
+    : {}),
+  ...(trimOrNull(input.source.namespace) !== trimOrNull(input.source.id)
+    ? { namespace: input.source.namespace ?? undefined }
+    : {}),
+  ...(input.source.enabled === false ? { enabled: false } : {}),
+});
+
 export const configSourceFromLocalSource = (input: {
   source: Source;
+  existingConfig?: LocalConfigSource | null;
 }): LocalConfigSource => {
   return {
+    ...configSourceBaseFromLocalSource({
+      source: input.source,
+    }),
     kind: input.source.kind as LocalConfigSource["kind"],
-    ...(trimOrNull(input.source.name) !== trimOrNull(input.source.id)
-      ? { name: input.source.name }
+    ...(input.existingConfig?.config !== undefined
+      ? {
+          config: cloneJson(input.existingConfig.config),
+        }
       : {}),
-    ...(trimOrNull(input.source.namespace) !== trimOrNull(input.source.id)
-      ? { namespace: input.source.namespace ?? undefined }
+    ...(input.existingConfig?.connection !== undefined
+      ? {
+          connection: cloneJson(input.existingConfig.connection),
+        }
       : {}),
-    ...(input.source.enabled === false ? { enabled: false } : {}),
+    ...(input.existingConfig?.binding !== undefined
+      ? {
+          binding: cloneJson(input.existingConfig.binding),
+        }
+      : {}),
   } as LocalConfigSource;
 };

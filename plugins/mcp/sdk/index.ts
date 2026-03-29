@@ -21,13 +21,21 @@ import {
   createSourceCatalogSyncResult,
   normalizeSourceDiscoveryUrl,
   probeHeadersFromAuth,
+  SourceTransportSchema,
+  StringArraySchema,
+  StringMapSchema,
   type SourceDiscoveryResult,
 } from "@executor/source-core";
-import type { Source } from "@executor/platform-sdk/schema";
+import {
+  type Source,
+  SourceSchema,
+} from "@executor/platform-sdk/schema";
 import {
   defineExecutorSourcePlugin,
 } from "@executor/platform-sdk/plugins";
 import {
+  createPluginLocalConfigEntrySchema,
+  pluginLocalConfigSourceFromConfig,
   SecretMaterialDeleterService,
   SecretMaterialResolverService,
   SecretMaterialStorerService,
@@ -36,9 +44,17 @@ import {
   runtimeEffectError,
 } from "@executor/platform-sdk/runtime";
 import {
+  McpConnectInputSchema,
   McpConnectionAuthSchema,
+  McpDiscoverInputSchema,
+  McpDiscoverResultSchema,
+  McpOAuthPopupResultSchema,
   McpOAuthSessionSchema,
+  McpSourceConfigPayloadSchema,
+  McpStartOAuthInputSchema,
+  McpStartOAuthResultSchema,
   McpStoredSourceDataSchema,
+  McpUpdateSourceInputSchema,
   deriveMcpNamespace,
   resolveMcpEndpoint,
   type McpConnectInput,
@@ -54,6 +70,7 @@ import {
   type McpUpdateSourceInput,
 } from "@executor/plugin-mcp-shared";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import {
@@ -82,6 +99,16 @@ import {
 
 const decodeStoredSourceData = Schema.decodeUnknownSync(McpStoredSourceDataSchema);
 const decodeSession = Schema.decodeUnknownSync(McpOAuthSessionSchema);
+
+const McpSourceIdInputSchema = Schema.Struct({
+  sourceId: Schema.String,
+});
+const McpCompleteOAuthInputSchema = Schema.Struct({
+  state: Schema.String,
+  code: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+  errorDescription: Schema.optional(Schema.String),
+});
 
 const McpExecutableBindingSchema = Schema.Struct({
   toolId: Schema.String,
@@ -222,6 +249,38 @@ const normalizeStringArray = (
   return normalized.length > 0 ? normalized : null;
 };
 
+const decodeMcpAuthOption = Schema.decodeUnknownOption(McpConnectionAuthSchema);
+const decodeMcpCurrentLocalConfigOption = Schema.decodeUnknownOption(
+  createPluginLocalConfigEntrySchema({
+    kind: "mcp",
+    config: McpStoredSourceDataSchema,
+  }),
+);
+const decodeMcpLegacyLocalConfigOption = Schema.decodeUnknownOption(
+  Schema.Struct({
+    kind: Schema.Literal("mcp"),
+    name: Schema.optional(Schema.String),
+    namespace: Schema.optional(Schema.String),
+    enabled: Schema.optional(Schema.Boolean),
+    connection: Schema.optional(
+      Schema.Struct({
+        endpoint: Schema.optional(Schema.NullOr(Schema.String)),
+        auth: Schema.optional(Schema.Unknown),
+      }),
+    ),
+    binding: Schema.Struct({
+      transport: Schema.optional(Schema.NullOr(SourceTransportSchema)),
+      queryParams: Schema.optional(Schema.NullOr(StringMapSchema)),
+      headers: Schema.optional(Schema.NullOr(StringMapSchema)),
+      command: Schema.optional(Schema.NullOr(Schema.String)),
+      args: Schema.optional(Schema.NullOr(StringArraySchema)),
+      env: Schema.optional(Schema.NullOr(StringMapSchema)),
+      cwd: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+    config: Schema.optional(Schema.Unknown),
+  }),
+);
+
 const normalizeStoredSourceData = (
   input: McpConnectInput | McpSourceConfigPayload,
 ): Effect.Effect<McpStoredSourceData, Error, never> =>
@@ -331,6 +390,51 @@ const mcpConnectInputFromAddInput = (
   cwd: input.cwd,
   auth: input.auth,
 });
+
+const mcpStoredSourceDataFromLocalConfig = (
+  config: unknown,
+): Effect.Effect<McpStoredSourceData, Error, never> => {
+  const current = decodeMcpCurrentLocalConfigOption(config);
+  if (Option.isSome(current)) {
+    return Effect.succeed(current.value.config);
+  }
+
+  const legacy = decodeMcpLegacyLocalConfigOption(config);
+  if (Option.isSome(legacy)) {
+    const auth = decodeMcpAuthOption(legacy.value.connection?.auth);
+    if (
+      legacy.value.connection?.auth !== undefined &&
+      Option.isNone(auth)
+    ) {
+      return runtimeEffectError(
+        "plugins/mcp/sdk",
+        "Unsupported MCP auth configuration in local source config.",
+      );
+    }
+
+    return normalizeStoredSourceData({
+      name: legacy.value.name ?? "MCP",
+      endpoint: legacy.value.connection?.endpoint ?? null,
+      transport: legacy.value.binding.transport ?? null,
+      queryParams: legacy.value.binding.queryParams ?? null,
+      headers: legacy.value.binding.headers ?? null,
+      command: legacy.value.binding.command ?? null,
+      args: legacy.value.binding.args ?? null,
+      env: legacy.value.binding.env ?? null,
+      cwd: legacy.value.binding.cwd ?? null,
+      auth: Option.isSome(auth)
+        ? auth.value
+        : {
+            kind: "none",
+          },
+    });
+  }
+
+  return runtimeEffectError(
+    "plugins/mcp/sdk",
+    "Unsupported MCP local source config.",
+  );
+};
 
 const mcpCatalogOperationFromManifestEntry = (input: {
   entry: McpToolManifestEntry;
@@ -658,6 +762,15 @@ export const mcpSdkPlugin = (
           }
         }),
     },
+    localConfig: {
+      toConfigSource: ({ source, stored }) =>
+        pluginLocalConfigSourceFromConfig({
+          source,
+          config: stored,
+        }),
+      recoverStored: ({ config }) =>
+        mcpStoredSourceDataFromLocalConfig(config),
+    },
     catalog: {
       kind: "imported",
       identity: ({ source }) => ({
@@ -667,20 +780,10 @@ export const mcpSdkPlugin = (
       sync: ({ source, stored }) =>
         Effect.gen(function* () {
           if (stored === null) {
-            return createSourceCatalogSyncResult({
-              fragment: {
-                version: "ir.v1.fragment",
-              },
-              importMetadata: {
-                ...createCatalogImportMetadata({
-                  source,
-                  pluginKey: "mcp",
-                }),
-                importerVersion: "ir.v1.mcp",
-                sourceConfigHash: "missing",
-              },
-              sourceHash: null,
-            });
+            return yield* runtimeEffectError(
+              "plugins/mcp/sdk",
+              `MCP source storage missing for ${source.id}`,
+            );
           }
 
           const connector = yield* createStoredMcpConnector({
@@ -853,6 +956,163 @@ export const mcpSdkPlugin = (
         }),
     },
   },
+  tools: [
+    {
+      name: "discoverSource",
+      description: "Probe an MCP endpoint before creating a source.",
+      inputSchema: McpDiscoverInputSchema,
+      outputSchema: McpDiscoverResultSchema,
+      execute: ({ args }) =>
+        Effect.gen(function* () {
+          const normalizedUrl = normalizeSourceDiscoveryUrl(args.endpoint);
+          const discovered = yield* detectMcpSource({
+            normalizedUrl,
+            headers: probeHeadersFromAuth(args.probeAuth ?? null),
+          });
+          return discovered satisfies SourceDiscoveryResult | null;
+        }),
+    },
+    {
+      name: "getSourceConfig",
+      description: "Load the saved configuration for an MCP source.",
+      inputSchema: McpSourceIdInputSchema,
+      outputSchema: McpSourceConfigPayloadSchema,
+      execute: ({ args, source }) => source.getSourceConfig(args.sourceId),
+    },
+    {
+      name: "createSource",
+      description: "Create an MCP source.",
+      inputSchema: McpConnectInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.createSource(args),
+    },
+    {
+      name: "updateSource",
+      description: "Update an MCP source configuration.",
+      inputSchema: McpUpdateSourceInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.updateSource(args),
+    },
+    {
+      name: "removeSource",
+      description: "Remove an MCP source and its stored plugin data.",
+      inputSchema: McpSourceIdInputSchema,
+      outputSchema: Schema.Boolean,
+      execute: ({ args, source }) => source.removeSource(args.sourceId),
+    },
+    {
+      name: "startOAuth",
+      description: "Start an MCP OAuth flow for a source connection.",
+      inputSchema: McpStartOAuthInputSchema,
+      outputSchema: McpStartOAuthResultSchema,
+      execute: ({ args }) =>
+        Effect.gen(function* () {
+          const endpoint = resolveMcpEndpoint({
+            endpoint: args.endpoint.trim(),
+            queryParams: args.queryParams,
+          });
+          const sessionId = `mcp_oauth_${crypto.randomUUID()}`;
+          const started = yield* startMcpOAuthAuthorization({
+            endpoint,
+            redirectUrl: args.redirectUrl,
+            state: sessionId,
+          });
+
+          yield* options.oauthSessions.put({
+            sessionId,
+            value: decodeSession({
+              endpoint,
+              redirectUrl: args.redirectUrl,
+              codeVerifier: started.codeVerifier,
+              resourceMetadataUrl: started.resourceMetadataUrl,
+              authorizationServerUrl: started.authorizationServerUrl,
+              resourceMetadata: started.resourceMetadata,
+              authorizationServerMetadata: started.authorizationServerMetadata,
+              clientInformation: started.clientInformation,
+            }),
+          });
+
+          return {
+            sessionId,
+            authorizationUrl: started.authorizationUrl,
+          };
+        }),
+    },
+    {
+      name: "completeOAuth",
+      description: "Complete an MCP OAuth callback and return the connected auth payload.",
+      inputSchema: McpCompleteOAuthInputSchema,
+      outputSchema: McpOAuthPopupResultSchema,
+      execute: ({ args }) =>
+        Effect.gen(function* () {
+          if (args.error) {
+            return yield* runtimeEffectError(
+              "plugins/mcp/sdk",
+              args.errorDescription || args.error || "MCP OAuth failed",
+            );
+          }
+          if (!args.code) {
+            return yield* runtimeEffectError(
+              "plugins/mcp/sdk",
+              "Missing MCP OAuth code.",
+            );
+          }
+
+          const session = yield* options.oauthSessions.get(args.state);
+          if (session === null) {
+            return yield* runtimeEffectError(
+              "plugins/mcp/sdk",
+              `MCP OAuth session not found: ${args.state}`,
+            );
+          }
+
+          const exchanged = yield* exchangeMcpOAuthAuthorizationCode({
+            session,
+            code: args.code,
+          });
+          const storeSecretMaterial = yield* SecretMaterialStorerService;
+          const accessTokenRef = yield* storeSecretMaterial({
+            purpose: "oauth_access_token",
+            value: exchanged.tokens.access_token,
+            name: "MCP Access Token",
+          });
+          const refreshTokenRef = exchanged.tokens.refresh_token
+            ? yield* storeSecretMaterial({
+                purpose: "oauth_refresh_token",
+                value: exchanged.tokens.refresh_token,
+                name: "MCP Refresh Token",
+              })
+            : null;
+
+          if (options.oauthSessions.remove) {
+            yield* options.oauthSessions.remove(args.state);
+          }
+
+          return {
+            type: "executor:oauth-result" as const,
+            ok: true as const,
+            sessionId: args.state,
+            auth: {
+              kind: "oauth2" as const,
+              redirectUri: session.redirectUrl,
+              accessTokenRef,
+              refreshTokenRef,
+              tokenType: exchanged.tokens.token_type ?? "Bearer",
+              expiresAt:
+                typeof exchanged.tokens.expires_in === "number"
+                  ? Date.now() + exchanged.tokens.expires_in * 1000
+                  : null,
+              scope: exchanged.tokens.scope ?? null,
+              resourceMetadataUrl: session.resourceMetadataUrl,
+              authorizationServerUrl: session.authorizationServerUrl,
+              resourceMetadata: session.resourceMetadata,
+              authorizationServerMetadata: session.authorizationServerMetadata,
+              clientInformation: session.clientInformation,
+            },
+          };
+        }),
+    },
+  ] as const,
   extendExecutor: ({ source, executor }) => {
     const provideRuntime = <A>(
       effect: Effect.Effect<A, Error, any>,

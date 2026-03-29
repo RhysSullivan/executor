@@ -1,21 +1,36 @@
 import { createHash } from "node:crypto";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import {
   createCatalogImportMetadata,
   createSourceCatalogSyncResult,
 } from "@executor/source-core";
-import type { Source } from "@executor/platform-sdk/schema";
+import type {
+  LocalExecutorConfig,
+  Source,
+} from "@executor/platform-sdk/schema";
+import {
+  SourceSchema,
+} from "@executor/platform-sdk/schema";
 import {
   defineExecutorSourcePlugin,
 } from "@executor/platform-sdk/plugins";
 import {
+  createPluginLocalConfigEntrySchema,
+  decodeCurrentOrLegacyLocalConfigAuth,
+  pluginLocalConfigSourceFromConfig,
   runtimeEffectError,
   SecretMaterialResolverService,
 } from "@executor/platform-sdk/runtime";
 import {
   OpenApiConnectionAuthSchema,
+  OpenApiConnectInputSchema,
+  OpenApiPreviewRequestSchema,
+  OpenApiPreviewResponseSchema,
+  OpenApiSourceConfigPayloadSchema,
+  OpenApiUpdateSourceInputSchema,
   deriveOpenApiNamespace,
   previewOpenApiDocument,
   type OpenApiConnectInput,
@@ -45,6 +60,10 @@ import {
   OpenApiToolProviderDataSchema,
   type OpenApiToolProviderData,
 } from "./types";
+
+const OpenApiSourceIdInputSchema = Schema.Struct({
+  sourceId: Schema.String,
+});
 
 const stableSourceHash = (value: OpenApiStoredSourceData): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 24);
@@ -130,6 +149,40 @@ const normalizeStoredSourceData = (
   auth: normalizeOpenApiAuth(stored.auth as Record<string, unknown>),
 });
 
+const OpenApiLocalSourceConfigSchema = Schema.Struct({
+  specUrl: Schema.String,
+  baseUrl: Schema.NullOr(Schema.String),
+  auth: OpenApiConnectionAuthSchema,
+  defaultHeaders: Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
+});
+
+const decodeOpenApiCurrentLocalConfigOption = Schema.decodeUnknownOption(
+  createPluginLocalConfigEntrySchema({
+    kind: "openapi",
+    config: OpenApiLocalSourceConfigSchema,
+  }),
+);
+
+const decodeOpenApiLegacyLocalConfigOption = Schema.decodeUnknownOption(
+  Schema.Struct({
+    kind: Schema.Literal("openapi"),
+    name: Schema.optional(Schema.String),
+    namespace: Schema.optional(Schema.String),
+    enabled: Schema.optional(Schema.Boolean),
+    connection: Schema.Struct({
+      endpoint: Schema.optional(Schema.NullOr(Schema.String)),
+      auth: Schema.optional(Schema.Unknown),
+    }),
+    binding: Schema.Struct({
+      specUrl: Schema.String,
+      defaultHeaders: Schema.optional(
+        Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
+      ),
+    }),
+    config: Schema.optional(Schema.Unknown),
+  }),
+);
+
 const createStoredSourceData = (
   input: OpenApiConnectInput,
 ): OpenApiStoredSourceData => ({
@@ -157,6 +210,47 @@ const configFromStoredSourceData = (
   baseUrl: stored.baseUrl,
   auth: stored.auth,
 });
+
+const openApiStoredSourceDataFromLocalConfig = (input: {
+  config: unknown;
+  loadedConfig: LocalExecutorConfig | null;
+}): OpenApiStoredSourceData => {
+  const current = decodeOpenApiCurrentLocalConfigOption(input.config);
+  if (Option.isSome(current)) {
+    return normalizeStoredSourceData({
+      ...current.value.config,
+      etag: null,
+      lastSyncAt: null,
+    });
+  }
+
+  const legacy = decodeOpenApiLegacyLocalConfigOption(input.config);
+  if (Option.isSome(legacy)) {
+    return normalizeStoredSourceData({
+      specUrl: legacy.value.binding.specUrl.trim(),
+      baseUrl: legacy.value.connection.endpoint?.trim() || null,
+      auth: decodeCurrentOrLegacyLocalConfigAuth({
+        auth: legacy.value.connection.auth,
+        authSchema: OpenApiConnectionAuthSchema,
+        loadedConfig: input.loadedConfig,
+        onLegacySecretRef: (tokenSecretRef) => ({
+          kind: "bearer",
+          tokenSecretRef,
+          headerName: null,
+          prefix: null,
+        }),
+        fallback: {
+          kind: "none",
+        },
+      }),
+      defaultHeaders: legacy.value.binding.defaultHeaders ?? null,
+      etag: null,
+      lastSyncAt: null,
+    });
+  }
+
+  throw new Error("Unsupported OpenAPI local source config.");
+};
 
 const decodeProviderData = Schema.decodeUnknownSync(OpenApiToolProviderDataSchema);
 
@@ -491,6 +585,23 @@ export const openApiSdkPlugin = (
       toConfig: ({ source, stored }) =>
         configFromStoredSourceData(source, normalizeStoredSourceData(stored)),
     },
+    localConfig: {
+      toConfigSource: ({ source, stored }) =>
+        pluginLocalConfigSourceFromConfig({
+          source,
+          config: {
+            specUrl: stored.specUrl,
+            baseUrl: stored.baseUrl,
+            auth: stored.auth,
+            defaultHeaders: stored.defaultHeaders,
+          },
+        }),
+      recoverStored: ({ config, loadedConfig }) =>
+        openApiStoredSourceDataFromLocalConfig({
+          config,
+          loadedConfig,
+        }),
+    },
     catalog: {
       kind: "imported",
       identity: ({ source }) => ({
@@ -500,20 +611,10 @@ export const openApiSdkPlugin = (
       sync: ({ source, stored }) =>
         Effect.gen(function* () {
           if (stored === null) {
-            return createSourceCatalogSyncResult({
-              fragment: {
-                version: "ir.v1.fragment",
-              },
-              importMetadata: {
-                ...createCatalogImportMetadata({
-                  source,
-                  pluginKey: "openapi",
-                }),
-                importerVersion: "ir.v1.openapi",
-                sourceConfigHash: "missing",
-              },
-              sourceHash: null,
-            });
+            return yield* runtimeEffectError(
+              "plugins/openapi/sdk",
+              `OpenAPI source storage missing for ${source.id}`,
+            );
           }
 
           const normalizedStored = normalizeStoredSourceData(stored);
@@ -713,6 +814,55 @@ export const openApiSdkPlugin = (
         }),
     },
   },
+  tools: [
+    {
+      name: "previewDocument",
+      description: "Preview an OpenAPI document before creating a source.",
+      inputSchema: OpenApiPreviewRequestSchema,
+      outputSchema: OpenApiPreviewResponseSchema,
+      execute: ({ args }) =>
+        Effect.tryPromise({
+          try: () => previewOpenApiDocument(args),
+          catch: (cause) =>
+            cause instanceof Error ? cause : new Error(String(cause)),
+        }),
+    },
+    {
+      name: "getSourceConfig",
+      description: "Load the saved configuration for an OpenAPI source.",
+      inputSchema: OpenApiSourceIdInputSchema,
+      outputSchema: OpenApiSourceConfigPayloadSchema,
+      execute: ({ args, source }) => source.getSourceConfig(args.sourceId),
+    },
+    {
+      name: "createSource",
+      description: "Create an OpenAPI source.",
+      inputSchema: OpenApiConnectInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.createSource(args),
+    },
+    {
+      name: "updateSource",
+      description: "Update an OpenAPI source configuration.",
+      inputSchema: OpenApiUpdateSourceInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.updateSource(args),
+    },
+    {
+      name: "refreshSource",
+      description: "Refresh an OpenAPI source and resync its catalog.",
+      inputSchema: OpenApiSourceIdInputSchema,
+      outputSchema: SourceSchema,
+      execute: ({ args, source }) => source.refreshSource(args.sourceId),
+    },
+    {
+      name: "removeSource",
+      description: "Remove an OpenAPI source and its stored plugin data.",
+      inputSchema: OpenApiSourceIdInputSchema,
+      outputSchema: Schema.Boolean,
+      execute: ({ args, source }) => source.removeSource(args.sourceId),
+    },
+  ] as const,
   extendExecutor: ({ source, executor }) => {
     const provideRuntime = <A>(
       effect: Effect.Effect<A, Error, any>,

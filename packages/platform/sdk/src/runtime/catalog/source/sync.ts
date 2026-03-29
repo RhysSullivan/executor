@@ -22,6 +22,7 @@ import {
 } from "../../scope-state";
 import {
   getSourceContributionForSource,
+  ExecutorPluginRegistryService,
 } from "../../sources/source-plugins";
 import {
   snapshotFromSourceCatalogSyncResult,
@@ -39,6 +40,7 @@ const shouldIndexSource = (source: Source): boolean =>
   && source.status === "connected";
 
 type RuntimeSourceCatalogSyncDeps = {
+  pluginRegistry: Effect.Effect.Success<typeof ExecutorPluginRegistryService>;
   runtimeLocalScope: RuntimeLocalScopeState;
   scopeStateStore: ScopeStateStoreShape;
   sourceArtifactStore: SourceArtifactStoreShape;
@@ -46,6 +48,7 @@ type RuntimeSourceCatalogSyncDeps = {
 };
 
 type SourceCatalogSyncServices =
+  | ExecutorPluginRegistryService
   | RuntimeLocalScopeService
   | ScopeStateStore
   | SourceArtifactStore
@@ -112,7 +115,10 @@ const syncSourceCatalogWithDeps = (
       return;
     }
 
-    const definition = getSourceContributionForSource(input.source);
+    const definition = getSourceContributionForSource(
+      deps.pluginRegistry,
+      input.source,
+    );
     const irModel = yield* definition.syncCatalog({
       source: input.source,
     });
@@ -165,12 +171,14 @@ export const syncSourceCatalog = (input: {
 }): Effect.Effect<void, Error, SourceCatalogSyncServices> =>
   Effect.gen(function* () {
     const runtimeLocalScope = yield* RuntimeLocalScopeService;
+    const pluginRegistry = yield* ExecutorPluginRegistryService;
     const scopeStateStore = yield* ScopeStateStore;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceTypeDeclarationsRefresher =
       yield* SourceTypeDeclarationsRefresherService;
     return yield* syncSourceCatalogWithDeps(
       {
+        pluginRegistry,
         runtimeLocalScope,
         scopeStateStore,
         sourceArtifactStore,
@@ -187,11 +195,13 @@ export const RuntimeSourceCatalogSyncLive = Layer.effect(
   RuntimeSourceCatalogSyncService,
   Effect.gen(function* () {
     const runtimeLocalScope = yield* RuntimeLocalScopeService;
+    const pluginRegistry = yield* ExecutorPluginRegistryService;
     const scopeStateStore = yield* ScopeStateStore;
     const sourceArtifactStore = yield* SourceArtifactStore;
     const sourceTypeDeclarationsRefresher =
       yield* SourceTypeDeclarationsRefresherService;
     const deps: RuntimeSourceCatalogSyncDeps = {
+      pluginRegistry,
       runtimeLocalScope,
       scopeStateStore,
       sourceArtifactStore,

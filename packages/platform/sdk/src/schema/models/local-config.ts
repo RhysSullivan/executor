@@ -56,10 +56,18 @@ export const LocalConfigSecretInputSchema = Schema.Union(
   LocalConfigExplicitSecretRefSchema,
 );
 
+export const LocalConfigSourceConnectionSchema = Schema.Struct({
+  endpoint: Schema.optional(Schema.NullOr(Schema.String)),
+  auth: Schema.optional(Schema.Unknown),
+});
+
 const LocalConfigSourceEntryBaseSchema = Schema.Struct({
   name: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   enabled: Schema.optional(Schema.Boolean),
+  config: Schema.optional(Schema.Unknown),
+  connection: Schema.optional(LocalConfigSourceConnectionSchema),
+  binding: Schema.optional(Schema.Unknown),
 });
 
 export const LocalConfigSourceSchema = Schema.extend(

@@ -41,6 +41,9 @@ import type {
   InstanceConfig,
 } from "../local/contracts";
 import type {
+  ExecutorSdkPluginRegistry,
+} from "../plugins";
+import type {
   ExecutorScopeContext,
   ExecutorScopeDescriptor,
 } from "../scope";
@@ -87,6 +90,10 @@ import {
 import {
   RuntimeSourceStoreLive,
 } from "./sources/source-store";
+import {
+  emptyExecutorPluginRegistry,
+  ExecutorPluginRegistryLive,
+} from "./sources/source-plugins";
 
 export * from "./execution/state";
 export * from "./secret-stores";
@@ -106,6 +113,8 @@ export * from "./source-artifacts";
 export * from "./scope-config";
 export * from "./scope-state";
 export * from "./scope/config-secrets";
+export * from "./sources/source-store/config";
+export * from "./sources/source-store/plugin-local-config";
 export {
   LocalInstanceConfigService,
   SecretMaterialDeleterService,
@@ -139,7 +148,10 @@ export type {
 export {
   registeredSourceContributions,
   registeredSecretStoreContributions,
+  registeredManagementToolContributions,
   hasRegisteredExternalSourcePlugins,
+  ExecutorPluginRegistryLive,
+  ExecutorPluginRegistryService,
   getSourceContribution,
   getSourceContributionForSource,
   getSecretStoreContribution,
@@ -150,6 +162,7 @@ export type ExecutorRuntimeOptions = {
   executionResolver?: ResolveExecutionEnvironment;
   resolveSecretMaterial?: ResolveSecretMaterial;
   getLocalServerBaseUrl?: () => string | undefined;
+  pluginRegistry?: ExecutorSdkPluginRegistry;
 };
 
 type ResolveExecutionEnvironment = import("./execution/state").ResolveExecutionEnvironment;
@@ -185,7 +198,11 @@ export type BoundScopeStateStore = {
 };
 
 export type BoundSourceArtifactStore = {
-  build: SourceArtifactStoreShape["build"];
+  build: (input: {
+    source: Parameters<SourceArtifactStoreShape["build"]>[0]["source"];
+    syncResult: Parameters<SourceArtifactStoreShape["build"]>[0]["syncResult"];
+    pluginRegistry?: ExecutorSdkPluginRegistry;
+  }) => LocalSourceArtifact;
   read: (
     sourceId: string,
   ) => Effect.Effect<LocalSourceArtifact | null, Error, never>;
@@ -296,8 +313,14 @@ const toScopeStateStoreShape = (
 
 const toSourceArtifactStoreShape = (
   input: BoundSourceArtifactStore,
+  pluginRegistry: ExecutorSdkPluginRegistry,
 ): SourceArtifactStoreShape => ({
-  build: input.build,
+  build: ({ source, syncResult }) =>
+    input.build({
+      source,
+      syncResult,
+      pluginRegistry,
+    }),
   read: ({ sourceId }) => input.read(sourceId),
   write: ({ sourceId, artifact }) => input.write({ sourceId, artifact }),
   remove: ({ sourceId }) => input.remove(sourceId),
@@ -330,11 +353,16 @@ export const createExecutorRuntimeLayer = (
     liveExecutionManager: ReturnType<typeof createLiveExecutionManager>;
   },
 ) => {
+  const pluginRegistry =
+    input.pluginRegistry ?? emptyExecutorPluginRegistry();
   const storageLayer = makeLocalStorageLayer({
     installationStore: toInstallationStoreShape(input.storage.installation),
     scopeConfigStore: toScopeConfigStoreShape(input.storage.scopeConfig),
     scopeStateStore: toScopeStateStoreShape(input.storage.scopeState),
-    sourceArtifactStore: toSourceArtifactStoreShape(input.storage.sourceArtifacts),
+    sourceArtifactStore: toSourceArtifactStoreShape(
+      input.storage.sourceArtifacts,
+      pluginRegistry,
+    ),
   });
   const localToolRuntimeLayer = Layer.succeed(
     LocalToolRuntimeLoaderService,
@@ -353,6 +381,7 @@ export const createExecutorRuntimeLayer = (
 
   const baseLayer = Layer.mergeAll(
     Layer.succeed(ExecutorStateStore, toExecutorStateStoreShape(input.storage)),
+    ExecutorPluginRegistryLive(pluginRegistry),
     RuntimeLocalScopeLive(input.localScopeState),
     storageLayer,
     Layer.succeed(LiveExecutionManagerService, input.liveExecutionManager),
@@ -410,6 +439,7 @@ export type ExecutorRuntime = {
   scope: ExecutorScopeContext;
   storage: RuntimeStorageServices;
   localInstallation: LocalInstallation;
+  pluginRegistry: ExecutorSdkPluginRegistry;
   managedRuntime: ManagedRuntime.ManagedRuntime<any, never>;
   runtimeLayer: ExecutorRuntimeLayer;
   close: () => Promise<void>;
@@ -425,6 +455,8 @@ export const createExecutorRuntimeFromServices = (input: {
   services: ExecutorRuntimeServices;
 } & ExecutorRuntimeOptions): Effect.Effect<ExecutorRuntime, Error> =>
   (Effect.gen(function* () {
+    const pluginRegistry =
+      input.pluginRegistry ?? emptyExecutorPluginRegistry();
     const localInstallation = yield* input.services.storage.installation
       .getOrProvision()
       .pipe(Effect.mapError(toRuntimeBootstrapError));
@@ -457,6 +489,7 @@ export const createExecutorRuntimeFromServices = (input: {
             ),
             sourceArtifactStore: toSourceArtifactStoreShape(
               input.services.storage.sourceArtifacts,
+              pluginRegistry,
             ),
           }),
         ),
@@ -499,6 +532,7 @@ export const createExecutorRuntimeFromServices = (input: {
       scope: runtimeWorkspace,
       storage: input.services.storage,
       localInstallation,
+      pluginRegistry,
       managedRuntime,
       runtimeLayer: concreteRuntimeLayer as ExecutorRuntimeLayer,
       close: async () => {

@@ -1,35 +1,59 @@
+import * as Context from "effect/Context";
+import * as Layer from "effect/Layer";
+
 import {
   registerExecutorSdkPlugins,
   type ExecutorSdkPlugin,
+  type ExecutorSdkPluginRegistry,
 } from "../../../plugins";
 
-let configuredSourcePlugins: readonly ExecutorSdkPlugin<any, any>[] = [];
-let registry = registerExecutorSdkPlugins(configuredSourcePlugins);
+export class ExecutorPluginRegistryService extends Context.Tag(
+  "#runtime/ExecutorPluginRegistryService",
+)<ExecutorPluginRegistryService, ExecutorSdkPluginRegistry>() {}
 
-const refreshRegistry = () => {
-  registry = registerExecutorSdkPlugins(configuredSourcePlugins);
-};
+export const createExecutorPluginRegistry = (
+  plugins: readonly ExecutorSdkPlugin<any, any>[] = [],
+): ExecutorSdkPluginRegistry => registerExecutorSdkPlugins(plugins);
 
-export const configureExecutorSourcePlugins = (
-  plugins: readonly ExecutorSdkPlugin<any, any>[],
-): void => {
-  configuredSourcePlugins = plugins;
-  refreshRegistry();
-};
+export const emptyExecutorPluginRegistry = (): ExecutorSdkPluginRegistry =>
+  createExecutorPluginRegistry();
 
-export const registeredSourceContributions = () => registry.sources;
-export const registeredSecretStoreContributions = () => registry.secretStores;
+export const ExecutorPluginRegistryLive = (
+  registry: ExecutorSdkPluginRegistry,
+) => Layer.succeed(ExecutorPluginRegistryService, registry);
 
-export const getSourceContribution = (kind: string) =>
-  registry.getSourceContribution(kind);
+export const registeredSourceContributions = (
+  registry: ExecutorSdkPluginRegistry,
+) => registry.sources;
+
+export const registeredSecretStoreContributions = (
+  registry: ExecutorSdkPluginRegistry,
+) => registry.secretStores;
+
+export const registeredManagementToolContributions = (
+  registry: ExecutorSdkPluginRegistry,
+) => registry.managementTools;
+
+export const getSourceContribution = (
+  registry: ExecutorSdkPluginRegistry,
+  kind: string,
+) => registry.getSourceContribution(kind);
+
 export const getSourceContributionForSource = (
-  source: Parameters<typeof registry.getSourceContributionForSource>[0],
+  registry: ExecutorSdkPluginRegistry,
+  source: Parameters<ExecutorSdkPluginRegistry["getSourceContributionForSource"]>[0],
 ) => registry.getSourceContributionForSource(source);
-export const getSecretStoreContribution = (kind: string) =>
-  registry.getSecretStoreContribution(kind);
+
+export const getSecretStoreContribution = (
+  registry: ExecutorSdkPluginRegistry,
+  kind: string,
+) => registry.getSecretStoreContribution(kind);
+
 export const getSecretStoreContributionForStore = (
-  store: Parameters<typeof registry.getSecretStoreContributionForStore>[0],
+  registry: ExecutorSdkPluginRegistry,
+  store: Parameters<ExecutorSdkPluginRegistry["getSecretStoreContributionForStore"]>[0],
 ) => registry.getSecretStoreContributionForStore(store);
 
-export const hasRegisteredExternalSourcePlugins = () =>
-  configuredSourcePlugins.length > 0;
+export const hasRegisteredExternalSourcePlugins = (
+  registry: ExecutorSdkPluginRegistry,
+) => registry.plugins.length > 0;

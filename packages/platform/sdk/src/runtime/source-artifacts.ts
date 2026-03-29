@@ -27,6 +27,9 @@ import {
   createSourceCatalogRevisionRecord,
   stableSourceCatalogId,
 } from "./sources/source-definitions";
+import type {
+  ExecutorSdkPluginRegistry,
+} from "../plugins";
 
 const LEGACY_LOCAL_SOURCE_ARTIFACT_VERSION = 3 as const;
 const LOCAL_SOURCE_ARTIFACT_VERSION = 4 as const;
@@ -200,14 +203,19 @@ export const decodeStoredLocalSourceArtifact = (
 export const buildLocalSourceArtifact = (input: {
   source: Source;
   syncResult: SourceCatalogSyncResult;
+  pluginRegistry?: ExecutorSdkPluginRegistry;
 }): LocalSourceArtifact => {
-  const catalogId: SourceCatalogId = stableSourceCatalogId(input.source);
+  const catalogId: SourceCatalogId = stableSourceCatalogId(
+    input.source,
+    input.pluginRegistry,
+  );
   const generatedAt = Date.now();
   const snapshot = snapshotFromSourceCatalogSyncResult(input.syncResult);
   const importHash = importMetadataHash(snapshot);
   const hash = snapshotHash(snapshot);
   const revision = createSourceCatalogRevisionRecord({
     source: input.source,
+    pluginRegistry: input.pluginRegistry,
     catalogId,
     revisionNumber: 1,
     importMetadataJson: JSON.stringify(snapshot.import),
