@@ -1,5 +1,11 @@
 # executor
 
+## 1.3.0-beta.0
+
+### Minor Changes
+
+- e4b1359: Prepare the next executor beta minor release.
+
 ## 1.2.6
 
 ### Patch Changes

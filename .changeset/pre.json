@@ -49,5 +49,7 @@
     "@executor/plugin-openapi-sdk": "0.0.0",
     "@executor/plugin-openapi-shared": "0.0.0"
   },
-  "changesets": []
+  "changesets": [
+    "funny-forks-listen"
+  ]
 }
