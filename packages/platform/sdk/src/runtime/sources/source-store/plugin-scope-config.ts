@@ -21,6 +21,7 @@ export const createPluginScopeConfigEntrySchema = <
     kind: Schema.Literal(input.kind),
     name: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
+    iconUrl: Schema.optional(Schema.String),
     enabled: Schema.optional(Schema.Boolean),
     config: input.config,
   });
@@ -28,10 +29,12 @@ export const createPluginScopeConfigEntrySchema = <
 export const pluginScopeConfigSourceFromConfig = <TConfig>(input: {
   source: Source;
   config: TConfig;
+  iconUrl?: string | null;
 }): ExecutorScopeConfigSource => ({
   ...scopeConfigSourceBaseFromSource({
     source: input.source,
   }),
+  ...(input.iconUrl ? { iconUrl: input.iconUrl } : {}),
   kind: input.source.kind as ExecutorScopeConfigSource["kind"],
   config: cloneJson(input.config),
 });

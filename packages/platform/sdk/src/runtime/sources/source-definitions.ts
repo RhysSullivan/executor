@@ -126,6 +126,9 @@ export const normalizeSourceForCreate = (input: {
     status: input.source.status,
     enabled: input.source.enabled,
     namespace: trimOrNull(input.source.namespace),
+    ...(trimOrNull(input.source.iconUrl)
+      ? { iconUrl: trimOrNull(input.source.iconUrl) ?? undefined }
+      : {}),
     createdAt: input.now,
     updatedAt: input.now,
   });
@@ -138,6 +141,9 @@ export const normalizeSourceForSave = (input: {
     ...input.source,
     name: input.source.name.trim(),
     namespace: trimOrNull(input.source.namespace),
+    ...(trimOrNull(input.source.iconUrl)
+      ? { iconUrl: trimOrNull(input.source.iconUrl) ?? undefined }
+      : {}),
     updatedAt: input.now,
   });
 

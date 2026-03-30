@@ -11,6 +11,7 @@ export const ExecutorRuntimeConfigSchema = Schema.Literal(
 const ExecutorScopeConfigSourceBaseSchema = Schema.Struct({
   name: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
+  iconUrl: Schema.optional(Schema.String),
   enabled: Schema.optional(Schema.Boolean),
   config: Schema.optional(Schema.Unknown),
 });
