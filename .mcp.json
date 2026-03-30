@@ -8,6 +8,13 @@
         "mcp",
         "--stdio"
       ]
+    },
+    "executor-stdio-prod": {
+      "command": "executor",
+      "args": [
+        "mcp",
+        "--stdio"
+      ]
     }
   }
 }

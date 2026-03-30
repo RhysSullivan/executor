@@ -3,14 +3,14 @@
   "mcp": {
     "executor-stdio": {
       "type": "local",
-      "command": [
-        "bun",
-        "run",
-        "executor",
-        "mcp",
-        "--stdio"
-      ],
+      "command": ["bun", "run", "executor", "mcp", "--stdio"],
       "enabled": true,
+      "environment": {}
+    },
+    "executor-stdio-prod": {
+      "type": "local",
+      "command": ["executor", "mcp", "--stdio"],
+      "enabled": false,
       "environment": {}
     }
   }
