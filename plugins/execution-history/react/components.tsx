@@ -60,22 +60,17 @@ const formatJsonDocument = (value: string | null): string | null => {
   }
 };
 
-const statusDotColor = (status: ExecutionStatus): string => {
-  switch (status) {
-    case "completed":
-      return "bg-primary";
-    case "failed":
-      return "bg-destructive";
-    case "running":
-      return "bg-blue-400 animate-pulse";
-    case "waiting_for_interaction":
-      return "bg-amber-400 animate-pulse";
-    case "pending":
-      return "bg-muted";
-    case "cancelled":
-      return "bg-muted";
-  }
-};
+const STATUS_STYLES = {
+  completed: { dot: "bg-primary", text: "text-primary" },
+  failed: { dot: "bg-destructive", text: "text-destructive" },
+  running: { dot: "bg-blue-400 animate-pulse", text: "text-blue-400" },
+  waiting_for_interaction: { dot: "bg-amber-400 animate-pulse", text: "text-amber-400" },
+  pending: { dot: "bg-muted", text: "text-muted-foreground" },
+  cancelled: { dot: "bg-muted", text: "text-muted-foreground" },
+} as const satisfies Record<ExecutionStatus, { dot: string; text: string }>;
+
+const statusDot = (status: ExecutionStatus): string => STATUS_STYLES[status].dot;
+const statusText = (status: ExecutionStatus): string => STATUS_STYLES[status].text;
 
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "all", label: "All" },
@@ -91,21 +86,6 @@ const formatDurationMs = (execution: Execution): string | null => {
   if (execution.startedAt === null || execution.completedAt === null) return null;
   const ms = Math.max(0, execution.completedAt - execution.startedAt);
   return ms.toLocaleString();
-};
-
-const statusColor = (status: ExecutionStatus): string => {
-  switch (status) {
-    case "completed":
-      return "text-primary";
-    case "failed":
-      return "text-destructive";
-    case "running":
-      return "text-blue-400";
-    case "waiting_for_interaction":
-      return "text-amber-400";
-    default:
-      return "text-muted-foreground";
-  }
 };
 
 // ── Execution Row ────────────────────────────────────────────────────────
@@ -130,7 +110,7 @@ const ExecutionRow = (props: {
       <span
         className={cn(
           "mt-1.5 size-2 shrink-0 rounded-full",
-          statusDotColor(execution.status),
+          statusDot(execution.status),
         )}
       />
       <span className="w-[120px] shrink-0 tabular-nums text-muted-foreground">
@@ -138,11 +118,11 @@ const ExecutionRow = (props: {
       </span>
       <span className="inline-flex w-[130px] shrink-0">
         <span className="text-muted-foreground/60">status:</span>
-        <span className={statusColor(execution.status)}>{execution.status.replaceAll("_", " ")}</span>
+        <span className={statusText(execution.status)}>{execution.status.replaceAll("_", " ")}</span>
       </span>
       <span className="inline-flex w-[110px] shrink-0">
         <span className="text-muted-foreground/60">duration_ms:</span>{" "}
-        <span className={durationMs && Number(durationMs.replace(/,/g, "")) > 5000 ? "text-red-400" : "text-emerald-400"}>{durationMs ?? "—"}</span>
+        <span className={durationMs && Number(durationMs.replace(/,/g, "")) > 5000 ? "text-destructive" : "text-primary"}>{durationMs ?? "—"}</span>
       </span>
       <span className="min-w-0 flex-1 truncate">
         <span className="text-muted-foreground/60">code:</span>{" "}
@@ -186,7 +166,7 @@ const PropertiesTab = (props: { envelope: ExecutionEnvelope }) => {
             Status
           </div>
           <div className="mt-1 flex items-center gap-2">
-            <span className={cn("size-2 rounded-full", statusDotColor(execution.status))} />
+            <span className={cn("size-2 rounded-full", statusDot(execution.status))} />
             <span className="text-sm">{execution.status.replaceAll("_", " ")}</span>
           </div>
         </div>
