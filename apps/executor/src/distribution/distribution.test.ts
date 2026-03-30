@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
@@ -17,6 +20,12 @@ describe("distribution flow", () => {
   ) =>
     Effect.gen(function* () {
       const harness = yield* DistributionHarness;
+      const bundleSource = readFileSync(join(harness.packageDir, "bin/executor.mjs"), "utf8");
+
+      expect(bundleSource).not.toContain("core_bg.wasm");
+      expect(
+        existsSync(join(harness.packageDir, "node_modules/@1password/sdk-core/nodejs/core_bg.wasm")),
+      ).toBe(true);
 
       yield* harness.writeProjectConfig(`{
   "runtime": "ses",

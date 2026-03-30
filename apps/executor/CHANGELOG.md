@@ -1,5 +1,11 @@
 # executor
 
+## 1.3.0-beta.2
+
+### Patch Changes
+
+- Fix the packaged beta so the bundled 1Password SDK can load its wasm asset after install.
+
 ## 1.3.0-beta.1
 
 ### Patch Changes
