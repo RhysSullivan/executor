@@ -15,7 +15,8 @@
     "@executor/codemode-core": "workspace:*",
     "@executor/ir": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "tldts": "^7.0.27"
   },
   "devDependencies": {
     "@types/node": "catalog:",
