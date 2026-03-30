@@ -2,7 +2,6 @@
   "sources": {
     "vercel-api": {
       "name": "Vercel API",
-      "kind": "openapi",
       "config": {
         "specUrl": "https://openapi.vercel.sh",
         "baseUrl": "https://api.vercel.com/",
@@ -15,6 +14,121 @@
           "prefix": null
         },
         "defaultHeaders": null
+      },
+      "kind": "openapi"
+    },
+    "neon-api": {
+      "name": "Neon API",
+      "config": {
+        "specUrl": "https://neon.com/api_spec/release/v2.json",
+        "baseUrl": "https://console.neon.tech/api/v2",
+        "auth": {
+          "kind": "none"
+        },
+        "defaultHeaders": null
+      },
+      "kind": "openapi"
+    },
+    "github-graphql": {
+      "name": "GitHub GraphQL",
+      "namespace": "github.graphql",
+      "config": {
+        "endpoint": "https://api.github.com/graphql",
+        "defaultHeaders": null,
+        "auth": {
+          "kind": "none"
+        }
+      },
+      "kind": "graphql"
+    },
+    "github-graphql-2": {
+      "name": "GitHub GraphQL",
+      "namespace": "github.graphql",
+      "config": {
+        "endpoint": "https://api.github.com/graphql",
+        "defaultHeaders": null,
+        "auth": {
+          "kind": "bearer",
+          "tokenSecretRef": {
+            "secretId": "sec_7c17f9cf-e4c3-4a7f-96a0-6df6e731d97b"
+          },
+          "headerName": "Authorization",
+          "prefix": null
+        }
+      },
+      "kind": "graphql"
+    },
+    "axiom-mcp": {
+      "name": "Axiom MCP",
+      "namespace": "axiom.mcp",
+      "kind": "mcp",
+      "config": {
+        "endpoint": "https://mcp.axiom.co/mcp",
+        "transport": "auto",
+        "queryParams": null,
+        "headers": null,
+        "command": null,
+        "args": null,
+        "env": null,
+        "cwd": null,
+        "auth": {
+          "kind": "oauth2",
+          "redirectUri": "http://localhost:8788/v1/plugins/mcp/oauth/callback",
+          "accessTokenRef": {
+            "secretId": "sec_cac4c6e6-13fa-4885-a9fb-2722eb490ab6"
+          },
+          "refreshTokenRef": {
+            "secretId": "sec_f18c6d61-192f-48f9-ba4b-73cbd81c1171"
+          },
+          "tokenType": "bearer",
+          "expiresAt": 1806365884081,
+          "scope": "",
+          "resourceMetadataUrl": null,
+          "authorizationServerUrl": "https://mcp.axiom.co/",
+          "resourceMetadata": null,
+          "authorizationServerMetadata": {
+            "issuer": "https://mcp.axiom.co",
+            "authorization_endpoint": "https://mcp.axiom.co/authorize",
+            "token_endpoint": "https://mcp.axiom.co/token",
+            "registration_endpoint": "https://mcp.axiom.co/register",
+            "response_types_supported": [
+              "code"
+            ],
+            "response_modes_supported": [
+              "query"
+            ],
+            "grant_types_supported": [
+              "authorization_code",
+              "refresh_token"
+            ],
+            "token_endpoint_auth_methods_supported": [
+              "client_secret_basic",
+              "client_secret_post",
+              "none"
+            ],
+            "revocation_endpoint": "https://mcp.axiom.co/token",
+            "code_challenge_methods_supported": [
+              "plain",
+              "S256"
+            ]
+          },
+          "clientInformation": {
+            "redirect_uris": [
+              "http://localhost:8788/v1/plugins/mcp/oauth/callback"
+            ],
+            "token_endpoint_auth_method": "none",
+            "grant_types": [
+              "authorization_code",
+              "refresh_token"
+            ],
+            "response_types": [
+              "code"
+            ],
+            "client_name": "Executor Local",
+            "client_id": "vz0ZIimTduA2ryXo",
+            "client_id_issued_at": 1774829875
+          }
+        }
       }
     }
   }
