@@ -215,6 +215,15 @@ export const OpenApiToolProviderDataSchema = Schema.Struct({
   servers: Schema.optional(Schema.Array(OpenApiServerSchema)),
 });
 
+export const OpenApiExecutableBindingSchema = Schema.Struct({
+  kind: Schema.Literal("openapi"),
+  toolId: Schema.String,
+  operationId: Schema.optional(Schema.String),
+  invocation: OpenApiInvocationPayloadSchema,
+  documentServers: Schema.optional(Schema.Array(OpenApiServerSchema)),
+  servers: Schema.optional(Schema.Array(OpenApiServerSchema)),
+});
+
 export type OpenApiHttpMethod = typeof OpenApiHttpMethodSchema.Type;
 export type OpenApiExample = typeof OpenApiExampleSchema.Type;
 export type OpenApiMediaContent = typeof OpenApiMediaContentSchema.Type;
@@ -237,6 +246,8 @@ export type OpenApiResponseVariant =
   typeof OpenApiResponseVariantSchema.Type;
 export type OpenApiToolProviderData =
   typeof OpenApiToolProviderDataSchema.Type;
+export type OpenApiExecutableBinding =
+  typeof OpenApiExecutableBindingSchema.Type;
 
 export type OpenApiJsonPrimitive = string | number | boolean | null;
 export type OpenApiJsonValue =

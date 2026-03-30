@@ -49,6 +49,7 @@ import type {
   OpenApiMediaContent,
   OpenApiSecurityRequirement,
   OpenApiSecurityScheme,
+  OpenApiExecutableBinding,
   OpenApiToolProviderData,
   OpenApiToolDefinition,
 } from "./types";
@@ -791,7 +792,20 @@ const createHttpCapabilityFromOpenApi = (input: {
     })(),
     pluginKey: "openapi",
     bindingVersion: EXECUTABLE_BINDING_VERSION,
-    binding: input.operation.providerData,
+    binding: {
+      kind: "openapi",
+      toolId: input.operation.providerData.toolId,
+      ...(input.operation.providerData.operationId
+        ? { operationId: input.operation.providerData.operationId }
+        : {}),
+      invocation: input.operation.providerData.invocation,
+      ...(input.operation.providerData.documentServers
+        ? { documentServers: input.operation.providerData.documentServers }
+        : {}),
+      ...(input.operation.providerData.servers
+        ? { servers: input.operation.providerData.servers }
+        : {}),
+    } satisfies OpenApiExecutableBinding,
     projection: {
       responseSetId,
       callShapeId,

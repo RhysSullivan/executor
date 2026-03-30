@@ -39,6 +39,9 @@ const sourceInspectOps = {
   discover: operationErrors("sources.inspect.discover"),
 } as const;
 
+const PRETTY_JSON_SECTION_MAX_CHARS = 20_000;
+const MAX_CODE_SECTION_CHARS = 100_000;
+
 const tokenize = (value: string): Array<string> =>
   value
     .trim()
@@ -172,18 +175,50 @@ const nativeEncodingLanguage = (encoding: string | undefined): string =>
     ? encoding
     : "json";
 
+const truncatedCodeBody = (input: {
+  title: string;
+  body: string;
+}): string =>
+  input.body.length <= MAX_CODE_SECTION_CHARS
+    ? input.body
+    : [
+        `[${input.title} truncated for inspection UI: ${String(input.body.length)} chars total, showing first ${String(MAX_CODE_SECTION_CHARS)}]`,
+        input.body.slice(0, MAX_CODE_SECTION_CHARS),
+      ].join("\n");
+
+const serializedJsonSectionBody = (title: string, value: unknown): string => {
+  const compact = JSON.stringify(value);
+  if (compact.length <= PRETTY_JSON_SECTION_MAX_CHARS) {
+    return JSON.stringify(value, null, 2);
+  }
+
+  return truncatedCodeBody({
+    title,
+    body: compact,
+  });
+};
+
+const codeSection = (
+  title: string,
+  language: string,
+  body: string,
+): SourceInspectionToolDetail["sections"][number] => ({
+  kind: "code",
+  title,
+  language,
+  body: truncatedCodeBody({
+    title,
+    body,
+  }),
+});
+
 const jsonSection = (
   title: string,
   value: unknown | null | undefined,
 ): SourceInspectionToolDetail["sections"][number] | null =>
   value === null || value === undefined
     ? null
-    : {
-        kind: "code",
-        title,
-        language: "json",
-        body: JSON.stringify(value, null, 2),
-      };
+    : codeSection(title, "json", serializedJsonSectionBody(title, value));
 
 export const inspectionToolDetailFromTool = (
   tool: LoadedSourceCatalogTool,
@@ -220,24 +255,26 @@ export const inspectionToolDetailFromTool = (
       { label: "Response set", value: contract.responseSetId, mono: true },
     ];
     const nativeSections = [
-      ...(tool.capability.native ?? []).map((blob, index) => ({
-        kind: "code" as const,
-        title: `Capability native ${String(index + 1)}: ${blob.kind}`,
-        language: nativeEncodingLanguage(blob.encoding),
-        body:
+      ...(tool.capability.native ?? []).map((blob, index) => {
+        const title = `Capability native ${String(index + 1)}: ${blob.kind}`;
+        return codeSection(
+          title,
+          nativeEncodingLanguage(blob.encoding),
           typeof blob.value === "string"
             ? blob.value
-            : JSON.stringify(blob.value ?? null, null, 2),
-      })),
-      ...(tool.executable.native ?? []).map((blob, index) => ({
-        kind: "code" as const,
-        title: `Executable native ${String(index + 1)}: ${blob.kind}`,
-        language: nativeEncodingLanguage(blob.encoding),
-        body:
+            : serializedJsonSectionBody(title, blob.value ?? null),
+        );
+      }),
+      ...(tool.executable.native ?? []).map((blob, index) => {
+        const title = `Executable native ${String(index + 1)}: ${blob.kind}`;
+        return codeSection(
+          title,
+          nativeEncodingLanguage(blob.encoding),
           typeof blob.value === "string"
             ? blob.value
-            : JSON.stringify(blob.value ?? null, null, 2),
-      })),
+            : serializedJsonSectionBody(title, blob.value ?? null),
+        );
+      }),
     ];
     const sections = [
       {

@@ -1,4 +1,5 @@
 import type {
+  OpenApiExecutableBinding,
   OpenApiExtractedTool,
   OpenApiToolDefinition,
   OpenApiToolManifest,
@@ -244,6 +245,17 @@ export const openApiProviderDataFromDefinition = (
   responses: definition.responses,
   authRequirement: definition.authRequirement,
   securitySchemes: definition.securitySchemes,
+  documentServers: definition.documentServers,
+  servers: definition.servers,
+});
+
+export const openApiExecutableBindingFromDefinition = (
+  definition: OpenApiToolDefinition,
+): OpenApiExecutableBinding => ({
+  kind: "openapi",
+  toolId: definition.toolId,
+  operationId: definition.operationId,
+  invocation: definition.invocation,
   documentServers: definition.documentServers,
   servers: definition.servers,
 });

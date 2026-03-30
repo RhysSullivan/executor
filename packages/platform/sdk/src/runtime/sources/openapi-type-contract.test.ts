@@ -95,6 +95,76 @@ const noContentSuccessOpenApiFixture = JSON.stringify({
   },
 });
 
+const sharedRefOpenApiFixture = JSON.stringify({
+  openapi: "3.1.0",
+  info: {
+    title: "Shared Ref API",
+    version: "1.0.0",
+  },
+  servers: [
+    {
+      url: "https://api.example.test",
+    },
+  ],
+  paths: {
+    "/widgets/{widgetId}": {
+      get: {
+        operationId: "getWidget",
+        parameters: [
+          {
+            name: "widgetId",
+            in: "path",
+            required: true,
+            schema: {
+              type: "string",
+            },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Widget response",
+            content: {
+              "application/json": {
+                schema: {
+                  $ref: "#/components/schemas/Widget",
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  components: {
+    schemas: {
+      Widget: {
+        type: "object",
+        required: ["id", "name", "owner"],
+        properties: {
+          id: {
+            type: "string",
+          },
+          name: {
+            type: "string",
+          },
+          owner: {
+            $ref: "#/components/schemas/Owner",
+          },
+        },
+      },
+      Owner: {
+        type: "object",
+        required: ["email"],
+        properties: {
+          email: {
+            type: "string",
+          },
+        },
+      },
+    },
+  },
+});
+
 const makeSource = (input: {
   id?: string;
   name?: string;
@@ -290,4 +360,57 @@ describe("openapi type contracts", () => {
       expect(contract.output.typeDeclaration).not.toContain("data: unknown");
       expect(contract.output.typePreview).toContain("data: null");
     }).pipe(Effect.provide(NodeFileSystem.layer)));
+
+  it.effect("preserves local component refs in IR and keeps executable bindings runtime-minimal", () =>
+    Effect.gen(function* () {
+      const source = makeSource({
+        id: "source_shared_ref_api",
+        name: "Shared Ref API",
+        namespace: "shared-ref-api",
+      });
+      const manifest = yield* extractOpenApiManifest(
+        source.name,
+        sharedRefOpenApiFixture,
+      );
+      const operations = compileOpenApiToolDefinitions(manifest).map(
+        openApiCatalogOperationFromDefinition,
+      );
+      const fragment = createOpenApiCatalogFragment({
+        source,
+        documents: [
+          {
+            documentKind: "openapi",
+            documentKey: "https://example.com/shared-ref-openapi.json",
+            fetchedAt: 0,
+            contentText: sharedRefOpenApiFixture,
+          },
+        ],
+        operations,
+      });
+      const snapshot = snapshotFromSourceCatalogSyncResult(
+        createSourceCatalogSyncResult({
+          fragment,
+          importMetadata: createCatalogImportMetadata({
+            source,
+            pluginKey: "openapi",
+          }),
+          sourceHash: manifest.sourceHash,
+        }),
+      );
+
+      const refShapes = Object.values(snapshot.catalog.symbols).filter(
+        (symbol) => symbol.kind === "shape" && symbol.node.type === "ref",
+      );
+      expect(refShapes.length).toBeGreaterThan(0);
+
+      const executable = Object.values(snapshot.catalog.executables)[0];
+      expect(executable).toBeDefined();
+      expect(executable?.binding).toMatchObject({
+        kind: "openapi",
+        toolId: "widgets.getWidget",
+      });
+      expect((executable?.binding as Record<string, unknown>).responses).toBeUndefined();
+      expect((executable?.binding as Record<string, unknown>).documentation).toBeUndefined();
+      expect(JSON.stringify(executable?.binding).length).toBeLessThan(2_000);
+    }));
 });

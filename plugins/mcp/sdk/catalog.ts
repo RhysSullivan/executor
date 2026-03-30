@@ -32,6 +32,7 @@ import {
   toolPathSegments,
 } from "@executor/source-core";
 
+import { mcpExecutableBindingFromProviderData } from "./executable-binding";
 import type {
   McpServerMetadata,
   McpToolAnnotations,
@@ -192,7 +193,7 @@ const createMcpCapability = (input: {
     scopeId: input.serviceScopeId,
     pluginKey: "mcp",
     bindingVersion: EXECUTABLE_BINDING_VERSION,
-    binding: input.operation.providerData,
+    binding: mcpExecutableBindingFromProviderData(input.operation.providerData),
     projection: {
       responseSetId,
       callShapeId,

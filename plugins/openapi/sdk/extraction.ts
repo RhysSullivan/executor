@@ -199,8 +199,15 @@ const loadDereferencedOpenApiDocument = async (input: {
     currentDocument: OpenApiJsonObject;
     currentDocumentUrl?: string;
     activeRefs: ReadonlySet<string>;
+    preserveLocalRefs: boolean;
   }): Promise<unknown> => {
-    const { value, currentDocument, currentDocumentUrl, activeRefs } = inputValue;
+    const {
+      value,
+      currentDocument,
+      currentDocumentUrl,
+      activeRefs,
+      preserveLocalRefs,
+    } = inputValue;
 
     if (Array.isArray(value)) {
       return Promise.all(
@@ -210,6 +217,7 @@ const loadDereferencedOpenApiDocument = async (input: {
             currentDocument,
             currentDocumentUrl,
             activeRefs,
+            preserveLocalRefs,
           }),
         ),
       );
@@ -225,6 +233,35 @@ const loadDereferencedOpenApiDocument = async (input: {
       const target = refTargetFor(currentDocumentUrl, ref);
       if (!target?.documentUrl && !ref.startsWith("#")) {
         return value;
+      }
+
+      const isLocalRef =
+        ref.startsWith("#") &&
+        (target?.documentUrl === undefined || target.documentUrl === currentDocumentUrl);
+      if (isLocalRef && preserveLocalRefs) {
+        const siblingEntries = Object.fromEntries(
+          await Promise.all(
+            Object.entries(object)
+              .filter(([key]) => key !== "$ref")
+              .map(async ([key, entry]) => [
+                key,
+                await dereference({
+                  value: entry,
+                  currentDocument,
+                  currentDocumentUrl,
+                  activeRefs,
+                  preserveLocalRefs,
+                }),
+              ]),
+          ),
+        );
+
+        return Object.keys(siblingEntries).length > 0
+          ? {
+              $ref: ref,
+              ...siblingEntries,
+            }
+          : value;
       }
 
       const activeKey = `${target?.documentUrl ?? currentDocumentUrl ?? "root"}|${target?.pointer ?? ref}`;
@@ -249,6 +286,7 @@ const loadDereferencedOpenApiDocument = async (input: {
         currentDocument: targetDocument,
         currentDocumentUrl: target?.documentUrl ?? currentDocumentUrl,
         activeRefs: nextActiveRefs,
+        preserveLocalRefs: target?.documentUrl ? false : preserveLocalRefs,
       });
       const siblingEntries = Object.fromEntries(
         await Promise.all(
@@ -261,6 +299,7 @@ const loadDereferencedOpenApiDocument = async (input: {
                 currentDocument,
                 currentDocumentUrl,
                 activeRefs: nextActiveRefs,
+                preserveLocalRefs,
               }),
             ]),
         ),
@@ -281,6 +320,7 @@ const loadDereferencedOpenApiDocument = async (input: {
             currentDocument,
             currentDocumentUrl,
             activeRefs,
+            preserveLocalRefs,
           }),
         ]),
       ),
@@ -292,6 +332,7 @@ const loadDereferencedOpenApiDocument = async (input: {
     currentDocument: input.document,
     currentDocumentUrl: input.documentUrl,
     activeRefs: new Set<string>(),
+    preserveLocalRefs: true,
   }) as Promise<OpenApiJsonObject>;
 };
 

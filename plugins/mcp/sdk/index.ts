@@ -75,6 +75,10 @@ import {
   type McpCatalogOperationInput,
 } from "./catalog";
 import {
+  McpExecutableBindingSchema,
+  type McpExecutableBinding,
+} from "./executable-binding";
+import {
   detectMcpSource,
 } from "./discovery";
 import {
@@ -106,22 +110,6 @@ const McpCompleteOAuthInputSchema = Schema.Struct({
   error: Schema.optional(Schema.String),
   errorDescription: Schema.optional(Schema.String),
 });
-
-const McpExecutableBindingSchema = Schema.Struct({
-  toolId: Schema.String,
-  toolName: Schema.String,
-  displayTitle: Schema.String,
-  title: Schema.NullOr(Schema.String),
-  description: Schema.NullOr(Schema.String),
-  annotations: Schema.NullOr(Schema.Unknown),
-  execution: Schema.NullOr(Schema.Unknown),
-  icons: Schema.NullOr(Schema.Unknown),
-  meta: Schema.NullOr(Schema.Unknown),
-  rawTool: Schema.NullOr(Schema.Unknown),
-  server: Schema.NullOr(Schema.Unknown),
-});
-
-type McpExecutableBinding = typeof McpExecutableBindingSchema.Type;
 
 const decodeProviderData = Schema.decodeUnknownSync(McpExecutableBindingSchema);
 
@@ -824,19 +812,11 @@ export const mcpSdkPlugin = (
           });
           const manifest = {
             version: 2 as const,
-            server: providerData.server as McpServerMetadata | null,
             tools: [
               {
                 toolId: providerData.toolId,
                 toolName: providerData.toolName,
-                displayTitle: providerData.displayTitle,
-                title: providerData.title,
-                description: providerData.description,
-                annotations: providerData.annotations as McpToolManifestEntry["annotations"],
-                execution: providerData.execution as McpToolManifestEntry["execution"],
-                icons: providerData.icons as McpToolManifestEntry["icons"],
-                meta: providerData.meta,
-                rawTool: providerData.rawTool,
+                description: input.descriptor.description ?? null,
                 inputSchema: input.descriptor.contract?.inputSchema,
                 outputSchema: input.descriptor.contract?.outputSchema,
               },

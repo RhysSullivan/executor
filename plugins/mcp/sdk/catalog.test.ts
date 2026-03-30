@@ -101,4 +101,39 @@ describe("MCP catalog", () => {
       dataVariants.some((shape) => shape?.kind === "shape" && shape.node.type === "unknown"),
     ).toBe(true);
   });
+
+  it("stores lean executable bindings without dropping catalog semantics", () => {
+    const snapshot = createMcpCatalogSnapshot({
+      source: createSource(),
+      documents: [{
+        documentKind: "mcp_manifest",
+        documentKey: "https://mcp.axiom.co/mcp",
+        contentText: JSON.stringify({ version: 2, tools: [] }),
+      }],
+      operations: [createOperation()],
+    });
+
+    const executable = Object.values(snapshot.catalog.executables)[0];
+    if (!executable) {
+      throw new Error("Expected MCP executable");
+    }
+
+    expect(executable.binding).toEqual({
+      toolId: "createdashboard",
+      toolName: "createDashboard",
+    });
+    expect(executable.binding).not.toHaveProperty("rawTool");
+    expect(executable.display?.title).toBe("createDashboard");
+
+    const capability = snapshot.catalog.capabilities[executable.capabilityId];
+    if (!capability) {
+      throw new Error("Expected MCP capability");
+    }
+
+    expect(capability.surface.title).toBe("createDashboard");
+    expect(capability.surface.summary).toBe(
+      "Create a new dashboard from a JSON document.",
+    );
+    expect(capability.interaction.resume.supported).toBe(false);
+  });
 });
