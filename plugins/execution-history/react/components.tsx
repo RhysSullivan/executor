@@ -8,7 +8,6 @@ import {
   useExecutions,
 } from "@executor/react";
 import {
-  Badge,
   Button,
   cn,
   Dialog,
@@ -110,13 +109,6 @@ const statusColor = (status: ExecutionStatus): string => {
 };
 
 // ── Execution Row ────────────────────────────────────────────────────────
-
-const KeyValue = (props: { k: string; v: string; vClass?: string }) => (
-  <>
-    <span className="text-muted-foreground/60">{props.k}:</span>{" "}
-    <span className={props.vClass ?? "text-emerald-400"}>{props.v}</span>{" "}
-  </>
-);
 
 const ExecutionRow = (props: {
   execution: Execution;
