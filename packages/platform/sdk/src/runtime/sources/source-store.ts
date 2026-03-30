@@ -59,7 +59,10 @@ type RuntimeSourceStoreShape = {
   }) => ReturnType<typeof removeSourceByIdWithDeps>;
   persistSource: (
     source: Source,
-    options?: { actorScopeId?: ScopeId | null },
+    options?: {
+      actorScopeId?: ScopeId | null;
+      lastError?: string | null;
+    },
   ) => ReturnType<typeof persistSourceWithDeps>;
 };
 
@@ -136,6 +139,7 @@ export const persistSource = (
   source: Source,
   options: {
     actorScopeId?: ScopeId | null;
+    lastError?: string | null;
   } = {},
 ): Effect.Effect<
   Source,

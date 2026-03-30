@@ -4,6 +4,7 @@ import {
 import {
   NodeFileSystem,
 } from "@effect/platform-node";
+import { resolve } from "node:path";
 import {
   describe,
   expect,
@@ -31,8 +32,11 @@ type BrokenStoredSource = {
   readonly name: string;
 };
 
-const makeBrokenSourcePlugin = () => {
+const makeBrokenSourcePlugin = (input: {
+  syncErrorMessage?: string;
+} = {}) => {
   const storage = new Map<string, BrokenStoredSource>();
+  const syncErrorMessage = input.syncErrorMessage ?? "sync boom";
 
   return defineExecutorSourcePlugin<
     "broken",
@@ -98,7 +102,7 @@ const makeBrokenSourcePlugin = () => {
         kind: "imported",
         sync: () =>
           Effect.fail(
-            runtimeEffectError("sources/operations.test", "sync boom"),
+            runtimeEffectError("sources/operations.test", syncErrorMessage),
           ),
         invoke: () =>
           Effect.fail(
@@ -152,6 +156,68 @@ describe("source operations", () => {
 
       expect(persisted.status).toBe("error");
       expect(persisted.name).toBe("Broken Source");
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+
+  it.scoped("marks credential failures as auth_required and records the last sync error", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const workspaceRoot = yield* fs.makeTempDirectory({
+        prefix: "executor-source-ops-auth-",
+      });
+
+      const executor = yield* Effect.acquireRelease(
+        createLocalExecutorEffect({
+          localDataDir: ":memory:",
+          workspaceRoot,
+          plugins: [
+            makeBrokenSourcePlugin({
+              syncErrorMessage:
+                "GraphQL introspection requires credentials (status 403)",
+            }),
+          ] as const,
+        }),
+        (executor) =>
+          Effect.promise(() => executor.close()).pipe(
+            Effect.orDie,
+            Effect.zipRight(
+              fs.remove(workspaceRoot, {
+                recursive: true,
+                force: true,
+              }),
+            ),
+          ),
+      );
+
+      const created = yield* executor.broken.createSource({
+        name: "Protected Source",
+      });
+
+      expect(created.status).toBe("auth_required");
+
+      const persisted = yield* executor.broken.getSource(created.id);
+
+      expect(persisted.status).toBe("auth_required");
+      expect(persisted.name).toBe("Protected Source");
+
+      const inspection = yield* executor.sources.inspection.get(created.id);
+
+      expect(inspection.source.status).toBe("auth_required");
+      expect(inspection.toolCount).toBe(0);
+      expect(inspection.tools).toEqual([]);
+
+      const workspaceState = JSON.parse(
+        yield* fs.readFileString(
+          resolve(workspaceRoot, ".executor", "state", "workspace-state.json"),
+          "utf8",
+        ),
+      ) as {
+        sources?: Record<string, { lastError?: string | null }>;
+      };
+
+      expect(workspaceState.sources?.[created.id]?.lastError).toBe(
+        "GraphQL introspection requires credentials (status 403)",
+      );
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   );
 });

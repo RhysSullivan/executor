@@ -70,6 +70,7 @@ export const persistSourceWithDeps = (
   source: Source,
   options: {
     actorScopeId?: ScopeId | null;
+    lastError?: string | null;
   } = {},
 ): Effect.Effect<Source, Error, never> =>
   Effect.gen(function* () {
@@ -111,7 +112,10 @@ export const persistSourceWithDeps = (
         ...localScope.scopeState.sources,
         [nextSource.id]: {
           status: nextSource.status,
-          lastError: existingSourceState?.lastError ?? null,
+          lastError:
+            options.lastError !== undefined
+              ? options.lastError
+              : existingSourceState?.lastError ?? null,
           sourceHash: existingSourceState?.sourceHash ?? null,
           createdAt: existingSourceState?.createdAt ?? nextSource.createdAt,
           updatedAt: nextSource.updatedAt,

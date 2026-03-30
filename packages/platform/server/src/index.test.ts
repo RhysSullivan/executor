@@ -13,6 +13,7 @@ import {
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { assertTrue } from "@effect/vitest/utils";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -64,6 +65,13 @@ import {
   snapshotFromSourceCatalogSyncResult,
 } from "../../../sources/core/src/index";
 import { createMcpCatalogFragment } from "../../../../plugins/mcp/sdk/catalog";
+
+class MissingCredentialEnvVarError extends Data.TaggedError(
+  "MissingCredentialEnvVarError",
+)<{
+  readonly message: string;
+  readonly tokenEnvVar: string;
+}> {}
 
 const serverHttpPlugins = [
   graphqlHttpPlugin(),
@@ -493,9 +501,10 @@ const seedGithubOpenApiSourceInWorkspace = (input: {
     const tokenEnvVar = input.credentialEnvVar ?? "GITHUB_TOKEN";
     const tokenValue = process.env[tokenEnvVar];
     if (!tokenValue) {
-      return yield* Effect.fail(
-        new Error(`Missing token value in environment variable ${tokenEnvVar}`),
-      );
+      return yield* new MissingCredentialEnvVarError({
+        message: `Missing token value in environment variable ${tokenEnvVar}`,
+        tokenEnvVar,
+      });
     }
 
     const existingSecrets = yield* input.client.local.listSecrets({});

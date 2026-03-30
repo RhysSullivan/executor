@@ -36,6 +36,16 @@ const sourceOps = {
   remove: operationErrors("sources.remove"),
 } as const;
 
+const syncFailureDetails = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+const syncFailureStatus = (cause: unknown): Source["status"] =>
+  /(?:status\s*(?:401|403)|unauthorized|forbidden|requires credentials|requires authentication|authentication required|authorization required|missing credential|missing credentials|oauth)/i.test(
+    syncFailureDetails(cause),
+  )
+    ? "auth_required"
+    : "error";
+
 const syncArtifactsForSource = (input: {
   store: ExecutorStateStoreShape;
   sourceStore: Effect.Effect.Success<typeof RuntimeSourceStoreService>;
@@ -58,10 +68,12 @@ const syncArtifactsForSource = (input: {
       onLeft: (error) =>
         Effect.gen(function* () {
           if (input.source.enabled && input.source.status === "connected") {
-            const erroredSource = yield* normalizeSourceForSave({
+            const failedStatus = syncFailureStatus(error);
+            const lastError = syncFailureDetails(error);
+            const failedSource = yield* normalizeSourceForSave({
               source: {
                 ...input.source,
-                status: "error",
+                status: failedStatus,
               },
               now: Date.now(),
             }).pipe(
@@ -75,12 +87,13 @@ const syncArtifactsForSource = (input: {
 
             yield* mapPersistenceError(
               input.operation.child("source_error"),
-              input.sourceStore.persistSource(erroredSource, {
+              input.sourceStore.persistSource(failedSource, {
                 actorScopeId: input.actorScopeId,
+                lastError,
               }),
             );
 
-            return erroredSource;
+            return failedSource;
           }
 
           return yield* input.operation.unknownStorage(
