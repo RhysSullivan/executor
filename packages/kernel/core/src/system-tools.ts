@@ -74,10 +74,18 @@ const discoverOutputSchema = Schema.standardSchemaV1(
   }),
 );
 
+export type DiscoverResultItem = Record<string, unknown> & {
+  path: ToolPath;
+  score: number;
+};
+
 export type CreateSystemToolMapInput = {
   catalog?: ToolCatalog;
   getCatalog?: () => ToolCatalog;
   sourceKey?: string;
+  filterDiscoverResults?: (
+    results: readonly DiscoverResultItem[],
+  ) => Promise<readonly DiscoverResultItem[]> | readonly DiscoverResultItem[];
 };
 
 export const createSystemToolMap = (
@@ -173,14 +181,14 @@ export const createSystemToolMap = (
       description: "Search tools by intent and return ranked matches",
       inputSchema: discoverInputSchema,
       outputSchema: discoverOutputSchema,
-      execute: (
+      execute: async (
         toolInput: {
           query: string;
           limit?: number;
           includeSchemas?: boolean;
         },
-      ) =>
-        Effect.runPromise(
+      ) => {
+        const result = await Effect.runPromise(
           getPrimitives().discover({
             query: toolInput.query,
             ...(toolInput.limit !== undefined ? { limit: toolInput.limit } : {}),
@@ -188,7 +196,23 @@ export const createSystemToolMap = (
               ? { includeSchemas: toolInput.includeSchemas }
               : {}),
           }),
-        ),
+        );
+
+        if (!input.filterDiscoverResults) {
+          return result;
+        }
+
+        const filtered = await input.filterDiscoverResults(
+          result.results as DiscoverResultItem[],
+        );
+
+        return {
+          ...result,
+          results: filtered,
+          bestPath: filtered[0]?.path ?? null,
+          total: filtered.length,
+        };
+      },
     },
     metadata: {
       sourceKey,

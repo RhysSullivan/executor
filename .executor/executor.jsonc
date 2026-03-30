@@ -11,6 +11,74 @@
         "defaultHeaders": null
       },
       "kind": "openapi"
+    },
+    "deepwiki-mcp": {
+      "name": "DeepWiki MCP",
+      "namespace": "deepwiki.mcp",
+      "config": {
+        "endpoint": "https://mcp.deepwiki.com/mcp",
+        "transport": "auto",
+        "queryParams": null,
+        "headers": null,
+        "command": null,
+        "args": null,
+        "env": null,
+        "cwd": null,
+        "auth": {
+          "kind": "none"
+        }
+      },
+      "kind": "mcp"
+    },
+    "linear-graphql": {
+      "name": "Linear GraphQL",
+      "namespace": "linear.graphql",
+      "config": {
+        "endpoint": "https://api.linear.app/graphql",
+        "defaultHeaders": null,
+        "auth": {
+          "kind": "none"
+        }
+      },
+      "kind": "graphql"
+    }
+  },
+  "policies": {
+    "linear.graphql.agentActivities": {
+      "match": "linear.graphql.agentActivities",
+      "action": "allow",
+      "approval": "auto",
+      "priority": 10
+    },
+    "vercel.accessGroups.createAccessGroup": {
+      "match": "vercel.accessGroups.createAccessGroup",
+      "action": "deny",
+      "approval": "auto",
+      "priority": 10
+    },
+    "vercel.dns.createRecord": {
+      "match": "vercel.dns.createRecord",
+      "action": "deny",
+      "approval": "auto",
+      "priority": 10
+    },
+    "vercel.dns.getRecords": {
+      "match": "vercel.dns.getRecords",
+      "action": "deny",
+      "approval": "auto",
+      "priority": 10
+    },
+    "vercel.dns.removeRecord": {
+      "match": "vercel.dns.removeRecord",
+      "action": "deny",
+      "approval": "auto",
+      "priority": 10
+    },
+    "vercel.dns.updateRecord": {
+      "match": "vercel.dns.updateRecord",
+      "action": "allow",
+      "approval": "auto",
+      "priority": 10
     }
   }
 }

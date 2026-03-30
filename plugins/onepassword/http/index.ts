@@ -1,18 +1,29 @@
 import {
   HttpApi,
   HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
 } from "@effect/platform";
 import {
+  ControlPlaneBadRequestError,
+  ControlPlaneForbiddenError,
   ControlPlaneStorageError,
   type ExecutorHttpPlugin,
 } from "@executor/platform-api";
 import { resolveRequestedLocalWorkspace } from "@executor/platform-api/local-context";
+import { ScopeIdSchema } from "@executor/platform-sdk/schema";
 import * as Effect from "effect/Effect";
 
 import {
+  OnePasswordDiscoverVaultsInputSchema,
+  OnePasswordDiscoverVaultsResultSchema,
   OnePasswordDiscoverStoreItemsInputSchema,
+  OnePasswordDiscoverStoreItemsResultSchema,
   OnePasswordDiscoverItemFieldsInputSchema,
+  OnePasswordDiscoverItemFieldsResultSchema,
   OnePasswordImportSecretInputSchema,
+  OnePasswordImportSecretResultSchema,
   type OnePasswordDiscoverVaultsInput,
   type OnePasswordDiscoverVaultsResult,
   type OnePasswordDiscoverItemFieldsInput,
@@ -21,7 +32,6 @@ import {
   type OnePasswordDiscoverStoreItemsResult,
   type OnePasswordImportSecretInput,
   type OnePasswordImportSecretResult,
-  onePasswordHttpGroup,
 } from "@executor/plugin-onepassword-shared";
 
 type OnePasswordExecutorExtension = {
@@ -41,7 +51,44 @@ type OnePasswordExecutorExtension = {
   };
 };
 
-const OnePasswordHttpApi = HttpApi.make("executor").add(onePasswordHttpGroup);
+const workspaceIdParam = HttpApiSchema.param("workspaceId", ScopeIdSchema);
+
+const OnePasswordHttpGroup = HttpApiGroup.make("onepassword")
+  .add(
+    HttpApiEndpoint.post("discoverVaults")`/workspaces/${workspaceIdParam}/plugins/onepassword/vaults/discover`
+      .setPayload(OnePasswordDiscoverVaultsInputSchema)
+      .addSuccess(OnePasswordDiscoverVaultsResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("discoverStoreItems")`/workspaces/${workspaceIdParam}/plugins/onepassword/stores/discover-items`
+      .setPayload(OnePasswordDiscoverStoreItemsInputSchema)
+      .addSuccess(OnePasswordDiscoverStoreItemsResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("discoverItemFields")`/workspaces/${workspaceIdParam}/plugins/onepassword/items/discover-fields`
+      .setPayload(OnePasswordDiscoverItemFieldsInputSchema)
+      .addSuccess(OnePasswordDiscoverItemFieldsResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneStorageError),
+  )
+  .add(
+    HttpApiEndpoint.post("importSecret")`/workspaces/${workspaceIdParam}/plugins/onepassword/secrets/import`
+      .setPayload(OnePasswordImportSecretInputSchema)
+      .addSuccess(OnePasswordImportSecretResultSchema)
+      .addError(ControlPlaneBadRequestError)
+      .addError(ControlPlaneForbiddenError)
+      .addError(ControlPlaneStorageError),
+  )
+  .prefix("/v1");
+
+const OnePasswordHttpApi = HttpApi.make("executor").add(OnePasswordHttpGroup);
 
 const toStorageError = (operation: string, cause: unknown) =>
   new ControlPlaneStorageError({
@@ -51,15 +98,15 @@ const toStorageError = (operation: string, cause: unknown) =>
   });
 
 export const onePasswordHttpPlugin = (): ExecutorHttpPlugin<
-  typeof onePasswordHttpGroup,
+  typeof OnePasswordHttpGroup,
   OnePasswordExecutorExtension
 > => ({
   key: "onepassword",
-  group: onePasswordHttpGroup,
+  group: OnePasswordHttpGroup,
   build: ({ executor }) =>
-    (HttpApiBuilder.group as any)(OnePasswordHttpApi, "onepassword", (handlers: any) =>
+    HttpApiBuilder.group(OnePasswordHttpApi, "onepassword", (handlers) =>
       handlers
-        .handle("discoverVaults", ({ path, payload }: any) =>
+        .handle("discoverVaults", ({ path, payload }) =>
           resolveRequestedLocalWorkspace(
             "onepassword.discoverVaults",
             path.workspaceId,
@@ -69,41 +116,35 @@ export const onePasswordHttpPlugin = (): ExecutorHttpPlugin<
               toStorageError("onepassword.discoverVaults", cause)
             ),
           ))
-        .handle("discoverStoreItems", ({ path, payload }: any) =>
+        .handle("discoverStoreItems", ({ path, payload }) =>
           resolveRequestedLocalWorkspace(
             "onepassword.discoverStoreItems",
             path.workspaceId,
           ).pipe(
-            Effect.flatMap(() => executor.onepassword.discoverStoreItems(
-              OnePasswordDiscoverStoreItemsInputSchema.make(payload),
-            )),
+            Effect.flatMap(() => executor.onepassword.discoverStoreItems(payload)),
             Effect.mapError((cause) =>
               toStorageError("onepassword.discoverStoreItems", cause)
             ),
           ))
-        .handle("discoverItemFields", ({ path, payload }: any) =>
+        .handle("discoverItemFields", ({ path, payload }) =>
           resolveRequestedLocalWorkspace(
             "onepassword.discoverItemFields",
             path.workspaceId,
           ).pipe(
-            Effect.flatMap(() => executor.onepassword.discoverItemFields(
-              OnePasswordDiscoverItemFieldsInputSchema.make(payload),
-            )),
+            Effect.flatMap(() => executor.onepassword.discoverItemFields(payload)),
             Effect.mapError((cause) =>
               toStorageError("onepassword.discoverItemFields", cause)
             ),
           ))
-        .handle("importSecret", ({ path, payload }: any) =>
+        .handle("importSecret", ({ path, payload }) =>
           resolveRequestedLocalWorkspace(
             "onepassword.importSecret",
             path.workspaceId,
           ).pipe(
-            Effect.flatMap(() => executor.onepassword.importSecret(
-              OnePasswordImportSecretInputSchema.make(payload),
-            )),
+            Effect.flatMap(() => executor.onepassword.importSecret(payload)),
             Effect.mapError((cause) =>
               toStorageError("onepassword.importSecret", cause)
             ),
           ))
-    ) as any,
+    ),
 });
