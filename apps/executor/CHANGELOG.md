@@ -1,5 +1,11 @@
 # executor
 
+## 1.3.0-beta.4
+
+### Patch Changes
+
+- 787dd66: Improve Google Discovery sources view
+
 ## 1.3.0-beta.3
 
 ### Patch Changes
