@@ -162,20 +162,19 @@ const buildExecuteWorkflowText = (
     "Execute TypeScript in sandbox; call tools via discovery workflow.",
     ...(sourceToolExamples.length > 0
       ? [
-          "Available source tool examples:",
-          ...sourceToolExamples.flatMap((source) => [
-            `${source.sourceName}:`,
-            ...source.toolPaths.map((toolPath) => `- ${toolPath}`),
-          ]),
-        ]
+        "Available source tool examples:",
+        ...sourceToolExamples.flatMap((source) => [
+          `${source.sourceName}:`,
+          ...source.toolPaths.map((toolPath) => `- ${toolPath}`),
+        ]),
+      ]
       : []),
     "Workflow:",
     '1) const { results, bestPath } = await tools.discover({ query: "<intent>", limit: 12 });',
     '2) const path = bestPath ?? results[0]?.path; if (!path) return "No matching tools found.";',
     "3) const details = await tools.describe.tool({ path, includeSchemas: true });",
     "4) Call selected tools.<path>(input).",
-    "5) Use source plugins to inspect or add API sources.",
-    ...getExecutorInternalToolHelpLines(runtime.pluginRegistry),
+    "5) Use source plugins to inspect or add API sources. search for operations like create source to find these",
     "6) If execution pauses for interaction, resume it with the returned resumePayload or the available resume flow.",
     "The tools object is a lazy proxy, so Object.keys(tools) is not a useful way to discover capabilities.",
     "Do not use fetch; use tools.* only.",
@@ -264,14 +263,14 @@ const buildPausedResult = (envelope: ExecutionEnvelope): ExecutorMcpToolResult =
       status: "waiting_for_interaction",
       interaction: interaction
         ? {
-            id: interaction.id,
-            purpose: interaction.purpose,
-            kind: interaction.kind,
-            message: parsed?.message ?? "Interaction required",
-            mode: parsed?.mode ?? (interaction.kind === "url" ? "url" : "form"),
-            url: parsed?.url ?? null,
-            requestedSchema: parsed?.requestedSchema ?? null,
-          }
+          id: interaction.id,
+          purpose: interaction.purpose,
+          kind: interaction.kind,
+          message: parsed?.message ?? "Interaction required",
+          mode: parsed?.mode ?? (interaction.kind === "url" ? "url" : "form"),
+          url: parsed?.url ?? null,
+          requestedSchema: parsed?.requestedSchema ?? null,
+        }
         : null,
       resumePayload: {
         executionId: envelope.execution.id,
@@ -423,15 +422,15 @@ const driveExecutionWithoutElicitation = async (input: {
 
     current = await runControlPlane(
       input.runtime,
-        resumeExecution({
-          scopeId: input.scopeId as never,
-          executionId: current.execution.id as never,
-          payload: {
-            responseJson: JSON.stringify(response),
-            interactionMode: "detach",
-          },
-          resumedByScopeId: input.actorScopeId as never,
-        }),
+      resumeExecution({
+        scopeId: input.scopeId as never,
+        executionId: current.execution.id as never,
+        payload: {
+          responseJson: JSON.stringify(response),
+          interactionMode: "detach",
+        },
+        resumedByScopeId: input.actorScopeId as never,
+      }),
     );
     response = undefined;
   }
