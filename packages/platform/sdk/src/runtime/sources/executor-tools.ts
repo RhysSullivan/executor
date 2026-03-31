@@ -87,6 +87,7 @@ const coreSourceManagementHelpLines = (): readonly string[] => [
 export const getExecutorInternalToolHelpLines = (
   pluginRegistry: ExecutorSdkPluginRegistry,
 ): readonly string[] => {
+  return []; // intentionally disabled due to noise
   const managementTools = registeredManagementToolContributions(pluginRegistry);
 
   return [
