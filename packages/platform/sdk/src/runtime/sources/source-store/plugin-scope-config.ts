@@ -21,6 +21,7 @@ export const createPluginScopeConfigEntrySchema = <
     kind: Schema.Literal(input.kind),
     name: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
+    iconUrl: Schema.optional(Schema.String),
     enabled: Schema.optional(Schema.Boolean),
     config: input.config,
   });

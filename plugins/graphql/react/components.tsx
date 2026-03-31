@@ -35,6 +35,8 @@ import {
   graphqlHttpApiExtension,
 } from "@executor/plugin-graphql-http";
 import {
+  getFaviconUrlForRemoteUrl,
+  getSourceFaviconUrl,
   type GraphqlConnectInput,
   type GraphqlConnectionAuth,
 } from "@executor/plugin-graphql-shared";
@@ -51,6 +53,7 @@ type GraphqlToolRouteParams = {
 
 const defaultGraphqlInput = (): GraphqlConnectInput => ({
   name: "My GraphQL Source",
+  iconUrl: undefined,
   endpoint: "https://example.com/graphql",
   defaultHeaders: null,
   auth: {
@@ -196,6 +199,7 @@ function GraphqlSourceForm(props: {
 }) {
   const submitMutation = useExecutorMutation<GraphqlConnectInput, void>(props.onSubmit);
   const [name, setName] = useState(props.initialValue.name);
+  const [iconUrl, setIconUrl] = useState(props.initialValue.iconUrl ?? "");
   const [endpoint, setEndpoint] = useState(props.initialValue.endpoint);
   const [headersText, setHeadersText] = useState(
     stringifyStringMap(props.initialValue.defaultHeaders),
@@ -211,6 +215,7 @@ function GraphqlSourceForm(props: {
     bearerPrefixValue(props.initialValue.auth),
   );
   const [error, setError] = useState<string | null>(null);
+  const resolvedIconUrl = iconUrl.trim() || getFaviconUrlForRemoteUrl(endpoint) || getSourceFaviconUrl(name);
 
   return (
     <div className="space-y-6 rounded-lg border border-border bg-card p-6 text-sm ring-1 ring-foreground/[0.04]">
@@ -221,6 +226,22 @@ function GraphqlSourceForm(props: {
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
+        </div>
+
+        <div className="grid gap-2">
+          <Label>Icon URL</Label>
+          <Input
+            value={iconUrl}
+            onChange={(event) => setIconUrl(event.target.value)}
+            placeholder="https://cdn.example.com/icon.png"
+            className="font-mono text-xs"
+          />
+          {resolvedIconUrl && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <img src={resolvedIconUrl} alt="" className="size-4 rounded-sm object-contain" />
+              <span>{iconUrl.trim() ? "Using override" : "Auto preview"}</span>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-2">
@@ -305,6 +326,7 @@ function GraphqlSourceForm(props: {
               try {
                 await submitMutation.mutateAsync({
                   name: name.trim(),
+                  ...(iconUrl.trim() ? { iconUrl: iconUrl.trim() } : {}),
                   endpoint: endpoint.trim(),
                   defaultHeaders: parseStringMap(headersText),
                   auth: authFromSecretValue(

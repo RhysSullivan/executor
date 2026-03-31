@@ -47,6 +47,9 @@ export const scopeConfigSourceBaseFromSource = (input: {
   ...(trimOrNull(input.source.namespace) !== trimOrNull(input.source.id)
     ? { namespace: input.source.namespace ?? undefined }
     : {}),
+  ...(input.source.iconUrl?.trim()
+    ? { iconUrl: input.source.iconUrl.trim() }
+    : {}),
   ...(input.source.enabled === false ? { enabled: false } : {}),
 });
 

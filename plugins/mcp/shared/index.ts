@@ -14,6 +14,9 @@ import {
   namespaceFromSourceName,
 } from "@executor/source-core";
 
+export { getFaviconUrlForRemoteUrl, getSourceFaviconUrl } from "@executor/source-core";
+
+
 export const McpConnectionAuthSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("none"),
@@ -36,6 +39,7 @@ export const McpConnectionAuthSchema = Schema.Union(
 
 export const McpConnectInputSchema = Schema.Struct({
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   endpoint: Schema.NullOr(Schema.String),
   transport: Schema.NullOr(SourceTransportSchema),
   queryParams: Schema.NullOr(StringMapSchema),

@@ -677,6 +677,7 @@ export const mcpSdkPlugin = (
             endpoint: input.endpoint,
             command: input.command,
           }),
+          ...(input.iconUrl?.trim() ? { iconUrl: input.iconUrl.trim() } : {}),
         },
         stored: Effect.runSync(normalizeStoredSourceData(input)),
       }),
@@ -692,11 +693,13 @@ export const mcpSdkPlugin = (
               endpoint: stored.endpoint,
               command: stored.command,
             }),
+            iconUrl: config.iconUrl?.trim() || undefined,
           },
           stored,
         };
       },
-      toConfig: ({ source, stored }) => sourceConfigFromStored(source, stored),
+      toConfig: ({ source, stored }) =>
+        sourceConfigFromStored(source, stored),
       remove: ({ stored }) =>
         Effect.gen(function* () {
           if (stored?.auth.kind === "oauth2") {

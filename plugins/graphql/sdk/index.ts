@@ -97,6 +97,7 @@ export type GraphqlSdk = {
 const GraphqlExecutorAddInputSchema = Schema.Struct({
   kind: Schema.Literal("graphql"),
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   endpoint: Schema.String,
   defaultHeaders: Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
   auth: GraphqlConnectionAuthSchema,
@@ -329,6 +330,7 @@ const graphqlConnectInputFromAddInput = (
   input: GraphqlExecutorAddInput,
 ): GraphqlConnectInput => ({
   name: input.name,
+  ...(input.iconUrl ? { iconUrl: input.iconUrl } : {}),
   endpoint: input.endpoint,
   defaultHeaders: input.defaultHeaders,
   auth: input.auth,
@@ -380,6 +382,7 @@ export const graphqlSdkPlugin = (options: {
             endpoint: input.endpoint,
             title: input.name,
           }),
+          ...(input.iconUrl?.trim() ? { iconUrl: input.iconUrl.trim() } : {}),
         },
         stored: storedSourceDataFromInput(input),
       }),
@@ -391,6 +394,7 @@ export const graphqlSdkPlugin = (options: {
             endpoint: config.endpoint,
             title: config.name,
           }),
+          iconUrl: config.iconUrl?.trim() || undefined,
         },
         stored: storedSourceDataFromInput(config),
       }),

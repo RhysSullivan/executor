@@ -7,6 +7,8 @@ import {
   StringMapSchema,
 } from "@executor/platform-sdk/schema";
 
+export { getFaviconUrlForRemoteUrl, getSourceFaviconUrl } from "@executor/source-core";
+
 export const OpenApiConnectionAuthSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("none"),
@@ -21,6 +23,7 @@ export const OpenApiConnectionAuthSchema = Schema.Union(
 
 export const OpenApiConnectInputSchema = Schema.Struct({
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   specUrl: Schema.String,
   baseUrl: Schema.NullOr(Schema.String),
   auth: OpenApiConnectionAuthSchema,

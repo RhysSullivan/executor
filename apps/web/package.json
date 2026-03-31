@@ -19,6 +19,7 @@
     "@executor/plugin-openapi-react": "workspace:*",
     "@executor/react": "workspace:*",
     "@executor/server": "workspace:*",
+    "@executor/source-core": "workspace:*",
     "@shikijs/langs": "^4.0.1",
     "@shikijs/themes": "^4.0.1",
     "@tanstack/react-router": "^1.132.7",

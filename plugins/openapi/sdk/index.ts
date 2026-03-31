@@ -19,10 +19,10 @@ import {
 } from "@executor/platform-sdk/plugins";
 import {
   createPluginScopeConfigEntrySchema,
-  provideExecutorRuntime,
   pluginScopeConfigSourceFromConfig,
-  runtimeEffectError,
   SecretMaterialResolverService,
+  provideExecutorRuntime,
+  runtimeEffectError,
 } from "@executor/platform-sdk/runtime";
 import {
   OpenApiConnectionAuthSchema,
@@ -112,6 +112,7 @@ export type OpenApiSdkPluginOptions = {
 const OpenApiExecutorAddInputSchema = Schema.Struct({
   kind: Schema.Literal("openapi"),
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   specUrl: Schema.String,
   baseUrl: Schema.NullOr(Schema.String),
   auth: OpenApiConnectionAuthSchema,
@@ -358,6 +359,7 @@ const openApiConnectInputFromAddInput = (
   input: OpenApiExecutorAddInput,
 ): OpenApiConnectInput => ({
   name: input.name,
+  ...(input.iconUrl ? { iconUrl: input.iconUrl } : {}),
   specUrl: input.specUrl,
   baseUrl: input.baseUrl,
   auth: input.auth,
@@ -540,6 +542,7 @@ export const openApiSdkPlugin = (
             specUrl: input.specUrl,
             title: input.name,
           }),
+          ...(input.iconUrl?.trim() ? { iconUrl: input.iconUrl.trim() } : {}),
         },
         stored: createStoredSourceData(input),
       }),
@@ -551,6 +554,7 @@ export const openApiSdkPlugin = (
             specUrl: config.specUrl,
             title: config.name,
           }),
+          iconUrl: config.iconUrl?.trim() || undefined,
         },
         stored: createStoredSourceData(config),
       }),

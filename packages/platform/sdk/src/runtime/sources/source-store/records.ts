@@ -18,6 +18,7 @@ import {
   type RuntimeSourceStoreDeps,
 } from "./deps";
 import { trimOrNull } from "./config";
+import { resolveSourceIconUrl } from "../source-icon";
 
 export const buildLocalSourceRecord = (input: {
   scopeId: ScopeId;
@@ -42,6 +43,11 @@ export const buildLocalSourceRecord = (input: {
     }
 
     const existingState = input.scopeState.sources[input.sourceId];
+    const resolvedIconUrl = resolveSourceIconUrl({
+      configuredIconUrl: trimOrNull(sourceConfig.iconUrl),
+      kind: sourceConfig.kind,
+      config: sourceConfig.config,
+    });
     const source: Source = {
       id: SourceIdSchema.make(input.sourceId),
       scopeId: input.scopeId,
@@ -52,6 +58,11 @@ export const buildLocalSourceRecord = (input: {
         (sourceConfig.enabled ?? true ? "connected" : "draft"),
       enabled: sourceConfig.enabled ?? true,
       namespace: trimOrNull(sourceConfig.namespace) ?? input.sourceId,
+      ...(resolvedIconUrl
+        ? {
+            iconUrl: resolvedIconUrl,
+          }
+        : {}),
       createdAt: existingState?.createdAt ?? Date.now(),
       updatedAt: existingState?.updatedAt ?? Date.now(),
     };

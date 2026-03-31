@@ -72,6 +72,7 @@ export const SourceSchema = Schema.Struct({
   status: SourceStatusSchema,
   enabled: Schema.Boolean,
   namespace: Schema.NullOr(Schema.String),
+  iconUrl: Schema.optional(Schema.String),
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
 });

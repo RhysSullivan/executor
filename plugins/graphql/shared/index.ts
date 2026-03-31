@@ -9,6 +9,9 @@ import {
   namespaceFromSourceName,
 } from "@executor/source-core";
 
+export { getFaviconUrlForRemoteUrl, getSourceFaviconUrl } from "@executor/source-core";
+
+
 export const GraphqlConnectionAuthSchema = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("none"),
@@ -23,6 +26,7 @@ export const GraphqlConnectionAuthSchema = Schema.Union(
 
 export const GraphqlConnectInputSchema = Schema.Struct({
   name: Schema.String,
+  iconUrl: Schema.optional(Schema.String),
   endpoint: Schema.String,
   defaultHeaders: Schema.NullOr(StringMapSchema),
   auth: GraphqlConnectionAuthSchema,

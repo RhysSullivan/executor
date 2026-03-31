@@ -126,6 +126,7 @@ export const normalizeSourceForCreate = (input: {
     status: input.source.status,
     enabled: input.source.enabled,
     namespace: trimOrNull(input.source.namespace),
+    iconUrl: input.source.iconUrl,
     createdAt: input.now,
     updatedAt: input.now,
   });
