@@ -6,6 +6,7 @@
   "dependencies": {
     "@executor/react": "workspace:*",
     "@executor/server": "workspace:*",
+    "@tanstack/react-router": "^1.168.10",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
