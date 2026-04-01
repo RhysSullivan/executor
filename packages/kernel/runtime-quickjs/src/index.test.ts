@@ -1,8 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
 import type { ToolInvoker } from "@executor/codemode-core";
 import { makeQuickJsExecutor } from "./index";
+
+class UnknownToolError extends Data.TaggedError("UnknownToolError")<{
+  readonly path: string;
+}> {}
 
 const makeTestInvoker = (
   handlers: Record<string, (args: unknown) => unknown>,
@@ -10,7 +15,7 @@ const makeTestInvoker = (
   invoke: ({ path, args }) => {
     const handler = handlers[path];
     if (!handler) {
-      return Effect.fail(new Error(`Unknown tool: ${path}`));
+      return Effect.fail(new UnknownToolError({ path }));
     }
     return Effect.try(() => handler(args));
   },
@@ -33,9 +38,10 @@ describe("quickjs executor", () => {
   it.effect("invokes a tool and returns its result", () =>
     Effect.gen(function* () {
       const invoker = makeTestInvoker({
-        "math.add": (args: any) => ({
-          sum: args.a + args.b,
-        }),
+        "math.add": (args) => {
+          const { a, b } = args as { a: number; b: number };
+          return { sum: a + b };
+        },
       });
 
       const result = yield* executor.execute(
@@ -54,13 +60,14 @@ describe("quickjs executor", () => {
   it.effect("invokes multiple tools in sequence", () =>
     Effect.gen(function* () {
       const invoker = makeTestInvoker({
-        "users.get": (args: any) => ({
-          id: args.id,
-          name: `User ${args.id}`,
-        }),
-        "users.greet": (args: any) => ({
-          message: `Hello, ${args.name}!`,
-        }),
+        "users.get": (args) => {
+          const { id } = args as { id: number };
+          return { id, name: `User ${id}` };
+        },
+        "users.greet": (args) => {
+          const { name } = args as { name: string };
+          return { message: `Hello, ${name}!` };
+        },
       });
 
       const result = yield* executor.execute(
@@ -150,11 +157,10 @@ describe("quickjs executor", () => {
             { id: "cus_2", email: "bob@example.com" },
           ],
         }),
-        "stripe.invoices.create": (args: any) => ({
-          id: "inv_1",
-          customer: args.customer,
-          amount: args.amount,
-        }),
+        "stripe.invoices.create": (args) => {
+          const { customer, amount } = args as { customer: string; amount: number };
+          return { id: "inv_1", customer, amount };
+        },
       });
 
       const result = yield* executor.execute(
