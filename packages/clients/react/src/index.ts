@@ -1,104 +1,46 @@
+// Re-export effect-atom essentials so consumers don't need direct deps
 export {
   Atom,
   AtomHttpApi,
+  Result,
   RegistryContext,
   RegistryProvider,
-  Result,
+  useAtom,
+  useAtomMount,
   useAtomRefresh,
   useAtomSet,
+  useAtomSuspense,
   useAtomValue,
 } from "@effect-atom/atom-react";
 
-export type {
-  BrowseSecretStoreResult,
-  CreateSecretStorePayload,
-  CreateSecretPayload,
-  CreateSecretResult,
-  DeleteSecretStoreResult,
-  DeleteSecretResult,
-  InstanceConfig,
-  LocalInstallation,
-  SecretListItem,
-  SecretStore,
-  UpdateSecretStorePayload,
-  UpdateSecretPayload,
-  UpdateSecretResult,
-} from "@executor/platform-api";
+// Base URL management
+export { getBaseUrl, setBaseUrl } from "./base-url";
 
-export type {
-  Execution,
-  ExecutionEnvelope,
-  ExecutionStatus,
-  LocalScopePolicy,
-  LocalScopePolicyApprovalMode,
-  LocalScopePolicyEffect,
-  Source,
-  SourceInspection,
-  SourceInspectionDiscoverResult,
-  SourceInspectionToolDetail,
-} from "@executor/platform-sdk/schema";
+// Typed API client
+export { ExecutorApiClient } from "./client";
 
+// Query & mutation atoms
 export {
-  defineExecutorHttpApiClient,
-  defineExecutorPluginHttpApiClient,
-} from "./core/http-client";
-export {
-  getExecutorApiBaseUrl,
-  setExecutorApiBaseUrl,
-} from "./core/base-url";
-export type {
-  Loadable,
-  SourceRemoveResult,
-} from "./core/types";
-export {
-  pendingLoadable,
-  useWorkspaceId,
-  useWorkspaceRequestContext,
-  type WorkspaceContext,
-} from "./core/workspace";
-export {
-  ExecutorReactProvider,
-} from "./provider";
-export {
-  SecretReferenceField,
-} from "./components/secret-reference-field";
-export {
-  useExecutorMutation,
-} from "./hooks/mutations";
-export {
-  useInstanceConfig,
-  useLocalInstallation,
-  useRefreshLocalInstallation,
-} from "./hooks/local";
-export {
-  useCreateSecretStore,
-  useCreateSecret,
-  useDeleteSecretStore,
-  useDeleteSecret,
-  useRefreshSecretStores,
-  useRefreshSecrets,
-  useSecretStores,
-  useSecrets,
-  useUpdateSecretStore,
-  useUpdateSecret,
-} from "./hooks/secrets";
-export {
-  useExecution,
-  useExecutions,
-} from "./hooks/executions";
-export {
-  usePrefetchToolDetail,
-  useRemoveSource,
-  useSource,
-  useSourceDiscovery,
-  useSourceInspection,
-  useSourceToolDetail,
-  useSources,
-} from "./hooks/sources";
-export {
-  useCreatePolicy,
-  usePolicies,
-  useRefreshPolicies,
-  useRemovePolicy,
-  useUpdatePolicy,
-} from "./hooks/policies";
+  toolsAtom,
+  sourceToolsAtom,
+  toolSchemaAtom,
+  sourcesAtom,
+  sourceAtom,
+  secretsAtom,
+  secretStatusAtom,
+  invokeTool,
+  setSecret,
+  removeSecret,
+  removeSource,
+  refreshSource,
+} from "./atoms";
+
+// Provider
+export { ExecutorProvider } from "./provider";
+
+// Re-export commonly needed SDK types
+export { ScopeId, ToolId } from "@executor/sdk";
+export type { ScopeId as ScopeIdType, ToolId as ToolIdType } from "@executor/sdk";
+
+// Plugin contracts
+export type { SourcePlugin } from "./source-plugin";

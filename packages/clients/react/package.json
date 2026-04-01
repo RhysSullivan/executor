@@ -1,53 +1,26 @@
 {
   "name": "@executor/react",
+  "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./plugins": "./src/plugins/index.ts",
-    "./source-plugins": "./src/source-plugins/index.ts",
-    "./components/*": "./src/plugins/components/ui/*.tsx",
-    "./lib/*": "./src/plugins/lib/*.ts",
-    "./hooks/*": "./src/hooks/*.ts"
-  },
-  "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
-    "test": "bunx vitest run",
-    "test:watch": "bunx vitest"
+    ".": "./src/index.ts"
   },
   "dependencies": {
-    "@base-ui/react": "^1.3.0",
-    "@effect-atom/atom": "0.5.3",
-    "@effect-atom/atom-react": "0.5.0",
     "@effect/platform": "catalog:",
-    "@executor/platform-api": "workspace:*",
-    "@executor/platform-sdk": "workspace:*",
-    "@shikijs/langs": "^4.0.1",
-    "@shikijs/themes": "^4.0.1",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "cmdk": "^1.1.1",
+    "@effect-atom/atom": "^0.5.3",
+    "@effect-atom/atom-react": "^0.5.0",
+    "@executor/api": "workspace:*",
+    "@executor/sdk": "workspace:*",
     "effect": "catalog:",
-    "shiki": "^4.0.1",
-    "streamdown": "^2.3.0",
-    "tailwind-merge": "^3.5.0"
-  },
-  "peerDependencies": {
-    "react": ">=18 <20"
+    "react": "^19.1.0"
   },
   "devDependencies": {
-    "@effect/platform-node": "catalog:",
-    "@effect/vitest": "catalog:",
-    "@executor/effect-test-utils": "workspace:*",
-    "@executor/platform-sdk-file": "workspace:*",
-    "@types/jsdom": "^21.1.7",
+    "@types/react": "^19.1.0",
     "@types/node": "catalog:",
-    "@types/react": "^19.2.10",
-    "@types/react-dom": "^19.2.3",
-    "bun-types": "catalog:",
-    "jsdom": "^26.1.0",
-    "react-dom": "^19.2.0",
-    "vitest": "catalog:"
+    "typescript": "^5.9.3"
   },
-  "version": "0.0.0"
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
 }

@@ -3,6 +3,7 @@ import type {
   ExecuteResult,
   ToolInvoker,
 } from "@executor/codemode-core";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import {
   getQuickJS,
@@ -18,6 +19,10 @@ export type QuickJsExecutorOptions = {
   memoryLimitBytes?: number;
   maxStackSizeBytes?: number;
 };
+
+class QuickJsExecutionError extends Data.TaggedError("QuickJsExecutionError")<{
+  readonly message: string;
+}> {}
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const EXECUTION_FILENAME = "executor-quickjs-runtime.js";
@@ -400,10 +405,10 @@ const runInQuickJs = (
   options: QuickJsExecutorOptions,
   code: string,
   toolInvoker: ToolInvoker,
-): Effect.Effect<ExecuteResult, Error> =>
+): Effect.Effect<ExecuteResult, QuickJsExecutionError> =>
   Effect.tryPromise({
     try: () => evaluateInQuickJs(options, code, toolInvoker),
-    catch: toError,
+    catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
   });
 
 export const makeQuickJsExecutor = (

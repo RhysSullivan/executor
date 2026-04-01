@@ -1,0 +1,27 @@
+{
+  "name": "@executor/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@effect/sql": "catalog:",
+    "@effect/sql-sqlite-bun": "catalog:",
+    "@executor/api": "workspace:*",
+    "@executor/plugin-openapi": "workspace:*",
+    "@executor/sdk": "workspace:*",
+    "@executor/storage-file": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

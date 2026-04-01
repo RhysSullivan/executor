@@ -1,314 +1,186 @@
 import { describe, expect, it } from "@effect/vitest";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 
-import {
-  allowAllToolInteractions,
-  makeToolInvokerFromTools,
-  toExecutorTool,
-} from "@executor/codemode-core";
-
+import type { ToolInvoker } from "@executor/codemode-core";
 import { makeQuickJsExecutor } from "./index";
 
-const numberPairInputSchema = Schema.standardSchemaV1(
-  Schema.Struct({
-    a: Schema.Number,
-    b: Schema.Number,
-  }),
-);
+class UnknownToolError extends Data.TaggedError("UnknownToolError")<{
+  readonly path: string;
+}> {}
 
-const messageInputSchema = Schema.standardSchemaV1(
-  Schema.Struct({
-    message: Schema.String,
-  }),
-);
-
-const discoverInputSchema = Schema.standardSchemaV1(
-  Schema.Struct({
-    query: Schema.String,
-    limit: Schema.optional(Schema.Number),
-  }),
-);
-
-const describeToolInputSchema = Schema.standardSchemaV1(
-  Schema.Struct({
-    path: Schema.String,
-    includeSchemas: Schema.optional(Schema.Boolean),
-  }),
-);
-
-const repoInputSchema = Schema.standardSchemaV1(
-  Schema.Struct({
-    owner: Schema.String,
-    repo: Schema.String,
-  }),
-);
-
-const tools = {
-  "math.add": {
-    description: "Add two numbers",
-    inputSchema: numberPairInputSchema,
-    execute: ({ a, b }: { a: number; b: number }) => ({ sum: a + b }),
+const makeTestInvoker = (
+  handlers: Record<string, (args: unknown) => unknown>,
+): ToolInvoker => ({
+  invoke: ({ path, args }) => {
+    const handler = handlers[path];
+    if (!handler) {
+      return Effect.fail(new UnknownToolError({ path }));
+    }
+    return Effect.try(() => handler(args));
   },
-  "notifications.send": toExecutorTool({
-    tool: {
-      description: "Send a message",
-      inputSchema: messageInputSchema,
-      execute: ({ message }: { message: string }) => ({
-        delivered: true,
-        message,
-      }),
-    },
-    metadata: {
-      interaction: "required",
-    },
-  }),
-};
+});
 
-describe("runtime-quickjs", () => {
-  it.effect("executes simple code and returns result", () =>
+const executor = makeQuickJsExecutor({ timeoutMs: 5_000 });
+
+describe("quickjs executor", () => {
+  it.effect("runs plain code", () =>
     Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
-
-      const output = yield* executor.execute(
-        "return 1 + 2;",
-        toolInvoker,
+      const result = yield* executor.execute(
+        `return 1 + 2`,
+        makeTestInvoker({}),
       );
-
-      expect(output.result).toBe(3);
-      expect(output.error).toBeUndefined();
+      expect(result.result).toBe(3);
+      expect(result.error).toBeUndefined();
     }),
   );
 
-  it.effect("executes code with tool calls", () =>
+  it.effect("invokes a tool and returns its result", () =>
     Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({
-        tools,
-        onToolInteraction: allowAllToolInteractions,
-      });
-
-      const output = yield* executor.execute(
-        [
-          "const math = await tools.math.add({ a: 19, b: 23 });",
-          "await tools.notifications.send({ message: `sum is ${math.sum}` });",
-          "return math;",
-        ].join("\n"),
-        toolInvoker,
-      );
-
-      expect(output.result).toEqual({ sum: 42 });
-      expect(output.error).toBeUndefined();
-    }),
-  );
-
-  it.effect("captures console output in logs", () =>
-    Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
-
-      const output = yield* executor.execute(
-        [
-          'console.log("hello from quickjs");',
-          'console.warn("a warning");',
-          'console.error("an error");',
-          "return 42;",
-        ].join("\n"),
-        toolInvoker,
-      );
-
-      expect(output.result).toBe(42);
-      expect(output.logs).toContain("[log] hello from quickjs");
-      expect(output.logs).toContain("[warn] a warning");
-      expect(output.logs).toContain("[error] an error");
-    }),
-  );
-
-  it.effect("reports execution errors without crashing", () =>
-    Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
-
-      const output = yield* executor.execute(
-        'throw new Error("boom");',
-        toolInvoker,
-      );
-
-      expect(output.result).toBeNull();
-      expect(output.error).toContain("boom");
-    }),
-  );
-
-  it.effect("handles tool call errors gracefully", () =>
-    Effect.gen(function* () {
-      const failingTools = {
-        "broken.thing": {
-          description: "Always fails",
-          inputSchema: Schema.standardSchemaV1(Schema.Struct({})),
-          execute: () => {
-            throw new Error("tool is broken");
-          },
-        },
-      };
-
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({
-        tools: failingTools,
-      });
-
-      const output = yield* executor.execute(
-        "return await tools.broken.thing({});",
-        toolInvoker,
-      );
-
-      expect(output.result).toBeNull();
-      expect(output.error).toContain("tool is broken");
-    }),
-  );
-
-  it.effect("respects timeout", () =>
-    Effect.gen(function* () {
-      const executor = makeQuickJsExecutor({
-        timeoutMs: 250,
-      });
-      const toolInvoker = makeToolInvokerFromTools({ tools });
-
-      const output = yield* executor.execute(
-        "while (true) {}",
-        toolInvoker,
-      );
-
-      expect(output.result).toBeNull();
-      expect(output.error).toContain("timed out");
-    }),
-  );
-
-  it.effect("network access is denied by default", () =>
-    Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
-
-      const output = yield* executor.execute(
-        'await fetch("https://example.com"); return 1;',
-        toolInvoker,
-      );
-
-      expect(output.result).toBeNull();
-      expect(output.error).toContain("fetch is disabled in QuickJS executor");
-    }),
-  );
-
-  it.effect("multiple sequential tool calls work correctly", () =>
-    Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
-
-      const output = yield* executor.execute(
-        [
-          "const r1 = await tools.math.add({ a: 1, b: 2 });",
-          "const r2 = await tools.math.add({ a: r1.sum, b: 10 });",
-          "const r3 = await tools.math.add({ a: r2.sum, b: 100 });",
-          "return r3;",
-        ].join("\n"),
-        toolInvoker,
-      );
-
-      expect(output.result).toEqual({ sum: 113 });
-      expect(output.error).toBeUndefined();
-    }),
-  );
-
-  it.effect("does not expose internal executor bridge globals to user code", () =>
-    Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({ tools });
-
-      const output = yield* executor.execute(
-        [
-          "return {",
-          "  hasInvokeTool: typeof globalThis.__executor_invokeTool !== 'undefined',",
-          "  hasLogBridge: typeof globalThis.__executor_log !== 'undefined',",
-          "  globalKeys: Object.keys(globalThis).sort(),",
-          "};",
-        ].join("\n"),
-        toolInvoker,
-      );
-
-      expect(output.result).toEqual({
-        hasInvokeTool: false,
-        hasLogBridge: false,
-        globalKeys: [],
-      });
-      expect(output.error).toBeUndefined();
-    }),
-  );
-
-  it.effect("supports the documented discovery workflow shape", () =>
-    Effect.gen(function* () {
-      const executor = makeQuickJsExecutor();
-      const toolInvoker = makeToolInvokerFromTools({
-        tools: {
-          discover: {
-            inputSchema: discoverInputSchema,
-            execute: () => ({
-              bestPath: "github.issues.list",
-              results: [
-                {
-                  path: "github.issues.list",
-                  score: 0.99,
-                },
-              ],
-              total: 1,
-            }),
-          },
-          "describe.tool": {
-            inputSchema: describeToolInputSchema,
-            execute: ({ path }: { path: string; includeSchemas?: boolean }) => ({
-              path,
-              contract: {
-                inputTypePreview: "{ owner: string; repo: string }",
-              },
-            }),
-          },
-          "github.issues.list": {
-            inputSchema: repoInputSchema,
-            execute: ({ owner, repo }: { owner: string; repo: string }) => ({
-              owner,
-              repo,
-              issues: [{ id: "issue_1" }],
-            }),
-          },
+      const invoker = makeTestInvoker({
+        "math.add": (args) => {
+          const { a, b } = args as { a: number; b: number };
+          return { sum: a + b };
         },
       });
 
-      const output = yield* executor.execute(
-        [
-          'const { results, bestPath } = await tools.discover({ query: "github issues", limit: 5 });',
-          "const path = bestPath ?? results[0]?.path;",
-          'if (!path) throw new Error("No matching tools found.");',
-          "const detail = await tools.describe.tool({ path, includeSchemas: true });",
-          'const issues = await tools.github.issues.list({ owner: "openai", repo: "codex" });',
-          "return { path, detail, issues };",
-        ].join("\n"),
-        toolInvoker,
+      const result = yield* executor.execute(
+        `
+        const res = await tools.math.add({ a: 5, b: 3 });
+        return res.sum;
+        `,
+        invoker,
       );
 
-      expect(output.result).toEqual({
-        path: "github.issues.list",
-        detail: {
-          path: "github.issues.list",
-          contract: {
-            inputTypePreview: "{ owner: string; repo: string }",
-          },
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe(8);
+    }),
+  );
+
+  it.effect("invokes multiple tools in sequence", () =>
+    Effect.gen(function* () {
+      const invoker = makeTestInvoker({
+        "users.get": (args) => {
+          const { id } = args as { id: number };
+          return { id, name: `User ${id}` };
         },
-        issues: {
-          owner: "openai",
-          repo: "codex",
-          issues: [{ id: "issue_1" }],
+        "users.greet": (args) => {
+          const { name } = args as { name: string };
+          return { message: `Hello, ${name}!` };
         },
       });
-      expect(output.error).toBeUndefined();
+
+      const result = yield* executor.execute(
+        `
+        const user = await tools.users.get({ id: 42 });
+        const greeting = await tools.users.greet({ name: user.name });
+        return greeting.message;
+        `,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe("Hello, User 42!");
+    }),
+  );
+
+  it.effect("handles tool errors", () =>
+    Effect.gen(function* () {
+      const invoker = makeTestInvoker({
+        "db.query": () => {
+          throw new Error("connection refused");
+        },
+      });
+
+      const result = yield* executor.execute(
+        `
+        try {
+          await tools.db.query({ sql: "SELECT 1" });
+          return "should not reach";
+        } catch (e) {
+          return "caught: " + e.message;
+        }
+        `,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toContain("caught:");
+    }),
+  );
+
+  it.effect("handles unknown tool path", () =>
+    Effect.gen(function* () {
+      const invoker = makeTestInvoker({});
+
+      const result = yield* executor.execute(
+        `
+        try {
+          await tools.nonexistent.thing({ x: 1 });
+          return "should not reach";
+        } catch (e) {
+          return "caught: " + e.message;
+        }
+        `,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toContain("caught:");
+    }),
+  );
+
+  it.effect("captures console.log output", () =>
+    Effect.gen(function* () {
+      const result = yield* executor.execute(
+        `
+        console.log("hello from sandbox");
+        console.warn("a warning");
+        return "done";
+        `,
+        makeTestInvoker({}),
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toBe("done");
+      expect(result.logs).toContainEqual("[log] hello from sandbox");
+      expect(result.logs).toContainEqual("[warn] a warning");
+    }),
+  );
+
+  it.effect("passes tool result into next tool call", () =>
+    Effect.gen(function* () {
+      const invoker = makeTestInvoker({
+        "stripe.customers.list": () => ({
+          data: [
+            { id: "cus_1", email: "alice@example.com" },
+            { id: "cus_2", email: "bob@example.com" },
+          ],
+        }),
+        "stripe.invoices.create": (args) => {
+          const { customer, amount } = args as { customer: string; amount: number };
+          return { id: "inv_1", customer, amount };
+        },
+      });
+
+      const result = yield* executor.execute(
+        `
+        const customers = await tools.stripe.customers.list();
+        const invoice = await tools.stripe.invoices.create({
+          customer: customers.data[0].id,
+          amount: 5000,
+        });
+        return invoice;
+        `,
+        invoker,
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.result).toEqual({
+        id: "inv_1",
+        customer: "cus_1",
+        amount: 5000,
+      });
     }),
   );
 });

@@ -2,6 +2,7 @@
   "name": "@executor/codemode-core",
   "private": true,
   "type": "module",
+  "version": "0.0.0",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -21,6 +22,5 @@
     "@types/node": "catalog:",
     "bun-types": "catalog:",
     "vitest": "catalog:"
-  },
-  "version": "0.0.0"
+  }
 }
