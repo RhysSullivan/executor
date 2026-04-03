@@ -1,9 +1,24 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { createServerHandlers } from "@executor/server";
 
-const handlersPromise = createServerHandlers();
+type HotBackend = {
+  readonly api: {
+    readonly handler: (request: Request) => Promise<Response>;
+    readonly dispose: () => Promise<void>;
+  };
+  readonly mcp: {
+    readonly handleRequest: (request: Request) => Promise<Response>;
+    readonly close: () => Promise<void>;
+  };
+  readonly dispose: () => Promise<void>;
+};
+
+const DEV_BACKEND_MODULE_ID = `/@fs/${resolve(
+  process.cwd(),
+  "../server/src/dev-backend.ts",
+).replace(/\\/g, "/")}`;
 
 // Build a Web Request from a Node IncomingMessage
 const toWebRequest = async (
@@ -69,6 +84,69 @@ export default defineConfig({
     {
       name: "executor-api",
       configureServer(server) {
+        let backendPromise: Promise<HotBackend> | null = null;
+        let reloadPromise: Promise<void> | null = null;
+
+        const loadBackend = () =>
+          server
+            .ssrLoadModule(DEV_BACKEND_MODULE_ID)
+            .then((mod) => mod.createHotBackend() as Promise<HotBackend>);
+
+        const getBackend = () => {
+          if (!backendPromise) {
+            backendPromise = loadBackend();
+          }
+          return backendPromise;
+        };
+
+        const shouldReloadBackend = (file: string) =>
+          /\.(ts|tsx)$/.test(file) &&
+          !file.includes("/apps/web/") &&
+          (
+            file.includes("/apps/server/") ||
+            file.includes("/packages/core/") ||
+            file.includes("/packages/plugins/") ||
+            file.includes("/packages/hosts/")
+          );
+
+        server.httpServer?.once("close", () => {
+          const pending = backendPromise;
+          backendPromise = null;
+          void pending?.then((backend) => backend.dispose()).catch(() => undefined);
+        });
+
+        server.watcher.on("change", (file) => {
+          if (!shouldReloadBackend(file) || reloadPromise) {
+            return;
+          }
+
+          reloadPromise = (async () => {
+            server.config.logger.info(`[executor-api] hot reloading backend: ${file}`);
+
+            const previous = await getBackend().catch(() => null);
+
+            server.moduleGraph.invalidateAll();
+            backendPromise = loadBackend();
+
+            await backendPromise;
+            await previous?.dispose().catch(() => undefined);
+
+            server.ws.send({
+              type: "custom",
+              event: "executor:backend-updated",
+              data: { file },
+            });
+          })()
+            .catch((error) => {
+              server.config.logger.error(
+                `[executor-api] backend reload failed: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            })
+            .finally(() => {
+              reloadPromise = null;
+            });
+        });
+
         server.middlewares.use(async (req, res, next) => {
           const url = req.url ?? "/";
 
@@ -80,12 +158,12 @@ export default defineConfig({
 
           if (!isApi && !isMcp) return next();
 
-          const handlers = await handlersPromise;
+          const backend = await getBackend();
           const request = await toWebRequest(req);
 
           const response = isMcp
-            ? await handlers.mcp.handleRequest(request)
-            : await handlers.api.handler(request);
+            ? await backend.mcp.handleRequest(request)
+            : await backend.api.handler(request);
 
           await sendWebResponse(response, res);
         });

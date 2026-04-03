@@ -114,9 +114,12 @@ describe("Real specs: Cloudflare API", () => {
       expect(result.toolCount).toBeGreaterThan(1000);
 
       const tools = yield* executor.tools.list();
-      expect(tools.length).toBe(result.toolCount);
+      expect(tools.length).toBe(result.toolCount + 2);
 
-      for (const tool of tools) {
+      const cloudflareTools = tools.filter((tool) => tool.sourceId === "cloudflare");
+      expect(cloudflareTools.length).toBe(result.toolCount);
+
+      for (const tool of cloudflareTools) {
         expect(tool.pluginKey).toBe("openapi");
         expect(tool.sourceId).toBe("cloudflare");
       }
@@ -212,7 +215,11 @@ describe("Real specs: Cloudflare API", () => {
 
       yield* executor.openapi.removeSpec("cloudflare");
 
-      expect(yield* executor.tools.list()).toHaveLength(0);
+      const remaining = yield* executor.tools.list();
+      expect(remaining.map((tool) => tool.id)).toEqual([
+        "executor.openapi.previewSpec",
+        "executor.openapi.addSource",
+      ]);
     }),
   );
 });

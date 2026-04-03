@@ -25,6 +25,53 @@ export function SourcesPage() {
     ? sourcePlugins.find((p) => p.key === adding)
     : undefined;
 
+  const renderSourceGrid = (sources: readonly {
+    id: string;
+    name: string;
+    kind: string;
+    runtime?: boolean;
+  }[]) => (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      {sources.map((s) => (
+        <Link
+          key={s.id}
+          to="/sources/$namespace"
+          params={{ namespace: s.id }}
+          className="flex h-full flex-col rounded-2xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/25 hover:bg-card/90"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <svg viewBox="0 0 16 16" className="size-4">
+                <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <div className="truncate text-sm font-semibold text-foreground">
+                  {s.name}
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {s.runtime && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      built-in
+                    </span>
+                  )}
+                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
+                    {s.kind}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {s.id}
+              </div>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+
   if (plugin) {
     const AddComponent = plugin.add;
     return (
@@ -54,7 +101,7 @@ export function SourcesPage() {
               Sources
             </h1>
             <p className="mt-1.5 text-[14px] text-muted-foreground">
-              Connected tool providers in this workspace.
+              Tool providers available in this workspace.
             </p>
           </div>
           <div className="flex gap-2">
@@ -82,8 +129,11 @@ export function SourcesPage() {
           onFailure: () => (
             <p className="text-sm text-destructive">Failed to load sources</p>
           ),
-          onSuccess: ({ value }) =>
-            value.length === 0 ? (
+          onSuccess: ({ value }) => {
+            const builtInSources = value.filter((source) => source.runtime);
+            const connectedSources = value.filter((source) => !source.runtime);
+
+            return value.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
                 <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
                   <svg viewBox="0 0 24 24" fill="none" className="size-5">
@@ -98,39 +148,37 @@ export function SourcesPage() {
                 </p>
               </div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {value.map((s) => (
-                  <Link
-                    key={s.id}
-                    to="/sources/$namespace"
-                    params={{ namespace: s.id }}
-                    className="flex h-full flex-col rounded-2xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/25 hover:bg-card/90"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                        <svg viewBox="0 0 16 16" className="size-4">
-                          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.2" />
-                          <path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                        </svg>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="truncate text-sm font-semibold text-foreground">
-                            {s.name}
-                          </div>
-                          <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                            {s.kind}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 text-xs text-muted-foreground">
-                          {s.id}
-                        </div>
-                      </div>
+              <div className="space-y-8">
+                {builtInSources.length > 0 && (
+                  <section className="space-y-3">
+                    <div>
+                      <h2 className="text-sm font-semibold text-foreground">
+                        Built-in
+                      </h2>
+                      <p className="mt-1 text-[13px] text-muted-foreground">
+                        Runtime sources exposed by the loaded executor plugins.
+                      </p>
                     </div>
-                  </Link>
-                ))}
+                    {renderSourceGrid(builtInSources)}
+                  </section>
+                )}
+
+                {connectedSources.length > 0 && (
+                  <section className="space-y-3">
+                    <div>
+                      <h2 className="text-sm font-semibold text-foreground">
+                        Connected
+                      </h2>
+                      <p className="mt-1 text-[13px] text-muted-foreground">
+                        User-configured sources available in this workspace.
+                      </p>
+                    </div>
+                    {renderSourceGrid(connectedSources)}
+                  </section>
+                )}
               </div>
-            ),
+            );
+          },
         })}
       </div>
     </div>

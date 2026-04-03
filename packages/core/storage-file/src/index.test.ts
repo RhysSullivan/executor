@@ -122,6 +122,30 @@ describe("KvToolRegistry", () => {
       }),
     ),
   );
+
+  it.effect("runtime tools are listed but not persisted", () =>
+    withKv((kv) =>
+      Effect.gen(function* () {
+        const reg1 = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
+        yield* reg1.registerRuntime([
+          {
+            id: ToolId.make("executor.test.runtime"),
+            pluginKey: "test",
+            sourceId: "executor.test",
+            name: "runtime",
+            description: "Runtime-only tool",
+          },
+        ]);
+
+        const listed = yield* reg1.list();
+        expect(listed.map((tool) => tool.id)).toContain("executor.test.runtime");
+
+        const reg2 = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
+        const relisted = yield* reg2.list();
+        expect(relisted.map((tool) => tool.id)).not.toContain("executor.test.runtime");
+      }),
+    ),
+  );
 });
 
 // ---------------------------------------------------------------------------

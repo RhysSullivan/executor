@@ -1,10 +1,12 @@
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { FetchHttpClient, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import {
   Source,
   definePlugin,
+  registerRuntimeTools,
+  runtimeTool,
   type ExecutorPlugin,
   type PluginContext,
   ToolId,
@@ -18,19 +20,20 @@ import { makeOpenApiInvoker } from "./invoke";
 import { resolveBaseUrl } from "./openapi-utils";
 import type { OpenApiOperationStore } from "./operation-store";
 import { makeInMemoryOperationStore } from "./kv-operation-store";
-import { previewSpec, type SpecPreview } from "./preview";
+import { previewSpec, SpecPreview } from "./preview";
 import {
+  HeaderValue as HeaderValueSchema,
   InvocationConfig,
   OperationBinding,
+  type HeaderValue as HeaderValueValue,
 } from "./types";
-
 
 // ---------------------------------------------------------------------------
 // Plugin config
 // ---------------------------------------------------------------------------
 
 /** A header value — either a static string or a reference to a secret */
-export type HeaderValue = string | { readonly secretId: string; readonly prefix?: string };
+export type HeaderValue = HeaderValueValue;
 
 export interface OpenApiSpecConfig {
   readonly spec: string;
@@ -46,9 +49,7 @@ export interface OpenApiSpecConfig {
 
 export interface OpenApiPluginExtension {
   /** Preview a spec without registering — returns metadata, auth strategies, header presets */
-  readonly previewSpec: (
-    specText: string,
-  ) => Effect.Effect<SpecPreview, Error>;
+  readonly previewSpec: (specText: string) => Effect.Effect<SpecPreview, Error>;
 
   /** Add an OpenAPI spec and register its operations as tools */
   readonly addSpec: (
@@ -63,14 +64,35 @@ export interface OpenApiPluginExtension {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const PreviewSpecInputSchema = Schema.Struct({
+  spec: Schema.String,
+});
+type PreviewSpecInput = typeof PreviewSpecInputSchema.Type;
+
+const AddSourceInputSchema = Schema.Struct({
+  spec: Schema.String,
+  baseUrl: Schema.optional(Schema.String),
+  namespace: Schema.optional(Schema.String),
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
+  ),
+});
+type AddSourceInput = typeof AddSourceInputSchema.Type;
+
+const AddSourceOutputSchema = Schema.Struct({
+  sourceId: Schema.String,
+  toolCount: Schema.Number,
+});
+
 const toRegistration = (
   def: ToolDefinition,
   namespace: string,
 ): ToolRegistration => {
   const op = def.operation;
   const description = Option.getOrElse(op.description, () =>
-    Option.getOrElse(op.summary, () =>
-      `${op.method.toUpperCase()} ${op.pathTemplate}`,
+    Option.getOrElse(
+      op.summary,
+      () => `${op.method.toUpperCase()} ${op.pathTemplate}`,
     ),
   );
   return {
@@ -101,10 +123,8 @@ export const openApiPlugin = (options?: {
   readonly operationStore?: OpenApiOperationStore;
 }): ExecutorPlugin<"openapi", OpenApiPluginExtension> => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
-  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
-
-  // Track added sources so we can list them
-  const addedSources = new Map<string, Source>();
+  const operationStore =
+    options?.operationStore ?? makeInMemoryOperationStore();
 
   return definePlugin({
     key: "openapi",
@@ -120,35 +140,117 @@ export const openApiPlugin = (options?: {
           }),
         );
 
-        // Restore source metadata from persistent store
-        const savedMetas = yield* operationStore.listSourceMeta();
-        for (const meta of savedMetas) {
-          addedSources.set(meta.namespace, new Source({
-            id: meta.namespace,
-            name: meta.name,
-            kind: "openapi",
-          }));
-        }
-
         // Tools are already persisted in the KV tool registry — no need to
         // re-register them. We only need the source list and the invoker.
-
         // Register source manager so the core can list/remove/refresh our sources
         yield* ctx.sources.addManager({
           kind: "openapi",
 
           list: () =>
-            Effect.sync(() => [...addedSources.values()]),
+            operationStore.listSourceMeta().pipe(
+              Effect.map((metas) =>
+                metas.map(
+                  (meta) =>
+                    new Source({
+                      id: meta.namespace,
+                      name: meta.name,
+                      kind: "openapi",
+                      runtime: false,
+                      canRemove: true,
+                      canRefresh: false,
+                    }),
+                ),
+              ),
+            ),
 
           remove: (sourceId: string) =>
             Effect.gen(function* () {
               yield* operationStore.removeByNamespace(sourceId);
               yield* operationStore.removeSourceMeta(sourceId);
               yield* ctx.tools.unregisterBySource(sourceId);
-              addedSources.delete(sourceId);
             }),
 
           // TODO: refresh requires storing original config per namespace
+        });
+
+        const addSpecInternal = (config: OpenApiSpecConfig) =>
+          Effect.gen(function* () {
+            const doc = yield* parse(config.spec);
+            const result = yield* extract(doc);
+
+            const namespace =
+              config.namespace ??
+              Option.getOrElse(result.title, () => "api")
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "_");
+
+            if (doc.components?.schemas) {
+              yield* ctx.tools.registerDefinitions(doc.components.schemas);
+            }
+
+            const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
+            const invocationConfig = new InvocationConfig({
+              baseUrl,
+              headers: config.headers ?? {},
+            });
+
+            const definitions = compileToolDefinitions(result.operations);
+
+            const registrations = definitions.map((def) =>
+              toRegistration(def, namespace),
+            );
+
+            yield* Effect.forEach(
+              definitions,
+              (def) =>
+                operationStore.put(
+                  ToolId.make(`${namespace}.${def.toolPath}`),
+                  namespace,
+                  toBinding(def),
+                  invocationConfig,
+                ),
+              { discard: true },
+            );
+
+            yield* ctx.tools.register(registrations);
+
+            const sourceName = Option.getOrElse(result.title, () => namespace);
+            yield* operationStore.putSourceMeta({
+              namespace,
+              name: sourceName,
+            });
+
+            return { sourceId: namespace, toolCount: registrations.length };
+          });
+
+        const runtimeTools = yield* registerRuntimeTools({
+          registry: ctx.tools,
+          sources: ctx.sources,
+          pluginKey: "openapi",
+          source: {
+            id: "executor.openapi",
+            name: "OpenAPI",
+          },
+          tools: [
+            runtimeTool({
+              id: "executor.openapi.previewSpec",
+              name: "previewSpec",
+              description:
+                "Preview an OpenAPI document before adding it as a source",
+              inputSchema: PreviewSpecInputSchema,
+              outputSchema: SpecPreview,
+              handler: ({ spec }: PreviewSpecInput) => previewSpec(spec),
+            }),
+            runtimeTool({
+              id: "executor.openapi.addSource",
+              name: "addSource",
+              description:
+                "Add an OpenAPI source and register its operations as tools",
+              inputSchema: AddSourceInputSchema,
+              outputSchema: AddSourceOutputSchema,
+              handler: (input: AddSourceInput) => addSpecInternal(input),
+            }),
+          ],
         });
 
         return {
@@ -156,75 +258,24 @@ export const openApiPlugin = (options?: {
             previewSpec: (specText: string) => previewSpec(specText),
 
             addSpec: (config: OpenApiSpecConfig) =>
-              Effect.gen(function* () {
-                const doc = yield* parse(config.spec);
-                const result = yield* extract(doc);
-
-                const namespace =
-                  config.namespace ??
-                  Option.getOrElse(result.title, () => "api")
-                    .toLowerCase()
-                    .replace(/[^a-z0-9]+/g, "_");
-
-                if (doc.components?.schemas) {
-                  yield* ctx.tools.registerDefinitions(doc.components.schemas);
-                }
-
-                const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
-                const invocationConfig = new InvocationConfig({
-                  baseUrl,
-                  headers: config.headers ?? {},
-                });
-
-                const definitions = compileToolDefinitions(result.operations);
-
-                const registrations = definitions.map((def) =>
-                  toRegistration(def, namespace),
-                );
-
-                yield* Effect.forEach(
-                  definitions,
-                  (def) =>
-                    operationStore.put(
-                      ToolId.make(`${namespace}.${def.toolPath}`),
-                      namespace,
-                      toBinding(def),
-                      invocationConfig,
-                    ),
-                  { discard: true },
-                );
-
-                yield* ctx.tools.register(registrations);
-
-                // Track the source — persist and cache
-                const sourceName = Option.getOrElse(result.title, () => namespace);
-                yield* operationStore.putSourceMeta({ namespace, name: sourceName });
-                addedSources.set(namespace, new Source({
-                  id: namespace,
-                  name: sourceName,
-                  kind: "openapi",
-                }));
-
-                return { toolCount: registrations.length };
-              }),
+              addSpecInternal(config).pipe(
+                Effect.map(({ toolCount }) => ({ toolCount })),
+              ),
 
             removeSpec: (namespace: string) =>
               Effect.gen(function* () {
-                const toolIds = yield* operationStore.removeByNamespace(namespace);
+                const toolIds =
+                  yield* operationStore.removeByNamespace(namespace);
                 if (toolIds.length > 0) {
                   yield* ctx.tools.unregister(toolIds);
                 }
                 yield* operationStore.removeSourceMeta(namespace);
-                addedSources.delete(namespace);
               }),
           },
 
           close: () =>
             Effect.gen(function* () {
-              for (const sourceId of addedSources.keys()) {
-                yield* ctx.tools.unregisterBySource(sourceId);
-              }
-              addedSources.clear();
+              yield* runtimeTools.close();
             }),
         };
       }),

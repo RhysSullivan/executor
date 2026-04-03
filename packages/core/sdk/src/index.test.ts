@@ -4,11 +4,13 @@ import { Effect, Exit, Schema } from "effect";
 import {
   createExecutor,
   makeTestConfig,
+  makeInMemorySourceRegistry,
   inMemoryToolsPlugin,
   tool,
   FormElicitation,
   UrlElicitation,
   ElicitationResponse,
+  Source,
   type MemoryToolContext,
   type ToolId,
   type InvokeOptions,
@@ -37,6 +39,42 @@ describe("SDK Executor", () => {
       const executor = yield* createExecutor(makeTestConfig());
       expect(executor.scope.name).toBe("test");
       expect(yield* executor.tools.list()).toHaveLength(0);
+    }),
+  );
+
+  it.effect("runtime sources are listed separately from source managers", () =>
+    Effect.gen(function* () {
+      const sources = makeInMemorySourceRegistry();
+
+      yield* sources.registerRuntime(new Source({
+        id: "executor.openapi",
+        name: "OpenAPI",
+        kind: "openapi",
+        runtime: true,
+        canRemove: false,
+        canRefresh: false,
+      }));
+
+      yield* sources.addManager({
+        kind: "openapi",
+        list: () =>
+          Effect.succeed([
+            new Source({
+              id: "vercel",
+              name: "Vercel API",
+              kind: "openapi",
+              runtime: false,
+              canRemove: true,
+              canRefresh: false,
+            }),
+          ]),
+        remove: () => Effect.void,
+      });
+
+      expect((yield* sources.list()).map((source) => source.id)).toEqual([
+        "executor.openapi",
+        "vercel",
+      ]);
     }),
   );
 
@@ -355,7 +393,9 @@ describe("SDK Executor", () => {
       );
 
       const error = yield* Effect.flip(
-        executor.tools.invoke("auth.login", {}, autoApprove),
+        executor.tools.invoke("auth.login", {}, {
+          onElicitation: undefined as never,
+        }),
       );
       expect(error._tag).toBe("ElicitationDeclinedError");
     }),

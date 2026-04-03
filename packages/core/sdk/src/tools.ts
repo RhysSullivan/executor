@@ -99,6 +99,19 @@ export class ToolRegistry extends Context.Tag("@executor/sdk/ToolRegistry")<
     ) => Effect.Effect<void>;
 
     /**
+     * Register named schema definitions for runtime tools. These remain
+     * runtime-only and are not persisted by storage-backed registries.
+     */
+    readonly registerRuntimeDefinitions: (
+      defs: Record<string, unknown>,
+    ) => Effect.Effect<void>;
+
+    /** Remove named schema definitions that were registered for runtime tools. */
+    readonly unregisterRuntimeDefinitions: (
+      names: readonly string[],
+    ) => Effect.Effect<void>;
+
+    /**
      * Register a plugin invoker. Must be called before registering tools
      * with the corresponding pluginKey.
      */
@@ -117,6 +130,25 @@ export class ToolRegistry extends Context.Tag("@executor/sdk/ToolRegistry")<
     /** Register tools (used by plugins to push tools into the registry) */
     readonly register: (
       tools: readonly ToolRegistration[],
+    ) => Effect.Effect<void>;
+
+    /**
+     * Register runtime-only tools. These should behave like normal tools for
+     * listing, schema lookup, discovery, and invocation, but are not persisted.
+     */
+    readonly registerRuntime: (
+      tools: readonly ToolRegistration[],
+    ) => Effect.Effect<void>;
+
+    /** Register a runtime-only handler for a specific tool id. */
+    readonly registerRuntimeHandler: (
+      toolId: ToolId,
+      handler: RuntimeToolHandler,
+    ) => Effect.Effect<void>;
+
+    /** Unregister runtime-only tools by id without touching persisted storage. */
+    readonly unregisterRuntime: (
+      toolIds: readonly ToolId[],
     ) => Effect.Effect<void>;
 
     /** Unregister tools by id (used by plugins on cleanup) */
@@ -149,6 +181,18 @@ export interface ToolInvoker {
   readonly resolveAnnotations?: (
     toolId: ToolId,
   ) => Effect.Effect<ToolAnnotations | undefined>;
+}
+
+export interface RuntimeToolHandler {
+  readonly invoke: (
+    args: unknown,
+    options: InvokeOptions,
+  ) => Effect.Effect<
+    ToolInvocationResult,
+    ToolInvocationError | ElicitationDeclinedError
+  >;
+
+  readonly resolveAnnotations?: () => Effect.Effect<ToolAnnotations | undefined>;
 }
 
 // ---------------------------------------------------------------------------

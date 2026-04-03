@@ -34,6 +34,8 @@ export function SourceDetailPage(props: { namespace: string }) {
   const [refreshing, setRefreshing] = useState(false);
 
   const sourceData = Result.isSuccess(source) ? source.value : null;
+  const canRefresh = sourceData ? (sourceData.canRefresh ?? true) : false;
+  const canRemove = sourceData ? (sourceData.canRemove ?? true) : false;
 
   const sourceTools: ToolSummary[] = useMemo(() => {
     if (!Result.isSuccess(tools)) return [];
@@ -85,6 +87,11 @@ export function SourceDetailPage(props: { namespace: string }) {
           <h2 className="truncate text-sm font-semibold text-foreground">
             {sourceData?.name ?? namespace}
           </h2>
+          {sourceData?.runtime && (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              built-in
+            </span>
+          )}
           <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
             {sourceData?.kind ?? "source"}
           </span>
@@ -96,16 +103,18 @@ export function SourceDetailPage(props: { namespace: string }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void handleRefresh()}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
-          >
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
+          {canRefresh && (
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            >
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          )}
 
-          {confirmDelete ? (
+          {canRemove && (confirmDelete ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-medium text-destructive">
                 Confirm?
@@ -135,7 +144,7 @@ export function SourceDetailPage(props: { namespace: string }) {
             >
               Delete
             </button>
-          )}
+          ))}
         </div>
       </div>
 

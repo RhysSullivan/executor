@@ -16,7 +16,7 @@ import { SecretsHandlers } from "./handlers/secrets";
 import { OpenApiHandlersLive } from "./handlers/openapi";
 import { McpSourceHandlersLive } from "./handlers/mcp-source";
 import { OnePasswordHandlersLive } from "./handlers/onepassword";
-import { ExecutorServiceLayer, getExecutor } from "./services/executor";
+import { ExecutorService, ExecutorServiceLayer, getExecutor, type ServerExecutor } from "./services/executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 
 // ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ const ExecutorApiWithPlugins = addGroup(OpenApiGroup).add(McpGroup).add(OnePassw
 // API Layer
 // ---------------------------------------------------------------------------
 
-const ApiLive = HttpApiBuilder.api(ExecutorApiWithPlugins).pipe(
+const ApiBase = HttpApiBuilder.api(ExecutorApiWithPlugins).pipe(
   Layer.provide([
     ToolsHandlers,
     SourcesHandlers,
@@ -38,7 +38,6 @@ const ApiLive = HttpApiBuilder.api(ExecutorApiWithPlugins).pipe(
     McpSourceHandlersLive,
     OnePasswordHandlersLive,
   ]),
-  Layer.provide(ExecutorServiceLayer),
 );
 
 // ---------------------------------------------------------------------------
@@ -53,23 +52,29 @@ export type ServerHandlers = {
   readonly mcp: McpRequestHandler;
 };
 
-export const createServerHandlers = async (): Promise<ServerHandlers> => {
-  const executor = await getExecutor();
-
-  const api = HttpApiBuilder.toWebHandler(
+const createApiHandlerWithExecutor = (executor: ServerExecutor) =>
+  HttpApiBuilder.toWebHandler(
     HttpApiSwagger.layer().pipe(
       Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
       Layer.provideMerge(HttpApiBuilder.middlewareCors()),
-      Layer.provideMerge(ApiLive),
+      Layer.provideMerge(ApiBase),
+      Layer.provideMerge(Layer.succeed(ExecutorService, executor)),
       Layer.provideMerge(HttpServer.layerContext),
     ),
     { middleware: HttpMiddleware.logger },
   );
 
+export const createServerHandlersWithExecutor = async (
+  executor: ServerExecutor,
+): Promise<ServerHandlers> => {
+  const api = createApiHandlerWithExecutor(executor);
   const mcp = createMcpRequestHandler({ executor });
 
   return { api, mcp };
 };
+
+export const createServerHandlers = async (): Promise<ServerHandlers> =>
+  createServerHandlersWithExecutor(await getExecutor());
 
 // ---------------------------------------------------------------------------
 // Backwards compat — standalone API handler (no MCP)
@@ -80,7 +85,8 @@ export const createApiHandler = () =>
     HttpApiSwagger.layer().pipe(
       Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
       Layer.provideMerge(HttpApiBuilder.middlewareCors()),
-      Layer.provideMerge(ApiLive),
+      Layer.provideMerge(ApiBase),
+      Layer.provideMerge(ExecutorServiceLayer),
       Layer.provideMerge(HttpServer.layerContext),
     ),
     { middleware: HttpMiddleware.logger },

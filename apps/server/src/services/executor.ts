@@ -21,6 +21,10 @@ type ServerPlugins = readonly [
   ExecutorPlugin<"onepassword", OnePasswordExtension>,
 ];
 export type ServerExecutor = Executor<ServerPlugins>;
+export type ServerExecutorHandle = {
+  readonly executor: ServerExecutor;
+  readonly dispose: () => Promise<void>;
+};
 
 // ---------------------------------------------------------------------------
 // Service tag
@@ -78,17 +82,57 @@ const ExecutorLayer = Layer.effect(
 );
 
 // ---------------------------------------------------------------------------
-// ManagedRuntime — keeps the SQLite scope alive for the process lifetime
+// ManagedRuntime — shared singleton for production, scoped handles for dev HMR
 // ---------------------------------------------------------------------------
 
-const runtime = ManagedRuntime.make(ExecutorLayer);
+export const createServerExecutorHandle = async (): Promise<ServerExecutorHandle> => {
+  const runtime = ManagedRuntime.make(ExecutorLayer);
+  const executor = await runtime.runPromise(ExecutorService);
+
+  return {
+    executor,
+    dispose: async () => {
+      await Effect.runPromise(executor.close()).catch(() => undefined);
+      await runtime.dispose().catch(() => undefined);
+    },
+  };
+};
+
+let sharedHandlePromise: Promise<ServerExecutorHandle> | null = null;
+
+const loadSharedHandle = (): Promise<ServerExecutorHandle> => {
+  if (!sharedHandlePromise) {
+    sharedHandlePromise = createServerExecutorHandle();
+  }
+  return sharedHandlePromise;
+};
 
 /**
  * Get the shared executor instance. The ManagedRuntime keeps the SQLite
  * connection (and everything else) alive until the process exits.
  */
 export const getExecutor = (): Promise<ServerExecutor> =>
-  runtime.runPromise(ExecutorService);
+  loadSharedHandle().then((handle) => handle.executor);
+
+/**
+ * Dispose the shared executor/runtime. Mainly useful in development when the
+ * backend module graph is hot-reloaded and we need fresh plugin init.
+ */
+export const disposeExecutor = async (): Promise<void> => {
+  const currentHandlePromise = sharedHandlePromise;
+  sharedHandlePromise = null;
+
+  const handle = await currentHandlePromise?.catch(() => null);
+  await handle?.dispose().catch(() => undefined);
+};
+
+/**
+ * Dispose and eagerly recreate the shared executor.
+ */
+export const reloadExecutor = async (): Promise<ServerExecutor> => {
+  await disposeExecutor();
+  return getExecutor();
+};
 
 /**
  * Provide `ExecutorService` to an Effect layer using the shared runtime.

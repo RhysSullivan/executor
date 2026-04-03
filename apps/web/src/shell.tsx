@@ -1,6 +1,13 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomValue, sourcesAtom, Result } from "@executor/react";
+import {
+  useAtomRefresh,
+  useAtomValue,
+  Result,
+  sourceToolsAtom,
+  sourcesAtom,
+  toolsAtom,
+} from "@executor/react";
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
@@ -157,6 +164,14 @@ function SidebarContent(props: {
 export function Shell() {
   const location = useLocation();
   const pathname = location.pathname;
+  const currentSourceId = pathname.startsWith("/sources/")
+    ? decodeURIComponent(pathname.slice("/sources/".length).split("/")[0] ?? "")
+    : null;
+  const refreshSources = useAtomRefresh(sourcesAtom());
+  const refreshTools = useAtomRefresh(toolsAtom());
+  const refreshSourceTools = useAtomRefresh(
+    sourceToolsAtom(currentSourceId ?? "__runtime__"),
+  );
   const lastPathname = useRef(pathname);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   if (lastPathname.current !== pathname) {
@@ -173,6 +188,26 @@ export function Shell() {
       document.body.style.overflow = prev;
     };
   }, [mobileSidebarOpen]);
+
+  useEffect(() => {
+    if (!import.meta.hot) {
+      return;
+    }
+
+    const refreshBackendData = () => {
+      refreshSources();
+      refreshTools();
+      if (currentSourceId) {
+        refreshSourceTools();
+      }
+    };
+
+    import.meta.hot.on("executor:backend-updated", refreshBackendData);
+
+    return () => {
+      import.meta.hot?.off("executor:backend-updated", refreshBackendData);
+    };
+  }, [currentSourceId, refreshSourceTools, refreshSources, refreshTools]);
 
   return (
     <div className="flex h-screen overflow-hidden">

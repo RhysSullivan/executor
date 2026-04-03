@@ -17,6 +17,9 @@ const SourceResponse = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   kind: Schema.String,
+  runtime: Schema.optional(Schema.Boolean),
+  canRemove: Schema.optional(Schema.Boolean),
+  canRefresh: Schema.optional(Schema.Boolean),
 });
 
 const SourceRemoveResponse = Schema.Struct({

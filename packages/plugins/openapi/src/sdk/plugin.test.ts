@@ -11,7 +11,17 @@ import {
 } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 
-import { createExecutor, makeTestConfig, SecretId, type InvokeOptions } from "@executor/sdk";
+import {
+  createExecutor,
+  makeInMemoryPolicyEngine,
+  makeInMemorySecretStore,
+  makeInMemorySourceRegistry,
+  makeInMemoryToolRegistry,
+  makeTestConfig,
+  ScopeId,
+  SecretId,
+  type InvokeOptions,
+} from "@executor/sdk";
 import { openApiPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -115,6 +125,154 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       expect(preview.operationCount).toBeGreaterThanOrEqual(2);
       expect(preview.servers).toBeDefined();
+    }),
+  );
+
+  it.effect("registers runtime executor.openapi tools", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+          ] as const,
+        }),
+      );
+
+      const tools = yield* executor.tools.list();
+      const ids = tools.map((t) => t.id);
+      expect(ids).toContain("executor.openapi.previewSpec");
+      expect(ids).toContain("executor.openapi.addSource");
+    }),
+  );
+
+  it.effect("lists executor.openapi as a runtime source", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+          ] as const,
+        }),
+      );
+
+      const sources = yield* executor.sources.list();
+
+      expect(sources).toContainEqual(expect.objectContaining({
+        id: "executor.openapi",
+        name: "OpenAPI",
+        kind: "openapi",
+        runtime: true,
+        canRemove: false,
+        canRefresh: false,
+      }));
+    }),
+  );
+
+  it.effect("closing an executor does not remove added source tools from the shared registry", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const scope = {
+        id: ScopeId.make("test-scope"),
+        parentId: null,
+        name: "test",
+        createdAt: new Date(),
+      } as const;
+
+      const sharedConfig = {
+        scope,
+        tools: makeInMemoryToolRegistry(),
+        sources: makeInMemorySourceRegistry(),
+        secrets: makeInMemorySecretStore(),
+        policies: makeInMemoryPolicyEngine(),
+      };
+
+      const executor1 = yield* createExecutor({
+        ...sharedConfig,
+        plugins: [
+          openApiPlugin({ httpClientLayer: clientLayer }),
+        ] as const,
+      });
+
+      yield* executor1.openapi.addSpec({
+        spec: specJson,
+        namespace: "persisted",
+      });
+
+      expect((yield* executor1.tools.list()).map((tool) => tool.id)).toContain(
+        "persisted.items.listItems",
+      );
+
+      yield* executor1.close();
+
+      const executor2 = yield* createExecutor({
+        ...sharedConfig,
+        plugins: [
+          openApiPlugin({ httpClientLayer: clientLayer }),
+        ] as const,
+      });
+
+      expect((yield* executor2.tools.list()).map((tool) => tool.id)).toContain(
+        "persisted.items.listItems",
+      );
+    }),
+  );
+
+  it.effect("invokes runtime previewSpec through executor.tools.invoke", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+          ] as const,
+        }),
+      );
+
+      const result = yield* executor.tools.invoke(
+        "executor.openapi.previewSpec",
+        { spec: specJson },
+        autoApprove,
+      );
+
+      expect(result.error).toBeNull();
+      expect((result.data as { operationCount: number }).operationCount).toBeGreaterThanOrEqual(2);
+    }),
+  );
+
+  it.effect("invokes runtime addSource through executor.tools.invoke", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+          ] as const,
+        }),
+      );
+
+      const result = yield* executor.tools.invoke(
+        "executor.openapi.addSource",
+        { spec: specJson, namespace: "runtime" },
+        autoApprove,
+      );
+
+      expect(result.error).toBeNull();
+      expect(result.data).toEqual({ sourceId: "runtime", toolCount: 3 });
+      expect((yield* executor.tools.list()).map((t) => t.id)).toContain(
+        "runtime.items.listItems",
+      );
     }),
   );
 
@@ -299,7 +457,11 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.removeSpec("removable");
 
-      expect(yield* executor.tools.list()).toHaveLength(0);
+      const remaining = yield* executor.tools.list();
+      expect(remaining.map((tool) => tool.id)).toEqual([
+        "executor.openapi.previewSpec",
+        "executor.openapi.addSource",
+      ]);
     }),
   );
 });

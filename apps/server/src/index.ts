@@ -1,3 +1,4 @@
 export { createApiHandler, createServerHandlers, type ApiHandler, type ServerHandlers } from "./main";
-export { ExecutorServiceLayer, getExecutor } from "./services/executor";
+export { createServerHandlersWithExecutor } from "./main";
+export { ExecutorServiceLayer, createServerExecutorHandle, disposeExecutor, getExecutor, reloadExecutor } from "./services/executor";
 export { createMcpRequestHandler, runMcpStdioServer, type McpRequestHandler } from "./mcp";

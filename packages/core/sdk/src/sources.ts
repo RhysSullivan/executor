@@ -11,6 +11,12 @@ export class Source extends Schema.Class<Source>("Source")({
   name: Schema.String,
   /** Plugin kind that manages this source (e.g. "openapi", "mcp") */
   kind: Schema.String,
+  /** True when the source is provided by the running executor */
+  runtime: Schema.optional(Schema.Boolean),
+  /** Whether the source supports removal */
+  canRemove: Schema.optional(Schema.Boolean),
+  /** Whether the source supports refresh */
+  canRefresh: Schema.optional(Schema.Boolean),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -46,6 +52,12 @@ export class SourceRegistry extends Context.Tag(
     /** Register a source manager (called by plugins during init) */
     readonly addManager: (manager: SourceManager) => Effect.Effect<void>;
 
+    /** Register a runtime-only source entry. */
+    readonly registerRuntime: (source: Source) => Effect.Effect<void>;
+
+    /** Unregister a runtime-only source entry by id. */
+    readonly unregisterRuntime: (sourceId: string) => Effect.Effect<void>;
+
     /** List all sources across all plugins */
     readonly list: () => Effect.Effect<readonly Source[]>;
 
@@ -63,6 +75,7 @@ export class SourceRegistry extends Context.Tag(
 
 export const makeInMemorySourceRegistry = () => {
   const managers = new Map<string, SourceManager>();
+  const runtimeSources = new Map<string, Source>();
 
   return {
     addManager: (manager: SourceManager) =>
@@ -70,9 +83,19 @@ export const makeInMemorySourceRegistry = () => {
         managers.set(manager.kind, manager);
       }),
 
+    registerRuntime: (source: Source) =>
+      Effect.sync(() => {
+        runtimeSources.set(source.id, source);
+      }),
+
+    unregisterRuntime: (sourceId: string) =>
+      Effect.sync(() => {
+        runtimeSources.delete(sourceId);
+      }),
+
     list: () =>
       Effect.gen(function* () {
-        const all: Source[] = [];
+        const all: Source[] = [...runtimeSources.values()];
         for (const manager of managers.values()) {
           const sources = yield* manager.list();
           all.push(...sources);
@@ -82,6 +105,14 @@ export const makeInMemorySourceRegistry = () => {
 
     remove: (sourceId: string) =>
       Effect.gen(function* () {
+        const runtimeSource = runtimeSources.get(sourceId);
+        if (runtimeSource) {
+          if (runtimeSource.canRemove) {
+            runtimeSources.delete(sourceId);
+          }
+          return;
+        }
+
         for (const manager of managers.values()) {
           const sources = yield* manager.list();
           if (sources.some((s) => s.id === sourceId)) {
@@ -93,6 +124,11 @@ export const makeInMemorySourceRegistry = () => {
 
     refresh: (sourceId: string) =>
       Effect.gen(function* () {
+        const runtimeSource = runtimeSources.get(sourceId);
+        if (runtimeSource) {
+          return;
+        }
+
         for (const manager of managers.values()) {
           const sources = yield* manager.list();
           if (sources.some((s) => s.id === sourceId)) {

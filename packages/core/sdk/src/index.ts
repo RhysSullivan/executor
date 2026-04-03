@@ -20,6 +20,7 @@ export {
   ToolAnnotations,
   ToolListFilter,
   type ToolInvoker,
+  type RuntimeToolHandler,
   type InvokeOptions,
 } from "./tools";
 
@@ -80,6 +81,14 @@ export {
 
 // Schema ref utilities
 export { hoistDefinitions, collectRefs, reattachDefs } from "./schema-refs";
+
+// Runtime tools
+export {
+  registerRuntimeTools,
+  runtimeTool,
+  type RuntimeSourceDefinition,
+  type RuntimeToolDefinition,
+} from "./runtime-tools";
 
 // In-memory implementations
 export { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
