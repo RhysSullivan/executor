@@ -51,6 +51,15 @@ const ApiBase = HttpApiBuilder.api(ExecutorApiWithPlugins).pipe(
 );
 
 // ---------------------------------------------------------------------------
+// Composable API layer — for use with Effect platform HTTP servers
+// ---------------------------------------------------------------------------
+
+export const ApiLayer = HttpApiSwagger.layer().pipe(
+  Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
+  Layer.provideMerge(ApiBase),
+);
+
+// ---------------------------------------------------------------------------
 // Shared server — API + MCP from the same executor instance
 // ---------------------------------------------------------------------------
 
@@ -66,7 +75,6 @@ const createApiHandlerWithExecutor = (executor: ServerExecutor) =>
   HttpApiBuilder.toWebHandler(
     HttpApiSwagger.layer().pipe(
       Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
-      Layer.provideMerge(HttpApiBuilder.middlewareCors()),
       Layer.provideMerge(ApiBase),
       Layer.provideMerge(Layer.succeed(ExecutorService, executor)),
       Layer.provideMerge(HttpServer.layerContext),
@@ -94,7 +102,6 @@ export const createApiHandler = () =>
   HttpApiBuilder.toWebHandler(
     HttpApiSwagger.layer().pipe(
       Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
-      Layer.provideMerge(HttpApiBuilder.middlewareCors()),
       Layer.provideMerge(ApiBase),
       Layer.provideMerge(ExecutorServiceLayer),
       Layer.provideMerge(HttpServer.layerContext),

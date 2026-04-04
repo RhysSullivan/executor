@@ -34,6 +34,7 @@
     "@effect/sql": "^0.51.0",
     "@effect/sql-sqlite-bun": "^0.52.0",
     "@effect/sql-sqlite-node": "^0.52.0",
+    "@effect/cli": "^0.73.2",
     "@effect/platform": "^0.96.0",
     "@effect/platform-bun": "^0.89.0",
     "@effect/platform-node": "^0.106.0",
@@ -44,6 +45,7 @@
   },
   "scripts": {
     "dev": "turbo run dev",
+    "dev:cli": "bun run apps/cli/src/main.ts",
     "test": "turbo run test",
     "typecheck": "bun run --filter='*' typecheck",
     "lint": "oxlint -c .oxlintrc.jsonc . --deny-warnings",

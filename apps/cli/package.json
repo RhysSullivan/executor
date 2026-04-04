@@ -1,0 +1,23 @@
+{
+  "name": "@executor/cli",
+  "version": "1.4.0-beta.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "executor": "./bin/executor.ts"
+  },
+  "exports": {
+    ".": "./src/main.ts"
+  },
+  "dependencies": {
+    "@effect/cli": "catalog:",
+    "@effect/platform": "catalog:",
+    "@effect/platform-bun": "catalog:",
+    "@executor/server": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "bun-types": "catalog:",
+    "typescript": "^5.9.3"
+  }
+}
