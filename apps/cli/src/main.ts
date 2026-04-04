@@ -1,19 +1,33 @@
+// Pre-load QuickJS WASM for compiled binaries — must run before server imports
+import { dirname, join } from "node:path";
+const wasmOnDisk = join(dirname(process.execPath), "emscripten-module.wasm");
+if (typeof Bun !== "undefined" && await Bun.file(wasmOnDisk).exists()) {
+  const { setQuickJSModule } = await import("@executor/runtime-quickjs");
+  const { newQuickJSWASMModule } = await import("quickjs-emscripten");
+  const wasmBinary = await Bun.file(wasmOnDisk).arrayBuffer();
+  const variant = {
+    type: "sync" as const,
+    importFFI: () => import("@jitl/quickjs-wasmfile-release-sync/ffi").then((m: any) => m.QuickJSFFI),
+    importModuleLoader: () =>
+      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then((m: any) => {
+        const original = m.default;
+        return (moduleArg: any = {}) => original({ ...moduleArg, wasmBinary });
+      }),
+  };
+  const mod = await newQuickJSWASMModule(variant as any);
+  setQuickJSModule(mod);
+}
+
+import { spawn } from "node:child_process";
 import { Command, Options, Args } from "@effect/cli";
 import { BunRuntime } from "@effect/platform-bun";
+import { FetchHttpClient, HttpApiClient } from "@effect/platform";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 
-import {
-  createServerHandlers,
-  runMcpStdioServer,
-  getExecutor,
-} from "@executor/server";
-import {
-  createExecutionEngine,
-  formatExecuteResult,
-  formatPausedExecution,
-} from "@executor/execution";
+import { ExecutorApi } from "@executor/api";
+import { createServerHandlers, runMcpStdioServer, getExecutor } from "@executor/server";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -22,17 +36,13 @@ import {
 const CLI_NAME = "executor";
 const { version: CLI_VERSION } = await import("../package.json");
 const DEFAULT_PORT = 8788;
+const DEFAULT_BASE_URL = `http://localhost:${DEFAULT_PORT}`;
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 const embeddedWebUI: Record<string, string> | null =
   await import("embedded-web-ui.gen.ts")
     .then((m) => m.default as Record<string, string>)
     .catch(() => null);
-
-// Boot executor + execution engine eagerly so `call` description is dynamic
-const executor = await getExecutor();
-const engine = createExecutionEngine({ executor });
-const callDescription = `\n<call description start>\n${await engine.getDescription()}\n<call description end>`;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,6 +83,61 @@ const renderSessionSummary = (kind: "web" | "mcp", baseUrl: string): string => {
     "Press Ctrl+C to stop.",
   ].join("\n");
 };
+
+// ---------------------------------------------------------------------------
+// Background server management
+// ---------------------------------------------------------------------------
+
+const isServerReachable = async (baseUrl: string): Promise<boolean> => {
+  try {
+    const res = await fetch(`${baseUrl}/docs`, { signal: AbortSignal.timeout(2000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+};
+
+const script = process.argv[1];
+const isDevMode = script?.endsWith(".ts") || script?.endsWith(".js");
+const cliPrefix = isDevMode ? `bun run ${script}` : "executor";
+
+const startBackgroundServer = (port: number): void => {
+  const args = isDevMode
+    ? ["run", script, "web", "--port", String(port)]
+    : ["web", "--port", String(port)];
+  const child = spawn(process.execPath, args, {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+};
+
+const ensureServer = (baseUrl: string) =>
+  Effect.gen(function* () {
+    if (yield* Effect.promise(() => isServerReachable(baseUrl))) return;
+
+    const url = new URL(baseUrl);
+    const port = Number(url.port) || DEFAULT_PORT;
+    console.error(`Starting background server on port ${port}...`);
+    startBackgroundServer(port);
+
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      yield* Effect.promise(() => new Promise((r) => setTimeout(r, 200)));
+      if (yield* Effect.promise(() => isServerReachable(baseUrl))) return;
+    }
+
+    return yield* Effect.fail(new Error(`Server failed to start within 30s at ${baseUrl}`));
+  });
+
+// ---------------------------------------------------------------------------
+// Typed API client
+// ---------------------------------------------------------------------------
+
+const makeApiClient = (baseUrl: string) =>
+  HttpApiClient.make(ExecutorApi, { baseUrl }).pipe(
+    Effect.provide(FetchHttpClient.layer),
+  );
 
 // ---------------------------------------------------------------------------
 // Static file serving from embedded web UI
@@ -141,7 +206,10 @@ const runForegroundSession = (input: { kind: "web" | "mcp"; port: number }) =>
 // ---------------------------------------------------------------------------
 
 const runStdioMcpSession = () =>
-  Effect.promise(() => runMcpStdioServer({ executor }));
+  Effect.gen(function* () {
+    const executor = yield* Effect.promise(() => getExecutor());
+    yield* Effect.promise(() => runMcpStdioServer({ executor }));
+  });
 
 // ---------------------------------------------------------------------------
 // Code resolution — positional arg > --file > stdin
@@ -179,9 +247,7 @@ const readCode = (input: {
     }
 
     return yield* Effect.fail(
-      new Error(
-        "No code provided. Pass code as an argument, --file, or pipe to stdin.",
-      ),
+      new Error("No code provided. Pass code as an argument, --file, or pipe to stdin."),
     );
   });
 
@@ -195,31 +261,64 @@ const callCommand = Command.make(
     code: Args.text({ name: "code" }).pipe(Args.optional),
     file: Options.text("file").pipe(Options.optional),
     stdin: Options.boolean("stdin").pipe(Options.withDefault(false)),
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
   },
-  ({ code, file, stdin }) =>
+  ({ code, file, stdin, baseUrl }) =>
     Effect.gen(function* () {
-      const resolvedCode = yield* readCode({ code, file, stdin }).pipe(
-        Effect.mapError((e) => e),
-      );
+      const resolvedCode = yield* readCode({ code, file, stdin });
+      yield* ensureServer(baseUrl);
 
-      const outcome = yield* Effect.promise(() =>
-        engine.executeWithPause(resolvedCode),
-      );
+      const client = yield* makeApiClient(baseUrl);
+      const result = yield* client.executions.execute({ payload: { code: resolvedCode } });
 
-      if (outcome.status === "completed") {
-        const formatted = formatExecuteResult(outcome.result);
-        if (formatted.isError) {
-          console.error(formatted.text);
+      if (result.status === "completed") {
+        if (result.isError) {
+          console.error(result.text);
           process.exitCode = 1;
         } else {
-          console.log(formatted.text);
+          console.log(result.text);
         }
       } else {
-        const formatted = formatPausedExecution(outcome.execution);
-        console.log(formatted.text);
+        console.log(result.text);
+        const executionId = (result.structured as any)?.executionId;
+        if (executionId) {
+          console.log(
+            `\nTo resume:\n  ${cliPrefix} resume --execution-id ${executionId} --action accept`,
+          );
+        }
       }
     }),
-).pipe(Command.withDescription(callDescription));
+).pipe(Command.withDescription("Execute code against the local executor"));
+
+const resumeCommand = Command.make(
+  "resume",
+  {
+    executionId: Options.text("execution-id"),
+    action: Options.text("action").pipe(Options.withDefault("accept")),
+    content: Options.text("content").pipe(Options.optional),
+    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
+  },
+  ({ executionId, action, content, baseUrl }) =>
+    Effect.gen(function* () {
+      yield* ensureServer(baseUrl);
+
+      const parsedContent = Option.getOrUndefined(content);
+      const contentObj = parsedContent ? JSON.parse(parsedContent) : undefined;
+
+      const client = yield* makeApiClient(baseUrl);
+      const result = yield* client.executions.resume({
+        path: { executionId },
+        payload: { action: action as "accept" | "decline" | "cancel", content: contentObj },
+      });
+
+      if (result.isError) {
+        console.error(result.text);
+        process.exitCode = 1;
+      } else {
+        console.log(result.text);
+      }
+    }),
+).pipe(Command.withDescription("Resume a paused execution"));
 
 const webCommand = Command.make(
   "web",
@@ -249,7 +348,7 @@ const mcpCommand = Command.make(
 // ---------------------------------------------------------------------------
 
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([callCommand, webCommand, mcpCommand] as const),
+  Command.withSubcommands([callCommand, resumeCommand, webCommand, mcpCommand] as const),
   Command.withDescription("Executor local CLI"),
 );
 

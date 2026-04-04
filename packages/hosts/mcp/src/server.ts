@@ -12,6 +12,7 @@ import {
   createExecutionEngine,
   formatExecuteResult,
   formatPausedExecution,
+  type ExecutionEngine,
   type ExecutionEngineConfig,
 } from "@executor/execution";
 
@@ -19,7 +20,9 @@ import {
 // Config
 // ---------------------------------------------------------------------------
 
-export type ExecutorMcpServerConfig = ExecutionEngineConfig;
+export type ExecutorMcpServerConfig =
+  | ExecutionEngineConfig
+  | { readonly engine: ExecutionEngine };
 
 // ---------------------------------------------------------------------------
 // Elicitation bridge
@@ -121,7 +124,7 @@ const toMcpPausedResult = (
 export const createExecutorMcpServer = async (
   config: ExecutorMcpServerConfig,
 ): Promise<McpServer> => {
-  const engine = createExecutionEngine(config);
+  const engine = "engine" in config ? config.engine : createExecutionEngine(config);
   const description = await engine.getDescription();
 
   const server = new McpServer(

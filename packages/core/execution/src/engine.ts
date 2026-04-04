@@ -216,14 +216,30 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
         (pausedResolve as { completion: Promise<ExecuteResult> }).completion = completionPromise;
       }
 
-      // Yield to let sync elicitation fire
-      await new Promise((r) => setTimeout(r, 0));
+      // Race: either the execution completes, or it pauses for elicitation.
+      // Poll briefly to detect pauses that fire asynchronously.
+      const result = await Promise.race([
+        completionPromise.then((r) => ({ kind: "completed" as const, result: r })),
+        new Promise<{ kind: "poll" }>((resolve) => {
+          const check = (attempt: number) => {
+            if (pausedResolve) {
+              resolve({ kind: "poll" });
+            } else if (attempt < 100) {
+              setTimeout(() => check(attempt + 1), 50);
+            }
+          };
+          // Start after a tick to let sync elicitations fire first
+          setTimeout(() => check(0), 0);
+        }),
+      ]);
 
-      if (pausedResolve) {
-        return { status: "paused", execution: pausedResolve };
+      if (result.kind === "completed") {
+        return { status: "completed", result: result.result };
       }
 
-      return { status: "completed", result: await completionPromise };
+      // Execution paused — attach the completion promise and return
+      (pausedResolve as unknown as { completion: Promise<ExecuteResult> }).completion = completionPromise;
+      return { status: "paused", execution: pausedResolve! };
     },
 
     resume: async (executionId, response) => {

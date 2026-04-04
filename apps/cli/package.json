@@ -19,8 +19,11 @@
     "@effect/cli": "catalog:",
     "@effect/platform": "catalog:",
     "@effect/platform-bun": "catalog:",
-    "@executor/execution": "workspace:*",
+    "@executor/api": "workspace:*",
+    "@executor/runtime-quickjs": "workspace:*",
     "@executor/server": "workspace:*",
+    "@jitl/quickjs-wasmfile-release-sync": "*",
+    "quickjs-emscripten": "*",
     "effect": "catalog:"
   },
   "devDependencies": {

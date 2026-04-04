@@ -11,6 +11,7 @@
     "@effect/sql": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",
     "@executor/api": "workspace:*",
+    "@executor/execution": "workspace:*",
     "@executor/plugin-file-secrets": "workspace:*",
     "@executor/plugin-google-discovery": "workspace:*",
     "@executor/plugin-keychain": "workspace:*",

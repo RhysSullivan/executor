@@ -4,11 +4,13 @@ import type { HttpApiGroup } from "@effect/platform";
 import { ToolsApi } from "./tools/api";
 import { SourcesApi } from "./sources/api";
 import { SecretsApi } from "./secrets/api";
+import { ExecutionsApi } from "./executions/api";
 
 export const CoreExecutorApi = HttpApi.make("executor")
   .add(ToolsApi)
   .add(SourcesApi)
   .add(SecretsApi)
+  .add(ExecutionsApi)
   .annotateContext(
     OpenApi.annotations({
       title: "Executor API",

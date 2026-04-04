@@ -12,6 +12,7 @@ import {
   type QuickJSDeferredPromise,
   type QuickJSHandle,
   type QuickJSRuntime,
+  type QuickJSWASMModule,
 } from "quickjs-emscripten";
 
 export type QuickJsExecutorOptions = {
@@ -19,6 +20,16 @@ export type QuickJsExecutorOptions = {
   memoryLimitBytes?: number;
   maxStackSizeBytes?: number;
 };
+
+// Allow pre-loading a QuickJS module (e.g. with custom WASM bytes for compiled binaries)
+let preloadedModule: QuickJSWASMModule | null = null;
+
+export const setQuickJSModule = (mod: QuickJSWASMModule) => {
+  preloadedModule = mod;
+};
+
+const resolveQuickJS = (): Promise<QuickJSWASMModule> =>
+  preloadedModule ? Promise.resolve(preloadedModule) : getQuickJS();
 
 class QuickJsExecutionError extends Data.TaggedError("QuickJsExecutionError")<{
   readonly message: string;
@@ -299,7 +310,7 @@ const evaluateInQuickJs = async (
   const deadlineMs = Date.now() + timeoutMs;
   const logs: string[] = [];
   const pendingDeferreds = new Set<QuickJSDeferredPromise>();
-  const QuickJS = await getQuickJS();
+  const QuickJS = await resolveQuickJS();
   const runtime = QuickJS.newRuntime();
 
   try {

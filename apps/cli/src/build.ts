@@ -1,5 +1,6 @@
 import { cp, mkdir, rm, writeFile, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { $ } from "bun";
@@ -8,6 +9,17 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const cliRoot = resolve(repoRoot, "apps/cli");
 const webRoot = resolve(repoRoot, "apps/web");
 const distDir = resolve(cliRoot, "dist");
+
+const resolveQuickJsWasmPath = (): string => {
+  const req = createRequire(join(repoRoot, "packages/kernel/runtime-quickjs/package.json"));
+  const quickJsPkg = req.resolve("quickjs-emscripten/package.json");
+  const wasmPath = resolve(
+    dirname(quickJsPkg),
+    "../@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm",
+  );
+  if (!existsSync(wasmPath)) throw new Error(`QuickJS WASM not found at ${wasmPath}`);
+  return wasmPath;
+};
 
 // ---------------------------------------------------------------------------
 // Metadata
@@ -117,6 +129,7 @@ const buildBinaries = async (targets: Target[]) => {
 
   console.log("Generating embedded web UI bundle...");
   const embeddedWebUI = await createEmbeddedWebUISource();
+  const quickJsWasmPath = resolveQuickJsWasmPath();
 
   for (const target of targets) {
     const name = targetPackageName(target);
@@ -137,6 +150,9 @@ const buildBinaries = async (targets: Target[]) => {
         outfile: join(binDir, binaryName(target)),
       },
     });
+
+    // Copy QuickJS WASM next to binary — loaded at runtime by the server
+    await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
 
     // Smoke test on current platform
     if (isCurrentPlatform(target)) {
