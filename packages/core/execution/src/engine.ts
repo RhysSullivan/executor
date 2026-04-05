@@ -295,7 +295,11 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     },
 
     executeWithPause: async (code) => {
-      let pausedResolve: PausedExecution | null = null;
+      // Signal from the elicitation handler to the race below.
+      let signalPause: ((paused: PausedExecution) => void) | null = null;
+      const pausePromise = new Promise<PausedExecution>((resolve) => {
+        signalPause = resolve;
+      });
 
       const elicitationHandler: ElicitationHandler = (ctx: ElicitationContext) =>
         Effect.async<typeof ElicitationResponse.Type>((resume) => {
@@ -306,32 +310,17 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
             resolve: (response) => resume(Effect.succeed(response)),
             completion: undefined as unknown as Promise<ExecuteResult>,
           };
-          pausedResolve = paused;
           pausedExecutions.set(id, paused);
+          signalPause!(paused);
         });
 
       const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
       const completionPromise = runEffect(codeExecutor.execute(code, invoker));
 
-      if (pausedResolve) {
-        (pausedResolve as { completion: Promise<ExecuteResult> }).completion = completionPromise;
-      }
-
       // Race: either the execution completes, or it pauses for elicitation.
-      // Poll briefly to detect pauses that fire asynchronously.
       const result = await Promise.race([
         completionPromise.then((r) => ({ kind: "completed" as const, result: r })),
-        new Promise<{ kind: "poll" }>((resolve) => {
-          const check = (attempt: number) => {
-            if (pausedResolve) {
-              resolve({ kind: "poll" });
-            } else if (attempt < 100) {
-              setTimeout(() => check(attempt + 1), 50);
-            }
-          };
-          // Start after a tick to let sync elicitations fire first
-          setTimeout(() => check(0), 0);
-        }),
+        pausePromise.then((p) => ({ kind: "paused" as const, execution: p })),
       ]);
 
       if (result.kind === "completed") {
@@ -339,8 +328,8 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       }
 
       // Execution paused — attach the completion promise and return
-      (pausedResolve as unknown as { completion: Promise<ExecuteResult> }).completion = completionPromise;
-      return { status: "paused", execution: pausedResolve! };
+      (result.execution as { completion: Promise<ExecuteResult> }).completion = completionPromise;
+      return { status: "paused", execution: result.execution };
     },
 
     resume: async (executionId, response) => {

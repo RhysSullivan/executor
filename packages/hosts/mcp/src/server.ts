@@ -148,8 +148,13 @@ export const createExecutorMcpServer = async (
 
   const parseJsonContent = (raw: string): Record<string, unknown> | undefined => {
     if (raw === "{}") return undefined;
-    const parsed: unknown = JSON.parse(raw);
-    return typeof parsed === "object" && parsed !== null
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : undefined;
   };

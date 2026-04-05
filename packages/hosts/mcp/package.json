@@ -7,7 +7,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json"
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@executor/sdk": "workspace:*",
@@ -17,7 +19,10 @@
     "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@executor/codemode-core": "workspace:*",
     "@types/node": "catalog:",
-    "bun-types": "catalog:"
+    "bun-types": "catalog:",
+    "vitest": "catalog:"
   }
 }

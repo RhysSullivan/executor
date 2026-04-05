@@ -204,8 +204,11 @@
         "zod": "^4.3.0",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@executor/codemode-core": "workspace:*",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/kernel/core": {
