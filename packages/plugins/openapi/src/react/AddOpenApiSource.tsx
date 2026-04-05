@@ -695,8 +695,8 @@ export default function AddOpenApiSource(props: {
               </RadioGroup>
             )}
 
-            {/* All headers — preset-derived and user-added */}
-            {customHeaders.length > 0 && (
+            {/* All headers — preset-derived and user-added (hidden when None) */}
+            {presetIndex !== -1 && customHeaders.length > 0 && (
               <div className="space-y-2">
                 {customHeaders.map((ch, i) => (
                   <CustomHeaderRow
