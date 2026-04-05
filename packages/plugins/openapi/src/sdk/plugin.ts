@@ -314,7 +314,7 @@ export const openApiPlugin = (options?: {
               id: "openapi.previewSpec",
               name: "openapi.previewSpec",
               description:
-                "Preview an OpenAPI document before adding it as a source \n\n  ```ts \ntesting this```",
+                "Preview an OpenAPI document before adding it as a source",
               inputSchema: PreviewSpecInputSchema,
               outputSchema: SpecPreview,
               handler: ({ spec }: PreviewSpecInput) => previewSpec(spec),
