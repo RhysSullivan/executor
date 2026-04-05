@@ -46,6 +46,7 @@ That produces:
 
 - Changesets owns the published CLI version via `apps/cli/package.json`.
 - Changesets changelog file generation is disabled; GitHub release notes are generated at publish time instead.
+- `apps/cli/CHANGELOG.md` is kept as a compatibility file for the Changesets GitHub Action release PR flow.
 - `scripts/release/sync-versions.mjs` propagates that version across the rest of the repo manifests after `changeset version` runs.
 - The publish workflow supports either npm trusted publishing or an `NPM_TOKEN` secret.
 - Re-running the publish workflow for the same tag is safe for packages that are already on npm; existing versions are skipped.
