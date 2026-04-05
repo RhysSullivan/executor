@@ -12,7 +12,7 @@ import type {
   InvokeOptions,
   RuntimeToolHandler,
 } from "@executor/sdk";
-import { reattachDefs } from "@executor/sdk";
+import { buildToolTypeScriptPreview } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // Serialization — leverage ToolRegistration Schema.Class directly
@@ -95,10 +95,15 @@ export const makeKvToolRegistry = (
         const t = runtimeTools.get(toolId) ?? (yield* getPersistedTool(toolId));
         if (!t) return yield* new ToolNotFoundError({ toolId });
         const defs = yield* getDefsMap();
+        const typeScriptPreview = buildToolTypeScriptPreview({
+          inputSchema: t.inputSchema,
+          outputSchema: t.outputSchema,
+          defs,
+        });
+
         return {
           id: t.id,
-          inputSchema: reattachDefs(t.inputSchema, defs),
-          outputSchema: reattachDefs(t.outputSchema, defs),
+          ...typeScriptPreview,
         };
       }),
 

@@ -31,8 +31,11 @@ export class ToolMetadata extends Schema.Class<ToolMetadata>("ToolMetadata")({
 
 export class ToolSchema extends Schema.Class<ToolSchema>("ToolSchema")({
   id: ToolId,
-  inputSchema: Schema.optional(Schema.Unknown),
-  outputSchema: Schema.optional(Schema.Unknown),
+  inputTypeScript: Schema.optional(Schema.String),
+  outputTypeScript: Schema.optional(Schema.String),
+  typeScriptDefinitions: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.String }),
+  ),
 }) {}
 
 export class ToolInvocationResult extends Schema.Class<ToolInvocationResult>(

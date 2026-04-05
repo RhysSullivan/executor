@@ -9,7 +9,8 @@ import type {
   InvokeOptions,
   RuntimeToolHandler,
 } from "../tools";
-import { reattachDefs, normalizeRefs } from "../schema-refs";
+import { normalizeRefs } from "../schema-refs";
+import { buildToolTypeScriptPreview } from "../schema-types";
 
 export const makeInMemoryToolRegistry = () => {
   const tools = new Map<string, ToolRegistration>();
@@ -61,11 +62,19 @@ export const makeInMemoryToolRegistry = () => {
     schema: (toolId: ToolId) =>
       Effect.fromNullable(getTool(toolId)).pipe(
         Effect.mapError(() => new ToolNotFoundError({ toolId })),
-        Effect.map((t) => ({
-          id: t.id,
-          inputSchema: reattachDefs(t.inputSchema, getDefs()),
-          outputSchema: reattachDefs(t.outputSchema, getDefs()),
-        })),
+        Effect.map((t) => {
+          const defs = getDefs();
+          const typeScriptPreview = buildToolTypeScriptPreview({
+            inputSchema: t.inputSchema,
+            outputSchema: t.outputSchema,
+            defs,
+          });
+
+          return {
+            id: t.id,
+            ...typeScriptPreview,
+          };
+        }),
       ),
 
     definitions: () =>

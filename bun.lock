@@ -159,8 +159,10 @@
         "effect": "catalog:",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/core/sdk": {
