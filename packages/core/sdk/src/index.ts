@@ -82,6 +82,13 @@ export {
 
 // Schema ref utilities
 export { hoistDefinitions, collectRefs, reattachDefs, normalizeRefs } from "./schema-refs";
+export {
+  schemaToTypeScriptPreview,
+  schemaToTypeScriptPreviewWithDefs,
+  buildToolTypeScriptPreview,
+  type TypeScriptRenderOptions,
+  type TypeScriptSchemaPreview,
+} from "./schema-types";
 
 // Runtime tools
 export {

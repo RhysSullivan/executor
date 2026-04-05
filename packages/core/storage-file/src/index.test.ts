@@ -63,7 +63,7 @@ describe("KvToolRegistry", () => {
     ),
   );
 
-  it.effect("shared definitions and $ref reattachment", () =>
+  it.effect("shared definitions are reused in TypeScript previews", () =>
     withKv((kv) =>
       Effect.gen(function* () {
         const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
@@ -85,9 +85,10 @@ describe("KvToolRegistry", () => {
         ]);
 
         const schema = yield* reg.schema(ToolId.make("with-ref"));
-        const input = schema.inputSchema as Record<string, unknown>;
-        expect(input.$defs).toBeDefined();
-        expect((input.$defs as Record<string, unknown>).Address).toBeDefined();
+        expect(schema.inputTypeScript).toBe("{ addr?: Address }");
+        expect(schema.typeScriptDefinitions).toEqual({
+          Address: "{ city?: string }",
+        });
       }),
     ),
   );

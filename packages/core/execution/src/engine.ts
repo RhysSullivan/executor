@@ -11,6 +11,7 @@ import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
 import { makeExecutorToolInvoker, discoverTools, describeTool } from "./tool-invoker";
+import { ExecutionToolError } from "./errors";
 import { buildExecuteDescription } from "./description";
 
 // ---------------------------------------------------------------------------
@@ -123,6 +124,26 @@ export const formatPausedExecution = (paused: PausedExecution): {
 // Full invoker (base + discover + describe)
 // ---------------------------------------------------------------------------
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readOptionalLimit = (
+  value: unknown,
+  toolName: string,
+): number | ExecutionToolError => {
+  if (value === undefined) {
+    return 12;
+  }
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return new ExecutionToolError({
+      message: `${toolName} limit must be a positive number when provided`,
+    });
+  }
+
+  return Math.floor(value);
+};
+
 const makeFullInvoker = (
   executor: Executor,
   invokeOptions: InvokeOptions,
@@ -131,13 +152,61 @@ const makeFullInvoker = (
   return {
     invoke: ({ path, args }) => {
       if (path === "discover") {
-        const input = (args ?? {}) as { query?: string; limit?: number };
-        return discoverTools(executor, input.query ?? "", input.limit);
+        if (!isRecord(args)) {
+          return Effect.fail(
+            new ExecutionToolError({
+              message: "tools.discover expects an object: { query?: string; namespace?: string; limit?: number }",
+            }),
+          );
+        }
+
+        if (args.query !== undefined && typeof args.query !== "string") {
+          return Effect.fail(
+            new ExecutionToolError({
+              message: "tools.discover query must be a string when provided",
+            }),
+          );
+        }
+
+        if (args.namespace !== undefined && typeof args.namespace !== "string") {
+          return Effect.fail(
+            new ExecutionToolError({
+              message: "tools.discover namespace must be a string when provided",
+            }),
+          );
+        }
+
+        const limit = readOptionalLimit(args.limit, "tools.discover");
+        if (limit instanceof ExecutionToolError) {
+          return Effect.fail(limit);
+        }
+
+        return discoverTools(executor, args.query ?? "", limit, {
+          namespace: args.namespace,
+        });
       }
       if (path === "describe.tool") {
-        const input = (args ?? {}) as { path?: string };
-        if (!input.path) return Effect.fail(new Error("describe.tool requires a path"));
-        return describeTool(executor, input.path);
+        if (!isRecord(args)) {
+          return Effect.fail(
+            new ExecutionToolError({
+              message: "tools.describe.tool expects an object: { path: string }",
+            }),
+          );
+        }
+
+        if (typeof args.path !== "string" || args.path.trim().length === 0) {
+          return Effect.fail(new ExecutionToolError({ message: "describe.tool requires a path" }));
+        }
+
+        if ("includeSchemas" in args) {
+          return Effect.fail(
+            new ExecutionToolError({
+              message: "tools.describe.tool no longer accepts includeSchemas",
+            }),
+          );
+        }
+
+        return describeTool(executor, args.path);
       }
       return base.invoke({ path, args });
     },

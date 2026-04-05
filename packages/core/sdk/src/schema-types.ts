@@ -1,0 +1,278 @@
+import { collectRefs } from "./schema-refs";
+
+type JsonSchemaRecord = Record<string, unknown>;
+
+export type TypeScriptRenderOptions = {
+  maxLength?: number;
+  maxDepth?: number;
+  maxProperties?: number;
+};
+
+export type TypeScriptSchemaPreview = {
+  readonly type: string;
+  readonly definitions: Record<string, string>;
+};
+
+const VALID_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const REF_PATTERN = /^#\/(?:\$defs|definitions)\/(.+)$/;
+
+const asRecord = (value: unknown): JsonSchemaRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as JsonSchemaRecord)
+    : {};
+
+const asStringArray = (value: unknown): Array<string> =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+
+const truncate = (value: string, maxLength: number): string =>
+  value.length <= maxLength
+    ? value
+    : `${value.slice(0, Math.max(0, maxLength - 4))} ...`;
+
+const formatPropertyKey = (value: string): string =>
+  VALID_IDENTIFIER_PATTERN.test(value) ? value : JSON.stringify(value);
+
+const refNameFromPointer = (ref: string): string | undefined =>
+  ref.match(REF_PATTERN)?.[1];
+
+const refFallbackLabel = (ref: string): string =>
+  refNameFromPointer(ref) ?? ref.split("/").at(-1) ?? ref;
+
+const primitiveTypeName = (value: string): string => {
+  switch (value) {
+    case "integer":
+    case "number":
+      return "number";
+    case "string":
+    case "boolean":
+    case "null":
+      return value;
+    case "array":
+      return "unknown[]";
+    case "object":
+      return "Record<string, unknown>";
+    default:
+      return "unknown";
+  }
+};
+
+const renderComposite = (input: {
+  key: "oneOf" | "anyOf" | "allOf";
+  schema: JsonSchemaRecord;
+  render: (value: unknown, depthRemaining: number) => string;
+  depthRemaining: number;
+}): string | null => {
+  const rawItems = input.schema[input.key];
+  const items: JsonSchemaRecord[] = Array.isArray(rawItems)
+    ? rawItems.map((item: unknown) => asRecord(item))
+    : [];
+  if (items.length === 0) {
+    return null;
+  }
+
+  const labels = items
+    .map((item: JsonSchemaRecord) => input.render(item, input.depthRemaining - 1))
+    .filter((label: string) => label.length > 0);
+
+  if (labels.length === 0) {
+    return null;
+  }
+
+  return labels.join(input.key === "allOf" ? " & " : " | ");
+};
+
+const localDefinitionsFromSchema = (schema: unknown): Map<string, unknown> => {
+  const root = asRecord(schema);
+  const defs = new Map<string, unknown>();
+
+  for (const [key, value] of Object.entries(asRecord(root.$defs))) {
+    defs.set(key, value);
+  }
+
+  for (const [key, value] of Object.entries(asRecord(root.definitions))) {
+    defs.set(key, value);
+  }
+
+  return defs;
+};
+
+export const schemaToTypeScriptPreview = (
+  schema: unknown,
+  options: TypeScriptRenderOptions = {},
+): TypeScriptSchemaPreview => {
+  const localDefs = localDefinitionsFromSchema(schema);
+  return schemaToTypeScriptPreviewWithDefs(schema, localDefs, options);
+};
+
+export const schemaToTypeScriptPreviewWithDefs = (
+  schema: unknown,
+  defs: ReadonlyMap<string, unknown>,
+  options: TypeScriptRenderOptions = {},
+): TypeScriptSchemaPreview => {
+  const maxLength = options.maxLength ?? 400;
+  const maxDepth = options.maxDepth ?? 6;
+  const maxProperties = options.maxProperties ?? 12;
+
+  const render = (currentInput: unknown, depthRemaining: number): string => {
+    const current = asRecord(currentInput);
+
+    if (depthRemaining <= 0) {
+      if (typeof current.title === "string" && current.title.length > 0) {
+        return current.title;
+      }
+
+      if (current.type === "array") {
+        return "unknown[]";
+      }
+
+      if (current.type === "object" || current.properties) {
+        return "Record<string, unknown>";
+      }
+
+      return "unknown";
+    }
+
+    if (typeof current.$ref === "string") {
+      return refFallbackLabel(current.$ref);
+    }
+
+    if ("const" in current) {
+      return JSON.stringify(current.const);
+    }
+
+    const enumValues = Array.isArray(current.enum) ? current.enum : [];
+    if (enumValues.length > 0) {
+      return truncate(
+        enumValues.map((value) => JSON.stringify(value)).join(" | "),
+        maxLength,
+      );
+    }
+
+    const composite =
+      renderComposite({ key: "oneOf", schema: current, render, depthRemaining })
+      ?? renderComposite({ key: "anyOf", schema: current, render, depthRemaining })
+      ?? renderComposite({ key: "allOf", schema: current, render, depthRemaining });
+    if (composite) {
+      return truncate(composite, maxLength);
+    }
+
+    if (current.nullable === true) {
+      const { nullable: _nullable, ...rest } = current;
+      return truncate(`${render(rest, depthRemaining)} | null`, maxLength);
+    }
+
+    if (current.type === "array") {
+      const itemLabel = current.items
+        ? render(current.items, depthRemaining - 1)
+        : "unknown";
+      return truncate(`${itemLabel}[]`, maxLength);
+    }
+
+    if (current.type === "object" || current.properties) {
+      const properties = asRecord(current.properties);
+      const propertyKeys = Object.keys(properties);
+      const required = new Set(asStringArray(current.required));
+
+      const additionalProperties = current.additionalProperties;
+      const additionalPropertiesLabel =
+        additionalProperties && typeof additionalProperties === "object"
+          ? render(additionalProperties, depthRemaining - 1)
+          : additionalProperties === true
+            ? "unknown"
+            : null;
+
+      if (propertyKeys.length === 0) {
+        if (additionalPropertiesLabel) {
+          return truncate(`Record<string, ${additionalPropertiesLabel}>`, maxLength);
+        }
+
+        return "Record<string, unknown>";
+      }
+
+      const visibleKeys = propertyKeys.slice(0, maxProperties);
+      const parts = visibleKeys.map((key) =>
+        `${formatPropertyKey(key)}${required.has(key) ? "" : "?"}: ${render(properties[key], depthRemaining - 1)}`
+      );
+
+      if (visibleKeys.length < propertyKeys.length) {
+        parts.push("...");
+      }
+
+      if (additionalPropertiesLabel) {
+        parts.push(`[key: string]: ${additionalPropertiesLabel}`);
+      }
+
+      return truncate(`{ ${parts.join("; ")} }`, maxLength);
+    }
+
+    if (Array.isArray(current.type)) {
+      return truncate(
+        current.type
+          .filter((value): value is string => typeof value === "string")
+          .map(primitiveTypeName)
+          .join(" | "),
+        maxLength,
+      );
+    }
+
+    if (typeof current.type === "string") {
+      return primitiveTypeName(current.type);
+    }
+
+    return "unknown";
+  };
+
+  const referenced = collectRefs(schema, defs);
+  const definitions = Object.fromEntries(
+    [...referenced]
+      .sort((left, right) => left.localeCompare(right))
+      .flatMap((name) => {
+        const target = defs.get(name);
+        if (target === undefined) {
+          return [];
+        }
+
+        return [[name, render(target, maxDepth)]] as const;
+      }),
+  );
+
+  return {
+    type: render(schema, maxDepth),
+    definitions,
+  };
+};
+
+export const buildToolTypeScriptPreview = (input: {
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  defs: ReadonlyMap<string, unknown>;
+  options?: TypeScriptRenderOptions;
+}): {
+  inputTypeScript?: string;
+  outputTypeScript?: string;
+  typeScriptDefinitions?: Record<string, string>;
+} => {
+  const inputPreview =
+    input.inputSchema !== undefined
+      ? schemaToTypeScriptPreviewWithDefs(input.inputSchema, input.defs, input.options)
+      : null;
+  const outputPreview =
+    input.outputSchema !== undefined
+      ? schemaToTypeScriptPreviewWithDefs(input.outputSchema, input.defs, input.options)
+      : null;
+
+  const mergedDefinitions = {
+    ...(inputPreview?.definitions ?? {}),
+    ...(outputPreview?.definitions ?? {}),
+  };
+
+  return {
+    ...(inputPreview ? { inputTypeScript: inputPreview.type } : {}),
+    ...(outputPreview ? { outputTypeScript: outputPreview.type } : {}),
+    ...(Object.keys(mergedDefinitions).length > 0
+      ? { typeScriptDefinitions: mergedDefinitions }
+      : {}),
+  };
+};

@@ -28,8 +28,11 @@ const ToolMetadataResponse = Schema.Struct({
 
 const ToolSchemaResponse = Schema.Struct({
   id: ToolId,
-  inputSchema: Schema.optional(Schema.Unknown),
-  outputSchema: Schema.optional(Schema.Unknown),
+  inputTypeScript: Schema.optional(Schema.String),
+  outputTypeScript: Schema.optional(Schema.String),
+  typeScriptDefinitions: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.String }),
+  ),
 });
 
 // ---------------------------------------------------------------------------
