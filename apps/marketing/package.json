@@ -14,8 +14,13 @@
   "dependencies": {
     "@astrojs/tailwind": "^6.0.2",
     "@astrojs/vercel": "^10.0.4",
+    "@executor/sdk": "workspace:*",
+    "@executor/plugin-openapi": "workspace:*",
+    "@executor/plugin-graphql": "workspace:*",
+    "@executor/plugin-google-discovery": "workspace:*",
     "@tailwindcss/vite": "^4.2.2",
     "astro": "^6.1.3",
+    "effect": "^3.14.16",
     "tailwindcss": "^4.2.2"
   }
 }

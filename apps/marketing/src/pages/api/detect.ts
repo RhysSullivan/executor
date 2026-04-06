@@ -1,260 +1,156 @@
-import type { APIRoute } from 'astro'
+import type { APIRoute } from "astro";
+import { Effect } from "effect";
+import {
+  createExecutor,
+  makeTestConfig,
+  type ToolMetadata,
+} from "@executor/sdk";
+import { openApiPlugin } from "@executor/plugin-openapi";
+import { graphqlPlugin } from "@executor/plugin-graphql";
+import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
 
-export const prerender = false
+export const prerender = false;
 
-interface DetectedTool {
-  name: string
-  desc: string
-  method: string
-  policy: 'read' | 'write' | 'destructive'
-}
-
-interface DetectionResult {
-  kind: 'openapi' | 'graphql' | 'mcp' | 'googleDiscovery'
-  name: string
-  count: number
-  tools: DetectedTool[]
-}
-
-function policyFromMethod(method: string): 'read' | 'write' | 'destructive' {
-  const m = method.toUpperCase()
-  if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS' || m === 'QUERY') return 'read'
-  if (m === 'DELETE') return 'destructive'
-  return 'write'
-}
-
-async function tryOpenAPI(url: string, signal: AbortSignal): Promise<DetectionResult | null> {
-  try {
-    const res = await fetch(url, { signal, headers: { Accept: 'application/json, application/yaml, text/yaml, */*' } })
-    if (!res.ok) return null
-    const text = await res.text()
-    let doc: any
-    try {
-      doc = JSON.parse(text)
-    } catch {
-      // Could be YAML - check for openapi/swagger string markers
-      if (text.includes('openapi:') || text.includes('swagger:')) {
-        // Basic YAML detection - we can't fully parse YAML without a dep,
-        // but we can confirm it's an OpenAPI spec
-        return {
-          kind: 'openapi',
-          name: 'API',
-          count: 0,
-          tools: [{ name: 'spec.detected', desc: 'OpenAPI spec detected (YAML)', method: 'GET', policy: 'read' }],
-        }
-      }
-      return null
-    }
-
-    // Check for OpenAPI 3.x or Swagger 2.x
-    if (!doc.openapi && !doc.swagger) return null
-
-    const title = doc.info?.title || 'API'
-    const tools: DetectedTool[] = []
-
-    if (doc.paths) {
-      for (const [path, methods] of Object.entries(doc.paths as Record<string, any>)) {
-        for (const method of ['get', 'post', 'put', 'delete', 'patch', 'head', 'options']) {
-          const op = methods[method]
-          if (!op) continue
-          const opId = op.operationId || `${method}.${path.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')}`
-          tools.push({
-            name: opId,
-            desc: op.summary || op.description?.slice(0, 80) || `${method.toUpperCase()} ${path}`,
-            method: method.toUpperCase(),
-            policy: policyFromMethod(method),
-          })
-        }
-      }
-    }
-
-    return {
-      kind: 'openapi',
-      name: title,
-      count: tools.length,
-      tools: tools.slice(0, 12),
-    }
-  } catch {
-    return null
+function inferMethod(toolName: string, pluginKey: string): string {
+  if (pluginKey === "graphql") {
+    return toolName.startsWith("mutation.") ? "mutation" : "query";
   }
+  if (pluginKey === "mcp") return "tool";
+
+  // OpenAPI / Google Discovery: infer from tool name
+  const lower = toolName.toLowerCase();
+  if (/\.delete|\.remove|\.destroy/.test(lower)) return "DELETE";
+  if (/\.create|\.insert|\.add|\.send|\.post/.test(lower)) return "POST";
+  if (/\.update|\.patch/.test(lower)) return "PATCH";
+  if (/\.put|\.merge|\.replace/.test(lower)) return "PUT";
+  return "GET";
 }
 
-async function tryGraphQL(url: string, signal: AbortSignal): Promise<DetectionResult | null> {
-  try {
-    const introspectionQuery = `{
-      __schema {
-        queryType { name }
-        mutationType { name }
-        types {
-          kind name
-          fields(includeDeprecated: false) { name description }
-        }
-      }
-    }`
-
-    const res = await fetch(url, {
-      method: 'POST',
-      signal,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: introspectionQuery }),
-    })
-    if (!res.ok) return null
-    const json = await res.json() as any
-
-    const schema = json.data?.__schema || json.__schema
-    if (!schema) return null
-
-    const tools: DetectedTool[] = []
-    const queryTypeName = schema.queryType?.name || 'Query'
-    const mutationTypeName = schema.mutationType?.name || 'Mutation'
-
-    for (const type of schema.types || []) {
-      if (type.name === queryTypeName && type.fields) {
-        for (const field of type.fields) {
-          if (field.name.startsWith('__')) continue
-          tools.push({
-            name: field.name,
-            desc: field.description?.slice(0, 80) || `Query ${field.name}`,
-            method: 'query',
-            policy: 'read',
-          })
-        }
-      }
-      if (type.name === mutationTypeName && type.fields) {
-        for (const field of type.fields) {
-          if (field.name.startsWith('__')) continue
-          const isDestructive = /delete|remove|destroy/i.test(field.name)
-          tools.push({
-            name: field.name,
-            desc: field.description?.slice(0, 80) || `Mutation ${field.name}`,
-            method: 'mutation',
-            policy: isDestructive ? 'destructive' : 'write',
-          })
-        }
-      }
-    }
-
-    // Derive name from URL hostname
-    const hostname = new URL(url).hostname.replace('api.', '').split('.')[0]
-    const name = hostname.charAt(0).toUpperCase() + hostname.slice(1)
-
-    return {
-      kind: 'graphql',
-      name: name || 'GraphQL API',
-      count: tools.length,
-      tools: tools.slice(0, 12),
-    }
-  } catch {
-    return null
-  }
+function inferPolicy(
+  method: string,
+  toolName: string
+): "read" | "write" | "destructive" {
+  const m = method.toUpperCase();
+  if (m === "DELETE") return "destructive";
+  const lower = toolName.toLowerCase();
+  if (/delete|remove|destroy|drop|purge/.test(lower)) return "destructive";
+  if (m === "GET" || m === "HEAD" || m === "QUERY") return "read";
+  if (/list|get|query|check|read|search|find|fetch/.test(lower)) return "read";
+  return "write";
 }
 
-async function tryGoogleDiscovery(url: string, signal: AbortSignal): Promise<DetectionResult | null> {
-  try {
-    // Only probe URLs that look like Google Discovery docs
-    if (!url.includes('googleapis.com') && !url.includes('/discovery/')) return null
-
-    const res = await fetch(url, { signal })
-    if (!res.ok) return null
-    const doc = await res.json() as any
-
-    if (!doc.discoveryVersion && !doc.kind?.includes('discovery')) return null
-
-    const title = doc.title || doc.name || 'Google API'
-    const tools: DetectedTool[] = []
-
-    function extractMethods(resources: any, prefix = '') {
-      if (!resources) return
-      for (const [resourceName, resource] of Object.entries(resources as Record<string, any>)) {
-        if (resource.methods) {
-          for (const [methodName, method] of Object.entries(resource.methods as Record<string, any>)) {
-            const httpMethod = (method.httpMethod || 'GET').toUpperCase()
-            tools.push({
-              name: `${prefix}${resourceName}.${methodName}`,
-              desc: method.description?.slice(0, 80) || `${httpMethod} ${method.path || ''}`,
-              method: httpMethod,
-              policy: policyFromMethod(httpMethod),
-            })
-          }
-        }
-        if (resource.resources) {
-          extractMethods(resource.resources, `${prefix}${resourceName}.`)
-        }
-      }
-    }
-
-    extractMethods(doc.resources)
-
-    // Also check top-level methods
-    if (doc.methods) {
-      for (const [methodName, method] of Object.entries(doc.methods as Record<string, any>)) {
-        const httpMethod = (method.httpMethod || 'GET').toUpperCase()
-        tools.push({
-          name: methodName,
-          desc: method.description?.slice(0, 80) || `${httpMethod} ${method.path || ''}`,
-          method: httpMethod,
-          policy: policyFromMethod(httpMethod),
-        })
-      }
-    }
-
+function formatTools(tools: readonly ToolMetadata[]) {
+  return tools.map((t) => {
+    const method = inferMethod(t.name, t.pluginKey);
     return {
-      kind: 'googleDiscovery',
-      name: title,
-      count: tools.length,
-      tools: tools.slice(0, 12),
-    }
-  } catch {
-    return null
-  }
+      name: t.name,
+      desc: t.description?.slice(0, 80) || t.name,
+      method,
+      policy: inferPolicy(method, t.name),
+    };
+  });
 }
 
 export const POST: APIRoute = async ({ request }) => {
   try {
-    const body = await request.json() as { url?: string }
-    const url = body.url?.trim()
+    const body = (await request.json()) as { url?: string };
+    const url = body.url?.trim();
     if (!url) {
-      return new Response(JSON.stringify({ error: 'URL is required' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+      return new Response(JSON.stringify({ error: "URL is required" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    // Validate URL
     try {
-      new URL(url)
+      new URL(url);
     } catch {
-      return new Response(JSON.stringify({ error: 'Invalid URL' }), { status: 400, headers: { 'Content-Type': 'application/json' } })
+      return new Response(JSON.stringify({ error: "Invalid URL" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
+    const program = Effect.gen(function* () {
+      const config = makeTestConfig({
+        plugins: [openApiPlugin(), graphqlPlugin(), googleDiscoveryPlugin()],
+      });
+      const executor = yield* createExecutor(config);
 
-    // Run all detectors in parallel
-    const [openapi, graphql, google] = await Promise.all([
-      tryOpenAPI(url, controller.signal),
-      tryGraphQL(url, controller.signal),
-      tryGoogleDiscovery(url, controller.signal),
-    ])
+      try {
+        // Detect what kind of source lives at this URL
+        const detected = yield* executor.sources
+          .detect(url)
+          .pipe(Effect.timeout("10 seconds"));
 
-    clearTimeout(timeout)
+        if (!detected || detected.length === 0) return null;
 
-    // Return first successful detection (prefer by confidence: most tools wins)
-    const results = [openapi, graphql, google].filter((r): r is DetectionResult => r !== null)
-    results.sort((a, b) => b.count - a.count)
+        const match = detected[0];
 
-    if (results.length === 0) {
-      return new Response(
-        JSON.stringify({ error: 'Could not detect an API at this URL. Try an OpenAPI spec, GraphQL endpoint, or Google Discovery document.' }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } }
+        // Add source to register its tools (Google Discovery needs auth so skip)
+        if (match.kind === "openapi") {
+          yield* executor.openapi.addSpec({
+            spec: match.endpoint,
+            namespace: match.namespace,
+          });
+        } else if (match.kind === "graphql") {
+          yield* executor.graphql.addSource({
+            endpoint: match.endpoint,
+            namespace: match.namespace,
+          });
+        } else {
+          // For kinds we can't fully add (e.g. Google Discovery needs auth),
+          // return just the detection metadata
+          return {
+            kind: match.kind,
+            name: match.name,
+            count: 0,
+            tools: [],
+          };
+        }
+
+        const tools = yield* executor.tools.list({
+          sourceId: match.namespace,
+        });
+        const mapped = formatTools(tools);
+
+        return {
+          kind: match.kind,
+          name: match.name,
+          count: mapped.length,
+          tools: mapped.slice(0, 50),
+        };
+      } finally {
+        yield* executor.close();
+      }
+    });
+
+    const result = await Effect.runPromise(
+      program.pipe(
+        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.timeout("25 seconds"),
+        Effect.catchAll(() => Effect.succeed(null)),
       )
+    );
+
+    if (!result) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "Could not detect an API at this URL. Try an OpenAPI spec, GraphQL endpoint, or Google Discovery document.",
+        }),
+        { status: 404, headers: { "Content-Type": "application/json" } }
+      );
     }
 
-    return new Response(JSON.stringify(results[0]), {
+    return new Response(JSON.stringify(result), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: 'Detection failed' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch {
+    return new Response(JSON.stringify({ error: "Detection failed" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
-}
+};
