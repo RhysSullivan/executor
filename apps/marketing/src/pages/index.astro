@@ -48,6 +48,34 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
         </div>
       </div>
 
+      <!-- URL input bar -->
+      <div class="rise-d4 mb-4" id="detect-bar">
+        <div class="relative">
+          <div class="flex items-center gap-3 bg-surface-raised border border-rule rounded-xl px-5 py-3.5 focus-within:border-teal/30 transition-colors">
+            <svg class="w-4 h-4 text-ink-faint shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.414-5.874a4.5 4.5 0 00-6.364 0l-4.5 4.5a4.5 4.5 0 001.242 7.244" /></svg>
+            <input
+              id="detect-input"
+              type="url"
+              placeholder="Paste any API URL to detect tools..."
+              class="flex-1 bg-transparent text-[14px] text-ink placeholder:text-ink-faint outline-none font-mono"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button id="detect-btn" class="text-[12px] font-medium text-surface bg-teal hover:bg-teal-dim px-4 py-1.5 rounded-md transition-colors shrink-0 disabled:opacity-40 disabled:cursor-not-allowed">
+              Detect
+            </button>
+          </div>
+          <div id="detect-status" class="hidden absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center"></div>
+          <div id="detect-examples" class="mt-3 flex flex-wrap items-center gap-2 justify-center">
+            <span class="text-[11px] text-ink-faint">Try:</span>
+            <button class="detect-example text-[11px] font-mono text-teal/60 hover:text-teal border border-rule hover:border-teal/20 rounded px-2 py-1 transition-colors" data-url="https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json">GitHub REST</button>
+            <button class="detect-example text-[11px] font-mono text-teal/60 hover:text-teal border border-rule hover:border-teal/20 rounded px-2 py-1 transition-colors" data-url="https://api.linear.app/graphql">Linear GraphQL</button>
+            <button class="detect-example text-[11px] font-mono text-teal/60 hover:text-teal border border-rule hover:border-teal/20 rounded px-2 py-1 transition-colors" data-url="https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest">Google Calendar</button>
+            <button class="detect-example text-[11px] font-mono text-teal/60 hover:text-teal border border-rule hover:border-teal/20 rounded px-2 py-1 transition-colors" data-url="https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json">Stripe</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Full-width interactive catalog UI -->
       <div class="rise-d4 relative" id="hero-catalog">
         <div class="absolute -inset-px rounded-xl bg-gradient-to-b from-teal/10 via-transparent to-transparent pointer-events-none"></div>
@@ -123,19 +151,22 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
               </button>
             </div>
 
-            <!-- Main: tool list -->
-            <div class="flex-1 min-w-0">
+            <!-- Main: tool tree -->
+            <div class="flex-1 min-w-0 flex flex-col">
               <!-- Search -->
-              <div class="px-4 py-3 border-b border-rule">
+              <div class="px-4 py-3 border-b border-rule shrink-0">
                 <div class="flex items-center gap-2 px-3 py-2 rounded-md border border-rule bg-surface text-ink-faint text-[12px]">
                   <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
                   <span data-search-label>Search 347 tools...</span>
                 </div>
               </div>
 
-              <!-- Tool rows container -->
-              <div class="divide-y divide-rule" data-tool-list>
-                <!-- Populated by JS -->
+              <!-- Scrollable tool tree with bottom fade -->
+              <div class="relative flex-1 min-h-0">
+                <div class="overflow-y-auto h-[340px] scrollbar-thin" data-tool-list>
+                  <!-- Populated by JS -->
+                </div>
+                <div class="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-surface-raised to-transparent pointer-events-none transition-opacity duration-300" data-fade></div>
               </div>
             </div>
 
@@ -149,60 +180,116 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
             name: 'GitHub', count: 347, tools: [
               { name: 'issues.list', desc: 'List repository issues', policy: 'read', method: 'GET' },
               { name: 'issues.create', desc: 'Create a new issue', policy: 'write', method: 'POST' },
+              { name: 'issues.get', desc: 'Get a single issue', policy: 'read', method: 'GET' },
+              { name: 'issues.update', desc: 'Update an issue', policy: 'write', method: 'PATCH' },
+              { name: 'issues.lock', desc: 'Lock an issue conversation', policy: 'write', method: 'PUT' },
+              { name: 'issues.comments.list', desc: 'List issue comments', policy: 'read', method: 'GET' },
+              { name: 'issues.comments.create', desc: 'Create an issue comment', policy: 'write', method: 'POST' },
+              { name: 'issues.labels.list', desc: 'List labels on an issue', policy: 'read', method: 'GET' },
+              { name: 'issues.labels.add', desc: 'Add labels to an issue', policy: 'write', method: 'POST' },
               { name: 'pulls.list', desc: 'List pull requests', policy: 'read', method: 'GET' },
+              { name: 'pulls.get', desc: 'Get a pull request', policy: 'read', method: 'GET' },
+              { name: 'pulls.create', desc: 'Create a pull request', policy: 'write', method: 'POST' },
               { name: 'pulls.merge', desc: 'Merge a pull request', policy: 'destructive', method: 'PUT' },
+              { name: 'pulls.reviews.list', desc: 'List reviews on a PR', policy: 'read', method: 'GET' },
+              { name: 'pulls.reviews.create', desc: 'Create a PR review', policy: 'write', method: 'POST' },
               { name: 'repos.get', desc: 'Get a repository', policy: 'read', method: 'GET' },
+              { name: 'repos.list', desc: 'List user repositories', policy: 'read', method: 'GET' },
+              { name: 'repos.create', desc: 'Create a repository', policy: 'write', method: 'POST' },
+              { name: 'repos.delete', desc: 'Delete a repository', policy: 'destructive', method: 'DELETE' },
               { name: 'actions.workflows.list', desc: 'List repository workflows', policy: 'read', method: 'GET' },
+              { name: 'actions.workflows.dispatch', desc: 'Trigger a workflow run', policy: 'write', method: 'POST' },
+              { name: 'actions.runs.list', desc: 'List workflow runs', policy: 'read', method: 'GET' },
+              { name: 'actions.runs.cancel', desc: 'Cancel a workflow run', policy: 'destructive', method: 'POST' },
             ]
           },
           slack: {
             name: 'Slack', count: 42, tools: [
               { name: 'chat.postMessage', desc: 'Send a message to a channel', policy: 'write', method: 'POST' },
+              { name: 'chat.update', desc: 'Update an existing message', policy: 'write', method: 'POST' },
+              { name: 'chat.delete', desc: 'Delete a message', policy: 'destructive', method: 'POST' },
               { name: 'conversations.list', desc: 'List all channels', policy: 'read', method: 'GET' },
               { name: 'conversations.history', desc: 'Fetch message history', policy: 'read', method: 'GET' },
+              { name: 'conversations.create', desc: 'Create a new channel', policy: 'write', method: 'POST' },
+              { name: 'conversations.archive', desc: 'Archive a channel', policy: 'destructive', method: 'POST' },
+              { name: 'conversations.members', desc: 'List channel members', policy: 'read', method: 'GET' },
               { name: 'users.list', desc: 'List all users in workspace', policy: 'read', method: 'GET' },
+              { name: 'users.info', desc: 'Get user profile info', policy: 'read', method: 'GET' },
               { name: 'reactions.add', desc: 'Add a reaction to a message', policy: 'write', method: 'POST' },
+              { name: 'reactions.remove', desc: 'Remove a reaction', policy: 'write', method: 'POST' },
               { name: 'files.upload', desc: 'Upload a file to a channel', policy: 'write', method: 'POST' },
+              { name: 'files.list', desc: 'List files in workspace', policy: 'read', method: 'GET' },
             ]
           },
           calendar: {
             name: 'Google Calendar', count: 18, tools: [
               { name: 'events.list', desc: 'List upcoming events', policy: 'read', method: 'GET' },
+              { name: 'events.get', desc: 'Get a single event', policy: 'read', method: 'GET' },
               { name: 'events.insert', desc: 'Create a new event', policy: 'write', method: 'POST' },
-              { name: 'events.delete', desc: 'Delete an event', policy: 'destructive', method: 'DELETE' },
-              { name: 'calendars.get', desc: 'Get calendar metadata', policy: 'read', method: 'GET' },
               { name: 'events.update', desc: 'Update an existing event', policy: 'write', method: 'PATCH' },
+              { name: 'events.delete', desc: 'Delete an event', policy: 'destructive', method: 'DELETE' },
+              { name: 'events.move', desc: 'Move event to another calendar', policy: 'write', method: 'POST' },
+              { name: 'calendars.get', desc: 'Get calendar metadata', policy: 'read', method: 'GET' },
+              { name: 'calendars.insert', desc: 'Create a secondary calendar', policy: 'write', method: 'POST' },
+              { name: 'calendars.delete', desc: 'Delete a calendar', policy: 'destructive', method: 'DELETE' },
+              { name: 'calendarList.list', desc: 'List calendars on user list', policy: 'read', method: 'GET' },
               { name: 'freebusy.query', desc: 'Check availability', policy: 'read', method: 'POST' },
+              { name: 'acl.list', desc: 'List access control rules', policy: 'read', method: 'GET' },
+              { name: 'acl.insert', desc: 'Add an access control rule', policy: 'write', method: 'POST' },
             ]
           },
           linear: {
             name: 'Linear', count: 56, tools: [
               { name: 'issues.list', desc: 'List issues with filters', policy: 'read', method: 'query' },
+              { name: 'issues.get', desc: 'Get a single issue', policy: 'read', method: 'query' },
               { name: 'issues.create', desc: 'Create a new issue', policy: 'write', method: 'mutation' },
               { name: 'issues.update', desc: 'Update issue status or fields', policy: 'write', method: 'mutation' },
-              { name: 'projects.list', desc: 'List all projects', policy: 'read', method: 'query' },
-              { name: 'comments.create', desc: 'Add a comment to an issue', policy: 'write', method: 'mutation' },
               { name: 'issues.delete', desc: 'Delete an issue permanently', policy: 'destructive', method: 'mutation' },
+              { name: 'issues.archive', desc: 'Archive an issue', policy: 'write', method: 'mutation' },
+              { name: 'projects.list', desc: 'List all projects', policy: 'read', method: 'query' },
+              { name: 'projects.create', desc: 'Create a new project', policy: 'write', method: 'mutation' },
+              { name: 'projects.update', desc: 'Update project details', policy: 'write', method: 'mutation' },
+              { name: 'comments.list', desc: 'List comments on an issue', policy: 'read', method: 'query' },
+              { name: 'comments.create', desc: 'Add a comment to an issue', policy: 'write', method: 'mutation' },
+              { name: 'cycles.list', desc: 'List all cycles', policy: 'read', method: 'query' },
+              { name: 'teams.list', desc: 'List all teams', policy: 'read', method: 'query' },
+              { name: 'labels.list', desc: 'List all labels', policy: 'read', method: 'query' },
             ]
           },
           resend: {
             name: 'Resend', count: 19, tools: [
               { name: 'emails.send', desc: 'Send a transactional email', policy: 'write', method: 'POST' },
               { name: 'emails.get', desc: 'Get email delivery status', policy: 'read', method: 'GET' },
+              { name: 'emails.batch', desc: 'Send a batch of emails', policy: 'write', method: 'POST' },
               { name: 'domains.list', desc: 'List verified domains', policy: 'read', method: 'GET' },
+              { name: 'domains.get', desc: 'Get domain details', policy: 'read', method: 'GET' },
+              { name: 'domains.create', desc: 'Add a new domain', policy: 'write', method: 'POST' },
               { name: 'domains.verify', desc: 'Verify a domain', policy: 'write', method: 'POST' },
+              { name: 'domains.delete', desc: 'Remove a domain', policy: 'destructive', method: 'DELETE' },
               { name: 'apiKeys.list', desc: 'List API keys', policy: 'read', method: 'GET' },
+              { name: 'apiKeys.create', desc: 'Create an API key', policy: 'write', method: 'POST' },
+              { name: 'contacts.list', desc: 'List contacts in audience', policy: 'read', method: 'GET' },
               { name: 'contacts.create', desc: 'Create a new contact', policy: 'write', method: 'POST' },
+              { name: 'contacts.remove', desc: 'Remove a contact', policy: 'destructive', method: 'DELETE' },
             ]
           },
           axiom: {
             name: 'Axiom', count: 17, tools: [
-              { name: 'queryDataset', desc: 'Query datasets using APL', policy: 'read', method: 'tool' },
-              { name: 'listDatasets', desc: 'List all available datasets', policy: 'read', method: 'tool' },
-              { name: 'getDatasetFields', desc: 'List all fields in a dataset', policy: 'read', method: 'tool' },
-              { name: 'checkMonitors', desc: 'Check all monitors and their statuses', policy: 'read', method: 'tool' },
-              { name: 'listDashboards', desc: 'List all available dashboards', policy: 'read', method: 'tool' },
-              { name: 'deleteDashboard', desc: 'Delete a dashboard by UID', policy: 'destructive', method: 'tool' },
+              { name: 'datasets.query', desc: 'Query datasets using APL', policy: 'read', method: 'tool' },
+              { name: 'datasets.list', desc: 'List all available datasets', policy: 'read', method: 'tool' },
+              { name: 'datasets.fields', desc: 'List all fields in a dataset', policy: 'read', method: 'tool' },
+              { name: 'datasets.info', desc: 'Get dataset metadata and stats', policy: 'read', method: 'tool' },
+              { name: 'datasets.create', desc: 'Create a new dataset', policy: 'write', method: 'tool' },
+              { name: 'datasets.trim', desc: 'Trim data from a dataset', policy: 'destructive', method: 'tool' },
+              { name: 'monitors.list', desc: 'List all monitors', policy: 'read', method: 'tool' },
+              { name: 'monitors.check', desc: 'Check monitor statuses', policy: 'read', method: 'tool' },
+              { name: 'monitors.create', desc: 'Create a new monitor', policy: 'write', method: 'tool' },
+              { name: 'dashboards.list', desc: 'List all dashboards', policy: 'read', method: 'tool' },
+              { name: 'dashboards.get', desc: 'Get dashboard by ID', policy: 'read', method: 'tool' },
+              { name: 'dashboards.create', desc: 'Create a new dashboard', policy: 'write', method: 'tool' },
+              { name: 'dashboards.delete', desc: 'Delete a dashboard by UID', policy: 'destructive', method: 'tool' },
+              { name: 'annotations.list', desc: 'List all annotations', policy: 'read', method: 'tool' },
+              { name: 'annotations.create', desc: 'Create an annotation', policy: 'write', method: 'tool' },
             ]
           },
         };
@@ -229,11 +316,17 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
 
         const catalog = document.getElementById('hero-catalog');
         const toolList = catalog.querySelector('[data-tool-list]');
+        const fadeEl = catalog.querySelector('[data-fade]');
         const breadcrumb = catalog.querySelector('[data-breadcrumb]');
         const totalTools = catalog.querySelector('[data-total-tools]');
         const searchLabel = catalog.querySelector('[data-search-label]');
-        const buttons = catalog.querySelectorAll('.catalog-source');
 
+        function updateFade() {
+          const atBottom = toolList.scrollHeight - toolList.scrollTop - toolList.clientHeight < 8;
+          const noOverflow = toolList.scrollHeight <= toolList.clientHeight;
+          fadeEl.style.opacity = (atBottom || noOverflow) ? '0' : '1';
+        }
+        toolList.addEventListener('scroll', updateFade);
         function renderSource(key) {
           const src = sources[key];
           breadcrumb.textContent = src.name;
@@ -242,7 +335,7 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
           const totalCount = Object.values(sources).reduce((s, v) => s + v.count, 0);
           totalTools.textContent = `${totalCount} tools indexed`;
 
-          buttons.forEach(btn => {
+          catalog.querySelectorAll('.catalog-source').forEach(btn => {
             const isActive = btn.dataset.source === key;
             if (isActive) {
               btn.className = btn.className
@@ -257,26 +350,173 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
             }
           });
 
-          toolList.innerHTML = src.tools.map((tool, i) => {
-            const isLast = i === src.tools.length - 1;
-            const colors = policyColors[tool.policy];
-            const mColor = methodColors[tool.method] || 'text-ink-faint';
-            return `<div class="flex items-center gap-4 px-4 py-3${isLast ? ' opacity-40' : ''}">
-              <div class="flex-1 min-w-0">
-                <div class="font-mono text-[12px] text-ink">${tool.name}</div>
-                <div class="text-[11px] text-ink-faint">${tool.desc}</div>
-              </div>
-              <span class="text-[10px] font-mono ${colors} rounded px-1.5 py-0.5 shrink-0">${tool.policy}</span>
-              <span class="text-[10px] font-mono ${mColor} shrink-0">${tool.method}</span>
-            </div>`;
-          }).join('');
+          // Build tree from dot-separated tool names
+          const tree = {};
+          for (const tool of src.tools) {
+            const parts = tool.name.split('.');
+            let node = tree;
+            for (let i = 0; i < parts.length - 1; i++) {
+              if (!node[parts[i]]) node[parts[i]] = { _children: {} };
+              node = node[parts[i]]._children;
+            }
+            const leaf = parts[parts.length - 1];
+            node[leaf] = { _tool: tool };
+          }
+
+          function renderTree(node, depth = 0) {
+            let html = '';
+            const keys = Object.keys(node);
+            keys.forEach((key, idx) => {
+              const entry = node[key];
+              const isLast = idx === keys.length - 1;
+              const indent = depth * 20;
+              const connector = isLast ? '└' : '├';
+
+              if (entry._tool) {
+                // Leaf: actual tool
+                const tool = entry._tool;
+                const colors = policyColors[tool.policy];
+                const mColor = methodColors[tool.method] || 'text-ink-faint';
+                html += `<div class="flex items-center gap-3 py-1.5 pr-4 hover:bg-surface-overlay/50 transition-colors" style="padding-left:${16 + indent}px">
+                  <span class="text-ink-faint font-mono text-[11px] w-3 shrink-0 select-none">${depth > 0 ? connector : '·'}</span>
+                  <span class="font-mono text-[12px] text-ink flex-1 min-w-0 truncate">${key}</span>
+                  <span class="text-[10px] font-mono ${colors} rounded px-1.5 py-0.5 shrink-0">${tool.policy}</span>
+                  <span class="text-[10px] font-mono ${mColor} shrink-0 w-14 text-right">${tool.method}</span>
+                </div>`;
+              } else {
+                // Branch: namespace group
+                const childCount = Object.keys(entry._children).length;
+                html += `<div class="flex items-center gap-3 py-1.5 pr-4" style="padding-left:${16 + indent}px">
+                  <span class="text-ink-faint font-mono text-[11px] w-3 shrink-0 select-none">${depth > 0 ? connector : '▸'}</span>
+                  <span class="font-mono text-[12px] text-ink-muted">${key}</span>
+                  <span class="text-[10px] text-ink-faint">${childCount}</span>
+                </div>`;
+                html += renderTree(entry._children, depth + 1);
+              }
+            });
+            return html;
+          }
+
+          toolList.innerHTML = renderTree(tree);
+          toolList.scrollTop = 0;
+          updateFade();
         }
 
-        buttons.forEach(btn => {
+        catalog.querySelectorAll('.catalog-source').forEach(btn => {
           btn.addEventListener('click', () => renderSource(btn.dataset.source));
         });
 
         renderSource('github');
+
+        // ── Live detection ──
+        const detectInput = document.getElementById('detect-input');
+        const detectBtn = document.getElementById('detect-btn');
+        const detectStatus = document.getElementById('detect-status');
+        const detectExamples = document.getElementById('detect-examples');
+
+        const kindColors = {
+          openapi: { bg: 'bg-emerald-400/15', text: 'text-emerald-400', letter: 'O' },
+          graphql: { bg: 'bg-pink-400/15', text: 'text-pink-400', letter: 'Q' },
+          mcp: { bg: 'bg-cyan-400/15', text: 'text-cyan-400', letter: 'M' },
+          googleDiscovery: { bg: 'bg-yellow-400/15', text: 'text-yellow-400', letter: 'G' },
+        };
+
+        // Tailwind safelist for dynamic classes:
+        // bg-emerald-400/15 text-emerald-400 bg-pink-400/15 text-pink-400 bg-yellow-400/15 text-yellow-400
+
+        const kindLabels = { openapi: 'openapi', graphql: 'graphql', mcp: 'mcp', googleDiscovery: 'google' };
+
+        let detectedCount = 0;
+
+        async function detectUrl(url) {
+          detectBtn.disabled = true;
+          detectBtn.textContent = 'Detecting...';
+          detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-ink-muted';
+          detectStatus.textContent = 'Probing URL...';
+
+          try {
+            const res = await fetch('/api/detect', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url }),
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+              detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-red-400/70';
+              detectStatus.textContent = data.error || 'Detection failed';
+              return;
+            }
+
+            // Add detected source to the catalog
+            detectedCount++;
+            const key = `detected_${detectedCount}`;
+            const colors = kindColors[data.kind] || kindColors.openapi;
+            const kindLabel = kindLabels[data.kind] || data.kind;
+
+            sources[key] = {
+              name: data.name,
+              count: data.count,
+              tools: data.tools.map(t => ({
+                name: t.name,
+                desc: t.desc,
+                policy: t.policy,
+                method: t.method,
+              })),
+            };
+
+            // Add sidebar button
+            const sidebar = catalog.querySelector('.space-y-1');
+            const btn = document.createElement('button');
+            btn.dataset.source = key;
+            btn.className = 'catalog-source w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors border border-transparent hover:bg-surface-overlay';
+            btn.innerHTML = `
+              <div class="w-5 h-5 rounded ${colors.bg} flex items-center justify-center text-[9px] ${colors.text} font-mono font-medium shrink-0">${data.name.charAt(0).toUpperCase()}</div>
+              <div class="flex-1 min-w-0">
+                <div class="text-ink-muted text-[12px] truncate">${data.name}</div>
+                <div class="text-[10px] text-ink-faint">${data.count} tools</div>
+              </div>
+              <span class="text-[9px] font-mono text-ink-faint shrink-0">${kindLabel}</span>
+            `;
+            btn.addEventListener('click', () => renderSource(key));
+            sidebar.appendChild(btn);
+
+            renderSource(key);
+
+            detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-teal';
+            detectStatus.textContent = `${data.kind} detected — ${data.count} tools found`;
+            detectExamples.classList.add('hidden');
+
+            // Clear input
+            detectInput.value = '';
+          } catch (err) {
+            detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-red-400/70';
+            detectStatus.textContent = 'Network error — could not reach detection API';
+          } finally {
+            detectBtn.disabled = false;
+            detectBtn.textContent = 'Detect';
+          }
+        }
+
+        detectBtn.addEventListener('click', () => {
+          const url = detectInput.value.trim();
+          if (url) detectUrl(url);
+        });
+
+        detectInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            const url = detectInput.value.trim();
+            if (url) detectUrl(url);
+          }
+        });
+
+        // Example buttons
+        document.querySelectorAll('.detect-example').forEach(btn => {
+          btn.addEventListener('click', () => {
+            detectInput.value = btn.dataset.url;
+            detectUrl(btn.dataset.url);
+          });
+        });
       </script>
     </div>
 
