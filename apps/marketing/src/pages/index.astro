@@ -1,16 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro'
 
-const heroCode = `<span class="text-ink-faint">// discover by intent, call with types</span>
-<span class="text-teal">const</span> matches = <span class="text-teal">await</span> tools.<span class="text-ink">discover</span>({
-  query: <span class="text-emerald-400">"github issues"</span>
-})
-
-<span class="text-teal">const</span> issues = <span class="text-teal">await</span> tools.github.issues.<span class="text-ink">list</span>({
-  owner: <span class="text-emerald-400">"vercel"</span>,
-  repo: <span class="text-emerald-400">"next.js"</span>
-})<span class="cursor-blink text-teal">_</span>`
-
 const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
 <span class="text-ink-faint">  482 tools · policies active · auth shared</span>`
 ---
@@ -36,50 +26,258 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
     <div class="absolute top-[15%] right-[10%] w-[500px] h-[500px] bg-teal/[0.04] rounded-full blur-[150px] pointer-events-none"></div>
 
     <div class="max-w-[1200px] mx-auto px-6 sm:px-10 w-full">
-      <div class="grid lg:grid-cols-[1fr,minmax(0,480px)] gap-12 lg:gap-20 items-center py-20 lg:py-0">
-        <div>
-          <div class="rise flex items-center gap-3 mb-10">
-            <div class="h-px flex-1 max-w-12 bg-teal/40"></div>
-            <span class="text-[11px] font-mono uppercase tracking-[0.2em] text-teal">Now in beta</span>
-          </div>
+      <!-- Text centered -->
+      <div class="text-center max-w-2xl mx-auto mb-16">
+        <h1 class="rise-d1 font-display text-[clamp(3rem,7vw,5.5rem)] leading-[0.95] tracking-tight mb-8">
+          <span class="text-ink">The integration<br />layer </span><span class="italic text-teal">for&nbsp;agents</span>
+        </h1>
 
-          <h1 class="rise-d1 font-display text-[clamp(3rem,7vw,5.5rem)] leading-[0.95] tracking-tight mb-8">
-            <span class="text-ink">The integration<br />layer </span><span class="italic text-teal">for&nbsp;agents</span>
-          </h1>
+        <p class="rise-d2 text-[17px] leading-[1.7] text-ink-muted mb-10">
+          One catalog. Every agent. Shared auth, policies, and tools across
+          Cursor, Claude Code, OpenCode&mdash;or your own.
+        </p>
 
-          <p class="rise-d2 text-[17px] leading-[1.7] text-ink-muted max-w-md mb-10">
-            One catalog. Every agent. Shared auth, policies, and tools across
-            Cursor, Claude Code, OpenCode&mdash;or your own.
-          </p>
-
-          <div class="rise-d3 flex flex-wrap items-center gap-4">
-            <a href="https://github.com/RhysSullivan/executor" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim px-5 py-2.5 rounded-md transition-colors">
-              Get started
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
-            </a>
-            <a href="#how-it-works" class="inline-flex items-center gap-2 text-[14px] text-ink-muted hover:text-ink border border-rule hover:border-ink-faint px-5 py-2.5 rounded-md transition-colors">
-              How it works
-            </a>
-          </div>
+        <div class="rise-d3 flex flex-wrap items-center justify-center gap-4">
+          <a href="https://github.com/RhysSullivan/executor" class="inline-flex items-center gap-2 text-[14px] font-medium text-surface bg-teal hover:bg-teal-dim px-5 py-2.5 rounded-md transition-colors">
+            Get started
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+          </a>
+          <a href="#how-it-works" class="inline-flex items-center gap-2 text-[14px] text-ink-muted hover:text-ink border border-rule hover:border-ink-faint px-5 py-2.5 rounded-md transition-colors">
+            How it works
+          </a>
         </div>
+      </div>
 
-        <div class="rise-d4 relative">
-          <div class="absolute -inset-px rounded-xl bg-gradient-to-b from-teal/10 via-transparent to-transparent pointer-events-none"></div>
-          <div class="relative bg-surface-raised border border-rule rounded-xl overflow-hidden">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-rule">
-              <div class="flex items-center gap-1.5">
-                <div class="w-2.5 h-2.5 rounded-full bg-ink-faint/40"></div>
-                <div class="w-2.5 h-2.5 rounded-full bg-ink-faint/40"></div>
-                <div class="w-2.5 h-2.5 rounded-full bg-ink-faint/40"></div>
+      <!-- Full-width interactive catalog UI -->
+      <div class="rise-d4 relative" id="hero-catalog">
+        <div class="absolute -inset-px rounded-xl bg-gradient-to-b from-teal/10 via-transparent to-transparent pointer-events-none"></div>
+        <div class="relative bg-surface-raised border border-rule rounded-xl overflow-hidden text-[13px]">
+
+          <!-- Top bar -->
+          <div class="flex items-center justify-between px-5 py-3 border-b border-rule">
+            <div class="flex items-center gap-3">
+              <span class="font-display italic text-ink text-sm">executor</span>
+              <span class="text-ink-faint">/</span>
+              <span class="text-ink-muted">Sources</span>
+              <span class="text-ink-faint">/</span>
+              <span class="text-ink" data-breadcrumb>GitHub</span>
+            </div>
+            <div class="flex items-center gap-4">
+              <span class="font-mono text-[11px] text-teal" data-total-tools>482 tools indexed</span>
+            </div>
+          </div>
+
+          <!-- Content: sidebar + main -->
+          <div class="flex">
+
+            <!-- Sidebar: sources -->
+            <div class="w-[200px] shrink-0 border-r border-rule p-3 space-y-1 hidden sm:block">
+              <div class="text-[10px] font-mono text-ink-faint uppercase tracking-[0.1em] mb-2.5 px-2">Connected</div>
+              <button data-source="github" class="catalog-source w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors bg-teal/[0.08] border border-teal/15">
+                <div class="w-5 h-5 rounded bg-orange-400/15 flex items-center justify-center text-[9px] text-orange-400 font-mono font-medium shrink-0">G</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-ink text-[12px] truncate">GitHub</div>
+                  <div class="text-[10px] text-ink-faint">347 tools</div>
+                </div>
+                <span class="text-[9px] font-mono text-ink-faint shrink-0">openapi</span>
+              </button>
+              <button data-source="slack" class="catalog-source w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors border border-transparent hover:bg-surface-overlay">
+                <div class="w-5 h-5 rounded bg-blue-400/15 flex items-center justify-center text-[9px] text-blue-400 font-mono font-medium shrink-0">S</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-ink-muted text-[12px] truncate">Slack</div>
+                  <div class="text-[10px] text-ink-faint">42 tools</div>
+                </div>
+                <span class="text-[9px] font-mono text-ink-faint shrink-0">openapi</span>
+              </button>
+              <button data-source="calendar" class="catalog-source w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors border border-transparent hover:bg-surface-overlay">
+                <div class="w-5 h-5 rounded bg-green-400/15 flex items-center justify-center text-[9px] text-green-400 font-mono font-medium shrink-0">C</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-ink-muted text-[12px] truncate">Calendar</div>
+                  <div class="text-[10px] text-ink-faint">18 tools</div>
+                </div>
+                <span class="text-[9px] font-mono text-ink-faint shrink-0">google</span>
+              </button>
+              <button data-source="linear" class="catalog-source w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors border border-transparent hover:bg-surface-overlay">
+                <div class="w-5 h-5 rounded bg-purple-400/15 flex items-center justify-center text-[9px] text-purple-400 font-mono font-medium shrink-0">L</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-ink-muted text-[12px] truncate">Linear</div>
+                  <div class="text-[10px] text-ink-faint">56 tools</div>
+                </div>
+                <span class="text-[9px] font-mono text-ink-faint shrink-0">graphql</span>
+              </button>
+              <button data-source="resend" class="catalog-source w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors border border-transparent hover:bg-surface-overlay">
+                <div class="w-5 h-5 rounded bg-red-400/15 flex items-center justify-center text-[9px] text-red-400 font-mono font-medium shrink-0">R</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-ink-muted text-[12px] truncate">Resend</div>
+                  <div class="text-[10px] text-ink-faint">19 tools</div>
+                </div>
+                <span class="text-[9px] font-mono text-ink-faint shrink-0">openapi</span>
+              </button>
+              <button data-source="axiom" class="catalog-source w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left transition-colors border border-transparent hover:bg-surface-overlay">
+                <div class="w-5 h-5 rounded bg-cyan-400/15 flex items-center justify-center text-[9px] text-cyan-400 font-mono font-medium shrink-0">A</div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-ink-muted text-[12px] truncate">Axiom</div>
+                  <div class="text-[10px] text-ink-faint">17 tools</div>
+                </div>
+                <span class="text-[9px] font-mono text-ink-faint shrink-0">mcp</span>
+              </button>
+            </div>
+
+            <!-- Main: tool list -->
+            <div class="flex-1 min-w-0">
+              <!-- Search -->
+              <div class="px-4 py-3 border-b border-rule">
+                <div class="flex items-center gap-2 px-3 py-2 rounded-md border border-rule bg-surface text-ink-faint text-[12px]">
+                  <svg class="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                  <span data-search-label>Search 347 tools...</span>
+                </div>
               </div>
-              <span class="text-[11px] font-mono text-ink-faint">agent.ts</span>
+
+              <!-- Tool rows container -->
+              <div class="divide-y divide-rule" data-tool-list>
+                <!-- Populated by JS -->
+              </div>
             </div>
-            <div class="p-5 font-mono text-[13px] leading-[1.8]">
-              <pre set:html={heroCode} />
-            </div>
+
           </div>
         </div>
       </div>
+
+      <script>
+        const sources = {
+          github: {
+            name: 'GitHub', count: 347, tools: [
+              { name: 'issues.list', desc: 'List repository issues', policy: 'read', method: 'GET' },
+              { name: 'issues.create', desc: 'Create a new issue', policy: 'write', method: 'POST' },
+              { name: 'pulls.list', desc: 'List pull requests', policy: 'read', method: 'GET' },
+              { name: 'pulls.merge', desc: 'Merge a pull request', policy: 'destructive', method: 'PUT' },
+              { name: 'repos.get', desc: 'Get a repository', policy: 'read', method: 'GET' },
+              { name: 'actions.workflows.list', desc: 'List repository workflows', policy: 'read', method: 'GET' },
+            ]
+          },
+          slack: {
+            name: 'Slack', count: 42, tools: [
+              { name: 'chat.postMessage', desc: 'Send a message to a channel', policy: 'write', method: 'POST' },
+              { name: 'conversations.list', desc: 'List all channels', policy: 'read', method: 'GET' },
+              { name: 'conversations.history', desc: 'Fetch message history', policy: 'read', method: 'GET' },
+              { name: 'users.list', desc: 'List all users in workspace', policy: 'read', method: 'GET' },
+              { name: 'reactions.add', desc: 'Add a reaction to a message', policy: 'write', method: 'POST' },
+              { name: 'files.upload', desc: 'Upload a file to a channel', policy: 'write', method: 'POST' },
+            ]
+          },
+          calendar: {
+            name: 'Google Calendar', count: 18, tools: [
+              { name: 'events.list', desc: 'List upcoming events', policy: 'read', method: 'GET' },
+              { name: 'events.insert', desc: 'Create a new event', policy: 'write', method: 'POST' },
+              { name: 'events.delete', desc: 'Delete an event', policy: 'destructive', method: 'DELETE' },
+              { name: 'calendars.get', desc: 'Get calendar metadata', policy: 'read', method: 'GET' },
+              { name: 'events.update', desc: 'Update an existing event', policy: 'write', method: 'PATCH' },
+              { name: 'freebusy.query', desc: 'Check availability', policy: 'read', method: 'POST' },
+            ]
+          },
+          linear: {
+            name: 'Linear', count: 56, tools: [
+              { name: 'issues.list', desc: 'List issues with filters', policy: 'read', method: 'query' },
+              { name: 'issues.create', desc: 'Create a new issue', policy: 'write', method: 'mutation' },
+              { name: 'issues.update', desc: 'Update issue status or fields', policy: 'write', method: 'mutation' },
+              { name: 'projects.list', desc: 'List all projects', policy: 'read', method: 'query' },
+              { name: 'comments.create', desc: 'Add a comment to an issue', policy: 'write', method: 'mutation' },
+              { name: 'issues.delete', desc: 'Delete an issue permanently', policy: 'destructive', method: 'mutation' },
+            ]
+          },
+          resend: {
+            name: 'Resend', count: 19, tools: [
+              { name: 'emails.send', desc: 'Send a transactional email', policy: 'write', method: 'POST' },
+              { name: 'emails.get', desc: 'Get email delivery status', policy: 'read', method: 'GET' },
+              { name: 'domains.list', desc: 'List verified domains', policy: 'read', method: 'GET' },
+              { name: 'domains.verify', desc: 'Verify a domain', policy: 'write', method: 'POST' },
+              { name: 'apiKeys.list', desc: 'List API keys', policy: 'read', method: 'GET' },
+              { name: 'contacts.create', desc: 'Create a new contact', policy: 'write', method: 'POST' },
+            ]
+          },
+          axiom: {
+            name: 'Axiom', count: 17, tools: [
+              { name: 'queryDataset', desc: 'Query datasets using APL', policy: 'read', method: 'tool' },
+              { name: 'listDatasets', desc: 'List all available datasets', policy: 'read', method: 'tool' },
+              { name: 'getDatasetFields', desc: 'List all fields in a dataset', policy: 'read', method: 'tool' },
+              { name: 'checkMonitors', desc: 'Check all monitors and their statuses', policy: 'read', method: 'tool' },
+              { name: 'listDashboards', desc: 'List all available dashboards', policy: 'read', method: 'tool' },
+              { name: 'deleteDashboard', desc: 'Delete a dashboard by UID', policy: 'destructive', method: 'tool' },
+            ]
+          },
+        };
+
+        const policyColors = {
+          read: 'text-teal/60 bg-teal/[0.06]',
+          write: 'text-amber-300/60 bg-amber-300/[0.06]',
+          destructive: 'text-red-400/60 bg-red-400/[0.06]',
+        };
+
+        const methodColors = {
+          GET: 'text-teal/60',
+          POST: 'text-amber-300/60',
+          PUT: 'text-amber-300/60',
+          PATCH: 'text-amber-300/60',
+          DELETE: 'text-red-400/60',
+          query: 'text-teal/60',
+          mutation: 'text-amber-300/60',
+          tool: 'text-ink-faint',
+        };
+
+        // Tailwind safelist (must appear in markup for detection):
+        // text-teal/60 bg-teal/[0.06] text-amber-300/60 bg-amber-300/[0.06] text-red-400/60 bg-red-400/[0.06]
+
+        const catalog = document.getElementById('hero-catalog');
+        const toolList = catalog.querySelector('[data-tool-list]');
+        const breadcrumb = catalog.querySelector('[data-breadcrumb]');
+        const totalTools = catalog.querySelector('[data-total-tools]');
+        const searchLabel = catalog.querySelector('[data-search-label]');
+        const buttons = catalog.querySelectorAll('.catalog-source');
+
+        function renderSource(key) {
+          const src = sources[key];
+          breadcrumb.textContent = src.name;
+          searchLabel.textContent = `Search ${src.count} tools...`;
+
+          const totalCount = Object.values(sources).reduce((s, v) => s + v.count, 0);
+          totalTools.textContent = `${totalCount} tools indexed`;
+
+          buttons.forEach(btn => {
+            const isActive = btn.dataset.source === key;
+            if (isActive) {
+              btn.className = btn.className
+                .replace('border-transparent', 'border-teal/15')
+                .replace('hover:bg-surface-overlay', 'bg-teal/[0.08]');
+              btn.querySelector('.min-w-0 > div:first-child').className = 'text-ink text-[12px] truncate';
+            } else {
+              btn.className = btn.className
+                .replace('border-teal/15', 'border-transparent')
+                .replace('bg-teal/[0.08]', 'hover:bg-surface-overlay');
+              btn.querySelector('.min-w-0 > div:first-child').className = 'text-ink-muted text-[12px] truncate';
+            }
+          });
+
+          toolList.innerHTML = src.tools.map((tool, i) => {
+            const isLast = i === src.tools.length - 1;
+            const colors = policyColors[tool.policy];
+            const mColor = methodColors[tool.method] || 'text-ink-faint';
+            return `<div class="flex items-center gap-4 px-4 py-3${isLast ? ' opacity-40' : ''}">
+              <div class="flex-1 min-w-0">
+                <div class="font-mono text-[12px] text-ink">${tool.name}</div>
+                <div class="text-[11px] text-ink-faint">${tool.desc}</div>
+              </div>
+              <span class="text-[10px] font-mono ${colors} rounded px-1.5 py-0.5 shrink-0">${tool.policy}</span>
+              <span class="text-[10px] font-mono ${mColor} shrink-0">${tool.method}</span>
+            </div>`;
+          }).join('');
+        }
+
+        buttons.forEach(btn => {
+          btn.addEventListener('click', () => renderSource(btn.dataset.source));
+        });
+
+        renderSource('github');
+      </script>
     </div>
 
     <div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 text-ink-faint">
@@ -180,16 +378,18 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
               </div>
             </div>
             <svg class="w-full h-8 text-teal/50" viewBox="0 0 200 32" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="50" y1="0" x2="25" y2="32" />
-              <line x1="83" y1="0" x2="75" y2="32" />
-              <line x1="117" y1="0" x2="125" y2="32" />
-              <line x1="150" y1="0" x2="175" y2="32" />
+              <line x1="50" y1="0" x2="20" y2="32" />
+              <line x1="75" y1="0" x2="60" y2="32" />
+              <line x1="100" y1="0" x2="100" y2="32" />
+              <line x1="125" y1="0" x2="140" y2="32" />
+              <line x1="150" y1="0" x2="180" y2="32" />
             </svg>
-            <div class="w-full grid grid-cols-4 gap-1">
-              <div class="rounded border border-teal/20 bg-teal/5 px-1 py-2 text-center text-[8px] font-mono text-teal/60">OpenAPI</div>
+            <div class="w-full grid grid-cols-5 gap-1">
+              <div class="rounded border border-teal/20 bg-teal/5 px-1 py-2 text-center text-[8px] font-mono text-teal/60">REST</div>
               <div class="rounded border border-teal/20 bg-teal/5 px-1 py-2 text-center text-[8px] font-mono text-teal/60">GraphQL</div>
               <div class="rounded border border-teal/20 bg-teal/5 px-1 py-2 text-center text-[8px] font-mono text-teal/60">MCP</div>
-              <div class="rounded border border-teal/20 bg-teal/5 px-1 py-2 text-center text-[8px] font-mono text-teal/60">Google</div>
+              <div class="rounded border border-teal/20 bg-teal/5 px-1 py-2 text-center text-[8px] font-mono text-teal/60">gRPC</div>
+              <div class="rounded border border-teal/15 bg-teal/[0.02] px-1 py-2 text-center text-[8px] font-mono text-teal/40 italic">any</div>
             </div>
           </div>
 
@@ -215,7 +415,7 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
         <div class="bg-surface p-8">
           <svg class="w-6 h-6 text-teal mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" /></svg>
           <div class="text-[14px] font-medium mb-1">Unified catalog</div>
-          <p class="text-[13px] text-ink-muted">OpenAPI, GraphQL, MCP, Google Discovery. All indexed.</p>
+          <p class="text-[13px] text-ink-muted">Every integration indexed into one typed, discoverable catalog.</p>
         </div>
         <div class="bg-surface p-8">
           <svg class="w-6 h-6 text-teal mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
@@ -261,7 +461,7 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
         <div class="bg-surface p-6 sm:p-8">
           <span class="font-display text-4xl text-teal/20 leading-none block mb-4">1</span>
           <h3 class="text-[14px] font-medium mb-2">Add sources</h3>
-          <p class="text-[13px] text-ink-muted">Point at any OpenAPI, GraphQL, MCP, or Google Discovery endpoint.</p>
+          <p class="text-[13px] text-ink-muted">Point at any API. If it has a schema, Executor indexes it.</p>
         </div>
         <div class="bg-surface p-6 sm:p-8">
           <span class="font-display text-4xl text-teal/20 leading-none block mb-4">2</span>
@@ -300,12 +500,17 @@ const mcpCode = `<span class="text-ink-muted">$</span> executor mcp --stdio
 
     <div class="relative max-w-[1200px] mx-auto px-6 sm:px-10">
       <div class="flex flex-wrap items-center justify-between gap-6">
-        <span class="text-[13px] text-ink-muted">If it has a schema, it's a source</span>
-        <div class="flex items-center gap-8 sm:gap-12">
-          <span class="font-mono text-[14px] text-teal font-medium">OpenAPI</span>
-          <span class="font-mono text-[14px] text-teal font-medium">GraphQL</span>
-          <span class="font-mono text-[14px] text-teal font-medium">MCP</span>
-          <span class="font-mono text-[14px] text-teal font-medium">Google Discovery</span>
+        <span class="text-[13px] text-ink-muted">If you can represent it in JSON schema, it's an integration</span>
+        <div class="flex items-center gap-4 sm:gap-8">
+          <span class="font-mono text-[13px] text-teal/70">OpenAPI</span>
+          <span class="text-ink-faint">&middot;</span>
+          <span class="font-mono text-[13px] text-teal/70">GraphQL</span>
+          <span class="text-ink-faint">&middot;</span>
+          <span class="font-mono text-[13px] text-teal/70">MCP</span>
+          <span class="text-ink-faint">&middot;</span>
+          <span class="font-mono text-[13px] text-teal/70">Google Discovery</span>
+          <span class="text-ink-faint">&middot;</span>
+          <span class="font-mono text-[13px] text-ink-muted italic">yours</span>
         </div>
       </div>
     </div>

@@ -42,7 +42,7 @@ Example `mcp.json` for Claude Code / Cursor:
 
 ## Add a source
 
-Executor supports **OpenAPI**, **GraphQL**, **MCP**, and **Google Discovery** sources. If it has a schema, it's a source.
+If you can represent it with a JSON schema, it can be an integration. Executor has first-party support for OpenAPI, GraphQL, MCP, and Google Discovery — but the plugin system is open to any source type.
 
 ### Via the web UI
 

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@source "../**/*.astro";
+
 @theme {
   --font-sans: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Instrument Serif', Georgia, serif;
