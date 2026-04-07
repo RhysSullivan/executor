@@ -1,0 +1,45 @@
+{
+  "name": "@executor/cloud",
+  "version": "1.4.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@effect/platform-bun": "catalog:",
+    "@effect/sql-pg": "^0.28.0",
+    "@executor/execution": "workspace:*",
+    "@executor/plugin-google-discovery": "workspace:*",
+    "@executor/plugin-graphql": "workspace:*",
+    "@executor/plugin-mcp": "workspace:*",
+    "@executor/plugin-openapi": "workspace:*",
+    "@executor/react": "workspace:*",
+    "@executor/sdk": "workspace:*",
+    "@executor/storage-postgres": "workspace:*",
+    "@executor/ui": "workspace:*",
+    "@tanstack/react-router": "^1.168.10",
+    "@workos-inc/node": "^7.0.0",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:",
+    "pg": "^8.16.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.4.3",
+    "@types/pg": "^8.15.4",
+    "@tailwindcss/vite": "^4.1.10",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.5.2",
+    "portless": "^0.3.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.3.5"
+  },
+  "scripts": {
+    "dev": "op run --env-file=.env -- portless executor-cloud bun --hot ./src/main.ts",
+    "dev:web": "vite",
+    "start": "bun ./src/main.ts",
+    "build:web": "vite build",
+    "typecheck": "tsc --noEmit"
+  }
+}
