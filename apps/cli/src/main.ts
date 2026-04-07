@@ -28,7 +28,7 @@ import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor/api";
-import { createServerHandlers, runMcpStdioServer, getExecutor } from "@executor/server";
+import { createServerHandlers, runMcpStdioServer, getExecutor } from "@executor/local";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -141,7 +141,7 @@ const makeApiClient = (baseUrl: string) =>
 // Static file serving from embedded web UI
 // ---------------------------------------------------------------------------
 
-const WEB_DIST_DIR = resolve(import.meta.dirname, "../../web/dist");
+const WEB_DIST_DIR = resolve(import.meta.dirname, "../../local/dist");
 
 const serveStatic = async (pathname: string): Promise<Response | null> => {
   const key = pathname.replace(/^\//, "");
@@ -156,7 +156,7 @@ const serveStatic = async (pathname: string): Promise<Response | null> => {
     });
   }
 
-  // Dev mode: serve from apps/web/dist on disk
+  // Dev mode: serve from apps/local/dist on disk
   const filePath = resolve(WEB_DIST_DIR, key);
   if (!filePath.startsWith(WEB_DIST_DIR)) return null;
 

@@ -18,7 +18,7 @@ type HotBackend = {
 
 const DEV_BACKEND_MODULE_ID = `/@fs/${resolve(
   process.cwd(),
-  "../server/src/dev-backend.ts",
+  "src/server/dev-backend.ts",
 ).replace(/\\/g, "/")}`;
 
 // Build a Web Request from a Node IncomingMessage
@@ -130,9 +130,9 @@ export default defineConfig({
 
         const shouldReloadBackend = (file: string) =>
           /\.(ts|tsx)$/.test(file) &&
-          !file.includes("/apps/web/") &&
+          !file.includes("/src/web/") &&
           (
-            file.includes("/apps/server/") ||
+            file.includes("/src/server/") ||
             file.includes("/packages/core/") ||
             file.includes("/packages/plugins/") ||
             file.includes("/packages/hosts/")

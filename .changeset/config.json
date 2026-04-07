@@ -8,8 +8,7 @@
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
   "ignore": [
-    "@executor/server",
-    "@executor/web",
+    "@executor/local",
     "@executor/react",
     "@executor/api",
     "@executor/config",

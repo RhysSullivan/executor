@@ -23,7 +23,7 @@
     "@effect/platform-bun": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/runtime-quickjs": "workspace:*",
-    "@executor/server": "workspace:*",
+    "@executor/local": "workspace:*",
     "@jitl/quickjs-wasmfile-release-sync": "*",
     "quickjs-emscripten": "*",
     "effect": "catalog:"

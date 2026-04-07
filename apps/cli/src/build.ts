@@ -7,7 +7,7 @@ import { $ } from "bun";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const cliRoot = resolve(repoRoot, "apps/cli");
-const webRoot = resolve(repoRoot, "apps/web");
+const webRoot = resolve(repoRoot, "apps/local");
 const distDir = resolve(cliRoot, "dist");
 
 const resolveQuickJsWasmPath = (): string => {

@@ -13,7 +13,7 @@ import { McpGroup, McpHandlers, McpExtensionService } from "@executor/plugin-mcp
 import { GoogleDiscoveryGroup, GoogleDiscoveryHandlers, GoogleDiscoveryExtensionService } from "@executor/plugin-google-discovery/api";
 import { OnePasswordGroup, OnePasswordHandlers, OnePasswordExtensionService } from "@executor/plugin-onepassword/api";
 import { GraphqlGroup, GraphqlHandlers, GraphqlExtensionService } from "@executor/plugin-graphql/api";
-import { createLocalExecutor } from "./services/executor";
+import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ export type ServerHandlers = {
 };
 
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
-  const executor = await createLocalExecutor();
+  const executor = await getExecutor();
   const engine = createExecutionEngine({ executor });
 
   const pluginExtensions = Layer.mergeAll(
