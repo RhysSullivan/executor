@@ -9,6 +9,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
+    "deploy": "astro build && bunx wrangler deploy --config dist/server/wrangler.json",
     "astro": "astro"
   },
   "dependencies": {
