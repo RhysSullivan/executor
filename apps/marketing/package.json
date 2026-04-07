@@ -9,8 +9,11 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "astro build && bunx wrangler deploy --config dist/server/wrangler.json",
+    "deploy": "astro build && npx wrangler deploy --config dist/server/wrangler.json",
     "astro": "astro"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
   },
   "dependencies": {
     "@astrojs/tailwind": "^6.0.2",
