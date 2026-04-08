@@ -176,6 +176,7 @@ const secureExecBundlePlugin = async (): Promise<import("bun").BunPlugin> => {
   const bridgeCode = await Bun.file(join(secureExecNodejs, "dist/bridge.js")).text();
   const isolateRuntime = await import(join(secureExecCore, "dist/generated/isolate-runtime.js"));
   const bridgeAttachCode = isolateRuntime.ISOLATE_RUNTIME_SOURCES.bridgeAttach;
+  const polyfillCodeMap = (await import(join(secureExecCore, "dist/generated/polyfills.js"))).POLYFILL_CODE_MAP as Record<string, string>;
 
   return {
     name: "secure-exec-bundle-fixes",
@@ -186,15 +187,34 @@ const secureExecBundlePlugin = async (): Promise<import("bun").BunPlugin> => {
         path: args.path,
         namespace: "stub",
       }));
+      // Replace @secure-exec/nodejs polyfills (which use node-stdlib-browser + esbuild
+      // at runtime) with a shim that serves from pre-bundled POLYFILL_CODE_MAP.
       build.onResolve({ filter: /polyfills/ }, (args) => {
-        // Only stub @secure-exec/nodejs polyfills (which use node-stdlib-browser),
-        // NOT @secure-exec/core polyfills (which contain pre-bundled code strings).
         if (args.importer.includes("@secure-exec/nodejs") || args.importer.includes("@secure-exec+nodejs")) {
-          return { path: args.path, namespace: "stub" };
+          return { path: args.path, namespace: "polyfills-shim" };
         }
       });
+      build.onLoad({ filter: /.*/, namespace: "polyfills-shim" }, () => ({
+        contents: `
+const POLYFILL_CODE_MAP = ${JSON.stringify(polyfillCodeMap)};
+const polyfillCache = new Map();
+export default {};
+export async function bundlePolyfill(moduleName) {
+  const cached = polyfillCache.get(moduleName);
+  if (cached) return cached;
+  const code = POLYFILL_CODE_MAP[moduleName];
+  if (!code) throw new Error("No polyfill available for module: " + moduleName);
+  polyfillCache.set(moduleName, code);
+  return code;
+}
+export function getAvailableStdlib() { return Object.keys(POLYFILL_CODE_MAP); }
+export function hasPolyfill(name) { return name.replace(/^node:/, "") in POLYFILL_CODE_MAP; }
+export async function prebundleAllPolyfills() { return { ...POLYFILL_CODE_MAP }; }
+        `,
+        loader: "js",
+      }));
       build.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
-        contents: `export default {}; export const POLYFILL_CODE_MAP = {}; export const bundlePolyfill = () => {}; export const getAvailableStdlib = () => []; export const hasPolyfill = () => false; export const prebundleAllPolyfills = () => ({});`,
+        contents: "export default {};",
         loader: "js",
       }));
 
