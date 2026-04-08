@@ -2,7 +2,7 @@
   "name": "@executor/plugin-mcp",
   "private": true,
   "type": "module",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "exports": {
     ".": "./src/sdk/index.ts",
     "./api": "./src/api/index.ts",

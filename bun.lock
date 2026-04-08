@@ -19,7 +19,7 @@
     },
     "apps/cli": {
       "name": "executor",
-      "version": "1.4.4-beta.1",
+      "version": "1.4.4",
       "bin": {
         "executor": "./bin/executor.ts",
       },
@@ -52,7 +52,6 @@
         "@executor/plugin-google-discovery": "workspace:*",
         "@executor/plugin-graphql": "workspace:*",
         "@executor/plugin-mcp": "workspace:*",
-        "@executor/plugin-onepassword": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
         "@executor/react": "workspace:*",
         "@executor/sdk": "workspace:*",
@@ -90,7 +89,7 @@
     },
     "apps/local": {
       "name": "@executor/local",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/platform": "catalog:",
@@ -132,7 +131,7 @@
     },
     "apps/marketing": {
       "name": "@executor/marketing",
-      "version": "0.0.2",
+      "version": "0.0.3",
       "dependencies": {
         "@astrojs/cloudflare": "^13.0.0",
         "@executor/plugin-google-discovery": "workspace:*",
@@ -151,7 +150,7 @@
     },
     "packages/core/api": {
       "name": "@executor/api",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@effect/platform": "catalog:",
         "@executor/execution": "workspace:*",
@@ -166,7 +165,7 @@
     },
     "packages/core/config": {
       "name": "@executor/config",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@effect/platform": "catalog:",
         "effect": "catalog:",
@@ -193,7 +192,7 @@
     },
     "packages/core/execution": {
       "name": "@executor/execution",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
         "@executor/runtime-quickjs": "workspace:*",
@@ -209,7 +208,7 @@
     },
     "packages/core/sdk": {
       "name": "@executor/sdk",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "effect": "catalog:",
       },
@@ -221,7 +220,7 @@
     },
     "packages/core/storage-file": {
       "name": "@executor/storage-file",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@effect/sql": "catalog:",
         "@executor/sdk": "workspace:*",
@@ -255,7 +254,7 @@
     },
     "packages/hosts/mcp": {
       "name": "@executor/host-mcp",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@executor/execution": "workspace:*",
         "@executor/sdk": "workspace:*",
@@ -271,7 +270,7 @@
     },
     "packages/kernel/core": {
       "name": "@executor/codemode-core",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@standard-schema/spec": "^1.0.0",
         "ajv": "^8.17.1",
@@ -286,7 +285,7 @@
     },
     "packages/kernel/ir": {
       "name": "@executor/ir",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "effect": "catalog:",
       },
@@ -298,7 +297,7 @@
     },
     "packages/kernel/runtime-deno-subprocess": {
       "name": "@executor/runtime-deno-subprocess",
-      "version": "0.0.2",
+      "version": "0.0.3",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
         "effect": "catalog:",
@@ -312,7 +311,7 @@
     },
     "packages/kernel/runtime-quickjs": {
       "name": "@executor/runtime-quickjs",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
         "effect": "catalog:",
@@ -342,7 +341,7 @@
     },
     "packages/plugins/file-secrets": {
       "name": "@executor/plugin-file-secrets",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@executor/sdk": "workspace:*",
         "effect": "catalog:",
@@ -355,7 +354,7 @@
     },
     "packages/plugins/google-discovery": {
       "name": "@executor/plugin-google-discovery",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@effect/platform": "catalog:",
         "@executor/api": "workspace:*",
@@ -386,7 +385,7 @@
     },
     "packages/plugins/graphql": {
       "name": "@executor/plugin-graphql",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@effect/platform": "catalog:",
         "@executor/sdk": "workspace:*",
@@ -420,7 +419,7 @@
     },
     "packages/plugins/keychain": {
       "name": "@executor/plugin-keychain",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@executor/sdk": "workspace:*",
         "@napi-rs/keyring": "^1.2.0",
@@ -435,7 +434,7 @@
     },
     "packages/plugins/mcp": {
       "name": "@executor/plugin-mcp",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@effect/platform": "catalog:",
         "@executor/sdk": "workspace:*",
@@ -471,7 +470,7 @@
     },
     "packages/plugins/onepassword": {
       "name": "@executor/plugin-onepassword",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@1password/op-js": "^0.1.13",
         "@1password/sdk": "^0.4.1-beta.1",
@@ -501,7 +500,7 @@
     },
     "packages/plugins/openapi": {
       "name": "@executor/plugin-openapi",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@apidevtools/swagger-parser": "^12.1.0",
         "@effect/platform": "catalog:",
@@ -539,7 +538,7 @@
     },
     "packages/react": {
       "name": "@executor/react",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@base-ui/react": "^1.3.0",
         "@effect-atom/atom": "^0.5.0",
