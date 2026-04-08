@@ -26,9 +26,11 @@
     "@executor/plugin-mcp": "1.4.0",
     "@executor/plugin-onepassword": "1.4.0",
     "@executor/plugin-openapi": "1.4.0",
-    "@executor/react": "1.4.0"
+    "@executor/react": "1.4.0",
+    "@executor/env": "1.4.0"
   },
   "changesets": [
+    "fix-bundling",
     "late-cameras-open",
     "purple-jokes-rest"
   ]
