@@ -187,7 +187,9 @@ const secureExecBundlePlugin = async (): Promise<import("bun").BunPlugin> => {
         namespace: "stub",
       }));
       build.onResolve({ filter: /polyfills/ }, (args) => {
-        if (args.importer.includes("secure-exec")) {
+        // Only stub @secure-exec/nodejs polyfills (which use node-stdlib-browser),
+        // NOT @secure-exec/core polyfills (which contain pre-bundled code strings).
+        if (args.importer.includes("@secure-exec/nodejs") || args.importer.includes("@secure-exec+nodejs")) {
           return { path: args.path, namespace: "stub" };
         }
       });
