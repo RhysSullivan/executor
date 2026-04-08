@@ -58,4 +58,4 @@ export class GraphqlGroup extends HttpApiGroup.make("graphql")
       .addError(IntrospectionError)
       .addError(ExtractionError),
   )
-  .prefix("/v1") {}
+  {}

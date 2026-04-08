@@ -248,7 +248,7 @@ export default function AddMcpSource(props: {
   const handleOAuth = useCallback(async () => {
     dispatch({ type: "oauth-start" });
     try {
-      const redirectUrl = `${window.location.origin}/v1/mcp/oauth/callback`;
+      const redirectUrl = `${window.location.origin}/api/mcp/oauth/callback`;
       const result = await doStartOAuth({
         path: { scopeId },
         payload: { endpoint: state.url.trim(), redirectUrl },

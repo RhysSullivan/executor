@@ -1,13 +1,8 @@
 // ---------------------------------------------------------------------------
-// Identity & multi-tenancy — cloud-specific tables
+// Cloud-specific identity & multi-tenancy tables
 // ---------------------------------------------------------------------------
 
-import {
-  pgTable,
-  text,
-  timestamp,
-  primaryKey,
-} from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, primaryKey } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),

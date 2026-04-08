@@ -4,6 +4,7 @@ import { useAtomRefresh, useAtomValue, Result } from "@effect-atom/atom-react";
 import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import { AUTH_PATHS } from "../auth/api";
 import { useAuth } from "./auth";
 
 // ── NavItem ──────────────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ function UserFooter() {
             </p>
           )}
         </div>
-        <form action="/auth/logout" method="post">
+        <form action={AUTH_PATHS.logout} method="post">
           <button
             type="submit"
             className="shrink-0 rounded-md p-1 text-muted-foreground/50 transition-colors hover:bg-sidebar-active hover:text-foreground"

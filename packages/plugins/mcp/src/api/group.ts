@@ -194,4 +194,4 @@ export class McpGroup extends HttpApiGroup.make("mcp")
       .addSuccess(HtmlResponse)
       .addError(McpApiError),
   )
-  .prefix("/v1") {}
+  {}

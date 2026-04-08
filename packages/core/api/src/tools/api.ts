@@ -57,4 +57,4 @@ export class ToolsApi extends HttpApiGroup.make("tools")
       .addSuccess(ToolSchemaResponse)
       .addError(ToolNotFound),
   )
-  .prefix("/v1") {}
+  {}

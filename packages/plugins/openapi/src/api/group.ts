@@ -70,4 +70,4 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
       .addError(ParseError)
       .addError(ExtractionError),
   )
-  .prefix("/v1") {}
+  {}

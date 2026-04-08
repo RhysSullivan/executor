@@ -514,7 +514,7 @@ export default function AddGoogleDiscoverySource(props: {
           discoveryUrl: discoveryUrl.trim(),
           clientId: clientId.trim(),
           clientSecretSecretId,
-          redirectUrl: `${window.location.origin}/v1/google-discovery/oauth/callback`,
+          redirectUrl: `${window.location.origin}/api/google-discovery/oauth/callback`,
           scopes: probe.scopes,
         },
       });

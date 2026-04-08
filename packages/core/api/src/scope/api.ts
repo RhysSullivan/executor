@@ -21,4 +21,4 @@ export class ScopeApi extends HttpApiGroup.make("scope")
     HttpApiEndpoint.get("info")`/scope`
       .addSuccess(ScopeInfoResponse),
   )
-  .prefix("/v1") {}
+  {}

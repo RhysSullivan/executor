@@ -125,4 +125,4 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
       .addSuccess(HtmlResponse)
       .addError(ApiError),
   )
-  .prefix("/v1") {}
+  {}

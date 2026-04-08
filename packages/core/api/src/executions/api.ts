@@ -61,4 +61,4 @@ export class ExecutionsApi extends HttpApiGroup.make("executions")
       .addSuccess(ResumeResponse)
       .addError(ExecutionNotFoundError),
   )
-  .prefix("/v1") {}
+  {}

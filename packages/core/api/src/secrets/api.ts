@@ -86,4 +86,4 @@ export class SecretsApi extends HttpApiGroup.make("secrets")
       .addSuccess(Schema.Struct({ removed: Schema.Boolean }))
       .addError(SecretNotFound),
   )
-  .prefix("/v1") {}
+  {}

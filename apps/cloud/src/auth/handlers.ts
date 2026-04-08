@@ -1,40 +1,38 @@
-import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
+import { deleteCookie, setCookie } from "@tanstack/react-start/server";
 
 import { addGroup } from "@executor/api";
-import { CloudAuthApi } from "./api";
+import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { AuthContext, UserStoreService } from "./context";
-import { WorkOSAuth, makeSessionCookie, clearSessionCookie } from "./workos";
+import { WorkOSAuth } from "./workos";
 
-const ApiWithCloudAuth = addGroup(CloudAuthApi);
+const COOKIE_OPTIONS = {
+  path: "/",
+  httpOnly: true,
+  sameSite: "lax" as const,
+  maxAge: 60 * 60 * 24 * 7,
+  secure: process.env.NODE_ENV === "production",
+};
 
-export const CloudAuthHandlers = HttpApiBuilder.group(
-  ApiWithCloudAuth,
-  "cloudAuth",
+// ---------------------------------------------------------------------------
+// Public auth handlers (no authentication required)
+// ---------------------------------------------------------------------------
+
+const PublicAuthApi = HttpApi.make("cloudPublic")
+  .add(CloudAuthPublicApi);
+
+export const CloudAuthPublicHandlers = HttpApiBuilder.group(
+  PublicAuthApi,
+  "cloudAuthPublic",
   (handlers) =>
     handlers
-      .handle("me", () =>
-        Effect.gen(function* () {
-          const auth = yield* AuthContext;
-          const users = yield* UserStoreService;
-          const team = yield* users.use((s) => s.getTeam(auth.teamId));
-
-          return {
-            user: {
-              id: auth.userId,
-              email: auth.email,
-              name: auth.name,
-              avatarUrl: auth.avatarUrl,
-            },
-            team: team ? { id: team.id, name: team.name } : null,
-          };
-        }),
-      )
       .handleRaw("login", () =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
-          const baseUrl = process.env.APP_URL ?? `http://localhost:${process.env.PORT ?? "3000"}`;
-          const url = workos.getAuthorizationUrl(`${baseUrl}/auth/callback`);
+          const req = yield* HttpServerRequest.HttpServerRequest;
+          const origin = new URL(req.url, `http://${req.headers["host"]}`).origin;
+          const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`);
           return HttpServerResponse.redirect(url, { status: 302 });
         }),
       )
@@ -81,28 +79,46 @@ export const CloudAuthHandlers = HttpApiBuilder.group(
             return HttpServerResponse.text("Failed to create session", { status: 500 });
           }
 
-          return HttpServerResponse.redirect("/", {
-            status: 302,
-            headers: {
-              "Set-Cookie": [
-                makeSessionCookie(sealedSession),
-                `executor_team=${teamId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`,
-              ].join(", "),
+          setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
+          setCookie("executor_team", teamId, COOKIE_OPTIONS);
+          return HttpServerResponse.redirect("/", { status: 302 });
+        }),
+      ),
+);
+
+// ---------------------------------------------------------------------------
+// Protected auth handlers (require authentication via middleware)
+// ---------------------------------------------------------------------------
+
+const ApiWithCloudAuth = addGroup(CloudAuthApi);
+
+export const CloudAuthHandlers = HttpApiBuilder.group(
+  ApiWithCloudAuth,
+  "cloudAuth",
+  (handlers) =>
+    handlers
+      .handle("me", () =>
+        Effect.gen(function* () {
+          const auth = yield* AuthContext;
+          const users = yield* UserStoreService;
+          const team = yield* users.use((s) => s.getTeam(auth.teamId));
+
+          return {
+            user: {
+              id: auth.userId,
+              email: auth.email,
+              name: auth.name,
+              avatarUrl: auth.avatarUrl,
             },
-          });
+            team: team ? { id: team.id, name: team.name } : null,
+          };
         }),
       )
       .handleRaw("logout", () =>
-        Effect.succeed(
-          HttpServerResponse.redirect("/", {
-            status: 302,
-            headers: {
-              "Set-Cookie": [
-                clearSessionCookie(),
-                "executor_team=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0",
-              ].join(", "),
-            },
-          }),
-        ),
+        Effect.sync(() => {
+          deleteCookie("wos-session", { path: "/" });
+          deleteCookie("executor_team", { path: "/" });
+          return HttpServerResponse.redirect("/", { status: 302 });
+        }),
       ),
 );

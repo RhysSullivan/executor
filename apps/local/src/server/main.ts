@@ -4,7 +4,7 @@ import {
   HttpMiddleware,
   HttpServer,
 } from "@effect/platform";
-import { Layer } from "effect";
+import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
 import { addGroup, CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api";
 import { createExecutionEngine } from "@executor/execution";
@@ -49,6 +49,13 @@ export type ServerHandlers = {
   readonly mcp: McpRequestHandler;
 };
 
+const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
+  await Promise.all([
+    handlers.api.dispose().catch(() => undefined),
+    handlers.mcp.close().catch(() => undefined),
+  ]);
+};
+
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const executor = await getExecutor();
   const engine = createExecutionEngine({ executor });
@@ -62,7 +69,7 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
   );
 
   const api = HttpApiBuilder.toWebHandler(
-    HttpApiSwagger.layer().pipe(
+    HttpApiSwagger.layer({ path: "/docs" }).pipe(
       Layer.provideMerge(HttpApiBuilder.middlewareOpenApi()),
       Layer.provideMerge(LocalApiBase),
       Layer.provideMerge(pluginExtensions),
@@ -76,4 +83,26 @@ export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const mcp = createMcpRequestHandler({ engine });
 
   return { api, mcp };
+};
+
+export class ServerHandlersService extends Context.Tag("@executor/local/ServerHandlersService")<
+  ServerHandlersService,
+  ServerHandlers
+>() {}
+
+const ServerHandlersLive = Layer.scoped(
+  ServerHandlersService,
+  Effect.acquireRelease(
+    Effect.promise(() => createServerHandlers()),
+    (handlers) => Effect.promise(() => closeServerHandlers(handlers)),
+  ),
+);
+
+const serverHandlersRuntime = ManagedRuntime.make(ServerHandlersLive);
+
+export const getServerHandlers = (): Promise<ServerHandlers> =>
+  serverHandlersRuntime.runPromise(ServerHandlersService);
+
+export const disposeServerHandlers = async (): Promise<void> => {
+  await serverHandlersRuntime.dispose().catch(() => undefined);
 };

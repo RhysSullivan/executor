@@ -77,4 +77,4 @@ export class SourcesApi extends HttpApiGroup.make("sources")
       .setPayload(DetectRequest)
       .addSuccess(Schema.Array(DetectResultResponse)),
   )
-  .prefix("/v1") {}
+  {}

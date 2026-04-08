@@ -4,7 +4,7 @@
 
 import { Context, Effect, Layer } from "effect";
 import { WorkOS } from "@workos-inc/node";
-import { WorkOSError } from "./context";
+import { WorkOSError } from "./errors";
 
 const COOKIE_NAME = "wos-session";
 
@@ -67,7 +67,7 @@ const make = Effect.gen(function* () {
             lastName: result.user.lastName,
             avatarUrl: result.user.profilePictureUrl,
             sessionId: result.sessionId,
-            refreshedCookie: undefined as string | undefined,
+            refreshedSession: undefined as string | undefined,
           };
         }
 
@@ -87,7 +87,7 @@ const make = Effect.gen(function* () {
           lastName: refreshed.user.lastName,
           avatarUrl: refreshed.user.profilePictureUrl,
           sessionId: refreshed.sessionId,
-          refreshedCookie: makeSessionCookie(refreshed.sealedSession),
+          refreshedSession: refreshed.sealedSession,
         };
       }),
   };
@@ -103,25 +103,6 @@ export class WorkOSAuth extends Context.Tag("@executor/cloud/WorkOSAuth")<
     Layer.annotateSpans({ module: "WorkOSAuth" }),
   );
 }
-
-// ---------------------------------------------------------------------------
-// Cookie helpers
-// ---------------------------------------------------------------------------
-
-export const makeSessionCookie = (sealedSession: string): string => {
-  const parts = [
-    `${COOKIE_NAME}=${sealedSession}`,
-    "Path=/",
-    "HttpOnly",
-    "SameSite=Lax",
-    "Max-Age=604800",
-  ];
-  if (process.env.NODE_ENV === "production") parts.push("Secure");
-  return parts.join("; ");
-};
-
-export const clearSessionCookie = (): string =>
-  `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 
 const parseCookie = (cookieHeader: string | null, name: string): string | null => {
   if (!cookieHeader) return null;

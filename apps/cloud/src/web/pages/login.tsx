@@ -1,4 +1,5 @@
 import React from "react";
+import { AUTH_PATHS } from "../../auth/api";
 
 export const LoginPage = () => {
   return (
@@ -11,7 +12,7 @@ export const LoginPage = () => {
           </p>
         </div>
         <a
-          href="/auth/login"
+          href={AUTH_PATHS.login}
           className="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition-colors"
         >
           Sign in

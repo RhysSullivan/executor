@@ -1,20 +1,7 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { makeUserStore } from "../services/user-store";
-import type { DrizzleDb } from "../services/db";
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-export class UserStoreError extends Schema.TaggedError<UserStoreError>()(
-  "UserStoreError",
-  { cause: Schema.Unknown },
-) {}
-
-export class WorkOSError extends Schema.TaggedError<WorkOSError>()(
-  "WorkOSError",
-  { cause: Schema.Unknown },
-) {}
+import { DbService } from "../services/db";
+import { UserStoreError } from "./errors";
 
 // ---------------------------------------------------------------------------
 // AuthContext — resolved per-request from sealed session
@@ -37,9 +24,7 @@ export class AuthContext extends Context.Tag("@executor/cloud/AuthContext")<
 
 type RawStore = ReturnType<typeof makeUserStore>;
 
-const makeService = (db: DrizzleDb) => {
-  const store = makeUserStore(db);
-
+const makeService = (store: RawStore) => {
   const use = <A>(fn: (s: RawStore) => Promise<A>) =>
     Effect.tryPromise({
       try: () => fn(store),
@@ -55,6 +40,8 @@ export class UserStoreService extends Context.Tag("@executor/cloud/UserStoreServ
   UserStoreService,
   UserStoreServiceType
 >() {
-  static layer = (db: DrizzleDb) =>
-    Layer.succeed(this, makeService(db));
+  static Live = Layer.effect(
+    this,
+    Effect.map(DbService, (db) => makeService(makeUserStore(db))),
+  );
 }

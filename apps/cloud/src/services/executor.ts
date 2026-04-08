@@ -5,7 +5,6 @@
 import { Effect } from "effect";
 
 import { createExecutor } from "@executor/sdk";
-import type { DrizzleDb } from "@executor/storage-postgres";
 import { makePgConfig, makePgKv } from "@executor/storage-postgres";
 import {
   openApiPlugin,
@@ -23,18 +22,19 @@ import {
   graphqlPlugin,
   makeKvOperationStore as makeKvGraphqlOperationStore,
 } from "@executor/plugin-graphql";
+import { DbService } from "./db";
 
 // ---------------------------------------------------------------------------
 // Create a fresh executor for a team (stateless, per-request)
 // ---------------------------------------------------------------------------
 
 export const createTeamExecutor = (
-  db: DrizzleDb,
   teamId: string,
   teamName: string,
   encryptionKey: string,
 ) =>
   Effect.gen(function* () {
+    const db = yield* DbService;
     const kv = makePgKv(db, teamId);
     const config = makePgConfig(db, {
       teamId,

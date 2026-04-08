@@ -70,4 +70,4 @@ export class OnePasswordGroup extends HttpApiGroup.make("onepassword")
       .addSuccess(ListVaultsResponse)
       .addError(OpError),
   )
-  .prefix("/v1") {}
+  {}
