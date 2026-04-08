@@ -155,6 +155,30 @@ const buildBinaries = async (targets: Target[]) => {
         target: bunTarget(target) as any,
         outfile: join(binDir, binaryName(target)),
       },
+      plugins: [
+        {
+          name: "stub-node-stdlib-browser",
+          setup(build) {
+            // @secure-exec re-exports polyfill helpers that eagerly resolve
+            // Node stdlib browser polyfill paths at import time (e.g. require.resolve("assert/")),
+            // which fails in compiled binaries. Our code never uses these polyfills, so stub them out.
+            const stubTargets = /node-stdlib-browser|web-streams-polyfill/;
+            build.onResolve({ filter: stubTargets }, (args) => ({
+              path: args.path,
+              namespace: "stub",
+            }));
+            build.onResolve({ filter: /polyfills/ }, (args) => {
+              if (args.importer.includes("secure-exec")) {
+                return { path: args.path, namespace: "stub" };
+              }
+            });
+            build.onLoad({ filter: /.*/, namespace: "stub" }, () => ({
+              contents: `export default {}; export const POLYFILL_CODE_MAP = {}; export const bundlePolyfill = () => {}; export const getAvailableStdlib = () => []; export const hasPolyfill = () => false; export const prebundleAllPolyfills = () => ({});`,
+              loader: "js",
+            }));
+          },
+        },
+      ],
     });
 
     // Copy QuickJS WASM next to binary — loaded at runtime by the server

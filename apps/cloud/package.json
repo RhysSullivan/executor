@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@effect-atom/atom": "^0.5.0",
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/platform": "catalog:",
     "@executor/api": "workspace:*",
