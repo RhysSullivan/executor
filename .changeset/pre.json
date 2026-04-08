@@ -28,5 +28,7 @@
     "@executor/plugin-openapi": "1.4.0",
     "@executor/react": "1.4.0"
   },
-  "changesets": []
+  "changesets": [
+    "purple-jokes-rest"
+  ]
 }
