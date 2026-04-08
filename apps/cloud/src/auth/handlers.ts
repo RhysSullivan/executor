@@ -6,13 +6,14 @@ import { addGroup } from "@executor/api";
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { AuthContext, UserStoreService } from "./context";
 import { WorkOSAuth } from "./workos";
+import { env } from "../env";
 
 const COOKIE_OPTIONS = {
   path: "/",
   httpOnly: true,
   sameSite: "lax" as const,
   maxAge: 60 * 60 * 24 * 7,
-  secure: process.env.NODE_ENV === "production",
+  secure: env.NODE_ENV === "production",
 };
 
 // ---------------------------------------------------------------------------

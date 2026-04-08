@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from "react";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { Atom, useAtomValue, Result } from "@effect-atom/atom-react";
 
 import { CloudApiClient } from "./client";
 
@@ -19,13 +19,19 @@ type AuthTeam = {
   name: string;
 };
 
+type MeResponse = {
+  user: AuthUser;
+  team: AuthTeam | null;
+};
+
 // ---------------------------------------------------------------------------
 // Auth atom — typed query against CloudAuthApi
 // ---------------------------------------------------------------------------
 
-export const authAtom = CloudApiClient.query("cloudAuth", "me", {
-  timeToLive: "5 minutes",
-});
+export const authAtom: Atom.Atom<Result.Result<MeResponse, unknown>> =
+  CloudApiClient.query("cloudAuth", "me", {
+    timeToLive: "5 minutes",
+  });
 
 // ---------------------------------------------------------------------------
 // Provider + hook
