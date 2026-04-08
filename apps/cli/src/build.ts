@@ -76,6 +76,30 @@ const binaryName = (t: Target) =>
 const isCurrentPlatform = (t: Target) =>
   t.os === process.platform && t.arch === process.arch && !t.abi;
 
+/** Resolve the platform-specific secure-exec-v8 binary for a given target. */
+const resolveSecureExecV8 = (t: Target): string | null => {
+  const platformMap: Record<string, string> = {
+    "darwin-arm64": "@secure-exec/v8-darwin-arm64",
+    "darwin-x64": "@secure-exec/v8-darwin-x64",
+    "linux-arm64": "@secure-exec/v8-linux-arm64-gnu",
+    "linux-x64": "@secure-exec/v8-linux-x64-gnu",
+  };
+  const key = `${t.os}-${t.arch}`;
+  const pkg = platformMap[key];
+  if (!pkg) return null;
+  try {
+    // Resolve from @secure-exec/v8 which has these as optional deps
+    const req = createRequire(join(repoRoot, "node_modules", "secure-exec", "package.json"));
+    const pkgJson = req.resolve(`${pkg}/package.json`);
+    return join(dirname(pkgJson), "secure-exec-v8");
+  } catch {
+    // Try bun's flat node_modules layout
+    const bunPath = join(repoRoot, `node_modules/.bun/${pkg.replace("/", "+")}@0.2.1/node_modules/${pkg}/secure-exec-v8`);
+    if (existsSync(bunPath)) return bunPath;
+    return null;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Build web app
 // ---------------------------------------------------------------------------
@@ -230,6 +254,14 @@ const buildBinaries = async (targets: Target[]) => {
 
     // Copy QuickJS WASM next to binary — loaded at runtime by the server
     await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
+
+    // Copy secure-exec-v8 binary next to executor — needed for code execution
+    const secureExecBin = resolveSecureExecV8(target);
+    if (secureExecBin && existsSync(secureExecBin)) {
+      const destName = target.os === "win32" ? "secure-exec-v8.exe" : "secure-exec-v8";
+      await cp(secureExecBin, join(binDir, destName));
+      await chmod(join(binDir, destName), 0o755);
+    }
 
     // Smoke test on current platform
     if (isCurrentPlatform(target)) {

@@ -1,6 +1,12 @@
-// Pre-load QuickJS WASM for compiled binaries — must run before server imports
+// Ensure binaries next to the executor (e.g. secure-exec-v8) are on $PATH
 import { dirname, join } from "node:path";
-const wasmOnDisk = join(dirname(process.execPath), "emscripten-module.wasm");
+const execDir = dirname(process.execPath);
+if (process.env.PATH && !process.env.PATH.includes(execDir)) {
+  process.env.PATH = `${execDir}:${process.env.PATH}`;
+}
+
+// Pre-load QuickJS WASM for compiled binaries — must run before server imports
+const wasmOnDisk = join(execDir, "emscripten-module.wasm");
 if (typeof Bun !== "undefined" && await Bun.file(wasmOnDisk).exists()) {
   const { setQuickJSModule } = await import("@executor/runtime-quickjs");
   const { newQuickJSWASMModule } = await import("quickjs-emscripten");
