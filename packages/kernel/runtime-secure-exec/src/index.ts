@@ -269,18 +269,16 @@ const console = {
   debug: (...args) => __log('debug', __formatLogLine(args)),
 };
 
-(async () => {
-  ${body}
-})().then(
-  (v) => {
-    if (v !== undefined) process.stdout.write(${JSON.stringify(IPC_RESULT_PREFIX)} + JSON.stringify(v) + '\\n');
-  },
-  (e) => {
-    const msg = e && typeof e === 'object' ? (e.stack || e.message || String(e)) : String(e);
-    process.stderr.write(msg + '\\n');
-    process.exitCode = 1;
-  }
-);
+try {
+  const v = await (async () => {
+    ${body}
+  })();
+  if (v !== undefined) process.stdout.write(${JSON.stringify(IPC_RESULT_PREFIX)} + JSON.stringify(v) + '\\n');
+} catch (e) {
+  const msg = e && typeof e === 'object' ? (e.stack || e.message || String(e)) : String(e);
+  process.stderr.write(msg + '\\n');
+  process.exitCode = 1;
+}
 `.trim();
 };
 

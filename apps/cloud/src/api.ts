@@ -13,7 +13,8 @@ import {
 import { Effect, Layer, Scope } from "effect";
 import { setCookie } from "@tanstack/react-start/server";
 
-import { addGroup, CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api";
+import { addGroup } from "@executor/api";
+import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
 import { OpenApiGroup, OpenApiExtensionService, OpenApiHandlers } from "@executor/plugin-openapi/api";
 import { McpGroup, McpExtensionService, McpHandlers } from "@executor/plugin-mcp/api";

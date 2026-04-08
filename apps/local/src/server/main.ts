@@ -7,7 +7,8 @@ import {
 } from "@effect/platform";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 
-import { addGroup, CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api";
+import { addGroup } from "@executor/api";
+import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
 import { OpenApiGroup, OpenApiHandlers, OpenApiExtensionService } from "@executor/plugin-openapi/api";
 import { McpGroup, McpHandlers, McpExtensionService } from "@executor/plugin-mcp/api";
