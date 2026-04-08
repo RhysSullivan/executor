@@ -30,6 +30,7 @@
     "@executor/react": "1.4.1"
   },
   "changesets": [
+    "gentle-guests-knock",
     "wet-wombats-dance"
   ]
 }
