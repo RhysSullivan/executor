@@ -28,8 +28,10 @@ const isAllowedHost = (request: Request): boolean => {
 // Static files
 // ---------------------------------------------------------------------------
 
-function collectStaticRoutes(dir: string, prefix = ""): Record<string, ReturnType<typeof Bun.file>> {
-  const routes: Record<string, ReturnType<typeof Bun.file>> = {};
+type StaticHandler = () => Response | Promise<Response>;
+
+function collectStaticRoutes(dir: string, prefix = ""): Record<string, StaticHandler> {
+  const routes: Record<string, StaticHandler> = {};
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const fullPath = join(dir, entry.name);
@@ -37,7 +39,10 @@ function collectStaticRoutes(dir: string, prefix = ""): Record<string, ReturnTyp
       if (entry.isDirectory()) {
         Object.assign(routes, collectStaticRoutes(fullPath, routePath));
       } else {
-        routes[routePath] = Bun.file(fullPath);
+        const file = Bun.file(fullPath);
+        routes[routePath] = () => new Response(file, {
+          headers: { "content-type": file.type || "application/octet-stream" },
+        });
       }
     }
   } catch {}
@@ -50,10 +55,13 @@ function collectStaticRoutes(dir: string, prefix = ""): Record<string, ReturnTyp
  */
 function embeddedToStaticRoutes(
   embedded: Record<string, string>,
-): Record<string, ReturnType<typeof Bun.file>> {
-  const routes: Record<string, ReturnType<typeof Bun.file>> = {};
+): Record<string, StaticHandler> {
+  const routes: Record<string, StaticHandler> = {};
   for (const [key, bunfsPath] of Object.entries(embedded)) {
-    routes[`/${key}`] = Bun.file(bunfsPath);
+    const file = Bun.file(bunfsPath);
+    routes[`/${key}`] = () => new Response(file, {
+      headers: { "content-type": file.type || "application/octet-stream" },
+    });
   }
   return routes;
 }
@@ -82,15 +90,17 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
   const handlers = await getServerHandlers();
 
   // Build static routes from either embedded assets or disk
-  let staticRoutes: Record<string, ReturnType<typeof Bun.file>>;
-  let indexHtml: ReturnType<typeof Bun.file>;
+  let staticRoutes: Record<string, StaticHandler>;
+  let serveIndex: StaticHandler;
 
   if (opts.embeddedWebUI) {
     staticRoutes = embeddedToStaticRoutes(opts.embeddedWebUI);
-    indexHtml = staticRoutes["/index.html"] ?? Bun.file(join(clientDir, "index.html"));
+    const indexFile = Bun.file(opts.embeddedWebUI["index.html"] ?? join(clientDir, "index.html"));
+    serveIndex = () => new Response(indexFile, { headers: { "content-type": "text/html" } });
   } else {
     staticRoutes = collectStaticRoutes(clientDir);
-    indexHtml = Bun.file(join(clientDir, "index.html"));
+    const indexFile = Bun.file(join(clientDir, "index.html"));
+    serveIndex = () => new Response(indexFile, { headers: { "content-type": "text/html" } });
   }
 
   const server = Bun.serve({
@@ -114,7 +124,7 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
       }
 
       // SPA fallback
-      return new Response(indexHtml, { headers: { "content-type": "text/html" } });
+      return serveIndex();
     },
     error(error) {
       console.error("Server error:", error);
