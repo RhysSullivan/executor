@@ -29,5 +29,7 @@
     "@executor/plugin-openapi": "1.4.1",
     "@executor/react": "1.4.1"
   },
-  "changesets": []
+  "changesets": [
+    "wet-wombats-dance"
+  ]
 }

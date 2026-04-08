@@ -1,6 +1,6 @@
 {
   "name": "executor",
-  "version": "1.4.3",
+  "version": "1.4.4-beta.0",
   "private": true,
   "type": "module",
   "bin": {
