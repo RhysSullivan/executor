@@ -8,7 +8,7 @@ import {
   ToolInvocationError,
   type ScopeId,
   type SecretId,
-} from "@executor/sdk";
+} from "@executor/core";
 
 import { GraphqlInvocationError } from "./errors";
 import type { GraphqlOperationStore } from "./operation-store";

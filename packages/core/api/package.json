@@ -9,7 +9,7 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/execution": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

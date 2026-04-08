@@ -1,15 +1,16 @@
 {
   "name": "@executor/plugin-google-discovery",
-  "private": true,
   "type": "module",
   "version": "1.4.0",
   "exports": {
-    ".": "./src/sdk/index.ts",
+    ".": "./src/public.ts",
+    "./core": "./src/sdk/index.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
     "./presets": "./src/sdk/presets.ts"
   },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -17,6 +18,7 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/api": "workspace:*",
+    "@executor/core": "workspace:*",
     "@executor/sdk": "workspace:*",
     "effect": "catalog:"
   },
@@ -48,6 +50,27 @@
     "@types/react": "catalog:",
     "bun-types": "catalog:",
     "react": "catalog:",
-    "vitest": "catalog:"
-  }
+    "vitest": "catalog:",
+    "tsup": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/public.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/sdk/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ]
 }

@@ -18,7 +18,7 @@
     "@effect-atom/atom": "^0.5.3",
     "@effect-atom/atom-react": "^0.5.0",
     "@executor/api": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "@hookform/resolvers": "^5.2.2",
     "@shikijs/langs": "^4.0.2",
     "@shikijs/themes": "^4.0.2",

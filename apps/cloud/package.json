@@ -13,7 +13,7 @@
     "@executor/plugin-mcp": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/react": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "@executor/storage-postgres": "workspace:*",
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-start": "catalog:",

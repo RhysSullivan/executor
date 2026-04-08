@@ -23,7 +23,7 @@
     "@executor/plugin-onepassword": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/react": "workspace:*",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "@executor/storage-file": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@shikijs/langs": "^4.0.2",

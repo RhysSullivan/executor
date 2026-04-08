@@ -8,7 +8,7 @@ import {
   inMemoryToolsPlugin,
   makeTestConfig,
   tool,
-} from "@executor/sdk";
+} from "@executor/core";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
 

@@ -17,8 +17,8 @@
 //
 // ---------------------------------------------------------------------------
 
-import { ScopeId, makeInMemorySourceRegistry } from "@executor/sdk";
-import type { Scope, ExecutorConfig, ExecutorPlugin } from "@executor/sdk";
+import { ScopeId, makeInMemorySourceRegistry } from "@executor/core";
+import type { Scope, ExecutorConfig, ExecutorPlugin } from "@executor/core";
 import type { DrizzleDb } from "./types";
 
 import { makePgToolRegistry } from "./tool-registry";

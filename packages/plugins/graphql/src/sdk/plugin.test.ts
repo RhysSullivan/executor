@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import {
   createExecutor,
   makeTestConfig,
-} from "@executor/sdk";
+} from "@executor/core";
 import { graphqlPlugin } from "./plugin";
 import type { IntrospectionResult } from "./introspect";
 

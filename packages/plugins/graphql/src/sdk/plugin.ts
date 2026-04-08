@@ -13,7 +13,7 @@ import {
   ToolId,
   type SecretId,
   type ToolRegistration,
-} from "@executor/sdk";
+} from "@executor/core";
 
 import { introspect, parseIntrospectionJson, type IntrospectionResult, type IntrospectionType, type IntrospectionField } from "./introspect";
 import { extract } from "./extract";

@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@effect/sql": "catalog:",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

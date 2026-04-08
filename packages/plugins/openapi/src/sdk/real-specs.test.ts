@@ -8,7 +8,7 @@ import { parse } from "./parse";
 import { extract } from "./extract";
 import { previewSpec } from "./preview";
 import type { ExtractionResult } from "./types";
-import { createExecutor, makeTestConfig } from "@executor/sdk";
+import { createExecutor, makeTestConfig } from "@executor/core";
 import { openApiPlugin } from "./plugin";
 
 // ---------------------------------------------------------------------------

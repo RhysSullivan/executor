@@ -5,17 +5,21 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "noEmit": true,
-    "lib": ["ES2022", "DOM"],
-    "types": ["bun-types", "node"],
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "bun-types",
+      "node"
+    ],
     "noUnusedLocals": true,
     "noImplicitOverride": true,
     "jsx": "react-jsx",
     "plugins": [
       {
         "name": "@effect/language-service",
-        "diagnosticSeverity": {
-        }
+        "diagnosticSeverity": {}
       }
     ]
   },

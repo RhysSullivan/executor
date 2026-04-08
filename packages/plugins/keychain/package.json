@@ -1,18 +1,20 @@
 {
   "name": "@executor/plugin-keychain",
-  "private": true,
   "type": "module",
   "version": "1.4.0",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/public.ts",
+    "./core": "./src/index.ts"
   },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@napi-rs/keyring": "^1.2.0",
+    "@executor/core": "workspace:*",
     "@executor/sdk": "workspace:*",
     "effect": "catalog:"
   },
@@ -20,6 +22,27 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
-    "vitest": "catalog:"
-  }
+    "vitest": "catalog:",
+    "tsup": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/public.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ]
 }

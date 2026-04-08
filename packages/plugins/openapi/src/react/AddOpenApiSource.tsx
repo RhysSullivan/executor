@@ -5,7 +5,7 @@ import { Option } from "effect";
 import { secretsAtom, setSecret, resolveSecret } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
-import { SecretId } from "@executor/sdk";
+import { SecretId } from "@executor/core";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";

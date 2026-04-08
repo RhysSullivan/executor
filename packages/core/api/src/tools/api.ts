@@ -4,7 +4,7 @@ import {
   ScopeId,
   ToolId,
   ToolNotFoundError,
-} from "@executor/sdk";
+} from "@executor/core";
 
 // ---------------------------------------------------------------------------
 // Params

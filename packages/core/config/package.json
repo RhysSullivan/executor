@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@effect/platform": "catalog:",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "effect": "catalog:",
     "jsonc-parser": "^3.3.1"
   },

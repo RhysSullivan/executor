@@ -11,10 +11,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@executor/core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/vitest": "catalog:",
     "vitest": "catalog:",
     "typescript": "catalog:"
   }

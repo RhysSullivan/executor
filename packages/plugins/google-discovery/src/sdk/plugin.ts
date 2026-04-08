@@ -11,7 +11,7 @@ import {
   SecretId,
   ToolId,
   type ToolRegistration,
-} from "@executor/sdk";
+} from "@executor/core";
 
 import type {
   GoogleDiscoveryBindingStore,

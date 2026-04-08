@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { toolSchemaAtom } from "../api/atoms";
-import { ScopeId, ToolId } from "@executor/sdk";
+import { ScopeId, ToolId } from "@executor/core";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./accordion";
 import { Badge } from "./badge";
 import { CodeBlock } from "./code-block";

@@ -9,7 +9,7 @@
   "dependencies": {
     "@effect/sql": "catalog:",
     "@effect/sql-pg": "^0.28.0",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "pg": "^8.16.0"

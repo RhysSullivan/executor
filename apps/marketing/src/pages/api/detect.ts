@@ -4,10 +4,10 @@ import {
   createExecutor,
   makeTestConfig,
   type ToolMetadata,
-} from "@executor/sdk";
-import { openApiPlugin } from "@executor/plugin-openapi";
-import { graphqlPlugin } from "@executor/plugin-graphql";
-import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
+} from "@executor/core";
+import { openApiPlugin } from "@executor/plugin-openapi/core";
+import { graphqlPlugin } from "@executor/plugin-graphql/core";
+import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery/core";
 
 export const prerender = false;
 

@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "@executor/execution": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",

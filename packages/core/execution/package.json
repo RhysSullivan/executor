@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "@executor/codemode-core": "workspace:*",
     "@executor/runtime-quickjs": "workspace:*",
     "effect": "catalog:"

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import type { SecretProvider } from "@executor/sdk";
+import type { SecretProvider } from "@executor/core";
 
 import { getPassword, setPassword, deletePassword } from "./keyring";
 

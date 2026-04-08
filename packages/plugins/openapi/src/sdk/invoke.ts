@@ -11,7 +11,7 @@ import {
   ToolInvocationError,
   type ScopeId,
   type SecretId,
-} from "@executor/sdk";
+} from "@executor/core";
 
 import { OpenApiInvocationError } from "./errors";
 import type { OpenApiOperationStore } from "./operation-store";

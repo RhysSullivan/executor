@@ -24,8 +24,8 @@
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 
-import { scopeKv, ScopeId, makeInMemorySourceRegistry } from "@executor/sdk";
-import type { Kv, Scope, ExecutorConfig, ExecutorPlugin } from "@executor/sdk";
+import { scopeKv, ScopeId, makeInMemorySourceRegistry } from "@executor/core";
+import type { Kv, Scope, ExecutorConfig, ExecutorPlugin } from "@executor/core";
 
 import { makeKvToolRegistry } from "./tool-registry";
 import { makeKvSecretStore } from "./secret-store";

@@ -4,7 +4,7 @@
 
 import { Effect, Exit } from "effect";
 import type * as SqlClient from "@effect/sql/SqlClient";
-import type { Kv } from "@executor/sdk";
+import type { Kv } from "@executor/core";
 
 import { absorbSql } from "./sql-utils";
 

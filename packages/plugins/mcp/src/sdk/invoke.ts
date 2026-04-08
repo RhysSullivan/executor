@@ -21,7 +21,7 @@ import {
   type ScopeId,
   type SecretId,
   type InvokeOptions,
-} from "@executor/sdk";
+} from "@executor/core";
 
 import type { McpBindingStore } from "./binding-store";
 import type { McpStoredSourceData } from "./types";

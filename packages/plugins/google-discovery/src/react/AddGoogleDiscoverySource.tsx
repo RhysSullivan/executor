@@ -4,7 +4,7 @@ import { useAtomSet, useAtomValue, useAtomRefresh, Result } from "@effect-atom/a
 import { secretsAtom, setSecret } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
-import { SecretId } from "@executor/sdk";
+import { SecretId } from "@executor/core";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
 import {

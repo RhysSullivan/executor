@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { createExecutor, makeTestConfig, SecretId } from "@executor/sdk";
+import { createExecutor, makeTestConfig, SecretId } from "@executor/core";
 import { keychainPlugin } from "./index";
 
 describe("keychain plugin", () => {

@@ -11,7 +11,7 @@ import {
   FormElicitation,
   ElicitationResponse,
   type InvokeOptions,
-} from "@executor/sdk";
+} from "@executor/core";
 
 import { mcpPlugin } from "./plugin";
 

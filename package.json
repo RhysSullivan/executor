@@ -25,7 +25,8 @@
   "workspaces": [
     "packages/*/*",
     "packages/react",
-    "apps/*"
+    "apps/*",
+    "examples/*"
   ],
   "catalog": {
     "effect": "^3.21.0",
@@ -53,7 +54,8 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "typescript": "^5.9.3",
-    "tailwindcss": "^4.2.2"
+    "tailwindcss": "^4.2.2",
+    "tsup": "^8.5.0"
   },
   "scripts": {
     "dev": "turbo run dev --filter='!@executor/desktop'",
@@ -61,6 +63,7 @@
     "dev:cli": "bun run apps/cli/src/main.ts",
     "test": "turbo run test",
     "test:release:bootstrap": "vitest run tests/release-bootstrap-smoke.test.ts",
+    "build:packages": "bun run --filter='@executor/core' build && bun run --filter='@executor/sdk' --filter='@executor/plugin-*' build",
     "typecheck": "bun run --filter='*' typecheck",
     "lint": "oxlint -c .oxlintrc.jsonc . --deny-warnings",
     "lint:fix": "oxlint -c .oxlintrc.jsonc --fix .",

@@ -4,8 +4,8 @@ import { Effect } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as SqlClient from "@effect/sql/SqlClient";
 
-import { ScopeId, ToolId, SecretId, makeInMemorySecretProvider, scopeKv } from "@executor/sdk";
-import type { Kv } from "@executor/sdk";
+import { ScopeId, ToolId, SecretId, makeInMemorySecretProvider, scopeKv } from "@executor/core";
+import type { Kv } from "@executor/core";
 import { migrate } from "./schema";
 import { makeSqliteKv } from "./plugin-kv";
 import { makeKvToolRegistry } from "./tool-registry";

@@ -1,4 +1,4 @@
-import type { ScopeId, ToolId, SecretId } from "@executor/sdk";
+import type { ScopeId, ToolId, SecretId } from "@executor/core";
 import { Atom } from "@effect-atom/atom-react";
 
 import { ExecutorApiClient } from "./client";

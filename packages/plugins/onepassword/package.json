@@ -1,14 +1,15 @@
 {
   "name": "@executor/plugin-onepassword",
-  "private": true,
   "type": "module",
   "version": "1.4.0",
   "exports": {
-    ".": "./src/sdk/index.ts",
+    ".": "./src/public.ts",
     "./api": "./src/api/index.ts",
-    "./react": "./src/react/index.ts"
+    "./react": "./src/react/index.ts",
+    "./core": "./src/sdk/index.ts"
   },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -19,8 +20,9 @@
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/platform": "catalog:",
     "@executor/api": "workspace:*",
-    "@executor/sdk": "workspace:*",
-    "effect": "catalog:"
+    "@executor/core": "workspace:*",
+    "effect": "catalog:",
+    "@executor/sdk": "workspace:*"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
@@ -28,7 +30,8 @@
     "@types/react": "catalog:",
     "bun-types": "catalog:",
     "react": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "tsup": "catalog:"
   },
   "peerDependencies": {
     "react": ">=18",
@@ -45,5 +48,25 @@
     "@executor/react": {
       "optional": true
     }
-  }
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/public.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/sdk/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ]
 }

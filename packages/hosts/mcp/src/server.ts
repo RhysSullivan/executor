@@ -7,7 +7,7 @@ import type {
   ElicitationHandler,
   ElicitationContext,
   ElicitationRequest,
-} from "@executor/sdk";
+} from "@executor/core";
 import {
   createExecutionEngine,
   formatExecuteResult,

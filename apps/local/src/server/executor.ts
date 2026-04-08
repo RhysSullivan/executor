@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { createExecutor, scopeKv } from "@executor/sdk";
+import { createExecutor, scopeKv } from "@executor/core";
 import {
   makeSqliteKv,
   makeKvConfig,
@@ -17,22 +17,22 @@ import { withConfigFile } from "@executor/config";
 import {
   openApiPlugin,
   makeKvOperationStore,
-} from "@executor/plugin-openapi";
+} from "@executor/plugin-openapi/core";
 import {
   mcpPlugin,
   makeKvBindingStore,
-} from "@executor/plugin-mcp";
+} from "@executor/plugin-mcp/core";
 import {
   googleDiscoveryPlugin,
   makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
-} from "@executor/plugin-google-discovery";
+} from "@executor/plugin-google-discovery/core";
 import {
   graphqlPlugin,
   makeKvOperationStore as makeKvGraphqlOperationStore,
-} from "@executor/plugin-graphql";
-import { keychainPlugin } from "@executor/plugin-keychain";
-import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
-import { onepasswordPlugin } from "@executor/plugin-onepassword";
+} from "@executor/plugin-graphql/core";
+import { keychainPlugin } from "@executor/plugin-keychain/core";
+import { fileSecretsPlugin } from "@executor/plugin-file-secrets/core";
+import { onepasswordPlugin } from "@executor/plugin-onepassword/core";
 
 // ---------------------------------------------------------------------------
 // Data directory

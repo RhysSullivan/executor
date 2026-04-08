@@ -18,7 +18,7 @@
   "dependencies": {
     "@astrojs/tailwind": "^6.0.2",
     "@astrojs/cloudflare": "^13.0.0",
-    "@executor/sdk": "workspace:*",
+    "@executor/core": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
     "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-google-discovery": "workspace:*",
