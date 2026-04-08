@@ -97,11 +97,6 @@ export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promis
   const server = await createExecutorMcpServer(config);
   const transport = new StdioServerTransport();
 
-  // Prevent the process from exiting while the server is running.
-  // secure-exec-v8 and other child processes can cause the event loop
-  // to drain prematurely when they exit, so we hold it open explicitly.
-  const keepAlive = setInterval(() => {}, 60_000);
-
   const waitForExit = () =>
     new Promise<void>((resolve) => {
       const finish = () => {
@@ -121,7 +116,6 @@ export const runMcpStdioServer = async (config: ExecutorMcpServerConfig): Promis
     await server.connect(transport);
     await waitForExit();
   } finally {
-    clearInterval(keepAlive);
     await transport.close().catch(() => undefined);
     await server.close().catch(() => undefined);
   }
