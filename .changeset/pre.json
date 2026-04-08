@@ -31,6 +31,7 @@
   },
   "changesets": [
     "fix-bundling",
+    "fix-sandbox-polyfills",
     "late-cameras-open",
     "purple-jokes-rest"
   ]
