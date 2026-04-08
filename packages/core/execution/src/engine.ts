@@ -287,9 +287,9 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
   let nextId = 0;
 
   return {
-    execute: async (code, options) => {
+    execute: async (code, options?) => {
       const invoker = makeFullInvoker(executor, {
-        onElicitation: options.onElicitation,
+        onElicitation: options?.onElicitation,
       });
       return runEffect(codeExecutor.execute(code, invoker));
     },
