@@ -37,21 +37,18 @@ type ServerEnv = SharedEnv & Readonly<{
 
 type WebEnv = Readonly<Record<string, never>>;
 
-export const shared = createEnv({
-  server: sharedShape,
+export const shared = createEnv(sharedShape, {
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
 }) as SharedEnv;
 
-export const web = createEnv({
-  clientPrefix: "PUBLIC_",
-  client: {},
+export const web = createEnv({}, {
+  prefix: "PUBLIC_",
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
 }) as WebEnv;
 
-export const server = createEnv({
-  server: serverShape,
+export const server = createEnv(serverShape, {
   extends: [shared],
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

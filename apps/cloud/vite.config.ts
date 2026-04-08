@@ -12,8 +12,7 @@ type ViteEnv = Readonly<{
   PORT: number;
 }>;
 
-const viteEnv = createEnv<undefined, typeof server>({
-  server,
+const viteEnv = createEnv(server, {
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
 }) as ViteEnv;
