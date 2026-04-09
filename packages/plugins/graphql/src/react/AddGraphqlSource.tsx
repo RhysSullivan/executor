@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { useAtomSet, useAtomValue, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomSet } from "@effect-atom/atom-react";
 
-import { secretsAtom, setSecret } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
-import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
-import { SecretId } from "@executor/sdk";
+import { SecretHeaderAuthRow } from "@executor/react/plugins/secret-header-auth";
+import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
@@ -12,144 +11,19 @@ import { Spinner } from "@executor/react/components/spinner";
 import { addGraphqlSource } from "./atoms";
 import type { HeaderValue } from "../sdk/types";
 
-// ---------------------------------------------------------------------------
-// Inline secret creation
-// ---------------------------------------------------------------------------
+type HeaderEntry = {
+  name: string;
+  prefix?: string;
+  presetKey?: string;
+  secretId: string | null;
+};
 
-function InlineCreateSecret(props: {
-  headerName: string;
-  suggestedId: string;
-  onCreated: (secretId: string) => void;
-  onCancel: () => void;
-}) {
-  const [secretId, setSecretId] = useState(props.suggestedId);
-  const [secretName, setSecretName] = useState(props.headerName);
-  const [secretValue, setSecretValue] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const scopeId = useScope();
-  const doSet = useAtomSet(setSecret, { mode: "promise" });
-  const refreshSecrets = useAtomRefresh(secretsAtom(scopeId));
-
-  const handleSave = async () => {
-    if (!secretId.trim() || !secretValue.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await doSet({
-        path: { scopeId },
-        payload: {
-          id: SecretId.make(secretId.trim()),
-          name: secretName.trim() || secretId.trim(),
-          value: secretValue.trim(),
-          purpose: `Auth header: ${props.headerName}`,
-        },
-      });
-      refreshSecrets();
-      props.onCreated(secretId.trim());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save secret");
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="rounded-lg border border-primary/20 bg-primary/[0.02] p-3 space-y-2.5">
-      <p className="text-[11px] font-semibold text-primary tracking-wide uppercase">New secret</p>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">ID</Label>
-          <Input
-            value={secretId}
-            onChange={(e) => setSecretId((e.target as HTMLInputElement).value)}
-            placeholder="my-api-token"
-            className="h-8 text-xs font-mono"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Label</Label>
-          <Input
-            value={secretName}
-            onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
-            placeholder="API Token"
-            className="h-8 text-xs"
-          />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
-        <Input
-          type="password"
-          value={secretValue}
-          onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
-          placeholder="paste your token or key..."
-          className="h-8 text-xs font-mono"
-        />
-      </div>
-      {error && <p className="text-[11px] text-destructive">{error}</p>}
-      <div className="flex gap-1.5 pt-0.5">
-        <Button variant="outline" size="xs" onClick={props.onCancel}>
-          Cancel
-        </Button>
-        <Button
-          size="xs"
-          onClick={handleSave}
-          disabled={!secretId.trim() || !secretValue.trim() || saving}
-        >
-          {saving ? "Saving..." : "Create & use"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Auth header row
-// ---------------------------------------------------------------------------
-
-function AuthHeaderRow(props: {
-  selectedSecretId: string | null;
-  onSelect: (secretId: string) => void;
-  existingSecrets: readonly SecretPickerSecret[];
-}) {
-  const [creating, setCreating] = useState(false);
-  const { selectedSecretId, onSelect, existingSecrets } = props;
-
-  if (creating) {
-    return (
-      <InlineCreateSecret
-        headerName="Authorization"
-        suggestedId="graphql-auth-token"
-        onCreated={(id) => {
-          onSelect(id);
-          setCreating(false);
-        }}
-        onCancel={() => setCreating(false)}
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-1.5">
-        <div className="flex-1 min-w-0">
-          <SecretPicker
-            value={selectedSecretId}
-            onSelect={onSelect}
-            secrets={existingSecrets}
-          />
-        </div>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setCreating(true)}>
-          + New
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
+const initialHeader = (): HeaderEntry => ({
+  name: "Authorization",
+  prefix: "Bearer ",
+  presetKey: "bearer",
+  secretId: null,
+});
 
 export default function AddGraphqlSource(props: {
   onComplete: () => void;
@@ -158,34 +32,53 @@ export default function AddGraphqlSource(props: {
 }) {
   const [endpoint, setEndpoint] = useState(props.initialUrl ?? "");
   const [namespace, setNamespace] = useState("");
-  const [authSecretId, setAuthSecretId] = useState<string | null>(null);
+  const [headers, setHeaders] = useState<HeaderEntry[]>([initialHeader()]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
   const scopeId = useScope();
   const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
-  const secrets = useAtomValue(secretsAtom(scopeId));
+  const secretList = useSecretPickerSecrets();
 
-  const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
-    onInitial: () => [] as SecretPickerSecret[],
-    onFailure: () => [] as SecretPickerSecret[],
-    onSuccess: ({ value }) =>
-      value.map((s) => ({
-        id: s.id,
-        name: s.name,
-        provider: s.provider ? String(s.provider) : undefined,
-      })),
-  });
+  const headersValid = headers.every(
+    (header) => header.name.trim() && header.secretId,
+  );
+  const canAdd =
+    endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
 
-  const canAdd = endpoint.trim().length > 0;
+  const updateHeader = (
+    index: number,
+    update: Partial<{ name: string; prefix?: string; presetKey?: string; secretId: string | null }>,
+  ) => {
+    setHeaders((current) =>
+      current.map((header, i) => (i === index ? { ...header, ...update } : header)),
+    );
+  };
+
+  const removeHeader = (index: number) => {
+    setHeaders((current) => current.filter((_, i) => i !== index));
+  };
+
+  const addHeader = () => {
+    setHeaders((current) => [
+      ...current,
+      { name: "", prefix: undefined, presetKey: undefined, secretId: null },
+    ]);
+  };
 
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
     try {
-      const headers: Record<string, HeaderValue> = {};
-      if (authSecretId) {
-        headers["Authorization"] = { secretId: authSecretId, prefix: "Bearer " };
+      const headerMap: Record<string, HeaderValue> = {};
+      for (const header of headers) {
+        const name = header.name.trim();
+        if (name && header.secretId) {
+          headerMap[name] = {
+            secretId: header.secretId,
+            ...(header.prefix ? { prefix: header.prefix } : {}),
+          };
+        }
       }
 
       await doAdd({
@@ -193,7 +86,7 @@ export default function AddGraphqlSource(props: {
         payload: {
           endpoint: endpoint.trim(),
           namespace: namespace.trim() || undefined,
-          ...(Object.keys(headers).length > 0 ? { headers } : {}),
+          ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
         },
       });
       props.onComplete();
@@ -239,17 +132,43 @@ export default function AddGraphqlSource(props: {
 
       {/* Authentication */}
       <section className="space-y-2.5">
-        <Label>
-          Authentication <span className="text-muted-foreground font-normal">(optional)</span>
-        </Label>
-        <p className="text-[12px] text-muted-foreground">
-          Select a secret for the Bearer token sent with every request, including introspection.
-        </p>
-        <AuthHeaderRow
-          selectedSecretId={authSecretId}
-          onSelect={setAuthSecretId}
-          existingSecrets={secretList}
-        />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>
+              Authentication <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Secret-backed headers sent with every request, including introspection.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={addHeader}
+          >
+            + Add header
+          </Button>
+        </div>
+
+        {headers.length > 0 && (
+          <div className="space-y-2">
+            {headers.map((header, index) => (
+              <SecretHeaderAuthRow
+                key={index}
+                name={header.name}
+                prefix={header.prefix}
+                presetKey={header.presetKey}
+                secretId={header.secretId}
+                onChange={(update) => updateHeader(index, update)}
+                onSelectSecret={(secretId) => updateHeader(index, { secretId })}
+                onRemove={() => removeHeader(index)}
+                existingSecrets={secretList}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Error */}
