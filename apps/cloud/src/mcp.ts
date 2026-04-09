@@ -1,18 +1,11 @@
 // ---------------------------------------------------------------------------
-// Cloud MCP Server — stateless Streamable HTTP with WorkOS OAuth
+// Cloud MCP handler — OAuth + routing to session Durable Objects
 // ---------------------------------------------------------------------------
 
-import { Effect, Layer } from "effect";
+import { env } from "cloudflare:workers";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
-import { createExecutorMcpServer } from "@executor/host-mcp";
-import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
-
-import { UserStoreService } from "./auth/context";
-import { server } from "./env";
-import { createTeamExecutor } from "./services/executor";
-import { DbService } from "./services/db";
+import type { McpSessionInit } from "./mcp-session";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,7 +13,7 @@ import { DbService } from "./services/db";
 
 const AUTHKIT_DOMAIN = "https://signin.executor.sh";
 const RESOURCE_ORIGIN = "https://executor.sh";
-const JWKS_URL = new URL(`${AUTHKIT_DOMAIN}/.well-known/jwks.json`);
+const JWKS_URL = new URL(`${AUTHKIT_DOMAIN}/oauth2/jwks`);
 
 const jwks = createRemoteJWKSet(JWKS_URL);
 
@@ -45,15 +38,15 @@ const protectedResourceMetadata = () =>
     scopes_supported: [],
   });
 
-const authorizationServerMetadata = () =>
-  Effect.tryPromise({
-    try: async () => {
-      const res = await fetch(`${AUTHKIT_DOMAIN}/.well-known/openid-configuration`);
-      if (!res.ok) return jsonResponse({ error: "upstream_error" }, 502);
-      return jsonResponse(await res.json());
-    },
-    catch: () => jsonResponse({ error: "upstream_error" }, 502),
-  }).pipe(Effect.catchAll((res) => Effect.succeed(res)));
+const authorizationServerMetadata = async () => {
+  try {
+    const res = await fetch(`${AUTHKIT_DOMAIN}/.well-known/oauth-authorization-server`);
+    if (!res.ok) return jsonResponse({ error: "upstream_error" }, 502);
+    return jsonResponse(await res.json());
+  } catch {
+    return jsonResponse({ error: "upstream_error" }, 502);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // JWT verification
@@ -66,28 +59,26 @@ type VerifiedToken = {
   lastName?: string;
 };
 
-const verifyBearerToken = (request: Request) =>
-  Effect.gen(function* () {
-    const authHeader = request.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) return null;
+const verifyBearerToken = async (request: Request): Promise<VerifiedToken | null> => {
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return null;
 
-    const token = authHeader.slice(7);
-    return yield* Effect.tryPromise({
-      try: async () => {
-        const { payload } = await jwtVerify(token, jwks, {
-          issuer: AUTHKIT_DOMAIN,
-        });
-        if (!payload.sub) return null;
-        return {
-          sub: payload.sub,
-          email: payload.email as string | undefined,
-          firstName: payload.first_name as string | undefined,
-          lastName: payload.last_name as string | undefined,
-        } satisfies VerifiedToken;
-      },
-      catch: () => null,
-    }).pipe(Effect.orElseSucceed(() => null));
-  });
+  const token = authHeader.slice(7);
+  try {
+    const { payload } = await jwtVerify(token, jwks, {
+      issuer: AUTHKIT_DOMAIN,
+    });
+    if (!payload.sub) return null;
+    return {
+      sub: payload.sub,
+      email: payload.email as string | undefined,
+      firstName: payload.first_name as string | undefined,
+      lastName: payload.last_name as string | undefined,
+    };
+  } catch {
+    return null;
+  }
+};
 
 const unauthorized = () =>
   new Response(JSON.stringify({ error: "unauthorized" }), {
@@ -100,7 +91,7 @@ const unauthorized = () =>
   });
 
 // ---------------------------------------------------------------------------
-// Shared services
+// DO routing
 // ---------------------------------------------------------------------------
 
 const jsonRpcError = (status: number, code: number, message: string) =>
@@ -109,68 +100,68 @@ const jsonRpcError = (status: number, code: number, message: string) =>
     { status, headers: { "content-type": "application/json" } },
   );
 
-const DbLive = DbService.Live;
-const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
-const McpServices = Layer.mergeAll(DbLive, UserStoreLive);
 
-// ---------------------------------------------------------------------------
-// Team resolution (mirrors api.ts resolveTeamId)
-// ---------------------------------------------------------------------------
+/**
+ * Route an MCP request to a session DO.
+ *
+ * - No session header → create a new DO (initialize flow)
+ * - With session header → route to existing DO
+ */
+const handleMcpRequest_POST = async (
+  request: Request,
+  token: VerifiedToken,
+): Promise<Response> => {
+  try {
+    const ns = env.MCP_SESSION;
+    const sessionId = request.headers.get("mcp-session-id");
 
-const resolveTeam = (token: VerifiedToken) =>
-  Effect.gen(function* () {
-    const users = yield* UserStoreService;
-    const teams = yield* users.use((store) => store.getTeamsForUser(token.sub));
-
-    if (teams.length > 0) {
-      return { teamId: teams[0]!.teamId, teamName: teams[0]!.teamName ?? "Team" };
+    if (sessionId) {
+      const id = ns.idFromString(sessionId);
+      const stub = ns.get(id);
+      return await stub.handleRequest(request);
     }
 
-    const name =
-      [token.firstName, token.lastName].filter(Boolean).join(" ") || undefined;
-    const user = yield* users.use((store) =>
-      store.upsertUser({
-        id: token.sub,
-        email: token.email ?? "unknown@executor.sh",
-        name,
-      }),
-    );
-    const team = yield* users.use((store) =>
-      store.createTeam(`${user.name ?? user.email}'s Team`),
-    );
-    yield* users.use((store) => store.addMember(team.id, user.id, "owner"));
-    return { teamId: team.id, teamName: team.name };
-  });
+    // New session — create a DO and initialize it
+    const id = ns.newUniqueId();
+    const stub = ns.get(id);
 
-// ---------------------------------------------------------------------------
-// MCP POST handler
-// ---------------------------------------------------------------------------
+    const init: McpSessionInit = {
+      userId: token.sub,
+      email: token.email,
+      firstName: token.firstName,
+      lastName: token.lastName,
+    };
+    await stub.init(init);
 
-const closeExecutor = (executor: { close: () => Effect.Effect<void, unknown> }) =>
-  executor.close().pipe(Effect.orElseSucceed(() => undefined));
+    return await stub.handleRequest(request);
+  } catch (err) {
+    console.error("[mcp] POST handler error:", err instanceof Error ? err.stack : err);
+    return jsonRpcError(500, -32603, err instanceof Error ? err.message : "Internal server error");
+  }
+};
 
-const handleMcpPost = (request: Request, token: VerifiedToken) =>
-  Effect.gen(function* () {
-    const { teamId, teamName } = yield* resolveTeam(token);
+const handleMcpRequest_DELETE = async (request: Request): Promise<Response> => {
+  const sessionId = request.headers.get("mcp-session-id");
+  if (!sessionId) return new Response(null, { status: 204 });
 
-    const executor = yield* Effect.acquireRelease(
-      createTeamExecutor(teamId, teamName, server.ENCRYPTION_KEY),
-      closeExecutor,
-    );
+  // Let the DO handle the DELETE — its transport will clean up
+  const ns = env.MCP_SESSION;
+  const id = ns.idFromString(sessionId);
+  const stub = ns.get(id);
+  return stub.handleRequest(request);
+};
 
-    const { env } = yield* Effect.promise(() => import("cloudflare:workers"));
-    const codeExecutor = makeDynamicWorkerExecutor({ loader: (env as any).LOADER });
-    const mcpServer = yield* Effect.promise(() =>
-      createExecutorMcpServer({ executor, codeExecutor }),
-    );
+const handleMcpRequest_GET = async (request: Request): Promise<Response> => {
+  const sessionId = request.headers.get("mcp-session-id");
+  if (!sessionId) {
+    return jsonRpcError(400, -32000, "mcp-session-id header required for SSE");
+  }
 
-    const transport = new WebStandardStreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-    });
-
-    yield* Effect.promise(() => mcpServer.connect(transport));
-    return yield* Effect.promise(() => transport.handleRequest(request));
-  });
+  const ns = env.MCP_SESSION;
+  const id = ns.idFromString(sessionId);
+  const stub = ns.get(id);
+  return stub.handleRequest(request);
+};
 
 // ---------------------------------------------------------------------------
 // Main request handler
@@ -188,8 +179,9 @@ export const handleMcpRequest = async (
       status: 204,
       headers: {
         "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, POST, OPTIONS",
-        "access-control-allow-headers": "authorization, content-type, mcp-session-id",
+        "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+        "access-control-allow-headers": "authorization, content-type, mcp-session-id, accept, mcp-protocol-version",
+        "access-control-expose-headers": "mcp-session-id",
       },
     });
   }
@@ -199,30 +191,24 @@ export const handleMcpRequest = async (
     return protectedResourceMetadata();
   }
   if (pathname === "/.well-known/oauth-authorization-server") {
-    return Effect.runPromise(authorizationServerMetadata());
+    return authorizationServerMetadata();
   }
 
   // MCP endpoint
   if (pathname !== "/mcp") return null;
 
-  if (request.method === "GET") {
-    return jsonRpcError(405, -32001, "SSE sessions not supported");
-  }
-  if (request.method === "DELETE") {
-    return new Response(null, { status: 204 });
-  }
-  if (request.method !== "POST") {
-    return jsonRpcError(405, -32001, "Method not allowed");
-  }
+  // Auth required for all MCP methods
+  const token = await verifyBearerToken(request);
+  if (!token) return unauthorized();
 
-  return Effect.runPromise(
-    Effect.gen(function* () {
-      const token = yield* verifyBearerToken(request);
-      if (!token) return unauthorized();
-      return yield* handleMcpPost(request, token);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(McpServices),
-    ),
-  );
+  switch (request.method) {
+    case "POST":
+      return handleMcpRequest_POST(request, token);
+    case "GET":
+      return handleMcpRequest_GET(request);
+    case "DELETE":
+      return handleMcpRequest_DELETE(request);
+    default:
+      return jsonRpcError(405, -32001, "Method not allowed");
+  }
 };

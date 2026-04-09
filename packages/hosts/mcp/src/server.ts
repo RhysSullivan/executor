@@ -1,5 +1,7 @@
 import { Effect, Match } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { jsonSchemaValidator, JsonSchemaType, JsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/types.js";
+import { Validator } from "@cfworker/json-schema";
 import { z } from "zod/v4";
 
 import type {
@@ -17,12 +19,34 @@ import {
 } from "@executor/execution";
 
 // ---------------------------------------------------------------------------
+// Workers-compatible JSON Schema validator (replaces Ajv which uses new Function())
+// ---------------------------------------------------------------------------
+
+class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
+  getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+    const validator = new Validator(schema as Record<string, unknown>, "2020-12", false);
+    return (input: unknown) => {
+      const result = validator.validate(input);
+      if (result.valid) {
+        return { valid: true, data: input as T, errorMessage: undefined };
+      }
+      const errorMessage = result.errors
+        .map((e) => `${e.instanceLocation}: ${e.error}`)
+        .join("; ");
+      return { valid: false, data: undefined, errorMessage };
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
 export type ExecutorMcpServerConfig =
   | ExecutionEngineConfig
-  | { readonly engine: ExecutionEngine };
+  | { readonly engine: ExecutionEngine }
+  | (ExecutionEngineConfig & { readonly stateless: true })
+  | { readonly engine: ExecutionEngine; readonly stateless: true };
 
 // ---------------------------------------------------------------------------
 // Elicitation bridge
@@ -146,7 +170,7 @@ export const createExecutorMcpServer = async (
 
   const server = new McpServer(
     { name: "executor", version: "1.0.0" },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, jsonSchemaValidator: new CfWorkerJsonSchemaValidator() },
   );
 
   const executeCode = async (code: string): Promise<McpToolResult> => {

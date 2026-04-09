@@ -3,7 +3,7 @@
   "name": "executor-cloud",
   "compatibility_date": "2025-04-01",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "@tanstack/react-start/server-entry",
+  "main": "src/server.ts",
   "routes": [
     { "pattern": "executor.sh", "custom_domain": true }
   ],
@@ -13,6 +13,20 @@
   "observability": {
     "enabled": true
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MCP_SESSION",
+        "class_name": "McpSessionDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["McpSessionDO"]
+    }
+  ],
   "services": [
     {
       "binding": "MARKETING",
