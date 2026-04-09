@@ -10,6 +10,11 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500&display=swap"
     />
+    <script type="module">
+      if (import.meta.env.DEV) {
+        import("react-grab");
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

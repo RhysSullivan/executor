@@ -41,6 +41,7 @@
     "@vitejs/plugin-react": "catalog:",
     "bun-types": "catalog:",
     "portless": "^0.10.1",
+    "react-grab": "^0.1.31",
     "typescript": "catalog:",
     "vite": "catalog:"
   },
