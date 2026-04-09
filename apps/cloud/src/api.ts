@@ -100,18 +100,30 @@ const NonProtectedApiLive = HttpApiBuilder.api(NonProtectedApi).pipe(
 );
 
 // ---------------------------------------------------------------------------
-// Static web handlers — built once at module load
+// Public auth web handler
+// ---------------------------------------------------------------------------
+//
+// Build per-request, not once at module load. `toWebHandler` creates a
+// single long-lived `Layer.MemoMap` that memoizes `DbService.Live`'s
+// `Layer.scoped` acquire — the resulting `sql` connection is created in
+// the module scope, not the request scope. Workerd tears down TCP sockets
+// at request boundaries, so the second request on a cached handler fails
+// with "Cannot perform I/O on behalf of a different request". Building a
+// fresh handler per request gives each request its own layer scope and a
+// fresh socket. Auth endpoints (login/callback/me/logout) are infrequent
+// so the overhead is negligible.
 // ---------------------------------------------------------------------------
 
 const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
 
-const nonProtectedHandler = HttpApiBuilder.toWebHandler(
-  NonProtectedApiLive.pipe(
-    Layer.provideMerge(SharedServices),
-    Layer.provideMerge(RouterConfig),
-  ),
-  { middleware: HttpMiddleware.logger },
-);
+const createNonProtectedHandler = () =>
+  HttpApiBuilder.toWebHandler(
+    NonProtectedApiLive.pipe(
+      Layer.provideMerge(SharedServices),
+      Layer.provideMerge(RouterConfig),
+    ),
+    { middleware: HttpMiddleware.logger },
+  );
 
 // ---------------------------------------------------------------------------
 // Protected handler — must be built per-request because the executor varies
@@ -178,7 +190,12 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
   const pathname = new URL(request.url).pathname;
 
   if (isAuthPath(pathname)) {
-    return nonProtectedHandler.handler(request);
+    const handler = createNonProtectedHandler();
+    try {
+      return await handler.handler(request);
+    } finally {
+      await handler.dispose();
+    }
   }
 
   // Protected path — build the executor lazily for the request's org.

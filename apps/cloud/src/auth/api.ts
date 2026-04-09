@@ -24,10 +24,6 @@ const AuthCallbackSearch = Schema.Struct({
   code: Schema.String,
 });
 
-const CreateOrganizationRequest = Schema.Struct({
-  name: Schema.String,
-});
-
 export const AUTH_PATHS = {
   login: "/api/auth/login",
   logout: "/api/auth/logout",
@@ -55,12 +51,6 @@ export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
   )
   .add(
     HttpApiEndpoint.post("logout")`/auth/logout`,
-  )
-  .add(
-    HttpApiEndpoint.post("createOrganization")`/auth/organization`
-      .setPayload(CreateOrganizationRequest)
-      .addError(UserStoreError)
-      .addError(WorkOSError),
   )
   .middleware(SessionAuth)
 {}

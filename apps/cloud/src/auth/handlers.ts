@@ -1,6 +1,6 @@
-import { HttpApi, HttpApiBuilder, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
-import { setCookie, deleteCookie, getCookie } from "@tanstack/react-start/server";
+import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
@@ -13,12 +13,12 @@ const COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: "lax" as const,
   maxAge: 60 * 60 * 24 * 7,
-  secure: server.NODE_ENV === "production",
+  secure: true,
 };
 
 // ---------------------------------------------------------------------------
 // Single non-protected API surface — public (login/callback) + session
-// (me/logout/createOrganization). The session group has SessionAuth on it.
+// (me/logout). The session group has SessionAuth on it.
 // ---------------------------------------------------------------------------
 
 export const NonProtectedApi = HttpApi.make("cloudWeb")
@@ -37,13 +37,10 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
       .handleRaw("login", () =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
-          const req = yield* HttpServerRequest.HttpServerRequest;
-          // Prefer APP_URL (set explicitly in dev/prod config) since the
-          // request's Host header is the internal proxy target in dev, not
-          // the public URL WorkOS needs to redirect back to.
-          const origin = server.APP_URL
-            ? server.APP_URL
-            : new URL(req.url, `${req.headers["x-forwarded-proto"] ?? "https"}://${req.headers["host"]}`).origin;
+          // Use the explicit public site URL — in dev, the request's Host
+          // header points at the internal proxy target, not the public URL
+          // WorkOS needs to redirect back to.
+          const origin = server.VITE_PUBLIC_SITE_URL;
           const url = workos.getAuthorizationUrl(`${origin}${AUTH_PATHS.callback}`);
           return HttpServerResponse.redirect(url, { status: 302 });
         }),
@@ -131,33 +128,6 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
         Effect.sync(() => {
           deleteCookie("wos-session", { path: "/" });
           return HttpServerResponse.redirect("/", { status: 302 });
-        }),
-      )
-      .handle("createOrganization", ({ payload }) =>
-        Effect.gen(function* () {
-          const session = yield* SessionContext;
-          const workos = yield* WorkOSAuth;
-          const users = yield* UserStoreService;
-
-          // Create the org in WorkOS
-          const org = yield* workos.createOrganization(payload.name);
-
-          // Add the current user as a member
-          yield* workos.createMembership(org.id, session.accountId);
-
-          // Mirror locally
-          yield* users.use((s) =>
-            s.upsertOrganization({ id: org.id, name: org.name }),
-          );
-
-          // Refresh the session with the new org context
-          const currentSession = getCookie("wos-session") ?? null;
-          if (currentSession) {
-            const newSession = yield* workos.refreshSession(currentSession, org.id);
-            if (newSession) {
-              setCookie("wos-session", newSession, COOKIE_OPTIONS);
-            }
-          }
         }),
       ),
 );

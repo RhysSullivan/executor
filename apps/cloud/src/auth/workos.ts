@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { Context, Effect, Layer } from "effect";
-import { WorkOS } from "@workos-inc/node";
+import { WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError } from "./errors";
 import { server } from "../env";
 
@@ -23,13 +23,22 @@ const make = Effect.gen(function* () {
     return yield* Effect.die(new Error("WORKOS_COOKIE_PASSWORD must be at least 32 characters"));
   }
 
-  const workos = new WorkOS(apiKey, { clientId });
+  const workos = new WorkOS({ apiKey, clientId });
 
   const use = <A>(fn: (wos: WorkOS) => Promise<A>) =>
     Effect.tryPromise({
       try: () => fn(workos),
-      catch: (cause) => new WorkOSError({ cause }),
-    }).pipe(Effect.withSpan("workos"));
+      catch: (cause) => cause,
+    }).pipe(
+      Effect.tapError((cause) =>
+        Effect.sync(() => {
+          // eslint-disable-next-line no-console
+          console.error("[workos] call failed:", cause);
+        }),
+      ),
+      Effect.mapError(() => new WorkOSError()),
+      Effect.withSpan("workos"),
+    );
 
   const authenticateSealedSession = (sessionData: string) =>
     Effect.gen(function* () {

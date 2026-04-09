@@ -88,8 +88,5 @@
     "typescript": "^5.9.3",
     "vitest": "catalog:"
   },
-  "dependencies": {},
-  "patchedDependencies": {
-    "iron-webcrypto@0.2.8": "patches/iron-webcrypto@0.2.8.patch"
-  }
+  "dependencies": {}
 }
