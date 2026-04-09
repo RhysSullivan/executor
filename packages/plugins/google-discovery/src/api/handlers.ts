@@ -60,7 +60,7 @@ const popupDocument = (payload: OAuthPopupResult): string => {
 <p style="margin:0;font-size:14px;color:#666;line-height:1.5">${escapeHtml(message)}</p>
 </main>
 <script>
-(()=>{const p=${serialized};try{if(window.opener)window.opener.postMessage(p,window.location.origin)}finally{setTimeout(()=>window.close(),150)}})();
+(()=>{const p=${serialized};try{if(window.opener)window.opener.postMessage(p,window.location.origin);if("BroadcastChannel"in window){const c=new BroadcastChannel("executor:google-discovery-oauth-result");c.postMessage(p);setTimeout(()=>c.close(),100)}}finally{setTimeout(()=>window.close(),150)}})();
 </script>
 </body></html>`;
 };

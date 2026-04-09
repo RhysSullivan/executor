@@ -363,50 +363,56 @@ type OAuthPopupResult =
       error: string;
     };
 
+const OAUTH_RESULT_CHANNEL = "executor:google-discovery-oauth-result";
+
+const isOAuthPopupResult = (value: unknown): value is OAuthPopupResult =>
+  typeof value === "object" &&
+  value !== null &&
+  (value as { type?: unknown }).type === "executor:oauth-result";
+
 function openOAuthPopup(
   url: string,
   onResult: (data: OAuthPopupResult) => void,
-  onClosed?: () => void,
-): void {
+  onOpenFailed?: () => void,
+): () => void {
   const w = 640;
   const h = 760;
   const left = window.screenX + (window.outerWidth - w) / 2;
   const top = window.screenY + (window.outerHeight - h) / 2;
+
+  let settled = false;
+  const channel = typeof BroadcastChannel !== "undefined"
+    ? new BroadcastChannel(OAUTH_RESULT_CHANNEL)
+    : null;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    window.removeEventListener("message", onMessage);
+    channel?.close();
+  };
+
+  const handleResult = (data: unknown) => {
+    if (!isOAuthPopupResult(data) || settled) return;
+    settle();
+    onResult(data);
+  };
+
+  const onMessage = (event: MessageEvent) => {
+    if (event.origin === window.location.origin) handleResult(event.data);
+  };
+  window.addEventListener("message", onMessage);
+  if (channel) channel.onmessage = (event) => handleResult(event.data);
+
   const popup = window.open(
     url,
     "google-discovery-oauth",
     `width=${w},height=${h},left=${left},top=${top},popup=1`,
   );
-
-  let settled = false;
-  const settle = () => {
-    settled = true;
-    window.removeEventListener("message", onMessage);
-  };
-
-  const onMessage = (event: MessageEvent) => {
-    if (
-      event.origin === window.location.origin &&
-      event.data?.type === "executor:oauth-result" &&
-      !settled
-    ) {
-      settle();
-      onResult(event.data as OAuthPopupResult);
-    }
-  };
-  window.addEventListener("message", onMessage);
-
-  if (popup) {
-    const interval = window.setInterval(() => {
-      if (popup.closed) {
-        window.clearInterval(interval);
-        if (!settled) {
-          settle();
-          onClosed?.();
-        }
-      }
-    }, 500);
+  if (!popup && !settled) {
+    settle();
+    queueMicrotask(() => onOpenFailed?.());
   }
+  return settle;
 }
 
 export default function AddGoogleDiscoverySource(props: {
@@ -502,8 +508,12 @@ export default function AddGoogleDiscoverySource(props: {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const oauthCleanup = useRef<(() => void) | null>(null);
+
   const handleStartOAuth = useCallback(async () => {
     if (!probe) return;
+    oauthCleanup.current?.();
+    oauthCleanup.current = null;
     setStartingOAuth(true);
     setError(null);
     try {
@@ -519,9 +529,10 @@ export default function AddGoogleDiscoverySource(props: {
         },
       });
 
-      openOAuthPopup(
+      oauthCleanup.current = openOAuthPopup(
         response.authorizationUrl,
         (result) => {
+          oauthCleanup.current = null;
           setStartingOAuth(false);
           if (result.ok) {
             setOauthAuth({
@@ -541,14 +552,22 @@ export default function AddGoogleDiscoverySource(props: {
           }
         },
         () => {
+          oauthCleanup.current = null;
           setStartingOAuth(false);
+          setError("OAuth popup was blocked");
         },
       );
     } catch (e) {
       setStartingOAuth(false);
       setError(e instanceof Error ? e.message : "Failed to start OAuth");
     }
-  }, [probe, doStartOAuth, name, discoveryUrl, clientId, clientSecretSecretId]);
+  }, [probe, doStartOAuth, scopeId, name, discoveryUrl, clientId, clientSecretSecretId]);
+
+  const handleCancelOAuth = useCallback(() => {
+    oauthCleanup.current?.();
+    oauthCleanup.current = null;
+    setStartingOAuth(false);
+  }, []);
 
   const handleAdd = useCallback(async () => {
     if (!probe) return;
@@ -755,17 +774,29 @@ export default function AddGoogleDiscoverySource(props: {
                     </CollapsibleTrigger>
                   )}
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={handleStartOAuth}
-                  disabled={!probe || !clientId.trim() || !canUseOAuth || startingOAuth}
-                >
-                  {startingOAuth
-                    ? <><Spinner className="size-3.5" /> Waiting…</>
-                    : oauthAuth
-                      ? "Re-authenticate"
-                      : "Connect Google"}
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handleStartOAuth}
+                    disabled={!probe || !clientId.trim() || !canUseOAuth || startingOAuth}
+                  >
+                    {startingOAuth
+                      ? <><Spinner className="size-3.5" /> Waiting…</>
+                      : oauthAuth
+                        ? "Re-authenticate"
+                        : "Connect Google"}
+                  </Button>
+                  {startingOAuth && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCancelOAuth}
+                      className="h-8 px-2 text-xs"
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                </div>
               </div>
               <CollapsibleContent>
                 <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
