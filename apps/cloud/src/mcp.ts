@@ -125,13 +125,7 @@ const handleMcpRequest_POST = async (
     const id = ns.newUniqueId();
     const stub = ns.get(id);
 
-    const init: McpSessionInit = {
-      userId: token.sub,
-      email: token.email,
-      firstName: token.firstName,
-      lastName: token.lastName,
-    };
-    await stub.init(init);
+    await stub.init({ userId: token.sub });
 
     return await stub.handleRequest(request);
   } catch (err) {

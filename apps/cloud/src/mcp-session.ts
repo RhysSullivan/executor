@@ -26,9 +26,6 @@ import * as cloudSchema from "./services/schema";
 
 export type McpSessionInit = {
   userId: string;
-  email?: string;
-  firstName?: string;
-  lastName?: string;
 };
 
 // Heartbeat interval — keeps the DO alive by re-scheduling an alarm before
@@ -40,37 +37,19 @@ const HEARTBEAT_MS = 30 * 1000;
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// Team resolution
+// Team resolution — user/team must already exist (created at signup)
 // ---------------------------------------------------------------------------
 
-const resolveTeam = (token: McpSessionInit) =>
+const resolveTeam = (userId: string) =>
   Effect.gen(function* () {
     const users = yield* UserStoreService;
-    const teams = yield* users.use((store) =>
-      store.getTeamsForUser(token.userId),
-    );
+    const teams = yield* users.use((store) => store.getTeamsForUser(userId));
 
-    if (teams.length > 0) {
-      return {
-        teamId: teams[0]!.teamId,
-        teamName: teams[0]!.teamName ?? "Team",
-      };
+    if (teams.length === 0) {
+      return yield* Effect.fail(new Error("No team found for user — account may not be set up"));
     }
 
-    const name =
-      [token.firstName, token.lastName].filter(Boolean).join(" ") || undefined;
-    const user = yield* users.use((store) =>
-      store.upsertUser({
-        id: token.userId,
-        email: token.email ?? "unknown@executor.sh",
-        name,
-      }),
-    );
-    const team = yield* users.use((store) =>
-      store.createTeam(`${user.name ?? user.email}'s Team`),
-    );
-    yield* users.use((store) => store.addMember(team.id, user.id, "owner"));
-    return { teamId: team.id, teamName: team.name };
+    return { teamId: teams[0]!.teamId, teamName: teams[0]!.teamName ?? "Team" };
   });
 
 // ---------------------------------------------------------------------------
@@ -110,7 +89,7 @@ export class McpSessionDO extends DurableObject {
     const Services = Layer.mergeAll(DbLive, UserStoreLive);
 
     const { teamId, teamName } = await Effect.runPromise(
-      resolveTeam(token).pipe(Effect.provide(Services)),
+      resolveTeam(token.userId).pipe(Effect.provide(Services)),
     );
 
     const executor = await Effect.runPromise(
