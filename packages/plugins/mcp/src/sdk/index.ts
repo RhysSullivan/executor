@@ -3,4 +3,9 @@ export {
   type McpPluginExtension,
 } from "./plugin";
 
-export { makeKvBindingStore } from "./binding-store";
+export {
+  makeKvBindingStore,
+  type McpBindingStore,
+  type McpStoredSource,
+} from "./binding-store";
+export { withConfigFile } from "./config-file-store";

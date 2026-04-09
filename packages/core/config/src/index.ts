@@ -21,4 +21,9 @@ export {
   removeSecretFromConfig,
 } from "./write";
 
-export { withConfigFile } from "./config-store";
+export {
+  translateSecretHeaders,
+  makeConfigFileBinding,
+  type PluginHeaderValue,
+  type ConfigFileBinding,
+} from "./helpers";

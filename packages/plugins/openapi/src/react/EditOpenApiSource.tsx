@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
 import { sourceConfigAtom, secretsAtom } from "@executor/react/api/atoms";
 import { updateOpenApiSource } from "./atoms";
@@ -7,68 +7,45 @@ import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
-import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
+import { type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
+import { CustomHeaderRow, matchPresetKey, type CustomHeaderState } from "./custom-header-row";
 import type { HeaderValue } from "../sdk/types";
 
 // ---------------------------------------------------------------------------
-// Header row
+// Config → state translation
 // ---------------------------------------------------------------------------
 
-function HeaderRow(props: {
-  name: string;
-  value: HeaderValue;
-  onChange: (name: string, value: HeaderValue) => void;
-  onRemove: () => void;
-  secrets: readonly SecretPickerSecret[];
-}) {
-  const { name, value, onChange, onRemove, secrets } = props;
-  const isSecretRef = typeof value === "object" && value !== null && "secretId" in value;
-  const secretId = isSecretRef ? (value as { secretId: string }).secretId : null;
-  const prefix = isSecretRef ? (value as { prefix?: string }).prefix : undefined;
+function headerValueToState(name: string, value: HeaderValue): CustomHeaderState {
+  if (typeof value === "string") {
+    // Plain string value (not a secret ref) — treat as custom with no secret
+    return {
+      name,
+      secretId: null,
+      presetKey: matchPresetKey(name, undefined),
+    };
+  }
+  const secretRef = value as { secretId: string; prefix?: string };
+  return {
+    name,
+    secretId: secretRef.secretId,
+    prefix: secretRef.prefix,
+    presetKey: matchPresetKey(name, secretRef.prefix),
+  };
+}
 
-  return (
-    <div className="rounded-lg border border-border bg-card p-3 space-y-2">
-      <div className="flex items-center justify-between">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Header</Label>
-        <Button variant="ghost" size="xs" className="text-muted-foreground hover:text-destructive" onClick={onRemove}>
-          Remove
-        </Button>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Name</Label>
-          <Input
-            value={name}
-            onChange={(e) => onChange((e.target as HTMLInputElement).value, value)}
-            placeholder="Authorization"
-            className="h-8 text-xs font-mono"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Prefix</Label>
-          <Input
-            value={prefix ?? ""}
-            onChange={(e) => {
-              const p = (e.target as HTMLInputElement).value || undefined;
-              if (secretId) {
-                onChange(name, { secretId, ...(p ? { prefix: p } : {}) });
-              }
-            }}
-            placeholder="Bearer "
-            className="h-8 text-xs font-mono"
-          />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Secret</Label>
-        <SecretPicker
-          value={secretId}
-          onSelect={(id) => onChange(name, { secretId: id, ...(prefix ? { prefix } : {}) })}
-          secrets={secrets}
-        />
-      </div>
-    </div>
-  );
+function headersFromState(
+  entries: readonly CustomHeaderState[],
+): Record<string, HeaderValue> {
+  const result: Record<string, HeaderValue> = {};
+  for (const ch of entries) {
+    const name = ch.name.trim();
+    if (!name || !ch.secretId) continue;
+    result[name] = {
+      secretId: ch.secretId,
+      ...(ch.prefix ? { prefix: ch.prefix } : {}),
+    };
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,17 +62,30 @@ export default function EditOpenApiSource(props: {
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
   const secrets = useAtomValue(secretsAtom(scopeId));
 
-  const [baseUrl, setBaseUrl] = useState<string | null>(null);
-  const [headers, setHeaders] = useState<Record<string, HeaderValue> | null>(null);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [customHeaders, setCustomHeaders] = useState<CustomHeaderState[]>([]);
+  const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const config = Result.isSuccess(configResult) ? configResult.value : null;
-
-  // Initialize form state from config
-  const currentBaseUrl = baseUrl ?? (config as any)?.baseUrl ?? "";
-  const currentHeaders: Record<string, HeaderValue> = headers ?? (config as any)?.headers ?? {};
+  // Initialize form state from config on first successful load
+  useEffect(() => {
+    if (initialized) return;
+    if (!Result.isSuccess(configResult)) return;
+    const cfg = configResult.value as {
+      baseUrl?: string;
+      headers?: Record<string, HeaderValue>;
+    } | null;
+    if (!cfg) return;
+    setBaseUrl(cfg.baseUrl ?? "");
+    setCustomHeaders(
+      Object.entries(cfg.headers ?? {}).map(([name, value]) =>
+        headerValueToState(name, value),
+      ),
+    );
+    setInitialized(true);
+  }, [configResult, initialized]);
 
   const secretList: readonly SecretPickerSecret[] = Result.match(secrets, {
     onInitial: () => [] as SecretPickerSecret[],
@@ -108,36 +98,23 @@ export default function EditOpenApiSource(props: {
       })),
   });
 
-  const headerEntries = useMemo(
-    () => Object.entries(currentHeaders),
-    [currentHeaders],
-  );
-
-  const updateBaseUrl = (value: string) => {
-    setBaseUrl(value);
+  const updateHeader = (index: number, update: Partial<CustomHeaderState>) => {
+    setCustomHeaders((prev) =>
+      prev.map((ch, i) => (i === index ? { ...ch, ...update } : ch)),
+    );
     setDirty(true);
   };
 
-  const updateHeader = (oldName: string, newName: string, value: HeaderValue) => {
-    const next = { ...currentHeaders };
-    if (oldName !== newName) {
-      delete next[oldName];
-    }
-    next[newName] = value;
-    setHeaders(next);
-    setDirty(true);
-  };
-
-  const removeHeader = (name: string) => {
-    const next = { ...currentHeaders };
-    delete next[name];
-    setHeaders(next);
+  const removeHeader = (index: number) => {
+    setCustomHeaders((prev) => prev.filter((_, i) => i !== index));
     setDirty(true);
   };
 
   const addHeader = () => {
-    const next = { ...currentHeaders, "": { secretId: "" } };
-    setHeaders(next);
+    setCustomHeaders((prev) => [
+      ...prev,
+      { name: "", secretId: null, presetKey: undefined },
+    ]);
     setDirty(true);
   };
 
@@ -145,13 +122,12 @@ export default function EditOpenApiSource(props: {
     setSaving(true);
     setError(null);
     try {
-      const payload: { baseUrl?: string; headers?: Record<string, HeaderValue> } = {};
-      if (baseUrl !== null) payload.baseUrl = currentBaseUrl;
-      if (headers !== null) payload.headers = currentHeaders;
-
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
-        payload,
+        payload: {
+          baseUrl: baseUrl.trim() || undefined,
+          headers: headersFromState(customHeaders),
+        },
       });
       refreshConfig();
       setDirty(false);
@@ -168,7 +144,7 @@ export default function EditOpenApiSource(props: {
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Edit OpenAPI Source</h1>
-          <p className="mt-1 text-[13px] text-muted-foreground">Loading configuration...</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Loading configuration…</p>
         </div>
       </div>
     );
@@ -196,8 +172,11 @@ export default function EditOpenApiSource(props: {
       <section className="space-y-2">
         <Label>Base URL</Label>
         <Input
-          value={currentBaseUrl}
-          onChange={(e) => updateBaseUrl((e.target as HTMLInputElement).value)}
+          value={baseUrl}
+          onChange={(e) => {
+            setBaseUrl((e.target as HTMLInputElement).value);
+            setDirty(true);
+          }}
           placeholder="https://api.example.com"
           className="font-mono text-sm"
         />
@@ -206,14 +185,17 @@ export default function EditOpenApiSource(props: {
       {/* Headers */}
       <section className="space-y-2.5">
         <Label>Headers</Label>
-        {headerEntries.map(([name, value]) => (
-          <HeaderRow
-            key={name}
-            name={name}
-            value={value}
-            onChange={(newName, newValue) => updateHeader(name, newName, newValue)}
-            onRemove={() => removeHeader(name)}
-            secrets={secretList}
+        {customHeaders.map((ch, i) => (
+          <CustomHeaderRow
+            key={i}
+            name={ch.name}
+            prefix={ch.prefix}
+            presetKey={ch.presetKey}
+            secretId={ch.secretId}
+            onChange={(update) => updateHeader(i, update)}
+            onSelectSecret={(secretId) => updateHeader(i, { secretId })}
+            onRemove={() => removeHeader(i)}
+            existingSecrets={secretList}
           />
         ))}
         <Button
@@ -237,7 +219,7 @@ export default function EditOpenApiSource(props: {
           Cancel
         </Button>
         <Button onClick={handleSave} disabled={!dirty || saving}>
-          {saving ? "Saving..." : "Save changes"}
+          {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
     </div>

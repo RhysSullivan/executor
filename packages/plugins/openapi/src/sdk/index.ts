@@ -16,6 +16,7 @@ export {
   makeKvOperationStore,
   makeInMemoryOperationStore,
 } from "./kv-operation-store";
+export { withConfigFile } from "./config-file-store";
 export {
   previewSpec,
   SecurityScheme,
