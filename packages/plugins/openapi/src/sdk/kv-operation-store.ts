@@ -112,6 +112,14 @@ const makeStore = (
       const entries = yield* sources.list();
       return entries.map((e) => decodeSource(e.value) as StoredSource);
     }),
+
+  getSourceConfig: (namespace) =>
+    Effect.gen(function* () {
+      const raw = yield* sources.get(namespace);
+      if (!raw) return null;
+      const source = decodeSource(raw) as StoredSource;
+      return source.config;
+    }),
   });
 };
 

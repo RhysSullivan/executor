@@ -226,6 +226,7 @@ export const graphqlPlugin = (options?: {
                       runtime: false,
                       canRemove: true,
                       canRefresh: false,
+                      canEdit: true,
                     }),
                 ),
               ),
@@ -236,6 +237,50 @@ export const graphqlPlugin = (options?: {
               yield* operationStore.removeByNamespace(sourceId);
               yield* operationStore.removeSource(sourceId);
               yield* ctx.tools.unregisterBySource(sourceId);
+            }),
+
+          getConfig: (sourceId: string) =>
+            Effect.gen(function* () {
+              const config = yield* operationStore.getSourceConfig(sourceId);
+              if (!config) return null;
+              return config as unknown as Record<string, unknown>;
+            }),
+
+          update: (sourceId: string, config: Record<string, unknown>) =>
+            Effect.gen(function* () {
+              const existingConfig = yield* operationStore.getSourceConfig(sourceId);
+              if (!existingConfig) return;
+
+              // Merge with existing
+              const updatedConfig = {
+                ...existingConfig,
+                ...(config.endpoint !== undefined ? { endpoint: config.endpoint as string } : {}),
+                ...(config.headers !== undefined ? { headers: config.headers as Record<string, HeaderValueValue> } : {}),
+              };
+
+              // Update InvocationConfig on all bindings
+              const newInvocationConfig = new InvocationConfig({
+                endpoint: updatedConfig.endpoint,
+                headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
+              });
+
+              const toolIds = yield* operationStore.listByNamespace(sourceId);
+              for (const toolId of toolIds) {
+                const entry = yield* operationStore.get(toolId);
+                if (entry) {
+                  yield* operationStore.put(toolId, sourceId, entry.binding, newInvocationConfig);
+                }
+              }
+
+              // Update stored source
+              const sources = yield* operationStore.listSources();
+              const existingMeta = sources.find((s) => s.namespace === sourceId);
+
+              yield* operationStore.putSource({
+                namespace: sourceId,
+                name: existingMeta?.name ?? sourceId,
+                config: updatedConfig,
+              });
             }),
 
           detect: (url: string) =>

@@ -20,6 +20,7 @@ export const SourcesHandlers = HttpApiBuilder.group(
             runtime: s.runtime,
             canRemove: s.canRemove,
             canRefresh: s.canRefresh,
+            canEdit: s.canEdit,
           }));
         }),
       )
@@ -62,6 +63,19 @@ export const SourcesHandlers = HttpApiBuilder.group(
             name: r.name,
             namespace: r.namespace,
           }));
+        }),
+      )
+      .handle("getConfig", ({ path }) =>
+        Effect.gen(function* () {
+          const executor = yield* ExecutorService;
+          return yield* executor.sources.getConfig(path.sourceId);
+        }),
+      )
+      .handle("update", ({ path, payload }) =>
+        Effect.gen(function* () {
+          const executor = yield* ExecutorService;
+          yield* executor.sources.update(path.sourceId, payload as Record<string, unknown>);
+          return { updated: true };
         }),
       ),
 );

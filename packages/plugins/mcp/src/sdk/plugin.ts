@@ -296,9 +296,15 @@ export const mcpPlugin = (options?: {
         // Restore source metadata
         const savedSources = yield* bindingStore.listSources();
         for (const s of savedSources) {
+          const isRemote = s.config.transport === "remote";
           addedSources.set(
             s.namespace,
-            new Source({ id: s.namespace, name: s.name, kind: "mcp" }),
+            new Source({
+              id: s.namespace,
+              name: s.name,
+              kind: "mcp",
+              canEdit: isRemote,
+            }),
           );
         }
 
@@ -449,6 +455,48 @@ export const mcpPlugin = (options?: {
               return null;
             }),
 
+          getConfig: (sourceId: string) =>
+            Effect.gen(function* () {
+              const config = yield* bindingStore.getSourceConfig(sourceId);
+              if (!config) return null;
+              return config as unknown as Record<string, unknown>;
+            }),
+
+          update: (sourceId: string, config: Record<string, unknown>) =>
+            Effect.gen(function* () {
+              const existingConfig = yield* bindingStore.getSourceConfig(sourceId);
+              if (!existingConfig || existingConfig.transport !== "remote") return;
+
+              // Merge with existing remote config
+              const remote = existingConfig as Extract<McpStoredSourceData, { transport: "remote" }>;
+              const updatedConfig: McpStoredSourceData = {
+                ...remote,
+                ...(config.endpoint !== undefined ? { endpoint: config.endpoint as string } : {}),
+                ...(config.headers !== undefined ? { headers: config.headers as Record<string, string> } : {}),
+                ...(config.auth !== undefined ? { auth: config.auth as typeof remote.auth } : {}),
+                ...(config.queryParams !== undefined ? { queryParams: config.queryParams as Record<string, string> } : {}),
+              };
+
+              // Update the stored source
+              const sources = yield* bindingStore.listSources();
+              const existingMeta = sources.find((s) => s.namespace === sourceId);
+
+              yield* bindingStore.putSource({
+                namespace: sourceId,
+                name: existingMeta?.name ?? sourceId,
+                config: updatedConfig,
+              });
+
+              // Update bindings with new source data
+              const toolIds = yield* bindingStore.listByNamespace(sourceId);
+              for (const toolId of toolIds) {
+                const entry = yield* bindingStore.get(toolId);
+                if (entry) {
+                  yield* bindingStore.put(toolId, sourceId, entry.binding, updatedConfig);
+                }
+              }
+            }),
+
           refresh: (sourceId: string) =>
             Effect.gen(function* () {
               const sd = yield* bindingStore.getSourceConfig(sourceId);
@@ -594,6 +642,7 @@ export const mcpPlugin = (options?: {
                 id: namespace,
                 name: sourceName,
                 kind: "mcp",
+                canEdit: config.transport === "remote",
               }),
             );
 

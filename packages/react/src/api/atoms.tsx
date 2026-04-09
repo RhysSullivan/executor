@@ -76,3 +76,12 @@ export const removeSource = ExecutorApiClient.mutation("sources", "remove");
 export const refreshSource = ExecutorApiClient.mutation("sources", "refresh");
 
 export const detectSource = ExecutorApiClient.mutation("sources", "detect");
+
+/** Config for a specific source */
+export const sourceConfigAtom = (sourceId: string, scopeId: ScopeId) =>
+  ExecutorApiClient.query("sources", "getConfig", {
+    path: { scopeId, sourceId },
+    timeToLive: "15 seconds",
+  });
+
+export const updateSource = ExecutorApiClient.mutation("sources", "update");

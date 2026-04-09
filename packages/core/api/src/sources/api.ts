@@ -20,6 +20,7 @@ const SourceResponse = Schema.Struct({
   runtime: Schema.optional(Schema.Boolean),
   canRemove: Schema.optional(Schema.Boolean),
   canRefresh: Schema.optional(Schema.Boolean),
+  canEdit: Schema.optional(Schema.Boolean),
 });
 
 const SourceRemoveResponse = Schema.Struct({
@@ -37,6 +38,16 @@ const ToolMetadataResponse = Schema.Struct({
   name: Schema.String,
   description: Schema.optional(Schema.String),
   mayElicit: Schema.optional(Schema.Boolean),
+});
+
+const SourceConfigResponse = Schema.NullOr(
+  Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+);
+
+const UpdateSourcePayload = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+
+const UpdateSourceResponse = Schema.Struct({
+  updated: Schema.Boolean,
 });
 
 const DetectRequest = Schema.Struct({
@@ -76,5 +87,14 @@ export class SourcesApi extends HttpApiGroup.make("sources")
     HttpApiEndpoint.post("detect")`/scopes/${scopeIdParam}/sources/detect`
       .setPayload(DetectRequest)
       .addSuccess(Schema.Array(DetectResultResponse)),
+  )
+  .add(
+    HttpApiEndpoint.get("getConfig")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/config`
+      .addSuccess(SourceConfigResponse),
+  )
+  .add(
+    HttpApiEndpoint.patch("update")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`
+      .setPayload(UpdateSourcePayload)
+      .addSuccess(UpdateSourceResponse),
   )
   {}

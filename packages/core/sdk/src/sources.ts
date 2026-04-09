@@ -17,6 +17,8 @@ export class Source extends Schema.Class<Source>("Source")({
   canRemove: Schema.optional(Schema.Boolean),
   /** Whether the source supports refresh */
   canRefresh: Schema.optional(Schema.Boolean),
+  /** Whether the source supports editing (config changes) */
+  canEdit: Schema.optional(Schema.Boolean),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -58,6 +60,12 @@ export interface SourceManager {
 
   /** Detect whether a URL matches this plugin's source type */
   readonly detect?: (url: string) => Effect.Effect<SourceDetectionResult | null>;
+
+  /** Retrieve the current config for a source */
+  readonly getConfig?: (sourceId: string) => Effect.Effect<Record<string, unknown> | null>;
+
+  /** Update the config for a source (headers, baseUrl, etc.) */
+  readonly update?: (sourceId: string, config: Record<string, unknown>) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +97,12 @@ export class SourceRegistry extends Context.Tag(
 
     /** Detect source type from a URL by probing all registered plugins */
     readonly detect: (url: string) => Effect.Effect<readonly SourceDetectionResult[]>;
+
+    /** Get the config for a source by id */
+    readonly getConfig: (sourceId: string) => Effect.Effect<Record<string, unknown> | null>;
+
+    /** Update the config for a source by id */
+    readonly update: (sourceId: string, config: Record<string, unknown>) => Effect.Effect<void>;
   }
 >() {}
 
@@ -181,6 +195,33 @@ export const makeInMemorySourceRegistry = () => {
             const order = { high: 0, medium: 1, low: 2 };
             return order[a.confidence] - order[b.confidence];
           });
+      }),
+
+    getConfig: (sourceId: string) =>
+      Effect.gen(function* () {
+        for (const manager of managers.values()) {
+          const sources = yield* manager.list();
+          if (sources.some((s) => s.id === sourceId)) {
+            if (manager.getConfig) {
+              return yield* manager.getConfig(sourceId);
+            }
+            return null;
+          }
+        }
+        return null;
+      }),
+
+    update: (sourceId: string, config: Record<string, unknown>) =>
+      Effect.gen(function* () {
+        for (const manager of managers.values()) {
+          const sources = yield* manager.list();
+          if (sources.some((s) => s.id === sourceId)) {
+            if (manager.update) {
+              yield* manager.update(sourceId, config);
+            }
+            return;
+          }
+        }
       }),
   };
 };
