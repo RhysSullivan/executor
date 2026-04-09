@@ -47,7 +47,8 @@
     "@types/node": "catalog:",
     "hast-util-to-jsx-runtime": "^2.3.6",
     "tailwindcss": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vite": "catalog:"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
