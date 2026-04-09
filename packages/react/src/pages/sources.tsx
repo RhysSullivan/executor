@@ -71,7 +71,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                 Sources
               </h1>
               <p className="mt-1.5 text-[14px] text-muted-foreground">
-                Tool providers available in this workspace.
+                Providers available in this workspace.
               </p>
             </div>
           </div>
