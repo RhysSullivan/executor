@@ -8,6 +8,7 @@ import {
   inMemoryToolsPlugin,
   makeTestConfig,
   tool,
+  type ToolId,
 } from "@executor/sdk";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
@@ -20,6 +21,9 @@ const RepoInput = Schema.Struct({
 const ContactInput = Schema.Struct({
   email: Schema.String,
 });
+
+import type { ExecutionResult } from "./engine";
+import { FormElicitation } from "@executor/sdk";
 
 const acceptAll = () => Effect.succeed(new ElicitationResponse({ action: "accept" }));
 
@@ -271,5 +275,102 @@ describe("tool discovery", () => {
         "tools.search expects an object",
       );
     }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// pause/resume — multiple elicitations in a single execution
+// ---------------------------------------------------------------------------
+
+describe("pause/resume with multiple elicitations", () => {
+  const makeElicitingExecutor = () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig({
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "api",
+            tools: [
+              tool({
+                name: "multiApproval",
+                description: "A tool that elicits twice",
+                inputSchema: EmptyInput,
+                handler: (_args, ctx) =>
+                  Effect.gen(function* () {
+                    const r1 = yield* ctx.elicit(
+                      new FormElicitation({
+                        message: "First approval",
+                        requestedSchema: {},
+                      }),
+                    );
+                    const r2 = yield* ctx.elicit(
+                      new FormElicitation({
+                        message: "Second approval",
+                        requestedSchema: {},
+                      }),
+                    );
+                    return { first: r1, second: r2 };
+                  }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
+
+      yield* config.sources.registerRuntime(
+        new Source({
+          id: "api",
+          name: "API",
+          kind: "in-memory",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
+
+      return yield* createExecutor(config);
+    });
+
+  it.effect(
+    "resume does not hang when execution hits a second elicitation",
+    () =>
+      Effect.gen(function* () {
+        const executor = yield* makeElicitingExecutor();
+        const engine = createExecutionEngine({ executor });
+
+        const code = 'return await tools.api.multiApproval({});';
+
+        // First executeWithPause — should pause on first elicitation
+        const outcome1 = yield* Effect.promise(() =>
+          engine.executeWithPause(code),
+        );
+        expect(outcome1.status).toBe("paused");
+        if (outcome1.status !== "paused") throw new Error("expected pause");
+        expect(outcome1.execution.elicitationContext.request.message).toBe(
+          "First approval",
+        );
+
+        // Resume first pause — execution continues to second elicitation.
+        // resume() must not hang; it should return (either a new paused
+        // result or the completion).
+        const outcome2 = yield* Effect.promise(() =>
+          Promise.race([
+            engine.resume(outcome1.execution.id, { action: "accept" }),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      "resume hung — second elicitation not surfaced",
+                    ),
+                  ),
+                5000,
+              ),
+            ),
+          ]),
+        );
+
+        expect(outcome2).not.toBeNull();
+      }),
+    { timeout: 10000 },
   );
 });

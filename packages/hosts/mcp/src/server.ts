@@ -28,60 +28,84 @@ export type ExecutorMcpServerConfig =
 // Elicitation bridge
 // ---------------------------------------------------------------------------
 
-const supportsManagedElicitation = (server: McpServer): boolean => {
+const getElicitationSupport = (
+  server: McpServer,
+): { form: boolean; url: boolean } => {
   const capabilities = server.server.getClientCapabilities();
-  if (capabilities === undefined || !capabilities.elicitation) return false;
+  if (capabilities === undefined || !capabilities.elicitation)
+    return { form: false, url: false };
   const elicitation = capabilities.elicitation as Record<string, unknown>;
-  return Boolean(elicitation.form) && Boolean(elicitation.url);
+  return { form: Boolean(elicitation.form), url: Boolean(elicitation.url) };
 };
 
+const supportsManagedElicitation = (server: McpServer): boolean =>
+  getElicitationSupport(server).form;
+
 type ElicitInputParams =
-  | { mode?: "form"; message: string; requestedSchema: { readonly [key: string]: unknown } }
+  | {
+      mode?: "form";
+      message: string;
+      requestedSchema: { readonly [key: string]: unknown };
+    }
   | { mode: "url"; message: string; url: string; elicitationId: string };
 
-const elicitationRequestToParams: (request: ElicitationRequest) => ElicitInputParams =
-  Match.type<ElicitationRequest>().pipe(
-    Match.tag("UrlElicitation", (req) => ({
-      mode: "url" as const,
-      message: req.message,
-      url: req.url,
-      elicitationId: req.elicitationId,
-    })),
-    Match.tag("FormElicitation", (req) => ({
-      message: req.message,
-      // The MCP SDK validates requestedSchema as a JSON Schema with
-      // `type: "object"` and `properties`. For approval-only elicitations
-      // where no fields are needed, provide a minimal valid schema.
-      requestedSchema:
-        Object.keys(req.requestedSchema).length === 0
-          ? { type: "object" as const, properties: {} }
-          : req.requestedSchema,
-    })),
-    Match.exhaustive,
-  );
+const elicitationRequestToParams: (
+  request: ElicitationRequest,
+) => ElicitInputParams = Match.type<ElicitationRequest>().pipe(
+  Match.tag("UrlElicitation", (req) => ({
+    mode: "url" as const,
+    message: req.message,
+    url: req.url,
+    elicitationId: req.elicitationId,
+  })),
+  Match.tag("FormElicitation", (req) => ({
+    message: req.message,
+    // The MCP SDK validates requestedSchema as a JSON Schema with
+    // `type: "object"` and `properties`. For approval-only elicitations
+    // where no fields are needed, provide a minimal valid schema.
+    requestedSchema:
+      Object.keys(req.requestedSchema).length === 0
+        ? { type: "object" as const, properties: {} }
+        : req.requestedSchema,
+  })),
+  Match.exhaustive,
+);
 
-const makeMcpElicitationHandler = (server: McpServer): ElicitationHandler =>
+const makeMcpElicitationHandler =
+  (server: McpServer): ElicitationHandler =>
   (ctx: ElicitationContext): Effect.Effect<typeof ElicitationResponse.Type> => {
-    const params = elicitationRequestToParams(ctx.request);
+    const { url: supportsUrl } = getElicitationSupport(server);
 
-    return Effect.promise(async (): Promise<typeof ElicitationResponse.Type> => {
-      try {
-        const response = await server.server.elicitInput(
-          params as Parameters<typeof server.server.elicitInput>[0],
-        );
+    // If client doesn't support url mode, fall back to a form asking the user
+    // to visit the URL manually and confirm when done.
+    const params =
+      ctx.request._tag === "UrlElicitation" && !supportsUrl
+        ? {
+            message: `${ctx.request.message}\n\nPlease visit this URL:\n${ctx.request.url}\n\nClick accept once you have completed the flow.`,
+            requestedSchema: { type: "object" as const, properties: {} },
+          }
+        : elicitationRequestToParams(ctx.request);
 
-        return {
-          action: response.action,
-          content: response.content,
-        };
-      } catch (err) {
-        console.error(
-          "[executor] elicitInput failed — falling back to cancel.",
-          err instanceof Error ? err.message : err,
-        );
-        return { action: "cancel" };
-      }
-    });
+    return Effect.promise(
+      async (): Promise<typeof ElicitationResponse.Type> => {
+        try {
+          const response = await server.server.elicitInput(
+            params as Parameters<typeof server.server.elicitInput>[0],
+          );
+
+          return {
+            action: response.action,
+            content: response.content,
+          };
+        } catch (err) {
+          console.error(
+            "[executor] elicitInput failed — falling back to cancel.",
+            err instanceof Error ? err.message : err,
+          );
+          return { action: "cancel" };
+        }
+      },
+    );
   };
 
 // ---------------------------------------------------------------------------
@@ -116,7 +140,8 @@ const toMcpPausedResult = (
 export const createExecutorMcpServer = async (
   config: ExecutorMcpServerConfig,
 ): Promise<McpServer> => {
-  const engine = "engine" in config ? config.engine : createExecutionEngine(config);
+  const engine =
+    "engine" in config ? config.engine : createExecutionEngine(config);
   const description = await engine.getDescription();
 
   const server = new McpServer(
@@ -138,7 +163,9 @@ export const createExecutorMcpServer = async (
       : toMcpPausedResult(formatPausedExecution(outcome.execution));
   };
 
-  const parseJsonContent = (raw: string): Record<string, unknown> | undefined => {
+  const parseJsonContent = (
+    raw: string,
+  ): Record<string, unknown> | undefined => {
     if (raw === "{}") return undefined;
     let parsed: unknown;
     try {
@@ -146,7 +173,9 @@ export const createExecutorMcpServer = async (
     } catch {
       return undefined;
     }
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : undefined;
   };
@@ -170,23 +199,36 @@ export const createExecutorMcpServer = async (
         "Never call this without user approval unless they explicitly state otherwise.",
       ].join("\n"),
       inputSchema: {
-        executionId: z.string().describe("The execution ID from the paused result"),
-        action: z.enum(["accept", "decline", "cancel"]).describe("How to respond to the interaction"),
-        content: z.string().describe("Optional JSON-encoded response content for form elicitations").default("{}"),
+        executionId: z
+          .string()
+          .describe("The execution ID from the paused result"),
+        action: z
+          .enum(["accept", "decline", "cancel"])
+          .describe("How to respond to the interaction"),
+        content: z
+          .string()
+          .describe(
+            "Optional JSON-encoded response content for form elicitations",
+          )
+          .default("{}"),
       },
     },
     async ({ executionId, action, content: rawContent }) => {
       const content = parseJsonContent(rawContent);
-      const result = await engine.resume(executionId, { action, content });
+      const outcome = await engine.resume(executionId, { action, content });
 
-      if (!result) {
+      if (!outcome) {
         return {
-          content: [{ type: "text", text: `No paused execution: ${executionId}` }],
+          content: [
+            { type: "text", text: `No paused execution: ${executionId}` },
+          ],
           isError: true,
         };
       }
 
-      return toMcpResult(formatExecuteResult(result));
+      return outcome.status === "completed"
+        ? toMcpResult(formatExecuteResult(outcome.result))
+        : toMcpPausedResult(formatPausedExecution(outcome.execution));
     },
   );
 

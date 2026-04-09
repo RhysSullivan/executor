@@ -267,9 +267,10 @@ export type ExecutionEngine = {
   readonly executeWithPause: (code: string) => Promise<ExecutionResult>;
 
   /**
-   * Resume a paused execution.
+   * Resume a paused execution. Returns a completed result, a new pause, or
+   * null if the executionId was not found.
    */
-  readonly resume: (executionId: string, response: ResumeResponse) => Promise<ExecuteResult | null>;
+  readonly resume: (executionId: string, response: ResumeResponse) => Promise<ExecutionResult | null>;
 
   /**
    * Get the dynamic tool description (workflow + namespaces).
@@ -286,6 +287,45 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
   const pausedExecutions = new Map<string, PausedExecution>();
   let nextId = 0;
 
+  // Shared pause signal that can be re-armed for each elicitation.
+  // Both executeWithPause and resume race completion against this.
+  let signalPause: ((paused: PausedExecution) => void) | null = null;
+  const nextPause = () =>
+    new Promise<PausedExecution>((resolve) => {
+      signalPause = resolve;
+    });
+
+  const elicitationHandler: ElicitationHandler = (ctx: ElicitationContext) =>
+    Effect.async<typeof ElicitationResponse.Type>((resume) => {
+      const id = `exec_${++nextId}`;
+      const paused: PausedExecution = {
+        id,
+        elicitationContext: ctx,
+        resolve: (response) => resume(Effect.succeed(response)),
+        completion: undefined as unknown as Promise<ExecuteResult>,
+      };
+      pausedExecutions.set(id, paused);
+      signalPause!(paused);
+    });
+
+  // Shared completion promise for the current execution.
+  let completionPromise: Promise<ExecuteResult> | null = null;
+
+  const raceCompletionOrPause = async (): Promise<ExecutionResult> => {
+    const pausePromise = nextPause();
+    const result = await Promise.race([
+      completionPromise!.then((r) => ({ kind: "completed" as const, result: r })),
+      pausePromise.then((p) => ({ kind: "paused" as const, execution: p })),
+    ]);
+
+    if (result.kind === "completed") {
+      return { status: "completed", result: result.result };
+    }
+
+    (result.execution as { completion: Promise<ExecuteResult> }).completion = completionPromise!;
+    return { status: "paused", execution: result.execution };
+  };
+
   return {
     execute: async (code, options) => {
       const invoker = makeFullInvoker(executor, {
@@ -295,41 +335,9 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     },
 
     executeWithPause: async (code) => {
-      // Signal from the elicitation handler to the race below.
-      let signalPause: ((paused: PausedExecution) => void) | null = null;
-      const pausePromise = new Promise<PausedExecution>((resolve) => {
-        signalPause = resolve;
-      });
-
-      const elicitationHandler: ElicitationHandler = (ctx: ElicitationContext) =>
-        Effect.async<typeof ElicitationResponse.Type>((resume) => {
-          const id = `exec_${++nextId}`;
-          const paused: PausedExecution = {
-            id,
-            elicitationContext: ctx,
-            resolve: (response) => resume(Effect.succeed(response)),
-            completion: undefined as unknown as Promise<ExecuteResult>,
-          };
-          pausedExecutions.set(id, paused);
-          signalPause!(paused);
-        });
-
       const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
-      const completionPromise = runEffect(codeExecutor.execute(code, invoker));
-
-      // Race: either the execution completes, or it pauses for elicitation.
-      const result = await Promise.race([
-        completionPromise.then((r) => ({ kind: "completed" as const, result: r })),
-        pausePromise.then((p) => ({ kind: "paused" as const, execution: p })),
-      ]);
-
-      if (result.kind === "completed") {
-        return { status: "completed", result: result.result };
-      }
-
-      // Execution paused — attach the completion promise and return
-      (result.execution as { completion: Promise<ExecuteResult> }).completion = completionPromise;
-      return { status: "paused", execution: result.execution };
+      completionPromise = runEffect(codeExecutor.execute(code, invoker));
+      return raceCompletionOrPause();
     },
 
     resume: async (executionId, response) => {
@@ -338,7 +346,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
 
       pausedExecutions.delete(executionId);
       paused.resolve({ action: response.action, content: response.content });
-      return paused.completion;
+      return raceCompletionOrPause();
     },
 
     getDescription: () => runEffect(buildExecuteDescription(executor)),
