@@ -55,6 +55,7 @@
         "@executor/plugin-mcp": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
         "@executor/react": "workspace:*",
+        "@executor/runtime-dynamic-worker": "workspace:*",
         "@executor/sdk": "workspace:*",
         "@executor/storage-postgres": "workspace:*",
         "@tanstack/react-router": "catalog:",
@@ -67,7 +68,7 @@
         "react-dom": "catalog:",
       },
       "devDependencies": {
-        "@electric-sql/pglite": "^0.4.3",
+        "@cloudflare/workers-types": "^4.20250620.0",
         "@tailwindcss/vite": "catalog:",
         "@types/pg": "^8.15.4",
         "@types/react": "catalog:",
@@ -308,6 +309,20 @@
         "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/kernel/runtime-dynamic-worker": {
+      "name": "@executor/runtime-dynamic-worker",
+      "version": "1.4.2",
+      "dependencies": {
+        "@executor/codemode-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "^4.20250620.0",
+        "@effect/vitest": "catalog:",
+        "@types/node": "catalog:",
         "vitest": "catalog:",
       },
     },
@@ -766,6 +781,8 @@
 
     "@cloudflare/workerd-windows-64": ["@cloudflare/workerd-windows-64@1.20260405.1", "", { "os": "win32", "cpu": "x64" }, "sha512-FhE0kt93kj5JnSPVqi4BAXpQQENyKnuSOoJLd35mkMMGhtPrwv5EsReJdck0S8hUocCBlb+U0RmP8ta6k41HjQ=="],
 
+    "@cloudflare/workers-types": ["@cloudflare/workers-types@4.20260408.1", "", {}, "sha512-kE1tKfHUyIldsj3ea2XEqvLRHkDwc83YM7nar6SS5+cj81IoAFR/OZNDwZWHb6vx+pC31PBJGtROlfZzsgxudQ=="],
+
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
 
     "@date-fns/tz": ["@date-fns/tz@1.4.1", "", {}, "sha512-P5LUNhtbj6YfI3iJjw5EL9eUAG6OitD0W3fWQcpQjDRc/QIsL0tRNuO1PcDvPccWL1fSTXXdE1ds+l95DV/OFA=="],
@@ -931,6 +948,8 @@
     "@executor/react": ["@executor/react@workspace:packages/react"],
 
     "@executor/runtime-deno-subprocess": ["@executor/runtime-deno-subprocess@workspace:packages/kernel/runtime-deno-subprocess"],
+
+    "@executor/runtime-dynamic-worker": ["@executor/runtime-dynamic-worker@workspace:packages/kernel/runtime-dynamic-worker"],
 
     "@executor/runtime-quickjs": ["@executor/runtime-quickjs@workspace:packages/kernel/runtime-quickjs"],
 

@@ -16,6 +16,7 @@ import { setCookie } from "@tanstack/react-start/server";
 import { addGroup } from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
+import { makeDynamicWorkerExecutor, type CodeExecutor } from "@executor/runtime-dynamic-worker";
 import { OpenApiGroup, OpenApiExtensionService, OpenApiHandlers } from "@executor/plugin-openapi/api";
 import { McpGroup, McpExtensionService, McpHandlers } from "@executor/plugin-mcp/api";
 import {
@@ -31,7 +32,7 @@ import { CloudAuthHandlers, CloudAuthPublicHandlers } from "./auth/handlers";
 import { WorkOSAuth } from "./auth/workos";
 import { DbService } from "./services/db";
 import { createTeamExecutor } from "./services/executor";
-import { server } from "./env";
+import { cf, server } from "./env";
 
 const ProtectedCloudApi = addGroup(OpenApiGroup)
   .add(McpGroup)
@@ -92,6 +93,7 @@ const parseCookie = (cookieHeader: string | null, name: string): string | null =
   if (!match) return null;
   return match.slice(name.length + 1) || null;
 };
+
 
 const isPublicPath = (pathname: string): boolean =>
   pathname === "/auth/login" || pathname === "/auth/callback";
@@ -167,8 +169,9 @@ const createProtectedHandler = (
   auth: ResolvedAuth,
   teamId: string,
   executor: TeamExecutor,
+  codeExecutor: CodeExecutor,
 ) => {
-  const engine = createExecutionEngine({ executor });
+  const engine = createExecutionEngine({ executor, codeExecutor });
 
   const requestServices = Layer.mergeAll(
     Layer.succeed(AuthContext, {
@@ -230,7 +233,10 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
     );
 
     const handler = yield* Effect.acquireRelease(
-      Effect.sync(() => createProtectedHandler(auth, teamId, executor)),
+      Effect.sync(() => {
+        const codeExecutor = makeDynamicWorkerExecutor({ loader: cf.loader });
+        return createProtectedHandler(auth, teamId, executor, codeExecutor);
+      }),
       disposeProtectedHandler,
     );
 

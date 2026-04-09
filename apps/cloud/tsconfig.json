@@ -6,6 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"],
     "outDir": "dist",
     "rootDir": ".",
     "declaration": false,
@@ -19,5 +20,5 @@
       }
     ]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "worker-configuration.d.ts"]
 }

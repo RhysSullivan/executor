@@ -1,5 +1,6 @@
 import { createMiddleware, createStart } from "@tanstack/react-start";
 import { handleApiRequest } from "./api";
+import { cf } from "./env";
 
 // ---------------------------------------------------------------------------
 // Marketing routes — proxied to the marketing worker via service binding
@@ -10,14 +11,7 @@ const MARKETING_PATHS = ["/home", "/setup", "/api/detect", "/_astro", "/favicon.
 const isMarketingPath = (pathname: string) =>
   MARKETING_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
-const getMarketingWorker = async () => {
-  try {
-    const { env } = await import("cloudflare:workers");
-    return (env as any).MARKETING as { fetch: typeof fetch } | undefined;
-  } catch {
-    return undefined;
-  }
-};
+const getMarketingWorker = () => cf.marketing as { fetch: typeof fetch } | undefined;
 
 const marketingMiddleware = createMiddleware({ type: "request" }).server(
   async ({ pathname, request, next }) => {
@@ -27,7 +21,7 @@ const marketingMiddleware = createMiddleware({ type: "request" }).server(
 
     if (!shouldProxyToMarketing) return next();
 
-    const marketing = await getMarketingWorker();
+    const marketing = getMarketingWorker();
     if (!marketing) return next();
 
     const url = new URL(request.url);

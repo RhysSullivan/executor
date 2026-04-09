@@ -3,6 +3,7 @@
 declare namespace Cloudflare {
   interface Env {
     HYPERDRIVE: Hyperdrive;
+    LOADER: WorkerLoader;
     MARKETING: Fetcher;
     WORKOS_API_KEY: string;
     WORKOS_CLIENT_ID: string;
