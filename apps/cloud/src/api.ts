@@ -70,19 +70,14 @@ const SharedServices = Layer.mergeAll(
   HttpServer.layerContext,
 );
 
-let _publicApiHandler: ReturnType<typeof HttpApiBuilder.toWebHandler> | null = null;
-const getPublicApiHandler = () => {
-  if (!_publicApiHandler) {
-    _publicApiHandler = HttpApiBuilder.toWebHandler(
-      PublicCloudApiLive.pipe(
-        Layer.provideMerge(SharedServices),
-        Layer.provideMerge(HttpRouter.setRouterConfig({ maxParamLength: 1000 })),
-      ),
-      { middleware: HttpMiddleware.logger },
-    );
-  }
-  return _publicApiHandler;
-};
+const createPublicApiHandler = () =>
+  HttpApiBuilder.toWebHandler(
+    PublicCloudApiLive.pipe(
+      Layer.provideMerge(SharedServices),
+      Layer.provideMerge(HttpRouter.setRouterConfig({ maxParamLength: 1000 })),
+    ),
+    { middleware: HttpMiddleware.logger },
+  );
 
 const parseCookie = (cookieHeader: string | null, name: string): string | null => {
   if (!cookieHeader) return null;
@@ -106,7 +101,7 @@ const COOKIE_OPTIONS = {
   httpOnly: true,
   sameSite: "lax" as const,
   maxAge: 60 * 60 * 24 * 7,
-  secure: server.NODE_ENV === "production",
+  secure: true,
 };
 
 const resolveAuth = (request: Request) =>
@@ -217,7 +212,10 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
   const pathname = new URL(request.url).pathname;
 
   if (isPublicPath(pathname)) {
-    return getPublicApiHandler().handler(request);
+    const handler = createPublicApiHandler();
+    const response = await handler.handler(request);
+    await handler.dispose();
+    return response;
   }
 
   const requestProgram = Effect.gen(function* () {
