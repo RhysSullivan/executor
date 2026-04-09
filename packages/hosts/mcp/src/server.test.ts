@@ -313,11 +313,11 @@ describe("MCP host server — client with elicitation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — client with form-only elicitation (falls back to pause/resume)
+// Tests — client with form-only elicitation (uses managed elicitation)
 // ---------------------------------------------------------------------------
 
 describe("MCP host server — client with form-only elicitation", () => {
-  it("resume tool is visible when client only supports form elicitation", async () => {
+  it("resume tool is hidden when client supports form elicitation", async () => {
     const engine = makeStubEngine({});
     const { client, close } = await connect(engine, {
       elicitation: { form: {} },
@@ -327,17 +327,16 @@ describe("MCP host server — client with form-only elicitation", () => {
       const { tools } = await client.listTools();
       const names = tools.map((t) => t.name);
       expect(names).toContain("execute");
-      expect(names).toContain("resume");
+      expect(names).not.toContain("resume");
     } finally {
       await close();
     }
   });
 
-  it("uses pause/resume path when client only supports form", async () => {
+  it("uses managed elicitation path when client supports form", async () => {
     const engine = makeStubEngine({
-      executeWithPause: async () => ({
-        status: "completed",
-        result: { result: "form-only-path" },
+      execute: async (code) => ({
+        result: `managed: ${code}`,
       }),
     });
 
@@ -350,7 +349,49 @@ describe("MCP host server — client with form-only elicitation", () => {
         name: "execute",
         arguments: { code: "test" },
       });
-      expect(result.content).toEqual([{ type: "text", text: "form-only-path" }]);
+      expect(result.content).toEqual([{ type: "text", text: "managed: test" }]);
+    } finally {
+      await close();
+    }
+  });
+
+  it("UrlElicitation falls back to form when client lacks url support", async () => {
+    let receivedMessage: string | undefined;
+
+    const engine = makeStubEngine({
+      execute: async (_code, { onElicitation }) => {
+        const response = await Effect.runPromise(
+          onElicitation({
+            toolId: "t" as any,
+            args: {},
+            request: new UrlElicitation({
+              message: "Please authenticate",
+              url: "https://auth.example.com/oauth",
+              elicitationId: "elic-1",
+            }),
+          }),
+        );
+        return { result: response.action };
+      },
+    });
+
+    const { client, close } = await connect(engine, {
+      elicitation: { form: {} }, // no url support
+    });
+
+    client.setRequestHandler(ElicitRequestSchema, async (request) => {
+      receivedMessage = (request.params as Record<string, unknown>).message as string;
+      return { action: "accept" as const, content: {} };
+    });
+
+    try {
+      const result = await client.callTool({
+        name: "execute",
+        arguments: { code: "oauth" },
+      });
+      expect(result.content).toEqual([{ type: "text", text: "accept" }]);
+      expect(receivedMessage).toContain("https://auth.example.com/oauth");
+      expect(receivedMessage).toContain("Please authenticate");
     } finally {
       await close();
     }
@@ -446,7 +487,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
     const engine = makeStubEngine({
       resume: async (executionId, response) => {
         if (executionId === "exec_1" && response.action === "accept") {
-          return { result: "resumed-ok" };
+          return { status: "completed", result: { result: "resumed-ok" } };
         }
         return null;
       },
@@ -478,7 +519,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
     const engine = makeStubEngine({
       resume: async (_id, response) => {
         receivedContent = response.content;
-        return { result: "ok" };
+        return { status: "completed", result: { result: "ok" } };
       },
     });
 
@@ -505,7 +546,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
     const engine = makeStubEngine({
       resume: async (_id, response) => {
         receivedContent = response.content;
-        return { result: "ok" };
+        return { status: "completed", result: { result: "ok" } };
       },
     });
 
@@ -652,7 +693,7 @@ describe("MCP host server — resume content parsing", () => {
     const engine = makeStubEngine({
       resume: async (_id, response) => {
         receivedContent = response.content;
-        return { result: "ok" };
+        return { status: "completed", result: { result: "ok" } };
       },
     });
 
@@ -680,7 +721,7 @@ describe("MCP host server — resume content parsing", () => {
     const engine = makeStubEngine({
       resume: async (_id, response) => {
         receivedContent = response.content;
-        return { result: "ok" };
+        return { status: "completed", result: { result: "ok" } };
       },
     });
 
