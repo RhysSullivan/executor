@@ -32,7 +32,7 @@ import { CloudAuthHandlers, CloudAuthPublicHandlers } from "./auth/handlers";
 import { WorkOSAuth } from "./auth/workos";
 import { DbService } from "./services/db";
 import { createTeamExecutor } from "./services/executor";
-import { cf, server } from "./env";
+import { server } from "./env";
 
 const ProtectedCloudApi = addGroup(OpenApiGroup)
   .add(McpGroup)
@@ -233,8 +233,9 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
     );
 
     const handler = yield* Effect.acquireRelease(
-      Effect.sync(() => {
-        const codeExecutor = makeDynamicWorkerExecutor({ loader: cf.loader });
+      Effect.tryPromise(async () => {
+        const { env } = await import("cloudflare:workers");
+        const codeExecutor = makeDynamicWorkerExecutor({ loader: (env as any).LOADER });
         return createProtectedHandler(auth, teamId, executor, codeExecutor);
       }),
       disposeProtectedHandler,

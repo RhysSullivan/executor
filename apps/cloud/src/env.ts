@@ -1,4 +1,3 @@
-import { env as cfEnv } from "cloudflare:workers";
 import { createEnv, Env } from "@executor/env";
 
 const sharedShape = {
@@ -53,12 +52,3 @@ export const server = createEnv(serverShape, {
   emptyStringAsUndefined: true,
 }) as ServerEnv;
 
-// ---------------------------------------------------------------------------
-// Cloudflare bindings — single boundary for all platform-specific access
-// ---------------------------------------------------------------------------
-
-export const cf = {
-  get hyperdrive() { return cfEnv.HYPERDRIVE; },
-  get loader() { return cfEnv.LOADER; },
-  get marketing() { return cfEnv.MARKETING; },
-};

@@ -9,7 +9,7 @@ import { Context, Effect, Layer } from "effect";
 import * as sharedSchema from "@executor/storage-postgres/schema";
 import * as cloudSchema from "./schema";
 import type { DrizzleDb } from "@executor/storage-postgres";
-import { cf, server } from "../env";
+import { server } from "../env";
 
 const schema = { ...sharedSchema, ...cloudSchema };
 
@@ -19,9 +19,14 @@ export type { DrizzleDb };
 // Connection string resolution
 // ---------------------------------------------------------------------------
 
-const resolveHyperdriveUrl = Effect.succeed(
-  cf.hyperdrive?.connectionString ?? undefined,
-);
+const resolveHyperdriveUrl = Effect.tryPromise({
+  try: async () => {
+    const { env } = await import("cloudflare:workers");
+    const hyperdrive = (env as any).HYPERDRIVE;
+    return (hyperdrive?.connectionString as string) ?? null;
+  },
+  catch: () => null,
+}).pipe(Effect.map((v) => v ?? undefined));
 
 const resolveConnectionString = resolveHyperdriveUrl.pipe(
   Effect.map((url) => url ?? (server.DATABASE_URL || undefined)),
