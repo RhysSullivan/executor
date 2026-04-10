@@ -55,7 +55,7 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): GoogleDiscoveryBindin
     }),
 
   put: (toolId, namespace, binding) =>
-    bindings.set(toolId, encodeBindingEntry({ namespace, binding })),
+    bindings.set([{ key: toolId, value: encodeBindingEntry({ namespace, binding }) }]),
 
   listByNamespace: (namespace) =>
     Effect.gen(function* () {
@@ -76,17 +76,15 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): GoogleDiscoveryBindin
       const ids: ToolId[] = [];
       for (const entry of entries) {
         const decoded = decodeBindingEntry(entry.value);
-        if (decoded.namespace === namespace) {
-          ids.push(entry.key as ToolId);
-          yield* bindings.delete(entry.key);
-        }
+        if (decoded.namespace === namespace) ids.push(entry.key as ToolId);
       }
+      if (ids.length > 0) yield* bindings.delete(ids);
       return ids;
     }),
 
-  putSource: (source) => sources.set(source.namespace, JSON.stringify(source)),
+  putSource: (source) => sources.set([{ key: source.namespace, value: JSON.stringify(source) }]),
 
-  removeSource: (namespace) => sources.delete(namespace).pipe(Effect.asVoid),
+  removeSource: (namespace) => sources.delete([namespace]).pipe(Effect.asVoid),
 
   listSources: () =>
     Effect.gen(function* () {

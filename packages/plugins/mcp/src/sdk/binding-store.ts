@@ -80,9 +80,9 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): McpBindingStore => ({
     }),
 
   put: (toolId, namespace, binding, sourceData) =>
-    bindings.set(toolId, encodeBindingEntry({ namespace, binding, sourceData })),
+    bindings.set([{ key: toolId, value: encodeBindingEntry({ namespace, binding, sourceData }) }]),
 
-  remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
+  remove: (toolId) => bindings.delete([toolId]).pipe(Effect.asVoid),
 
   listByNamespace: (namespace) =>
     Effect.gen(function* () {
@@ -101,19 +101,17 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): McpBindingStore => ({
       const ids: ToolId[] = [];
       for (const e of entries) {
         const entry = decodeBindingEntry(e.value);
-        if (entry.namespace === namespace) {
-          ids.push(e.key as ToolId);
-          yield* bindings.delete(e.key);
-        }
+        if (entry.namespace === namespace) ids.push(e.key as ToolId);
       }
+      if (ids.length > 0) yield* bindings.delete(ids);
       return ids;
     }),
 
   // ---- Sources (meta + config combined) ----
 
-  putSource: (source) => sources.set(source.namespace, JSON.stringify(source)),
+  putSource: (source) => sources.set([{ key: source.namespace, value: JSON.stringify(source) }]),
 
-  removeSource: (namespace) => sources.delete(namespace).pipe(Effect.asVoid),
+  removeSource: (namespace) => sources.delete([namespace]).pipe(Effect.asVoid),
 
   listSources: () =>
     Effect.gen(function* () {

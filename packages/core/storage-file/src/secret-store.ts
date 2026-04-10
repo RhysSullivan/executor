@@ -150,7 +150,7 @@ export const makeKvSecretStore = (refsKv: ScopedKv) => {
           createdAt: new Date(),
         });
 
-        yield* refsKv.set(input.id, encodeRef(ref));
+        yield* refsKv.set([{ key: input.id, value: encodeRef(ref) }]);
         return ref;
       }),
 
@@ -164,7 +164,7 @@ export const makeKvSecretStore = (refsKv: ScopedKv) => {
         const provider = findWritableProvider(providerKey);
         if (provider?.delete) yield* provider.delete(secretId);
 
-        yield* refsKv.delete(secretId);
+        yield* refsKv.delete([secretId]);
         return true;
       }),
 

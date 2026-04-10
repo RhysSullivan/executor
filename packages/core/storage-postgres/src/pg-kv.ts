@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import type { Kv } from "@executor/sdk";
 
 import { pluginKv } from "./schema";
@@ -25,30 +25,38 @@ export const makePgKv = (db: DrizzleDb, organizationId: string): Kv => ({
       return rows[0]?.value ?? null;
     }).pipe(Effect.orDie),
 
-  set: (namespace, key, value) =>
+  set: (namespace, entries) =>
     Effect.tryPromise(async () => {
+      if (entries.length === 0) return;
+      const values = entries.map(({ key, value }) => ({
+        organizationId,
+        namespace,
+        key,
+        value,
+      }));
       await db
         .insert(pluginKv)
-        .values({ organizationId, namespace, key, value })
+        .values(values)
         .onConflictDoUpdate({
           target: [pluginKv.organizationId, pluginKv.namespace, pluginKv.key],
-          set: { value },
+          set: { value: sql`excluded.value` },
         });
     }).pipe(Effect.orDie),
 
-  delete: (namespace, key) =>
+  delete: (namespace, keys) =>
     Effect.tryPromise(async () => {
+      if (keys.length === 0) return 0;
       const result = await db
         .delete(pluginKv)
         .where(
           and(
             eq(pluginKv.organizationId, organizationId),
             eq(pluginKv.namespace, namespace),
-            eq(pluginKv.key, key),
+            inArray(pluginKv.key, [...keys]),
           ),
         )
         .returning();
-      return result.length > 0;
+      return result.length;
     }).pipe(Effect.orDie),
 
   list: (namespace) =>
@@ -69,8 +77,5 @@ export const makePgKv = (db: DrizzleDb, organizationId: string): Kv => ({
       return result.length;
     }).pipe(Effect.orDie),
 
-  withTransaction: <A, E>(effect: Effect.Effect<A, E, never>) =>
-    // Drizzle handles transactions at the query level;
-    // for the KV escape hatch we just pass through
-    effect,
+  withTransaction: <A, E>(effect: Effect.Effect<A, E, never>) => effect,
 });

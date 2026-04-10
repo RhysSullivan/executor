@@ -101,4 +101,4 @@ export { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
 
 // Testing
 export { makeTestConfig } from "./testing";
-export { type Kv, type ScopedKv, scopeKv, makeInMemoryScopedKv } from "./plugin-kv";
+export { type Kv, type KvEntry, type ScopedKv, scopeKv, makeInMemoryScopedKv } from "./plugin-kv";

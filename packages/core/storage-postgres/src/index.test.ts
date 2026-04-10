@@ -335,13 +335,13 @@ describe("Executor with Postgres storage", () => {
       const kv = makePgKv(db, TEST_ORG_ID);
       const scoped = scopeKv(kv, "my-plugin");
 
-      yield* scoped.set("k1", "v1");
+      yield* scoped.set([{ key: "k1", value: "v1" }]);
       expect(yield* scoped.get("k1")).toBe("v1");
 
       const items = yield* scoped.list();
       expect(items).toHaveLength(1);
 
-      yield* scoped.delete("k1");
+      yield* scoped.delete(["k1"]);
       expect(yield* scoped.get("k1")).toBeNull();
     }),
   );
@@ -351,8 +351,8 @@ describe("Executor with Postgres storage", () => {
       const kv1 = makePgKv(db, "org-a");
       const kv2 = makePgKv(db, "org-b");
 
-      yield* kv1.set("ns", "key", "org-a-value");
-      yield* kv2.set("ns", "key", "org-b-value");
+      yield* kv1.set("ns", [{ key: "key", value: "org-a-value" }]);
+      yield* kv2.set("ns", [{ key: "key", value: "org-b-value" }]);
 
       expect(yield* kv1.get("ns", "key")).toBe("org-a-value");
       expect(yield* kv2.get("ns", "key")).toBe("org-b-value");

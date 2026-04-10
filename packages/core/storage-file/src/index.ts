@@ -85,8 +85,8 @@ export const makeKvConfig = <const TPlugins extends readonly ExecutorPlugin<stri
  */
 export const makeScopedKv = (kv: Kv, folder: string): Kv => ({
   get: (namespace, key) => kv.get(`${folder}::${namespace}`, key),
-  set: (namespace, key, value) => kv.set(`${folder}::${namespace}`, key, value),
-  delete: (namespace, key) => kv.delete(`${folder}::${namespace}`, key),
+  set: (namespace, entries) => kv.set(`${folder}::${namespace}`, entries),
+  delete: (namespace, keys) => kv.delete(`${folder}::${namespace}`, keys),
   list: (namespace) => kv.list(`${folder}::${namespace}`),
   deleteAll: (namespace) => kv.deleteAll(`${folder}::${namespace}`),
   withTransaction: kv.withTransaction,
