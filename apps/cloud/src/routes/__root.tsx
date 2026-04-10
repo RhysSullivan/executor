@@ -1,5 +1,6 @@
 import React from "react";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
+import { AutumnProvider } from "autumn-js/react";
 import { ExecutorProvider } from "@executor/react/api/provider";
 import { AuthProvider, useAuth } from "../web/auth";
 import { LoginPage } from "../web/pages/login";
@@ -22,6 +23,7 @@ export const Route = createRootRoute({
       },
       { rel: "stylesheet", href: appCss },
     ],
+    scripts: import.meta.env.DEV ? [{ src: "https://ui.sh/ui-picker.js" }] : [],
   }),
   component: RootComponent,
   shellComponent: RootDocument,
@@ -65,8 +67,10 @@ function AuthGate() {
   }
 
   return (
-    <ExecutorProvider>
-      <Shell />
-    </ExecutorProvider>
+    <AutumnProvider pathPrefix="/api/autumn">
+      <ExecutorProvider>
+        <Shell />
+      </ExecutorProvider>
+    </AutumnProvider>
   );
 }

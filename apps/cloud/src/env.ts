@@ -11,6 +11,7 @@ const serverShape = {
   WORKOS_CLIENT_ID: Env.string("WORKOS_CLIENT_ID"),
   WORKOS_COOKIE_PASSWORD: Env.string("WORKOS_COOKIE_PASSWORD"),
   VITE_PUBLIC_SITE_URL: Env.stringOr("VITE_PUBLIC_SITE_URL", ""),
+  AUTUMN_SECRET_KEY: Env.stringOr("AUTUMN_SECRET_KEY", ""),
 };
 
 type SharedEnv = Readonly<{
@@ -25,6 +26,7 @@ type ServerEnv = SharedEnv &
     WORKOS_CLIENT_ID: string;
     WORKOS_COOKIE_PASSWORD: string;
     VITE_PUBLIC_SITE_URL: string;
+    AUTUMN_SECRET_KEY: string;
   }>;
 
 type WebEnv = Readonly<Record<string, never>>;

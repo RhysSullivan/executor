@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from "./routes/__root";
 import { Route as ToolsRouteImport } from "./routes/tools";
 import { Route as SecretsRouteImport } from "./routes/secrets";
+import { Route as BillingRouteImport } from "./routes/billing";
 import { Route as IndexRouteImport } from "./routes/index";
 import { Route as SourcesNamespaceRouteImport } from "./routes/sources.$namespace";
+import { Route as BillingPlansRouteImport } from "./routes/billing_.plans";
 import { Route as SourcesAddPluginKeyRouteImport } from "./routes/sources.add.$pluginKey";
 
 const ToolsRoute = ToolsRouteImport.update({
@@ -25,6 +27,11 @@ const SecretsRoute = SecretsRouteImport.update({
   path: "/secrets",
   getParentRoute: () => rootRouteImport,
 } as any);
+const BillingRoute = BillingRouteImport.update({
+  id: "/billing",
+  path: "/billing",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const IndexRoute = IndexRouteImport.update({
   id: "/",
   path: "/",
@@ -35,6 +42,11 @@ const SourcesNamespaceRoute = SourcesNamespaceRouteImport.update({
   path: "/sources/$namespace",
   getParentRoute: () => rootRouteImport,
 } as any);
+const BillingPlansRoute = BillingPlansRouteImport.update({
+  id: "/billing_/plans",
+  path: "/billing/plans",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
   id: "/sources/add/$pluginKey",
   path: "/sources/add/$pluginKey",
@@ -43,38 +55,68 @@ const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
 
 export interface FileRoutesByFullPath {
   "/": typeof IndexRoute;
+  "/billing": typeof BillingRoute;
   "/secrets": typeof SecretsRoute;
   "/tools": typeof ToolsRoute;
+  "/billing/plans": typeof BillingPlansRoute;
   "/sources/$namespace": typeof SourcesNamespaceRoute;
   "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
 }
 export interface FileRoutesByTo {
   "/": typeof IndexRoute;
+  "/billing": typeof BillingRoute;
   "/secrets": typeof SecretsRoute;
   "/tools": typeof ToolsRoute;
+  "/billing/plans": typeof BillingPlansRoute;
   "/sources/$namespace": typeof SourcesNamespaceRoute;
   "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof IndexRoute;
+  "/billing": typeof BillingRoute;
   "/secrets": typeof SecretsRoute;
   "/tools": typeof ToolsRoute;
+  "/billing_/plans": typeof BillingPlansRoute;
   "/sources/$namespace": typeof SourcesNamespaceRoute;
   "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
-  fullPaths: "/" | "/secrets" | "/tools" | "/sources/$namespace" | "/sources/add/$pluginKey";
+  fullPaths:
+    | "/"
+    | "/billing"
+    | "/secrets"
+    | "/tools"
+    | "/billing/plans"
+    | "/sources/$namespace"
+    | "/sources/add/$pluginKey";
   fileRoutesByTo: FileRoutesByTo;
-  to: "/" | "/secrets" | "/tools" | "/sources/$namespace" | "/sources/add/$pluginKey";
-  id: "__root__" | "/" | "/secrets" | "/tools" | "/sources/$namespace" | "/sources/add/$pluginKey";
+  to:
+    | "/"
+    | "/billing"
+    | "/secrets"
+    | "/tools"
+    | "/billing/plans"
+    | "/sources/$namespace"
+    | "/sources/add/$pluginKey";
+  id:
+    | "__root__"
+    | "/"
+    | "/billing"
+    | "/secrets"
+    | "/tools"
+    | "/billing_/plans"
+    | "/sources/$namespace"
+    | "/sources/add/$pluginKey";
   fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
+  BillingRoute: typeof BillingRoute;
   SecretsRoute: typeof SecretsRoute;
   ToolsRoute: typeof ToolsRoute;
+  BillingPlansRoute: typeof BillingPlansRoute;
   SourcesNamespaceRoute: typeof SourcesNamespaceRoute;
   SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute;
 }
@@ -95,6 +137,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SecretsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/billing": {
+      id: "/billing";
+      path: "/billing";
+      fullPath: "/billing";
+      preLoaderRoute: typeof BillingRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/": {
       id: "/";
       path: "/";
@@ -109,6 +158,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SourcesNamespaceRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/billing_/plans": {
+      id: "/billing_/plans";
+      path: "/billing/plans";
+      fullPath: "/billing/plans";
+      preLoaderRoute: typeof BillingPlansRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/sources/add/$pluginKey": {
       id: "/sources/add/$pluginKey";
       path: "/sources/add/$pluginKey";
@@ -121,8 +177,10 @@ declare module "@tanstack/react-router" {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  BillingRoute: BillingRoute,
   SecretsRoute: SecretsRoute,
   ToolsRoute: ToolsRoute,
+  BillingPlansRoute: BillingPlansRoute,
   SourcesNamespaceRoute: SourcesNamespaceRoute,
   SourcesAddPluginKeyRoute: SourcesAddPluginKeyRoute,
 };

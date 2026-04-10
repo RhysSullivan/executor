@@ -11,6 +11,8 @@ import {
   HttpServer,
 } from "@effect/platform";
 import { Effect, Layer } from "effect";
+import { Autumn } from "autumn-js";
+import { autumnHandler } from "autumn-js/backend";
 
 import { CoreExecutorApi } from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
@@ -155,6 +157,21 @@ const buildProtectedHandler = (
 // ---------------------------------------------------------------------------
 
 const isAuthPath = (pathname: string): boolean => pathname.startsWith("/auth/");
+const isAutumnPath = (pathname: string): boolean => pathname.startsWith("/autumn/");
+const isExecutionPath = (pathname: string): boolean =>
+  pathname === "/executions" || /^\/executions\/[^/]+\/resume$/.test(pathname);
+
+// ---------------------------------------------------------------------------
+// Autumn billing — lazy-initialized SDK for fire-and-forget tracking
+// ---------------------------------------------------------------------------
+
+let _autumn: Autumn | null = null;
+const getAutumn = () => {
+  if (!_autumn && server.AUTUMN_SECRET_KEY) {
+    _autumn = new Autumn({ secretKey: server.AUTUMN_SECRET_KEY });
+  }
+  return _autumn;
+};
 
 /**
  * Resolve the user's organization for executor creation. Reads from the
@@ -170,8 +187,66 @@ const lookupOrgForRequest = (request: Request) =>
     return yield* users.use((s) => s.getOrganization(result.organizationId!));
   });
 
+// ---------------------------------------------------------------------------
+// Autumn billing proxy — authenticates the session, then forwards to Autumn
+// ---------------------------------------------------------------------------
+
+const handleAutumnRequest = async (request: Request): Promise<Response> => {
+  const program = Effect.gen(function* () {
+    const workos = yield* WorkOSAuth;
+    const result = yield* workos.authenticateRequest(request);
+
+    if (!result || !result.organizationId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const url = new URL(request.url);
+    const body =
+      request.method !== "GET" && request.method !== "HEAD"
+        ? yield* Effect.promise(() => request.json())
+        : undefined;
+
+    const { statusCode, response } = yield* Effect.promise(() =>
+      autumnHandler({
+        request: {
+          url: url.pathname,
+          method: request.method,
+          body,
+        },
+        customerId: result.organizationId,
+        customerData: {
+          name: result.email,
+          email: result.email,
+        },
+        clientOptions: {
+          secretKey: server.AUTUMN_SECRET_KEY,
+        },
+        pathPrefix: "/autumn",
+      }),
+    );
+
+    if (statusCode >= 400) {
+      console.error("[autumn] upstream error:", statusCode, response);
+      return Response.json({ error: "Billing request failed" }, { status: statusCode });
+    }
+
+    return Response.json(response, { status: statusCode });
+  });
+
+  return Effect.runPromise(program.pipe(Effect.provide(SharedServices), Effect.scoped)).catch(
+    (err) => {
+      console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
+      return Response.json({ error: "Internal server error" }, { status: 500 });
+    },
+  );
+};
+
 export const handleApiRequest = async (request: Request): Promise<Response> => {
   const pathname = new URL(request.url).pathname;
+
+  if (isAutumnPath(pathname)) {
+    return handleAutumnRequest(request);
+  }
 
   if (isAuthPath(pathname)) {
     const handler = createNonProtectedHandler();
@@ -190,7 +265,8 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
 
       const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
       const handler = yield* buildProtectedHandler(org.id, org.name, codeExecutor);
-      return yield* Effect.promise(() => handler.handler(request));
+      const response = yield* Effect.promise(() => handler.handler(request));
+      return { response, orgId: org.id };
     });
 
     const result = await Effect.runPromise(
@@ -203,7 +279,24 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
         { status: 403 },
       );
     }
-    return result;
+
+    // Fire-and-forget: track execution usage
+    if (isExecutionPath(pathname) && result.response.ok) {
+      const autumn = getAutumn();
+      if (autumn) {
+        autumn
+          .track({
+            customerId: result.orgId,
+            featureId: "executions",
+            value: 1,
+          })
+          .catch((err) => {
+            console.error("[billing] track failed:", err);
+          });
+      }
+    }
+
+    return result.response;
   } catch (err) {
     console.error("[api] request failed:", err instanceof Error ? err.stack : err);
     return Response.json(
