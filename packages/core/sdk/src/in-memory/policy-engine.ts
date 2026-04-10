@@ -9,11 +9,8 @@ export const makeInMemoryPolicyEngine = () => {
 
   return {
     list: (scopeId: ScopeId) =>
-      Effect.succeed(
-        [...policies.values()].filter((p) => p.scopeId === scopeId),
-      ),
-    check: (_input: PolicyCheckInput) =>
-      Effect.void,
+      Effect.succeed([...policies.values()].filter((p) => p.scopeId === scopeId)),
+    check: (_input: PolicyCheckInput) => Effect.void,
     add: (policy: Omit<Policy, "id" | "createdAt">) =>
       Effect.sync(() => {
         const id = PolicyId.make(`policy-${++counter}`);
@@ -21,7 +18,6 @@ export const makeInMemoryPolicyEngine = () => {
         policies.set(id, full);
         return full;
       }),
-    remove: (policyId: PolicyId) =>
-      Effect.succeed(policies.delete(policyId)),
+    remove: (policyId: PolicyId) => Effect.succeed(policies.delete(policyId)),
   };
 };

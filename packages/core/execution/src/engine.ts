@@ -60,7 +60,9 @@ const truncate = (value: string, max: number): string =>
     ? `${value.slice(0, max)}\n... [truncated ${value.length - max} chars]`
     : value;
 
-export const formatExecuteResult = (result: ExecuteResult): {
+export const formatExecuteResult = (
+  result: ExecuteResult,
+): {
   text: string;
   structured: Record<string, unknown>;
   isError: boolean;
@@ -72,8 +74,7 @@ export const formatExecuteResult = (result: ExecuteResult): {
         : JSON.stringify(result.result, null, 2)
       : null;
 
-  const logText =
-    result.logs && result.logs.length > 0 ? result.logs.join("\n") : null;
+  const logText = result.logs && result.logs.length > 0 ? result.logs.join("\n") : null;
 
   if (result.error) {
     const parts = [`Error: ${result.error}`, ...(logText ? [`\nLogs:\n${logText}`] : [])];
@@ -95,7 +96,9 @@ export const formatExecuteResult = (result: ExecuteResult): {
   };
 };
 
-export const formatPausedExecution = (paused: PausedExecution): {
+export const formatPausedExecution = (
+  paused: PausedExecution,
+): {
   text: string;
   structured: Record<string, unknown>;
 } => {
@@ -124,7 +127,9 @@ export const formatPausedExecution = (paused: PausedExecution): {
         kind: req._tag === "UrlElicitation" ? "url" : "form",
         message: (req as any).message,
         ...(req._tag === "UrlElicitation" ? { url: (req as any).url } : {}),
-        ...(req._tag === "FormElicitation" ? { requestedSchema: (req as any).requestedSchema } : {}),
+        ...(req._tag === "FormElicitation"
+          ? { requestedSchema: (req as any).requestedSchema }
+          : {}),
       },
     },
   };
@@ -137,10 +142,7 @@ export const formatPausedExecution = (paused: PausedExecution): {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readOptionalLimit = (
-  value: unknown,
-  toolName: string,
-): number | ExecutionToolError => {
+const readOptionalLimit = (value: unknown, toolName: string): number | ExecutionToolError => {
   if (value === undefined) {
     return 12;
   }
@@ -154,10 +156,7 @@ const readOptionalLimit = (
   return Math.floor(value);
 };
 
-const makeFullInvoker = (
-  executor: Executor,
-  invokeOptions: InvokeOptions,
-): SandboxToolInvoker => {
+const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): SandboxToolInvoker => {
   const base = makeExecutorToolInvoker(executor, { invokeOptions });
   return {
     invoke: ({ path, args }) => {
@@ -165,7 +164,8 @@ const makeFullInvoker = (
         if (!isRecord(args)) {
           return Effect.fail(
             new ExecutionToolError({
-              message: "tools.search expects an object: { query?: string; namespace?: string; limit?: number }",
+              message:
+                "tools.search expects an object: { query?: string; namespace?: string; limit?: number }",
             }),
           );
         }
@@ -199,7 +199,8 @@ const makeFullInvoker = (
         if (args !== undefined && !isRecord(args)) {
           return Effect.fail(
             new ExecutionToolError({
-              message: "tools.executor.sources.list expects an object: { query?: string; limit?: number }",
+              message:
+                "tools.executor.sources.list expects an object: { query?: string; limit?: number }",
             }),
           );
         }
@@ -212,7 +213,10 @@ const makeFullInvoker = (
           );
         }
 
-        const limit = readOptionalLimit(isRecord(args) ? args.limit : undefined, "tools.executor.sources.list");
+        const limit = readOptionalLimit(
+          isRecord(args) ? args.limit : undefined,
+          "tools.executor.sources.list",
+        );
         if (limit instanceof ExecutionToolError) {
           return Effect.fail(limit);
         }
@@ -275,7 +279,10 @@ export type ExecutionEngine = {
    * Resume a paused execution. Returns a completed result, a new pause, or
    * null if the executionId was not found.
    */
-  readonly resume: (executionId: string, response: ResumeResponse) => Promise<ExecutionResult | null>;
+  readonly resume: (
+    executionId: string,
+    response: ResumeResponse,
+  ) => Promise<ExecutionResult | null>;
 
   /**
    * Get the dynamic tool description (workflow + namespaces).
@@ -321,9 +328,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       // Ref holds the current pause signal. The elicitation handler reads
       // it each time it fires, so resume() can swap in a fresh Deferred
       // before unblocking the fiber.
-      const pauseSignalRef = yield* Ref.make(
-        yield* Deferred.make<InternalPausedExecution>(),
-      );
+      const pauseSignalRef = yield* Ref.make(yield* Deferred.make<InternalPausedExecution>());
 
       // Will be set once the fiber is forked.
       let fiber: Fiber.Fiber<ExecuteResult, unknown>;

@@ -10,11 +10,8 @@ import { OpenApiGroup } from "../api/group";
 
 const OpenApiApi = addGroup(OpenApiGroup);
 
-export const OpenApiClient = AtomHttpApi.Tag<"OpenApiClient">()(
-  "OpenApiClient",
-  {
-    api: OpenApiApi,
-    httpClient: FetchHttpClient.layer,
-    baseUrl: getBaseUrl(),
-  },
-);
+export const OpenApiClient = AtomHttpApi.Tag<"OpenApiClient">()("OpenApiClient", {
+  api: OpenApiApi,
+  httpClient: FetchHttpClient.layer,
+  baseUrl: getBaseUrl(),
+});

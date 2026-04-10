@@ -29,14 +29,30 @@ export const defaultHeaderAuthPresets: readonly HeaderAuthPreset[] = [
 
 function SecretVisibilityIcon(props: { revealed: boolean }) {
   return props.revealed ? (
-    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 16 16"
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M2 2l12 12" />
       <path d="M6.5 6.5a2 2 0 0 0 3 3" />
       <path d="M3.5 5.5C2.3 6.7 1.5 8 1.5 8s2.5 4.5 6.5 4.5c1 0 1.9-.3 2.7-.7" />
       <path d="M10.7 10.7c2-1.4 3.3-3.2 3.8-3.7 0 0-2.5-5-6.5-5-.7 0-1.4.1-2 .4" />
     </svg>
   ) : (
-    <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      viewBox="0 0 16 16"
+      className="size-3.5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z" />
       <circle cx="8" cy="8" r="2" />
     </svg>
@@ -95,7 +111,9 @@ function InlineCreateSecret(props: {
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Label</Label>
+          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Label
+          </Label>
           <Input
             value={secretName}
             onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
@@ -149,11 +167,7 @@ type ResolveState =
   | { status: "revealed"; value: string }
   | { status: "error" };
 
-function HeaderValuePreview(props: {
-  headerName: string;
-  secretId: string;
-  prefix?: string;
-}) {
+function HeaderValuePreview(props: { headerName: string; secretId: string; prefix?: string }) {
   const { headerName, secretId, prefix } = props;
   const scopeId = useScope();
   const [state, setState] = useState<ResolveState>({ status: "hidden" });
@@ -179,9 +193,11 @@ function HeaderValuePreview(props: {
   };
 
   const displayValue =
-    state.status === "revealed" ? state.value
-    : state.status === "error" ? "failed to resolve"
-    : "•".repeat(12);
+    state.status === "revealed"
+      ? state.value
+      : state.status === "error"
+        ? "failed to resolve"
+        : "•".repeat(12);
   const isLoading = state.status === "loading";
   const isRevealed = state.status === "revealed";
 
@@ -223,8 +239,8 @@ export type HeaderState = {
 
 export function matchPresetKey(name: string, prefix?: string): string {
   const preset =
-    defaultHeaderAuthPresets.find((p) => p.name === name && p.prefix === prefix)
-    ?? defaultHeaderAuthPresets.find((p) => p.name === name && p.prefix === undefined);
+    defaultHeaderAuthPresets.find((p) => p.name === name && p.prefix === prefix) ??
+    defaultHeaderAuthPresets.find((p) => p.name === name && p.prefix === undefined);
   return preset?.key ?? "custom";
 }
 
@@ -310,9 +326,16 @@ export function SecretHeaderAuthRow(props: {
   return (
     <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
       <div className="flex items-center justify-between">
-        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</Label>
+        <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          {label}
+        </Label>
         {onRemove && (
-          <Button variant="ghost" size="xs" className="text-muted-foreground hover:text-destructive" onClick={onRemove}>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground hover:text-destructive"
+            onClick={onRemove}
+          >
             {removeLabel}
           </Button>
         )}
@@ -344,7 +367,9 @@ export function SecretHeaderAuthRow(props: {
       {presetKey !== undefined && (
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Name</Label>
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Name
+            </Label>
             <Input
               value={name}
               onChange={(e) =>
@@ -359,7 +384,12 @@ export function SecretHeaderAuthRow(props: {
             />
           </div>
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Prefix <span className="normal-case tracking-normal font-normal text-muted-foreground/60">(opt.)</span></Label>
+            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Prefix{" "}
+              <span className="normal-case tracking-normal font-normal text-muted-foreground/60">
+                (opt.)
+              </span>
+            </Label>
             <Input
               value={prefix ?? ""}
               onChange={(e) =>
@@ -379,24 +409,21 @@ export function SecretHeaderAuthRow(props: {
       {presetKey !== undefined && name.trim() && (
         <div className="flex items-center gap-1.5">
           <div className="flex-1 min-w-0">
-            <SecretPicker
-              value={secretId}
-              onSelect={onSelectSecret}
-              secrets={existingSecrets}
-            />
+            <SecretPicker value={secretId} onSelect={onSelectSecret} secrets={existingSecrets} />
           </div>
-          <Button variant="outline" size="sm" className="shrink-0" onClick={() => setCreating(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setCreating(true)}
+          >
             + New
           </Button>
         </div>
       )}
 
       {secretId && name.trim() && (
-        <HeaderValuePreview
-          headerName={name.trim()}
-          secretId={secretId}
-          prefix={prefix}
-        />
+        <HeaderValuePreview headerName={name.trim()} secretId={secretId} prefix={prefix} />
       )}
     </div>
   );

@@ -2,10 +2,10 @@
   "name": "executor",
   "version": "1.4.4",
   "private": true,
-  "type": "module",
   "bin": {
     "executor": "./bin/executor.ts"
   },
+  "type": "module",
   "exports": {
     ".": "./src/main.ts"
   },
@@ -22,11 +22,11 @@
     "@effect/platform": "catalog:",
     "@effect/platform-bun": "catalog:",
     "@executor/api": "workspace:*",
-    "@executor/runtime-quickjs": "workspace:*",
     "@executor/local": "workspace:*",
+    "@executor/runtime-quickjs": "workspace:*",
     "@jitl/quickjs-wasmfile-release-sync": "catalog:",
-    "quickjs-emscripten": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "quickjs-emscripten": "catalog:"
   },
   "devDependencies": {
     "bun-types": "catalog:",

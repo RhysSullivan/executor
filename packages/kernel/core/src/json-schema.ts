@@ -63,9 +63,7 @@ export const standardSchemaFromJsonSchema = (
           }));
 
           return {
-            issues: issues.length > 0
-              ? issues
-              : [{ message: "Invalid value" }],
+            issues: issues.length > 0 ? issues : [{ message: "Invalid value" }],
           };
         },
       },

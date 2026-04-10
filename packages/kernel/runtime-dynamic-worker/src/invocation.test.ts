@@ -76,9 +76,7 @@ describe("makeDynamicWorkerExecutor", () => {
     const executor = makeDynamicWorkerExecutor({ loader });
     const invoker = makeInvoker(() => null);
 
-    const result = await Effect.runPromise(
-      executor.execute("async () => 42", invoker),
-    );
+    const result = await Effect.runPromise(executor.execute("async () => 42", invoker));
 
     expect(result.error).toBeUndefined();
     expect(result.result).toBe(42);
@@ -150,10 +148,7 @@ describe("makeDynamicWorkerExecutor", () => {
     const invoker = failingInvoker("not authorized");
 
     const result = await Effect.runPromise(
-      executor.execute(
-        "async () => { return await tools.secret.read({}); }",
-        invoker,
-      ),
+      executor.execute("async () => { return await tools.secret.read({}); }", invoker),
     );
 
     expect(result.error).toBe("not authorized");
@@ -187,10 +182,7 @@ describe("makeDynamicWorkerExecutor", () => {
     const invoker = makeInvoker(() => null);
 
     const result = await Effect.runPromise(
-      executor.execute(
-        "async () => { await new Promise(r => setTimeout(r, 5000)); }",
-        invoker,
-      ),
+      executor.execute("async () => { await new Promise(r => setTimeout(r, 5000)); }", invoker),
     );
 
     expect(result.error).toContain("timed out");
@@ -201,10 +193,7 @@ describe("makeDynamicWorkerExecutor", () => {
     const invoker = makeInvoker(() => null);
 
     const result = await Effect.runPromise(
-      executor.execute(
-        'async () => { await fetch("https://example.com"); }',
-        invoker,
-      ),
+      executor.execute('async () => { await fetch("https://example.com"); }', invoker),
     );
 
     expect(result.error).toBeDefined();

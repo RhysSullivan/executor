@@ -42,10 +42,7 @@ export const sourcesAtom = (scopeId: ScopeId) =>
 
 /** Single source by id — derived from the sources list */
 export const sourceAtom = (sourceId: string, scopeId: ScopeId) =>
-  Atom.mapResult(
-    sourcesAtom(scopeId),
-    (sources) => sources.find((s) => s.id === sourceId) ?? null,
-  );
+  Atom.mapResult(sourcesAtom(scopeId), (sources) => sources.find((s) => s.id === sourceId) ?? null);
 
 export const secretsAtom = (scopeId: ScopeId) =>
   ExecutorApiClient.query("secrets", "list", {
@@ -63,8 +60,6 @@ export const secretStatusAtom = (scopeId: ScopeId, secretId: SecretId) =>
 // Mutation atoms
 // ---------------------------------------------------------------------------
 
-
-
 export const setSecret = ExecutorApiClient.mutation("secrets", "set");
 
 export const resolveSecret = ExecutorApiClient.mutation("secrets", "resolve");
@@ -76,4 +71,3 @@ export const removeSource = ExecutorApiClient.mutation("sources", "remove");
 export const refreshSource = ExecutorApiClient.mutation("sources", "refresh");
 
 export const detectSource = ExecutorApiClient.mutation("sources", "detect");
-

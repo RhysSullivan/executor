@@ -12,9 +12,11 @@ type AppMetaEnv = {
   readonly VITE_GITHUB_URL: string;
 };
 
-const { VITE_APP_VERSION, VITE_GITHUB_URL } = (import.meta as ImportMeta & {
-  readonly env: AppMetaEnv;
-}).env;
+const { VITE_APP_VERSION, VITE_GITHUB_URL } = (
+  import.meta as ImportMeta & {
+    readonly env: AppMetaEnv;
+  }
+).env;
 
 // ── Version helpers ─────────────────────────────────────────────────────
 
@@ -43,9 +45,7 @@ const parseVersion = (version: string): ParsedVersion | null => {
     minor: Number(match.groups.minor),
     patch: Number(match.groups.patch),
     prerelease: match.groups.prerelease
-      ? match.groups.prerelease.split(".").map((id) =>
-          /^\d+$/.test(id) ? Number(id) : id,
-        )
+      ? match.groups.prerelease.split(".").map((id) => (/^\d+$/.test(id) ? Number(id) : id))
       : null,
   };
 };
@@ -99,7 +99,9 @@ function useLatestVersion(currentVersion: string) {
         if (!cancelled) setLatestVersion(data[channel] ?? null);
       })
       .catch(() => {});
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [channel]);
 
   const updateAvailable =
@@ -126,15 +128,19 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
       <div className="flex items-center gap-2">
         <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15">
           <svg viewBox="0 0 16 16" fill="none" className="size-3 text-primary">
-            <path d="M8 3v7M5 7l3 3 3-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M8 3v7M5 7l3 3 3-3"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
             <path d="M3 12h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
         </div>
         <div className="min-w-0">
           <p className="text-[11px] font-semibold text-foreground">Update available</p>
-          <p className="text-[10px] text-muted-foreground">
-            v{props.latestVersion}
-          </p>
+          <p className="text-[10px] text-muted-foreground">v{props.latestVersion}</p>
         </div>
       </div>
       <Button
@@ -143,18 +149,35 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
         onClick={handleCopy}
         className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border-border/60 bg-background/50 px-2.5 py-1.5 text-left hover:bg-background/80"
       >
-        <code className="truncate font-mono text-[10px] text-sidebar-foreground">
-          {command}
-        </code>
+        <code className="truncate font-mono text-[10px] text-sidebar-foreground">{command}</code>
         <span className="shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
           {copied ? (
             <svg viewBox="0 0 16 16" fill="none" className="size-3 text-primary">
-              <path d="M3 8.5l3.5 3.5L13 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M3 8.5l3.5 3.5L13 4"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           ) : (
             <svg viewBox="0 0 16 16" fill="none" className="size-3">
-              <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M3 11V3.5A.5.5 0 013.5 3H11" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <rect
+                x="5"
+                y="5"
+                width="8"
+                height="8"
+                rx="1.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+              />
+              <path
+                d="M3 11V3.5A.5.5 0 013.5 3H11"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
           )}
         </span>
@@ -205,8 +228,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
           {value.map((s) => {
             const detailPath = `/sources/${s.id}`;
             const active =
-              props.pathname === detailPath ||
-              props.pathname.startsWith(`${detailPath}/`);
+              props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
             return (
               <Link
                 key={s.id}
@@ -249,9 +271,7 @@ function ScopeLabel() {
           strokeWidth="1.2"
         />
       </svg>
-      <span className="truncate text-[12px] font-medium text-foreground/80">
-        {folder}
-      </span>
+      <span className="truncate text-[12px] font-medium text-foreground/80">{folder}</span>
     </div>
   );
 }
@@ -274,27 +294,15 @@ function SidebarContent(props: {
       {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
           <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">
-              executor
-            </span>
+            <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
         </div>
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <ScopeLabel />
-        <NavItem
-          to="/"
-          label="Sources"
-          active={isHome}
-          onNavigate={props.onNavigate}
-        />
-        <NavItem
-          to="/secrets"
-          label="Secrets"
-          active={isSecrets}
-          onNavigate={props.onNavigate}
-        />
+        <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
 
         {/* Sources list */}
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
@@ -327,7 +335,9 @@ function SidebarContent(props: {
           >
             Star on GitHub
           </a>
-          <span className="mt-0.5 text-[10px] text-muted-foreground/50 tabular-nums">v{VITE_APP_VERSION}</span>
+          <span className="mt-0.5 text-[10px] text-muted-foreground/50 tabular-nums">
+            v{VITE_APP_VERSION}
+          </span>
         </div>
       </div>
     </>
@@ -412,7 +422,12 @@ export function Shell() {
                 className="size-8 flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
               >
                 <svg viewBox="0 0 16 16" className="size-3.5">
-                  <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <path
+                    d="M3 3l10 10M13 3L3 13"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </button>
             </div>
@@ -439,13 +454,16 @@ export function Shell() {
             className="size-8 flex items-center justify-center rounded-md border border-border bg-card hover:bg-accent/50"
           >
             <svg viewBox="0 0 16 16" className="size-4">
-              <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <path
+                d="M2 4h12M2 8h12M2 12h12"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
           <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">
-              executor
-            </span>
+            <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
           <div className="w-8 shrink-0" />
         </div>

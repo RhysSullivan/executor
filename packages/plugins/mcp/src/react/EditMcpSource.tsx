@@ -43,9 +43,7 @@ function RemoteEditForm(props: {
 
   const updateHeader = (index: number, field: "name" | "value", val: string) => {
     setHeaderEntries((prev) =>
-      prev.map((entry, i) =>
-        i === index ? { ...entry, [field]: val } : entry,
-      ),
+      prev.map((entry, i) => (i === index ? { ...entry, [field]: val } : entry)),
     );
     setDirty(true);
   };
@@ -146,12 +144,7 @@ function RemoteEditForm(props: {
             </Button>
           </div>
         ))}
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full border-dashed"
-          onClick={addHeader}
-        >
+        <Button variant="outline" size="sm" className="w-full border-dashed" onClick={addHeader}>
           + Add header
         </Button>
       </section>
@@ -189,7 +182,8 @@ function StdioReadOnly(props: {
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
         <p className="mt-1 text-[13px] text-muted-foreground">
-          Stdio MCP sources cannot be edited in the UI. Modify the executor.jsonc config file directly.
+          Stdio MCP sources cannot be edited in the UI. Modify the executor.jsonc config file
+          directly.
         </p>
       </div>
 

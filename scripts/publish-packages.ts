@@ -60,12 +60,11 @@ const parseArgs = (argv: ReadonlyArray<string>): { dryRun: boolean } => {
   return { dryRun };
 };
 
-const resolveChannel = (version: string): Channel =>
-  version.includes("-") ? "beta" : "latest";
+const resolveChannel = (version: string): Channel => (version.includes("-") ? "beta" : "latest");
 
 const readPackageMeta = async (pkgDir: string) => {
   const pkgJsonPath = join(pkgDir, "package.json");
-  const pkg = await Bun.file(pkgJsonPath).json() as {
+  const pkg = (await Bun.file(pkgJsonPath).json()) as {
     name?: string;
     version?: string;
     private?: boolean;
@@ -130,7 +129,7 @@ const applyScopeRename = async (
         const newKey = toPublished(key);
         // Resolve workspace:* to the concrete version of the published package.
         const newValue = value.startsWith("workspace:")
-          ? publishableVersions.get(newKey) ?? value
+          ? (publishableVersions.get(newKey) ?? value)
           : value;
         next[newKey] = newValue;
         mutated = true;
@@ -307,7 +306,9 @@ const publishPackage = async (
 
   const produced = (await readdir(pkgDir)).filter((entry) => entry.endsWith(".tgz"));
   if (produced.length !== 1) {
-    throw new Error(`Expected exactly 1 .tgz in ${pkgDir}, found ${produced.length}: ${produced.join(", ")}`);
+    throw new Error(
+      `Expected exactly 1 .tgz in ${pkgDir}, found ${produced.length}: ${produced.join(", ")}`,
+    );
   }
   const tarball = produced[0]!;
 

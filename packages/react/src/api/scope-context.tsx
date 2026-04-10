@@ -20,11 +20,7 @@ export function ScopeProvider(props: React.PropsWithChildren) {
   const result = useAtomValue(scopeAtom);
 
   if (Result.isSuccess(result)) {
-    return (
-      <ScopeContext.Provider value={result.value}>
-        {props.children}
-      </ScopeContext.Provider>
-    );
+    return <ScopeContext.Provider value={result.value}>{props.children}</ScopeContext.Provider>;
   }
 
   // Loading or error — don't render children

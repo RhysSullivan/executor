@@ -12,11 +12,7 @@ import { RpcTarget } from "cloudflare:workers";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 
-import type {
-  CodeExecutor,
-  ExecuteResult,
-  SandboxToolInvoker,
-} from "@executor/codemode-core";
+import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 
 import { normalizeCode } from "./normalize";
 import { buildExecutorModule } from "./module-template";
@@ -25,9 +21,7 @@ import { buildExecutorModule } from "./module-template";
 // Errors
 // ---------------------------------------------------------------------------
 
-export class DynamicWorkerExecutionError extends Data.TaggedError(
-  "DynamicWorkerExecutionError",
-)<{
+export class DynamicWorkerExecutionError extends Data.TaggedError("DynamicWorkerExecutionError")<{
   readonly message: string;
 }> {}
 
@@ -85,18 +79,14 @@ export class ToolDispatcher extends RpcTarget {
 
     return Effect.runPromise(
       this.#invoker.invoke({ path, args }).pipe(
-        Effect.map((value) =>
-          JSON.stringify({ result: value }),
-        ),
+        Effect.map((value) => JSON.stringify({ result: value })),
         Effect.catchAll((cause) =>
           Effect.succeed(
             JSON.stringify({
               error:
                 cause instanceof Error
                   ? cause.message
-                  : typeof cause === "object" &&
-                      cause !== null &&
-                      "message" in cause
+                  : typeof cause === "object" && cause !== null && "message" in cause
                     ? String((cause as { message: unknown }).message)
                     : String(cause),
             }),
@@ -124,19 +114,16 @@ const evaluate = async (
 
   const dispatcher = new ToolDispatcher(toolInvoker);
 
-  const worker = options.loader.get(
-    `executor-${crypto.randomUUID()}`,
-    () => ({
-      compatibilityDate: "2025-06-01",
-      compatibilityFlags: ["nodejs_compat"],
-      mainModule: ENTRY_MODULE,
-      modules: {
-        ...safeModules,
-        [ENTRY_MODULE]: executorModule,
-      },
-      globalOutbound: options.globalOutbound ?? null,
-    }),
-  );
+  const worker = options.loader.get(`executor-${crypto.randomUUID()}`, () => ({
+    compatibilityDate: "2025-06-01",
+    compatibilityFlags: ["nodejs_compat"],
+    mainModule: ENTRY_MODULE,
+    modules: {
+      ...safeModules,
+      [ENTRY_MODULE]: executorModule,
+    },
+    globalOutbound: options.globalOutbound ?? null,
+  }));
 
   const entrypoint = worker.getEntrypoint() as unknown as {
     evaluate(dispatcher: ToolDispatcher): Promise<{
@@ -176,9 +163,7 @@ const runInDynamicWorker = (
 // Public API
 // ---------------------------------------------------------------------------
 
-export const makeDynamicWorkerExecutor = (
-  options: DynamicWorkerExecutorOptions,
-): CodeExecutor => ({
+export const makeDynamicWorkerExecutor = (options: DynamicWorkerExecutorOptions): CodeExecutor => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     runInDynamicWorker(options, code, toolInvoker),
 });

@@ -26,11 +26,7 @@ import {
 import type { McpBindingStore } from "./binding-store";
 import type { McpStoredSourceData } from "./types";
 import { McpConnectionError } from "./errors";
-import {
-  createMcpConnector,
-  type McpConnection,
-  type ConnectorInput,
-} from "./connection";
+import { createMcpConnector, type McpConnection, type ConnectorInput } from "./connection";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -42,10 +38,7 @@ const asRecord = (value: unknown): Record<string, unknown> =>
     : {};
 
 type Secrets = {
-  readonly resolve: (
-    secretId: SecretId,
-    scopeId: ScopeId,
-  ) => Effect.Effect<string, unknown>;
+  readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
 };
 
 // ---------------------------------------------------------------------------
@@ -57,7 +50,9 @@ const makeOAuthProvider = (
   tokenType: string,
   refreshToken?: string,
 ): OAuthClientProvider => ({
-  get redirectUrl() { return "http://localhost/oauth/callback"; },
+  get redirectUrl() {
+    return "http://localhost/oauth/callback";
+  },
   get clientMetadata() {
     return {
       redirect_uris: ["http://localhost/oauth/callback"],
@@ -79,7 +74,9 @@ const makeOAuthProvider = (
     throw new Error("MCP OAuth re-authorization required");
   },
   saveCodeVerifier: () => {},
-  codeVerifier: () => { throw new Error("No active PKCE verifier"); },
+  codeVerifier: () => {
+    throw new Error("No active PKCE verifier");
+  },
   saveDiscoveryState: () => {},
   discoveryState: () => undefined,
 });
@@ -124,21 +121,16 @@ const installElicitationHandler = (
   args: unknown,
   handler: ElicitationHandler,
 ): void => {
-  client.setRequestHandler(
-    ElicitRequestSchema,
-    async (request: { params: unknown }) => {
-      const params = decodeElicitParams(request.params);
-      const response = await Effect.runPromise(
-        handler({ toolId, args, request: toElicitationRequest(params) }),
-      );
-      return {
-        action: response.action,
-        ...(response.action === "accept" && response.content
-          ? { content: response.content }
-          : {}),
-      };
-    },
-  );
+  client.setRequestHandler(ElicitRequestSchema, async (request: { params: unknown }) => {
+    const params = decodeElicitParams(request.params);
+    const response = await Effect.runPromise(
+      handler({ toolId, args, request: toElicitationRequest(params) }),
+    );
+    return {
+      action: response.action,
+      ...(response.action === "accept" && response.content ? { content: response.content } : {}),
+    };
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -166,21 +158,17 @@ const resolveConnectorInput = (
 
     const auth = sourceData.auth;
     if (auth.kind === "header") {
-      const secretValue = yield* secrets
-        .resolve(auth.secretId as SecretId, scopeId)
-        .pipe(
-          Effect.mapError(
-            () =>
-              new ToolInvocationError({
-                toolId: "" as ToolId,
-                message: `Failed to resolve secret "${auth.secretId}" for MCP auth`,
-                cause: undefined,
-              }),
-          ),
-        );
-      headers[auth.headerName] = auth.prefix
-        ? `${auth.prefix}${secretValue}`
-        : secretValue;
+      const secretValue = yield* secrets.resolve(auth.secretId as SecretId, scopeId).pipe(
+        Effect.mapError(
+          () =>
+            new ToolInvocationError({
+              toolId: "" as ToolId,
+              message: `Failed to resolve secret "${auth.secretId}" for MCP auth`,
+              cause: undefined,
+            }),
+        ),
+      );
+      headers[auth.headerName] = auth.prefix ? `${auth.prefix}${secretValue}` : secretValue;
     } else if (auth.kind === "oauth2") {
       const accessToken = yield* secrets
         .resolve(auth.accessTokenSecretId as SecretId, scopeId)
@@ -197,19 +185,13 @@ const resolveConnectorInput = (
 
       let refreshToken: string | undefined;
       if (auth.refreshTokenSecretId) {
-        refreshToken = yield* secrets
-          .resolve(auth.refreshTokenSecretId as SecretId, scopeId)
-          .pipe(
-            Effect.option,
-            Effect.map((o) => o._tag === "Some" ? o.value : undefined),
-          );
+        refreshToken = yield* secrets.resolve(auth.refreshTokenSecretId as SecretId, scopeId).pipe(
+          Effect.option,
+          Effect.map((o) => (o._tag === "Some" ? o.value : undefined)),
+        );
       }
 
-      authProvider = makeOAuthProvider(
-        accessToken,
-        auth.tokenType ?? "Bearer",
-        refreshToken,
-      );
+      authProvider = makeOAuthProvider(accessToken, auth.tokenType ?? "Bearer", refreshToken);
     }
 
     return {
@@ -236,9 +218,7 @@ const connectionCacheKey = (sourceData: McpStoredSourceData): string =>
 // Resolve elicitation handler from options
 // ---------------------------------------------------------------------------
 
-const resolveElicitationHandler = (
-  options: InvokeOptions,
-): ElicitationHandler =>
+const resolveElicitationHandler = (options: InvokeOptions): ElicitationHandler =>
   options.onElicitation === "accept-all"
     ? () => Effect.succeed(new ElicitationResponse({ action: "accept" }))
     : options.onElicitation;
@@ -258,8 +238,7 @@ const useMcpConnection = (
     installElicitationHandler(connection.client, toolId, args, handler);
 
     return yield* Effect.tryPromise({
-      try: () =>
-        connection.client.callTool({ name: toolName, arguments: args }),
+      try: () => connection.client.callTool({ name: toolName, arguments: args }),
       catch: (cause) =>
         new ToolInvocationError({
           toolId,
@@ -286,10 +265,7 @@ export const makeMcpInvoker = (opts: {
   const { connectionCache, pendingConnectors } = opts;
 
   return {
-    resolveAnnotations: () =>
-      Effect.succeed(
-        new ToolAnnotations({ requiresApproval: false }),
-      ),
+    resolveAnnotations: () => Effect.succeed(new ToolAnnotations({ requiresApproval: false })),
 
     invoke: (toolId: ToolId, args: unknown, options: InvokeOptions) =>
       Effect.gen(function* () {
@@ -306,11 +282,7 @@ export const makeMcpInvoker = (opts: {
         const cacheKey = connectionCacheKey(sourceData);
 
         // Build the connector and register it for the cache lookup
-        const connector = resolveConnectorInput(
-          sourceData,
-          opts.secrets,
-          opts.scopeId,
-        ).pipe(
+        const connector = resolveConnectorInput(sourceData, opts.secrets, opts.scopeId).pipe(
           Effect.flatMap((ci) => createMcpConnector(ci)),
           Effect.mapError(
             (err) =>
@@ -350,22 +322,18 @@ export const makeMcpInvoker = (opts: {
               yield* connectionCache.invalidate(cacheKey);
               pendingConnectors.set(cacheKey, connector);
 
-              const freshConnection = yield* connectionCache
-                .get(cacheKey)
-                .pipe(
-                  Effect.mapError(
-                    (retryErr) =>
-                      new ToolInvocationError({
-                        toolId,
-                        message: `Failed reconnecting: ${
-                          retryErr instanceof Error
-                            ? retryErr.message
-                            : String(retryErr)
-                        }`,
-                        cause: retryErr,
-                      }),
-                  ),
-                );
+              const freshConnection = yield* connectionCache.get(cacheKey).pipe(
+                Effect.mapError(
+                  (retryErr) =>
+                    new ToolInvocationError({
+                      toolId,
+                      message: `Failed reconnecting: ${
+                        retryErr instanceof Error ? retryErr.message : String(retryErr)
+                      }`,
+                      cause: retryErr,
+                    }),
+                ),
+              );
 
               return yield* useMcpConnection(
                 freshConnection,
@@ -399,9 +367,7 @@ export const makeMcpInvoker = (opts: {
           return Effect.fail(
             new ToolInvocationError({
               toolId,
-              message: `MCP invocation failed: ${
-                err instanceof Error ? err.message : String(err)
-              }`,
+              message: `MCP invocation failed: ${err instanceof Error ? err.message : String(err)}`,
               cause: err,
             }),
           );
@@ -411,8 +377,6 @@ export const makeMcpInvoker = (opts: {
     closeConnections: () =>
       Effect.sync(() => {
         pendingConnectors.clear();
-      }).pipe(
-        Effect.flatMap(() => connectionCache.invalidateAll),
-      ),
+      }).pipe(Effect.flatMap(() => connectionCache.invalidateAll)),
   };
 };

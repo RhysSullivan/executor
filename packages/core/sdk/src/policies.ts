@@ -29,9 +29,7 @@ export class PolicyEngine extends Context.Tag("@executor/sdk/PolicyEngine")<
   {
     readonly list: (scopeId: ScopeId) => Effect.Effect<readonly Policy[]>;
     readonly check: (input: PolicyCheckInput) => Effect.Effect<void, PolicyDeniedError>;
-    readonly add: (
-      policy: Omit<Policy, "id" | "createdAt">,
-    ) => Effect.Effect<Policy>;
+    readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Effect.Effect<Policy>;
     readonly remove: (policyId: PolicyId) => Effect.Effect<boolean>;
   }
 >() {}

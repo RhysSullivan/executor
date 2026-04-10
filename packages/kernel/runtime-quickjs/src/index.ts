@@ -1,8 +1,4 @@
-import type {
-  CodeExecutor,
-  ExecuteResult,
-  SandboxToolInvoker,
-} from "@executor/codemode-core";
+import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import {
@@ -43,12 +39,9 @@ const toError = (cause: unknown): Error =>
 
 const toErrorMessage = (cause: unknown): string => {
   if (typeof cause === "object" && cause !== null) {
-    const stack = "stack" in cause && typeof cause.stack === "string"
-      ? cause.stack
-      : undefined;
-    const message = "message" in cause && typeof cause.message === "string"
-      ? cause.message
-      : undefined;
+    const stack = "stack" in cause && typeof cause.stack === "string" ? cause.stack : undefined;
+    const message =
+      "message" in cause && typeof cause.message === "string" ? cause.message : undefined;
 
     if (stack) {
       return stack;
@@ -71,23 +64,16 @@ const serializeJson = (value: unknown, label: string): string | undefined => {
   try {
     return JSON.stringify(value);
   } catch (cause) {
-    throw new Error(
-      `${label} is not JSON serializable: ${toError(cause).message}`,
-    );
+    throw new Error(`${label} is not JSON serializable: ${toError(cause).message}`);
   }
 };
 
-const looksLikeInterruptedError = (message: string): boolean =>
-  /\binterrupted\b/i.test(message);
+const looksLikeInterruptedError = (message: string): boolean => /\binterrupted\b/i.test(message);
 
 const timeoutMessage = (timeoutMs: number): string =>
   `QuickJS execution timed out after ${timeoutMs}ms`;
 
-const normalizeExecutionError = (
-  cause: unknown,
-  deadlineMs: number,
-  timeoutMs: number,
-): string => {
+const normalizeExecutionError = (cause: unknown, deadlineMs: number, timeoutMs: number): string => {
   const message = toErrorMessage(cause);
   return Date.now() >= deadlineMs && looksLikeInterruptedError(message)
     ? timeoutMessage(timeoutMs)
@@ -97,8 +83,7 @@ const normalizeExecutionError = (
 const buildExecutionSource = (code: string): string => {
   const trimmed = code.trim();
   const looksLikeArrowFunction =
-    (trimmed.startsWith("async") || trimmed.startsWith("("))
-    && trimmed.includes("=>");
+    (trimmed.startsWith("async") || trimmed.startsWith("(")) && trimmed.includes("=>");
 
   const body = looksLikeArrowFunction
     ? [
@@ -155,11 +140,7 @@ const buildExecutionSource = (code: string): string => {
   ].join("\n");
 };
 
-const readPropDump = (
-  context: QuickJSContext,
-  handle: QuickJSHandle,
-  key: string,
-): unknown => {
+const readPropDump = (context: QuickJSContext, handle: QuickJSHandle, key: string): unknown => {
   const prop = context.getProp(handle, key);
   try {
     return context.dump(prop);
@@ -181,10 +162,7 @@ const readResultState = (
   error: readPropDump(context, handle, "e"),
 });
 
-const createLogBridge = (
-  context: QuickJSContext,
-  logs: string[],
-): QuickJSHandle =>
+const createLogBridge = (context: QuickJSContext, logs: string[]): QuickJSHandle =>
   context.newFunction("__executor_log", (levelHandle, lineHandle) => {
     const level = context.getString(levelHandle);
     const line = context.getString(lineHandle);
@@ -334,10 +312,7 @@ const evaluateInQuickJs = async (
       context.setProp(context.global, "__executor_invokeTool", toolBridge);
       toolBridge.dispose();
 
-      const evaluated = context.evalCode(
-        buildExecutionSource(code),
-        EXECUTION_FILENAME,
-      );
+      const evaluated = context.evalCode(buildExecutionSource(code), EXECUTION_FILENAME);
       if (evaluated.error) {
         const error = context.dump(evaluated.error);
         evaluated.error.dispose();
@@ -422,9 +397,7 @@ const runInQuickJs = (
     catch: (cause) => new QuickJsExecutionError({ message: String(cause) }),
   });
 
-export const makeQuickJsExecutor = (
-  options: QuickJsExecutorOptions = {},
-): CodeExecutor => ({
+export const makeQuickJsExecutor = (options: QuickJsExecutorOptions = {}): CodeExecutor => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     runInQuickJs(options, code, toolInvoker),
 });

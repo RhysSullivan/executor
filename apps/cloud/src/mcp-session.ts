@@ -39,9 +39,7 @@ const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
 const Services = Layer.mergeAll(DbLive, UserStoreLive);
 
-class OrganizationNotFoundError extends Data.TaggedError(
-  "OrganizationNotFoundError",
-)<{
+class OrganizationNotFoundError extends Data.TaggedError("OrganizationNotFoundError")<{
   readonly organizationId: string;
 }> {}
 
@@ -54,11 +52,7 @@ const initSession = (organizationId: string) =>
       return yield* new OrganizationNotFoundError({ organizationId });
     }
 
-    const executor = yield* createOrgExecutor(
-      org.id,
-      org.name,
-      server.ENCRYPTION_KEY,
-    );
+    const executor = yield* createOrgExecutor(org.id, org.name, server.ENCRYPTION_KEY);
 
     const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
     const mcpServer = yield* Effect.promise(() =>
@@ -73,10 +67,10 @@ const initSession = (organizationId: string) =>
 // ---------------------------------------------------------------------------
 
 const jsonRpcError = (status: number, code: number, message: string) =>
-  new Response(
-    JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
-    { status, headers: { "content-type": "application/json" } },
-  );
+  new Response(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 // ---------------------------------------------------------------------------
 // Durable Object

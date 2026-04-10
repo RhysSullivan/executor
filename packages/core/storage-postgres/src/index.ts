@@ -36,9 +36,7 @@ export type { DrizzleDb } from "./types";
 // Convenience: build a full ExecutorConfig from a Drizzle DB instance
 // ---------------------------------------------------------------------------
 
-export const makePgConfig = <
-  const TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
->(
+export const makePgConfig = <const TPlugins extends readonly ExecutorPlugin<string, object>[] = []>(
   db: DrizzleDb,
   options: {
     readonly organizationId: string;

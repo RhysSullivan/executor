@@ -13,7 +13,6 @@ const COOKIE_NAME = "wos-session";
 // Service
 // ---------------------------------------------------------------------------
 
-
 const make = Effect.gen(function* () {
   const apiKey = server.WORKOS_API_KEY;
   const clientId = server.WORKOS_CLIENT_ID;
@@ -63,7 +62,8 @@ const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => ({ authenticated: false as const })),
       );
 
-      if (!refreshed.authenticated || !("sealedSession" in refreshed) || !refreshed.sealedSession) return null;
+      if (!refreshed.authenticated || !("sealedSession" in refreshed) || !refreshed.sealedSession)
+        return null;
 
       return {
         userId: refreshed.user.id,
@@ -147,9 +147,7 @@ export class WorkOSAuth extends Context.Tag("@executor/cloud/WorkOSAuth")<
   WorkOSAuth,
   WorkOSAuthService
 >() {
-  static Default = Layer.effect(this, make).pipe(
-    Layer.annotateSpans({ module: "WorkOSAuth" }),
-  );
+  static Default = Layer.effect(this, make).pipe(Layer.annotateSpans({ module: "WorkOSAuth" }));
 }
 
 const parseCookie = (cookieHeader: string | null, name: string): string | null => {

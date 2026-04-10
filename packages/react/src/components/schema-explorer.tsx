@@ -35,8 +35,7 @@ const resolveRef = (ref: string, root: JsonSchema): JsonSchema | null => {
   return root.$defs[name] ?? null;
 };
 
-const getRefName = (ref: string): string | undefined =>
-  ref.match(/^#\/\$defs\/(.+)$/)?.[1];
+const getRefName = (ref: string): string | undefined => ref.match(/^#\/\$defs\/(.+)$/)?.[1];
 
 /**
  * Fully resolve a schema, following $ref and unwrapping single-variant
@@ -97,11 +96,7 @@ const getTypeLabel = (schema: JsonSchema, root: JsonSchema): string => {
     return "object";
   }
 
-  const types = Array.isArray(schema.type)
-    ? schema.type
-    : schema.type
-      ? [schema.type]
-      : [];
+  const types = Array.isArray(schema.type) ? schema.type : schema.type ? [schema.type] : [];
 
   if (types.includes("array")) {
     if (schema.items && !Array.isArray(schema.items)) {
@@ -206,8 +201,8 @@ function PropertyRow(props: {
 
   const expandable = isExpandable(schema, root);
   const typeLabel = getTypeLabel(schema, root);
-  const description = schema.description
-    ?? (schema.$ref ? (resolveRef(schema.$ref, root)?.description) : undefined);
+  const description =
+    schema.description ?? (schema.$ref ? resolveRef(schema.$ref, root)?.description : undefined);
 
   const handleToggle = useCallback(() => {
     if (!open && !resolved && schema.$ref) {
@@ -216,9 +211,7 @@ function PropertyRow(props: {
     setOpen((v) => !v);
   }, [open, resolved, schema, root]);
 
-  const childSchema = schema.$ref
-    ? resolved ?? resolveRef(schema.$ref, root) ?? schema
-    : schema;
+  const childSchema = schema.$ref ? (resolved ?? resolveRef(schema.$ref, root) ?? schema) : schema;
 
   return (
     <div>
@@ -238,9 +231,7 @@ function PropertyRow(props: {
         }
         className={[
           "flex items-start gap-2 py-2.5 px-3",
-          expandable
-            ? "cursor-pointer hover:bg-accent/30 transition-colors"
-            : "",
+          expandable ? "cursor-pointer hover:bg-accent/30 transition-colors" : "",
         ].join(" ")}
         style={depth > 0 ? { paddingLeft: `${depth * 16 + 12}px` } : undefined}
       >
@@ -260,17 +251,14 @@ function PropertyRow(props: {
         <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <p className="font-medium text-foreground text-sm">{name}</p>
           <p className={typeClasses}>{typeLabel}</p>
-          {!hideRequiredBadge && (
-            required ? (
+          {!hideRequiredBadge &&
+            (required ? (
               <p className="text-[0.6875rem] leading-5 text-orange-600/60 dark:text-orange-400/60">
                 required
               </p>
             ) : (
-              <p className="text-[0.6875rem] leading-5 text-muted-foreground/25">
-                optional
-              </p>
-            )
-          )}
+              <p className="text-[0.6875rem] leading-5 text-muted-foreground/25">optional</p>
+            ))}
           {schema.default !== undefined && (
             <p className="text-[0.6875rem] leading-5 text-muted-foreground/30">
               = {JSON.stringify(schema.default)}
@@ -283,7 +271,7 @@ function PropertyRow(props: {
       {description && (
         <p
           className="px-3 pb-2 text-[0.8125rem] leading-5 text-muted-foreground/50"
-          style={{ paddingLeft: `${(depth * 16) + 32}px` }}
+          style={{ paddingLeft: `${depth * 16 + 32}px` }}
         >
           {description}
         </p>
@@ -291,10 +279,7 @@ function PropertyRow(props: {
 
       {/* Children — rendered lazily on expand */}
       {open && expandable && (
-        <div
-          className="border-l border-border/30"
-          style={{ marginLeft: `${depth * 16 + 20}px` }}
-        >
+        <div className="border-l border-border/30" style={{ marginLeft: `${depth * 16 + 20}px` }}>
           <PropertyChildren schema={childSchema} root={root} depth={depth + 1} />
         </div>
       )}
@@ -306,11 +291,7 @@ function PropertyRow(props: {
 // PropertyChildren — renders sub-properties
 // ---------------------------------------------------------------------------
 
-function PropertyChildren(props: {
-  schema: JsonSchema;
-  root: JsonSchema;
-  depth: number;
-}) {
+function PropertyChildren(props: { schema: JsonSchema; root: JsonSchema; depth: number }) {
   const { schema: rawSchema, root, depth } = props;
 
   if (depth > 6) {
@@ -356,9 +337,7 @@ function PropertyChildren(props: {
     if (itemSchema.properties && Object.keys(itemSchema.properties).length > 0) {
       return <PropertyChildren schema={itemSchema} root={root} depth={depth} />;
     }
-    return (
-      <PropertyRow name="items" schema={schema.items} root={root} required depth={depth} />
-    );
+    return <PropertyRow name="items" schema={schema.items} root={root} required depth={depth} />;
   }
 
   // allOf

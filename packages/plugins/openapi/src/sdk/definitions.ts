@@ -83,10 +83,7 @@ const splitOperationIdSegments = (value: string): string[] =>
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 
-const deriveLeafSeed = (
-  operationId: string,
-  group: string,
-): string => {
+const deriveLeafSeed = (operationId: string, group: string): string => {
   const segments = splitOperationIdSegments(operationId);
   if (segments.length > 1) {
     const [first, ...rest] = segments;
@@ -97,11 +94,7 @@ const deriveLeafSeed = (
   return operationId;
 };
 
-const fallbackLeafSeed = (
-  method: string,
-  pathTemplate: string,
-  group: string,
-): string => {
+const fallbackLeafSeed = (method: string, pathTemplate: string, group: string): string => {
   const relevantSegments = pathSegmentsFromTemplate(pathTemplate)
     .filter((s) => !VERSION_SEGMENT_REGEX.test(s.toLowerCase()))
     .filter((s) => !IGNORED_PATH_SEGMENTS.has(s.toLowerCase()))
@@ -146,15 +139,21 @@ export interface ToolDefinition {
 // ---------------------------------------------------------------------------
 
 const resolveCollisions = (
-  definitions: { toolPath: string; group: string; leaf: string; versionSegment: string | undefined; method: string; operationHash: string; operationIndex: number; operation: ExtractedOperation }[],
+  definitions: {
+    toolPath: string;
+    group: string;
+    leaf: string;
+    versionSegment: string | undefined;
+    method: string;
+    operationHash: string;
+    operationIndex: number;
+    operation: ExtractedOperation;
+  }[],
 ): ToolDefinition[] => {
   // Mutable — we progressively refine toolPath on collision
   const staged = definitions.map((d) => ({ ...d }));
 
-  const applyFactory = (
-    items: typeof staged,
-    factory: (d: (typeof staged)[number]) => string,
-  ) => {
+  const applyFactory = (items: typeof staged, factory: (d: (typeof staged)[number]) => string) => {
     const byPath = new Map<string, typeof staged>();
     for (const item of items) {
       const bucket = byPath.get(item.toolPath) ?? [];
@@ -171,24 +170,18 @@ const resolveCollisions = (
 
   // Round 1: add version segment
   applyFactory(staged, (d) =>
-    d.versionSegment
-      ? `${d.group}.${d.versionSegment}.${d.leaf}`
-      : d.toolPath,
+    d.versionSegment ? `${d.group}.${d.versionSegment}.${d.leaf}` : d.toolPath,
   );
 
   // Round 2: add method suffix
   applyFactory(staged, (d) => {
-    const prefix = d.versionSegment
-      ? `${d.group}.${d.versionSegment}`
-      : d.group;
+    const prefix = d.versionSegment ? `${d.group}.${d.versionSegment}` : d.group;
     return `${prefix}.${d.leaf}${toPascalCase(d.method)}`;
   });
 
   // Round 3: add hash suffix
   applyFactory(staged, (d) => {
-    const prefix = d.versionSegment
-      ? `${d.group}.${d.versionSegment}`
-      : d.group;
+    const prefix = d.versionSegment ? `${d.group}.${d.versionSegment}` : d.group;
     return `${prefix}.${d.leaf}${toPascalCase(d.method)}${d.operationHash.slice(0, 8)}`;
   });
 
@@ -227,8 +220,7 @@ export const compileToolDefinitions = (
 ): ToolDefinition[] => {
   const raw = operations.map((op, index) => {
     const operationId = op.operationId as string;
-    const group =
-      normalizeGroupSegment(op.tags[0]) ?? derivePathGroup(op.pathTemplate);
+    const group = normalizeGroupSegment(op.tags[0]) ?? derivePathGroup(op.pathTemplate);
     const leaf = deriveLeaf(operationId, op.method, op.pathTemplate, group);
     const versionSegment = deriveVersionSegment(op.pathTemplate);
     const operationHash = stableHash({
@@ -249,7 +241,5 @@ export const compileToolDefinitions = (
     };
   });
 
-  return resolveCollisions(raw).sort((a, b) =>
-    a.toolPath.localeCompare(b.toolPath),
-  );
+  return resolveCollisions(raw).sort((a, b) => a.toolPath.localeCompare(b.toolPath));
 };

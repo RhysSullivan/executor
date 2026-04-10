@@ -45,9 +45,7 @@ export const makeInMemoryToolRegistry = () => {
         if (filter?.query) {
           const q = filter.query.toLowerCase();
           result = result.filter(
-            (t) =>
-              t.name.toLowerCase().includes(q) ||
-              t.description?.toLowerCase().includes(q),
+            (t) => t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
           );
         }
         return result.map((t) => ({

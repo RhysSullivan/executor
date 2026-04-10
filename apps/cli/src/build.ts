@@ -32,7 +32,8 @@ const readMetadata = async () => {
   return {
     name: "executor",
     version: process.env.EXECUTOR_VERSION ?? cliPkg.version ?? rootPkg.version ?? "0.0.0",
-    description: rootPkg.description ?? "Local AI executor with a CLI, local API server, and web UI.",
+    description:
+      rootPkg.description ?? "Local AI executor with a CLI, local API server, and web UI.",
     keywords: rootPkg.keywords ?? [],
     homepage: rootPkg.homepage,
     bugs: rootPkg.bugs,
@@ -62,17 +63,14 @@ const ALL_TARGETS: Target[] = [
   { os: "win32", arch: "arm64" },
 ];
 
-const platformName = (t: Target) =>
-  t.os === "win32" ? "windows" : t.os;
+const platformName = (t: Target) => (t.os === "win32" ? "windows" : t.os);
 
 const targetPackageName = (t: Target) =>
   ["executor", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
 
-const bunTarget = (t: Target) =>
-  ["bun", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
+const bunTarget = (t: Target) => ["bun", platformName(t), t.arch, t.abi].filter(Boolean).join("-");
 
-const binaryName = (t: Target) =>
-  t.os === "win32" ? "executor.exe" : "executor";
+const binaryName = (t: Target) => (t.os === "win32" ? "executor.exe" : "executor");
 
 const isCurrentPlatform = (t: Target) =>
   t.os === process.platform && t.arch === process.arch && !t.abi;
@@ -95,7 +93,10 @@ const resolveSecureExecV8 = (t: Target): string | null => {
     return join(dirname(pkgJson), "secure-exec-v8");
   } catch {
     // Try bun's flat node_modules layout
-    const bunPath = join(repoRoot, `node_modules/.bun/${pkg.replace("/", "+")}@0.2.1/node_modules/${pkg}/secure-exec-v8`);
+    const bunPath = join(
+      repoRoot,
+      `node_modules/.bun/${pkg.replace("/", "+")}@0.2.1/node_modules/${pkg}/secure-exec-v8`,
+    );
     if (existsSync(bunPath)) return bunPath;
     return null;
   }
@@ -183,7 +184,8 @@ const secureExecBundlePlugin = async (): Promise<import("bun").BunPlugin> => {
   const bridgeCode = await Bun.file(join(secureExecNodejs, "dist/bridge.js")).text();
   const isolateRuntime = await import(join(secureExecCore, "dist/generated/isolate-runtime.js"));
   const bridgeAttachCode = isolateRuntime.ISOLATE_RUNTIME_SOURCES.bridgeAttach;
-  const polyfillCodeMap = (await import(join(secureExecCore, "dist/generated/polyfills.js"))).POLYFILL_CODE_MAP as Record<string, string>;
+  const polyfillCodeMap = (await import(join(secureExecCore, "dist/generated/polyfills.js")))
+    .POLYFILL_CODE_MAP as Record<string, string>;
 
   return {
     name: "secure-exec-bundle-fixes",
@@ -197,7 +199,10 @@ const secureExecBundlePlugin = async (): Promise<import("bun").BunPlugin> => {
       // Replace @secure-exec/nodejs polyfills (which use node-stdlib-browser + esbuild
       // at runtime) with a shim that serves from pre-bundled POLYFILL_CODE_MAP.
       build.onResolve({ filter: /polyfills/ }, (args) => {
-        if (args.importer.includes("@secure-exec/nodejs") || args.importer.includes("@secure-exec+nodejs")) {
+        if (
+          args.importer.includes("@secure-exec/nodejs") ||
+          args.importer.includes("@secure-exec+nodejs")
+        ) {
           return { path: args.path, namespace: "polyfills-shim" };
         }
       });
@@ -264,60 +269,60 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
 
   try {
     for (const target of targets) {
-    const name = targetPackageName(target);
-    const outDir = join(distDir, name);
-    const binDir = join(outDir, "bin");
-    await mkdir(binDir, { recursive: true });
+      const name = targetPackageName(target);
+      const outDir = join(distDir, name);
+      const binDir = join(outDir, "bin");
+      await mkdir(binDir, { recursive: true });
 
-    console.log(`Building ${name}...`);
+      console.log(`Building ${name}...`);
 
-    await Bun.build({
-      entrypoints: [join(cliRoot, "src/main.ts")],
-      minify: mode === "production",
-      compile: {
-        target: bunTarget(target) as any,
-        outfile: join(binDir, binaryName(target)),
-      },
-      plugins: [await secureExecBundlePlugin()],
-    });
-
-    // Copy QuickJS WASM next to binary — loaded at runtime by the server
-    await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
-
-    // Copy secure-exec-v8 binary next to executor — needed for code execution
-    const secureExecBin = resolveSecureExecV8(target);
-    if (secureExecBin && existsSync(secureExecBin)) {
-      const destName = target.os === "win32" ? "secure-exec-v8.exe" : "secure-exec-v8";
-      await cp(secureExecBin, join(binDir, destName));
-      await chmod(join(binDir, destName), 0o755);
-    }
-
-    // Smoke test on current platform
-    if (isCurrentPlatform(target)) {
-      const bin = join(binDir, binaryName(target));
-      console.log(`  Smoke test: ${bin} --version`);
-      const version = await $`${bin} --version`.text();
-      console.log(`  OK: ${version.trim()}`);
-    }
-
-    // Platform package.json
-    await writeFile(
-      join(outDir, "package.json"),
-      JSON.stringify(
-        {
-          name,
-          version: meta.version,
-          os: [target.os],
-          cpu: [target.arch],
-          bin: { executor: `bin/${binaryName(target)}` },
+      await Bun.build({
+        entrypoints: [join(cliRoot, "src/main.ts")],
+        minify: mode === "production",
+        compile: {
+          target: bunTarget(target) as any,
+          outfile: join(binDir, binaryName(target)),
         },
-        null,
-        2,
-      ) + "\n",
-    );
+        plugins: [await secureExecBundlePlugin()],
+      });
 
-    binaries[name] = meta.version;
-  }
+      // Copy QuickJS WASM next to binary — loaded at runtime by the server
+      await cp(quickJsWasmPath, join(binDir, "emscripten-module.wasm"));
+
+      // Copy secure-exec-v8 binary next to executor — needed for code execution
+      const secureExecBin = resolveSecureExecV8(target);
+      if (secureExecBin && existsSync(secureExecBin)) {
+        const destName = target.os === "win32" ? "secure-exec-v8.exe" : "secure-exec-v8";
+        await cp(secureExecBin, join(binDir, destName));
+        await chmod(join(binDir, destName), 0o755);
+      }
+
+      // Smoke test on current platform
+      if (isCurrentPlatform(target)) {
+        const bin = join(binDir, binaryName(target));
+        console.log(`  Smoke test: ${bin} --version`);
+        const version = await $`${bin} --version`.text();
+        console.log(`  OK: ${version.trim()}`);
+      }
+
+      // Platform package.json
+      await writeFile(
+        join(outDir, "package.json"),
+        JSON.stringify(
+          {
+            name,
+            version: meta.version,
+            os: [target.os],
+            cpu: [target.arch],
+            bin: { executor: `bin/${binaryName(target)}` },
+          },
+          null,
+          2,
+        ) + "\n",
+      );
+
+      binaries[name] = meta.version;
+    }
 
     return binaries;
   } finally {
@@ -385,7 +390,7 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
 // ---------------------------------------------------------------------------
 
 const packageAlreadyPublished = async (pkgDir: string) => {
-  const pkg = await Bun.file(join(pkgDir, "package.json")).json() as {
+  const pkg = (await Bun.file(join(pkgDir, "package.json")).json()) as {
     name?: string;
     version?: string;
   };
@@ -448,7 +453,9 @@ const createReleaseAssets = async () => {
     if (name.includes("linux")) {
       await $`tar -czf ${join(distDir, `${name}.tar.gz`)} *`.cwd(join(pkgDir, "bin"));
     } else {
-      await $`python3 -c ${ZIP_ASSET_SCRIPT} ${join(distDir, `${name}.zip`)}`.cwd(join(pkgDir, "bin"));
+      await $`python3 -c ${ZIP_ASSET_SCRIPT} ${join(distDir, `${name}.zip`)}`.cwd(
+        join(pkgDir, "bin"),
+      );
     }
 
     console.log(`Created release asset: ${name}`);
@@ -659,9 +666,7 @@ if (mode !== "production" && mode !== "development") {
 }
 
 if (command === "binary") {
-  const targets = values.single
-    ? ALL_TARGETS.filter(isCurrentPlatform)
-    : ALL_TARGETS;
+  const targets = values.single ? ALL_TARGETS.filter(isCurrentPlatform) : ALL_TARGETS;
   const binaries = await buildBinaries(targets, mode);
   await buildWrapperPackage(binaries);
 } else if (command === "release-assets") {

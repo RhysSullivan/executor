@@ -8,10 +8,7 @@
  * 3. Executes the normalised user code with a `Promise.race` timeout.
  * 4. Returns `{ result, error?, logs }`.
  */
-export const buildExecutorModule = (
-  normalizedCode: string,
-  timeoutMs: number,
-): string =>
+export const buildExecutorModule = (normalizedCode: string, timeoutMs: number): string =>
   [
     'import { WorkerEntrypoint } from "cloudflare:workers";',
     "",

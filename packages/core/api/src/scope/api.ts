@@ -16,9 +16,6 @@ const ScopeInfoResponse = Schema.Struct({
 // Group
 // ---------------------------------------------------------------------------
 
-export class ScopeApi extends HttpApiGroup.make("scope")
-  .add(
-    HttpApiEndpoint.get("info")`/scope`
-      .addSuccess(ScopeInfoResponse),
-  )
-  {}
+export class ScopeApi extends HttpApiGroup.make("scope").add(
+  HttpApiEndpoint.get("info")`/scope`.addSuccess(ScopeInfoResponse),
+) {}

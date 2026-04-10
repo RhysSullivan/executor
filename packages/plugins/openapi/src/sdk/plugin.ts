@@ -66,9 +66,7 @@ export interface OpenApiPluginExtension {
   readonly removeSpec: (namespace: string) => Effect.Effect<void>;
 
   /** Fetch the full stored source by namespace (or null if missing) */
-  readonly getSource: (
-    namespace: string,
-  ) => Effect.Effect<StoredSource | null>;
+  readonly getSource: (namespace: string) => Effect.Effect<StoredSource | null>;
 
   /** Update config (baseUrl, headers) for an existing OpenAPI source */
   readonly updateSource: (
@@ -90,9 +88,7 @@ const AddSourceInputSchema = Schema.Struct({
   spec: Schema.String,
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(
-    Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
-  ),
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
 });
 type AddSourceInput = typeof AddSourceInputSchema.Type;
 
@@ -132,16 +128,10 @@ const normalizeOpenApiRefs = (node: unknown): unknown => {
   return changed ? result : obj;
 };
 
-const toRegistration = (
-  def: ToolDefinition,
-  namespace: string,
-): ToolRegistration => {
+const toRegistration = (def: ToolDefinition, namespace: string): ToolRegistration => {
   const op = def.operation;
   const description = Option.getOrElse(op.description, () =>
-    Option.getOrElse(
-      op.summary,
-      () => `${op.method.toUpperCase()} ${op.pathTemplate}`,
-    ),
+    Option.getOrElse(op.summary, () => `${op.method.toUpperCase()} ${op.pathTemplate}`),
   );
   return {
     id: ToolId.make(`${namespace}.${def.toolPath}`),
@@ -171,8 +161,7 @@ export const openApiPlugin = (options?: {
   readonly operationStore?: OpenApiOperationStore;
 }): ExecutorPlugin<"openapi", OpenApiPluginExtension> => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
-  const operationStore =
-    options?.operationStore ?? makeInMemoryOperationStore();
+  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
 
   return definePlugin({
     key: "openapi",
@@ -228,14 +217,10 @@ export const openApiPlugin = (options?: {
 
               // Try fetching the URL and parsing as OpenAPI spec
               // parse() handles both URLs directly and spec text
-              const doc = yield* parse(trimmed).pipe(
-                Effect.catchAll(() => Effect.succeed(null)),
-              );
+              const doc = yield* parse(trimmed).pipe(Effect.catchAll(() => Effect.succeed(null)));
               if (!doc) return null;
 
-              const result = yield* extract(doc).pipe(
-                Effect.catchAll(() => Effect.succeed(null)),
-              );
+              const result = yield* extract(doc).pipe(Effect.catchAll(() => Effect.succeed(null)));
               if (!result) return null;
 
               const namespace = Option.getOrElse(result.title, () => "api")
@@ -281,9 +266,7 @@ export const openApiPlugin = (options?: {
 
             const definitions = compileToolDefinitions(result.operations);
 
-            const registrations = definitions.map((def) =>
-              toRegistration(def, namespace),
-            );
+            const registrations = definitions.map((def) => toRegistration(def, namespace));
 
             yield* operationStore.put(
               definitions.map((def) => ({
@@ -324,8 +307,7 @@ export const openApiPlugin = (options?: {
             runtimeTool({
               id: "openapi.previewSpec",
               name: "openapi.previewSpec",
-              description:
-                "Preview an OpenAPI document before adding it as a source",
+              description: "Preview an OpenAPI document before adding it as a source",
               inputSchema: PreviewSpecInputSchema,
               outputSchema: SpecPreview,
               handler: ({ spec }: PreviewSpecInput) => previewSpec(spec),
@@ -333,8 +315,7 @@ export const openApiPlugin = (options?: {
             runtimeTool({
               id: "openapi.addSource",
               name: "openapi.addSource",
-              description:
-                "Add an OpenAPI source and register its operations as tools",
+              description: "Add an OpenAPI source and register its operations as tools",
               inputSchema: AddSourceInputSchema,
               outputSchema: AddSourceOutputSchema,
               handler: (input: AddSourceInput) => addSpecInternal(input),
@@ -347,22 +328,18 @@ export const openApiPlugin = (options?: {
             previewSpec: (specText: string) => previewSpec(specText),
 
             addSpec: (config: OpenApiSpecConfig) =>
-              addSpecInternal(config).pipe(
-                Effect.map(({ toolCount }) => ({ toolCount })),
-              ),
+              addSpecInternal(config).pipe(Effect.map(({ toolCount }) => ({ toolCount }))),
 
             removeSpec: (namespace: string) =>
               Effect.gen(function* () {
-                const toolIds =
-                  yield* operationStore.removeByNamespace(namespace);
+                const toolIds = yield* operationStore.removeByNamespace(namespace);
                 if (toolIds.length > 0) {
                   yield* ctx.tools.unregister(toolIds);
                 }
                 yield* operationStore.removeSource(namespace);
               }),
 
-            getSource: (namespace: string) =>
-              operationStore.getSource(namespace),
+            getSource: (namespace: string) => operationStore.getSource(namespace),
 
             updateSource: (namespace: string, input: OpenApiUpdateSourceInput) =>
               Effect.gen(function* () {
@@ -372,7 +349,9 @@ export const openApiPlugin = (options?: {
                 const updatedConfig = {
                   ...existingSource,
                   ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
-                  ...(input.headers !== undefined ? { headers: input.headers as Record<string, HeaderValueValue> } : {}),
+                  ...(input.headers !== undefined
+                    ? { headers: input.headers as Record<string, HeaderValueValue> }
+                    : {}),
                 };
 
                 const newInvocationConfig = new InvocationConfig({
@@ -384,12 +363,14 @@ export const openApiPlugin = (options?: {
                 for (const toolId of toolIds) {
                   const entry = yield* operationStore.get(toolId);
                   if (entry) {
-                    yield* operationStore.put([{
-                      toolId,
-                      namespace,
-                      binding: entry.binding,
-                      config: newInvocationConfig,
-                    }]);
+                    yield* operationStore.put([
+                      {
+                        toolId,
+                        namespace,
+                        binding: entry.binding,
+                        config: newInvocationConfig,
+                      },
+                    ]);
                   }
                 }
 

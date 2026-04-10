@@ -7,7 +7,14 @@ import { handleMcpRequest } from "./mcp";
 // Marketing routes — proxied to the marketing worker via service binding
 // ---------------------------------------------------------------------------
 
-const MARKETING_PATHS = ["/home", "/setup", "/api/detect", "/_astro", "/favicon.ico", "/favicon.svg"];
+const MARKETING_PATHS = [
+  "/home",
+  "/setup",
+  "/api/detect",
+  "/_astro",
+  "/favicon.ico",
+  "/favicon.svg",
+];
 
 const isMarketingPath = (pathname: string) =>
   MARKETING_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

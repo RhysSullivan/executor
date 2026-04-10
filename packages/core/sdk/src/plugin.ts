@@ -22,10 +22,7 @@ export interface PluginContext {
 // Plugin definition — what a plugin provides to the SDK
 // ---------------------------------------------------------------------------
 
-export interface ExecutorPlugin<
-  TKey extends string = string,
-  TExtension extends object = object,
-> {
+export interface ExecutorPlugin<TKey extends string = string, TExtension extends object = object> {
   /** Unique plugin key — becomes a property on the Executor type */
   readonly key: TKey;
 
@@ -33,10 +30,7 @@ export interface ExecutorPlugin<
    * Called when the executor starts. The plugin should register its tools
    * and return any cleanup logic + its public extension API.
    */
-  readonly init: (ctx: PluginContext) => Effect.Effect<
-    PluginHandle<TExtension>,
-    Error
-  >;
+  readonly init: (ctx: PluginContext) => Effect.Effect<PluginHandle<TExtension>, Error>;
 }
 
 export interface PluginHandle<TExtension extends object = object> {
@@ -51,13 +45,8 @@ export interface PluginHandle<TExtension extends object = object> {
 // ---------------------------------------------------------------------------
 
 /** Maps a tuple of plugins to their extensions keyed by plugin key */
-export type PluginExtensions<
-  TPlugins extends readonly ExecutorPlugin<string, object>[],
-> = {
-  readonly [P in TPlugins[number] as P["key"]]: P extends ExecutorPlugin<
-    string,
-    infer TExt
-  >
+export type PluginExtensions<TPlugins extends readonly ExecutorPlugin<string, object>[]> = {
+  readonly [P in TPlugins[number] as P["key"]]: P extends ExecutorPlugin<string, infer TExt>
     ? TExt
     : never;
 };
@@ -69,9 +58,6 @@ import type { Context } from "effect";
 // definePlugin — helper for type inference
 // ---------------------------------------------------------------------------
 
-export const definePlugin = <
-  const TKey extends string,
-  TExtension extends object,
->(
+export const definePlugin = <const TKey extends string, TExtension extends object>(
   plugin: ExecutorPlugin<TKey, TExtension>,
 ): ExecutorPlugin<TKey, TExtension> => plugin;

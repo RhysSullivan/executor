@@ -151,11 +151,7 @@ describe("schema-types", () => {
       [
         "Pet",
         {
-          anyOf: [
-            { $ref: "#/$defs/Dog" },
-            { $ref: "#/$defs/Cat" },
-            { $ref: "#/$defs/Lizard" },
-          ],
+          anyOf: [{ $ref: "#/$defs/Dog" }, { $ref: "#/$defs/Cat" }, { $ref: "#/$defs/Lizard" }],
         },
       ],
       [
@@ -215,10 +211,7 @@ describe("schema-types", () => {
     const defs = new Map(Object.entries(stripeBalanceTransactionsFixture.defs));
 
     expect(
-      schemaToTypeScriptPreviewWithDefs(
-        stripeBalanceTransactionsFixture.schema,
-        defs,
-      ),
+      schemaToTypeScriptPreviewWithDefs(stripeBalanceTransactionsFixture.schema, defs),
     ).toEqual({
       type: "balance_transaction",
       definitions: {

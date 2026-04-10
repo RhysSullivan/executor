@@ -41,9 +41,7 @@ export const addSourceToConfig = (
 
     // Ensure "sources" array exists
     let tree = jsonc.parseTree(text);
-    let sourcesNode = tree
-      ? jsonc.findNodeAtLocation(tree, ["sources"])
-      : undefined;
+    let sourcesNode = tree ? jsonc.findNodeAtLocation(tree, ["sources"]) : undefined;
 
     if (!sourcesNode) {
       const edits = jsonc.modify(text, ["sources"], [source], {
@@ -66,9 +64,7 @@ export const addSourceToConfig = (
         }
         // Re-parse after removals
         tree = jsonc.parseTree(text);
-        sourcesNode = tree
-          ? jsonc.findNodeAtLocation(tree, ["sources"])
-          : undefined;
+        sourcesNode = tree ? jsonc.findNodeAtLocation(tree, ["sources"]) : undefined;
       }
 
       const count = sourcesNode?.children?.length ?? 0;

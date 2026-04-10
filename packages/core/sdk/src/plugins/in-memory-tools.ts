@@ -23,10 +23,7 @@ import { hoistDefinitions } from "../schema-refs";
 // In-memory tool definition — typed via Schema
 // ---------------------------------------------------------------------------
 
-export interface MemoryToolDefinition<
-  TInput = unknown,
-  TOutput = unknown,
-> {
+export interface MemoryToolDefinition<TInput = unknown, TOutput = unknown> {
   readonly name: string;
   readonly description?: string;
   readonly inputSchema: Schema.Schema<TInput>;
@@ -36,10 +33,7 @@ export interface MemoryToolDefinition<
 
 export type MemoryToolHandler<TInput> =
   | ((args: TInput) => unknown)
-  | ((
-      args: TInput,
-      ctx: MemoryToolContext,
-    ) => Effect.Effect<unknown, unknown>);
+  | ((args: TInput, ctx: MemoryToolContext) => Effect.Effect<unknown, unknown>);
 
 export interface MemoryToolContext {
   /** Request input from the user. Returns user data or fails if declined. */
@@ -73,9 +67,7 @@ export interface MemoryToolSdkAccess {
 
 export interface InMemoryToolsPluginExtension {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly addTools: (
-    tools: readonly MemoryToolDefinition<any, any>[],
-  ) => Effect.Effect<void>;
+  readonly addTools: (tools: readonly MemoryToolDefinition<any, any>[]) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +87,11 @@ interface HandlerEntry {
 const buildRegistration = (
   namespace: string,
   def: MemoryToolDefinition,
-): { registration: ToolRegistration; entry: HandlerEntry; definitions: Record<string, unknown> } => {
+): {
+  registration: ToolRegistration;
+  entry: HandlerEntry;
+  definitions: Record<string, unknown>;
+} => {
   const id = ToolId.make(`${namespace}.${def.name}`);
   const decode = Schema.decodeUnknownSync(def.inputSchema);
   const isEffect = def.handler.length >= 2;
@@ -122,7 +118,11 @@ const buildRegistration = (
     mayElicit: isEffect,
   };
 
-  const entry: HandlerEntry = { decode, handler: def.handler as MemoryToolHandler<unknown>, isEffect };
+  const entry: HandlerEntry = {
+    decode,
+    handler: def.handler as MemoryToolHandler<unknown>,
+    isEffect,
+  };
 
   return { registration, entry, definitions: allDefs };
 };
@@ -201,9 +201,10 @@ const makeInvoker = (
               action: "decline",
             });
           }
-          const handler: ElicitationHandler = raw === "accept-all"
-            ? () => Effect.succeed(new ElicitationResponse({ action: "accept" }))
-            : raw;
+          const handler: ElicitationHandler =
+            raw === "accept-all"
+              ? () => Effect.succeed(new ElicitationResponse({ action: "accept" }))
+              : raw;
           const response = yield* handler({
             toolId,
             args,
@@ -226,14 +227,11 @@ const makeInvoker = (
 
     return parsed.pipe(
       Effect.flatMap((input) => effectHandler(input, ctx)),
-      Effect.map(
-        (data) => new ToolInvocationResult({ data, error: null }),
-      ),
+      Effect.map((data) => new ToolInvocationResult({ data, error: null })),
       Effect.catchAll(
-        (err): Effect.Effect<
-          ToolInvocationResult,
-          ToolInvocationError | ElicitationDeclinedError
-        > => {
+        (
+          err,
+        ): Effect.Effect<ToolInvocationResult, ToolInvocationError | ElicitationDeclinedError> => {
           if (
             err != null &&
             typeof err === "object" &&

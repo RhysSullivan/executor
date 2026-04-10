@@ -10,11 +10,8 @@ import { GraphqlGroup } from "../api/group";
 
 const GraphqlApi = addGroup(GraphqlGroup);
 
-export const GraphqlClient = AtomHttpApi.Tag<"GraphqlClient">()(
-  "GraphqlClient",
-  {
-    api: GraphqlApi,
-    httpClient: FetchHttpClient.layer,
-    baseUrl: getBaseUrl(),
-  },
-);
+export const GraphqlClient = AtomHttpApi.Tag<"GraphqlClient">()("GraphqlClient", {
+  api: GraphqlApi,
+  httpClient: FetchHttpClient.layer,
+  baseUrl: getBaseUrl(),
+});

@@ -28,11 +28,7 @@ export const encrypt = (
   return { encrypted, iv };
 };
 
-export const decrypt = (
-  encrypted: Buffer,
-  iv: Buffer,
-  encryptionKey: string,
-): string => {
+export const decrypt = (encrypted: Buffer, iv: Buffer, encryptionKey: string): string => {
   const key = deriveKey(encryptionKey);
   const authTag = encrypted.subarray(encrypted.length - AUTH_TAG_LENGTH);
   const ciphertext = encrypted.subarray(0, encrypted.length - AUTH_TAG_LENGTH);

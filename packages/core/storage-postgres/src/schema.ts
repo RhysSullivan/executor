@@ -30,7 +30,9 @@ export const sources = pgTable(
     organizationId: text("organization_id").notNull(),
     name: text("name").notNull(),
     kind: text("kind").notNull(),
-    config: jsonb("config").notNull().$default(() => ({})),
+    config: jsonb("config")
+      .notNull()
+      .$default(() => ({})),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.id, table.organizationId] })],
@@ -86,7 +88,9 @@ export const policies = pgTable(
     action: text("action").notNull(),
     matchToolPattern: text("match_tool_pattern"),
     matchSourceId: text("match_source_id"),
-    priority: integer("priority").notNull().$default(() => 0),
+    priority: integer("priority")
+      .notNull()
+      .$default(() => 0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.id, table.organizationId] })],

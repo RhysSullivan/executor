@@ -17,18 +17,14 @@ export class MyClientError extends Data.TaggedError("MyClientError")<{
   cause: unknown;
 }> {}
 
-export class MyClientInstantiationError extends Data.TaggedError(
-  "MyClientInstantiationError",
-)<{
+export class MyClientInstantiationError extends Data.TaggedError("MyClientInstantiationError")<{
   cause: unknown;
 }> {}
 
 // 2. Define service interface with `use` method
 export type IMyClient = Readonly<{
   client: ThirdPartyClient;
-  use: <A>(
-    fn: (client: ThirdPartyClient) => Promise<A>,
-  ) => Effect.Effect<A, MyClientError, never>;
+  use: <A>(fn: (client: ThirdPartyClient) => Promise<A>) => Effect.Effect<A, MyClientError, never>;
 }>;
 
 // 3. Create the service implementation
@@ -51,9 +47,7 @@ const make = Effect.gen(function* () {
 
 // 4. Export as Context.Tag with Default layer
 export class MyClient extends Context.Tag("MyClient")<MyClient, IMyClient>() {
-  static Default = Layer.effect(this, make).pipe(
-    Layer.annotateSpans({ module: "MyClient" }),
-  );
+  static Default = Layer.effect(this, make).pipe(Layer.annotateSpans({ module: "MyClient" }));
 }
 ```
 
@@ -63,9 +57,7 @@ export class MyClient extends Context.Tag("MyClient")<MyClient, IMyClient>() {
 const program = Effect.gen(function* () {
   const myClient = yield* MyClient;
 
-  const result = yield* myClient.use((client) =>
-    client.someMethod({ param: "value" }),
-  );
+  const result = yield* myClient.use((client) => client.someMethod({ param: "value" }));
 
   return result;
 });
@@ -87,15 +79,11 @@ program.pipe(Effect.provide(MyClient.Default));
 ### Multiple Error Types
 
 ```typescript
-export class MyClientNetworkError extends Data.TaggedError(
-  "MyClientNetworkError",
-)<{
+export class MyClientNetworkError extends Data.TaggedError("MyClientNetworkError")<{
   cause: unknown;
 }> {}
 
-export class MyClientValidationError extends Data.TaggedError(
-  "MyClientValidationError",
-)<{
+export class MyClientValidationError extends Data.TaggedError("MyClientValidationError")<{
   message: string;
 }> {}
 
@@ -117,9 +105,7 @@ Expose specific methods instead of generic `use`:
 
 ```typescript
 export type IEmailClient = Readonly<{
-  sendEmail: (
-    params: SendEmailParams,
-  ) => Effect.Effect<EmailResult, EmailError>;
+  sendEmail: (params: SendEmailParams) => Effect.Effect<EmailResult, EmailError>;
   getEmail: (id: string) => Effect.Effect<Email, EmailError>;
 }>;
 
@@ -128,14 +114,10 @@ const make = Effect.gen(function* () {
 
   return {
     sendEmail: (params) =>
-      resend
-        .use((client) => client.emails.send(params))
-        .pipe(Effect.withSpan("email_client.send")),
+      resend.use((client) => client.emails.send(params)).pipe(Effect.withSpan("email_client.send")),
 
     getEmail: (id) =>
-      resend
-        .use((client) => client.emails.get(id))
-        .pipe(Effect.withSpan("email_client.get")),
+      resend.use((client) => client.emails.get(id)).pipe(Effect.withSpan("email_client.get")),
   };
 });
 ```
@@ -154,10 +136,7 @@ const use = <A>(fn: (client: ThirdPartyClient) => Promise<A>) =>
   Effect.tryPromise({
     try: () => fn(client),
     catch: (cause) => new MyClientError({ cause }),
-  }).pipe(
-    Effect.retry(retryPolicy),
-    Effect.withSpan(`my_client.${fn.name ?? "use"}`),
-  );
+  }).pipe(Effect.retry(retryPolicy), Effect.withSpan(`my_client.${fn.name ?? "use"}`));
 ```
 
 ## Real-World Example: Stripe
@@ -188,13 +167,8 @@ const make = Effect.gen(function* () {
   return { use };
 });
 
-export class StripeClient extends Context.Tag("StripeClient")<
-  StripeClient,
-  IStripeClient
->() {
-  static Default = Layer.effect(this, make).pipe(
-    Layer.annotateSpans({ module: "StripeClient" }),
-  );
+export class StripeClient extends Context.Tag("StripeClient")<StripeClient, IStripeClient>() {
+  static Default = Layer.effect(this, make).pipe(Layer.annotateSpans({ module: "StripeClient" }));
 }
 
 // Usage

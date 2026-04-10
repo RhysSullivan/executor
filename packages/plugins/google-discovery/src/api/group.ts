@@ -129,8 +129,9 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
       .addError(ApiError),
   )
   .add(
-    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
+    HttpApiEndpoint.get(
+      "getSource",
+    )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
       .addSuccess(Schema.NullOr(GoogleDiscoveryStoredSourceSchema))
       .addError(ApiError),
-  )
-  {}
+  ) {}

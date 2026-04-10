@@ -23,10 +23,9 @@ type AuthOrganization = {
 // Auth atom — typed query against CloudAuthApi
 // ---------------------------------------------------------------------------
 
-export const authAtom =
-  CloudApiClient.query("cloudAuth", "me", {
-    timeToLive: "5 minutes",
-  });
+export const authAtom = CloudApiClient.query("cloudAuth", "me", {
+  timeToLive: "5 minutes",
+});
 
 // ---------------------------------------------------------------------------
 // Provider + hook
@@ -59,11 +58,7 @@ const AuthProviderClient = ({ children }: { children: React.ReactNode }) => {
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   if (typeof window === "undefined") {
-    return (
-      <AuthContext.Provider value={{ status: "loading" }}>
-        {children}
-      </AuthContext.Provider>
-    );
+    return <AuthContext.Provider value={{ status: "loading" }}>{children}</AuthContext.Provider>;
   }
   return <AuthProviderClient>{children}</AuthProviderClient>;
 };

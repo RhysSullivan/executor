@@ -7,6 +7,9 @@
     ".": "./src/index.ts",
     "./server": "./src/server.ts"
   },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/execution": "workspace:*",
@@ -17,8 +20,5 @@
     "@types/node": "catalog:",
     "bun-types": "catalog:",
     "typescript": "catalog:"
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit"
   }
 }

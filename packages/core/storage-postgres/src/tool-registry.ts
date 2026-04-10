@@ -9,19 +9,11 @@ import type { ToolId } from "@executor/sdk";
 import type { DrizzleDb } from "./types";
 import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk";
 import { buildToolTypeScriptPreview } from "@executor/sdk";
-import type {
-  ToolInvoker,
-  ToolListFilter,
-  InvokeOptions,
-  RuntimeToolHandler,
-} from "@executor/sdk";
+import type { ToolInvoker, ToolListFilter, InvokeOptions, RuntimeToolHandler } from "@executor/sdk";
 
 import { tools, toolDefinitions } from "./schema";
 
-export const makePgToolRegistry = (
-  db: DrizzleDb,
-  organizationId: string,
-) => {
+export const makePgToolRegistry = (db: DrizzleDb, organizationId: string) => {
   const runtimeTools = new Map<string, ToolRegistration>();
   const runtimeHandlers = new Map<string, RuntimeToolHandler>();
   const runtimeDefs = new Map<string, unknown>();
@@ -49,10 +41,7 @@ export const makePgToolRegistry = (
 
   const getAllTools = () =>
     Effect.tryPromise(async () => {
-      const rows = await db
-        .select()
-        .from(tools)
-        .where(eq(tools.organizationId, organizationId));
+      const rows = await db.select().from(tools).where(eq(tools.organizationId, organizationId));
       return rows.map(
         (row) =>
           new ToolRegistration({
@@ -74,9 +63,7 @@ export const makePgToolRegistry = (
         .select()
         .from(toolDefinitions)
         .where(eq(toolDefinitions.organizationId, organizationId));
-      const defs = new Map<string, unknown>(
-        rows.map((r) => [r.name, r.schema]),
-      );
+      const defs = new Map<string, unknown>(rows.map((r) => [r.name, r.schema]));
       for (const [k, v] of runtimeDefs) defs.set(k, v);
       return defs;
     }).pipe(Effect.orDie);
@@ -96,9 +83,7 @@ export const makePgToolRegistry = (
         if (filter?.query) {
           const q = filter.query.toLowerCase();
           result = result.filter(
-            (t) =>
-              t.name.toLowerCase().includes(q) ||
-              t.description?.toLowerCase().includes(q),
+            (t) => t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
           );
         }
         return result.map((t) => ({
@@ -156,7 +141,9 @@ export const makePgToolRegistry = (
       }),
 
     registerInvoker: (pluginKey: string, invoker: ToolInvoker) =>
-      Effect.sync(() => { invokers.set(pluginKey, invoker); }),
+      Effect.sync(() => {
+        invokers.set(pluginKey, invoker);
+      }),
 
     resolveAnnotations: (toolId: ToolId) =>
       Effect.gen(function* () {
@@ -225,7 +212,9 @@ export const makePgToolRegistry = (
       }),
 
     registerRuntimeHandler: (toolId: ToolId, handler: RuntimeToolHandler) =>
-      Effect.sync(() => { runtimeHandlers.set(toolId, handler); }),
+      Effect.sync(() => {
+        runtimeHandlers.set(toolId, handler);
+      }),
 
     unregisterRuntime: (toolIds: readonly ToolId[]) =>
       Effect.sync(() => {

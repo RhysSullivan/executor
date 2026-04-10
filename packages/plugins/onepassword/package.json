@@ -1,22 +1,42 @@
 {
   "name": "@executor/plugin-onepassword",
-  "type": "module",
   "version": "0.0.1-beta.5",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/onepassword",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RhysSullivan/executor.git",
     "directory": "packages/plugins/onepassword"
   },
-  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/onepassword",
-  "bugs": {
-    "url": "https://github.com/RhysSullivan/executor/issues"
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": "./src/sdk/index.ts",
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/promise.d.ts",
+          "default": "./dist/index.js"
+        }
+      },
+      "./core": {
+        "import": {
+          "types": "./dist/sdk/index.d.ts",
+          "default": "./dist/core.js"
+        }
+      }
+    }
   },
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
@@ -38,13 +58,13 @@
     "@types/react": "catalog:",
     "bun-types": "catalog:",
     "react": "catalog:",
-    "vitest": "catalog:",
-    "tsup": "catalog:"
+    "tsup": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
-    "react": ">=18",
     "@effect-atom/atom-react": "^0.5.0",
-    "@executor/react": "workspace:*"
+    "@executor/react": "workspace:*",
+    "react": ">=18"
   },
   "peerDependenciesMeta": {
     "react": {
@@ -56,25 +76,5 @@
     "@executor/react": {
       "optional": true
     }
-  },
-  "publishConfig": {
-    "access": "public",
-    "exports": {
-      ".": {
-        "import": {
-          "types": "./dist/promise.d.ts",
-          "default": "./dist/index.js"
-        }
-      },
-      "./core": {
-        "import": {
-          "types": "./dist/sdk/index.d.ts",
-          "default": "./dist/core.js"
-        }
-      }
-    }
-  },
-  "files": [
-    "dist"
-  ]
+  }
 }

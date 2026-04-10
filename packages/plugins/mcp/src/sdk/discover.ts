@@ -6,10 +6,7 @@ import { Effect } from "effect";
 
 import type { McpConnector } from "./connection";
 import { McpToolDiscoveryError } from "./errors";
-import {
-  extractManifestFromListToolsResult,
-  type McpToolManifest,
-} from "./manifest";
+import { extractManifestFromListToolsResult, type McpToolManifest } from "./manifest";
 
 // ---------------------------------------------------------------------------
 // Public API

@@ -1,10 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import {
-  ScopeId,
-  ToolId,
-  ToolNotFoundError,
-} from "@executor/sdk";
+import { ScopeId, ToolId, ToolNotFoundError } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -41,9 +37,7 @@ const ToolSchemaResponse = Schema.Struct({
 // Error schemas with HTTP status annotations
 // ---------------------------------------------------------------------------
 
-const ToolNotFound = ToolNotFoundError.annotations(
-  HttpApiSchema.annotations({ status: 404 }),
-);
+const ToolNotFound = ToolNotFoundError.annotations(HttpApiSchema.annotations({ status: 404 }));
 
 // ---------------------------------------------------------------------------
 // Group
@@ -51,12 +45,12 @@ const ToolNotFound = ToolNotFoundError.annotations(
 
 export class ToolsApi extends HttpApiGroup.make("tools")
   .add(
-    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/tools`
-      .addSuccess(Schema.Array(ToolMetadataResponse)),
+    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/tools`.addSuccess(
+      Schema.Array(ToolMetadataResponse),
+    ),
   )
   .add(
     HttpApiEndpoint.get("schema")`/scopes/${scopeIdParam}/tools/${toolIdParam}/schema`
       .addSuccess(ToolSchemaResponse)
       .addError(ToolNotFound),
-  )
-  {}
+  ) {}

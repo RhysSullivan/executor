@@ -21,9 +21,7 @@ const COOKIE_OPTIONS = {
 // (me/logout). The session group has SessionAuth on it.
 // ---------------------------------------------------------------------------
 
-export const NonProtectedApi = HttpApi.make("cloudWeb")
-  .add(CloudAuthPublicApi)
-  .add(CloudAuthApi);
+export const NonProtectedApi = HttpApi.make("cloudWeb").add(CloudAuthPublicApi).add(CloudAuthApi);
 
 // ---------------------------------------------------------------------------
 // Public auth handlers (no authentication required)
@@ -63,14 +61,11 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           // session so it includes the new org_id claim.
           if (!organizationId) {
             const name =
-              [result.user.firstName, result.user.lastName]
-                .filter(Boolean)
-                .join(" ") || result.user.email;
+              [result.user.firstName, result.user.lastName].filter(Boolean).join(" ") ||
+              result.user.email;
             const org = yield* workos.createOrganization(`${name}'s Workspace`);
             yield* workos.createMembership(org.id, result.user.id);
-            yield* users.use((s) =>
-              s.upsertOrganization({ id: org.id, name: org.name }),
-            );
+            yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
 
             if (sealedSession) {
               const refreshed = yield* workos.refreshSession(sealedSession, org.id);

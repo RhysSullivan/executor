@@ -1,11 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import {
-  ScopeId,
-  SecretId,
-  SecretNotFoundError,
-  SecretResolutionError,
-} from "@executor/sdk";
+import { ScopeId, SecretId, SecretNotFoundError, SecretResolutionError } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -49,9 +44,7 @@ const SetSecretPayload = Schema.Struct({
 // Error schemas with HTTP status annotations
 // ---------------------------------------------------------------------------
 
-const SecretNotFound = SecretNotFoundError.annotations(
-  HttpApiSchema.annotations({ status: 404 }),
-);
+const SecretNotFound = SecretNotFoundError.annotations(HttpApiSchema.annotations({ status: 404 }));
 const SecretResolution = SecretResolutionError.annotations(
   HttpApiSchema.annotations({ status: 500 }),
 );
@@ -62,12 +55,14 @@ const SecretResolution = SecretResolutionError.annotations(
 
 export class SecretsApi extends HttpApiGroup.make("secrets")
   .add(
-    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/secrets`
-      .addSuccess(Schema.Array(SecretRefResponse)),
+    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/secrets`.addSuccess(
+      Schema.Array(SecretRefResponse),
+    ),
   )
   .add(
-    HttpApiEndpoint.get("status")`/scopes/${scopeIdParam}/secrets/${secretIdParam}/status`
-      .addSuccess(SecretStatusResponse),
+    HttpApiEndpoint.get(
+      "status",
+    )`/scopes/${scopeIdParam}/secrets/${secretIdParam}/status`.addSuccess(SecretStatusResponse),
   )
   .add(
     HttpApiEndpoint.post("set")`/scopes/${scopeIdParam}/secrets`
@@ -85,5 +80,4 @@ export class SecretsApi extends HttpApiGroup.make("secrets")
     HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/secrets/${secretIdParam}`
       .addSuccess(Schema.Struct({ removed: Schema.Boolean }))
       .addError(SecretNotFound),
-  )
-  {}
+  ) {}

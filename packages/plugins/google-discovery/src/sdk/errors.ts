@@ -1,9 +1,7 @@
 import { Data, Schema } from "effect";
 import type { Option } from "effect";
 
-export class GoogleDiscoveryParseError extends Data.TaggedError(
-  "GoogleDiscoveryParseError",
-)<{
+export class GoogleDiscoveryParseError extends Data.TaggedError("GoogleDiscoveryParseError")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}

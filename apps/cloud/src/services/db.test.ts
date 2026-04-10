@@ -28,11 +28,7 @@ import { makeUserStore } from "./user-store";
 
 const program = <A, E>(body: Effect.Effect<A, E, DbService>) =>
   Effect.runPromise(
-    body.pipe(Effect.provide(DbService.Live), Effect.scoped) as Effect.Effect<
-      A,
-      E,
-      never
-    >,
+    body.pipe(Effect.provide(DbService.Live), Effect.scoped) as Effect.Effect<A, E, never>,
   );
 
 describe("DbService", () => {
@@ -44,7 +40,9 @@ describe("DbService", () => {
         return rows;
       }),
     );
-    expect(Array.isArray(result) ? result[0] : (result as { rows: unknown[] }).rows[0]).toBeDefined();
+    expect(
+      Array.isArray(result) ? result[0] : (result as { rows: unknown[] }).rows[0],
+    ).toBeDefined();
   });
 
   it("round-trips an account through the user store", async () => {
@@ -110,9 +108,7 @@ describe("DbService", () => {
         return yield* Effect.scoped(
           Effect.gen(function* () {
             const db = yield* DbService;
-            return yield* Effect.promise(() =>
-              makeUserStore(db).getOrganization(orgId),
-            );
+            return yield* Effect.promise(() => makeUserStore(db).getOrganization(orgId));
           }).pipe(Effect.provide(DbService.Live)),
         ) as Effect.Effect<{ id: string; name: string } | null, never, never>;
       }) as Effect.Effect<{ id: string; name: string } | null, never, never>,

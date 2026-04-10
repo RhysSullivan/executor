@@ -1,17 +1,20 @@
 {
   "name": "@executor/plugin-mcp",
-  "type": "module",
   "version": "0.0.1-beta.5",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/mcp",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RhysSullivan/executor.git",
     "directory": "packages/plugins/mcp"
   },
-  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/mcp",
-  "bugs": {
-    "url": "https://github.com/RhysSullivan/executor/issues"
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": "./src/sdk/index.ts",
     "./promise": "./src/promise.ts",
@@ -36,9 +39,6 @@
       }
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "bunx tsc --noEmit -p tsconfig.json",
@@ -53,12 +53,25 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "effect": "catalog:"
   },
-  "peerDependencies": {
-    "react": "catalog:",
+  "devDependencies": {
     "@effect-atom/atom-react": "^0.5.0",
-    "@tanstack/react-router": "catalog:",
+    "@effect/vitest": "catalog:",
     "@executor/api": "workspace:*",
-    "@executor/react": "workspace:*"
+    "@executor/react": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "bun-types": "catalog:",
+    "react": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "@effect-atom/atom-react": "^0.5.0",
+    "@executor/api": "workspace:*",
+    "@executor/react": "workspace:*",
+    "@tanstack/react-router": "catalog:",
+    "react": "catalog:"
   },
   "peerDependenciesMeta": {
     "react": {
@@ -76,18 +89,5 @@
     "@executor/react": {
       "optional": true
     }
-  },
-  "devDependencies": {
-    "react": "catalog:",
-    "@effect-atom/atom-react": "^0.5.0",
-    "@executor/api": "workspace:*",
-    "@executor/react": "workspace:*",
-    "@types/react": "catalog:",
-    "@effect/vitest": "catalog:",
-    "@types/node": "catalog:",
-    "bun-types": "catalog:",
-    "vitest": "catalog:",
-    "zod": "^4.3.6",
-    "tsup": "catalog:"
   }
 }

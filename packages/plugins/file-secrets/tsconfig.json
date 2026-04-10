@@ -5,13 +5,8 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "lib": [
-      "ES2022"
-    ],
-    "types": [
-      "bun-types",
-      "node"
-    ],
+    "lib": ["ES2022"],
+    "types": ["bun-types", "node"],
     "noUnusedLocals": true,
     "noImplicitOverride": true,
     "plugins": [
@@ -23,7 +18,5 @@
       }
     ]
   },
-  "include": [
-    "src/**/*.ts"
-  ]
+  "include": ["src/**/*.ts"]
 }

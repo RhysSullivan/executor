@@ -1,10 +1,6 @@
 import type { APIRoute } from "astro";
 import { Effect } from "effect";
-import {
-  createExecutor,
-  makeTestConfig,
-  type ToolMetadata,
-} from "@executor/sdk";
+import { createExecutor, makeTestConfig, type ToolMetadata } from "@executor/sdk";
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { graphqlPlugin } from "@executor/plugin-graphql";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
@@ -26,10 +22,7 @@ function inferMethod(toolName: string, pluginKey: string): string {
   return "GET";
 }
 
-function inferPolicy(
-  method: string,
-  toolName: string
-): "read" | "write" | "destructive" {
+function inferPolicy(method: string, toolName: string): "read" | "write" | "destructive" {
   const m = method.toUpperCase();
   if (m === "DELETE") return "destructive";
   const lower = toolName.toLowerCase();
@@ -79,9 +72,7 @@ export const POST: APIRoute = async ({ request }) => {
 
       try {
         // Detect what kind of source lives at this URL
-        const detected = yield* executor.sources
-          .detect(url)
-          .pipe(Effect.timeout("10 seconds"));
+        const detected = yield* executor.sources.detect(url).pipe(Effect.timeout("10 seconds"));
 
         if (!detected || detected.length === 0) return null;
 
@@ -130,7 +121,7 @@ export const POST: APIRoute = async ({ request }) => {
         Effect.catchAll(() => Effect.succeed(null)),
         Effect.timeout("25 seconds"),
         Effect.catchAll(() => Effect.succeed(null)),
-      )
+      ),
     );
 
     if (!result) {
@@ -139,7 +130,7 @@ export const POST: APIRoute = async ({ request }) => {
           error:
             "Could not detect an API at this URL. Try an OpenAPI spec, GraphQL endpoint, or Google Discovery document.",
         }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
+        { status: 404, headers: { "Content-Type": "application/json" } },
       );
     }
 

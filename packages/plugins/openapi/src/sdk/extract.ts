@@ -27,7 +27,14 @@ import {
 // ---------------------------------------------------------------------------
 
 const HTTP_METHODS: readonly HttpMethod[] = [
-  "get", "put", "post", "delete", "patch", "head", "options", "trace",
+  "get",
+  "put",
+  "post",
+  "delete",
+  "patch",
+  "head",
+  "options",
+  "trace",
 ];
 
 const VALID_PARAM_LOCATIONS = new Set<string>(["path", "query", "header", "cookie"]);
@@ -65,9 +72,7 @@ const extractParameters = (
           schema: Option.fromNullable(p.schema),
           style: Option.fromNullable(p.style),
           explode: Option.fromNullable(p.explode),
-          allowReserved: Option.fromNullable(
-            "allowReserved" in p ? p.allowReserved : undefined,
-          ),
+          allowReserved: Option.fromNullable("allowReserved" in p ? p.allowReserved : undefined),
           description: Option.fromNullable(p.description),
         }),
     );
@@ -100,10 +105,7 @@ const extractRequestBody = (
 // Response schema extraction
 // ---------------------------------------------------------------------------
 
-const extractOutputSchema = (
-  operation: OperationObject,
-  r: DocResolver,
-): unknown | undefined => {
+const extractOutputSchema = (operation: OperationObject, r: DocResolver): unknown | undefined => {
   if (!operation.responses) return undefined;
 
   const entries = Object.entries(operation.responses);
@@ -163,10 +165,8 @@ const deriveOperationId = (
   operation: OperationObject,
 ): string =>
   operation.operationId ??
-  (`${method}_${pathTemplate.replace(/[^a-zA-Z0-9]+/g, "_")}`.replace(
-    /^_+|_+$/g,
-    "",
-  ) || `${method}_operation`);
+  (`${method}_${pathTemplate.replace(/[^a-zA-Z0-9]+/g, "_")}`.replace(/^_+|_+$/g, "") ||
+    `${method}_operation`);
 
 // ---------------------------------------------------------------------------
 // Server extraction
@@ -185,10 +185,7 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
     return [
       new ServerInfo({
         url: server.url,
-        variables:
-          vars && Object.keys(vars).length > 0
-            ? Option.some(vars)
-            : Option.none(),
+        variables: vars && Object.keys(vars).length > 0 ? Option.some(vars) : Option.none(),
       }),
     ];
   });
@@ -198,9 +195,7 @@ const extractServers = (doc: ParsedDocument): ServerInfo[] =>
 // ---------------------------------------------------------------------------
 
 /** Extract all operations from a bundled OpenAPI 3.x document */
-export const extract = Effect.fn("OpenApi.extract")(function* (
-  doc: ParsedDocument,
-) {
+export const extract = Effect.fn("OpenApi.extract")(function* (doc: ParsedDocument) {
   const paths = doc.paths;
   if (!paths) {
     return yield* new OpenApiExtractionError({
@@ -211,8 +206,8 @@ export const extract = Effect.fn("OpenApi.extract")(function* (
   const r = new DocResolver(doc);
   const operations: ExtractedOperation[] = [];
 
-  for (const [pathTemplate, pathItem] of Object.entries(paths).sort(
-    ([a], [b]) => a.localeCompare(b),
+  for (const [pathTemplate, pathItem] of Object.entries(paths).sort(([a], [b]) =>
+    a.localeCompare(b),
   )) {
     if (!pathItem) continue;
 
@@ -228,9 +223,7 @@ export const extract = Effect.fn("OpenApi.extract")(function* (
 
       operations.push(
         new ExtractedOperation({
-          operationId: OperationId.make(
-            deriveOperationId(method, pathTemplate, operation),
-          ),
+          operationId: OperationId.make(deriveOperationId(method, pathTemplate, operation)),
           method,
           pathTemplate,
           summary: Option.fromNullable(operation.summary),

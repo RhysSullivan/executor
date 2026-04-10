@@ -46,14 +46,16 @@ describe("SDK Executor", () => {
     Effect.gen(function* () {
       const sources = makeInMemorySourceRegistry();
 
-      yield* sources.registerRuntime(new Source({
-        id: "built-in",
-        name: "Built In",
-        kind: "built-in",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }));
+      yield* sources.registerRuntime(
+        new Source({
+          id: "built-in",
+          name: "Built In",
+          kind: "built-in",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
 
       yield* sources.addManager({
         kind: "openapi",
@@ -71,10 +73,7 @@ describe("SDK Executor", () => {
         remove: () => Effect.void,
       });
 
-      expect((yield* sources.list()).map((source) => source.id)).toEqual([
-        "built-in",
-        "vercel",
-      ]);
+      expect((yield* sources.list()).map((source) => source.id)).toEqual(["built-in", "vercel"]);
     }),
   );
 
@@ -107,7 +106,7 @@ describe("SDK Executor", () => {
             }),
           ] as const,
         }),
-      )
+      );
 
       const tools = yield* executor.tools.list();
       expect(tools).toHaveLength(2);
@@ -176,9 +175,7 @@ describe("SDK Executor", () => {
   it.effect("tool invocation fails for unknown tool", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(makeTestConfig());
-      const error = yield* Effect.flip(
-        executor.tools.invoke("nonexistent", {}, autoApprove),
-      );
+      const error = yield* Effect.flip(executor.tools.invoke("nonexistent", {}, autoApprove));
       expect(error._tag).toBe("ToolNotFoundError");
     }),
   );
@@ -223,9 +220,7 @@ describe("SDK Executor", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            inMemoryToolsPlugin({ namespace: "runtime", tools: [] }),
-          ] as const,
+          plugins: [inMemoryToolsPlugin({ namespace: "runtime", tools: [] })] as const,
         }),
       );
 
@@ -317,15 +312,19 @@ describe("SDK Executor", () => {
         }),
       );
 
-      const result = yield* executor.tools.invoke("auth.login", {}, {
-        onElicitation: () =>
-          Effect.succeed(
-            new ElicitationResponse({
-              action: "accept",
-              content: { username: "alice", password: "secret" },
-            }),
-          ),
-      });
+      const result = yield* executor.tools.invoke(
+        "auth.login",
+        {},
+        {
+          onElicitation: () =>
+            Effect.succeed(
+              new ElicitationResponse({
+                action: "accept",
+                content: { username: "alice", password: "secret" },
+              }),
+            ),
+        },
+      );
 
       expect(result.data).toEqual({ user: "alice", status: "logged_in" });
     }),
@@ -357,10 +356,13 @@ describe("SDK Executor", () => {
       );
 
       const error = yield* Effect.flip(
-        executor.tools.invoke("auth.login", {}, {
-          onElicitation: () =>
-            Effect.succeed(new ElicitationResponse({ action: "decline" })),
-        }),
+        executor.tools.invoke(
+          "auth.login",
+          {},
+          {
+            onElicitation: () => Effect.succeed(new ElicitationResponse({ action: "decline" })),
+          },
+        ),
       );
 
       expect(error._tag).toBe("ElicitationDeclinedError");
@@ -393,9 +395,13 @@ describe("SDK Executor", () => {
       );
 
       const error = yield* Effect.flip(
-        executor.tools.invoke("auth.login", {}, {
-          onElicitation: undefined as never,
-        }),
+        executor.tools.invoke(
+          "auth.login",
+          {},
+          {
+            onElicitation: undefined as never,
+          },
+        ),
       );
       expect(error._tag).toBe("ElicitationDeclinedError");
     }),
@@ -431,17 +437,21 @@ describe("SDK Executor", () => {
         }),
       );
 
-      const result = yield* executor.tools.invoke("oauth.connect", {}, {
-        onElicitation: (ctx) => {
-          expect(ctx.request._tag).toBe("UrlElicitation");
-          return Effect.succeed(
-            new ElicitationResponse({
-              action: "accept",
-              content: { code: "auth-code-123" },
-            }),
-          );
+      const result = yield* executor.tools.invoke(
+        "oauth.connect",
+        {},
+        {
+          onElicitation: (ctx) => {
+            expect(ctx.request._tag).toBe("UrlElicitation");
+            return Effect.succeed(
+              new ElicitationResponse({
+                action: "accept",
+                content: { code: "auth-code-123" },
+              }),
+            );
+          },
         },
-      });
+      );
 
       expect(result.data).toEqual({ connected: true, code: "auth-code-123" });
     }),
@@ -465,10 +475,7 @@ describe("SDK Executor", () => {
                     oldValue: Schema.String,
                     newValue: Schema.String,
                   }),
-                  handler: (
-                    { secretName, newValue },
-                    ctx: MemoryToolContext,
-                  ) =>
+                  handler: ({ secretName, newValue }, ctx: MemoryToolContext) =>
                     Effect.gen(function* () {
                       // Try to resolve the existing secret by key
                       const secretId = SecretId.make(secretName);
@@ -511,10 +518,14 @@ describe("SDK Executor", () => {
       expect(before[0]!.name).toBe("DB_PASSWORD");
 
       // 2 + 3. Invoke tool that reads the old secret and writes a new one
-      const result = yield* executor.tools.invoke("vault.rotateKey", {
-        secretName: "DB_PASSWORD",
-        newValue: "correct-horse-battery-staple",
-      }, autoApprove);
+      const result = yield* executor.tools.invoke(
+        "vault.rotateKey",
+        {
+          secretName: "DB_PASSWORD",
+          newValue: "correct-horse-battery-staple",
+        },
+        autoApprove,
+      );
 
       // 4. Verify the tool returned old and new values
       expect(result.data).toEqual({
@@ -578,9 +589,7 @@ describe("SDK Executor", () => {
       expect(contactSchema.inputTypeScript).toBe(
         "{ name: string; homeAddress: Address; workAddress: Address }",
       );
-      expect(companySchema.inputTypeScript).toBe(
-        "{ companyName: string; headquarters: Address }",
-      );
+      expect(companySchema.inputTypeScript).toBe("{ companyName: string; headquarters: Address }");
       expect(contactSchema.typeScriptDefinitions).toEqual({
         Address: "{ street: string; city: string; zip: string }",
       });
@@ -588,7 +597,6 @@ describe("SDK Executor", () => {
         Address: "{ street: string; city: string; zip: string }",
       });
     }),
-
   );
 
   it.effect("definitions are stored once across tools, not duplicated", () =>

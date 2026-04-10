@@ -29,9 +29,7 @@ export {
   GoogleDiscoveryParameterLocation,
   GoogleDiscoveryStoredSourceData,
 } from "./types";
-export type {
-  GoogleDiscoveryOAuthSession,
-} from "./types";
+export type { GoogleDiscoveryOAuthSession } from "./types";
 export {
   GoogleDiscoveryInvocationError,
   GoogleDiscoveryOAuthError,

@@ -1,9 +1,5 @@
 import { Effect, Schema } from "effect";
-import {
-  definePlugin,
-  type ExecutorPlugin,
-  type SecretProvider,
-} from "@executor/sdk";
+import { definePlugin, type ExecutorPlugin, type SecretProvider } from "@executor/sdk";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -15,17 +11,11 @@ const APP_NAME = "executor";
 
 const xdgDataHome = (): string =>
   process.env.XDG_DATA_HOME?.trim() ||
-  path.join(
-    process.env.HOME || process.env.USERPROFILE || "~",
-    ".local",
-    "share",
-  );
+  path.join(process.env.HOME || process.env.USERPROFILE || "~", ".local", "share");
 
-const authDir = (overrideDir?: string): string =>
-  overrideDir ?? path.join(xdgDataHome(), APP_NAME);
+const authDir = (overrideDir?: string): string => overrideDir ?? path.join(xdgDataHome(), APP_NAME);
 
-const authFilePath = (overrideDir?: string): string =>
-  path.join(authDir(overrideDir), "auth.json");
+const authFilePath = (overrideDir?: string): string => path.join(authDir(overrideDir), "auth.json");
 
 // ---------------------------------------------------------------------------
 // Schema for the auth file
@@ -44,9 +34,7 @@ const decodeScopedAuthFile = Schema.decodeUnknownSync(ScopedAuthFile);
 // File I/O with restricted permissions
 // ---------------------------------------------------------------------------
 
-const readFullFile = (
-  filePath: string,
-): Record<string, Record<string, string>> => {
+const readFullFile = (filePath: string): Record<string, Record<string, string>> => {
   try {
     if (!fs.existsSync(filePath)) return {};
     const raw = fs.readFileSync(filePath, "utf-8");
@@ -56,10 +44,8 @@ const readFullFile = (
   }
 };
 
-const readScopeSecrets = (
-  filePath: string,
-  scopeId: string,
-): Record<string, string> => readFullFile(filePath)[scopeId] ?? {};
+const readScopeSecrets = (filePath: string, scopeId: string): Record<string, string> =>
+  readFullFile(filePath)[scopeId] ?? {};
 
 const writeScopeSecrets = (
   filePath: string,
@@ -103,10 +89,7 @@ export interface FileSecretsExtension {
 // Provider factory (internal)
 // ---------------------------------------------------------------------------
 
-const makeScopedProvider = (
-  filePath: string,
-  scopeId: string,
-): SecretProvider => ({
+const makeScopedProvider = (filePath: string, scopeId: string): SecretProvider => ({
   key: "file",
   writable: true,
 
@@ -154,9 +137,7 @@ export const fileSecretsPlugin = (
       Effect.gen(function* () {
         const filePath = authFilePath(config?.directory);
 
-        yield* ctx.secrets.addProvider(
-          makeScopedProvider(filePath, ctx.scope.id),
-        );
+        yield* ctx.secrets.addProvider(makeScopedProvider(filePath, ctx.scope.id));
 
         return {
           extension: { filePath },

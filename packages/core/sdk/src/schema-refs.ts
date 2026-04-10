@@ -15,8 +15,7 @@ type Obj = Record<string, unknown>;
 const REF_PATTERN = /^#\/(?:\$defs|definitions)\/(.+)$/;
 
 /** Extract the definition name from a standard $ref pointer. */
-const parseRefName = (ref: string): string | undefined =>
-  ref.match(REF_PATTERN)?.[1];
+const parseRefName = (ref: string): string | undefined => ref.match(REF_PATTERN)?.[1];
 
 /**
  * Recursively rewrite `#/definitions/<name>` pointers to `#/$defs/<name>`.
@@ -126,10 +125,7 @@ export const collectRefs = (
  * Assumes all `$ref` pointers and definitions have already been normalized
  * to `#/$defs/<name>` form at registration time.
  */
-export const reattachDefs = (
-  schema: unknown,
-  defs: ReadonlyMap<string, unknown>,
-): unknown => {
+export const reattachDefs = (schema: unknown, defs: ReadonlyMap<string, unknown>): unknown => {
   if (schema == null || typeof schema !== "object") return schema;
   const refs = collectRefs(schema, defs);
   if (refs.size === 0) return schema;

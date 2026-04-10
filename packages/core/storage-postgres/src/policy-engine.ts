@@ -11,10 +11,7 @@ import type { PolicyCheckInput } from "@executor/sdk";
 
 import { policies } from "./schema";
 
-export const makePgPolicyEngine = (
-  db: DrizzleDb,
-  organizationId: string,
-) => {
+export const makePgPolicyEngine = (db: DrizzleDb, organizationId: string) => {
   let counter = 0;
 
   return {

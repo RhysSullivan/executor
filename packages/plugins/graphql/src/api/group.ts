@@ -2,10 +2,7 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 
-import {
-  GraphqlIntrospectionError,
-  GraphqlExtractionError,
-} from "../sdk/errors";
+import { GraphqlIntrospectionError, GraphqlExtractionError } from "../sdk/errors";
 import { StoredSourceSchema } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
@@ -23,16 +20,12 @@ const AddSourcePayload = Schema.Struct({
   endpoint: Schema.String,
   introspectionJson: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  ),
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
 });
 
 const UpdateSourcePayload = Schema.Struct({
   endpoint: Schema.optional(Schema.String),
-  headers: Schema.optional(
-    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
-  ),
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
 });
 
 const UpdateSourceResponse = Schema.Struct({
@@ -72,12 +65,14 @@ export class GraphqlGroup extends HttpApiGroup.make("graphql")
       .addError(ExtractionError),
   )
   .add(
-    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`
-      .addSuccess(Schema.NullOr(StoredSourceSchema)),
+    HttpApiEndpoint.get(
+      "getSource",
+    )`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`.addSuccess(
+      Schema.NullOr(StoredSourceSchema),
+    ),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/graphql/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
       .addSuccess(UpdateSourceResponse),
-  )
-  {}
+  ) {}

@@ -13,11 +13,7 @@ import type { SecretProvider, SetSecretInput } from "@executor/sdk";
 import { secrets } from "./schema";
 import { encrypt, decrypt } from "./crypto";
 
-export const makePgSecretStore = (
-  db: DrizzleDb,
-  organizationId: string,
-  encryptionKey: string,
-) => {
+export const makePgSecretStore = (db: DrizzleDb, organizationId: string, encryptionKey: string) => {
   // Additional providers can still be registered (e.g. 1Password read-only)
   const providers: SecretProvider[] = [];
 
@@ -44,9 +40,9 @@ export const makePgSecretStore = (
         const seenIds = new Set(refs.map((r) => r.id));
         for (const provider of providers) {
           if (!provider.list) continue;
-          const items = yield* provider.list().pipe(
-            Effect.orElseSucceed(() => [] as { id: string; name: string }[]),
-          );
+          const items = yield* provider
+            .list()
+            .pipe(Effect.orElseSucceed(() => [] as { id: string; name: string }[]));
           for (const item of items) {
             if (seenIds.has(item.id as SecretId)) continue;
             seenIds.add(item.id as SecretId);
@@ -194,9 +190,10 @@ export const makePgSecretStore = (
       }),
 
     addProvider: (provider: SecretProvider) =>
-      Effect.sync(() => { providers.push(provider); }),
+      Effect.sync(() => {
+        providers.push(provider);
+      }),
 
-    providers: () =>
-      Effect.sync(() => ["postgres-encrypted", ...providers.map((p) => p.key)]),
+    providers: () => Effect.sync(() => ["postgres-encrypted", ...providers.map((p) => p.key)]),
   };
 };

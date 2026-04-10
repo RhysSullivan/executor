@@ -15,11 +15,15 @@ import {
   type ToolRegistration,
 } from "@executor/sdk";
 
-import { introspect, parseIntrospectionJson, type IntrospectionResult, type IntrospectionType, type IntrospectionField } from "./introspect";
-import { extract } from "./extract";
 import {
-  GraphqlExtractionError,
-} from "./errors";
+  introspect,
+  parseIntrospectionJson,
+  type IntrospectionResult,
+  type IntrospectionType,
+  type IntrospectionField,
+} from "./introspect";
+import { extract } from "./extract";
+import { GraphqlExtractionError } from "./errors";
 import { makeGraphqlInvoker } from "./invoke";
 import type { GraphqlOperationStore, StoredSource } from "./operation-store";
 import { makeInMemoryOperationStore } from "./kv-operation-store";
@@ -68,9 +72,7 @@ export interface GraphqlPluginExtension {
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
 
   /** Fetch the full stored source by namespace (or null if missing) */
-  readonly getSource: (
-    namespace: string,
-  ) => Effect.Effect<StoredSource | null>;
+  readonly getSource: (namespace: string) => Effect.Effect<StoredSource | null>;
 
   /** Update config (endpoint, headers) for an existing GraphQL source */
   readonly updateSource: (
@@ -87,9 +89,7 @@ const AddSourceInputSchema = Schema.Struct({
   endpoint: Schema.String,
   introspectionJson: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(
-    Schema.Record({ key: Schema.String, value: HeaderValueSchema }),
-  ),
+  headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
 });
 type AddSourceInput = typeof AddSourceInputSchema.Type;
 
@@ -180,14 +180,12 @@ const buildSelectionSet = (
   return subFields.length > 0 ? `{ ${subFields.join(" ")} }` : "";
 };
 
-const toRegistration = (
-  field: ExtractedField,
-  namespace: string,
-): ToolRegistration => {
+const toRegistration = (field: ExtractedField, namespace: string): ToolRegistration => {
   const prefix = field.kind === "mutation" ? "mutation" : "query";
   const toolPath = `${prefix}.${field.fieldName}`;
-  const description = Option.getOrElse(field.description, () =>
-    `GraphQL ${field.kind}: ${field.fieldName} -> ${field.returnTypeName}`,
+  const description = Option.getOrElse(
+    field.description,
+    () => `GraphQL ${field.kind}: ${field.fieldName} -> ${field.returnTypeName}`,
   );
 
   return {
@@ -210,8 +208,7 @@ export const graphqlPlugin = (options?: {
   readonly operationStore?: GraphqlOperationStore;
 }): ExecutorPlugin<"graphql", GraphqlPluginExtension> => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
-  const operationStore =
-    options?.operationStore ?? makeInMemoryOperationStore();
+  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
 
   return definePlugin({
     key: "graphql",
@@ -299,9 +296,7 @@ export const graphqlPlugin = (options?: {
                       .resolve(value.secretId as SecretId, ctx.scope.id)
                       .pipe(Effect.catchAll(() => Effect.succeed("")));
                     if (secret) {
-                      resolvedHeaders[name] = value.prefix
-                        ? `${value.prefix}${secret}`
-                        : secret;
+                      resolvedHeaders[name] = value.prefix ? `${value.prefix}${secret}` : secret;
                     }
                   }
                 }
@@ -333,13 +328,15 @@ export const graphqlPlugin = (options?: {
             }
 
             // Build field map for operation strings
-            const fieldMap = new Map<string, { kind: GraphqlOperationKind; field: IntrospectionField }>();
+            const fieldMap = new Map<
+              string,
+              { kind: GraphqlOperationKind; field: IntrospectionField }
+            >();
             const schema = introspectionResult.__schema;
 
             for (const rootKind of ["query", "mutation"] as const) {
-              const typeName = rootKind === "query"
-                ? schema.queryType?.name
-                : schema.mutationType?.name;
+              const typeName =
+                rootKind === "query" ? schema.queryType?.name : schema.mutationType?.name;
               if (!typeName) continue;
               const rootType = typeMap.get(typeName);
               if (!rootType?.fields) continue;
@@ -406,8 +403,7 @@ export const graphqlPlugin = (options?: {
             runtimeTool({
               id: "graphql.addSource",
               name: "graphql.addSource",
-              description:
-                "Add a GraphQL endpoint and register its operations as tools",
+              description: "Add a GraphQL endpoint and register its operations as tools",
               inputSchema: AddSourceInputSchema,
               outputSchema: AddSourceOutputSchema,
               handler: (input: AddSourceInput) => addSourceInternal(input),
@@ -423,24 +419,21 @@ export const graphqlPlugin = (options?: {
                 Effect.mapError(
                   (err) =>
                     new GraphqlExtractionError({
-                      message:
-                        err instanceof Error ? err.message : String(err),
+                      message: err instanceof Error ? err.message : String(err),
                     }),
                 ),
               ),
 
             removeSource: (namespace: string) =>
               Effect.gen(function* () {
-                const toolIds =
-                  yield* operationStore.removeByNamespace(namespace);
+                const toolIds = yield* operationStore.removeByNamespace(namespace);
                 if (toolIds.length > 0) {
                   yield* ctx.tools.unregister(toolIds);
                 }
                 yield* operationStore.removeSource(namespace);
               }),
 
-            getSource: (namespace: string) =>
-              operationStore.getSource(namespace),
+            getSource: (namespace: string) => operationStore.getSource(namespace),
 
             updateSource: (namespace: string, input: GraphqlUpdateSourceInput) =>
               Effect.gen(function* () {
@@ -450,7 +443,9 @@ export const graphqlPlugin = (options?: {
                 const updatedConfig = {
                   ...existingConfig,
                   ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
-                  ...(input.headers !== undefined ? { headers: input.headers as Record<string, HeaderValueValue> } : {}),
+                  ...(input.headers !== undefined
+                    ? { headers: input.headers as Record<string, HeaderValueValue> }
+                    : {}),
                 };
 
                 const newInvocationConfig = new InvocationConfig({
@@ -462,7 +457,12 @@ export const graphqlPlugin = (options?: {
                 for (const toolId of toolIds) {
                   const entry = yield* operationStore.get(toolId);
                   if (entry) {
-                    yield* operationStore.put(toolId, namespace, entry.binding, newInvocationConfig);
+                    yield* operationStore.put(
+                      toolId,
+                      namespace,
+                      entry.binding,
+                      newInvocationConfig,
+                    );
                   }
                 }
 

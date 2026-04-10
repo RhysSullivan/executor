@@ -7,18 +7,14 @@ import { HeaderValue } from "./types";
 // via the getSource HTTP endpoint.
 // ---------------------------------------------------------------------------
 
-export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
-  "GraphqlStoredSource",
-)({
+export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>("GraphqlStoredSource")({
   namespace: Schema.String,
   name: Schema.String,
   config: Schema.Struct({
     endpoint: Schema.String,
     introspectionJson: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
-    headers: Schema.optional(
-      Schema.Record({ key: Schema.String, value: HeaderValue }),
-    ),
+    headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValue })),
   }),
 }) {}
 

@@ -28,9 +28,7 @@ describe("keychain plugin", () => {
       const testId = SecretId.make(`test-keychain-${Date.now()}`);
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            keychainPlugin({ serviceName: "executor-test" }),
-          ] as const,
+          plugins: [keychainPlugin({ serviceName: "executor-test" })] as const,
         }),
       );
 
@@ -51,9 +49,7 @@ describe("keychain plugin", () => {
         const resolved = yield* executor.secrets.resolve(testId);
         expect(resolved).toBe("keychain-test-value");
       } finally {
-        yield* executor.secrets.remove(testId).pipe(
-          Effect.orElseSucceed(() => false),
-        );
+        yield* executor.secrets.remove(testId).pipe(Effect.orElseSucceed(() => false));
       }
     }),
   );
@@ -62,15 +58,11 @@ describe("keychain plugin", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            keychainPlugin({ serviceName: "executor-test" }),
-          ] as const,
+          plugins: [keychainPlugin({ serviceName: "executor-test" })] as const,
         }),
       );
 
-      const exists = yield* executor.keychain.has(
-        SecretId.make("nonexistent-secret"),
-      );
+      const exists = yield* executor.keychain.has(SecretId.make("nonexistent-secret"));
       expect(exists).toBe(false);
     }),
   );

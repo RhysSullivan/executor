@@ -8,130 +8,114 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from './routes/__root'
-import { Route as ToolsRouteImport } from './routes/tools'
-import { Route as SecretsRouteImport } from './routes/secrets'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as SourcesNamespaceRouteImport } from './routes/sources.$namespace'
-import { Route as SourcesAddPluginKeyRouteImport } from './routes/sources.add.$pluginKey'
+import { Route as rootRouteImport } from "./routes/__root";
+import { Route as ToolsRouteImport } from "./routes/tools";
+import { Route as SecretsRouteImport } from "./routes/secrets";
+import { Route as IndexRouteImport } from "./routes/index";
+import { Route as SourcesNamespaceRouteImport } from "./routes/sources.$namespace";
+import { Route as SourcesAddPluginKeyRouteImport } from "./routes/sources.add.$pluginKey";
 
 const ToolsRoute = ToolsRouteImport.update({
-  id: '/tools',
-  path: '/tools',
+  id: "/tools",
+  path: "/tools",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const SecretsRoute = SecretsRouteImport.update({
-  id: '/secrets',
-  path: '/secrets',
+  id: "/secrets",
+  path: "/secrets",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+  id: "/",
+  path: "/",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const SourcesNamespaceRoute = SourcesNamespaceRouteImport.update({
-  id: '/sources/$namespace',
-  path: '/sources/$namespace',
+  id: "/sources/$namespace",
+  path: "/sources/$namespace",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
-  id: '/sources/add/$pluginKey',
-  path: '/sources/add/$pluginKey',
+  id: "/sources/add/$pluginKey",
+  path: "/sources/add/$pluginKey",
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any);
 
 export interface FileRoutesByFullPath {
-  '/': typeof IndexRoute
-  '/secrets': typeof SecretsRoute
-  '/tools': typeof ToolsRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
+  "/": typeof IndexRoute;
+  "/secrets": typeof SecretsRoute;
+  "/tools": typeof ToolsRoute;
+  "/sources/$namespace": typeof SourcesNamespaceRoute;
+  "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
 }
 export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/secrets': typeof SecretsRoute
-  '/tools': typeof ToolsRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
+  "/": typeof IndexRoute;
+  "/secrets": typeof SecretsRoute;
+  "/tools": typeof ToolsRoute;
+  "/sources/$namespace": typeof SourcesNamespaceRoute;
+  "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/secrets': typeof SecretsRoute
-  '/tools': typeof ToolsRoute
-  '/sources/$namespace': typeof SourcesNamespaceRoute
-  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
+  __root__: typeof rootRouteImport;
+  "/": typeof IndexRoute;
+  "/secrets": typeof SecretsRoute;
+  "/tools": typeof ToolsRoute;
+  "/sources/$namespace": typeof SourcesNamespaceRoute;
+  "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/secrets'
-    | '/tools'
-    | '/sources/$namespace'
-    | '/sources/add/$pluginKey'
-  fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/secrets'
-    | '/tools'
-    | '/sources/$namespace'
-    | '/sources/add/$pluginKey'
-  id:
-    | '__root__'
-    | '/'
-    | '/secrets'
-    | '/tools'
-    | '/sources/$namespace'
-    | '/sources/add/$pluginKey'
-  fileRoutesById: FileRoutesById
+  fileRoutesByFullPath: FileRoutesByFullPath;
+  fullPaths: "/" | "/secrets" | "/tools" | "/sources/$namespace" | "/sources/add/$pluginKey";
+  fileRoutesByTo: FileRoutesByTo;
+  to: "/" | "/secrets" | "/tools" | "/sources/$namespace" | "/sources/add/$pluginKey";
+  id: "__root__" | "/" | "/secrets" | "/tools" | "/sources/$namespace" | "/sources/add/$pluginKey";
+  fileRoutesById: FileRoutesById;
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  SecretsRoute: typeof SecretsRoute
-  ToolsRoute: typeof ToolsRoute
-  SourcesNamespaceRoute: typeof SourcesNamespaceRoute
-  SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute
+  IndexRoute: typeof IndexRoute;
+  SecretsRoute: typeof SecretsRoute;
+  ToolsRoute: typeof ToolsRoute;
+  SourcesNamespaceRoute: typeof SourcesNamespaceRoute;
+  SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute;
 }
 
-declare module '@tanstack/react-router' {
+declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    '/tools': {
-      id: '/tools'
-      path: '/tools'
-      fullPath: '/tools'
-      preLoaderRoute: typeof ToolsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/secrets': {
-      id: '/secrets'
-      path: '/secrets'
-      fullPath: '/secrets'
-      preLoaderRoute: typeof SecretsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sources/$namespace': {
-      id: '/sources/$namespace'
-      path: '/sources/$namespace'
-      fullPath: '/sources/$namespace'
-      preLoaderRoute: typeof SourcesNamespaceRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/sources/add/$pluginKey': {
-      id: '/sources/add/$pluginKey'
-      path: '/sources/add/$pluginKey'
-      fullPath: '/sources/add/$pluginKey'
-      preLoaderRoute: typeof SourcesAddPluginKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
+    "/tools": {
+      id: "/tools";
+      path: "/tools";
+      fullPath: "/tools";
+      preLoaderRoute: typeof ToolsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/secrets": {
+      id: "/secrets";
+      path: "/secrets";
+      fullPath: "/secrets";
+      preLoaderRoute: typeof SecretsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/": {
+      id: "/";
+      path: "/";
+      fullPath: "/";
+      preLoaderRoute: typeof IndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/sources/$namespace": {
+      id: "/sources/$namespace";
+      path: "/sources/$namespace";
+      fullPath: "/sources/$namespace";
+      preLoaderRoute: typeof SourcesNamespaceRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/sources/add/$pluginKey": {
+      id: "/sources/add/$pluginKey";
+      path: "/sources/add/$pluginKey";
+      fullPath: "/sources/add/$pluginKey";
+      preLoaderRoute: typeof SourcesAddPluginKeyRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
   }
 }
 
@@ -141,17 +125,17 @@ const rootRouteChildren: RootRouteChildren = {
   ToolsRoute: ToolsRoute,
   SourcesNamespaceRoute: SourcesNamespaceRoute,
   SourcesAddPluginKeyRoute: SourcesAddPluginKeyRoute,
-}
+};
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
+  ._addFileTypes<FileRouteTypes>();
 
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
+import type { getRouter } from "./router.tsx";
+import type { startInstance } from "./start.ts";
+declare module "@tanstack/react-start" {
   interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+    ssr: true;
+    router: Awaited<ReturnType<typeof getRouter>>;
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>;
   }
 }

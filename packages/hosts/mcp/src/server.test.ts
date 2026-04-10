@@ -35,12 +35,8 @@ const withClient = async (
   fn: (client: Client) => Promise<void>,
 ) => {
   const mcpServer = await createExecutorMcpServer({ engine });
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair();
-  const client = new Client(
-    { name: "test-client", version: "1.0.0" },
-    { capabilities },
-  );
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities });
   await mcpServer.connect(serverTransport);
   await client.connect(clientTransport);
   try {
@@ -78,9 +74,9 @@ const makePausedResult = (
 /** Build an engine whose execute triggers one elicitation and returns the handler's result. */
 const makeElicitingEngine = (
   request: FormElicitation | UrlElicitation,
-  formatResult: (
-    response: { action: string; content?: Record<string, unknown> },
-  ) => unknown = (r) => r.action,
+  formatResult: (response: { action: string; content?: Record<string, unknown> }) => unknown = (
+    r,
+  ) => r.action,
 ): ExecutionEngine =>
   makeStubEngine({
     execute: async (_code, { onElicitation }) => {
@@ -124,8 +120,7 @@ describe("MCP host server — client with elicitation", () => {
           properties: { approved: { type: "boolean" } },
         },
       }),
-      (r) =>
-        r.action === "accept" && r.content?.approved ? "approved" : "denied",
+      (r) => (r.action === "accept" && r.content?.approved ? "approved" : "denied"),
     );
 
     await withClient(engine, ELICITATION_CAPS, async (client) => {
@@ -158,9 +153,7 @@ describe("MCP host server — client with elicitation", () => {
         name: "execute",
         arguments: { code: "x" },
       });
-      expect(result.content).toEqual([
-        { type: "text", text: "action:decline" },
-      ]);
+      expect(result.content).toEqual([{ type: "text", text: "action:decline" }]);
     });
   });
 
@@ -266,9 +259,7 @@ describe("MCP host server — client with form-only elicitation", () => {
         name: "execute",
         arguments: { code: "test" },
       });
-      expect(result.content).toEqual([
-        { type: "text", text: "managed: test" },
-      ]);
+      expect(result.content).toEqual([{ type: "text", text: "managed: test" }]);
     });
   });
 
@@ -284,8 +275,7 @@ describe("MCP host server — client with form-only elicitation", () => {
 
     await withClient(engine, FORM_ONLY_CAPS, async (client) => {
       client.setRequestHandler(ElicitRequestSchema, async (request) => {
-        receivedMessage = (request.params as Record<string, unknown>)
-          .message as string;
+        receivedMessage = (request.params as Record<string, unknown>).message as string;
         return { action: "accept" as const, content: {} };
       });
 
@@ -377,9 +367,7 @@ describe("MCP host server — client without elicitation (pause/resume)", () => 
         name: "resume",
         arguments: { executionId: "exec_1", action: "accept", content: "{}" },
       });
-      expect(result.content).toEqual([
-        { type: "text", text: "resumed-ok" },
-      ]);
+      expect(result.content).toEqual([{ type: "text", text: "resumed-ok" }]);
       expect(result.isError).toBeFalsy();
     });
   });
@@ -496,9 +484,7 @@ describe("MCP host server — elicitation error handling", () => {
         name: "execute",
         arguments: { code: "fail" },
       });
-      expect(result.content).toEqual([
-        { type: "text", text: "fallback:cancel" },
-      ]);
+      expect(result.content).toEqual([{ type: "text", text: "fallback:cancel" }]);
     });
   });
 });
@@ -605,9 +591,7 @@ describe("MCP host server — multiple elicitations", () => {
         name: "execute",
         arguments: { code: "multi" },
       });
-      expect(result.content).toEqual([
-        { type: "text", text: "name=Alice,confirmed=true" },
-      ]);
+      expect(result.content).toEqual([{ type: "text", text: "name=Alice,confirmed=true" }]);
       expect(callCount).toBe(2);
     });
   });

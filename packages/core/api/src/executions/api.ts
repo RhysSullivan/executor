@@ -60,5 +60,4 @@ export class ExecutionsApi extends HttpApiGroup.make("executions")
       .setPayload(ResumeRequest)
       .addSuccess(ResumeResponse)
       .addError(ExecutionNotFoundError),
-  )
-  {}
+  ) {}

@@ -15,10 +15,7 @@ export const openApiSourceAtom = (scopeId: ScopeId, namespace: string) =>
 // Mutation atoms
 // ---------------------------------------------------------------------------
 
-export const previewOpenApiSpec = OpenApiClient.mutation(
-  "openapi",
-  "previewSpec",
-);
+export const previewOpenApiSpec = OpenApiClient.mutation("openapi", "previewSpec");
 
 export const addOpenApiSpec = OpenApiClient.mutation("openapi", "addSpec");
 

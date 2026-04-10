@@ -23,10 +23,7 @@ const OAUTH_REFRESH_SKEW_MS = 60_000;
 
 const SAFE_METHODS = new Set(["get", "head", "options"]);
 
-const stringValuesFromParameter = (
-  value: unknown,
-  repeated: boolean,
-): string[] => {
+const stringValuesFromParameter = (value: unknown, repeated: boolean): string[] => {
   if (value === undefined || value === null) {
     return [];
   }
@@ -36,11 +33,7 @@ const stringValuesFromParameter = (
     );
     return repeated ? normalized : [normalized.join(",")];
   }
-  if (
-    typeof value === "string" ||
-    typeof value === "number" ||
-    typeof value === "boolean"
-  ) {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
     return [String(value)];
   }
   return [JSON.stringify(value)];
@@ -72,9 +65,7 @@ const isJsonContentType = (contentType: string | null | undefined): boolean => {
   if (!contentType) return false;
   const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   return (
-    normalized === "application/json" ||
-    normalized.includes("+json") ||
-    normalized.includes("json")
+    normalized === "application/json" || normalized.includes("+json") || normalized.includes("json")
   );
 };
 
@@ -82,10 +73,7 @@ const resolveOAuthAccessToken = (input: {
   sourceId: string;
   source: GoogleDiscoveryStoredSourceData;
   secrets: {
-    readonly resolve: (
-      secretId: SecretId,
-      scopeId: ScopeId,
-    ) => Effect.Effect<string, unknown>;
+    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
     readonly set: (input: {
       id: SecretId;
       scopeId: ScopeId;
@@ -110,18 +98,16 @@ const resolveOAuthAccessToken = (input: {
       auth.expiresAt <= now + OAUTH_REFRESH_SKEW_MS;
 
     if (!needsRefresh) {
-      return yield* input.secrets
-        .resolve(auth.accessTokenSecretId as SecretId, input.scopeId)
-        .pipe(
-          Effect.mapError(
-            () =>
-              new ToolInvocationError({
-                toolId: "" as ToolId,
-                message: "Failed to resolve Google OAuth access token",
-                cause: undefined,
-              }),
-          ),
-        );
+      return yield* input.secrets.resolve(auth.accessTokenSecretId as SecretId, input.scopeId).pipe(
+        Effect.mapError(
+          () =>
+            new ToolInvocationError({
+              toolId: "" as ToolId,
+              message: "Failed to resolve Google OAuth access token",
+              cause: undefined,
+            }),
+        ),
+      );
     }
 
     const refreshToken = yield* input.secrets
@@ -140,18 +126,16 @@ const resolveOAuthAccessToken = (input: {
     const clientSecret =
       auth.clientSecretSecretId === null
         ? null
-        : yield* input.secrets
-            .resolve(auth.clientSecretSecretId as SecretId, input.scopeId)
-            .pipe(
-              Effect.mapError(
-                () =>
-                  new ToolInvocationError({
-                    toolId: "" as ToolId,
-                    message: "Failed to resolve Google OAuth client secret",
-                    cause: undefined,
-                  }),
-              ),
-            );
+        : yield* input.secrets.resolve(auth.clientSecretSecretId as SecretId, input.scopeId).pipe(
+            Effect.mapError(
+              () =>
+                new ToolInvocationError({
+                  toolId: "" as ToolId,
+                  message: "Failed to resolve Google OAuth client secret",
+                  cause: undefined,
+                }),
+            ),
+          );
 
     const refreshed = yield* refreshAccessToken({
       clientId: auth.clientId,
@@ -169,41 +153,45 @@ const resolveOAuthAccessToken = (input: {
       ),
     );
 
-    yield* input.secrets.set({
-      id: auth.accessTokenSecretId as SecretId,
-      scopeId: input.scopeId,
-      name: `${input.source.name} Access Token`,
-      value: refreshed.access_token,
-      purpose: "google_oauth_access_token",
-    }).pipe(
-      Effect.mapError(
-        () =>
-          new ToolInvocationError({
-            toolId: "" as ToolId,
-            message: "Failed to persist refreshed Google OAuth access token",
-            cause: undefined,
-          }),
-      ),
-    );
-
-    let refreshTokenSecretId = auth.refreshTokenSecretId;
-    if (refreshed.refresh_token && auth.refreshTokenSecretId) {
-      yield* input.secrets.set({
-        id: auth.refreshTokenSecretId as SecretId,
+    yield* input.secrets
+      .set({
+        id: auth.accessTokenSecretId as SecretId,
         scopeId: input.scopeId,
-        name: `${input.source.name} Refresh Token`,
-        value: refreshed.refresh_token,
-        purpose: "google_oauth_refresh_token",
-      }).pipe(
+        name: `${input.source.name} Access Token`,
+        value: refreshed.access_token,
+        purpose: "google_oauth_access_token",
+      })
+      .pipe(
         Effect.mapError(
           () =>
             new ToolInvocationError({
               toolId: "" as ToolId,
-              message: "Failed to persist refreshed Google OAuth refresh token",
+              message: "Failed to persist refreshed Google OAuth access token",
               cause: undefined,
             }),
         ),
       );
+
+    let refreshTokenSecretId = auth.refreshTokenSecretId;
+    if (refreshed.refresh_token && auth.refreshTokenSecretId) {
+      yield* input.secrets
+        .set({
+          id: auth.refreshTokenSecretId as SecretId,
+          scopeId: input.scopeId,
+          name: `${input.source.name} Refresh Token`,
+          value: refreshed.refresh_token,
+          purpose: "google_oauth_refresh_token",
+        })
+        .pipe(
+          Effect.mapError(
+            () =>
+              new ToolInvocationError({
+                toolId: "" as ToolId,
+                message: "Failed to persist refreshed Google OAuth refresh token",
+                cause: undefined,
+              }),
+          ),
+        );
       refreshTokenSecretId = auth.refreshTokenSecretId;
     }
 
@@ -233,7 +221,10 @@ const resolveOAuthAccessToken = (input: {
     return refreshed.access_token;
   });
 
-export const annotationsForOperation = (method: string, pathTemplate: string): {
+export const annotationsForOperation = (
+  method: string,
+  pathTemplate: string,
+): {
   requiresApproval?: boolean;
   approvalDescription?: string;
 } => {
@@ -260,18 +251,12 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
     args: input.args,
     parameters: input.parameters,
   });
-  const requestUrl = new URL(
-    resolvedPath.replace(/^\//, ""),
-    resolveBaseUrl(input.source),
-  );
+  const requestUrl = new URL(resolvedPath.replace(/^\//, ""), resolveBaseUrl(input.source));
 
   for (const parameter of input.parameters) {
     if (parameter.location === "path") continue;
 
-    const values = stringValuesFromParameter(
-      input.args[parameter.name],
-      parameter.repeated,
-    );
+    const values = stringValuesFromParameter(input.args[parameter.name], parameter.repeated);
     if (values.length === 0) {
       if (parameter.required) {
         return yield* new GoogleDiscoveryInvocationError({
@@ -290,16 +275,11 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
     }
   }
 
-  let request = HttpClientRequest.make(
-    input.method.toUpperCase() as "GET",
-  )(requestUrl.toString());
+  let request = HttpClientRequest.make(input.method.toUpperCase() as "GET")(requestUrl.toString());
 
   for (const parameter of input.parameters) {
     if (parameter.location !== "header") continue;
-    const values = stringValuesFromParameter(
-      input.args[parameter.name],
-      parameter.repeated,
-    );
+    const values = stringValuesFromParameter(input.args[parameter.name], parameter.repeated);
     if (values.length === 0) continue;
     request = HttpClientRequest.setHeader(
       request,
@@ -309,11 +289,7 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
   }
 
   if (input.authorizationHeader) {
-    request = HttpClientRequest.setHeader(
-      request,
-      "Authorization",
-      input.authorizationHeader,
-    );
+    request = HttpClientRequest.setHeader(request, "Authorization", input.authorizationHeader);
   }
 
   if (input.hasBody && input.args.body !== undefined) {
@@ -352,10 +328,7 @@ const invoke = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
 export const makeGoogleDiscoveryInvoker = (input: {
   readonly bindingStore: GoogleDiscoveryBindingStore;
   readonly secrets: {
-    readonly resolve: (
-      secretId: SecretId,
-      scopeId: ScopeId,
-    ) => Effect.Effect<string, unknown>;
+    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
     readonly set: (input: {
       id: SecretId;
       scopeId: ScopeId;
@@ -374,10 +347,7 @@ export const makeGoogleDiscoveryInvoker = (input: {
       Effect.gen(function* () {
         const entry = yield* input.bindingStore.get(toolId);
         if (!entry) return undefined;
-        return annotationsForOperation(
-          entry.binding.method,
-          entry.binding.pathTemplate,
-        );
+        return annotationsForOperation(entry.binding.method, entry.binding.pathTemplate);
       }),
 
     invoke: (toolId: ToolId, args: unknown) =>
@@ -412,9 +382,7 @@ export const makeGoogleDiscoveryInvoker = (input: {
             : "";
 
         const authHeader =
-          source.auth.kind === "oauth2"
-            ? `${source.auth.tokenType} ${accessToken}`
-            : undefined;
+          source.auth.kind === "oauth2" ? `${source.auth.tokenType} ${accessToken}` : undefined;
 
         const result = yield* invoke({
           method: entry.binding.method,
@@ -438,8 +406,7 @@ export const makeGoogleDiscoveryInvoker = (input: {
             : Effect.fail(
                 new ToolInvocationError({
                   toolId,
-                  message:
-                    error instanceof Error ? error.message : String(error),
+                  message: error instanceof Error ? error.message : String(error),
                   cause: undefined,
                 }),
               ),

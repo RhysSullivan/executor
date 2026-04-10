@@ -94,15 +94,18 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
         <DialogHeader>
           <DialogTitle className="font-display text-xl">New secret</DialogTitle>
           <DialogDescription className="text-[13px] leading-relaxed">
-            Store a credential or API key. Values are kept in your system
-            keychain when available, with a local encrypted file fallback.
+            Store a credential or API key. Values are kept in your system keychain when available,
+            with a local encrypted file fallback.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-5 py-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor="secret-id" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <Label
+                htmlFor="secret-id"
+                className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+              >
                 ID
               </Label>
               <Input
@@ -114,7 +117,10 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="secret-name" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <Label
+                htmlFor="secret-name"
+                className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+              >
                 Name
               </Label>
               <Input
@@ -128,7 +134,10 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="secret-value" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <Label
+              htmlFor="secret-value"
+              className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+            >
               Value
             </Label>
             <Input
@@ -143,8 +152,14 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
 
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor="secret-purpose" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Purpose <span className="normal-case tracking-normal font-normal text-muted-foreground/60">(opt.)</span>
+              <Label
+                htmlFor="secret-purpose"
+                className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+              >
+                Purpose{" "}
+                <span className="normal-case tracking-normal font-normal text-muted-foreground/60">
+                  (opt.)
+                </span>
               </Label>
               <Input
                 id="secret-purpose"
@@ -155,7 +170,10 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="secret-provider" className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <Label
+                htmlFor="secret-provider"
+                className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground"
+              >
                 Storage
               </Label>
               <Select value={provider} onValueChange={setProvider}>
@@ -180,7 +198,9 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost" size="sm">Cancel</Button>
+            <Button variant="ghost" size="sm">
+              Cancel
+            </Button>
           </DialogClose>
           <Button
             size="sm"
@@ -341,9 +361,7 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
           onSuccess: ({ value }) =>
             value.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/70 py-16">
-                  <p className="text-[13px] font-medium text-foreground/60 mb-1">
-                  No secrets yet
-                </p>
+                <p className="text-[13px] font-medium text-foreground/60 mb-1">No secrets yet</p>
                 <p className="text-[12px] text-muted-foreground/50 mb-5 max-w-[240px] text-center leading-relaxed">
                   Add API keys and credentials to authenticate your sources.
                 </p>

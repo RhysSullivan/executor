@@ -7,12 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { createExecutor, scopeKv } from "@executor/sdk";
-import {
-  makeSqliteKv,
-  makeKvConfig,
-  makeScopedKv,
-  migrate,
-} from "@executor/storage-file";
+import { makeSqliteKv, makeKvConfig, makeScopedKv, migrate } from "@executor/storage-file";
 import {
   openApiPlugin,
   makeKvOperationStore,
@@ -64,17 +59,10 @@ const createLocalPlugins = (
       ),
     }),
     mcpPlugin({
-      bindingStore: withMcpConfigFile(
-        makeKvBindingStore(scopedKv, "mcp"),
-        configPath,
-        fsLayer,
-      ),
+      bindingStore: withMcpConfigFile(makeKvBindingStore(scopedKv, "mcp"), configPath, fsLayer),
     }),
     googleDiscoveryPlugin({
-      bindingStore: makeKvGoogleDiscoveryBindingStore(
-        scopedKv,
-        "google-discovery",
-      ),
+      bindingStore: makeKvGoogleDiscoveryBindingStore(scopedKv, "google-discovery"),
     }),
     graphqlPlugin({
       operationStore: withGraphqlConfigFile(
@@ -159,8 +147,7 @@ const loadSharedHandle = () => {
   return sharedHandlePromise;
 };
 
-export const getExecutor = () =>
-  loadSharedHandle().then((handle) => handle.executor);
+export const getExecutor = () => loadSharedHandle().then((handle) => handle.executor);
 
 export const disposeExecutor = async (): Promise<void> => {
   const currentHandlePromise = sharedHandlePromise;

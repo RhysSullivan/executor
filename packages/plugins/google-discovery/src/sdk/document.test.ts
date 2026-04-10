@@ -11,9 +11,7 @@ const fixtureText = readFileSync(fixturePath, "utf8");
 
 describe("Google Discovery document", () => {
   it("extracts methods, refs, and oauth scopes", async () => {
-    const manifest = await Effect.runPromise(
-      extractGoogleDiscoveryManifest(fixtureText),
-    );
+    const manifest = await Effect.runPromise(extractGoogleDiscoveryManifest(fixtureText));
 
     expect(Option.getOrElse(manifest.title, () => "")).toBe("Google Drive");
     expect(manifest.service).toBe("drive");
@@ -22,10 +20,7 @@ describe("Google Discovery document", () => {
       "files.get",
       "files.update",
     ]);
-    expect(Object.keys(manifest.schemaDefinitions)).toEqual([
-      "File",
-      "UpdateFileRequest",
-    ]);
+    expect(Object.keys(manifest.schemaDefinitions)).toEqual(["File", "UpdateFileRequest"]);
 
     const getFile = manifest.methods.find((method) => method.toolPath === "files.get");
     expect(getFile).toBeDefined();
@@ -40,10 +35,7 @@ describe("Google Discovery document", () => {
 
     const updateFile = manifest.methods.find((method) => method.toolPath === "files.update");
     expect(updateFile).toBeDefined();
-    const updateInputSchema = Option.getOrThrow(updateFile!.inputSchema) as Record<
-      string,
-      unknown
-    >;
+    const updateInputSchema = Option.getOrThrow(updateFile!.inputSchema) as Record<string, unknown>;
     expect(updateInputSchema.properties).toHaveProperty("body");
 
     const scopes = Option.getOrElse(manifest.oauthScopes, () => ({}));

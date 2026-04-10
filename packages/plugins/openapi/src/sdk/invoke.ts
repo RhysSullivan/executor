@@ -1,8 +1,5 @@
 import { Effect, Layer, Option } from "effect";
-import {
-  HttpClient,
-  HttpClientRequest,
-} from "@effect/platform";
+import { HttpClient, HttpClientRequest } from "@effect/platform";
 
 import {
   type ToolId,
@@ -34,20 +31,13 @@ const CONTAINER_KEYS: Record<string, readonly string[]> = {
   cookie: ["cookies", "cookie"],
 };
 
-const readParamValue = (
-  args: Record<string, unknown>,
-  param: OperationParameter,
-): unknown => {
+const readParamValue = (args: Record<string, unknown>, param: OperationParameter): unknown => {
   const direct = args[param.name];
   if (direct !== undefined) return direct;
 
   for (const key of CONTAINER_KEYS[param.location] ?? []) {
     const container = args[key];
-    if (
-      typeof container === "object" &&
-      container !== null &&
-      !Array.isArray(container)
-    ) {
+    if (typeof container === "object" && container !== null && !Array.isArray(container)) {
       const nested = (container as Record<string, unknown>)[param.name];
       if (nested !== undefined) return nested;
     }
@@ -80,10 +70,7 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
       }
       continue;
     }
-    resolved = resolved.replaceAll(
-      `{${param.name}}`,
-      encodeURIComponent(String(value)),
-    );
+    resolved = resolved.replaceAll(`{${param.name}}`, encodeURIComponent(String(value)));
   }
 
   // Resolve remaining placeholders from raw args (handles specs that
@@ -95,10 +82,7 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
   for (const name of remaining) {
     const value = args[name];
     if (value !== undefined && value !== null) {
-      resolved = resolved.replaceAll(
-        `{${name}}`,
-        encodeURIComponent(String(value)),
-      );
+      resolved = resolved.replaceAll(`{${name}}`, encodeURIComponent(String(value)));
     }
   }
 
@@ -122,7 +106,9 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
 
 const resolveHeaders = (
   headers: Record<string, HeaderValue>,
-  secrets: { readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown> },
+  secrets: {
+    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
+  },
   scopeId: ScopeId,
 ): Effect.Effect<Record<string, string>, ToolInvocationError> =>
   Effect.gen(function* () {
@@ -132,12 +118,13 @@ const resolveHeaders = (
         resolved[name] = value;
       } else {
         const secret = yield* secrets.resolve(value.secretId as SecretId, scopeId).pipe(
-          Effect.mapError(() =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
-              cause: undefined,
-            }),
+          Effect.mapError(
+            () =>
+              new ToolInvocationError({
+                toolId: "" as ToolId,
+                message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+                cause: undefined,
+              }),
           ),
         );
         resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
@@ -165,9 +152,7 @@ const isJsonContentType = (ct: string | null | undefined): boolean => {
   if (!ct) return false;
   const normalized = ct.split(";")[0]?.trim().toLowerCase() ?? "";
   return (
-    normalized === "application/json" ||
-    normalized.includes("+json") ||
-    normalized.includes("json")
+    normalized === "application/json" || normalized.includes("+json") || normalized.includes("json")
   );
 };
 
@@ -185,11 +170,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
 ) {
   const client = yield* HttpClient.HttpClient;
 
-  const resolvedPath = yield* resolvePath(
-    operation.pathTemplate,
-    args,
-    operation.parameters,
-  );
+  const resolvedPath = yield* resolvePath(operation.pathTemplate, args, operation.parameters);
 
   const path = resolvedPath.startsWith("/") ? resolvedPath : `/${resolvedPath}`;
 
@@ -201,11 +182,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     if (param.location !== "query") continue;
     const value = readParamValue(args, param);
     if (value === undefined || value === null) continue;
-    request = HttpClientRequest.setUrlParam(
-      request,
-      param.name,
-      String(value),
-    );
+    request = HttpClientRequest.setUrlParam(request, param.name, String(value));
   }
 
   // Header parameters
@@ -213,11 +190,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     if (param.location !== "header") continue;
     const value = readParamValue(args, param);
     if (value === undefined || value === null) continue;
-    request = HttpClientRequest.setHeader(
-      request,
-      param.name,
-      String(value),
-    );
+    request = HttpClientRequest.setHeader(request, param.name, String(value));
   }
 
   // Request body
@@ -257,9 +230,7 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     status === 204
       ? null
       : isJsonContentType(contentType)
-        ? yield* response.json.pipe(
-            Effect.catchAll(() => response.text),
-          )
+        ? yield* response.json.pipe(Effect.catchAll(() => response.text))
         : yield* response.text;
 
   const ok = status >= 200 && status < 300;
@@ -281,7 +252,10 @@ const SAFE_METHODS = new Set(["get", "head", "options"]);
 /**
  * Derive tool annotations from the HTTP method and path.
  */
-export const annotationsForOperation = (method: string, pathTemplate: string): {
+export const annotationsForOperation = (
+  method: string,
+  pathTemplate: string,
+): {
   requiresApproval?: boolean;
   approvalDescription?: string;
 } => {
@@ -295,7 +269,9 @@ export const annotationsForOperation = (method: string, pathTemplate: string): {
 export const makeOpenApiInvoker = (opts: {
   readonly operationStore: OpenApiOperationStore;
   readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
-  readonly secrets: { readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown> };
+  readonly secrets: {
+    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
+  };
   readonly scopeId: ScopeId;
 }): ToolInvoker => ({
   resolveAnnotations: (toolId: ToolId) =>
@@ -320,20 +296,14 @@ export const makeOpenApiInvoker = (opts: {
       const baseUrl = config.baseUrl;
 
       // Resolve secret-backed headers
-      const resolvedHeaders = yield* resolveHeaders(
-        config.headers,
-        opts.secrets,
-        opts.scopeId,
-      );
+      const resolvedHeaders = yield* resolveHeaders(config.headers, opts.secrets, opts.scopeId);
 
       const clientWithBaseUrl = baseUrl
         ? Layer.effect(
             HttpClient.HttpClient,
             Effect.map(
               HttpClient.HttpClient,
-              HttpClient.mapRequest(
-                HttpClientRequest.prependUrl(baseUrl),
-              ),
+              HttpClient.mapRequest(HttpClientRequest.prependUrl(baseUrl)),
             ),
           ).pipe(Layer.provide(opts.httpClientLayer))
         : opts.httpClientLayer;

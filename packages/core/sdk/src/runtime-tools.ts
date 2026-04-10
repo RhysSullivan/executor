@@ -3,11 +3,7 @@ import { Effect, JSONSchema, Schema } from "effect";
 import { ToolId } from "./ids";
 import { ToolInvocationError } from "./errors";
 import { Source } from "./sources";
-import {
-  ToolInvocationResult,
-  type ToolRegistration,
-  type RuntimeToolHandler,
-} from "./tools";
+import { ToolInvocationResult, type ToolRegistration, type RuntimeToolHandler } from "./tools";
 import { hoistDefinitions } from "./schema-refs";
 
 export interface RuntimeToolDefinition<TInput = unknown, TOutput = unknown> {
@@ -73,10 +69,7 @@ const buildRuntimeTool = (
   };
 };
 
-const toRuntimeHandler = (
-  toolId: ToolId,
-  entry: RuntimeHandlerEntry,
-): RuntimeToolHandler => ({
+const toRuntimeHandler = (toolId: ToolId, entry: RuntimeHandlerEntry): RuntimeToolHandler => ({
   invoke: (args) =>
     Effect.try({
       try: () => entry.decode(args),
@@ -105,22 +98,14 @@ export const registerRuntimeTools = <
   const TTools extends readonly RuntimeToolDefinition<any, any>[],
 >(input: {
   readonly registry: {
-    readonly registerRuntimeDefinitions: (
-      defs: Record<string, unknown>,
-    ) => Effect.Effect<void>;
-    readonly unregisterRuntimeDefinitions: (
-      names: readonly string[],
-    ) => Effect.Effect<void>;
-    readonly registerRuntime: (
-      tools: readonly ToolRegistration[],
-    ) => Effect.Effect<void>;
+    readonly registerRuntimeDefinitions: (defs: Record<string, unknown>) => Effect.Effect<void>;
+    readonly unregisterRuntimeDefinitions: (names: readonly string[]) => Effect.Effect<void>;
+    readonly registerRuntime: (tools: readonly ToolRegistration[]) => Effect.Effect<void>;
     readonly registerRuntimeHandler: (
       toolId: ToolId,
       handler: RuntimeToolHandler,
     ) => Effect.Effect<void>;
-    readonly unregisterRuntime: (
-      toolIds: readonly ToolId[],
-    ) => Effect.Effect<void>;
+    readonly unregisterRuntime: (toolIds: readonly ToolId[]) => Effect.Effect<void>;
   };
   readonly sources?: {
     readonly registerRuntime: (source: Source) => Effect.Effect<void>;
@@ -144,14 +129,16 @@ export const registerRuntimeTools = <
     );
 
     if (input.source && input.sources) {
-      yield* input.sources.registerRuntime(new Source({
-        id: input.source.id,
-        name: input.source.name,
-        kind: input.source.kind ?? input.pluginKey,
-        runtime: true,
-        canRemove: input.source.canRemove ?? false,
-        canRefresh: input.source.canRefresh ?? false,
-      }));
+      yield* input.sources.registerRuntime(
+        new Source({
+          id: input.source.id,
+          name: input.source.name,
+          kind: input.source.kind ?? input.pluginKey,
+          runtime: true,
+          canRemove: input.source.canRemove ?? false,
+          canRefresh: input.source.canRefresh ?? false,
+        }),
+      );
     }
 
     const defs: Record<string, unknown> = {};

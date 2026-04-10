@@ -62,9 +62,7 @@ class PromiseAdapterError extends Data.TaggedError("PromiseAdapterError")<{
   readonly cause: unknown;
 }> {}
 
-const fromPromise = <A>(
-  fn: () => Promise<A>,
-): Effect.Effect<A, PromiseAdapterError> =>
+const fromPromise = <A>(fn: () => Promise<A>): Effect.Effect<A, PromiseAdapterError> =>
   Effect.tryPromise({
     try: fn,
     catch: (cause) => new PromiseAdapterError({ cause }),
@@ -111,17 +109,23 @@ const fromPromiseTagged = <E extends { readonly _tag: string }, A>(
 // ---------------------------------------------------------------------------
 
 /** Replace branded IDs with plain strings in parameter types */
-type UnbrandParam<T> =
-  T extends ToolIdType ? string :
-  T extends SecretIdType ? string :
-  T extends ScopeIdType ? string :
-  T extends PolicyIdType ? string :
-  T extends readonly (infer U)[] ? readonly UnbrandParam<U>[] :
-  T;
+type UnbrandParam<T> = T extends ToolIdType
+  ? string
+  : T extends SecretIdType
+    ? string
+    : T extends ScopeIdType
+      ? string
+      : T extends PolicyIdType
+        ? string
+        : T extends readonly (infer U)[]
+          ? readonly UnbrandParam<U>[]
+          : T;
 
 /** Convert an Effect service interface to Promise-based, unbranding ID params */
 type PromisifyService<T> = {
-  readonly [K in keyof T]: NonNullable<T[K]> extends (...args: infer A) => Effect.Effect<infer R, infer _E>
+  readonly [K in keyof T]: NonNullable<T[K]> extends (
+    ...args: infer A
+  ) => Effect.Effect<infer R, infer _E>
     ? (...args: { [I in keyof A]: UnbrandParam<A[I]> }) => Promise<R>
     : T[K];
 };
@@ -140,26 +144,23 @@ export interface ElicitationResponse {
   readonly content?: Record<string, unknown>;
 }
 
-export type ElicitationHandler = (
-  ctx: ElicitationContext,
-) => Promise<ElicitationResponse>;
+export type ElicitationHandler = (ctx: ElicitationContext) => Promise<ElicitationResponse>;
 
 export interface InvokeOptions {
   readonly onElicitation: ElicitationHandler | "accept-all";
 }
 
-const toEffectElicitationHandler = (handler: ElicitationHandler) =>
-  (ctx: ElicitationContext) =>
-    fromPromise(() => handler(ctx)).pipe(
-      Effect.map(
-        (r) =>
-          new ElicitationResponseClass({
-            action: r.action,
-            content: r.content,
-          }),
-      ),
-      Effect.catchAll((e) => Effect.die(e.cause)),
-    );
+const toEffectElicitationHandler = (handler: ElicitationHandler) => (ctx: ElicitationContext) =>
+  fromPromise(() => handler(ctx)).pipe(
+    Effect.map(
+      (r) =>
+        new ElicitationResponseClass({
+          action: r.action,
+          content: r.content,
+        }),
+    ),
+    Effect.catchAll((e) => Effect.die(e.cause)),
+  );
 
 const toEffectInvokeOptions = (options: InvokeOptions): EffectInvokeOptions => ({
   onElicitation:
@@ -173,7 +174,11 @@ const toEffectInvokeOptions = (options: InvokeOptions): EffectInvokeOptions => (
 // ---------------------------------------------------------------------------
 
 export interface ToolInvoker {
-  readonly invoke: (toolId: string, args: unknown, options: InvokeOptions) => Promise<ToolInvocationResult>;
+  readonly invoke: (
+    toolId: string,
+    args: unknown,
+    options: InvokeOptions,
+  ) => Promise<ToolInvocationResult>;
   readonly resolveAnnotations?: (toolId: string) => Promise<ToolAnnotations | undefined>;
 }
 
@@ -225,7 +230,9 @@ const toEffectSourceManager = (manager: SourceManager): EffectSourceManager => (
   kind: manager.kind,
   list: () => fromPromiseDying(() => manager.list()),
   remove: (sourceId) => fromPromiseDying(() => manager.remove(sourceId)),
-  refresh: manager.refresh ? (sourceId) => fromPromiseDying(() => manager.refresh!(sourceId)) : undefined,
+  refresh: manager.refresh
+    ? (sourceId) => fromPromiseDying(() => manager.refresh!(sourceId))
+    : undefined,
   detect: manager.detect ? (url) => fromPromiseDying(() => manager.detect!(url)) : undefined,
 });
 
@@ -247,7 +254,9 @@ const toEffectSecretProvider = (provider: SecretProvider): EffectSecretProvider 
 
 const toPromiseInvoker = (invoker: EffectToolInvoker): ToolInvoker => ({
   invoke: (toolId, args, options) =>
-    run(invoker.invoke(ToolId.make(toolId), args, toEffectInvokeOptions(options))) as Promise<ToolInvocationResult>,
+    run(
+      invoker.invoke(ToolId.make(toolId), args, toEffectInvokeOptions(options)),
+    ) as Promise<ToolInvocationResult>,
   resolveAnnotations: invoker.resolveAnnotations
     ? (toolId) => run(invoker.resolveAnnotations!(ToolId.make(toolId)))
     : undefined,
@@ -288,20 +297,15 @@ const toPromiseSecretProvider = (provider: EffectSecretProvider): SecretProvider
 const toEffectToolRegistry = (r: ToolRegistry): CoreToolRegistryService => ({
   list: (filter) => fromPromiseDying(() => r.list(filter)),
   schema: (toolId) =>
-    fromPromiseTagged<ToolNotFoundError, ToolSchema>(
-      () => r.schema(toolId),
-      ["ToolNotFoundError"],
-    ),
+    fromPromiseTagged<ToolNotFoundError, ToolSchema>(() => r.schema(toolId), ["ToolNotFoundError"]),
   definitions: () => fromPromiseDying(() => r.definitions()),
   registerDefinitions: (defs) => fromPromiseDying(() => r.registerDefinitions(defs)),
-  registerRuntimeDefinitions: (defs) =>
-    fromPromiseDying(() => r.registerRuntimeDefinitions(defs)),
+  registerRuntimeDefinitions: (defs) => fromPromiseDying(() => r.registerRuntimeDefinitions(defs)),
   unregisterRuntimeDefinitions: (names) =>
     fromPromiseDying(() => r.unregisterRuntimeDefinitions(names)),
   registerInvoker: (pluginKey, effectInvoker) =>
     fromPromiseDying(() => r.registerInvoker(pluginKey, toPromiseInvoker(effectInvoker))),
-  resolveAnnotations: (toolId) =>
-    fromPromiseDying(() => r.resolveAnnotations(toolId)),
+  resolveAnnotations: (toolId) => fromPromiseDying(() => r.resolveAnnotations(toolId)),
   invoke: (toolId, args, options) =>
     fromPromiseTagged<
       ToolNotFoundError | ToolInvocationError | ElicitationDeclinedError,
@@ -322,8 +326,7 @@ const toEffectToolRegistry = (r: ToolRegistry): CoreToolRegistryService => ({
 });
 
 const toEffectSourceRegistry = (r: SourceRegistry): CoreSourceRegistryService => ({
-  addManager: (manager) =>
-    fromPromiseDying(() => r.addManager(toPromiseSourceManager(manager))),
+  addManager: (manager) => fromPromiseDying(() => r.addManager(toPromiseSourceManager(manager))),
   registerRuntime: (source) => fromPromiseDying(() => r.registerRuntime(source)),
   unregisterRuntime: (sourceId) => fromPromiseDying(() => r.unregisterRuntime(sourceId)),
   list: () => fromPromiseDying(() => r.list()),
@@ -344,8 +347,7 @@ const toEffectSecretStore = (s: SecretStore): CoreSecretStoreService => ({
       () => s.resolve(secretId, scopeId),
       ["SecretNotFoundError", "SecretResolutionError"],
     ),
-  status: (secretId, scopeId) =>
-    fromPromiseDying(() => s.status(secretId, scopeId)),
+  status: (secretId, scopeId) => fromPromiseDying(() => s.status(secretId, scopeId)),
   set: (input) =>
     fromPromiseTagged<SecretResolutionError, SecretRef>(
       () => s.set(input),
@@ -386,24 +388,44 @@ export interface PluginContext {
 
 export interface ToolRegistry extends Omit<
   PromisifyService<CoreToolRegistryService>,
-  'list' | 'invoke' | 'registerInvoker' | 'registerRuntimeHandler'
+  "list" | "invoke" | "registerInvoker" | "registerRuntimeHandler"
 > {
-  readonly list: (filter?: { sourceId?: string; query?: string }) => Promise<readonly ToolMetadata[]>;
-  readonly invoke: (toolId: string, args: unknown, options: InvokeOptions) => Promise<ToolInvocationResult>;
+  readonly list: (filter?: {
+    sourceId?: string;
+    query?: string;
+  }) => Promise<readonly ToolMetadata[]>;
+  readonly invoke: (
+    toolId: string,
+    args: unknown,
+    options: InvokeOptions,
+  ) => Promise<ToolInvocationResult>;
   readonly registerInvoker: (pluginKey: string, invoker: ToolInvoker) => Promise<void>;
   readonly registerRuntimeHandler: (toolId: string, handler: RuntimeToolHandler) => Promise<void>;
 }
 
-export interface SourceRegistry extends Omit<PromisifyService<CoreSourceRegistryService>, 'addManager'> {
+export interface SourceRegistry extends Omit<
+  PromisifyService<CoreSourceRegistryService>,
+  "addManager"
+> {
   readonly addManager: (manager: SourceManager) => Promise<void>;
 }
 
-export interface SecretStore extends Omit<PromisifyService<CoreSecretStoreService>, 'set' | 'addProvider'> {
-  readonly set: (input: { readonly id: string; readonly scopeId: string; readonly name: string; readonly value: string; readonly provider?: string; readonly purpose?: string }) => Promise<SecretRef>;
+export interface SecretStore extends Omit<
+  PromisifyService<CoreSecretStoreService>,
+  "set" | "addProvider"
+> {
+  readonly set: (input: {
+    readonly id: string;
+    readonly scopeId: string;
+    readonly name: string;
+    readonly value: string;
+    readonly provider?: string;
+    readonly purpose?: string;
+  }) => Promise<SecretRef>;
   readonly addProvider: (provider: SecretProvider) => Promise<void>;
 }
 
-export interface PolicyEngine extends Omit<PromisifyService<CorePolicyEngineService>, 'check'> {
+export interface PolicyEngine extends Omit<PromisifyService<CorePolicyEngineService>, "check"> {
   readonly check: (input: { scopeId: string; toolId: string }) => Promise<void>;
 }
 
@@ -412,17 +434,21 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
   tools: {
     list: (filter?) => run(ctx.tools.list(filter as any)),
     schema: (toolId) => run(ctx.tools.schema(ToolId.make(toolId))),
-    invoke: (toolId, args, options) => run(ctx.tools.invoke(ToolId.make(toolId), args, toEffectInvokeOptions(options))),
+    invoke: (toolId, args, options) =>
+      run(ctx.tools.invoke(ToolId.make(toolId), args, toEffectInvokeOptions(options))),
     definitions: () => run(ctx.tools.definitions()),
     registerDefinitions: (defs) => run(ctx.tools.registerDefinitions(defs)),
     registerRuntimeDefinitions: (defs) => run(ctx.tools.registerRuntimeDefinitions(defs)),
     unregisterRuntimeDefinitions: (names) => run(ctx.tools.unregisterRuntimeDefinitions(names)),
-    registerInvoker: (pluginKey, invoker) => run(ctx.tools.registerInvoker(pluginKey, toEffectInvoker(invoker))),
+    registerInvoker: (pluginKey, invoker) =>
+      run(ctx.tools.registerInvoker(pluginKey, toEffectInvoker(invoker))),
     resolveAnnotations: (toolId) => run(ctx.tools.resolveAnnotations(ToolId.make(toolId))),
     register: (tools) => run(ctx.tools.register(tools)),
     registerRuntime: (tools) => run(ctx.tools.registerRuntime(tools)),
-    registerRuntimeHandler: (toolId, handler) => run(ctx.tools.registerRuntimeHandler(ToolId.make(toolId), toEffectRuntimeHandler(handler))),
-    unregisterRuntime: (toolIds) => run(ctx.tools.unregisterRuntime(toolIds.map((id) => ToolId.make(id)))),
+    registerRuntimeHandler: (toolId, handler) =>
+      run(ctx.tools.registerRuntimeHandler(ToolId.make(toolId), toEffectRuntimeHandler(handler))),
+    unregisterRuntime: (toolIds) =>
+      run(ctx.tools.unregisterRuntime(toolIds.map((id) => ToolId.make(id)))),
     unregister: (toolIds) => run(ctx.tools.unregister(toolIds.map((id) => ToolId.make(id)))),
     unregisterBySource: (sourceId) => run(ctx.tools.unregisterBySource(sourceId)),
   },
@@ -438,8 +464,10 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
   secrets: {
     list: (scopeId) => run(ctx.secrets.list(ScopeId.make(scopeId))),
     get: (secretId) => run(ctx.secrets.get(SecretId.make(secretId))),
-    resolve: (secretId, scopeId) => run(ctx.secrets.resolve(SecretId.make(secretId), ScopeId.make(scopeId))),
-    status: (secretId, scopeId) => run(ctx.secrets.status(SecretId.make(secretId), ScopeId.make(scopeId))),
+    resolve: (secretId, scopeId) =>
+      run(ctx.secrets.resolve(SecretId.make(secretId), ScopeId.make(scopeId))),
+    status: (secretId, scopeId) =>
+      run(ctx.secrets.status(SecretId.make(secretId), ScopeId.make(scopeId))),
     set: (input) => run(ctx.secrets.set(input as SetSecretInput)),
     remove: (secretId) => run(ctx.secrets.remove(SecretId.make(secretId))),
     addProvider: (provider) => run(ctx.secrets.addProvider(toEffectSecretProvider(provider))),
@@ -484,7 +512,9 @@ const toEffectPlugin = <TKey extends string, TExtension extends object>(
       const handle = await plugin.init(wrapPluginContext(ctx));
       return {
         extension: handle.extension,
-        close: handle.close ? () => fromPromise(() => handle.close!()) as Effect.Effect<void> : undefined,
+        close: handle.close
+          ? () => fromPromise(() => handle.close!()) as Effect.Effect<void>
+          : undefined,
       };
     }) as Effect.Effect<any, PromiseAdapterError>,
 });
@@ -495,14 +525,16 @@ const toEffectPlugin = <TKey extends string, TExtension extends object>(
 
 type Promisified<T> = T extends (...args: infer A) => Effect.Effect<infer R, infer _E>
   ? (...args: A) => Promise<R>
-  : T extends object ? { readonly [K in keyof T]: Promisified<T[K]> } : T;
+  : T extends object
+    ? { readonly [K in keyof T]: Promisified<T[K]> }
+    : T;
 
 export type AnyPlugin = Plugin<string, object> | ExecutorPlugin<string, object>;
 
 export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   readonly scope: Scope;
-  readonly tools: Pick<ToolRegistry, 'list' | 'schema' | 'definitions' | 'invoke'>;
-  readonly sources: Pick<SourceRegistry, 'list' | 'remove' | 'refresh' | 'detect'>;
+  readonly tools: Pick<ToolRegistry, "list" | "schema" | "definitions" | "invoke">;
+  readonly sources: Pick<SourceRegistry, "list" | "remove" | "refresh" | "detect">;
   readonly policies: {
     readonly list: () => Promise<readonly Policy[]>;
     readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Promise<Policy>;
@@ -512,7 +544,13 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     readonly list: () => Promise<readonly SecretRef[]>;
     readonly resolve: (secretId: string) => Promise<string>;
     readonly status: (secretId: string) => Promise<"resolved" | "missing">;
-    readonly set: (input: { readonly id: string; readonly name: string; readonly value: string; readonly provider?: string; readonly purpose?: string }) => Promise<SecretRef>;
+    readonly set: (input: {
+      readonly id: string;
+      readonly name: string;
+      readonly value: string;
+      readonly provider?: string;
+      readonly purpose?: string;
+    }) => Promise<SecretRef>;
     readonly remove: (secretId: string) => Promise<boolean>;
     readonly addProvider: (provider: SecretProvider) => Promise<void>;
     readonly providers: () => Promise<readonly string[]>;
@@ -523,7 +561,9 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
 type PluginExtensions<TPlugins extends readonly AnyPlugin[]> = {
   readonly [P in TPlugins[number] as P["key"]]: P extends Plugin<string, infer TExt>
     ? TExt
-    : P extends ExecutorPlugin<string, infer TExt> ? Promisified<TExt> : never;
+    : P extends ExecutorPlugin<string, infer TExt>
+      ? Promisified<TExt>
+      : never;
 };
 
 function promisifyObject<T extends object>(obj: T): Promisified<T> {
@@ -537,7 +577,8 @@ function promisifyObject<T extends object>(obj: T): Promisified<T> {
           return result;
         };
       }
-      if (value !== null && typeof value === "object" && !Array.isArray(value)) return promisifyObject(value as object);
+      if (value !== null && typeof value === "object" && !Array.isArray(value))
+        return promisifyObject(value as object);
       return value;
     },
   }) as Promisified<T>;
@@ -587,13 +628,9 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
       createdAt: new Date(),
     },
     tools: config.tools ? toEffectToolRegistry(config.tools) : makeInMemoryToolRegistry(),
-    sources: config.sources
-      ? toEffectSourceRegistry(config.sources)
-      : makeInMemorySourceRegistry(),
+    sources: config.sources ? toEffectSourceRegistry(config.sources) : makeInMemorySourceRegistry(),
     secrets: config.secrets ? toEffectSecretStore(config.secrets) : makeInMemorySecretStore(),
-    policies: config.policies
-      ? toEffectPolicyEngine(config.policies)
-      : makeInMemoryPolicyEngine(),
+    policies: config.policies ? toEffectPolicyEngine(config.policies) : makeInMemoryPolicyEngine(),
     plugins: effectPlugins,
   };
 
@@ -602,7 +639,8 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
   const base: Record<string, unknown> = {
     scope: executor.scope,
     tools: {
-      list: (filter?: { sourceId?: string; query?: string }) => run(executor.tools.list(filter as any)),
+      list: (filter?: { sourceId?: string; query?: string }) =>
+        run(executor.tools.list(filter as any)),
       schema: (toolId: string) => run(executor.tools.schema(toolId)),
       definitions: () => run(executor.tools.definitions()),
       invoke: (toolId: string, args: unknown, options: InvokeOptions) =>
@@ -623,10 +661,16 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
       list: () => run(executor.secrets.list()),
       resolve: (secretId: string) => run(executor.secrets.resolve(SecretId.make(secretId))),
       status: (secretId: string) => run(executor.secrets.status(SecretId.make(secretId))),
-      set: (input: { readonly id: string; readonly name: string; readonly value: string; readonly provider?: string; readonly purpose?: string }) =>
-        run(executor.secrets.set(input as any)),
+      set: (input: {
+        readonly id: string;
+        readonly name: string;
+        readonly value: string;
+        readonly provider?: string;
+        readonly purpose?: string;
+      }) => run(executor.secrets.set(input as any)),
       remove: (secretId: string) => run(executor.secrets.remove(SecretId.make(secretId))),
-      addProvider: (provider: SecretProvider) => run(executor.secrets.addProvider(toEffectSecretProvider(provider))),
+      addProvider: (provider: SecretProvider) =>
+        run(executor.secrets.addProvider(toEffectSecretProvider(provider))),
       providers: () => run(executor.secrets.providers()),
     },
     close: () => run(executor.close()),

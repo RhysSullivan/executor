@@ -32,9 +32,7 @@ export const AUTH_PATHS = {
 
 /** Public auth endpoints — no authentication required */
 export class CloudAuthPublicApi extends HttpApiGroup.make("cloudAuthPublic")
-  .add(
-    HttpApiEndpoint.get("login")`/auth/login`,
-  )
+  .add(HttpApiEndpoint.get("login")`/auth/login`)
   .add(
     HttpApiEndpoint.get("callback")`/auth/callback`
       .setUrlParams(AuthCallbackSearch)
@@ -44,13 +42,6 @@ export class CloudAuthPublicApi extends HttpApiGroup.make("cloudAuthPublic")
 
 /** Session auth endpoints — require a logged-in user, may not have an org */
 export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
-  .add(
-    HttpApiEndpoint.get("me")`/auth/me`
-      .addSuccess(AuthMeResponse)
-      .addError(UserStoreError),
-  )
-  .add(
-    HttpApiEndpoint.post("logout")`/auth/logout`,
-  )
-  .middleware(SessionAuth)
-{}
+  .add(HttpApiEndpoint.get("me")`/auth/me`.addSuccess(AuthMeResponse).addError(UserStoreError))
+  .add(HttpApiEndpoint.post("logout")`/auth/logout`)
+  .middleware(SessionAuth) {}

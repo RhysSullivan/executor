@@ -1,5 +1,12 @@
 import { Effect } from "effect";
-import type { Executor, ToolId, ToolMetadata, ToolSchema, InvokeOptions, Source } from "@executor/sdk";
+import type {
+  Executor,
+  ToolId,
+  ToolMetadata,
+  ToolSchema,
+  InvokeOptions,
+  Source,
+} from "@executor/sdk";
 import type { SandboxToolInvoker } from "@executor/codemode-core";
 import { ExecutionToolError } from "./errors";
 
@@ -13,16 +20,11 @@ export const makeExecutorToolInvoker = (
 ): SandboxToolInvoker => ({
   invoke: ({ path, args }) =>
     Effect.gen(function* () {
-      const result = yield* executor.tools.invoke(
-        path as ToolId,
-        args,
-        options.invokeOptions,
-      ).pipe(
+      const result = yield* executor.tools.invoke(path as ToolId, args, options.invokeOptions).pipe(
         Effect.catchTag("ElicitationDeclinedError", (err) =>
           Effect.fail(
             new ExecutionToolError({
-              message:
-                `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
+              message: `Tool "${err.toolId}" requires approval but the request was ${err.action === "cancel" ? "cancelled" : "declined"} by the user.`,
               cause: err,
             }),
           ),
@@ -124,7 +126,9 @@ const scorePreparedField = (
       continue;
     }
 
-    if (field.tokens.some((candidate) => candidate.startsWith(token) || token.startsWith(candidate))) {
+    if (
+      field.tokens.some((candidate) => candidate.startsWith(token) || token.startsWith(candidate))
+    ) {
       score += weight * 2;
       matchedTokens.add(token);
       continue;
@@ -143,10 +147,7 @@ const scorePreparedField = (
   };
 };
 
-const matchesNamespace = (
-  tool: SearchableTool,
-  namespace?: string,
-): boolean => {
+const matchesNamespace = (tool: SearchableTool, namespace?: string): boolean => {
   if (!namespace || normalizeSearchText(namespace).length === 0) {
     return true;
   }
@@ -165,10 +166,7 @@ const matchesNamespace = (
   return isPrefixMatch(sourceTokens) || isPrefixMatch(pathTokens);
 };
 
-const scoreToolMatch = (
-  tool: SearchableTool,
-  query: string,
-): ToolDiscoveryResult | null => {
+const scoreToolMatch = (tool: SearchableTool, query: string): ToolDiscoveryResult | null => {
   const normalizedQuery = normalizeSearchText(query);
   const queryTokens = tokenizeSearchText(query);
 
@@ -221,7 +219,10 @@ const scoreToolMatch = (
     score += 8;
   }
 
-  if (normalizeSearchText(tool.id) === normalizedQuery || normalizeSearchText(tool.name) === normalizedQuery) {
+  if (
+    normalizeSearchText(tool.id) === normalizedQuery ||
+    normalizeSearchText(tool.name) === normalizedQuery
+  ) {
     score += 20;
   }
 
@@ -265,30 +266,30 @@ export const listExecutorSources = (
     const limit = options?.limit ?? 200;
     const sources = yield* executor.sources.list();
 
-    const filtered = normalizedQuery.length === 0
-      ? sources
-      : sources.filter((source: Source) => {
-          const haystack = normalizeSearchText([
-            source.id,
-            source.name,
-            source.kind,
-          ].join(" "));
-          return tokenizeSearchText(normalizedQuery).every((token) => haystack.includes(token));
-        });
+    const filtered =
+      normalizedQuery.length === 0
+        ? sources
+        : sources.filter((source: Source) => {
+            const haystack = normalizeSearchText([source.id, source.name, source.kind].join(" "));
+            return tokenizeSearchText(normalizedQuery).every((token) => haystack.includes(token));
+          });
 
     const withCounts = yield* Effect.forEach(
       filtered,
       (source: Source) =>
         executor.tools.list({ sourceId: source.id }).pipe(
-          Effect.map((tools) => ({
-            id: source.id,
-            name: source.name,
-            kind: source.kind,
-            runtime: source.runtime,
-            canRemove: source.canRemove,
-            canRefresh: source.canRefresh,
-            toolCount: tools.length,
-          } satisfies ExecutorSourceListItem)),
+          Effect.map(
+            (tools) =>
+              ({
+                id: source.id,
+                name: source.name,
+                kind: source.kind,
+                runtime: source.runtime,
+                canRemove: source.canRemove,
+                canRefresh: source.canRefresh,
+                toolCount: tools.length,
+              }) satisfies ExecutorSourceListItem,
+          ),
         ),
       { concurrency: "unbounded" },
     );
@@ -314,9 +315,7 @@ export const describeTool = (
   unknown
 > =>
   Effect.gen(function* () {
-    const metadata = (yield* executor.tools.list()).find(
-      (t: ToolMetadata) => t.id === path,
-    );
+    const metadata = (yield* executor.tools.list()).find((t: ToolMetadata) => t.id === path);
 
     const base = {
       path,

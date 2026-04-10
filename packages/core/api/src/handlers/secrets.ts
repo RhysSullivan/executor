@@ -21,50 +21,47 @@ const refToResponse = (ref: {
   createdAt: ref.createdAt.getTime(),
 });
 
-export const SecretsHandlers = HttpApiBuilder.group(
-  ExecutorApi,
-  "secrets",
-  (handlers) =>
-    handlers
-      .handle("list", ({ path }) =>
-        Effect.gen(function* () {
-          const executor = yield* ExecutorService;
-          const refs = yield* executor.secrets.list();
-          return refs.map(refToResponse);
-        }),
-      )
-      .handle("status", ({ path }) =>
-        Effect.gen(function* () {
-          const executor = yield* ExecutorService;
-          const status = yield* executor.secrets.status(path.secretId);
-          return { secretId: path.secretId, status };
-        }),
-      )
-      .handle("set", ({ path, payload }) =>
-        Effect.gen(function* () {
-          const executor = yield* ExecutorService;
-          const ref = yield* executor.secrets.set({
-            id: payload.id,
-            name: payload.name,
-            value: payload.value,
-            purpose: payload.purpose,
-            provider: payload.provider,
-          });
-          return refToResponse(ref);
-        }),
-      )
-      .handle("resolve", ({ path }) =>
-        Effect.gen(function* () {
-          const executor = yield* ExecutorService;
-          const value = yield* executor.secrets.resolve(path.secretId);
-          return { secretId: path.secretId, value };
-        }),
-      )
-      .handle("remove", ({ path }) =>
-        Effect.gen(function* () {
-          const executor = yield* ExecutorService;
-          const removed = yield* executor.secrets.remove(path.secretId);
-          return { removed };
-        }),
-      ),
+export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (handlers) =>
+  handlers
+    .handle("list", ({ path }) =>
+      Effect.gen(function* () {
+        const executor = yield* ExecutorService;
+        const refs = yield* executor.secrets.list();
+        return refs.map(refToResponse);
+      }),
+    )
+    .handle("status", ({ path }) =>
+      Effect.gen(function* () {
+        const executor = yield* ExecutorService;
+        const status = yield* executor.secrets.status(path.secretId);
+        return { secretId: path.secretId, status };
+      }),
+    )
+    .handle("set", ({ path, payload }) =>
+      Effect.gen(function* () {
+        const executor = yield* ExecutorService;
+        const ref = yield* executor.secrets.set({
+          id: payload.id,
+          name: payload.name,
+          value: payload.value,
+          purpose: payload.purpose,
+          provider: payload.provider,
+        });
+        return refToResponse(ref);
+      }),
+    )
+    .handle("resolve", ({ path }) =>
+      Effect.gen(function* () {
+        const executor = yield* ExecutorService;
+        const value = yield* executor.secrets.resolve(path.secretId);
+        return { secretId: path.secretId, value };
+      }),
+    )
+    .handle("remove", ({ path }) =>
+      Effect.gen(function* () {
+        const executor = yield* ExecutorService;
+        const removed = yield* executor.secrets.remove(path.secretId);
+        return { removed };
+      }),
+    ),
 );

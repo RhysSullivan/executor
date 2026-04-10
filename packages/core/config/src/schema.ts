@@ -71,9 +71,7 @@ export const McpRemoteSourceConfig = Schema.Struct({
   transport: Schema.Literal("remote"),
   name: Schema.String,
   endpoint: Schema.String,
-  remoteTransport: Schema.optional(
-    Schema.Literal("streamable-http", "sse", "auto"),
-  ),
+  remoteTransport: Schema.optional(Schema.Literal("streamable-http", "sse", "auto")),
   namespace: Schema.optional(Schema.String),
   queryParams: Schema.optional(StringMap),
   headers: Schema.optional(StringMap),
@@ -120,8 +118,6 @@ export const ExecutorFileConfig = Schema.Struct({
   $schema: Schema.optional(Schema.String),
   name: Schema.optional(Schema.String),
   sources: Schema.optional(Schema.Array(SourceConfig)),
-  secrets: Schema.optional(
-    Schema.Record({ key: Schema.String, value: SecretMetadata }),
-  ),
+  secrets: Schema.optional(Schema.Record({ key: Schema.String, value: SecretMetadata })),
 });
 export type ExecutorFileConfig = typeof ExecutorFileConfig.Type;

@@ -1,8 +1,8 @@
 {
   "name": "@executor/runtime-deno-subprocess",
+  "version": "0.0.3",
   "private": true,
   "type": "module",
-  "version": "0.0.3",
   "exports": {
     ".": "./src/index.ts"
   },

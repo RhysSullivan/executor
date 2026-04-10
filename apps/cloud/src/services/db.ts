@@ -43,10 +43,7 @@ const makeSql = () =>
     onnotice: () => undefined,
   });
 
-export class DbService extends Context.Tag("@executor/cloud/DbService")<
-  DbService,
-  DrizzleDb
->() {
+export class DbService extends Context.Tag("@executor/cloud/DbService")<DbService, DrizzleDb>() {
   static Live = Layer.scoped(
     this,
     Effect.acquireRelease(

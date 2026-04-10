@@ -63,7 +63,7 @@
   --secondary: oklch(0.94 0.005 260);
   --secondary-foreground: oklch(0.32 0.008 260);
   --muted: oklch(0.955 0.004 260);
-  --muted-foreground: oklch(0.50 0.01 250);
+  --muted-foreground: oklch(0.5 0.01 250);
   --accent: oklch(0.94 0.006 260);
   --accent-foreground: oklch(0.145 0.005 260);
   --destructive: oklch(0.55 0.22 25);
@@ -73,7 +73,7 @@
 
   --sidebar: oklch(0.97 0.003 260);
   --sidebar-foreground: oklch(0.32 0.008 260);
-  --sidebar-border: oklch(0.90 0.005 260);
+  --sidebar-border: oklch(0.9 0.005 260);
   --sidebar-active: oklch(0.935 0.006 260);
 
   --scrollbar-thumb: oklch(0.78 0.005 260);
@@ -89,11 +89,11 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --background: oklch(0.115 0.005 260);
-    --foreground: oklch(0.90 0.008 250);
+    --foreground: oklch(0.9 0.008 250);
     --card: oklch(0.145 0.005 260);
-    --card-foreground: oklch(0.90 0.008 250);
+    --card-foreground: oklch(0.9 0.008 250);
     --popover: oklch(0.145 0.005 260);
-    --popover-foreground: oklch(0.90 0.008 250);
+    --popover-foreground: oklch(0.9 0.008 250);
     --primary: oklch(0.72 0.15 175);
     --primary-foreground: oklch(0.12 0.01 175);
     --secondary: oklch(0.195 0.007 260);
@@ -101,7 +101,7 @@
     --muted: oklch(0.175 0.005 260);
     --muted-foreground: oklch(0.56 0.01 250);
     --accent: oklch(0.195 0.008 260);
-    --accent-foreground: oklch(0.90 0.008 250);
+    --accent-foreground: oklch(0.9 0.008 250);
     --destructive: oklch(0.62 0.22 25);
     --border: oklch(0.235 0.007 260);
     --input: oklch(0.195 0.007 260);
@@ -109,10 +109,10 @@
 
     --sidebar: oklch(0.105 0.005 260);
     --sidebar-foreground: oklch(0.72 0.008 250);
-    --sidebar-border: oklch(0.20 0.006 260);
+    --sidebar-border: oklch(0.2 0.006 260);
     --sidebar-active: oklch(0.18 0.008 260);
 
-    --scrollbar-thumb: oklch(0.30 0.005 260);
+    --scrollbar-thumb: oklch(0.3 0.005 260);
     --scrollbar-thumb-hover: oklch(0.38 0.005 260);
   }
 }
@@ -122,7 +122,9 @@
     @apply border-border;
   }
 
-  html, body, #root {
+  html,
+  body,
+  #root {
     min-height: 100%;
     height: 100%;
   }

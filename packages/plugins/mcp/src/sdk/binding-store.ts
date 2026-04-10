@@ -3,13 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import {
-  makeInMemoryScopedKv,
-  scopeKv,
-  type Kv,
-  type ToolId,
-  type ScopedKv,
-} from "@executor/sdk";
+import { makeInMemoryScopedKv, scopeKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
 import { McpToolBinding } from "./types";
 import type { McpStoredSourceData } from "./types";
@@ -34,21 +28,15 @@ const StoredBindingEntry = Schema.Struct({
   sourceData: Schema.Unknown,
 });
 
-const encodeBindingEntry = Schema.encodeSync(
-  Schema.parseJson(StoredBindingEntry),
-);
-const decodeBindingEntry = Schema.decodeUnknownSync(
-  Schema.parseJson(StoredBindingEntry),
-);
+const encodeBindingEntry = Schema.encodeSync(Schema.parseJson(StoredBindingEntry));
+const decodeBindingEntry = Schema.decodeUnknownSync(Schema.parseJson(StoredBindingEntry));
 
 // ---------------------------------------------------------------------------
 // Store interface
 // ---------------------------------------------------------------------------
 
 export interface McpBindingStore {
-  readonly get: (
-    toolId: ToolId,
-  ) => Effect.Effect<{
+  readonly get: (toolId: ToolId) => Effect.Effect<{
     binding: McpToolBinding;
     sourceData: McpStoredSourceData;
   } | null>;
@@ -62,33 +50,22 @@ export interface McpBindingStore {
 
   readonly remove: (toolId: ToolId) => Effect.Effect<void>;
 
-  readonly listByNamespace: (
-    namespace: string,
-  ) => Effect.Effect<readonly ToolId[]>;
+  readonly listByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
 
-  readonly removeByNamespace: (
-    namespace: string,
-  ) => Effect.Effect<readonly ToolId[]>;
+  readonly removeByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
 
   readonly putSource: (source: McpStoredSource) => Effect.Effect<void>;
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
   readonly listSources: () => Effect.Effect<readonly McpStoredSource[]>;
-  readonly getSource: (
-    namespace: string,
-  ) => Effect.Effect<McpStoredSource | null>;
-  readonly getSourceConfig: (
-    namespace: string,
-  ) => Effect.Effect<McpStoredSourceData | null>;
+  readonly getSource: (namespace: string) => Effect.Effect<McpStoredSource | null>;
+  readonly getSourceConfig: (namespace: string) => Effect.Effect<McpStoredSourceData | null>;
 }
 
 // ---------------------------------------------------------------------------
 // Implementation — two KV namespaces: bindings + sources
 // ---------------------------------------------------------------------------
 
-const makeStore = (
-  bindings: ScopedKv,
-  sources: ScopedKv,
-): McpBindingStore => ({
+const makeStore = (bindings: ScopedKv, sources: ScopedKv): McpBindingStore => ({
   // ---- Bindings ----
 
   get: (toolId) =>
@@ -103,10 +80,7 @@ const makeStore = (
     }),
 
   put: (toolId, namespace, binding, sourceData) =>
-    bindings.set(
-      toolId,
-      encodeBindingEntry({ namespace, binding, sourceData }),
-    ),
+    bindings.set(toolId, encodeBindingEntry({ namespace, binding, sourceData })),
 
   remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
 
@@ -137,11 +111,9 @@ const makeStore = (
 
   // ---- Sources (meta + config combined) ----
 
-  putSource: (source) =>
-    sources.set(source.namespace, JSON.stringify(source)),
+  putSource: (source) => sources.set(source.namespace, JSON.stringify(source)),
 
-  removeSource: (namespace) =>
-    sources.delete(namespace).pipe(Effect.asVoid),
+  removeSource: (namespace) => sources.delete(namespace).pipe(Effect.asVoid),
 
   listSources: () =>
     Effect.gen(function* () {
@@ -171,21 +143,12 @@ const makeStore = (
 // Factory from global Kv — two scoped sub-namespaces
 // ---------------------------------------------------------------------------
 
-export const makeKvBindingStore = (
-  kv: Kv,
-  namespace: string,
-): McpBindingStore =>
-  makeStore(
-    scopeKv(kv, `${namespace}.bindings`),
-    scopeKv(kv, `${namespace}.sources`),
-  );
+export const makeKvBindingStore = (kv: Kv, namespace: string): McpBindingStore =>
+  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
 
 // ---------------------------------------------------------------------------
 // In-memory convenience
 // ---------------------------------------------------------------------------
 
 export const makeInMemoryBindingStore = (): McpBindingStore =>
-  makeStore(
-    makeInMemoryScopedKv(),
-    makeInMemoryScopedKv(),
-  );
+  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

@@ -19,16 +19,12 @@ export class WorkOSError extends Schema.TaggedError<WorkOSError>()(
  * tagged error, so callers never observe this tag directly — its only job is
  * to keep the internal failure channel typed instead of `unknown` / `Error`.
  */
-export class ServiceAdapterError extends Data.TaggedError(
-  "ServiceAdapterError",
-)<{
+export class ServiceAdapterError extends Data.TaggedError("ServiceAdapterError")<{
   readonly cause: unknown;
 }> {}
 
 /** Lift a Promise-returning function into Effect with a typed failure channel. */
-export const tryPromiseService = <A>(
-  fn: () => Promise<A>,
-): Effect.Effect<A, ServiceAdapterError> =>
+export const tryPromiseService = <A>(fn: () => Promise<A>): Effect.Effect<A, ServiceAdapterError> =>
   Effect.tryPromise({
     try: fn,
     catch: (cause) => new ServiceAdapterError({ cause }),
@@ -50,9 +46,7 @@ export const withServiceLogging = <A, E, R>(
   effect: Effect.Effect<A, unknown, R>,
 ): Effect.Effect<A, E, R> =>
   effect.pipe(
-    Effect.tapErrorCause((cause) =>
-      Effect.logError(`${name} failed`, cause),
-    ),
+    Effect.tapErrorCause((cause) => Effect.logError(`${name} failed`, cause)),
     Effect.mapError(publicError),
     Effect.withSpan(name),
   );

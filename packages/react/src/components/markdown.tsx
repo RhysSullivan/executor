@@ -14,7 +14,10 @@ function extractText(node: ReactNode): string {
 
 function PreBlock(props: { children?: ReactNode; node?: unknown }) {
   const child = Children.toArray(props.children)[0];
-  if (isValidElement(child) && (child.type === "code" || (child.props as Record<string, unknown>)?.className)) {
+  if (
+    isValidElement(child) &&
+    (child.type === "code" || (child.props as Record<string, unknown>)?.className)
+  ) {
     const childProps = child.props as { className?: string; children?: ReactNode };
     const lang = childProps.className?.replace("language-", "") ?? undefined;
     const code = extractText(childProps.children).replace(/\n$/, "");
@@ -59,10 +62,7 @@ const PROSE_CLASSES = [
 export function Markdown(props: { children: string; className?: string }) {
   return (
     <div className={props.className ? `${PROSE_CLASSES} ${props.className}` : PROSE_CLASSES}>
-      <Streamdown
-        linkSafety={{ enabled: false }}
-        components={{ pre: PreBlock as never }}
-      >
+      <Streamdown linkSafety={{ enabled: false }} components={{ pre: PreBlock as never }}>
         {props.children}
       </Streamdown>
     </div>

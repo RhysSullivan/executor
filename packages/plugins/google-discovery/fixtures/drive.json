@@ -32,9 +32,7 @@
           "response": {
             "$ref": "File"
           },
-          "scopes": [
-            "https://www.googleapis.com/auth/drive.readonly"
-          ]
+          "scopes": ["https://www.googleapis.com/auth/drive.readonly"]
         },
         "update": {
           "id": "drive.files.update",
@@ -53,9 +51,7 @@
           "response": {
             "$ref": "File"
           },
-          "scopes": [
-            "https://www.googleapis.com/auth/drive"
-          ]
+          "scopes": ["https://www.googleapis.com/auth/drive"]
         }
       }
     }

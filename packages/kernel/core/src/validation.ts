@@ -5,11 +5,11 @@ import { kernelCoreEffectError } from "./effect-errors";
 
 const getSchemaValidator = (
   schema: unknown,
-): ((
-  value: unknown,
-) =>
-  | StandardSchemaV1.Result<unknown>
-  | Promise<StandardSchemaV1.Result<unknown>>) | null => {
+):
+  | ((
+      value: unknown,
+    ) => StandardSchemaV1.Result<unknown> | Promise<StandardSchemaV1.Result<unknown>>)
+  | null => {
   if (!schema || (typeof schema !== "object" && typeof schema !== "function")) {
     return null;
   }
@@ -23,9 +23,7 @@ const getSchemaValidator = (
   return typeof validate === "function"
     ? (validate as (
         value: unknown,
-      ) =>
-        | StandardSchemaV1.Result<unknown>
-        | Promise<StandardSchemaV1.Result<unknown>>)
+      ) => StandardSchemaV1.Result<unknown> | Promise<StandardSchemaV1.Result<unknown>>)
     : null;
 };
 
@@ -46,9 +44,7 @@ const formatIssuePath = (
 };
 
 const formatIssues = (issues: ReadonlyArray<StandardSchemaV1.Issue>): string =>
-  issues
-    .map((issue) => `${formatIssuePath(issue.path)}: ${issue.message}`)
-    .join("; ");
+  issues.map((issue) => `${formatIssuePath(issue.path)}: ${issue.message}`).join("; ");
 
 /** Validate a value against a Standard Schema */
 export const validateInput = (input: {
@@ -69,10 +65,7 @@ export const validateInput = (input: {
   return Effect.tryPromise({
     try: () => Promise.resolve(validate(input.value)),
     catch: (cause) =>
-      kernelCoreEffectError(
-        "validation",
-        `Validation error for ${input.path}: ${String(cause)}`,
-      ),
+      kernelCoreEffectError("validation", `Validation error for ${input.path}: ${String(cause)}`),
   }).pipe(
     Effect.flatMap((result) => {
       if ("issues" in result && result.issues) {

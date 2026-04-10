@@ -8,9 +8,7 @@ import type { Executor, ToolMetadata, Source } from "@executor/sdk";
  *   1. Workflow (top — critical, least likely to be truncated)
  *   2. Available namespaces (bottom)
  */
-export const buildExecuteDescription = (
-  executor: Executor,
-): Effect.Effect<string> =>
+export const buildExecuteDescription = (executor: Executor): Effect.Effect<string> =>
   Effect.gen(function* () {
     const sources: readonly Source[] = yield* executor.sources.list();
     const tools: readonly ToolMetadata[] = yield* executor.tools.list();
@@ -21,10 +19,7 @@ export const buildExecuteDescription = (
     return formatDescription([...namespaces], sources);
   });
 
-const formatDescription = (
-  namespaces: readonly string[],
-  sources: readonly Source[],
-): string => {
+const formatDescription = (namespaces: readonly string[], sources: readonly Source[]): string => {
   const lines: string[] = [
     "Execute TypeScript in a sandboxed runtime with access to configured API tools.",
     "",
@@ -40,11 +35,11 @@ const formatDescription = (
     "## Rules",
     "",
     "- `tools.search()` returns ranked matches, best-first. Use short intent phrases like `github issues`, `repo details`, or `create calendar event`.",
-    "- When you already know the namespace, narrow with `tools.search({ namespace: \"github\", query: \"issues\" })`.",
+    '- When you already know the namespace, narrow with `tools.search({ namespace: "github", query: "issues" })`.',
     "- Use `tools.executor.sources.list()` to inspect configured sources and their tool counts. Returns `[{ id, toolCount, ... }]`.",
     "- Always use the namespace prefix when calling tools: `tools.<namespace>.<tool>(args)`. Example: `tools.home_assistant_rest_api.states.getState(...)` — not `tools.states.getState(...)`.",
     "- The `tools` object is a lazy proxy — `Object.keys(tools)` won't work. Use `tools.search()` or `tools.executor.sources.list()` instead.",
-    "- Pass an object to system tools, e.g. `tools.search({ query: \"...\" })`, `tools.executor.sources.list()`, and `tools.describe.tool({ path })`.",
+    '- Pass an object to system tools, e.g. `tools.search({ query: "..." })`, `tools.executor.sources.list()`, and `tools.describe.tool({ path })`.',
     "- `tools.describe.tool()` returns compact TypeScript shapes. Use `inputTypeScript`, `outputTypeScript`, and `typeScriptDefinitions`.",
     "- For tools that return large collections (e.g. `getStates`, `getAll`), filter results in code rather than calling per-item tools.",
     "- Do not use `fetch` — all API calls go through `tools.*`.",

@@ -18,6 +18,6 @@
     "WORKOS_CLIENT_ID": "test_client_id",
     "WORKOS_COOKIE_PASSWORD": "test_cookie_password_at_least_32_chars!",
     "ENCRYPTION_KEY": "test-encryption-key",
-    "NODE_ENV": "test"
-  }
+    "NODE_ENV": "test",
+  },
 }

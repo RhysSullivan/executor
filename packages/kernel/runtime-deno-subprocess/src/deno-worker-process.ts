@@ -38,22 +38,12 @@ const normalizeError = (cause: unknown): Error =>
 
 const buildPermissionArgs = (permissions?: DenoPermissions): string[] => {
   if (!permissions) {
-    return [
-      "--deny-net",
-      "--deny-read",
-      "--deny-write",
-      "--deny-env",
-      "--deny-run",
-      "--deny-ffi",
-    ];
+    return ["--deny-net", "--deny-read", "--deny-write", "--deny-env", "--deny-run", "--deny-ffi"];
   }
 
   const args: string[] = [];
 
-  const addPermission = (
-    flag: string,
-    value: boolean | string[] | undefined,
-  ) => {
+  const addPermission = (flag: string, value: boolean | string[] | undefined) => {
     if (value === true) {
       args.push(`--allow-${flag}`);
     } else if (Array.isArray(value) && value.length > 0) {
@@ -81,23 +71,14 @@ export const spawnDenoWorkerProcess = (
 
   const child = spawn(
     input.executable,
-    [
-      "run",
-      "--quiet",
-      "--no-prompt",
-      "--no-check",
-      ...permissionArgs,
-      input.scriptPath,
-    ],
+    ["run", "--quiet", "--no-prompt", "--no-check", ...permissionArgs, input.scriptPath],
     {
       stdio: ["pipe", "pipe", "pipe"],
     },
   );
 
   if (!child.stdin || !child.stdout || !child.stderr) {
-    throw new Error(
-      "Failed to create piped stdio for Deno worker subprocess",
-    );
+    throw new Error("Failed to create piped stdio for Deno worker subprocess");
   }
 
   child.stdout.setEncoding("utf8");
@@ -128,10 +109,7 @@ export const spawnDenoWorkerProcess = (
     callbacks.onError(normalizeError(cause));
   };
 
-  const onExit = (
-    code: number | null,
-    signal: NodeJS.Signals | null,
-  ) => {
+  const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
     callbacks.onExit(code, signal);
   };
 

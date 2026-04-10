@@ -17,5 +17,4 @@ export interface McpPluginOptions {
   readonly bindingStore?: import("./sdk/binding-store").McpBindingStore;
 }
 
-export const mcpPlugin = (options?: McpPluginOptions) =>
-  mcpPluginEffect(options);
+export const mcpPlugin = (options?: McpPluginOptions) => mcpPluginEffect(options);

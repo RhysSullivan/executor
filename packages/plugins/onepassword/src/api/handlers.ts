@@ -9,9 +9,10 @@ import { OnePasswordGroup } from "./group";
 // Service tag — the server provides the 1Password extension
 // ---------------------------------------------------------------------------
 
-export class OnePasswordExtensionService extends Context.Tag(
-  "OnePasswordExtensionService",
-)<OnePasswordExtensionService, OnePasswordExtension>() {}
+export class OnePasswordExtensionService extends Context.Tag("OnePasswordExtensionService")<
+  OnePasswordExtensionService,
+  OnePasswordExtension
+>() {}
 
 // ---------------------------------------------------------------------------
 // Composed API — core + onepassword group

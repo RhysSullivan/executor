@@ -5,12 +5,7 @@
 
 import { Effect, Layer, Redacted } from "effect";
 
-import {
-  NoOrganization,
-  OrgAuth,
-  SessionAuth,
-  Unauthorized,
-} from "./middleware";
+import { NoOrganization, OrgAuth, SessionAuth, Unauthorized } from "./middleware";
 import { WorkOSAuth } from "./workos";
 
 export const SessionAuthLive = Layer.effect(
@@ -31,9 +26,7 @@ export const SessionAuthLive = Layer.effect(
           return {
             accountId: result.userId,
             email: result.email,
-            name:
-              `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() ||
-              null,
+            name: `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() || null,
             avatarUrl: result.avatarUrl ?? null,
             organizationId: result.organizationId ?? null,
             refreshedSession: result.refreshedSession ?? null,
@@ -66,9 +59,7 @@ export const OrgAuthLive = Layer.effect(
             accountId: result.userId,
             organizationId: result.organizationId,
             email: result.email,
-            name:
-              `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() ||
-              null,
+            name: `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() || null,
             avatarUrl: result.avatarUrl ?? null,
           };
         }),

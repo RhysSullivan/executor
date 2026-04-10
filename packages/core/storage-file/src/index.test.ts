@@ -18,9 +18,7 @@ import { makeKvPolicyEngine } from "./policy-engine";
 
 const TestSqlLayer = SqliteClient.layer({ filename: ":memory:" });
 
-const withKv = <A, E>(
-  fn: (kv: Kv) => Effect.Effect<A, E>,
-) =>
+const withKv = <A, E>(fn: (kv: Kv) => Effect.Effect<A, E>) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
@@ -113,7 +111,13 @@ describe("KvToolRegistry", () => {
       Effect.gen(function* () {
         const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
         yield* reg.register([
-          { id: ToolId.make("a"), pluginKey: "test", sourceId: "test-src", name: "create-user", description: "Creates a user" },
+          {
+            id: ToolId.make("a"),
+            pluginKey: "test",
+            sourceId: "test-src",
+            name: "create-user",
+            description: "Creates a user",
+          },
           { id: ToolId.make("b"), pluginKey: "test", sourceId: "test-src", name: "delete-user" },
         ]);
 
@@ -167,10 +171,7 @@ describe("KvSecretStore", () => {
           purpose: "auth",
         });
 
-        const resolved = yield* store.resolve(
-          SecretId.make("api-key"),
-          ScopeId.make("s1"),
-        );
+        const resolved = yield* store.resolve(SecretId.make("api-key"), ScopeId.make("s1"));
         expect(resolved).toBe("sk-12345");
       }),
     ),

@@ -9,11 +9,7 @@ import { Effect } from "effect";
 import { FileSystem } from "@effect/platform";
 import type { Layer } from "effect";
 
-import {
-  addSourceToConfig,
-  removeSourceFromConfig,
-  SECRET_REF_PREFIX,
-} from "@executor/config";
+import { addSourceToConfig, removeSourceFromConfig, SECRET_REF_PREFIX } from "@executor/config";
 import type { SourceConfig as ConfigFileSourceConfig, ConfigHeaderValue } from "@executor/config";
 
 import type { OpenApiOperationStore, StoredSource } from "./operation-store";

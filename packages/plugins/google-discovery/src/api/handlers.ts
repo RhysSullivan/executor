@@ -9,9 +9,10 @@ import type {
 } from "../sdk/plugin";
 import { GoogleDiscoveryGroup } from "./group";
 
-export class GoogleDiscoveryExtensionService extends Context.Tag(
-  "GoogleDiscoveryExtensionService",
-)<GoogleDiscoveryExtensionService, GoogleDiscoveryPluginExtension>() {}
+export class GoogleDiscoveryExtensionService extends Context.Tag("GoogleDiscoveryExtensionService")<
+  GoogleDiscoveryExtensionService,
+  GoogleDiscoveryPluginExtension
+>() {}
 
 const ExecutorApiWithGoogleDiscovery = addGroup(GoogleDiscoveryGroup);
 
@@ -134,8 +135,7 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
                   type: "executor:oauth-result",
                   ok: false,
                   sessionId: null,
-                  error:
-                    error instanceof Error ? error.message : String(error),
+                  error: error instanceof Error ? error.message : String(error),
                 }),
               ),
             );

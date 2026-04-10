@@ -14,12 +14,10 @@ import { makeInMemorySourceRegistry } from "./sources";
 
 export const makeTestConfig = <
   const TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
->(
-  options?: {
-    readonly cwd?: string;
-    readonly plugins?: TPlugins;
-  },
-): ExecutorConfig<TPlugins> => {
+>(options?: {
+  readonly cwd?: string;
+  readonly plugins?: TPlugins;
+}): ExecutorConfig<TPlugins> => {
   const cwd = options?.cwd ?? "/test";
   const scope: Scope = {
     id: ScopeId.make("test-scope"),

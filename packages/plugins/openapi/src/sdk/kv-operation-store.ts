@@ -31,109 +31,92 @@ const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(StoredSourceSchem
 // Implementation
 // ---------------------------------------------------------------------------
 
-const makeStore = (
-  bindings: ScopedKv,
-  sources: ScopedKv,
-): OpenApiOperationStore => {
+const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore => {
   const withKvTransaction = <A, E>(
     kv: ScopedKv,
     effect: Effect.Effect<A, E, never>,
   ): Effect.Effect<A, E, never> => kv.withTransaction?.(effect) ?? effect;
 
-  return ({
-  get: (toolId) =>
-    Effect.gen(function* () {
-      const raw = yield* bindings.get(toolId);
-      if (!raw) return null;
-      const entry = decodeEntry(raw);
-      return { binding: entry.binding, config: entry.config };
-    }),
+  return {
+    get: (toolId) =>
+      Effect.gen(function* () {
+        const raw = yield* bindings.get(toolId);
+        if (!raw) return null;
+        const entry = decodeEntry(raw);
+        return { binding: entry.binding, config: entry.config };
+      }),
 
-  put: (entries: readonly StoredOperation[]) =>
-    withKvTransaction(
-      bindings,
-      Effect.forEach(
-        entries,
-        ({ toolId, namespace, binding, config }) =>
-          bindings.set(
-            toolId,
-            encodeEntry(new StoredEntry({ namespace, binding, config })),
-          ),
-        { discard: true },
+    put: (entries: readonly StoredOperation[]) =>
+      withKvTransaction(
+        bindings,
+        Effect.forEach(
+          entries,
+          ({ toolId, namespace, binding, config }) =>
+            bindings.set(toolId, encodeEntry(new StoredEntry({ namespace, binding, config }))),
+          { discard: true },
+        ),
       ),
-    ),
 
-  remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
+    remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
 
-  listByNamespace: (namespace) =>
-    Effect.gen(function* () {
-      const entries = yield* bindings.list();
-      const ids: ToolId[] = [];
-      for (const e of entries) {
-        const entry = decodeEntry(e.value);
-        if (entry.namespace === namespace) ids.push(e.key as ToolId);
-      }
-      return ids;
-    }),
-
-  removeByNamespace: (namespace) =>
-    Effect.gen(function* () {
-      const entries = yield* bindings.list();
-      const ids: ToolId[] = [];
-      for (const e of entries) {
-        const entry = decodeEntry(e.value);
-        if (entry.namespace === namespace) {
-          ids.push(e.key as ToolId);
-          yield* bindings.delete(e.key);
+    listByNamespace: (namespace) =>
+      Effect.gen(function* () {
+        const entries = yield* bindings.list();
+        const ids: ToolId[] = [];
+        for (const e of entries) {
+          const entry = decodeEntry(e.value);
+          if (entry.namespace === namespace) ids.push(e.key as ToolId);
         }
-      }
-      return ids;
-    }),
+        return ids;
+      }),
 
-  putSource: (source) =>
-    sources.set(source.namespace, encodeSource(source)),
+    removeByNamespace: (namespace) =>
+      Effect.gen(function* () {
+        const entries = yield* bindings.list();
+        const ids: ToolId[] = [];
+        for (const e of entries) {
+          const entry = decodeEntry(e.value);
+          if (entry.namespace === namespace) {
+            ids.push(e.key as ToolId);
+            yield* bindings.delete(e.key);
+          }
+        }
+        return ids;
+      }),
 
-  removeSource: (namespace) =>
-    sources.delete(namespace).pipe(Effect.asVoid),
+    putSource: (source) => sources.set(source.namespace, encodeSource(source)),
 
-  listSources: () =>
-    Effect.gen(function* () {
-      const entries = yield* sources.list();
-      return entries.map((e) => decodeSource(e.value) as StoredSource);
-    }),
+    removeSource: (namespace) => sources.delete(namespace).pipe(Effect.asVoid),
 
-  getSource: (namespace) =>
-    Effect.gen(function* () {
-      const raw = yield* sources.get(namespace);
-      if (!raw) return null;
-      return decodeSource(raw) as StoredSource;
-    }),
+    listSources: () =>
+      Effect.gen(function* () {
+        const entries = yield* sources.list();
+        return entries.map((e) => decodeSource(e.value) as StoredSource);
+      }),
 
-  getSourceConfig: (namespace) =>
-    Effect.gen(function* () {
-      const raw = yield* sources.get(namespace);
-      if (!raw) return null;
-      const source = decodeSource(raw) as StoredSource;
-      return source.config;
-    }),
-  });
+    getSource: (namespace) =>
+      Effect.gen(function* () {
+        const raw = yield* sources.get(namespace);
+        if (!raw) return null;
+        return decodeSource(raw) as StoredSource;
+      }),
+
+    getSourceConfig: (namespace) =>
+      Effect.gen(function* () {
+        const raw = yield* sources.get(namespace);
+        if (!raw) return null;
+        const source = decodeSource(raw) as StoredSource;
+        return source.config;
+      }),
+  };
 };
 
 // ---------------------------------------------------------------------------
 // Factory from global Kv
 // ---------------------------------------------------------------------------
 
-export const makeKvOperationStore = (
-  kv: Kv,
-  namespace: string,
-): OpenApiOperationStore =>
-  makeStore(
-    scopeKv(kv, `${namespace}.bindings`),
-    scopeKv(kv, `${namespace}.sources`),
-  );
+export const makeKvOperationStore = (kv: Kv, namespace: string): OpenApiOperationStore =>
+  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
 
 export const makeInMemoryOperationStore = (): OpenApiOperationStore =>
-  makeStore(
-    makeInMemoryScopedKv(),
-    makeInMemoryScopedKv(),
-  );
+  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

@@ -7,8 +7,7 @@ export type ToolPath = string & { readonly __toolPath: unique symbol };
 export const asToolPath = (value: string): ToolPath => value as ToolPath;
 
 /** Standard Schema alias */
-export type StandardSchema<Input = unknown, Output = unknown> =
-  StandardSchemaV1<Input, Output>;
+export type StandardSchema<Input = unknown, Output = unknown> = StandardSchemaV1<Input, Output>;
 
 /** A tool that can be invoked */
 export interface Tool {
@@ -16,17 +15,12 @@ export interface Tool {
   readonly description?: string;
   readonly inputSchema: StandardSchema;
   readonly outputSchema?: StandardSchema;
-  readonly execute: (
-    input: unknown,
-  ) => unknown | Promise<unknown>;
+  readonly execute: (input: unknown) => unknown | Promise<unknown>;
 }
 
 /** Invoke a tool by path from inside a sandbox */
 export interface SandboxToolInvoker {
-  invoke(input: {
-    path: string;
-    args: unknown;
-  }): Effect.Effect<unknown, unknown>;
+  invoke(input: { path: string; args: unknown }): Effect.Effect<unknown, unknown>;
 }
 
 /** Result of executing code in a sandbox */
@@ -38,10 +32,7 @@ export type ExecuteResult = {
 
 /** Executes code in a sandboxed runtime with tool access */
 export interface CodeExecutor {
-  execute(
-    code: string,
-    toolInvoker: SandboxToolInvoker,
-  ): Effect.Effect<ExecuteResult, unknown>;
+  execute(code: string, toolInvoker: SandboxToolInvoker): Effect.Effect<ExecuteResult, unknown>;
 }
 
 /** Accept-anything schema for tools with no input validation */

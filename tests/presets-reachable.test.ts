@@ -88,9 +88,7 @@ describe("graphql presets are reachable endpoints", () => {
 // MCP presets — probe the endpoint (POST to verify it's alive)
 // ---------------------------------------------------------------------------
 
-const remoteMcpPresets = mcpPresets.filter(
-  (p) => !('transport' in p && p.transport === 'stdio'),
-);
+const remoteMcpPresets = mcpPresets.filter((p) => !("transport" in p && p.transport === "stdio"));
 
 describe("mcp presets are reachable endpoints", () => {
   for (const preset of remoteMcpPresets) {
@@ -131,9 +129,7 @@ describe("google discovery presets parse as valid manifests", () => {
       () =>
         Effect.gen(function* () {
           const text = yield* Effect.tryPromise(() =>
-            fetch(preset.url, { signal: AbortSignal.timeout(10_000) }).then(
-              (r) => r.text(),
-            ),
+            fetch(preset.url, { signal: AbortSignal.timeout(10_000) }).then((r) => r.text()),
           );
           const manifest = yield* extractGoogleDiscoveryManifest(text);
 
@@ -155,7 +151,7 @@ const publicPresets = allPresets.filter(
     // Skip auth-required endpoints that won't pass detection without credentials
     !["github-graphql", "linear", "monday", "stripe"].includes(p.id) &&
     // Skip stdio presets (not HTTP-reachable)
-    !('transport' in p && (p as any).transport === 'stdio') &&
+    !("transport" in p && (p as any).transport === "stdio") &&
     // Skip host-scoped Google Discovery URLs (forms.googleapis.com/$discovery/...)
     // — the detector only recognises the central directory pattern today
     !["google-forms", "google-keep"].includes(p.id) &&
@@ -168,12 +164,7 @@ describe("public preset URLs are detected by the correct plugin", () => {
   const makeExecutor = () =>
     createExecutor(
       makeTestConfig({
-        plugins: [
-          openApiPlugin(),
-          mcpPlugin(),
-          graphqlPlugin(),
-          googleDiscoveryPlugin(),
-        ] as const,
+        plugins: [openApiPlugin(), mcpPlugin(), graphqlPlugin(), googleDiscoveryPlugin()] as const,
       }),
     );
 
@@ -223,10 +214,7 @@ describe("preset icons are reachable", () => {
               redirect: "follow",
             }),
           );
-          expect(
-            response.ok,
-            `${preset.name} icon returned ${response.status}`,
-          ).toBe(true);
+          expect(response.ok, `${preset.name} icon returned ${response.status}`).toBe(true);
         }),
       { timeout: 15_000 },
     );

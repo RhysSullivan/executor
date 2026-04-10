@@ -58,7 +58,9 @@ export const makeKvSecretStore = (refsKv: ScopedKv) => {
         const providerRefs: SecretRef[] = [];
         for (const provider of providers) {
           if (!provider.list) continue;
-          const items = yield* provider.list().pipe(Effect.orElseSucceed(() => [] as { id: string; name: string }[]));
+          const items = yield* provider
+            .list()
+            .pipe(Effect.orElseSucceed(() => [] as { id: string; name: string }[]));
           for (const item of items) {
             if (seenIds.has(item.id as SecretId)) continue;
             seenIds.add(item.id as SecretId);
@@ -88,9 +90,7 @@ export const makeKvSecretStore = (refsKv: ScopedKv) => {
     resolve: (secretId: SecretId, _scopeId: ScopeId) =>
       Effect.gen(function* () {
         const raw = yield* refsKv.get(secretId);
-        const providerKey = raw
-          ? Option.getOrUndefined(decodeRef(raw).provider)
-          : undefined;
+        const providerKey = raw ? Option.getOrUndefined(decodeRef(raw).provider) : undefined;
         const value = yield* resolveFromProviders(secretId, providerKey);
         if (value === null) {
           return yield* new SecretResolutionError({
@@ -169,7 +169,9 @@ export const makeKvSecretStore = (refsKv: ScopedKv) => {
       }),
 
     addProvider: (provider: SecretProvider) =>
-      Effect.sync(() => { providers.push(provider); }),
+      Effect.sync(() => {
+        providers.push(provider);
+      }),
 
     providers: () => Effect.sync(() => providers.map((p) => p.key)),
   };

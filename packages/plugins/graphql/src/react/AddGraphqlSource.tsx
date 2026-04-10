@@ -40,11 +40,8 @@ export default function AddGraphqlSource(props: {
   const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
-  const headersValid = headers.every(
-    (header) => header.name.trim() && header.secretId,
-  );
-  const canAdd =
-    endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
+  const headersValid = headers.every((header) => header.name.trim() && header.secretId);
+  const canAdd = endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
 
   const updateHeader = (
     index: number,

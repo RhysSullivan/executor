@@ -6,6 +6,12 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "dev": "portless run --name executor-local bunx --bun vite dev",
+    "build": "bunx --bun vite build",
+    "start": "bun run src/serve.ts",
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@effect-atom/atom-react": "^0.5.0",
     "@effect/platform": "catalog:",
@@ -44,11 +50,5 @@
     "react-grab": "^0.1.31",
     "typescript": "catalog:",
     "vite": "catalog:"
-  },
-  "scripts": {
-    "dev": "portless run --name executor-local bunx --bun vite dev",
-    "build": "bunx --bun vite build",
-    "start": "bun run src/serve.ts",
-    "typecheck": "tsc --noEmit"
   }
 }

@@ -71,10 +71,7 @@ const extractDiscoveryState = (
   clientInformation: toJsonObject(clientInformation),
 });
 
-const callAuth = (
-  provider: OAuthClientProvider,
-  opts: Parameters<typeof auth>[1],
-) =>
+const callAuth = (provider: OAuthClientProvider, opts: Parameters<typeof auth>[1]) =>
   Effect.tryPromise({
     try: () => auth(provider, opts),
     catch: (cause) =>
@@ -99,22 +96,32 @@ export const startMcpOAuthAuthorization = (input: {
     let clientInformation: OAuthClientInformationMixed | undefined;
 
     const provider: OAuthClientProvider = {
-      get redirectUrl() { return input.redirectUrl; },
+      get redirectUrl() {
+        return input.redirectUrl;
+      },
       get clientMetadata() {
         return { ...CLIENT_METADATA, redirect_uris: [input.redirectUrl] };
       },
       state: () => input.state,
       clientInformation: () => clientInformation,
-      saveClientInformation: (ci) => { clientInformation = ci; },
+      saveClientInformation: (ci) => {
+        clientInformation = ci;
+      },
       tokens: () => undefined,
       saveTokens: () => undefined,
-      redirectToAuthorization: (url) => { authorizationUrl = url; },
-      saveCodeVerifier: (cv) => { codeVerifier = cv; },
+      redirectToAuthorization: (url) => {
+        authorizationUrl = url;
+      },
+      saveCodeVerifier: (cv) => {
+        codeVerifier = cv;
+      },
       codeVerifier: () => {
         if (!codeVerifier) throw new Error("Code verifier not captured");
         return codeVerifier;
       },
-      saveDiscoveryState: (s) => { discoveryState = s; },
+      saveDiscoveryState: (s) => {
+        discoveryState = s;
+      },
       discoveryState: () => discoveryState,
     };
 
@@ -147,32 +154,37 @@ export const exchangeMcpOAuthCode = (input: {
     let tokens: OAuthTokens | undefined;
     let discoveryState: OAuthDiscoveryState | undefined = {
       authorizationServerUrl:
-        session.authorizationServerUrl ??
-        new URL("/", session.endpoint).toString(),
+        session.authorizationServerUrl ?? new URL("/", session.endpoint).toString(),
       resourceMetadataUrl: session.resourceMetadataUrl ?? undefined,
-      resourceMetadata:
-        session.resourceMetadata as OAuthDiscoveryState["resourceMetadata"],
+      resourceMetadata: session.resourceMetadata as OAuthDiscoveryState["resourceMetadata"],
       authorizationServerMetadata:
         session.authorizationServerMetadata as OAuthDiscoveryState["authorizationServerMetadata"],
     };
-    let clientInformation =
-      session.clientInformation as OAuthClientInformationMixed | undefined;
+    let clientInformation = session.clientInformation as OAuthClientInformationMixed | undefined;
 
     const provider: OAuthClientProvider = {
-      get redirectUrl() { return session.redirectUrl; },
+      get redirectUrl() {
+        return session.redirectUrl;
+      },
       get clientMetadata() {
         return { ...CLIENT_METADATA, redirect_uris: [session.redirectUrl] };
       },
       clientInformation: () => clientInformation,
-      saveClientInformation: (ci) => { clientInformation = ci; },
+      saveClientInformation: (ci) => {
+        clientInformation = ci;
+      },
       tokens: () => undefined,
-      saveTokens: (t) => { tokens = t; },
+      saveTokens: (t) => {
+        tokens = t;
+      },
       redirectToAuthorization: () => {
         throw new Error("Unexpected redirect during code exchange");
       },
       saveCodeVerifier: () => undefined,
       codeVerifier: () => session.codeVerifier,
-      saveDiscoveryState: (s) => { discoveryState = s; },
+      saveDiscoveryState: (s) => {
+        discoveryState = s;
+      },
       discoveryState: () => discoveryState,
     };
 

@@ -13,12 +13,14 @@ const cliPackage = JSON.parse(
 ) as { version?: string };
 
 const repositoryUrl =
-  typeof rootPackage.repository === "string"
-    ? rootPackage.repository
-    : rootPackage.repository?.url;
+  typeof rootPackage.repository === "string" ? rootPackage.repository : rootPackage.repository?.url;
 
 const EXECUTOR_VERSION = cliPackage.version ?? rootPackage.version;
-const EXECUTOR_GITHUB_URL = (rootPackage.homepage ?? repositoryUrl ?? "https://github.com/RhysSullivan/executor")
+const EXECUTOR_GITHUB_URL = (
+  rootPackage.homepage ??
+  repositoryUrl ??
+  "https://github.com/RhysSullivan/executor"
+)
   .replace(/^git\+/, "")
   .replace(/\.git$/, "");
 
@@ -52,7 +54,7 @@ function executorApiPlugin(): Plugin {
           }
 
           // Strip /api prefix for Effect handlers
-          const url = isApi ? (rawUrl.slice("/api".length) || "/") : rawUrl;
+          const url = isApi ? rawUrl.slice("/api".length) || "/" : rawUrl;
 
           const hasBody = req.method !== "GET" && req.method !== "HEAD";
           const webRequest = new Request(new URL(url, origin), {

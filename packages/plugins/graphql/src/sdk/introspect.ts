@@ -149,9 +149,7 @@ export const introspect = Effect.fn("GraphQL.introspect")(function* (
   }
 
   const response = yield* client.execute(request).pipe(
-    Effect.tapErrorCause((cause) =>
-      Effect.logError("graphql introspection request failed", cause),
-    ),
+    Effect.tapErrorCause((cause) => Effect.logError("graphql introspection request failed", cause)),
     Effect.mapError(
       (err) =>
         new GraphqlIntrospectionError({

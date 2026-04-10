@@ -45,9 +45,7 @@ export function serialize(catalog: LiveCatalog): typeof SerializedCatalog.Type {
   };
 }
 
-export function deserializeToJsonSchema(
-  serialized: typeof SerializedCatalog.Type,
-): {
+export function deserializeToJsonSchema(serialized: typeof SerializedCatalog.Type): {
   tools: ReadonlyArray<{
     path: string;
     description?: string;

@@ -14,9 +14,7 @@ import {
   removeSecretFromConfig,
 } from "./write";
 
-const withTmpDir = <A, E>(
-  fn: (dir: string) => Effect.Effect<A, E, FileSystem.FileSystem>,
-) =>
+const withTmpDir = <A, E>(fn: (dir: string) => Effect.Effect<A, E, FileSystem.FileSystem>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const dir = yield* fs.makeTempDirectoryScoped({
@@ -82,9 +80,7 @@ describe("ExecutorFileConfig schema", () => {
     const raw = {
       sources: [{ kind: "invalid", endpoint: "http://example.com" }],
     };
-    expect(() =>
-      Schema.decodeUnknownSync(ExecutorFileConfig)(raw),
-    ).toThrow();
+    expect(() => Schema.decodeUnknownSync(ExecutorFileConfig)(raw)).toThrow();
   });
 });
 
@@ -243,9 +239,7 @@ describe("write operations", () => {
         const config = yield* loadConfig(path);
         // Should have 1, not 2
         expect(config!.sources).toHaveLength(1);
-        expect((config!.sources![0] as { spec: string }).spec).toBe(
-          "https://example.com/v2.json",
-        );
+        expect((config!.sources![0] as { spec: string }).spec).toBe("https://example.com/v2.json");
       }),
     ),
   );

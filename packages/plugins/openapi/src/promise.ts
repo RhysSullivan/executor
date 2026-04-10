@@ -7,5 +7,4 @@ export interface OpenApiPluginOptions {
   readonly operationStore?: import("./sdk/operation-store").OpenApiOperationStore;
 }
 
-export const openApiPlugin = (options?: OpenApiPluginOptions) =>
-  openApiPluginEffect(options);
+export const openApiPlugin = (options?: OpenApiPluginOptions) => openApiPluginEffect(options);

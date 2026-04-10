@@ -27,8 +27,7 @@ const unwrapTypeName = (ref: IntrospectionTypeRef): string => {
 };
 
 /** Check if a type ref is non-null (required) */
-const isNonNull = (ref: IntrospectionTypeRef): boolean =>
-  ref.kind === "NON_NULL";
+const isNonNull = (ref: IntrospectionTypeRef): boolean => ref.kind === "NON_NULL";
 
 // ---------------------------------------------------------------------------
 // Build shared definitions from all INPUT_OBJECT and ENUM types
@@ -208,9 +207,7 @@ const extractFields = (
       return new ExtractedField({
         fieldName: field.name,
         kind,
-        description: field.description
-          ? Option.some(field.description)
-          : Option.none(),
+        description: field.description ? Option.some(field.description) : Option.none(),
         arguments: args,
         inputSchema: inputSchema ? Option.some(inputSchema) : Option.none(),
         returnTypeName: unwrapTypeName(field.type),
@@ -242,18 +239,8 @@ export const extract = (
 
       const definitions = buildDefinitions(typeMap);
 
-      const queryFields = extractFields(
-        schema,
-        "query",
-        schema.queryType?.name,
-        typeMap,
-      );
-      const mutationFields = extractFields(
-        schema,
-        "mutation",
-        schema.mutationType?.name,
-        typeMap,
-      );
+      const queryFields = extractFields(schema, "query", schema.queryType?.name, typeMap);
+      const mutationFields = extractFields(schema, "mutation", schema.mutationType?.name, typeMap);
 
       return {
         result: new ExtractionResult({

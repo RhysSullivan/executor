@@ -49,8 +49,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
           {value.map((s) => {
             const detailPath = `/sources/${s.id}`;
             const active =
-              props.pathname === detailPath ||
-              props.pathname.startsWith(`${detailPath}/`);
+              props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
             return (
               <Link
                 key={s.id}
@@ -83,18 +82,19 @@ function UserFooter() {
   if (auth.status !== "authenticated") return null;
 
   const initials = auth.user.name
-    ? auth.user.name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+    ? auth.user.name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase()
     : auth.user.email[0]!.toUpperCase();
 
   return (
     <div className="shrink-0 border-t border-sidebar-border px-3 py-2.5">
       <div className="flex items-center gap-2.5">
         {auth.user.avatarUrl ? (
-          <img
-            src={auth.user.avatarUrl}
-            alt=""
-            className="size-7 shrink-0 rounded-full"
-          />
+          <img src={auth.user.avatarUrl} alt="" className="size-7 shrink-0 rounded-full" />
         ) : (
           <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
             {initials}
@@ -105,9 +105,7 @@ function UserFooter() {
             {auth.user.name ?? auth.user.email}
           </p>
           {auth.organization && (
-            <p className="truncate text-[10px] text-muted-foreground">
-              {auth.organization.name}
-            </p>
+            <p className="truncate text-[10px] text-muted-foreground">{auth.organization.name}</p>
           )}
         </div>
         <form action={AUTH_PATHS.logout} method="post">
@@ -117,7 +115,13 @@ function UserFooter() {
             title="Sign out"
           >
             <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-              <path d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6M10.5 11.5L14 8l-3.5-3.5M14 8H6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6M10.5 11.5L14 8l-3.5-3.5M14 8H6"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
         </form>
@@ -128,11 +132,7 @@ function UserFooter() {
 
 // ── SidebarContent ───────────────────────────────────────────────────────
 
-function SidebarContent(props: {
-  pathname: string;
-  onNavigate?: () => void;
-  showBrand?: boolean;
-}) {
+function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
 
@@ -141,26 +141,14 @@ function SidebarContent(props: {
       {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
           <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">
-              executor
-            </span>
+            <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
         </div>
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
-        <NavItem
-          to="/"
-          label="Sources"
-          active={isHome}
-          onNavigate={props.onNavigate}
-        />
-        <NavItem
-          to="/secrets"
-          label="Secrets"
-          active={isSecrets}
-          onNavigate={props.onNavigate}
-        />
+        <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
 
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
           <span>Configured</span>
@@ -229,7 +217,12 @@ export function Shell() {
                 className="size-8 flex items-center justify-center rounded-md text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
               >
                 <svg viewBox="0 0 16 16" className="size-3.5">
-                  <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <path
+                    d="M3 3l10 10M13 3L3 13"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </button>
             </div>
@@ -253,13 +246,16 @@ export function Shell() {
             className="size-8 flex items-center justify-center rounded-md border border-border bg-card hover:bg-accent/50"
           >
             <svg viewBox="0 0 16 16" className="size-4">
-              <path d="M2 4h12M2 8h12M2 12h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+              <path
+                d="M2 4h12M2 8h12M2 12h12"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
           <Link to="/" className="flex items-center gap-1.5">
-            <span className="font-display text-base tracking-tight text-foreground">
-              executor
-            </span>
+            <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
           <div className="w-8 shrink-0" />
         </div>

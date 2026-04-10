@@ -46,9 +46,7 @@ const AddRemoteSourcePayload = Schema.Struct({
   transport: Schema.Literal("remote"),
   name: Schema.String,
   endpoint: Schema.String,
-  remoteTransport: Schema.optional(
-    Schema.Literal("streamable-http", "sse", "auto"),
-  ),
+  remoteTransport: Schema.optional(Schema.Literal("streamable-http", "sse", "auto")),
   namespace: Schema.optional(Schema.String),
   queryParams: Schema.optional(StringMap),
   headers: Schema.optional(StringMap),
@@ -65,10 +63,7 @@ const AddStdioSourcePayload = Schema.Struct({
   namespace: Schema.optional(Schema.String),
 });
 
-const AddSourcePayload = Schema.Union(
-  AddRemoteSourcePayload,
-  AddStdioSourcePayload,
-);
+const AddSourcePayload = Schema.Union(AddRemoteSourcePayload, AddStdioSourcePayload);
 
 // ---------------------------------------------------------------------------
 // Other payloads
@@ -218,5 +213,4 @@ export class McpGroup extends HttpApiGroup.make("mcp")
       .setPayload(UpdateSourcePayload)
       .addSuccess(UpdateSourceResponse)
       .addError(McpApiError),
-  )
-  {}
+  ) {}

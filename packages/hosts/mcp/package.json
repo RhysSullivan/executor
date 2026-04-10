@@ -1,8 +1,8 @@
 {
   "name": "@executor/host-mcp",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
-  "version": "1.4.2",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
-    "@executor/sdk": "workspace:*",
     "@executor/execution": "workspace:*",
+    "@executor/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",
     "zod": "^4.3.0"

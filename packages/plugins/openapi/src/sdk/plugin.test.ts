@@ -41,17 +41,13 @@ class EchoHeaders extends Schema.Class<EchoHeaders>("EchoHeaders")({
 }) {}
 
 const ItemsGroup = HttpApiGroup.make("items")
-  .add(
-    HttpApiEndpoint.get("listItems", "/items").addSuccess(Schema.Array(Item)),
-  )
+  .add(HttpApiEndpoint.get("listItems", "/items").addSuccess(Schema.Array(Item)))
   .add(
     HttpApiEndpoint.get("getItem", "/items/:itemId")
       .setPath(Schema.Struct({ itemId: Schema.NumberFromString }))
       .addSuccess(Item),
   )
-  .add(
-    HttpApiEndpoint.get("echoHeaders", "/echo-headers").addSuccess(EchoHeaders),
-  );
+  .add(HttpApiEndpoint.get("echoHeaders", "/echo-headers").addSuccess(EchoHeaders));
 
 const TestApi = HttpApi.make("testApi").add(ItemsGroup);
 
@@ -94,9 +90,7 @@ const ItemsGroupLive = HttpApiBuilder.group(TestApi, "items", (handlers) =>
 // Test layer: real server on port 0 + HttpClient pointing at it
 // ---------------------------------------------------------------------------
 
-const ApiLive = HttpApiBuilder.api(TestApi).pipe(
-  Layer.provide(ItemsGroupLive),
-);
+const ApiLive = HttpApiBuilder.api(TestApi).pipe(Layer.provide(ItemsGroupLive));
 
 const TestLayer = HttpApiBuilder.serve().pipe(
   Layer.provide(ApiLive),
@@ -115,9 +109,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -135,9 +127,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -155,22 +145,22 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
       const sources = yield* executor.sources.list();
 
-      expect(sources).toContainEqual(expect.objectContaining({
-        id: "built-in",
-        name: "Built In",
-        kind: "built-in",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }));
+      expect(sources).toContainEqual(
+        expect.objectContaining({
+          id: "built-in",
+          name: "Built In",
+          kind: "built-in",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
     }),
   );
 
@@ -195,9 +185,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor1 = yield* createExecutor({
         ...sharedConfig,
-        plugins: [
-          openApiPlugin({ httpClientLayer: clientLayer }),
-        ] as const,
+        plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
       yield* executor1.openapi.addSpec({
@@ -213,9 +201,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor2 = yield* createExecutor({
         ...sharedConfig,
-        plugins: [
-          openApiPlugin({ httpClientLayer: clientLayer }),
-        ] as const,
+        plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
       expect((yield* executor2.tools.list()).map((tool) => tool.id)).toContain(
@@ -231,9 +217,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -255,9 +239,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -269,9 +251,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       expect(result.error).toBeNull();
       expect(result.data).toEqual({ sourceId: "runtime", toolCount: 3 });
-      expect((yield* executor.tools.list()).map((t) => t.id)).toContain(
-        "runtime.items.listItems",
-      );
+      expect((yield* executor.tools.list()).map((t) => t.id)).toContain("runtime.items.listItems");
     }),
   );
 
@@ -282,9 +262,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -301,17 +279,13 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         namespace: "authed",
         baseUrl: "",
         headers: {
-          "Authorization": { secretId: "test-api-token", prefix: "Bearer " },
+          Authorization: { secretId: "test-api-token", prefix: "Bearer " },
           "X-Static": "hello",
         },
       });
 
       // Invoke the echo endpoint — verifies secret was resolved and sent
-      const result = yield* executor.tools.invoke(
-        "authed.items.echoHeaders",
-        {},
-        autoApprove,
-      );
+      const result = yield* executor.tools.invoke("authed.items.echoHeaders", {}, autoApprove);
 
       expect(result.error).toBeNull();
       const data = result.data as { authorization?: string; "x-static"?: string };
@@ -327,9 +301,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -339,7 +311,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         namespace: "noauth",
         baseUrl: "",
         headers: {
-          "Authorization": { secretId: "missing-token", prefix: "Bearer " },
+          Authorization: { secretId: "missing-token", prefix: "Bearer " },
         },
       });
 
@@ -360,9 +332,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -388,9 +358,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -413,9 +381,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 
@@ -425,9 +391,13 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         baseUrl: "",
       });
 
-      const result = yield* executor.tools.invoke("test.items.getItem", {
-        itemId: "2",
-      }, autoApprove);
+      const result = yield* executor.tools.invoke(
+        "test.items.getItem",
+        {
+          itemId: "2",
+        },
+        autoApprove,
+      );
       expect(result.error).toBeNull();
       expect(result.data).toEqual({ id: 2, name: "Gadget" });
     }),
@@ -440,9 +410,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [
-            openApiPlugin({ httpClientLayer: clientLayer }),
-          ] as const,
+          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
         }),
       );
 

@@ -23,14 +23,30 @@ function detectLanguage(code: string, hint?: string): string {
 
 const CopyIcon = () => (
   <svg viewBox="0 0 16 16" className="size-3">
-    <rect x="5" y="5" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    <rect
+      x="5"
+      y="5"
+      width="8"
+      height="8"
+      rx="1"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
     <path d="M3 11V3h8" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
   </svg>
 );
 
 const CheckIcon = () => (
   <svg viewBox="0 0 16 16" className="size-3">
-    <path d="M3 8l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M3 8l3 3 7-7"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
@@ -53,7 +69,9 @@ function useHighlighted(code: string, lang: string): ReactNode | null {
       if (!cancelled) setHighlighted(nodes);
     });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [code, lang]);
 
   return highlighted;
@@ -79,7 +97,7 @@ export function CodeBlock(props: {
 
   const lines = code.split("\n");
   const isLong = lines.length > 24;
-  const maxH = !expanded && isLong ? props.maxHeight ?? "24rem" : undefined;
+  const maxH = !expanded && isLong ? (props.maxHeight ?? "24rem") : undefined;
 
   const handleCopy = useCallback(() => {
     void navigator.clipboard.writeText(code).then(() => {

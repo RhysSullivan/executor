@@ -19,15 +19,10 @@ export interface OnePasswordItem {
 
 export interface OnePasswordService {
   /** Resolve a secret by op:// URI */
-  readonly resolveSecret: (
-    uri: string,
-  ) => Effect.Effect<string, OnePasswordError>;
+  readonly resolveSecret: (uri: string) => Effect.Effect<string, OnePasswordError>;
 
   /** List accessible vaults */
-  readonly listVaults: () => Effect.Effect<
-    ReadonlyArray<OnePasswordVault>,
-    OnePasswordError
-  >;
+  readonly listVaults: () => Effect.Effect<ReadonlyArray<OnePasswordVault>, OnePasswordError>;
 
   /** List items in a vault */
   readonly listItems: (
@@ -95,10 +90,7 @@ export const makeNativeSdkService = (
     const client = yield* Effect.tryPromise({
       try: () =>
         sdk.createClient({
-          auth:
-            auth.kind === "desktop-app"
-              ? new sdk.DesktopAuth(auth.accountName)
-              : auth.token,
+          auth: auth.kind === "desktop-app" ? new sdk.DesktopAuth(auth.accountName) : auth.token,
           integrationName: "Executor",
           integrationVersion: "0.0.0",
         }),
@@ -118,10 +110,7 @@ export const makeNativeSdkService = (
       }),
     );
 
-    const wrap = <A>(
-      fn: () => Promise<A>,
-      operation: string,
-    ): Effect.Effect<A, OnePasswordError> =>
+    const wrap = <A>(fn: () => Promise<A>, operation: string): Effect.Effect<A, OnePasswordError> =>
       Effect.tryPromise({
         try: fn,
         catch: (cause) =>
@@ -142,24 +131,16 @@ export const makeNativeSdkService = (
       );
 
     return OnePasswordServiceTag.of({
-      resolveSecret: (uri) =>
-        wrap(() => client.secrets.resolve(uri), "secret resolution"),
+      resolveSecret: (uri) => wrap(() => client.secrets.resolve(uri), "secret resolution"),
 
       listVaults: () =>
-        wrap(
-          () => client.vaults.list({ decryptDetails: true }),
-          "vault listing",
-        ).pipe(
-          Effect.map((vaults) =>
-            vaults.map((v) => ({ id: v.id, title: v.title })),
-          ),
+        wrap(() => client.vaults.list({ decryptDetails: true }), "vault listing").pipe(
+          Effect.map((vaults) => vaults.map((v) => ({ id: v.id, title: v.title }))),
         ),
 
       listItems: (vaultId) =>
         wrap(() => client.items.list(vaultId), "item listing").pipe(
-          Effect.map((items) =>
-            items.map((i) => ({ id: i.id, title: i.title })),
-          ),
+          Effect.map((items) => items.map((i) => ({ id: i.id, title: i.title }))),
         ),
     });
   }).pipe(Effect.withSpan("onepassword.sdk.make_service"));
@@ -179,10 +160,7 @@ export const makeCliService = (
       op.setGlobalFlags({ account: auth.accountName });
     }
 
-    const wrapSync = <A>(
-      fn: () => A,
-      operation: string,
-    ): Effect.Effect<A, OnePasswordError> =>
+    const wrapSync = <A>(fn: () => A, operation: string): Effect.Effect<A, OnePasswordError> =>
       Effect.try({
         try: fn,
         catch: (cause) =>
@@ -193,24 +171,16 @@ export const makeCliService = (
       }).pipe(Effect.withSpan(`onepassword.cli.${operation}`));
 
     return OnePasswordServiceTag.of({
-      resolveSecret: (uri) =>
-        wrapSync(() => op.read.parse(uri), "secret resolution"),
+      resolveSecret: (uri) => wrapSync(() => op.read.parse(uri), "secret resolution"),
 
       listVaults: () =>
         wrapSync(() => op.vault.list(), "vault listing").pipe(
-          Effect.map((vaults) =>
-            vaults.map((v) => ({ id: v.id, title: v.name })),
-          ),
+          Effect.map((vaults) => vaults.map((v) => ({ id: v.id, title: v.name }))),
         ),
 
       listItems: (vaultId) =>
-        wrapSync(
-          () => op.item.list({ vault: vaultId }),
-          "item listing",
-        ).pipe(
-          Effect.map((items) =>
-            items.map((i) => ({ id: i.id, title: i.title })),
-          ),
+        wrapSync(() => op.item.list({ vault: vaultId }), "item listing").pipe(
+          Effect.map((items) => items.map((i) => ({ id: i.id, title: i.title }))),
         ),
     });
   }).pipe(Effect.withSpan("onepassword.cli.make_service"));
@@ -233,9 +203,7 @@ export const makeOnePasswordService = (
   return makeCliService(auth).pipe(
     Effect.catchAll((cliError) =>
       // CLI unavailable (e.g. `op` not installed) — fall back to SDK
-      makeNativeSdkService(auth, timeoutMs).pipe(
-        Effect.mapError(() => cliError),
-      ),
+      makeNativeSdkService(auth, timeoutMs).pipe(Effect.mapError(() => cliError)),
     ),
   );
 };

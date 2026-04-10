@@ -44,9 +44,7 @@ import { OpenApiExtractionError } from "./errors";
 // swagger-parser's dereference needs a tagged error for this path
 class OpenApiExtractionErrorFromParse extends OpenApiExtractionError {}
 
-const isOpenApi3 = (
-  doc: OpenAPI.Document,
-): doc is OpenAPIV3.Document | OpenAPIV3_1.Document =>
+const isOpenApi3 = (doc: OpenAPI.Document): doc is OpenAPIV3.Document | OpenAPIV3_1.Document =>
   "openapi" in doc && typeof doc.openapi === "string" && doc.openapi.startsWith("3.");
 
 const parseTextToObject = (text: string): OpenAPI.Document => {

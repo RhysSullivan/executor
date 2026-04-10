@@ -9,9 +9,10 @@ import { McpGroup } from "./group";
 // Service tag
 // ---------------------------------------------------------------------------
 
-export class McpExtensionService extends Context.Tag(
-  "McpExtensionService",
-)<McpExtensionService, McpPluginExtension>() {}
+export class McpExtensionService extends Context.Tag("McpExtensionService")<
+  McpExtensionService,
+  McpPluginExtension
+>() {}
 
 // ---------------------------------------------------------------------------
 // Composed API
@@ -122,8 +123,7 @@ const toSourceConfig = (
     ? p.auth.kind === "oauth2"
       ? {
           ...p.auth,
-          tokenType:
-            (p.auth as { tokenType?: string }).tokenType ?? "Bearer",
+          tokenType: (p.auth as { tokenType?: string }).tokenType ?? "Bearer",
         }
       : p.auth
     : undefined;
@@ -144,114 +144,105 @@ const toSourceConfig = (
 // Handlers
 // ---------------------------------------------------------------------------
 
-export const McpHandlers = HttpApiBuilder.group(
-  ExecutorApiWithMcp,
-  "mcp",
-  (handlers) =>
-    handlers
-      .handle("probeEndpoint", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.probeEndpoint(payload.endpoint);
-        }).pipe(Effect.orDie),
-      )
-      .handle("addSource", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.addSource(
-            toSourceConfig(payload as Parameters<typeof toSourceConfig>[0]),
+export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (handlers) =>
+  handlers
+    .handle("probeEndpoint", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        return yield* ext.probeEndpoint(payload.endpoint);
+      }).pipe(Effect.orDie),
+    )
+    .handle("addSource", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        return yield* ext.addSource(
+          toSourceConfig(payload as Parameters<typeof toSourceConfig>[0]),
+        );
+      }).pipe(Effect.orDie),
+    )
+    .handle("removeSource", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        yield* ext.removeSource(payload.namespace);
+        return { removed: true };
+      }).pipe(Effect.orDie),
+    )
+    .handle("refreshSource", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        return yield* ext.refreshSource(payload.namespace);
+      }).pipe(Effect.orDie),
+    )
+    .handle("startOAuth", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        return yield* ext.startOAuth({
+          endpoint: payload.endpoint,
+          redirectUrl: payload.redirectUrl,
+          queryParams: payload.queryParams,
+        });
+      }).pipe(Effect.orDie),
+    )
+    .handle("completeOAuth", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        return yield* ext.completeOAuth({
+          state: payload.state,
+          code: payload.code,
+          error: payload.error,
+        });
+      }).pipe(Effect.orDie),
+    )
+    .handle("getSource", ({ path }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        return yield* ext.getSource(path.namespace);
+      }).pipe(Effect.orDie),
+    )
+    .handle("updateSource", ({ path, payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        yield* ext.updateSource(path.namespace, {
+          endpoint: payload.endpoint,
+          headers: payload.headers,
+          queryParams: payload.queryParams,
+          auth: payload.auth as McpUpdateSourceInput["auth"],
+        });
+        return { updated: true };
+      }).pipe(Effect.orDie),
+    )
+    .handle("oauthCallback", ({ urlParams }) =>
+      Effect.gen(function* () {
+        const ext = yield* McpExtensionService;
+        const result = yield* ext
+          .completeOAuth({
+            state: urlParams.state,
+            code: urlParams.code,
+            error: urlParams.error ?? urlParams.error_description,
+          })
+          .pipe(
+            Effect.map(
+              (c): OAuthPopupResult => ({
+                type: "executor:oauth-result",
+                ok: true,
+                sessionId: urlParams.state,
+                accessTokenSecretId: c.accessTokenSecretId,
+                refreshTokenSecretId: c.refreshTokenSecretId,
+                tokenType: c.tokenType,
+                expiresAt: c.expiresAt,
+                scope: c.scope,
+              }),
+            ),
+            Effect.catchAll((error) =>
+              Effect.succeed<OAuthPopupResult>({
+                type: "executor:oauth-result",
+                ok: false,
+                sessionId: null,
+                error: error instanceof Error ? error.message : String(error),
+              }),
+            ),
           );
-        }).pipe(Effect.orDie),
-      )
-      .handle("removeSource", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          yield* ext.removeSource(payload.namespace);
-          return { removed: true };
-        }).pipe(Effect.orDie),
-      )
-      .handle("refreshSource", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.refreshSource(payload.namespace);
-        }).pipe(Effect.orDie),
-      )
-      .handle("startOAuth", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.startOAuth({
-            endpoint: payload.endpoint,
-            redirectUrl: payload.redirectUrl,
-            queryParams: payload.queryParams,
-          });
-        }).pipe(Effect.orDie),
-      )
-      .handle("completeOAuth", ({ payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.completeOAuth({
-            state: payload.state,
-            code: payload.code,
-            error: payload.error,
-          });
-        }).pipe(Effect.orDie),
-      )
-      .handle("getSource", ({ path }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          return yield* ext.getSource(path.namespace);
-        }).pipe(Effect.orDie),
-      )
-      .handle("updateSource", ({ path, payload }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          yield* ext.updateSource(path.namespace, {
-            endpoint: payload.endpoint,
-            headers: payload.headers,
-            queryParams: payload.queryParams,
-            auth: payload.auth as McpUpdateSourceInput["auth"],
-          });
-          return { updated: true };
-        }).pipe(Effect.orDie),
-      )
-      .handle("oauthCallback", ({ urlParams }) =>
-        Effect.gen(function* () {
-          const ext = yield* McpExtensionService;
-          const result = yield* ext
-            .completeOAuth({
-              state: urlParams.state,
-              code: urlParams.code,
-              error:
-                urlParams.error ?? urlParams.error_description,
-            })
-            .pipe(
-              Effect.map(
-                (c): OAuthPopupResult => ({
-                  type: "executor:oauth-result",
-                  ok: true,
-                  sessionId: urlParams.state,
-                  accessTokenSecretId: c.accessTokenSecretId,
-                  refreshTokenSecretId: c.refreshTokenSecretId,
-                  tokenType: c.tokenType,
-                  expiresAt: c.expiresAt,
-                  scope: c.scope,
-                }),
-              ),
-              Effect.catchAll((error) =>
-                Effect.succeed<OAuthPopupResult>({
-                  type: "executor:oauth-result",
-                  ok: false,
-                  sessionId: null,
-                  error:
-                    error instanceof Error
-                      ? error.message
-                      : String(error),
-                }),
-              ),
-            );
-          return yield* HttpServerResponse.html(
-            popupDocument(result),
-          );
-        }).pipe(Effect.orDie),
-      ),
+        return yield* HttpServerResponse.html(popupDocument(result));
+      }).pipe(Effect.orDie),
+    ),
 );

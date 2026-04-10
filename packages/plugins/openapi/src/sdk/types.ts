@@ -12,7 +12,14 @@ export type OperationId = typeof OperationId.Type;
 // ---------------------------------------------------------------------------
 
 export const HttpMethod = Schema.Literal(
-  "get", "put", "post", "delete", "patch", "head", "options", "trace",
+  "get",
+  "put",
+  "post",
+  "delete",
+  "patch",
+  "head",
+  "options",
+  "trace",
 );
 export type HttpMethod = typeof HttpMethod.Type;
 
@@ -23,9 +30,7 @@ export type ParameterLocation = typeof ParameterLocation.Type;
 // Extracted operation
 // ---------------------------------------------------------------------------
 
-export class OperationParameter extends Schema.Class<OperationParameter>(
-  "OperationParameter",
-)({
+export class OperationParameter extends Schema.Class<OperationParameter>("OperationParameter")({
   name: Schema.String,
   location: ParameterLocation,
   required: Schema.Boolean,
@@ -44,9 +49,7 @@ export class OperationRequestBody extends Schema.Class<OperationRequestBody>(
   schema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
 }) {}
 
-export class ExtractedOperation extends Schema.Class<ExtractedOperation>(
-  "ExtractedOperation",
-)({
+export class ExtractedOperation extends Schema.Class<ExtractedOperation>("ExtractedOperation")({
   operationId: OperationId,
   method: HttpMethod,
   pathTemplate: Schema.String,
@@ -62,15 +65,12 @@ export class ExtractedOperation extends Schema.Class<ExtractedOperation>(
 
 export class ServerInfo extends Schema.Class<ServerInfo>("ServerInfo")({
   url: Schema.String,
-  variables: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
-    { as: "Option" },
-  ),
+  variables: Schema.optionalWith(Schema.Record({ key: Schema.String, value: Schema.String }), {
+    as: "Option",
+  }),
 }) {}
 
-export class ExtractionResult extends Schema.Class<ExtractionResult>(
-  "ExtractionResult",
-)({
+export class ExtractionResult extends Schema.Class<ExtractionResult>("ExtractionResult")({
   title: Schema.optionalWith(Schema.String, { as: "Option" }),
   version: Schema.optionalWith(Schema.String, { as: "Option" }),
   servers: Schema.Array(ServerInfo),
@@ -81,9 +81,7 @@ export class ExtractionResult extends Schema.Class<ExtractionResult>(
 // Operation binding — minimal invocation data (no schemas/metadata)
 // ---------------------------------------------------------------------------
 
-export class OperationBinding extends Schema.Class<OperationBinding>(
-  "OperationBinding",
-)({
+export class OperationBinding extends Schema.Class<OperationBinding>("OperationBinding")({
   method: HttpMethod,
   pathTemplate: Schema.String,
   parameters: Schema.Array(OperationParameter),
@@ -107,20 +105,15 @@ export const HeaderValue = Schema.Union(
 );
 export type HeaderValue = typeof HeaderValue.Type;
 
-export class InvocationConfig extends Schema.Class<InvocationConfig>(
-  "InvocationConfig",
-)({
+export class InvocationConfig extends Schema.Class<InvocationConfig>("InvocationConfig")({
   baseUrl: Schema.String,
   /** Headers applied to every request. Values can reference secrets. */
-  headers: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: HeaderValue }),
-    { default: () => ({}) },
-  ),
+  headers: Schema.optionalWith(Schema.Record({ key: Schema.String, value: HeaderValue }), {
+    default: () => ({}),
+  }),
 }) {}
 
-export class InvocationResult extends Schema.Class<InvocationResult>(
-  "InvocationResult",
-)({
+export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({
   status: Schema.Number,
   headers: Schema.Record({ key: Schema.String, value: Schema.String }),
   data: Schema.NullOr(Schema.Unknown),

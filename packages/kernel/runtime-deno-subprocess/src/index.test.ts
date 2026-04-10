@@ -65,10 +65,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
       });
 
       const output = yield* executor.execute(
-        [
-          "const math = await tools.math.add({ a: 19, b: 23 });",
-          "return math;",
-        ].join("\n"),
+        ["const math = await tools.math.add({ a: 19, b: 23 });", "return math;"].join("\n"),
         toolInvoker,
       );
 
@@ -104,10 +101,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
       const executor = makeDenoSubprocessExecutor();
       const toolInvoker = makeTestInvoker({});
 
-      const output = yield* executor.execute(
-        'throw new Error("boom");',
-        toolInvoker,
-      );
+      const output = yield* executor.execute('throw new Error("boom");', toolInvoker);
 
       expect(output.result).toBeNull();
       expect(output.error).toContain("boom");
@@ -123,10 +117,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
         },
       });
 
-      const output = yield* executor.execute(
-        "return await tools.broken.thing({});",
-        toolInvoker,
-      );
+      const output = yield* executor.execute("return await tools.broken.thing({});", toolInvoker);
 
       expect(output.result).toBeNull();
       expect(output.error).toContain("tool is broken");
@@ -140,10 +131,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
       });
       const toolInvoker = makeTestInvoker({});
 
-      const output = yield* executor.execute(
-        "await new Promise(() => {}); return 1;",
-        toolInvoker,
-      );
+      const output = yield* executor.execute("await new Promise(() => {}); return 1;", toolInvoker);
 
       expect(output.result).toBeNull();
       expect(output.error).toContain("timed out");
@@ -175,10 +163,7 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
       const toolInvoker = makeTestInvoker({});
 
       const output = yield* executor.execute(
-        [
-          'const res = await fetch("https://example.com");',
-          "return res.status;",
-        ].join("\n"),
+        ['const res = await fetch("https://example.com");', "return res.status;"].join("\n"),
         toolInvoker,
       );
 

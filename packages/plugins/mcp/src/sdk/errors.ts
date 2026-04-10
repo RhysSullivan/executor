@@ -24,9 +24,6 @@ export class McpInvocationError extends Schema.TaggedError<McpInvocationError>()
   },
 ) {}
 
-export class McpOAuthError extends Schema.TaggedError<McpOAuthError>()(
-  "McpOAuthError",
-  {
-    message: Schema.String,
-  },
-) {}
+export class McpOAuthError extends Schema.TaggedError<McpOAuthError>()("McpOAuthError", {
+  message: Schema.String,
+}) {}

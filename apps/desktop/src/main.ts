@@ -11,8 +11,13 @@ import {
 import { spawn, type ChildProcess } from "node:child_process";
 import { join, resolve, basename } from "node:path";
 import {
-  existsSync, readFileSync, writeFileSync, mkdirSync,
-  copyFileSync, chmodSync, appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  copyFileSync,
+  chmodSync,
+  appendFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 
@@ -56,10 +61,14 @@ const installCli = (): void => {
   const appVersion = app.getVersion();
   const installedVersion = getInstalledCliVersion();
   if (installedVersion) {
-    const parse = (v: string) => v.replace(/^v/, "").split(/[.-]/).map((s) => {
-      const n = parseInt(s, 10);
-      return isNaN(n) ? 0 : n;
-    });
+    const parse = (v: string) =>
+      v
+        .replace(/^v/, "")
+        .split(/[.-]/)
+        .map((s) => {
+          const n = parseInt(s, 10);
+          return isNaN(n) ? 0 : n;
+        });
     const installed = parse(installedVersion);
     const bundled = parse(appVersion);
     const len = Math.max(installed.length, bundled.length);
@@ -73,9 +82,13 @@ const installCli = (): void => {
   // Copy binary
   mkdirSync(CLI_BIN_DIR, { recursive: true });
   copyFileSync(sidecar, CLI_BIN_PATH);
-  try { chmodSync(CLI_BIN_PATH, 0o755); } catch {}
-  console.log(`Installed executor CLI ${appVersion} to ${CLI_BIN_PATH}` +
-    (installedVersion ? ` (was ${installedVersion})` : ""));
+  try {
+    chmodSync(CLI_BIN_PATH, 0o755);
+  } catch {}
+  console.log(
+    `Installed executor CLI ${appVersion} to ${CLI_BIN_PATH}` +
+      (installedVersion ? ` (was ${installedVersion})` : ""),
+  );
 
   // Copy WASM if present
   const wasm = join(process.resourcesPath, "emscripten-module.wasm");
@@ -213,10 +226,7 @@ const stopServer = (): Promise<void> => {
   });
 };
 
-const startServer = async (
-  scopePath: string,
-  port: number,
-): Promise<void> => {
+const startServer = async (scopePath: string, port: number): Promise<void> => {
   await stopServer();
 
   currentScope = scopePath;
@@ -366,9 +376,7 @@ const loadScope = async (scopePath: string): Promise<void> => {
     buildMenu();
     mainWindow.loadURL(`http://127.0.0.1:${currentPort}`);
   } catch (err) {
-    mainWindow.loadURL(
-      `data:text/html,${encodeURIComponent(errorHTML(String(err)))}`
-    );
+    mainWindow.loadURL(`data:text/html,${encodeURIComponent(errorHTML(String(err)))}`);
   }
 };
 
@@ -391,13 +399,11 @@ const selectFolder = async (): Promise<void> => {
 // ---------------------------------------------------------------------------
 
 const buildMenu = (): void => {
-  const recentItems: MenuItemConstructorOptions[] = settings.recentScopes.map(
-    (scopePath) => ({
-      label: `${basename(scopePath)}  —  ${scopePath}`,
-      click: () => loadScope(scopePath),
-      enabled: scopePath !== currentScope,
-    }),
-  );
+  const recentItems: MenuItemConstructorOptions[] = settings.recentScopes.map((scopePath) => ({
+    label: `${basename(scopePath)}  —  ${scopePath}`,
+    click: () => loadScope(scopePath),
+    enabled: scopePath !== currentScope,
+  }));
 
   const template: MenuItemConstructorOptions[] = [
     {
@@ -744,9 +750,7 @@ app.whenReady().then(async () => {
   if (settings.lastScope && existsSync(settings.lastScope)) {
     await loadScope(settings.lastScope);
   } else {
-    mainWindow.loadURL(
-      `data:text/html,${encodeURIComponent(welcomeHTML())}`,
-    );
+    mainWindow.loadURL(`data:text/html,${encodeURIComponent(welcomeHTML())}`);
   }
 });
 
@@ -777,8 +781,6 @@ process.on("exit", () => {
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     mainWindow = createWindow();
-    mainWindow.loadURL(
-      `data:text/html,${encodeURIComponent(welcomeHTML())}`,
-    );
+    mainWindow.loadURL(`data:text/html,${encodeURIComponent(welcomeHTML())}`);
   }
 });

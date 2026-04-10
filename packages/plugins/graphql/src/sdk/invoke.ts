@@ -25,7 +25,9 @@ import {
 
 const resolveHeaders = (
   headers: Record<string, HeaderValue>,
-  secrets: { readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown> },
+  secrets: {
+    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
+  },
   scopeId: ScopeId,
 ): Effect.Effect<Record<string, string>, ToolInvocationError> =>
   Effect.gen(function* () {
@@ -35,12 +37,13 @@ const resolveHeaders = (
         resolved[name] = value;
       } else {
         const secret = yield* secrets.resolve(value.secretId as SecretId, scopeId).pipe(
-          Effect.mapError(() =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
-              cause: undefined,
-            }),
+          Effect.mapError(
+            () =>
+              new ToolInvocationError({
+                toolId: "" as ToolId,
+                message: `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+                cause: undefined,
+              }),
           ),
         );
         resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
@@ -57,9 +60,7 @@ const isJsonContentType = (ct: string | null | undefined): boolean => {
   if (!ct) return false;
   const normalized = ct.split(";")[0]?.trim().toLowerCase() ?? "";
   return (
-    normalized === "application/json" ||
-    normalized.includes("+json") ||
-    normalized.includes("json")
+    normalized === "application/json" || normalized.includes("+json") || normalized.includes("json")
   );
 };
 
@@ -139,7 +140,9 @@ export const invoke = Effect.fn("GraphQL.invoke")(function* (
 export const makeGraphqlInvoker = (opts: {
   readonly operationStore: GraphqlOperationStore;
   readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
-  readonly secrets: { readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown> };
+  readonly secrets: {
+    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
+  };
   readonly scopeId: ScopeId;
 }): ToolInvoker => ({
   resolveAnnotations: (toolId: ToolId) =>
@@ -170,11 +173,7 @@ export const makeGraphqlInvoker = (opts: {
       const { binding, config } = entry;
 
       // Resolve secret-backed headers
-      const resolvedHeaders = yield* resolveHeaders(
-        config.headers,
-        opts.secrets,
-        opts.scopeId,
-      );
+      const resolvedHeaders = yield* resolveHeaders(config.headers, opts.secrets, opts.scopeId);
 
       const result = yield* invoke(
         binding,

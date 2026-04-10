@@ -1,8 +1,8 @@
 {
   "name": "@executor/execution",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
-  "version": "1.4.2",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -11,9 +11,9 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
     "@executor/codemode-core": "workspace:*",
     "@executor/runtime-quickjs": "workspace:*",
+    "@executor/sdk": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

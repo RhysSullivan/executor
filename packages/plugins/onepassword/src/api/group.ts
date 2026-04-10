@@ -36,9 +36,7 @@ const GetConfigResponse = Schema.NullOr(OnePasswordConfig);
 // Errors with HTTP status
 // ---------------------------------------------------------------------------
 
-const OpError = OnePasswordError.annotations(
-  HttpApiSchema.annotations({ status: 502 }),
-);
+const OpError = OnePasswordError.annotations(HttpApiSchema.annotations({ status: 502 }));
 
 // ---------------------------------------------------------------------------
 // Group
@@ -46,8 +44,9 @@ const OpError = OnePasswordError.annotations(
 
 export class OnePasswordGroup extends HttpApiGroup.make("onepassword")
   .add(
-    HttpApiEndpoint.get("getConfig")`/scopes/${scopeIdParam}/onepassword/config`
-      .addSuccess(GetConfigResponse),
+    HttpApiEndpoint.get("getConfig")`/scopes/${scopeIdParam}/onepassword/config`.addSuccess(
+      GetConfigResponse,
+    ),
   )
   .add(
     HttpApiEndpoint.put("configure")`/scopes/${scopeIdParam}/onepassword/config`
@@ -56,8 +55,9 @@ export class OnePasswordGroup extends HttpApiGroup.make("onepassword")
       .addError(OpError),
   )
   .add(
-    HttpApiEndpoint.del("removeConfig")`/scopes/${scopeIdParam}/onepassword/config`
-      .addSuccess(Schema.Void),
+    HttpApiEndpoint.del("removeConfig")`/scopes/${scopeIdParam}/onepassword/config`.addSuccess(
+      Schema.Void,
+    ),
   )
   .add(
     HttpApiEndpoint.get("status")`/scopes/${scopeIdParam}/onepassword/status`
@@ -69,5 +69,4 @@ export class OnePasswordGroup extends HttpApiGroup.make("onepassword")
       .setUrlParams(ListVaultsParams)
       .addSuccess(ListVaultsResponse)
       .addError(OpError),
-  )
-  {}
+  ) {}

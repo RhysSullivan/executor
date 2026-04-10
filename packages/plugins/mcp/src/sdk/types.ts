@@ -69,19 +69,14 @@ export const McpStdioSourceData = Schema.Struct({
 });
 export type McpStdioSourceData = typeof McpStdioSourceData.Type;
 
-export const McpStoredSourceData = Schema.Union(
-  McpRemoteSourceData,
-  McpStdioSourceData,
-);
+export const McpStoredSourceData = Schema.Union(McpRemoteSourceData, McpStdioSourceData);
 export type McpStoredSourceData = typeof McpStoredSourceData.Type;
 
 // ---------------------------------------------------------------------------
 // Tool binding — maps a registered ToolId back to the MCP tool name
 // ---------------------------------------------------------------------------
 
-export class McpToolBinding extends Schema.Class<McpToolBinding>(
-  "McpToolBinding",
-)({
+export class McpToolBinding extends Schema.Class<McpToolBinding>("McpToolBinding")({
   toolId: Schema.String,
   toolName: Schema.String,
   description: Schema.NullOr(Schema.String),

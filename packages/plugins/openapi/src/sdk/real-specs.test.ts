@@ -57,20 +57,23 @@ describe("Real specs: Cloudflare API", () => {
       }
 
       const validMethods = new Set([
-        "get", "post", "put", "delete", "patch", "head", "options", "trace",
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "head",
+        "options",
+        "trace",
       ]);
       for (const op of result.operations) {
         expect(validMethods.has(op.method)).toBe(true);
       }
 
-      const zoneOps = result.operations.filter((op) =>
-        op.pathTemplate.includes("/zones"),
-      );
+      const zoneOps = result.operations.filter((op) => op.pathTemplate.includes("/zones"));
       expect(zoneOps.length).toBeGreaterThan(0);
 
-      const dnsOps = result.operations.filter((op) =>
-        op.pathTemplate.includes("/dns_records"),
-      );
+      const dnsOps = result.operations.filter((op) => op.pathTemplate.includes("/dns_records"));
       expect(dnsOps.length).toBeGreaterThan(0);
     }),
   );
@@ -79,9 +82,7 @@ describe("Real specs: Cloudflare API", () => {
     Effect.gen(function* () {
       const result = yield* getResult();
 
-      const opsWithInput = result.operations.filter((op) =>
-        Option.isSome(op.inputSchema),
-      );
+      const opsWithInput = result.operations.filter((op) => Option.isSome(op.inputSchema));
       expect(opsWithInput.length).toBeGreaterThan(500);
     }),
   );
@@ -91,9 +92,7 @@ describe("Real specs: Cloudflare API", () => {
       const result = yield* getResult();
 
       const getOps = result.operations.filter((op) => op.method === "get");
-      const getOpsWithOutput = getOps.filter((op) =>
-        Option.isSome(op.outputSchema),
-      );
+      const getOpsWithOutput = getOps.filter((op) => Option.isSome(op.outputSchema));
       expect(getOpsWithOutput.length).toBeGreaterThan(getOps.length / 2);
     }),
   );
@@ -129,38 +128,36 @@ describe("Real specs: Cloudflare API", () => {
     }),
   );
 
-  it.effect(
-    "schema deduplication: definitions stored once, tools reference via $ref",
-    () =>
-      Effect.gen(function* () {
-        const executor = yield* createExecutor(
-          makeTestConfig({ plugins: [openApiPlugin()] as const }),
-        );
+  it.effect("schema deduplication: definitions stored once, tools reference via $ref", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [openApiPlugin()] as const }),
+      );
 
-        yield* executor.openapi.addSpec({
-          spec: specText,
-          namespace: "cloudflare",
-        });
+      yield* executor.openapi.addSpec({
+        spec: specText,
+        namespace: "cloudflare",
+      });
 
-        const definitions = yield* executor.tools.definitions();
-        expect(Object.keys(definitions).length).toBeGreaterThan(5000);
-        expect(definitions["dns-records_dns_response_single"]).toBeDefined();
+      const definitions = yield* executor.tools.definitions();
+      expect(Object.keys(definitions).length).toBeGreaterThan(5000);
+      expect(definitions["dns-records_dns_response_single"]).toBeDefined();
 
-        const tools = yield* executor.tools.list({ query: "dns" });
-        expect(tools.length).toBeGreaterThan(0);
+      const tools = yield* executor.tools.list({ query: "dns" });
+      expect(tools.length).toBeGreaterThan(0);
 
-        const schema = yield* executor.tools.schema(tools[0]!.id);
+      const schema = yield* executor.tools.schema(tools[0]!.id);
 
-        // outputTypeScript should reference a named type from definitions
-        expect(schema.outputTypeScript).toBeDefined();
-        expect(schema.outputTypeScript!.length).toBeGreaterThan(0);
+      // outputTypeScript should reference a named type from definitions
+      expect(schema.outputTypeScript).toBeDefined();
+      expect(schema.outputTypeScript!.length).toBeGreaterThan(0);
 
-        // typeScriptDefinitions should carry the relevant subset
-        expect(schema.typeScriptDefinitions).toBeDefined();
-        const defs = schema.typeScriptDefinitions!;
-        expect(Object.keys(defs).length).toBeGreaterThan(0);
-        expect(Object.keys(defs).length).toBeLessThan(100);
-      }),
+      // typeScriptDefinitions should carry the relevant subset
+      expect(schema.typeScriptDefinitions).toBeDefined();
+      const defs = schema.typeScriptDefinitions!;
+      expect(Object.keys(defs).length).toBeGreaterThan(0);
+      expect(Object.keys(defs).length).toBeLessThan(100);
+    }),
   );
 
   it.effect("previewSpec returns security schemes and header presets", () =>
@@ -182,17 +179,13 @@ describe("Real specs: Cloudflare API", () => {
       expect(preview.headerPresets.length).toBeGreaterThan(0);
 
       // Bearer token preset should include Authorization header
-      const bearerPreset = preview.headerPresets.find((p) =>
-        p.label.includes("Bearer"),
-      );
+      const bearerPreset = preview.headerPresets.find((p) => p.label.includes("Bearer"));
       expect(bearerPreset).toBeDefined();
       expect(bearerPreset!.headers["Authorization"]).toBeNull(); // user must provide
       expect(bearerPreset!.secretHeaders).toContain("Authorization");
 
       // API key + email preset
-      const keyEmailPreset = preview.headerPresets.find((p) =>
-        p.label.includes("api_email"),
-      );
+      const keyEmailPreset = preview.headerPresets.find((p) => p.label.includes("api_email"));
       expect(keyEmailPreset).toBeDefined();
       expect(keyEmailPreset!.headers["X-Auth-Email"]).toBeNull();
       expect(keyEmailPreset!.headers["X-Auth-Key"]).toBeNull();

@@ -3,7 +3,10 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
 import { useScope } from "@executor/react/api/scope-context";
-import { SecretHeaderAuthRow, defaultHeaderAuthPresets } from "@executor/react/plugins/secret-header-auth";
+import {
+  SecretHeaderAuthRow,
+  defaultHeaderAuthPresets,
+} from "@executor/react/plugins/secret-header-auth";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import { Button } from "@executor/react/components/button";
 import { Input } from "@executor/react/components/input";
@@ -31,8 +34,8 @@ function prefixForHeader(preset: HeaderPreset, headerName: string): string | und
 
 function matchPresetKey(name: string, prefix?: string): string {
   const preset =
-    defaultHeaderAuthPresets.find((entry) => entry.name === name && entry.prefix === prefix)
-    ?? defaultHeaderAuthPresets.find((entry) => entry.name === name && entry.prefix === undefined);
+    defaultHeaderAuthPresets.find((entry) => entry.name === name && entry.prefix === prefix) ??
+    defaultHeaderAuthPresets.find((entry) => entry.name === name && entry.prefix === undefined);
 
   return preset?.key ?? "custom";
 }
@@ -70,7 +73,15 @@ export default function AddOpenApiSource(props: {
 
   // Auth
   const [presetIndex, setPresetIndex] = useState(0);
-  const [customHeaders, setCustomHeaders] = useState<Array<{ name: string; secretId: string | null; prefix?: string; presetKey?: string; fromPreset?: boolean }>>([]);
+  const [customHeaders, setCustomHeaders] = useState<
+    Array<{
+      name: string;
+      secretId: string | null;
+      prefix?: string;
+      presetKey?: string;
+      fromPreset?: boolean;
+    }>
+  >([]);
 
   // Submit
   const [adding, setAdding] = useState(false);
@@ -98,14 +109,15 @@ export default function AddOpenApiSource(props: {
   const allHeaders: Record<string, HeaderValue> = {};
   for (const ch of customHeaders) {
     if (ch.name.trim() && ch.secretId) {
-      allHeaders[ch.name.trim()] = { secretId: ch.secretId, ...(ch.prefix ? { prefix: ch.prefix } : {}) };
+      allHeaders[ch.name.trim()] = {
+        secretId: ch.secretId,
+        ...(ch.prefix ? { prefix: ch.prefix } : {}),
+      };
     }
   }
   const hasHeaders = Object.keys(allHeaders).length > 0;
 
-  const customHeadersValid = customHeaders.every(
-    (ch) => ch.name.trim() && ch.secretId,
-  );
+  const customHeadersValid = customHeaders.every((ch) => ch.name.trim() && ch.secretId);
 
   const canAdd =
     preview !== null &&
@@ -150,12 +162,16 @@ export default function AddOpenApiSource(props: {
     } else if (index === -2) {
       // "Custom" — keep user headers, drop preset-derived, seed if empty
       const userHeaders = customHeaders.filter((h) => !h.fromPreset);
-      setCustomHeaders(userHeaders.length > 0 ? userHeaders : [{ name: "", secretId: null, presetKey: undefined }]);
+      setCustomHeaders(
+        userHeaders.length > 0 ? userHeaders : [{ name: "", secretId: null, presetKey: undefined }],
+      );
     } else {
       // Preset strategy — replace preset-derived headers, keep user headers
       const preset = presets[index];
       const userHeaders = customHeaders.filter((h) => !h.fromPreset);
-      setCustomHeaders(preset ? [...presetEntriesFromHeaderPreset(preset), ...userHeaders] : userHeaders);
+      setCustomHeaders(
+        preset ? [...presetEntriesFromHeaderPreset(preset), ...userHeaders] : userHeaders,
+      );
     }
   };
 
@@ -164,7 +180,10 @@ export default function AddOpenApiSource(props: {
     setCustomHeaders([...customHeaders, { name: "", secretId: null, presetKey: undefined }]);
   };
 
-  const updateCustomHeader = (index: number, update: Partial<{ name: string; secretId: string | null; prefix?: string; presetKey?: string }>) => {
+  const updateCustomHeader = (
+    index: number,
+    update: Partial<{ name: string; secretId: string | null; prefix?: string; presetKey?: string }>,
+  ) => {
     setCustomHeaders(customHeaders.map((ch, i) => (i === index ? { ...ch, ...update } : ch)));
   };
 
@@ -226,10 +245,7 @@ export default function AddOpenApiSource(props: {
             <p className="text-[12px] text-muted-foreground">
               Paste a URL or raw JSON/YAML content.
             </p>
-            <Button
-              disabled={!specUrl.trim() || analyzing}
-              onClick={handleAnalyze}
-            >
+            <Button disabled={!specUrl.trim() || analyzing} onClick={handleAnalyze}>
               {analyzing && <Spinner className="size-3.5" />}
               {analyzing ? "Analyzing…" : "Analyze"}
             </Button>
@@ -250,7 +266,8 @@ export default function AddOpenApiSource(props: {
                 {Option.getOrElse(preview.version, () => "")}
                 {Option.isSome(preview.version) && " · "}
                 {preview.operationCount} operation{preview.operationCount !== 1 ? "s" : ""}
-                {preview.tags.length > 0 && ` · ${preview.tags.length} tag${preview.tags.length !== 1 ? "s" : ""}`}
+                {preview.tags.length > 0 &&
+                  ` · ${preview.tags.length} tag${preview.tags.length !== 1 ? "s" : ""}`}
               </p>
             </div>
             {preview.tags.length > 0 && (
@@ -261,7 +278,9 @@ export default function AddOpenApiSource(props: {
                   </Badge>
                 ))}
                 {preview.tags.length > 4 && (
-                  <span className="text-[10px] text-muted-foreground">+{preview.tags.length - 4}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    +{preview.tags.length - 4}
+                  </span>
                 )}
               </div>
             )}
@@ -273,11 +292,7 @@ export default function AddOpenApiSource(props: {
 
             {servers.length > 1 ? (
               <div className="space-y-2">
-                <RadioGroup
-                  value={baseUrl}
-                  onValueChange={setBaseUrl}
-                  className="gap-1.5"
-                >
+                <RadioGroup value={baseUrl} onValueChange={setBaseUrl} className="gap-1.5">
                   {servers.map((s, i) => {
                     const url = s.url ?? "";
                     return (
@@ -342,7 +357,8 @@ export default function AddOpenApiSource(props: {
                     <span className="text-xs font-medium text-foreground">{preset.label}</span>
                     {preset.secretHeaders.length > 0 && (
                       <span className="ml-auto text-[10px] text-muted-foreground">
-                        {preset.secretHeaders.length} header{preset.secretHeaders.length > 1 ? "s" : ""}
+                        {preset.secretHeaders.length} header
+                        {preset.secretHeaders.length > 1 ? "s" : ""}
                       </span>
                     )}
                   </label>
@@ -357,7 +373,9 @@ export default function AddOpenApiSource(props: {
                 >
                   <RadioGroupItem value="-2" />
                   <span className="text-xs font-medium text-foreground">Custom</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">configure manually</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    configure manually
+                  </span>
                 </label>
 
                 <label

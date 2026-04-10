@@ -13,38 +13,18 @@ import {
   type ToolRegistration,
 } from "@executor/sdk";
 
-import {
-  type McpStoredSourceData,
-  type McpConnectionAuth,
-  McpToolBinding,
-} from "./types";
+import { type McpStoredSourceData, type McpConnectionAuth, McpToolBinding } from "./types";
 import {
   makeInMemoryBindingStore,
   type McpBindingStore,
   type McpStoredSource,
 } from "./binding-store";
-import {
-  createMcpConnector,
-  type McpConnection,
-  type ConnectorInput,
-} from "./connection";
-import {
-  McpConnectionError,
-  McpOAuthError,
-  McpToolDiscoveryError,
-} from "./errors";
-import {
-  startMcpOAuthAuthorization,
-  exchangeMcpOAuthCode,
-  type McpOAuthSession,
-} from "./oauth";
+import { createMcpConnector, type McpConnection, type ConnectorInput } from "./connection";
+import { McpConnectionError, McpOAuthError, McpToolDiscoveryError } from "./errors";
+import { startMcpOAuthAuthorization, exchangeMcpOAuthCode, type McpOAuthSession } from "./oauth";
 import { discoverTools } from "./discover";
 import { makeMcpInvoker } from "./invoke";
-import {
-  deriveMcpNamespace,
-  joinToolPath,
-  type McpToolManifestEntry,
-} from "./manifest";
+import { deriveMcpNamespace, joinToolPath, type McpToolManifestEntry } from "./manifest";
 
 // ---------------------------------------------------------------------------
 // Plugin config — discriminated union on transport
@@ -119,16 +99,11 @@ export interface McpUpdateSourceInput {
 }
 
 export interface McpPluginExtension {
-  readonly probeEndpoint: (
-    endpoint: string,
-  ) => Effect.Effect<McpProbeResult, Error>;
+  readonly probeEndpoint: (endpoint: string) => Effect.Effect<McpProbeResult, Error>;
 
   readonly addSource: (
     config: McpSourceConfig,
-  ) => Effect.Effect<
-    { readonly toolCount: number; readonly namespace: string },
-    Error
-  >;
+  ) => Effect.Effect<{ readonly toolCount: number; readonly namespace: string }, Error>;
 
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
 
@@ -136,34 +111,24 @@ export interface McpPluginExtension {
     namespace: string,
   ) => Effect.Effect<{ readonly toolCount: number }, Error>;
 
-  readonly startOAuth: (
-    input: McpOAuthStartInput,
-  ) => Effect.Effect<McpOAuthStartResponse, Error>;
+  readonly startOAuth: (input: McpOAuthStartInput) => Effect.Effect<McpOAuthStartResponse, Error>;
 
   readonly completeOAuth: (
     input: McpOAuthCompleteInput,
   ) => Effect.Effect<McpOAuthCompleteResponse, Error>;
 
   /** Fetch the full stored source by namespace (or null if missing) */
-  readonly getSource: (
-    namespace: string,
-  ) => Effect.Effect<McpStoredSource | null>;
+  readonly getSource: (namespace: string) => Effect.Effect<McpStoredSource | null>;
 
   /** Update config for an existing remote MCP source */
-  readonly updateSource: (
-    namespace: string,
-    input: McpUpdateSourceInput,
-  ) => Effect.Effect<void>;
+  readonly updateSource: (namespace: string, input: McpUpdateSourceInput) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const toRegistration = (
-  entry: McpToolManifestEntry,
-  namespace: string,
-): ToolRegistration => ({
+const toRegistration = (entry: McpToolManifestEntry, namespace: string): ToolRegistration => ({
   id: ToolId.make(joinToolPath(namespace, entry.toolId)),
   pluginKey: "mcp",
   sourceId: namespace,
@@ -296,8 +261,7 @@ export const mcpPlugin = (options?: {
                 }
                 return connector;
               }),
-              (connection) =>
-                Effect.promise(() => connection.close().catch(() => {})),
+              (connection) => Effect.promise(() => connection.close().catch(() => {})),
             ),
           capacity: 64,
           timeToLive: Duration.minutes(5),
@@ -353,25 +317,17 @@ export const mcpPlugin = (options?: {
               const val = yield* ctx.secrets
                 .resolve(auth.secretId as any, ctx.scope.id)
                 .pipe(
-                  Effect.mapError(
-                    () =>
-                      remoteConnectionError(
-                        `Failed to resolve secret "${auth.secretId}"`,
-                      ),
+                  Effect.mapError(() =>
+                    remoteConnectionError(`Failed to resolve secret "${auth.secretId}"`),
                   ),
                 );
-              headers[auth.headerName] = auth.prefix
-                ? `${auth.prefix}${val}`
-                : val;
+              headers[auth.headerName] = auth.prefix ? `${auth.prefix}${val}` : val;
             } else if (auth.kind === "oauth2") {
               const accessToken = yield* ctx.secrets
                 .resolve(auth.accessTokenSecretId as any, ctx.scope.id)
                 .pipe(
-                  Effect.mapError(
-                    () =>
-                      remoteConnectionError(
-                        "Failed to resolve OAuth access token",
-                      ),
+                  Effect.mapError(() =>
+                    remoteConnectionError("Failed to resolve OAuth access token"),
                   ),
                 );
 
@@ -381,7 +337,7 @@ export const mcpPlugin = (options?: {
                   .resolve(auth.refreshTokenSecretId as any, ctx.scope.id)
                   .pipe(
                     Effect.option,
-                    Effect.map((o) => o._tag === "Some" ? o.value : undefined),
+                    Effect.map((o) => (o._tag === "Some" ? o.value : undefined)),
                   );
               }
 
@@ -397,8 +353,7 @@ export const mcpPlugin = (options?: {
               endpoint: sd.endpoint,
               remoteTransport: sd.remoteTransport,
               queryParams: sd.queryParams,
-              headers:
-                Object.keys(headers).length > 0 ? headers : undefined,
+              headers: Object.keys(headers).length > 0 ? headers : undefined,
               authProvider,
             };
           });
@@ -423,9 +378,7 @@ export const mcpPlugin = (options?: {
             Effect.gen(function* () {
               const trimmed = url.trim();
               if (!trimmed) return null;
-              const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
-                Effect.option,
-              );
+              const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
               if (parsed._tag === "None") return null;
 
               const name = parsed.value.hostname || "mcp";
@@ -484,13 +437,12 @@ export const mcpPlugin = (options?: {
               );
               if (!ci) return;
 
-              const manifest = yield* discoverTools(
-                createMcpConnector(ci),
-              ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+              const manifest = yield* discoverTools(createMcpConnector(ci)).pipe(
+                Effect.catchAll(() => Effect.succeed(null)),
+              );
               if (!manifest) return;
 
-              const oldIds =
-                yield* bindingStore.removeByNamespace(sourceId);
+              const oldIds = yield* bindingStore.removeByNamespace(sourceId);
               if (oldIds.length > 0) yield* ctx.tools.unregister(oldIds);
 
               yield* Effect.forEach(
@@ -504,9 +456,7 @@ export const mcpPlugin = (options?: {
                   ),
                 { discard: true },
               );
-              yield* ctx.tools.register(
-                manifest.tools.map((e) => toRegistration(e, sourceId)),
-              );
+              yield* ctx.tools.register(manifest.tools.map((e) => toRegistration(e, sourceId)));
             }),
         });
 
@@ -515,8 +465,7 @@ export const mcpPlugin = (options?: {
         const probeEndpoint = (endpoint: string) =>
           Effect.gen(function* () {
             const trimmed = endpoint.trim();
-            if (!trimmed)
-              return yield* remoteConnectionError("Endpoint URL is required");
+            if (!trimmed) return yield* remoteConnectionError("Endpoint URL is required");
 
             const name = yield* Effect.try(() => new URL(trimmed).hostname).pipe(
               Effect.orElseSucceed(() => "mcp"),
@@ -531,9 +480,7 @@ export const mcpPlugin = (options?: {
 
             const result = yield* discoverTools(connector).pipe(
               Effect.map((m) => ({ ok: true as const, manifest: m })),
-              Effect.catchAll(() =>
-                Effect.succeed({ ok: false as const, manifest: null }),
-              ),
+              Effect.catchAll(() => Effect.succeed({ ok: false as const, manifest: null })),
             );
 
             if (result.ok && result.manifest) {
@@ -550,8 +497,7 @@ export const mcpPlugin = (options?: {
             // Probe for OAuth
             const hasOAuth = yield* startMcpOAuthAuthorization({
               endpoint: trimmed,
-              redirectUrl:
-                "http://127.0.0.1/executor/discovery/oauth/probe",
+              redirectUrl: "http://127.0.0.1/executor/discovery/oauth/probe",
               state: "probe",
             }).pipe(
               Effect.map(() => true),
@@ -582,14 +528,10 @@ export const mcpPlugin = (options?: {
             const connector = createMcpConnector(ci);
 
             const manifest = yield* discoverTools(connector).pipe(
-              Effect.mapError((err) =>
-                mcpDiscoveryError(`MCP discovery failed: ${err.message}`),
-              ),
+              Effect.mapError((err) => mcpDiscoveryError(`MCP discovery failed: ${err.message}`)),
             );
 
-            const registrations = manifest.tools.map((e) =>
-              toRegistration(e, namespace),
-            );
+            const registrations = manifest.tools.map((e) => toRegistration(e, namespace));
 
             yield* Effect.forEach(
               manifest.tools,
@@ -605,8 +547,7 @@ export const mcpPlugin = (options?: {
 
             yield* ctx.tools.register(registrations);
 
-            const sourceName =
-              manifest.server?.name ?? config.name ?? namespace;
+            const sourceName = manifest.server?.name ?? config.name ?? namespace;
             yield* bindingStore.putSource({
               namespace,
               name: sourceName,
@@ -638,21 +579,14 @@ export const mcpPlugin = (options?: {
           Effect.gen(function* () {
             const sd = yield* bindingStore.getSourceConfig(namespace);
             if (!sd)
-              return yield* remoteConnectionError(
-                `No stored config for MCP source "${namespace}"`,
-              );
+              return yield* remoteConnectionError(`No stored config for MCP source "${namespace}"`);
 
             const ci = yield* resolveConnectorInput(sd);
-            const manifest = yield* discoverTools(
-              createMcpConnector(ci),
-            ).pipe(
-              Effect.mapError((err) =>
-                mcpDiscoveryError(`MCP refresh failed: ${err.message}`),
-              ),
+            const manifest = yield* discoverTools(createMcpConnector(ci)).pipe(
+              Effect.mapError((err) => mcpDiscoveryError(`MCP refresh failed: ${err.message}`)),
             );
 
-            const oldIds =
-              yield* bindingStore.removeByNamespace(namespace);
+            const oldIds = yield* bindingStore.removeByNamespace(namespace);
             if (oldIds.length > 0) yield* ctx.tools.unregister(oldIds);
 
             yield* Effect.forEach(
@@ -666,9 +600,7 @@ export const mcpPlugin = (options?: {
                 ),
               { discard: true },
             );
-            yield* ctx.tools.register(
-              manifest.tools.map((e) => toRegistration(e, namespace)),
-            );
+            yield* ctx.tools.register(manifest.tools.map((e) => toRegistration(e, namespace)));
 
             return { toolCount: manifest.tools.length };
           });
@@ -676,17 +608,12 @@ export const mcpPlugin = (options?: {
         const startOAuth = (input: McpOAuthStartInput) =>
           Effect.gen(function* () {
             const endpoint = input.endpoint.trim();
-            if (!endpoint)
-              return yield* mcpOAuthError("MCP OAuth requires an endpoint");
+            if (!endpoint) return yield* mcpOAuthError("MCP OAuth requires an endpoint");
 
             let fullEndpoint = endpoint;
-            if (
-              input.queryParams &&
-              Object.keys(input.queryParams).length > 0
-            ) {
+            if (input.queryParams && Object.keys(input.queryParams).length > 0) {
               const u = new URL(endpoint);
-              for (const [k, v] of Object.entries(input.queryParams))
-                u.searchParams.set(k, v);
+              for (const [k, v] of Object.entries(input.queryParams)) u.searchParams.set(k, v);
               fullEndpoint = u.toString();
             }
 
@@ -695,11 +622,7 @@ export const mcpPlugin = (options?: {
               endpoint: fullEndpoint,
               redirectUrl: input.redirectUrl,
               state: sessionId,
-            }).pipe(
-              Effect.mapError((e) =>
-                mcpOAuthError(`OAuth start failed: ${e.message}`),
-              ),
-            );
+            }).pipe(Effect.mapError((e) => mcpOAuthError(`OAuth start failed: ${e.message}`)));
 
             oauthSessions.set(sessionId, {
               endpoint: fullEndpoint,
@@ -708,8 +631,7 @@ export const mcpPlugin = (options?: {
               resourceMetadataUrl: started.resourceMetadataUrl,
               authorizationServerUrl: started.authorizationServerUrl,
               resourceMetadata: started.resourceMetadata,
-              authorizationServerMetadata:
-                started.authorizationServerMetadata,
+              authorizationServerMetadata: started.authorizationServerMetadata,
               clientInformation: started.clientInformation,
             });
 
@@ -721,49 +643,34 @@ export const mcpPlugin = (options?: {
 
         const completeOAuth = (input: McpOAuthCompleteInput) =>
           Effect.gen(function* () {
-            if (input.error)
-              return yield* mcpOAuthError(`OAuth error: ${input.error}`);
-            if (!input.code)
-              return yield* mcpOAuthError("Missing OAuth authorization code");
+            if (input.error) return yield* mcpOAuthError(`OAuth error: ${input.error}`);
+            if (!input.code) return yield* mcpOAuthError("Missing OAuth authorization code");
 
             const session = oauthSessions.get(input.state);
-            if (!session)
-              return yield* mcpOAuthError(`OAuth session not found: ${input.state}`);
+            if (!session) return yield* mcpOAuthError(`OAuth session not found: ${input.state}`);
 
             const exchanged = yield* exchangeMcpOAuthCode({
               session,
               code: input.code,
-            }).pipe(
-              Effect.mapError((e) =>
-                mcpOAuthError(`OAuth exchange failed: ${e.message}`),
-              ),
-            );
+            }).pipe(Effect.mapError((e) => mcpOAuthError(`OAuth exchange failed: ${e.message}`)));
 
             const accessTokenRef = yield* ctx.secrets
               .set({
-                id: SecretId.make(
-                  `mcp-oauth-access-${input.state}`,
-                ),
+                id: SecretId.make(`mcp-oauth-access-${input.state}`),
                 scopeId: ctx.scope.id,
                 name: "MCP OAuth Access Token",
                 value: exchanged.tokens.access_token,
                 purpose: "oauth_access_token",
               })
               .pipe(
-                Effect.mapError((e) =>
-                  mcpOAuthError(
-                    `Failed to store access token: ${String(e)}`,
-                  ),
-                ),
+                Effect.mapError((e) => mcpOAuthError(`Failed to store access token: ${String(e)}`)),
               );
 
             let refreshTokenSecretId: string | null = null;
             if (exchanged.tokens.refresh_token) {
               const ref = yield* ctx.secrets
                 .set({
-                  id: SecretId.make(
-                    `mcp-oauth-refresh-${input.state}`,
-                  ),
+                  id: SecretId.make(`mcp-oauth-refresh-${input.state}`),
                   scopeId: ctx.scope.id,
                   name: "MCP OAuth Refresh Token",
                   value: exchanged.tokens.refresh_token,
@@ -771,9 +678,7 @@ export const mcpPlugin = (options?: {
                 })
                 .pipe(
                   Effect.mapError((e) =>
-                    mcpOAuthError(
-                      `Failed to store refresh token: ${String(e)}`,
-                    ),
+                    mcpOAuthError(`Failed to store refresh token: ${String(e)}`),
                   ),
                 );
               refreshTokenSecretId = ref.id;
@@ -827,8 +732,7 @@ export const mcpPlugin = (options?: {
             }
           });
 
-        const getSource = (namespace: string) =>
-          bindingStore.getSource(namespace);
+        const getSource = (namespace: string) => bindingStore.getSource(namespace);
 
         return {
           extension: {

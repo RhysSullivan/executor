@@ -51,9 +51,7 @@ export { migrate } from "./schema";
 // Convenience: build a full ExecutorConfig from a Kv instance
 // ---------------------------------------------------------------------------
 
-export const makeKvConfig = <
-  const TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
->(
+export const makeKvConfig = <const TPlugins extends readonly ExecutorPlugin<string, object>[] = []>(
   kv: Kv,
   options: {
     readonly cwd: string;
@@ -73,18 +71,10 @@ export const makeKvConfig = <
 
   return {
     scope,
-    tools: makeKvToolRegistry(
-      scopeKv(kv, ns("tools")),
-      scopeKv(kv, ns("defs")),
-    ),
+    tools: makeKvToolRegistry(scopeKv(kv, ns("tools")), scopeKv(kv, ns("defs"))),
     sources: makeInMemorySourceRegistry(),
-    secrets: makeKvSecretStore(
-      scopeKv(kv, ns("secrets")),
-    ),
-    policies: makeKvPolicyEngine(
-      scopeKv(kv, ns("policies")),
-      scopeKv(kv, ns("meta")),
-    ),
+    secrets: makeKvSecretStore(scopeKv(kv, ns("secrets"))),
+    policies: makeKvPolicyEngine(scopeKv(kv, ns("policies")), scopeKv(kv, ns("meta"))),
     plugins: options?.plugins,
   };
 };

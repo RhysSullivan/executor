@@ -5,7 +5,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "worker_loaders": [
     {
-      "binding": "LOADER"
-    }
-  ]
+      "binding": "LOADER",
+    },
+  ],
 }

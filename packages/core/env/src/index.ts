@@ -110,14 +110,16 @@ type UndefinedOptional<T> = Partial<Pick<T, PossiblyUndefinedKeys<T>>> &
 
 type Mutable<T> = T extends Readonly<infer U> ? U : T;
 
-type Reduce<TArr extends readonly Record<string, unknown>[], TAcc = object> =
-  TArr extends readonly []
-    ? TAcc
-    : TArr extends readonly [infer Head, ...infer Tail]
-      ? Tail extends readonly Record<string, unknown>[]
-        ? Mutable<Head> & Omit<Reduce<Tail, TAcc>, keyof Head>
-        : never
-      : never;
+type Reduce<
+  TArr extends readonly Record<string, unknown>[],
+  TAcc = object,
+> = TArr extends readonly []
+  ? TAcc
+  : TArr extends readonly [infer Head, ...infer Tail]
+    ? Tail extends readonly Record<string, unknown>[]
+      ? Mutable<Head> & Omit<Reduce<Tail, TAcc>, keyof Head>
+      : never
+    : never;
 
 export type RuntimeEnvValue = string | number | boolean | undefined;
 export type RuntimeEnv = Record<string, RuntimeEnvValue>;
@@ -158,10 +160,7 @@ export const flattenConfigError = (
   return issues;
 };
 
-type EnforcePrefixedKeys<
-  TPrefix extends string | undefined,
-  TShape extends ConfigShape,
-> = {
+type EnforcePrefixedKeys<TPrefix extends string | undefined, TShape extends ConfigShape> = {
   [TKey in keyof TShape]: TPrefix extends undefined
     ? TShape[TKey]
     : TPrefix extends ""
@@ -242,7 +241,9 @@ const toRuntimeMap = (runtimeEnv: RuntimeEnv): Map<string, string> => {
   return map;
 };
 
-const mergeExtended = (extendsEnvs: ReadonlyArray<Record<string, unknown>>): Record<string, unknown> =>
+const mergeExtended = (
+  extendsEnvs: ReadonlyArray<Record<string, unknown>>,
+): Record<string, unknown> =>
   extendsEnvs.reduce<Record<string, unknown>>((acc, current) => Object.assign(acc, current), {});
 
 export function createEnv<

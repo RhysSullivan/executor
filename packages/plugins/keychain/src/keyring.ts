@@ -14,9 +14,7 @@ const SERVICE_NAME_ENV = "EXECUTOR_KEYCHAIN_SERVICE_NAME";
 // ---------------------------------------------------------------------------
 
 export const isSupportedPlatform = () =>
-  process.platform === "darwin" ||
-  process.platform === "linux" ||
-  process.platform === "win32";
+  process.platform === "darwin" || process.platform === "linux" || process.platform === "win32";
 
 export const displayName = () =>
   process.platform === "darwin"
@@ -105,6 +103,7 @@ export const deletePassword = (
         entry.deletePassword();
         return true;
       },
-      catch: () => new KeychainError({ message: `Failed deleting secret for account '${account}'` }),
+      catch: () =>
+        new KeychainError({ message: `Failed deleting secret for account '${account}'` }),
     }),
   );

@@ -14,10 +14,7 @@ describe("MCP stdio integration", () => {
       args: ["run", cliEntry, "mcp", "--scope", testScope],
     });
 
-    const client = new Client(
-      { name: "test-client", version: "1.0.0" },
-      { capabilities: {} },
-    );
+    const client = new Client({ name: "test-client", version: "1.0.0" }, { capabilities: {} });
 
     await client.connect(transport);
 

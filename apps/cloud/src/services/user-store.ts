@@ -19,11 +19,7 @@ export const makeUserStore = (db: DrizzleDb) => ({
   // --- Accounts ---
 
   ensureAccount: async (id: string) => {
-    const [result] = await db
-      .insert(accounts)
-      .values({ id })
-      .onConflictDoNothing()
-      .returning();
+    const [result] = await db.insert(accounts).values({ id }).onConflictDoNothing().returning();
     return result ?? (await db.select().from(accounts).where(eq(accounts.id, id)))[0]!;
   },
 

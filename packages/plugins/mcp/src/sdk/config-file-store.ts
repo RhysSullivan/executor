@@ -9,10 +9,7 @@ import { Effect } from "effect";
 import { FileSystem } from "@effect/platform";
 import type { Layer } from "effect";
 
-import {
-  addSourceToConfig,
-  removeSourceFromConfig,
-} from "@executor/config";
+import { addSourceToConfig, removeSourceFromConfig } from "@executor/config";
 import type { SourceConfig as ConfigFileSourceConfig } from "@executor/config";
 
 import type { McpBindingStore, McpStoredSource } from "./binding-store";

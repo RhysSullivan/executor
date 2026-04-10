@@ -66,14 +66,30 @@ const formatTypeScript = (code: string): string => {
 
 const CopyIcon = () => (
   <svg viewBox="0 0 16 16" className="size-3">
-    <rect x="5" y="5" width="8" height="8" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    <rect
+      x="5"
+      y="5"
+      width="8"
+      height="8"
+      rx="1"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
     <path d="M3 11V3h8" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
   </svg>
 );
 
 const CheckIcon = () => (
   <svg viewBox="0 0 16 16" className="size-3">
-    <path d="M3 8l3 3 7-7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M3 8l3 3 7-7"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
@@ -96,7 +112,9 @@ function useTokens(code: string): ThemedToken[][] | null {
         startTransition(() => setTokens(result.tokens));
       }
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [code]);
 
   return tokens;
@@ -130,7 +148,9 @@ const applyExpansions = (
   let i = 0;
 
   // Sort expanded names longest-first to match greedily
-  const sortedNames = [...expanded].filter((n) => !ancestors.has(n)).sort((a, b) => b.length - a.length);
+  const sortedNames = [...expanded]
+    .filter((n) => !ancestors.has(n))
+    .sort((a, b) => b.length - a.length);
 
   while (i < code.length) {
     let matched = false;
@@ -167,10 +187,7 @@ type RenderToken =
   | { kind: "text"; content: string; color?: string }
   | { kind: "ref"; name: string; color?: string };
 
-const splitToken = (
-  token: ThemedToken,
-  clickableNames: ReadonlySet<string>,
-): RenderToken[] => {
+const splitToken = (token: ThemedToken, clickableNames: ReadonlySet<string>): RenderToken[] => {
   if (clickableNames.size === 0) {
     return [{ kind: "text", content: token.content, color: token.color }];
   }
@@ -184,7 +201,12 @@ const splitToken = (
     let matchedName = "";
     for (const name of clickableNames) {
       const idx = remaining.indexOf(name);
-      if (idx !== -1 && (earliest === -1 || idx < earliest || (idx === earliest && name.length > matchedName.length))) {
+      if (
+        idx !== -1 &&
+        (earliest === -1 ||
+          idx < earliest ||
+          (idx === earliest && name.length > matchedName.length))
+      ) {
         earliest = idx;
         matchedName = name;
       }
@@ -241,7 +263,10 @@ function HighlightedCode(props: {
                   key={`${ti}-${pi}`}
                   role="button"
                   tabIndex={0}
-                  onClick={(e) => { e.stopPropagation(); onToggle(part.name); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggle(part.name);
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
@@ -250,9 +275,7 @@ function HighlightedCode(props: {
                   }}
                   className={cn(
                     "cursor-pointer underline underline-offset-2 hover:opacity-80",
-                    isExpanded
-                      ? "decoration-current/50"
-                      : "decoration-current/30",
+                    isExpanded ? "decoration-current/50" : "decoration-current/30",
                   )}
                   style={part.color ? { color: part.color } : undefined}
                   title={isExpanded ? `Collapse ${part.name}` : `Expand ${part.name}`}
@@ -281,7 +304,8 @@ export function ExpandableCodeBlock(props: {
   // Auto-expand trivial aliases (primitives, simple unions, string literals)
   const trivialNames = useMemo(() => {
     const trivial = new Set<string>();
-    const trivialPattern = /^(?:string|number|boolean|null|undefined|void|never|unknown|any|true|false|(?:"[^"]*"(?:\s*\|\s*"[^"]*")*))$/;
+    const trivialPattern =
+      /^(?:string|number|boolean|null|undefined|void|never|unknown|any|true|false|(?:"[^"]*"(?:\s*\|\s*"[^"]*")*))$/;
     for (const d of definitions) {
       const body = d.code.trim();
       if (trivialPattern.test(body)) {
@@ -299,10 +323,7 @@ export function ExpandableCodeBlock(props: {
     [definitions],
   );
 
-  const definitionNames = useMemo(
-    () => new Set(definitions.map((d) => d.name)),
-    [definitions],
-  );
+  const definitionNames = useMemo(() => new Set(definitions.map((d) => d.name)), [definitions]);
 
   // Names that can be clicked — exclude trivial aliases (already inlined)
   const clickableNames = useMemo(() => {
@@ -361,17 +382,16 @@ export function ExpandableCodeBlock(props: {
 
         <pre className="overflow-auto p-3 font-mono text-[0.75rem] leading-6 !bg-transparent">
           <code>
-            {tokens
-              ? (
-                <HighlightedCode
-                  tokens={tokens}
-                  clickableNames={clickableNames}
-                  onToggle={handleToggle}
-                  expanded={allExpanded}
-                />
-              )
-              : <span className="text-foreground/60">{displayCode}</span>
-            }
+            {tokens ? (
+              <HighlightedCode
+                tokens={tokens}
+                clickableNames={clickableNames}
+                onToggle={handleToggle}
+                expanded={allExpanded}
+              />
+            ) : (
+              <span className="text-foreground/60">{displayCode}</span>
+            )}
           </code>
         </pre>
       </div>

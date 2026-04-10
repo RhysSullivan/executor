@@ -14,7 +14,10 @@ export const makeInMemorySecretProvider = (): SecretProvider => {
     key: "memory",
     writable: true,
     get: (key) => Effect.sync(() => values.get(key) ?? null),
-    set: (key, value) => Effect.sync(() => { values.set(key, value); }),
+    set: (key, value) =>
+      Effect.sync(() => {
+        values.set(key, value);
+      }),
     delete: (key) => Effect.sync(() => values.delete(key)),
     list: () => Effect.sync(() => [...values.keys()].map((k) => ({ id: k, name: k }))),
   };
@@ -55,9 +58,7 @@ export const makeInMemorySecretStore = () => {
 
   return {
     list: (scopeId: ScopeId) =>
-      Effect.sync(() =>
-        [...refs.values()].filter((r) => r.scopeId === scopeId),
-      ),
+      Effect.sync(() => [...refs.values()].filter((r) => r.scopeId === scopeId)),
 
     get: (secretId: SecretId) =>
       Effect.fromNullable(refs.get(secretId)).pipe(
@@ -125,9 +126,10 @@ export const makeInMemorySecretStore = () => {
       }),
 
     addProvider: (provider: SecretProvider) =>
-      Effect.sync(() => { providers.push(provider); }),
+      Effect.sync(() => {
+        providers.push(provider);
+      }),
 
-    providers: () =>
-      Effect.sync(() => providers.map((p) => p.key)),
+    providers: () => Effect.sync(() => providers.map((p) => p.key)),
   };
 };

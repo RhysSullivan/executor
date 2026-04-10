@@ -13,11 +13,7 @@ import type {
 import type { Source, SourceDetectionResult, SourceRegistry } from "./sources";
 import type { Policy, PolicyEngine } from "./policies";
 import type { Scope } from "./scope";
-import type {
-  ExecutorPlugin,
-  PluginExtensions,
-  PluginHandle,
-} from "./plugin";
+import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
 import type {
   ToolNotFoundError,
   ToolInvocationError,
@@ -41,16 +37,12 @@ const resolveElicitationHandler = (options: InvokeOptions): ElicitationHandler =
 // Executor — the main public API, expands with plugins
 // ---------------------------------------------------------------------------
 
-export type Executor<
-  TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
-> = {
+export type Executor<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> = {
   readonly scope: Scope;
 
   readonly tools: {
     readonly list: (filter?: ToolListFilter) => Effect.Effect<readonly ToolMetadata[]>;
-    readonly schema: (
-      toolId: string,
-    ) => Effect.Effect<ToolSchema, ToolNotFoundError>;
+    readonly schema: (toolId: string) => Effect.Effect<ToolSchema, ToolNotFoundError>;
     /** Shared schema definitions across all tools */
     readonly definitions: () => Effect.Effect<Record<string, unknown>>;
     readonly invoke: (
@@ -59,10 +51,7 @@ export type Executor<
       options: InvokeOptions,
     ) => Effect.Effect<
       ToolInvocationResult,
-      | ToolNotFoundError
-      | ToolInvocationError
-      | PolicyDeniedError
-      | ElicitationDeclinedError
+      ToolNotFoundError | ToolInvocationError | PolicyDeniedError | ElicitationDeclinedError
     >;
   };
 
@@ -75,9 +64,7 @@ export type Executor<
 
   readonly policies: {
     readonly list: () => Effect.Effect<readonly Policy[]>;
-    readonly add: (
-      policy: Omit<Policy, "id" | "createdAt">,
-    ) => Effect.Effect<Policy>;
+    readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Effect.Effect<Policy>;
     readonly remove: (policyId: string) => Effect.Effect<boolean>;
   };
 
@@ -88,14 +75,12 @@ export type Executor<
       secretId: SecretId,
     ) => Effect.Effect<string, SecretNotFoundError | SecretResolutionError>;
     /** Check if a secret can be resolved */
-    readonly status: (
-      secretId: SecretId,
-    ) => Effect.Effect<"resolved" | "missing">;
+    readonly status: (secretId: SecretId) => Effect.Effect<"resolved" | "missing">;
     /** Store a secret value (creates ref + writes to provider) */
-    readonly set: (input: Omit<SetSecretInput, "scopeId">) => Effect.Effect<SecretRef, SecretResolutionError>;
-    readonly remove: (
-      secretId: SecretId,
-    ) => Effect.Effect<boolean, SecretNotFoundError>;
+    readonly set: (
+      input: Omit<SetSecretInput, "scopeId">,
+    ) => Effect.Effect<SecretRef, SecretResolutionError>;
+    readonly remove: (secretId: SecretId) => Effect.Effect<boolean, SecretNotFoundError>;
     /** Register a secret provider */
     readonly addProvider: (provider: SecretProvider) => Effect.Effect<void>;
     /** List registered provider keys */
@@ -114,9 +99,7 @@ export type SourceRegistryService = Context.Tag.Service<typeof SourceRegistry>;
 export type SecretStoreService = Context.Tag.Service<typeof SecretStore>;
 export type PolicyEngineService = Context.Tag.Service<typeof PolicyEngine>;
 
-export interface ExecutorConfig<
-  TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
-> {
+export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> {
   readonly scope: Scope;
   readonly tools: ToolRegistryService;
   readonly sources: SourceRegistryService;
@@ -201,8 +184,7 @@ export const createExecutor = <
         list: () => policies.list(scope.id),
         add: (policy: Omit<Policy, "id" | "createdAt">) =>
           policies.add({ ...policy, scopeId: scope.id }),
-        remove: (policyId: string) =>
-          policies.remove(policyId as PolicyId),
+        remove: (policyId: string) => policies.remove(policyId as PolicyId),
       },
 
       secrets: {
@@ -211,8 +193,7 @@ export const createExecutor = <
         status: (secretId: SecretId) => secrets.status(secretId, scope.id),
         set: (input: Omit<SetSecretInput, "scopeId">) =>
           secrets.set({ ...input, scopeId: scope.id }),
-        remove: (secretId: SecretId) =>
-          secrets.remove(secretId),
+        remove: (secretId: SecretId) => secrets.remove(secretId),
         addProvider: (provider: SecretProvider) => secrets.addProvider(provider),
         providers: () => secrets.providers(),
       },

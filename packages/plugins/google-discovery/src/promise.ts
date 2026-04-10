@@ -15,6 +15,5 @@ export interface GoogleDiscoveryPluginOptions {
   readonly bindingStore?: import("./sdk/binding-store").GoogleDiscoveryBindingStore;
 }
 
-export const googleDiscoveryPlugin = (
-  options?: GoogleDiscoveryPluginOptions,
-) => googleDiscoveryPluginEffect(options);
+export const googleDiscoveryPlugin = (options?: GoogleDiscoveryPluginOptions) =>
+  googleDiscoveryPluginEffect(options);

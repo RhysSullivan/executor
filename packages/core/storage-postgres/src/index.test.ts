@@ -44,9 +44,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await db.execute(
-    sql`TRUNCATE plugin_kv, policies, secrets, tool_definitions, tools, sources`,
-  );
+  await db.execute(sql`TRUNCATE plugin_kv, policies, secrets, tool_definitions, tools, sources`);
 });
 
 afterAll(async () => {
@@ -223,9 +221,9 @@ describe("Executor with Postgres storage", () => {
       });
       const executor2 = yield* createExecutor(config2);
 
-      const result = yield* executor2.secrets.resolve(SecretId.make("enc-test")).pipe(
-        Effect.either,
-      );
+      const result = yield* executor2.secrets
+        .resolve(SecretId.make("enc-test"))
+        .pipe(Effect.either);
       expect(result._tag).toBe("Left");
     }),
   );
@@ -269,14 +267,32 @@ describe("Executor with Postgres storage", () => {
 
   it.effect("organization isolation — tools", () =>
     Effect.gen(function* () {
-      const configA = makePgConfig(db, { organizationId: "org-a", organizationName: "Org A", encryptionKey: TEST_ENCRYPTION_KEY });
-      const configB = makePgConfig(db, { organizationId: "org-b", organizationName: "Org B", encryptionKey: TEST_ENCRYPTION_KEY });
+      const configA = makePgConfig(db, {
+        organizationId: "org-a",
+        organizationName: "Org A",
+        encryptionKey: TEST_ENCRYPTION_KEY,
+      });
+      const configB = makePgConfig(db, {
+        organizationId: "org-b",
+        organizationName: "Org B",
+        encryptionKey: TEST_ENCRYPTION_KEY,
+      });
 
       yield* configA.tools.register([
-        new ToolRegistration({ id: ToolId.make("t1"), pluginKey: "test", sourceId: "src", name: "org-a-tool" }),
+        new ToolRegistration({
+          id: ToolId.make("t1"),
+          pluginKey: "test",
+          sourceId: "src",
+          name: "org-a-tool",
+        }),
       ]);
       yield* configB.tools.register([
-        new ToolRegistration({ id: ToolId.make("t1"), pluginKey: "test", sourceId: "src", name: "org-b-tool" }),
+        new ToolRegistration({
+          id: ToolId.make("t1"),
+          pluginKey: "test",
+          sourceId: "src",
+          name: "org-b-tool",
+        }),
       ]);
 
       const executorA = yield* createExecutor(configA);
@@ -353,4 +369,3 @@ describe("Executor with Postgres storage", () => {
     }),
   );
 });
-

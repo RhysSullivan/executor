@@ -58,7 +58,13 @@ type State =
   | { step: "oauth-waiting"; url: string; probe: ProbeResult; sessionId: string }
   | { step: "oauth-done"; url: string; probe: ProbeResult; tokens: OAuthTokens }
   | { step: "adding"; url: string; probe: ProbeResult; tokens: OAuthTokens | null }
-  | { step: "error"; url: string; probe: ProbeResult | null; tokens: OAuthTokens | null; error: string };
+  | {
+      step: "error";
+      url: string;
+      probe: ProbeResult | null;
+      tokens: OAuthTokens | null;
+      error: string;
+    };
 
 type Action =
   | { type: "set-url"; url: string }
@@ -92,11 +98,20 @@ function reducer(state: State, action: Action): State {
 
     case "oauth-start":
       if (state.step !== "probed" && state.step !== "error") return state;
-      return { step: "oauth-starting", url: state.url, probe: state.step === "probed" ? state.probe : state.probe! };
+      return {
+        step: "oauth-starting",
+        url: state.url,
+        probe: state.step === "probed" ? state.probe : state.probe!,
+      };
 
     case "oauth-waiting":
       if (state.step !== "oauth-starting") return state;
-      return { step: "oauth-waiting", url: state.url, probe: state.probe, sessionId: action.sessionId };
+      return {
+        step: "oauth-waiting",
+        url: state.url,
+        probe: state.probe,
+        sessionId: action.sessionId,
+      };
 
     case "oauth-ok":
       if (state.step !== "oauth-waiting") return state;
@@ -104,7 +119,13 @@ function reducer(state: State, action: Action): State {
 
     case "oauth-fail":
       if (state.step !== "oauth-starting" && state.step !== "oauth-waiting") return state;
-      return { step: "error", url: state.url, probe: state.probe, tokens: null, error: action.error };
+      return {
+        step: "error",
+        url: state.url,
+        probe: state.probe,
+        tokens: null,
+        error: action.error,
+      };
 
     case "oauth-cancelled":
       if (state.step !== "oauth-waiting") return state;
@@ -112,18 +133,21 @@ function reducer(state: State, action: Action): State {
 
     case "add-start": {
       const tokens =
-        state.step === "oauth-done" ? state.tokens
-        : state.step === "probed" ? null
-        : null;
-      const probe =
-        "probe" in state ? state.probe : null;
+        state.step === "oauth-done" ? state.tokens : state.step === "probed" ? null : null;
+      const probe = "probe" in state ? state.probe : null;
       if (!probe) return state;
       return { step: "adding", url: state.url, probe, tokens };
     }
 
     case "add-fail":
       if (state.step !== "adding") return state;
-      return { step: "error", url: state.url, probe: state.probe, tokens: state.tokens, error: action.error };
+      return {
+        step: "error",
+        url: state.url,
+        probe: state.probe,
+        tokens: state.tokens,
+        error: action.error,
+      };
 
     case "retry": {
       if (state.step !== "error") return state;
@@ -144,7 +168,7 @@ function reducer(state: State, action: Action): State {
 // ---------------------------------------------------------------------------
 
 type OAuthPopupResult =
-  | { type: "executor:oauth-result"; ok: true; sessionId: string } & OAuthTokens
+  | ({ type: "executor:oauth-result"; ok: true; sessionId: string } & OAuthTokens)
   | { type: "executor:oauth-result"; ok: false; sessionId: null; error: string };
 
 const OAUTH_RESULT_CHANNEL = "executor:mcp-oauth-result";
@@ -159,14 +183,14 @@ function openOAuthPopup(
   onResult: (data: OAuthPopupResult) => void,
   onOpenFailed?: () => void,
 ): () => void {
-  const w = 600, h = 700;
+  const w = 600,
+    h = 700;
   const left = window.screenX + (window.outerWidth - w) / 2;
   const top = window.screenY + (window.outerHeight - h) / 2;
 
   let settled = false;
-  const channel = typeof BroadcastChannel !== "undefined"
-    ? new BroadcastChannel(OAUTH_RESULT_CHANNEL)
-    : null;
+  const channel =
+    typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(OAUTH_RESULT_CHANNEL) : null;
   const settle = () => {
     if (settled) return;
     settled = true;
@@ -186,7 +210,11 @@ function openOAuthPopup(
   window.addEventListener("message", onMsg);
   if (channel) channel.onmessage = (e) => handleResult(e.data);
 
-  const popup = window.open(url, "mcp-oauth", `width=${w},height=${h},left=${left},top=${top},popup=1`);
+  const popup = window.open(
+    url,
+    "mcp-oauth",
+    `width=${w},height=${h},left=${left},top=${top},popup=1`,
+  );
   if (!popup && !settled) {
     settle();
     queueMicrotask(() => onOpenFailed?.());
@@ -212,16 +240,12 @@ export default function AddMcpSource(props: {
   );
 
   // --- Stdio state ---
-  const [stdioCommand, setStdioCommand] = useState(
-    isStdioPreset ? preset.command : "",
-  );
+  const [stdioCommand, setStdioCommand] = useState(isStdioPreset ? preset.command : "");
   const [stdioArgs, setStdioArgs] = useState(
     isStdioPreset && preset.args ? preset.args.join(" ") : "",
   );
   const [stdioEnv, setStdioEnv] = useState("");
-  const [stdioName, setStdioName] = useState(
-    isStdioPreset ? preset.name : "",
-  );
+  const [stdioName, setStdioName] = useState(isStdioPreset ? preset.name : "");
   const [stdioAdding, setStdioAdding] = useState(false);
   const [stdioError, setStdioError] = useState<string | null>(null);
 
@@ -229,7 +253,7 @@ export default function AddMcpSource(props: {
   const remoteUrl =
     !isStdioPreset && preset?.transport === undefined && preset?.url
       ? preset.url
-      : props.initialUrl ?? "";
+      : (props.initialUrl ?? "");
 
   const [state, dispatch] = useReducer(
     reducer,
@@ -268,9 +292,11 @@ export default function AddMcpSource(props: {
     (header) => header.name.trim() && header.value.trim(),
   );
   const authReady =
-    remoteAuthMode === "none" ? canUseNone
-    : remoteAuthMode === "header" ? headerAuthComplete
-    : tokens !== null;
+    remoteAuthMode === "none"
+      ? canUseNone
+      : remoteAuthMode === "header"
+        ? headerAuthComplete
+        : tokens !== null;
   const canAdd = Boolean(probe) && authReady && remoteHeadersComplete && !isAdding && !isOAuthBusy;
   const error = state.step === "error" ? state.error : null;
 
@@ -336,7 +362,10 @@ export default function AddMcpSource(props: {
         },
       );
     } catch (e) {
-      dispatch({ type: "oauth-fail", error: e instanceof Error ? e.message : "Failed to start OAuth" });
+      dispatch({
+        type: "oauth-fail",
+        error: e instanceof Error ? e.message : "Failed to start OAuth",
+      });
     }
   }, [state.url, scopeId, doStartOAuth]);
 
@@ -386,7 +415,10 @@ export default function AddMcpSource(props: {
       });
       props.onComplete();
     } catch (e) {
-      dispatch({ type: "add-fail", error: e instanceof Error ? e.message : "Failed to add source" });
+      dispatch({
+        type: "add-fail",
+        error: e instanceof Error ? e.message : "Failed to add source",
+      });
     }
   }, [probe, remoteAuthMode, remoteHeaderAuth, remoteHeaders, tokens, state.url, doAdd, props]);
 
@@ -483,7 +515,9 @@ export default function AddMcpSource(props: {
             <div className="flex gap-2">
               <Input
                 value={state.url}
-                onChange={(e) => dispatch({ type: "set-url", url: (e.target as HTMLInputElement).value })}
+                onChange={(e) =>
+                  dispatch({ type: "set-url", url: (e.target as HTMLInputElement).value })
+                }
                 placeholder="https://mcp.example.com"
                 className="flex-1 font-mono text-sm"
                 onKeyDown={(e) => {
@@ -493,7 +527,13 @@ export default function AddMcpSource(props: {
               />
               {!probe && (
                 <Button onClick={handleProbe} disabled={!state.url.trim() || isProbing}>
-                  {isProbing ? <><Spinner className="size-3.5" /> Connecting…</> : "Connect"}
+                  {isProbing ? (
+                    <>
+                      <Spinner className="size-3.5" /> Connecting…
+                    </>
+                  ) : (
+                    "Connect"
+                  )}
                 </Button>
               )}
             </div>
@@ -507,8 +547,21 @@ export default function AddMcpSource(props: {
             <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                 <svg viewBox="0 0 16 16" className="size-4" fill="none">
-                  <rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.2" />
-                  <path d="M5 7h6M5 9.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  <rect
+                    x="2"
+                    y="3"
+                    width="12"
+                    height="10"
+                    rx="2"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                  />
+                  <path
+                    d="M5 7h6M5 9.5h4"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </div>
               <div className="min-w-0 flex-1">
@@ -522,11 +575,17 @@ export default function AddMcpSource(props: {
                 </p>
               </div>
               {probe.connected ? (
-                <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-600 dark:text-emerald-400">
+                <Badge
+                  variant="outline"
+                  className="border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-600 dark:text-emerald-400"
+                >
                   Connected
                 </Badge>
               ) : (
-                <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-600 dark:text-amber-400">
+                <Badge
+                  variant="outline"
+                  className="border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-600 dark:text-amber-400"
+                >
                   OAuth required
                 </Badge>
               )}
@@ -553,7 +612,9 @@ export default function AddMcpSource(props: {
                   >
                     <RadioGroupItem value="none" />
                     <span className="text-xs font-medium text-foreground">None</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">no auth header</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      no auth header
+                    </span>
                   </label>
                 )}
 
@@ -566,7 +627,9 @@ export default function AddMcpSource(props: {
                 >
                   <RadioGroupItem value="header" />
                   <span className="text-xs font-medium text-foreground">Header</span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">use a secret-backed auth header</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">
+                    use a secret-backed auth header
+                  </span>
                 </label>
 
                 {probe.requiresOAuth && (
@@ -579,7 +642,9 @@ export default function AddMcpSource(props: {
                   >
                     <RadioGroupItem value="oauth2" />
                     <span className="text-xs font-medium text-foreground">OAuth</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">sign in with the server&apos;s OAuth flow</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      sign in with the server&apos;s OAuth flow
+                    </span>
                   </label>
                 )}
               </RadioGroup>
@@ -612,8 +677,18 @@ export default function AddMcpSource(props: {
                   {state.step === "probed" && (
                     <Button onClick={handleOAuth} className="w-full" variant="outline">
                       <svg viewBox="0 0 16 16" fill="none" className="mr-1.5 size-3.5">
-                        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1z" stroke="currentColor" strokeWidth="1.2" />
-                        <path d="M8 4v4l2.5 1.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                        <path
+                          d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1z"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                        />
+                        <path
+                          d="M8 4v4l2.5 1.5"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
                       </svg>
                       Sign in with OAuth
                     </Button>
@@ -629,7 +704,9 @@ export default function AddMcpSource(props: {
                   {state.step === "oauth-waiting" && (
                     <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2.5">
                       <Spinner className="size-3.5 text-blue-500" />
-                      <span className="text-xs text-blue-600 dark:text-blue-400">Waiting for authorization in popup…</span>
+                      <span className="text-xs text-blue-600 dark:text-blue-400">
+                        Waiting for authorization in popup…
+                      </span>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -646,9 +723,17 @@ export default function AddMcpSource(props: {
               {probe.requiresOAuth && remoteAuthMode === "oauth2" && tokens && (
                 <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
                   <svg viewBox="0 0 16 16" fill="none" className="size-3.5 text-emerald-500">
-                    <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                      d="M3 8.5l3 3 7-7"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
-                  <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Authenticated</span>
+                  <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    Authenticated
+                  </span>
                 </div>
               )}
 
@@ -667,7 +752,8 @@ export default function AddMcpSource(props: {
                 <div>
                   <Label>Additional headers</Label>
                   <p className="mt-1 text-[12px] text-muted-foreground">
-                    Plaintext headers sent with every request. Use authentication for secret-backed auth headers.
+                    Plaintext headers sent with every request. Use authentication for secret-backed
+                    auth headers.
                   </p>
                 </div>
                 <Button
@@ -675,7 +761,9 @@ export default function AddMcpSource(props: {
                   variant="outline"
                   size="sm"
                   className="shrink-0"
-                  onClick={() => setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])}
+                  onClick={() =>
+                    setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
+                  }
                 >
                   + Add header
                 </Button>
@@ -684,7 +772,10 @@ export default function AddMcpSource(props: {
               {remoteHeaders.length > 0 && (
                 <div className="space-y-2">
                   {remoteHeaders.map((header, index) => (
-                    <div key={index} className="rounded-lg border border-border bg-card p-3 space-y-2">
+                    <div
+                      key={index}
+                      className="rounded-lg border border-border bg-card p-3 space-y-2"
+                    >
                       <div className="flex items-center justify-between">
                         <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
                           Header
@@ -705,7 +796,9 @@ export default function AddMcpSource(props: {
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
-                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Name</Label>
+                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                            Name
+                          </Label>
                           <Input
                             value={header.name}
                             onChange={(event) =>
@@ -722,14 +815,19 @@ export default function AddMcpSource(props: {
                           />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Value</Label>
+                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                            Value
+                          </Label>
                           <Input
                             value={header.value}
                             onChange={(event) =>
                               setRemoteHeaders((headers) =>
                                 headers.map((current, headerIndex) =>
                                   headerIndex === index
-                                    ? { ...current, value: (event.target as HTMLInputElement).value }
+                                    ? {
+                                        ...current,
+                                        value: (event.target as HTMLInputElement).value,
+                                      }
                                     : current,
                                 ),
                               )
@@ -752,7 +850,12 @@ export default function AddMcpSource(props: {
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
                 <p className="text-[12px] text-destructive">{error}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => dispatch({ type: "retry" })} className="text-xs">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => dispatch({ type: "retry" })}
+                className="text-xs"
+              >
                 Try again
               </Button>
             </div>
@@ -765,7 +868,13 @@ export default function AddMcpSource(props: {
                 Cancel
               </Button>
               <Button onClick={handleAddRemote} disabled={!canAdd}>
-                {isAdding ? <><Spinner className="size-3.5" /> Adding…</> : "Add source"}
+                {isAdding ? (
+                  <>
+                    <Spinner className="size-3.5" /> Adding…
+                  </>
+                ) : (
+                  "Add source"
+                )}
               </Button>
             </div>
           )}
@@ -773,7 +882,9 @@ export default function AddMcpSource(props: {
           {/* Cancel when nothing probed yet */}
           {!probe && !isProbing && (
             <div className="flex items-center justify-between pt-1">
-              <Button variant="ghost" onClick={props.onCancel}>Cancel</Button>
+              <Button variant="ghost" onClick={props.onCancel}>
+                Cancel
+              </Button>
               <div />
             </div>
           )}
@@ -809,7 +920,9 @@ export default function AddMcpSource(props: {
             </div>
 
             <div className="space-y-2">
-              <Label>Name <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Label>
+                Name <span className="text-muted-foreground font-normal">(optional)</span>
+              </Label>
               <Input
                 value={stdioName}
                 onChange={(e) => setStdioName((e.target as HTMLInputElement).value)}
@@ -819,7 +932,10 @@ export default function AddMcpSource(props: {
             </div>
 
             <div className="space-y-2">
-              <Label>Environment variables <span className="text-muted-foreground font-normal">(optional)</span></Label>
+              <Label>
+                Environment variables{" "}
+                <span className="text-muted-foreground font-normal">(optional)</span>
+              </Label>
               <textarea
                 value={stdioEnv}
                 onChange={(e) => setStdioEnv(e.target.value)}
@@ -827,9 +943,7 @@ export default function AddMcpSource(props: {
                 rows={3}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <p className="text-[12px] text-muted-foreground">
-                One per line, KEY=value format.
-              </p>
+              <p className="text-[12px] text-muted-foreground">One per line, KEY=value format.</p>
             </div>
           </section>
 
@@ -846,7 +960,13 @@ export default function AddMcpSource(props: {
               Cancel
             </Button>
             <Button onClick={handleAddStdio} disabled={!stdioCommand.trim() || stdioAdding}>
-              {stdioAdding ? <><Spinner className="size-3.5" /> Adding…</> : "Add source"}
+              {stdioAdding ? (
+                <>
+                  <Spinner className="size-3.5" /> Adding…
+                </>
+              ) : (
+                "Add source"
+              )}
             </Button>
           </div>
         </>

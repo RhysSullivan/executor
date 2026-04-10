@@ -14,21 +14,16 @@ export type McpRequestHandler = {
 };
 
 const jsonError = (status: number, code: number, message: string): Response =>
-  new Response(
-    JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
-    { status, headers: { "content-type": "application/json" } },
-  );
+  new Response(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
-export const createMcpRequestHandler = (
-  config: ExecutorMcpServerConfig,
-): McpRequestHandler => {
+export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpRequestHandler => {
   const transports = new Map<string, WebStandardStreamableHTTPServerTransport>();
   const servers = new Map<string, McpServer>();
 
-  const dispose = async (
-    id: string,
-    opts: { transport?: boolean; server?: boolean } = {},
-  ) => {
+  const dispose = async (id: string, opts: { transport?: boolean; server?: boolean } = {}) => {
     const t = transports.get(id);
     const s = servers.get(id);
     transports.delete(id);
@@ -78,7 +73,11 @@ export const createMcpRequestHandler = (
           await transport.close().catch(() => undefined);
           await created?.close().catch(() => undefined);
         }
-        return jsonError(500, -32603, error instanceof Error ? error.message : "Internal server error");
+        return jsonError(
+          500,
+          -32603,
+          error instanceof Error ? error.message : "Internal server error",
+        );
       }
     },
 

@@ -60,12 +60,8 @@
           "name": "memberships_account_id_accounts_id_fk",
           "tableFrom": "memberships",
           "tableTo": "accounts",
-          "columnsFrom": [
-            "account_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["account_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -73,12 +69,8 @@
           "name": "memberships_organization_id_organizations_id_fk",
           "tableFrom": "memberships",
           "tableTo": "organizations",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["organization_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -86,10 +78,7 @@
       "compositePrimaryKeys": {
         "memberships_account_id_organization_id_pk": {
           "name": "memberships_account_id_organization_id_pk",
-          "columns": [
-            "account_id",
-            "organization_id"
-          ]
+          "columns": ["account_id", "organization_id"]
         }
       },
       "uniqueConstraints": {},
@@ -163,11 +152,7 @@
       "compositePrimaryKeys": {
         "plugin_kv_organization_id_namespace_key_pk": {
           "name": "plugin_kv_organization_id_namespace_key_pk",
-          "columns": [
-            "organization_id",
-            "namespace",
-            "key"
-          ]
+          "columns": ["organization_id", "namespace", "key"]
         }
       },
       "uniqueConstraints": {},
@@ -234,10 +219,7 @@
       "compositePrimaryKeys": {
         "policies_id_organization_id_pk": {
           "name": "policies_id_organization_id_pk",
-          "columns": [
-            "id",
-            "organization_id"
-          ]
+          "columns": ["id", "organization_id"]
         }
       },
       "uniqueConstraints": {},
@@ -298,10 +280,7 @@
       "compositePrimaryKeys": {
         "secrets_id_organization_id_pk": {
           "name": "secrets_id_organization_id_pk",
-          "columns": [
-            "id",
-            "organization_id"
-          ]
+          "columns": ["id", "organization_id"]
         }
       },
       "uniqueConstraints": {},
@@ -356,10 +335,7 @@
       "compositePrimaryKeys": {
         "sources_id_organization_id_pk": {
           "name": "sources_id_organization_id_pk",
-          "columns": [
-            "id",
-            "organization_id"
-          ]
+          "columns": ["id", "organization_id"]
         }
       },
       "uniqueConstraints": {},
@@ -395,10 +371,7 @@
       "compositePrimaryKeys": {
         "tool_definitions_name_organization_id_pk": {
           "name": "tool_definitions_name_organization_id_pk",
-          "columns": [
-            "name",
-            "organization_id"
-          ]
+          "columns": ["name", "organization_id"]
         }
       },
       "uniqueConstraints": {},
@@ -477,10 +450,7 @@
       "compositePrimaryKeys": {
         "tools_id_organization_id_pk": {
           "name": "tools_id_organization_id_pk",
-          "columns": [
-            "id",
-            "organization_id"
-          ]
+          "columns": ["id", "organization_id"]
         }
       },
       "uniqueConstraints": {},

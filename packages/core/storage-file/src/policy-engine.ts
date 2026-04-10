@@ -19,30 +19,23 @@ const decodePolicy = Schema.decodeUnknownSync(PolicyJson);
 // Factory
 // ---------------------------------------------------------------------------
 
-export const makeKvPolicyEngine = (
-  policiesKv: ScopedKv,
-  metaKv: ScopedKv,
-) => {
+export const makeKvPolicyEngine = (policiesKv: ScopedKv, metaKv: ScopedKv) => {
   const getCounter = (): Effect.Effect<number> =>
     Effect.gen(function* () {
       const raw = yield* metaKv.get("policy_counter");
       return raw ? parseInt(raw, 10) : 0;
     });
 
-  const setCounter = (n: number): Effect.Effect<void> =>
-    metaKv.set("policy_counter", String(n));
+  const setCounter = (n: number): Effect.Effect<void> => metaKv.set("policy_counter", String(n));
 
   return {
     list: (scopeId: ScopeId) =>
       Effect.gen(function* () {
         const entries = yield* policiesKv.list();
-        return entries
-          .map((e) => decodePolicy(e.value))
-          .filter((p) => p.scopeId === scopeId);
+        return entries.map((e) => decodePolicy(e.value)).filter((p) => p.scopeId === scopeId);
       }),
 
-    check: (_input: PolicyCheckInput) =>
-      Effect.void,
+    check: (_input: PolicyCheckInput) => Effect.void,
 
     add: (policy: Omit<Policy, "id" | "createdAt">) =>
       Effect.gen(function* () {

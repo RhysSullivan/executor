@@ -22,18 +22,19 @@ export function ToolsPage() {
         </div>
 
         {Result.match(tools, {
-          onInitial: () => (
-            <p className="text-sm text-muted-foreground">Loading tools…</p>
-          ),
-          onFailure: () => (
-            <p className="text-sm text-destructive">Failed to load tools</p>
-          ),
+          onInitial: () => <p className="text-sm text-muted-foreground">Loading tools…</p>,
+          onFailure: () => <p className="text-sm text-destructive">Failed to load tools</p>,
           onSuccess: ({ value }) =>
             value.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
                 <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
                   <svg viewBox="0 0 16 16" className="size-5">
-                    <path d="M4 2h8l1 3H3l1-3zM3 6h10v8H3V6z" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                    <path
+                      d="M4 2h8l1 3H3l1-3zM3 6h10v8H3V6z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                    />
                   </svg>
                 </div>
                 <p className="text-[14px] font-medium text-foreground/70 mb-1">

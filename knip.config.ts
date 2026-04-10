@@ -63,13 +63,8 @@ const config: KnipConfig = {
     "**/*.d.ts",
     "packages/kernel/runtime-deno-subprocess/src/deno-subprocess-worker.mjs",
   ],
-  ignoreDependencies: [
-    "bun-types",
-  ],
-  ignoreBinaries: [
-    "tar",
-    "python3",
-  ],
+  ignoreDependencies: ["bun-types"],
+  ignoreBinaries: ["tar", "python3"],
 };
 
 export default config;

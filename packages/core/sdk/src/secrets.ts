@@ -62,9 +62,7 @@ export class SecretStore extends Context.Tag("@executor/sdk/SecretStore")<
     readonly list: (scopeId: ScopeId) => Effect.Effect<readonly SecretRef[]>;
 
     /** Get a specific secret ref by id */
-    readonly get: (
-      secretId: SecretId,
-    ) => Effect.Effect<SecretRef, SecretNotFoundError>;
+    readonly get: (secretId: SecretId) => Effect.Effect<SecretRef, SecretNotFoundError>;
 
     /**
      * Resolve a secret value by id.
@@ -89,11 +87,8 @@ export class SecretStore extends Context.Tag("@executor/sdk/SecretStore")<
      */
     readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, SecretResolutionError>;
 
-
     /** Remove a secret ref and its value from the provider */
-    readonly remove: (
-      secretId: SecretId,
-    ) => Effect.Effect<boolean, SecretNotFoundError>;
+    readonly remove: (secretId: SecretId) => Effect.Effect<boolean, SecretNotFoundError>;
 
     // ----- Provider management -----
 

@@ -36,20 +36,13 @@ export const loadConfig = (
 
     if (errors.length > 0) {
       const msg = errors
-        .map(
-          (e) =>
-            `offset ${e.offset}: ${jsonc.printParseErrorCode(e.error)}`,
-        )
+        .map((e) => `offset ${e.offset}: ${jsonc.printParseErrorCode(e.error)}`)
         .join("; ");
       return yield* Effect.fail(new ConfigParseError(path, msg));
     }
 
-    const decoded = yield* Schema.decodeUnknown(ExecutorFileConfig)(
-      parsed,
-    ).pipe(
-      Effect.mapError(
-        (e) => new ConfigParseError(path, String(e)),
-      ),
+    const decoded = yield* Schema.decodeUnknown(ExecutorFileConfig)(parsed).pipe(
+      Effect.mapError((e) => new ConfigParseError(path, String(e))),
     );
 
     return decoded;

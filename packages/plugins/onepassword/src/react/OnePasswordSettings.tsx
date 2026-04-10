@@ -42,14 +42,16 @@ function VaultPicker(props: {
 }) {
   const account = props.accountName.trim();
   const scopeId = useScope();
-  const vaultsResult = useAtomValue(
-    onepasswordVaultsAtom(props.authKind, account, scopeId),
-  );
+  const vaultsResult = useAtomValue(onepasswordVaultsAtom(props.authKind, account, scopeId));
 
   const { vaults, isLoading, error } = Result.matchWithError(
     vaultsResult as Result.Result<{ vaults: ReadonlyArray<{ id: string; name: string }> }, Error>,
     {
-      onInitial: () => ({ vaults: [] as { id: string; name: string }[], isLoading: true, error: null }),
+      onInitial: () => ({
+        vaults: [] as { id: string; name: string }[],
+        isLoading: true,
+        error: null,
+      }),
       onError: (error) => ({
         vaults: [] as { id: string; name: string }[],
         isLoading: false,
@@ -71,7 +73,11 @@ function VaultPicker(props: {
   );
 
   if (!account) {
-    return <p className="text-[11px] text-muted-foreground/50 py-1">Enter account details to load vaults.</p>;
+    return (
+      <p className="text-[11px] text-muted-foreground/50 py-1">
+        Enter account details to load vaults.
+      </p>
+    );
   }
 
   return (
@@ -97,7 +103,9 @@ function VaultPicker(props: {
       </Select>
       {error && (
         <div className="rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-1.5">
-          <p className="text-[11px] text-destructive leading-relaxed whitespace-pre-line">{error}</p>
+          <p className="text-[11px] text-destructive leading-relaxed whitespace-pre-line">
+            {error}
+          </p>
         </div>
       )}
     </div>
@@ -162,7 +170,13 @@ function ConfigDialog(props: {
   };
 
   return (
-    <Dialog open={props.open} onOpenChange={(v) => { if (!v) reset(); props.onOpenChange(v); }}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(v) => {
+        if (!v) reset();
+        props.onOpenChange(v);
+      }}
+    >
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
           <DialogTitle className="font-display text-xl">
@@ -179,7 +193,10 @@ function ConfigDialog(props: {
             <Label className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               Auth method
             </Label>
-            <Select value={authKind} onValueChange={(v) => setAuthKind(v as "desktop-app" | "service-account")}>
+            <Select
+              value={authKind}
+              onValueChange={(v) => setAuthKind(v as "desktop-app" | "service-account")}
+            >
               <SelectTrigger className="h-9 text-[13px]">
                 <SelectValue />
               </SelectTrigger>
@@ -217,11 +234,12 @@ function ConfigDialog(props: {
               authKind={authKind}
               accountName={accountName}
               vaultId={vaultId}
-              onVaultSelect={(id, name) => { setVaultId(id); setVaultName(name); }}
+              onVaultSelect={(id, name) => {
+                setVaultId(id);
+                setVaultName(name);
+              }}
             />
-            {vaultId && (
-              <p className="font-mono text-[10px] text-muted-foreground/50">{vaultId}</p>
-            )}
+            {vaultId && <p className="font-mono text-[10px] text-muted-foreground/50">{vaultId}</p>}
           </div>
 
           {/* Display name */}
@@ -246,9 +264,15 @@ function ConfigDialog(props: {
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost" size="sm">Cancel</Button>
+            <Button variant="ghost" size="sm">
+              Cancel
+            </Button>
           </DialogClose>
-          <Button size="sm" onClick={handleSave} disabled={!accountName.trim() || !vaultId.trim() || saving}>
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={!accountName.trim() || !vaultId.trim() || saving}
+          >
             {saving ? "Saving…" : isEdit ? "Update" : "Connect"}
           </Button>
         </DialogFooter>
@@ -272,21 +296,25 @@ export default function OnePasswordSettings() {
     try {
       await doRemove({ path: { scopeId } });
       refreshConfig();
-    } catch { /* TODO: toast */ }
+    } catch {
+      /* TODO: toast */
+    }
   };
 
   const config: OnePasswordConfig | null = Result.match(
     configResult as Result.Result<OnePasswordConfig | null, unknown>,
     { onInitial: () => null, onFailure: () => null, onSuccess: ({ value }) => value },
   );
-  const isLoading = Result.match(
-    configResult as Result.Result<OnePasswordConfig | null, unknown>,
-    { onInitial: () => true, onFailure: () => false, onSuccess: () => false },
-  );
-  const isError = Result.match(
-    configResult as Result.Result<OnePasswordConfig | null, unknown>,
-    { onInitial: () => false, onFailure: () => true, onSuccess: () => false },
-  );
+  const isLoading = Result.match(configResult as Result.Result<OnePasswordConfig | null, unknown>, {
+    onInitial: () => true,
+    onFailure: () => false,
+    onSuccess: () => false,
+  });
+  const isError = Result.match(configResult as Result.Result<OnePasswordConfig | null, unknown>, {
+    onInitial: () => false,
+    onFailure: () => true,
+    onSuccess: () => false,
+  });
 
   return (
     <div className="rounded-xl border border-border/60 bg-card overflow-hidden transition-all hover:border-border">
@@ -314,7 +342,12 @@ export default function OnePasswordSettings() {
         </div>
         {config && (
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="h-7 px-2.5 text-[12px]" onClick={() => setConfigOpen(true)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2.5 text-[12px]"
+              onClick={() => setConfigOpen(true)}
+            >
               Edit
             </Button>
             <Button
@@ -349,7 +382,9 @@ export default function OnePasswordSettings() {
             <span className="text-muted-foreground/60">Vault</span>
             <div className="flex items-center gap-2">
               <span className="text-foreground/80">{config.name}</span>
-              <span className="font-mono text-[10px] text-muted-foreground/40">{config.vaultId}</span>
+              <span className="font-mono text-[10px] text-muted-foreground/40">
+                {config.vaultId}
+              </span>
             </div>
           </div>
         ) : (
@@ -357,7 +392,12 @@ export default function OnePasswordSettings() {
             <p className="text-[12px] text-muted-foreground/60 leading-relaxed">
               Resolve secrets from your 1Password vault.
             </p>
-            <Button variant="outline" size="sm" className="h-7 text-[12px] shrink-0" onClick={() => setConfigOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[12px] shrink-0"
+              onClick={() => setConfigOpen(true)}
+            >
               Connect
             </Button>
           </div>
@@ -372,7 +412,10 @@ export default function OnePasswordSettings() {
             config
               ? {
                   authKind: config.auth.kind,
-                  accountName: config.auth.kind === "desktop-app" ? config.auth.accountName : config.auth.tokenSecretId,
+                  accountName:
+                    config.auth.kind === "desktop-app"
+                      ? config.auth.accountName
+                      : config.auth.tokenSecretId,
                   vaultId: config.vaultId,
                   name: config.name,
                 }

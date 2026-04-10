@@ -8,5 +8,4 @@ export interface GraphqlPluginOptions {
   readonly operationStore?: import("./sdk/operation-store").GraphqlOperationStore;
 }
 
-export const graphqlPlugin = (options?: GraphqlPluginOptions) =>
-  graphqlPluginEffect(options);
+export const graphqlPlugin = (options?: GraphqlPluginOptions) => graphqlPluginEffect(options);

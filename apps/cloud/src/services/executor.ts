@@ -42,10 +42,7 @@ export const createOrgExecutor = (
           bindingStore: makeKvBindingStore(kv, "mcp"),
         }),
         googleDiscoveryPlugin({
-          bindingStore: makeKvGoogleDiscoveryBindingStore(
-            kv,
-            "google-discovery",
-          ),
+          bindingStore: makeKvGoogleDiscoveryBindingStore(kv, "google-discovery"),
         }),
         graphqlPlugin({
           operationStore: makeKvGraphqlOperationStore(kv, "graphql"),

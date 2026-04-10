@@ -13,26 +13,15 @@ import {
 import { Effect, Layer } from "effect";
 
 import { CoreExecutorApi } from "@executor/api";
-import {
-  CoreHandlers,
-  ExecutorService,
-  ExecutionEngineService,
-} from "@executor/api/server";
+import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
-import {
-  makeDynamicWorkerExecutor,
-  type CodeExecutor,
-} from "@executor/runtime-dynamic-worker";
+import { makeDynamicWorkerExecutor, type CodeExecutor } from "@executor/runtime-dynamic-worker";
 import {
   OpenApiGroup,
   OpenApiExtensionService,
   OpenApiHandlers,
 } from "@executor/plugin-openapi/api";
-import {
-  McpGroup,
-  McpExtensionService,
-  McpHandlers,
-} from "@executor/plugin-mcp/api";
+import { McpGroup, McpExtensionService, McpHandlers } from "@executor/plugin-mcp/api";
 import {
   GoogleDiscoveryGroup,
   GoogleDiscoveryExtensionService,
@@ -118,10 +107,7 @@ const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 });
 
 const createNonProtectedHandler = () =>
   HttpApiBuilder.toWebHandler(
-    NonProtectedApiLive.pipe(
-      Layer.provideMerge(SharedServices),
-      Layer.provideMerge(RouterConfig),
-    ),
+    NonProtectedApiLive.pipe(Layer.provideMerge(SharedServices), Layer.provideMerge(RouterConfig)),
     { middleware: HttpMiddleware.logger },
   );
 
@@ -158,9 +144,7 @@ const buildProtectedHandler = (
         Layer.provideMerge(ProtectedCloudApiLive),
         Layer.provideMerge(requestServices),
         Layer.provideMerge(SharedServices),
-        Layer.provideMerge(
-          HttpRouter.setRouterConfig({ maxParamLength: 1000 }),
-        ),
+        Layer.provideMerge(HttpRouter.setRouterConfig({ maxParamLength: 1000 })),
       ),
       { middleware: HttpMiddleware.logger },
     );

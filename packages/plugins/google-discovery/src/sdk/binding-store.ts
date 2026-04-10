@@ -1,28 +1,15 @@
 import { Effect, Schema } from "effect";
-import {
-  makeInMemoryScopedKv,
-  scopeKv,
-  type Kv,
-  type ScopedKv,
-  type ToolId,
-} from "@executor/sdk";
+import { makeInMemoryScopedKv, scopeKv, type Kv, type ScopedKv, type ToolId } from "@executor/sdk";
 
-import {
-  GoogleDiscoveryMethodBinding,
-  GoogleDiscoveryStoredSourceData,
-} from "./types";
+import { GoogleDiscoveryMethodBinding, GoogleDiscoveryStoredSourceData } from "./types";
 
 const StoredBindingEntry = Schema.Struct({
   namespace: Schema.String,
   binding: GoogleDiscoveryMethodBinding,
 });
 
-const encodeBindingEntry = Schema.encodeSync(
-  Schema.parseJson(StoredBindingEntry),
-);
-const decodeBindingEntry = Schema.decodeUnknownSync(
-  Schema.parseJson(StoredBindingEntry),
-);
+const encodeBindingEntry = Schema.encodeSync(Schema.parseJson(StoredBindingEntry));
+const decodeBindingEntry = Schema.decodeUnknownSync(Schema.parseJson(StoredBindingEntry));
 
 export interface GoogleDiscoveryStoredSource {
   readonly namespace: string;
@@ -31,9 +18,7 @@ export interface GoogleDiscoveryStoredSource {
 }
 
 export interface GoogleDiscoveryBindingStore {
-  readonly get: (
-    toolId: ToolId,
-  ) => Effect.Effect<{
+  readonly get: (toolId: ToolId) => Effect.Effect<{
     namespace: string;
     binding: GoogleDiscoveryMethodBinding;
   } | null>;
@@ -44,29 +29,20 @@ export interface GoogleDiscoveryBindingStore {
     binding: GoogleDiscoveryMethodBinding,
   ) => Effect.Effect<void>;
 
-  readonly listByNamespace: (
-    namespace: string,
-  ) => Effect.Effect<readonly ToolId[]>;
+  readonly listByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
 
-  readonly removeByNamespace: (
-    namespace: string,
-  ) => Effect.Effect<readonly ToolId[]>;
+  readonly removeByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
 
   readonly putSource: (source: GoogleDiscoveryStoredSource) => Effect.Effect<void>;
   readonly removeSource: (namespace: string) => Effect.Effect<void>;
   readonly listSources: () => Effect.Effect<readonly GoogleDiscoveryStoredSource[]>;
-  readonly getSource: (
-    namespace: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
+  readonly getSource: (namespace: string) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
   readonly getSourceConfig: (
     namespace: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null>;
 }
 
-const makeStore = (
-  bindings: ScopedKv,
-  sources: ScopedKv,
-): GoogleDiscoveryBindingStore => ({
+const makeStore = (bindings: ScopedKv, sources: ScopedKv): GoogleDiscoveryBindingStore => ({
   get: (toolId) =>
     Effect.gen(function* () {
       const raw = yield* bindings.get(toolId);
@@ -79,10 +55,7 @@ const makeStore = (
     }),
 
   put: (toolId, namespace, binding) =>
-    bindings.set(
-      toolId,
-      encodeBindingEntry({ namespace, binding }),
-    ),
+    bindings.set(toolId, encodeBindingEntry({ namespace, binding })),
 
   listByNamespace: (namespace) =>
     Effect.gen(function* () {
@@ -111,11 +84,9 @@ const makeStore = (
       return ids;
     }),
 
-  putSource: (source) =>
-    sources.set(source.namespace, JSON.stringify(source)),
+  putSource: (source) => sources.set(source.namespace, JSON.stringify(source)),
 
-  removeSource: (namespace) =>
-    sources.delete(namespace).pipe(Effect.asVoid),
+  removeSource: (namespace) => sources.delete(namespace).pipe(Effect.asVoid),
 
   listSources: () =>
     Effect.gen(function* () {
@@ -141,17 +112,8 @@ const makeStore = (
     }),
 });
 
-export const makeKvBindingStore = (
-  kv: Kv,
-  namespace: string,
-): GoogleDiscoveryBindingStore =>
-  makeStore(
-    scopeKv(kv, `${namespace}.bindings`),
-    scopeKv(kv, `${namespace}.sources`),
-  );
+export const makeKvBindingStore = (kv: Kv, namespace: string): GoogleDiscoveryBindingStore =>
+  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
 
 export const makeInMemoryBindingStore = (): GoogleDiscoveryBindingStore =>
-  makeStore(
-    makeInMemoryScopedKv(),
-    makeInMemoryScopedKv(),
-  );
+  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

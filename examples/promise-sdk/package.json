@@ -7,13 +7,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
+    "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-mcp": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
-    "@executor/plugin-graphql": "workspace:*"
+    "@executor/sdk": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "latest",
-    "@types/node": "catalog:"
+    "@types/node": "catalog:",
+    "typescript": "latest"
   }
 }

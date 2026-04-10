@@ -7,9 +7,7 @@ import { McpStoredSourceData } from "./types";
 // via the getSource HTTP endpoint.
 // ---------------------------------------------------------------------------
 
-export class McpStoredSourceSchema extends Schema.Class<McpStoredSourceSchema>(
-  "McpStoredSource",
-)({
+export class McpStoredSourceSchema extends Schema.Class<McpStoredSourceSchema>("McpStoredSource")({
   namespace: Schema.String,
   name: Schema.String,
   config: McpStoredSourceData,

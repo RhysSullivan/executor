@@ -1,19 +1,10 @@
-import type {
-  CodeExecutor,
-  ExecuteResult,
-  SandboxToolInvoker,
-} from "@executor/codemode-core";
+import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Runtime from "effect/Runtime";
-import {
-  allowAll,
-  createInMemoryFileSystem,
-  createKernel,
-  createNodeRuntime,
-} from "secure-exec";
+import { allowAll, createInMemoryFileSystem, createKernel, createNodeRuntime } from "secure-exec";
 
 export type SecureExecExecutorOptions = {
   timeoutMs?: number;
@@ -54,9 +45,7 @@ const formatUnknownMessage = (cause: unknown): string => {
 const formatCauseMessage = (cause: Cause.Cause<unknown>): string =>
   formatUnknownMessage(Cause.squash(cause));
 
-class SecureExecExecutionError extends Data.TaggedError(
-  "SecureExecExecutionError",
-)<{
+class SecureExecExecutionError extends Data.TaggedError("SecureExecExecutionError")<{
   readonly operation: string;
   readonly cause: unknown;
 }> {
@@ -101,9 +90,7 @@ type ToolErrorEnvelope = {
 
 type ToolEnvelope = ToolSuccessEnvelope | ToolErrorEnvelope;
 
-type RuntimePromiseRunner = <A, E>(
-  effect: Effect.Effect<A, E, never>,
-) => Promise<A>;
+type RuntimePromiseRunner = <A, E>(effect: Effect.Effect<A, E, never>) => Promise<A>;
 
 type SecureExecKernel = ReturnType<typeof createKernel>;
 
@@ -128,10 +115,7 @@ type ProcessOutput = {
   readonly outcome: ProcessOutcome;
 };
 
-const wrapSync = <A>(
-  operation: string,
-  fn: () => A,
-): Effect.Effect<A, SecureExecExecutionError> =>
+const wrapSync = <A>(operation: string, fn: () => A): Effect.Effect<A, SecureExecExecutionError> =>
   Effect.try({
     try: fn,
     catch: (cause) => new SecureExecExecutionError({ operation, cause }),
@@ -150,15 +134,13 @@ const use = <T, A>(
   operation: string,
   client: T,
   fn: (client: T) => Promise<A>,
-): Effect.Effect<A, SecureExecExecutionError> =>
-  wrap(operation, () => fn(client));
+): Effect.Effect<A, SecureExecExecutionError> => wrap(operation, () => fn(client));
 
 const useSync = <T, A>(
   operation: string,
   client: T,
   fn: (client: T) => A,
-): Effect.Effect<A, SecureExecExecutionError> =>
-  wrapSync(operation, () => fn(client));
+): Effect.Effect<A, SecureExecExecutionError> => wrapSync(operation, () => fn(client));
 
 const encodeToolEnvelope = (envelope: ToolEnvelope): string => {
   try {
@@ -171,9 +153,7 @@ const encodeToolEnvelope = (envelope: ToolEnvelope): string => {
   }
 };
 
-const parseToolArgs = (
-  argsJson: unknown,
-): Effect.Effect<unknown, SecureExecExecutionError> =>
+const parseToolArgs = (argsJson: unknown): Effect.Effect<unknown, SecureExecExecutionError> =>
   typeof argsJson === "string"
     ? wrapSync("tool.parse_args", () => JSON.parse(argsJson))
     : Effect.void;
@@ -217,8 +197,7 @@ const invokeToolBinding = (
 const buildExecutionSource = (code: string): string => {
   const trimmed = code.trim();
   const looksLikeArrowFunction =
-    (trimmed.startsWith("async") || trimmed.startsWith("(")) &&
-    trimmed.includes("=>");
+    (trimmed.startsWith("async") || trimmed.startsWith("(")) && trimmed.includes("=>");
 
   const body = looksLikeArrowFunction
     ? [
@@ -436,14 +415,11 @@ const evaluateInSecureExec = (
     }
 
     if (processOutput.outcome.exitCode !== 0) {
-      const errorOutput =
-        processOutput.stderr.trim() || processOutput.stdout.trim();
+      const errorOutput = processOutput.stderr.trim() || processOutput.stdout.trim();
 
       return {
         result: null,
-        error:
-          errorOutput ||
-          `Process exited with code ${processOutput.outcome.exitCode}`,
+        error: errorOutput || `Process exited with code ${processOutput.outcome.exitCode}`,
         logs,
       } satisfies ExecuteResult;
     }
@@ -470,9 +446,7 @@ const evaluateInSecureExec = (
   );
 };
 
-export const makeSecureExecExecutor = (
-  options: SecureExecExecutorOptions = {},
-): CodeExecutor => ({
+export const makeSecureExecExecutor = (options: SecureExecExecutorOptions = {}): CodeExecutor => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
     evaluateInSecureExec(options, code, toolInvoker),
 });

@@ -1,7 +1,13 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
-import { sourceToolsAtom, sourcesAtom, sourceAtom, removeSource, refreshSource } from "../api/atoms";
+import {
+  sourceToolsAtom,
+  sourcesAtom,
+  sourceAtom,
+  removeSource,
+  refreshSource,
+} from "../api/atoms";
 import { ToolTree } from "../components/tool-tree";
 import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
 import type { ToolSummary } from "../components/tool-tree";
@@ -25,9 +31,14 @@ export function SourceDetailPage(props: {
   // HMR: refresh source tools when the backend is hot-reloaded
   useEffect(() => {
     if (!import.meta.hot) return;
-    const refresh = () => { refreshTools(); refreshSources(); };
+    const refresh = () => {
+      refreshTools();
+      refreshSources();
+    };
     import.meta.hot.on("executor:backend-updated", refresh);
-    return () => { import.meta.hot?.off("executor:backend-updated", refresh); };
+    return () => {
+      import.meta.hot?.off("executor:backend-updated", refresh);
+    };
   }, [refreshTools, refreshSources]);
 
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
@@ -150,37 +161,37 @@ export function SourceDetailPage(props: {
             </button>
           )}
 
-          {canRemove && !editing && (confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium text-destructive">
-                Confirm?
-              </span>
+          {canRemove &&
+            !editing &&
+            (confirmDelete ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium text-destructive">Confirm?</span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleting}
+                  className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete()}
+                  disabled={deleting}
+                  className="inline-flex items-center rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setConfirmDelete(false)}
-                disabled={deleting}
-                className="inline-flex items-center rounded-md border border-border bg-background px-2.5 py-1 text-[12px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                onClick={() => setConfirmDelete(true)}
+                className="inline-flex items-center rounded-md border border-destructive/30 bg-background px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10"
               >
-                Cancel
+                Delete
               </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete()}
-                disabled={deleting}
-                className="inline-flex items-center rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-50"
-              >
-                {deleting ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmDelete(true)}
-              className="inline-flex items-center rounded-md border border-destructive/30 bg-background px-2.5 py-1 text-[12px] font-medium text-destructive transition-colors hover:bg-destructive/10"
-            >
-              Delete
-            </button>
-          ))}
+            ))}
         </div>
       </div>
 
@@ -188,7 +199,9 @@ export function SourceDetailPage(props: {
       {editing && editPlugin ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-2xl px-6 py-8">
-            <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Loading...</div>}>
+            <Suspense
+              fallback={<div className="p-6 text-sm text-muted-foreground">Loading...</div>}
+            >
               <editPlugin.edit sourceId={namespace} onSave={handleEditSave} />
             </Suspense>
           </div>
@@ -196,12 +209,8 @@ export function SourceDetailPage(props: {
       ) : (
         /* Content -- split pane */
         Result.match(tools, {
-          onInitial: () => (
-            <div className="p-6 text-sm text-muted-foreground">Loading...</div>
-          ),
-          onFailure: () => (
-            <div className="p-6 text-sm text-destructive">Failed to load tools</div>
-          ),
+          onInitial: () => <div className="p-6 text-sm text-muted-foreground">Loading...</div>,
+          onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
           onSuccess: () => (
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* Left: tool tree */}

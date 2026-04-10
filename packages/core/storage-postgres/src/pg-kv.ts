@@ -56,12 +56,7 @@ export const makePgKv = (db: DrizzleDb, organizationId: string): Kv => ({
       const rows = await db
         .select({ key: pluginKv.key, value: pluginKv.value })
         .from(pluginKv)
-        .where(
-          and(
-            eq(pluginKv.organizationId, organizationId),
-            eq(pluginKv.namespace, namespace),
-          ),
-        );
+        .where(and(eq(pluginKv.organizationId, organizationId), eq(pluginKv.namespace, namespace)));
       return rows;
     }).pipe(Effect.orDie),
 
@@ -69,12 +64,7 @@ export const makePgKv = (db: DrizzleDb, organizationId: string): Kv => ({
     Effect.tryPromise(async () => {
       const result = await db
         .delete(pluginKv)
-        .where(
-          and(
-            eq(pluginKv.organizationId, organizationId),
-            eq(pluginKv.namespace, namespace),
-          ),
-        )
+        .where(and(eq(pluginKv.organizationId, organizationId), eq(pluginKv.namespace, namespace)))
         .returning();
       return result.length;
     }).pipe(Effect.orDie),

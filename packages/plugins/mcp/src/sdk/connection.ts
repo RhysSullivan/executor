@@ -36,10 +36,7 @@ export type ConnectorInput = RemoteConnectorInput | StdioConnectorInput;
 // Helpers
 // ---------------------------------------------------------------------------
 
-const buildEndpointUrl = (
-  endpoint: string,
-  queryParams: Record<string, string>,
-): URL => {
+const buildEndpointUrl = (endpoint: string, queryParams: Record<string, string>): URL => {
   const url = new URL(endpoint);
   for (const [key, value] of Object.entries(queryParams)) {
     url.searchParams.set(key, value);
@@ -100,9 +97,7 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
         new StdioClientTransport({
           command,
           args: input.args ? [...input.args] : undefined,
-          env: input.env
-            ? ({ ...process.env, ...input.env } as Record<string, string>)
-            : undefined,
+          env: input.env ? ({ ...process.env, ...input.env } as Record<string, string>) : undefined,
           cwd: input.cwd?.trim().length ? input.cwd.trim() : undefined,
         }),
     });
@@ -111,13 +106,9 @@ export const createMcpConnector = (input: ConnectorInput): McpConnector => {
   // Remote transport
   const headers = input.headers ?? {};
   const remoteTransport = input.remoteTransport ?? "auto";
-  const requestInit =
-    Object.keys(headers).length > 0 ? { headers } : undefined;
+  const requestInit = Object.keys(headers).length > 0 ? { headers } : undefined;
 
-  const endpoint = buildEndpointUrl(
-    input.endpoint,
-    input.queryParams ?? {},
-  );
+  const endpoint = buildEndpointUrl(input.endpoint, input.queryParams ?? {});
 
   const connectStreamableHttp = connectClient({
     transport: "streamable-http",

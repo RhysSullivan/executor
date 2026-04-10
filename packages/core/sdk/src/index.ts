@@ -64,11 +64,7 @@ export {
 } from "./plugin";
 
 // Executor
-export {
-  createExecutor,
-  type Executor,
-  type ExecutorConfig,
-} from "./executor";
+export { createExecutor, type Executor, type ExecutorConfig } from "./executor";
 
 // Built-in plugins
 export {

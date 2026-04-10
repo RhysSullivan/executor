@@ -1,10 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import {
-  HttpApi,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  OpenApi,
-} from "@effect/platform";
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "@effect/platform";
 import { Effect, Option, Schema } from "effect";
 
 import { parse } from "./parse";
@@ -31,15 +26,8 @@ class PetNotFound extends Schema.TaggedError<PetNotFound>()("PetNotFound", {
 }) {}
 
 const PetstoreGroup = HttpApiGroup.make("pets")
-  .add(
-    HttpApiEndpoint.get("listPets", "/pets")
-      .addSuccess(Schema.Array(Pet)),
-  )
-  .add(
-    HttpApiEndpoint.post("createPet", "/pets")
-      .setPayload(CreatePetInput)
-      .addSuccess(Pet),
-  )
+  .add(HttpApiEndpoint.get("listPets", "/pets").addSuccess(Schema.Array(Pet)))
+  .add(HttpApiEndpoint.post("createPet", "/pets").setPayload(CreatePetInput).addSuccess(Pet))
   .add(
     HttpApiEndpoint.get("getPet", "/pets/:petId")
       .addSuccess(Pet)
@@ -73,9 +61,7 @@ describe("OpenAPI plugin", () => {
       const doc = yield* parse(JSON.stringify(spec));
       const result = yield* extract(doc);
 
-      const listPets = result.operations.find(
-        (op) => op.operationId === "pets.listPets",
-      );
+      const listPets = result.operations.find((op) => op.operationId === "pets.listPets");
       expect(listPets).toBeDefined();
       expect(listPets!.method).toBe("get");
       expect(listPets!.pathTemplate).toBe("/pets");
@@ -83,10 +69,7 @@ describe("OpenAPI plugin", () => {
 
       // Has output schema (array of pets, dereferenced)
       expect(Option.isSome(listPets!.outputSchema)).toBe(true);
-      const outputSchema = Option.getOrThrow(listPets!.outputSchema) as Record<
-        string,
-        unknown
-      >;
+      const outputSchema = Option.getOrThrow(listPets!.outputSchema) as Record<string, unknown>;
       expect(outputSchema.type).toBe("array");
     }),
   );
@@ -97,9 +80,7 @@ describe("OpenAPI plugin", () => {
       const doc = yield* parse(JSON.stringify(spec));
       const result = yield* extract(doc);
 
-      const createPet = result.operations.find(
-        (op) => op.operationId === "pets.createPet",
-      );
+      const createPet = result.operations.find((op) => op.operationId === "pets.createPet");
       expect(createPet).toBeDefined();
       expect(createPet!.method).toBe("post");
 
@@ -110,9 +91,7 @@ describe("OpenAPI plugin", () => {
 
       // Input schema includes body
       expect(Option.isSome(createPet!.inputSchema)).toBe(true);
-      const inputSchema = Option.getOrThrow(
-        createPet!.inputSchema,
-      ) as Record<string, unknown>;
+      const inputSchema = Option.getOrThrow(createPet!.inputSchema) as Record<string, unknown>;
       expect(inputSchema.properties).toHaveProperty("body");
     }),
   );
@@ -123,9 +102,7 @@ describe("OpenAPI plugin", () => {
       const doc = yield* parse(JSON.stringify(spec));
       const result = yield* extract(doc);
 
-      const getPet = result.operations.find(
-        (op) => op.operationId === "pets.getPet",
-      );
+      const getPet = result.operations.find((op) => op.operationId === "pets.getPet");
       expect(getPet).toBeDefined();
       expect(getPet!.method).toBe("get");
       expect(getPet!.pathTemplate).toBe("/pets/{petId}");
@@ -138,9 +115,7 @@ describe("OpenAPI plugin", () => {
       const doc = yield* parse(JSON.stringify(spec));
       const result = yield* extract(doc);
 
-      const getPet = result.operations.find(
-        (op) => op.operationId === "pets.getPet",
-      );
+      const getPet = result.operations.find((op) => op.operationId === "pets.getPet");
       expect(getPet).toBeDefined();
 
       // Should have a success output schema

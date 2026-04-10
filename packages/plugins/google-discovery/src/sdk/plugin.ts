@@ -13,10 +13,7 @@ import {
   type ToolRegistration,
 } from "@executor/sdk";
 
-import type {
-  GoogleDiscoveryBindingStore,
-  GoogleDiscoveryStoredSource,
-} from "./binding-store";
+import type { GoogleDiscoveryBindingStore, GoogleDiscoveryStoredSource } from "./binding-store";
 import { makeInMemoryBindingStore } from "./binding-store";
 import { extractGoogleDiscoveryManifest } from "./document";
 import { makeGoogleDiscoveryInvoker } from "./invoke";
@@ -111,9 +108,7 @@ export interface GoogleDiscoveryPluginExtension {
   readonly completeOAuth: (
     input: GoogleDiscoveryOAuthCompleteInput,
   ) => Effect.Effect<GoogleDiscoveryOAuthAuthResult, GoogleDiscoveryOAuthError>;
-  readonly getSource: (
-    namespace: string,
-  ) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
+  readonly getSource: (namespace: string) => Effect.Effect<GoogleDiscoveryStoredSource | null>;
 }
 
 const DISCOVERY_SERVICE_HOST = "https://www.googleapis.com/discovery/v1/apis";
@@ -145,9 +140,11 @@ const normalizeDiscoveryUrl = (discoveryUrl: string): string => {
 
   const rawService = host.slice(0, -".googleapis.com".length);
   const service =
-    rawService === "calendar-json" ? "calendar"
-    : rawService.endsWith("-json") ? rawService.slice(0, -5)
-    : rawService;
+    rawService === "calendar-json"
+      ? "calendar"
+      : rawService.endsWith("-json")
+        ? rawService.slice(0, -5)
+        : rawService;
 
   if (!service) {
     return trimmed;
@@ -178,16 +175,14 @@ const fetchDiscoveryDocument = (discoveryUrl: string) =>
   });
 
 const normalizeSlug = (value: string): string =>
-  value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
-const deriveNamespace = (input: {
-  name: string;
-  service: string;
-  version: string;
-}): string =>
+const deriveNamespace = (input: { name: string; service: string; version: string }): string =>
   normalizeSlug(
-    input.name ||
-      `google_${input.service}_${input.version.replace(/[^a-zA-Z0-9]+/g, "_")}`,
+    input.name || `google_${input.service}_${input.version.replace(/[^a-zA-Z0-9]+/g, "_")}`,
   ) || `google_${input.service}`;
 
 const registerManifest = (
@@ -223,11 +218,7 @@ const registerManifest = (
     yield* Effect.forEach(
       manifest.methods,
       (method) =>
-        bindingStore.put(
-          ToolId.make(`${namespace}.${method.toolPath}`),
-          namespace,
-          method.binding,
-        ),
+        bindingStore.put(ToolId.make(`${namespace}.${method.toolPath}`), namespace, method.binding),
       { discard: true },
     );
 
@@ -241,12 +232,15 @@ const registerManifest = (
     return registrations.length;
   });
 
-const storeSecret = (ctx: PluginContext, input: {
-  readonly idPrefix: string;
-  readonly name: string;
-  readonly value: string;
-  readonly purpose: string;
-}) =>
+const storeSecret = (
+  ctx: PluginContext,
+  input: {
+    readonly idPrefix: string;
+    readonly name: string;
+    readonly value: string;
+    readonly purpose: string;
+  },
+) =>
   ctx.secrets
     .set({
       id: SecretId.make(`${input.idPrefix}_${randomUUID().slice(0, 8)}`),
@@ -319,7 +313,8 @@ export const googleDiscoveryPlugin = (options?: {
 
               // Only probe URLs that look like Google Discovery docs
               const isGoogleUrl = trimmed.includes("googleapis.com");
-              const isDiscoveryPath = trimmed.includes("/discovery/") || trimmed.includes("$discovery");
+              const isDiscoveryPath =
+                trimmed.includes("/discovery/") || trimmed.includes("$discovery");
               if (!isGoogleUrl && !isDiscoveryPath) return null;
 
               const discoveryText = yield* fetchDiscoveryDocument(trimmed).pipe(
@@ -332,7 +327,10 @@ export const googleDiscoveryPlugin = (options?: {
               );
               if (!manifest) return null;
 
-              const name = Option.getOrElse(manifest.title, () => `${manifest.service} ${manifest.version}`);
+              const name = Option.getOrElse(
+                manifest.title,
+                () => `${manifest.service} ${manifest.version}`,
+              );
 
               return new SourceDetectionResult({
                 kind: "googleDiscovery",
@@ -350,12 +348,8 @@ export const googleDiscoveryPlugin = (options?: {
             Effect.gen(function* () {
               const sourceData = yield* bindingStore.getSourceConfig(sourceId);
               if (!sourceData) return;
-              const discoveryText = yield* fetchDiscoveryDocument(
-                sourceData.discoveryUrl,
-              );
-              const manifest = yield* extractGoogleDiscoveryManifest(
-                discoveryText,
-              );
+              const discoveryText = yield* fetchDiscoveryDocument(sourceData.discoveryUrl);
+              const manifest = yield* extractGoogleDiscoveryManifest(discoveryText);
               const nextSourceData = new GoogleDiscoveryStoredSourceDataSchema({
                 ...sourceData,
                 service: manifest.service,
@@ -363,13 +357,7 @@ export const googleDiscoveryPlugin = (options?: {
                 rootUrl: manifest.rootUrl,
                 servicePath: manifest.servicePath,
               });
-              yield* registerManifest(
-                ctx,
-                bindingStore,
-                sourceId,
-                manifest,
-                nextSourceData,
-              );
+              yield* registerManifest(ctx, bindingStore, sourceId, manifest, nextSourceData);
             }).pipe(Effect.orDie),
         });
 
@@ -377,23 +365,16 @@ export const googleDiscoveryPlugin = (options?: {
           probeDiscovery: (discoveryUrl: string) =>
             Effect.gen(function* () {
               const discoveryText = yield* fetchDiscoveryDocument(discoveryUrl);
-              const manifest = yield* extractGoogleDiscoveryManifest(
-                discoveryText,
-              );
+              const manifest = yield* extractGoogleDiscoveryManifest(discoveryText);
               const scopes = Object.keys(
-                manifest.oauthScopes._tag === "Some"
-                  ? manifest.oauthScopes.value
-                  : {},
+                manifest.oauthScopes._tag === "Some" ? manifest.oauthScopes.value : {},
               ).sort();
               return {
                 name:
                   manifest.title._tag === "Some"
                     ? manifest.title.value
                     : `${manifest.service} ${manifest.version}`,
-                title:
-                  manifest.title._tag === "Some"
-                    ? manifest.title.value
-                    : null,
+                title: manifest.title._tag === "Some" ? manifest.title.value : null,
                 service: manifest.service,
                 version: manifest.version,
                 toolCount: manifest.methods.length,
@@ -403,12 +384,8 @@ export const googleDiscoveryPlugin = (options?: {
 
           addSource: (input) =>
             Effect.gen(function* () {
-              const discoveryText = yield* fetchDiscoveryDocument(
-                input.discoveryUrl,
-              );
-              const manifest = yield* extractGoogleDiscoveryManifest(
-                discoveryText,
-              );
+              const discoveryText = yield* fetchDiscoveryDocument(input.discoveryUrl);
+              const manifest = yield* extractGoogleDiscoveryManifest(discoveryText);
               const namespace =
                 input.namespace ??
                 deriveNamespace({
@@ -446,24 +423,17 @@ export const googleDiscoveryPlugin = (options?: {
 
           startOAuth: (input) =>
             Effect.gen(function* () {
-              const discoveryText = yield* fetchDiscoveryDocument(
-                input.discoveryUrl,
-              );
-              const manifest = yield* extractGoogleDiscoveryManifest(
-                discoveryText,
-              );
+              const discoveryText = yield* fetchDiscoveryDocument(input.discoveryUrl);
+              const manifest = yield* extractGoogleDiscoveryManifest(discoveryText);
               const scopes =
                 input.scopes && input.scopes.length > 0
                   ? [...input.scopes]
                   : Object.keys(
-                      manifest.oauthScopes._tag === "Some"
-                        ? manifest.oauthScopes.value
-                        : {},
+                      manifest.oauthScopes._tag === "Some" ? manifest.oauthScopes.value : {},
                     ).sort();
               if (scopes.length === 0) {
                 return yield* new GoogleDiscoveryOAuthError({
-                  message:
-                    "This Google Discovery document does not declare any OAuth scopes",
+                  message: "This Google Discovery document does not declare any OAuth scopes",
                 });
               }
               const sessionId = randomUUID();
@@ -517,10 +487,7 @@ export const googleDiscoveryPlugin = (options?: {
                   session.clientSecretSecretId === null
                     ? null
                     : yield* ctx.secrets
-                        .resolve(
-                          SecretId.make(session.clientSecretSecretId),
-                          ctx.scope.id,
-                        )
+                        .resolve(SecretId.make(session.clientSecretSecretId), ctx.scope.id)
                         .pipe(
                           Effect.mapError(
                             (error) =>
@@ -564,8 +531,7 @@ export const googleDiscoveryPlugin = (options?: {
               };
             }),
 
-          getSource: (namespace: string) =>
-            bindingStore.getSource(namespace),
+          getSource: (namespace: string) => bindingStore.getSource(namespace),
         };
 
         return {

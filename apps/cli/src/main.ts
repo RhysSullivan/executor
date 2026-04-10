@@ -7,13 +7,14 @@ if (process.env.PATH && !process.env.PATH.includes(execDir)) {
 
 // Pre-load QuickJS WASM for compiled binaries — must run before server imports
 const wasmOnDisk = join(execDir, "emscripten-module.wasm");
-if (typeof Bun !== "undefined" && await Bun.file(wasmOnDisk).exists()) {
+if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
   const { setQuickJSModule } = await import("@executor/runtime-quickjs");
   const { newQuickJSWASMModule } = await import("quickjs-emscripten");
   const wasmBinary = await Bun.file(wasmOnDisk).arrayBuffer();
   const variant = {
     type: "sync" as const,
-    importFFI: () => import("@jitl/quickjs-wasmfile-release-sync/ffi").then((m: any) => m.QuickJSFFI),
+    importFFI: () =>
+      import("@jitl/quickjs-wasmfile-release-sync/ffi").then((m: any) => m.QuickJSFFI),
     importModuleLoader: () =>
       import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then((m: any) => {
         const original = m.default;
@@ -106,9 +107,7 @@ const makeApiClient = (baseUrl: string) =>
 
 const runForegroundSession = (input: { port: number }) =>
   Effect.gen(function* () {
-    const server = yield* Effect.promise(() =>
-      startServer({ port: input.port, embeddedWebUI }),
-    );
+    const server = yield* Effect.promise(() => startServer({ port: input.port, embeddedWebUI }));
 
     const baseUrl = `http://localhost:${server.port}`;
     console.log(`Executor is ready.`);
@@ -259,16 +258,15 @@ const webCommand = Command.make(
     port: Options.integer("port").pipe(Options.withDefault(DEFAULT_PORT)),
     scope,
   },
-  ({ port, scope }) => Effect.gen(function* () {
-    applyScope(scope);
-    yield* runForegroundSession({ port });
-  }),
+  ({ port, scope }) =>
+    Effect.gen(function* () {
+      applyScope(scope);
+      yield* runForegroundSession({ port });
+    }),
 ).pipe(Command.withDescription("Start a foreground web session"));
 
-const mcpCommand = Command.make(
-  "mcp",
-  { scope },
-  ({ scope }) => Effect.gen(function* () {
+const mcpCommand = Command.make("mcp", { scope }, ({ scope }) =>
+  Effect.gen(function* () {
     applyScope(scope);
     yield* runStdioMcpSession();
   }),

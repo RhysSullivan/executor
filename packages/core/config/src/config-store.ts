@@ -9,10 +9,7 @@
 import { Effect } from "effect";
 import { FileSystem } from "@effect/platform";
 import type { Layer } from "effect";
-import {
-  addSourceToConfig,
-  removeSourceFromConfig,
-} from "./write";
+import { addSourceToConfig, removeSourceFromConfig } from "./write";
 import { SECRET_REF_PREFIX } from "./schema";
 import type { SourceConfig } from "./schema";
 
@@ -58,7 +55,12 @@ const openApiToSourceConfig = (source: {
 
 const graphqlToSourceConfig = (source: {
   namespace: string;
-  config: { endpoint: string; introspectionJson?: string; namespace?: string; headers?: Record<string, unknown> };
+  config: {
+    endpoint: string;
+    introspectionJson?: string;
+    namespace?: string;
+    headers?: Record<string, unknown>;
+  };
 }): SourceConfig => ({
   kind: "graphql" as const,
   endpoint: source.config.endpoint,
@@ -115,12 +117,13 @@ const mcpToSourceConfig = (source: {
 // Core wrapper logic
 // ---------------------------------------------------------------------------
 
-const wrapPutSource = <TSource extends { namespace: string }>(
-  innerPut: (source: TSource) => Effect.Effect<void>,
-  configPath: string,
-  toSourceConfig: (source: TSource) => SourceConfig,
-  fsLayer: Layer.Layer<FileSystem.FileSystem>,
-) =>
+const wrapPutSource =
+  <TSource extends { namespace: string }>(
+    innerPut: (source: TSource) => Effect.Effect<void>,
+    configPath: string,
+    toSourceConfig: (source: TSource) => SourceConfig,
+    fsLayer: Layer.Layer<FileSystem.FileSystem>,
+  ) =>
   (source: TSource) =>
     Effect.gen(function* () {
       yield* innerPut(source);
@@ -130,11 +133,12 @@ const wrapPutSource = <TSource extends { namespace: string }>(
       );
     });
 
-const wrapRemoveSource = (
-  innerRemove: (namespace: string) => Effect.Effect<void>,
-  configPath: string,
-  fsLayer: Layer.Layer<FileSystem.FileSystem>,
-) =>
+const wrapRemoveSource =
+  (
+    innerRemove: (namespace: string) => Effect.Effect<void>,
+    configPath: string,
+    fsLayer: Layer.Layer<FileSystem.FileSystem>,
+  ) =>
   (namespace: string) =>
     Effect.gen(function* () {
       yield* innerRemove(namespace);
@@ -162,29 +166,32 @@ export const withConfigFile = {
     inner: TStore,
     configPath: string,
     fsLayer: Layer.Layer<FileSystem.FileSystem>,
-  ): TStore => ({
-    ...inner,
-    putSource: wrapPutSource(inner.putSource, configPath, openApiToSourceConfig as any, fsLayer),
-    removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
-  }) as TStore,
+  ): TStore =>
+    ({
+      ...inner,
+      putSource: wrapPutSource(inner.putSource, configPath, openApiToSourceConfig as any, fsLayer),
+      removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
+    }) as TStore,
 
   graphql: <TStore extends StoreWithSource<{ namespace: string; name: string; config: any }>>(
     inner: TStore,
     configPath: string,
     fsLayer: Layer.Layer<FileSystem.FileSystem>,
-  ): TStore => ({
-    ...inner,
-    putSource: wrapPutSource(inner.putSource, configPath, graphqlToSourceConfig as any, fsLayer),
-    removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
-  }) as TStore,
+  ): TStore =>
+    ({
+      ...inner,
+      putSource: wrapPutSource(inner.putSource, configPath, graphqlToSourceConfig as any, fsLayer),
+      removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
+    }) as TStore,
 
   mcp: <TStore extends StoreWithSource<{ namespace: string; name: string; config: any }>>(
     inner: TStore,
     configPath: string,
     fsLayer: Layer.Layer<FileSystem.FileSystem>,
-  ): TStore => ({
-    ...inner,
-    putSource: wrapPutSource(inner.putSource, configPath, mcpToSourceConfig as any, fsLayer),
-    removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
-  }) as TStore,
+  ): TStore =>
+    ({
+      ...inner,
+      putSource: wrapPutSource(inner.putSource, configPath, mcpToSourceConfig as any, fsLayer),
+      removeSource: wrapRemoveSource(inner.removeSource, configPath, fsLayer),
+    }) as TStore,
 };

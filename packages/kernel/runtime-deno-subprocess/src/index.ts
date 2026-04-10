@@ -1,11 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import type {
-  CodeExecutor,
-  ExecuteResult,
-  SandboxToolInvoker,
-} from "@executor/codemode-core";
+import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 import * as Cause from "effect/Cause";
 import * as Data from "effect/Data";
 import * as Deferred from "effect/Deferred";
@@ -15,10 +11,7 @@ import * as Queue from "effect/Queue";
 import * as Runtime from "effect/Runtime";
 import * as Schema from "effect/Schema";
 
-import {
-  type DenoPermissions,
-  spawnDenoWorkerProcess,
-} from "./deno-worker-process";
+import { type DenoPermissions, spawnDenoWorkerProcess } from "./deno-worker-process";
 
 export type { DenoPermissions };
 
@@ -41,9 +34,7 @@ class DenoSpawnError extends Data.TaggedError("DenoSpawnError")<{
 }> {
   override get message() {
     const code =
-      typeof this.reason === "object" &&
-      this.reason !== null &&
-      "code" in this.reason
+      typeof this.reason === "object" && this.reason !== null && "code" in this.reason
         ? String((this.reason as { code?: unknown }).code)
         : null;
 
@@ -116,17 +107,14 @@ const resolveWorkerScriptPath = (): string => {
   try {
     const workerUrl = new URL("./deno-subprocess-worker.mjs", moduleUrl);
     if (workerUrl.protocol === "file:") return fileURLToPath(workerUrl);
-    return workerUrl.pathname.length > 0
-      ? workerUrl.pathname
-      : workerUrl.toString();
+    return workerUrl.pathname.length > 0 ? workerUrl.pathname : workerUrl.toString();
   } catch {
     return moduleUrl;
   }
 };
 
 let cachedWorkerScriptPath: string | undefined;
-const workerScriptPath = (): string =>
-  (cachedWorkerScriptPath ??= resolveWorkerScriptPath());
+const workerScriptPath = (): string => (cachedWorkerScriptPath ??= resolveWorkerScriptPath());
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -145,17 +133,12 @@ type HostToWorkerMessage =
 const causeMessage = (cause: Cause.Cause<unknown>): string => {
   const squashed = Cause.squash(cause);
   if (squashed instanceof Error) {
-    return squashed.cause instanceof Error
-      ? squashed.cause.message
-      : squashed.message;
+    return squashed.cause instanceof Error ? squashed.cause.message : squashed.message;
   }
   return String(squashed);
 };
 
-const writeMessage = (
-  stdin: NodeJS.WritableStream,
-  message: HostToWorkerMessage,
-): void => {
+const writeMessage = (stdin: NodeJS.WritableStream, message: HostToWorkerMessage): void => {
   stdin.write(`${JSON.stringify(message)}\n`);
 };
 
@@ -230,8 +213,7 @@ const executeInDeno = (
             },
           },
         ),
-      catch: (cause) =>
-        new DenoSpawnError({ executable: denoExecutable, reason: cause }),
+      catch: (cause) => new DenoSpawnError({ executable: denoExecutable, reason: cause }),
     });
 
     // Send code to the subprocess
@@ -331,9 +313,7 @@ const executeInDeno = (
 // Public API
 // ---------------------------------------------------------------------------
 
-export const isDenoAvailable = (
-  executable: string = defaultDenoExecutable(),
-): boolean => {
+export const isDenoAvailable = (executable: string = defaultDenoExecutable()): boolean => {
   const result = spawnSync(executable, ["--version"], {
     stdio: "ignore",
     timeout: 5000,

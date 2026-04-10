@@ -86,7 +86,9 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                   setUrl(e.target.value);
                   setError(null);
                 }}
-                onKeyDown={(e) => { if (e.key === "Enter") handleDetect(); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleDetect();
+                }}
                 placeholder="Paste a URL to auto-detect source type..."
                 disabled={detecting}
                 className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
@@ -99,9 +101,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                 {detecting ? "Detecting..." : "Detect"}
               </button>
             </div>
-            {error && (
-              <p className="mt-2 text-sm text-destructive">{error}</p>
-            )}
+            {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
             <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
               <span>Or add manually:</span>
               {sourcePlugins.map((p) => (
@@ -123,12 +123,8 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
         <PresetGrid plugins={sourcePlugins} />
 
         {Result.match(sources, {
-          onInitial: () => (
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          ),
-          onFailure: () => (
-            <p className="text-sm text-destructive">Failed to load sources</p>
-          ),
+          onInitial: () => <p className="text-sm text-muted-foreground">Loading…</p>,
+          onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
           onSuccess: ({ value }) => {
             const builtInSources = value.filter((source) => source.runtime);
             const connectedSources = value.filter((source) => !source.runtime);
@@ -137,12 +133,15 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
                 <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
                   <svg viewBox="0 0 24 24" fill="none" className="size-5">
-                    <path d="M12 6v12M6 12h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    <path
+                      d="M12 6v12M6 12h12"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
                   </svg>
                 </div>
-                <p className="text-[14px] font-medium text-foreground/70 mb-1">
-                  No sources yet
-                </p>
+                <p className="text-[14px] font-medium text-foreground/70 mb-1">No sources yet</p>
                 <p className="text-[13px] text-muted-foreground/60 mb-5">
                   Add a source to get started.
                 </p>
@@ -152,9 +151,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                 {builtInSources.length > 0 && (
                   <section className="space-y-3">
                     <div>
-                      <h2 className="text-sm font-semibold text-foreground">
-                        Built-in
-                      </h2>
+                      <h2 className="text-sm font-semibold text-foreground">Built-in</h2>
                       <p className="mt-1 text-[13px] text-muted-foreground">
                         Runtime sources exposed by the loaded executor plugins.
                       </p>
@@ -166,9 +163,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                 {connectedSources.length > 0 && (
                   <section className="space-y-3">
                     <div>
-                      <h2 className="text-sm font-semibold text-foreground">
-                        Connected
-                      </h2>
+                      <h2 className="text-sm font-semibold text-foreground">Connected</h2>
                       <p className="mt-1 text-[13px] text-muted-foreground">
                         User-configured sources available in this workspace.
                       </p>
@@ -224,9 +219,7 @@ function PresetCard({ preset, pluginKey, pluginLabel }: PresetEntry) {
   );
 }
 
-function PresetGrid(props: {
-  plugins: readonly SourcePlugin[];
-}) {
+function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
   const allPresets = useMemo(() => {
     const entries: PresetEntry[] = [];
     for (const plugin of props.plugins) {
@@ -276,14 +269,17 @@ function SourceGrid(props: {
             <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
               <svg viewBox="0 0 16 16" className="size-4">
                 <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.2" />
-                <path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                <path
+                  d="M8 5v6M5 8h6"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
               </svg>
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-2">
-                <div className="truncate text-sm font-semibold text-foreground">
-                  {s.name}
-                </div>
+                <div className="truncate text-sm font-semibold text-foreground">{s.name}</div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   {s.runtime && (
                     <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
@@ -295,9 +291,7 @@ function SourceGrid(props: {
                   </span>
                 </div>
               </div>
-              <div className="mt-0.5 text-xs text-muted-foreground">
-                {s.id}
-              </div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{s.id}</div>
             </div>
           </div>
         </Link>

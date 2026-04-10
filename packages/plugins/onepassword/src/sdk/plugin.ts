@@ -12,11 +12,7 @@ import {
 import { OnePasswordConfig, Vault, ConnectionStatus } from "./types";
 import type { OnePasswordAuth } from "./types";
 import { OnePasswordError } from "./errors";
-import {
-  makeOnePasswordService,
-  type ResolvedAuth,
-  type OnePasswordService,
-} from "./service";
+import { makeOnePasswordService, type ResolvedAuth, type OnePasswordService } from "./service";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -33,9 +29,7 @@ const CONFIG_KEY = "config";
 
 export interface OnePasswordExtension {
   /** Configure the 1Password connection */
-  readonly configure: (
-    config: OnePasswordConfig,
-  ) => Effect.Effect<void, OnePasswordError>;
+  readonly configure: (config: OnePasswordConfig) => Effect.Effect<void, OnePasswordError>;
 
   /** Get current configuration (if any) */
   readonly getConfig: () => Effect.Effect<OnePasswordConfig | null, OnePasswordError>;
@@ -70,9 +64,7 @@ const resolveAuth = (
     });
   }
   return ctx.secrets.resolve(SecretId.make(auth.tokenSecretId), ctx.scope.id).pipe(
-    Effect.map(
-      (token): ResolvedAuth => ({ kind: "service-account", token }),
-    ),
+    Effect.map((token): ResolvedAuth => ({ kind: "service-account", token })),
     Effect.mapError(
       (e) =>
         new OnePasswordError({
@@ -128,9 +120,7 @@ const makeProvider = (
         if (!config) return Effect.succeed([] as { id: string; name: string }[]);
         return getServiceFromConfig(config, ctx, timeoutMs).pipe(
           Effect.flatMap((svc) => svc.listItems(config.vaultId)),
-          Effect.map((items) =>
-            items.map((item) => ({ id: item.id, name: item.title })),
-          ),
+          Effect.map((items) => items.map((item) => ({ id: item.id, name: item.title }))),
         );
       }),
       Effect.orElseSucceed(() => [] as { id: string; name: string }[]),
@@ -152,23 +142,22 @@ const loadConfig = (kv: ScopedKv): Effect.Effect<OnePasswordConfig | null, OnePa
           (cause) =>
             new OnePasswordError({
               operation: "config decode",
-              message:
-                cause instanceof Error ? cause.message : String(cause),
+              message: cause instanceof Error ? cause.message : String(cause),
             }),
         ),
       );
     }),
   );
 
-const saveConfig = (
-  kv: ScopedKv,
-  config: OnePasswordConfig,
-): Effect.Effect<void> =>
-  kv.set(CONFIG_KEY, JSON.stringify({
-    auth: config.auth,
-    vaultId: config.vaultId,
-    name: config.name,
-  }));
+const saveConfig = (kv: ScopedKv, config: OnePasswordConfig): Effect.Effect<void> =>
+  kv.set(
+    CONFIG_KEY,
+    JSON.stringify({
+      auth: config.auth,
+      vaultId: config.vaultId,
+      name: config.name,
+    }),
+  );
 
 const deleteConfig = (kv: ScopedKv): Effect.Effect<void> => kv.delete(CONFIG_KEY);
 
@@ -197,13 +186,10 @@ export const onepasswordPlugin = (
       Effect.gen(function* () {
         const getConfig = () => loadConfig(kv);
 
-        yield* ctx.secrets.addProvider(
-          makeProvider(getConfig, ctx, timeoutMs),
-        );
+        yield* ctx.secrets.addProvider(makeProvider(getConfig, ctx, timeoutMs));
 
         const extension: OnePasswordExtension = {
-          configure: (config) =>
-            saveConfig(kv, config),
+          configure: (config) => saveConfig(kv, config),
 
           getConfig: () => getConfig(),
 

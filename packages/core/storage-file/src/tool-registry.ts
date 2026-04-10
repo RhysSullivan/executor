@@ -6,12 +6,7 @@ import { Effect, Schema } from "effect";
 
 import type { ToolId, ScopedKv } from "@executor/sdk";
 import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk";
-import type {
-  ToolInvoker,
-  ToolListFilter,
-  InvokeOptions,
-  RuntimeToolHandler,
-} from "@executor/sdk";
+import type { ToolInvoker, ToolListFilter, InvokeOptions, RuntimeToolHandler } from "@executor/sdk";
 import { buildToolTypeScriptPreview, reattachDefs } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
@@ -26,10 +21,7 @@ const decodeTool = Schema.decodeUnknownSync(ToolJson);
 // Factory — takes scoped KVs for tools and definitions
 // ---------------------------------------------------------------------------
 
-export const makeKvToolRegistry = (
-  toolsKv: ScopedKv,
-  defsKv: ScopedKv,
-) => {
+export const makeKvToolRegistry = (toolsKv: ScopedKv, defsKv: ScopedKv) => {
   const withKvTransaction = <A, E>(
     kv: ScopedKv,
     effect: Effect.Effect<A, E, never>,
@@ -56,8 +48,8 @@ export const makeKvToolRegistry = (
   const getDefsMap = (): Effect.Effect<Map<string, unknown>> =>
     Effect.gen(function* () {
       const entries = yield* defsKv.list();
-      const defs = yield* Effect.try(() =>
-        new Map(entries.map((e) => [e.key, JSON.parse(e.value)])),
+      const defs = yield* Effect.try(
+        () => new Map(entries.map((e) => [e.key, JSON.parse(e.value)])),
       ).pipe(Effect.orDie);
       for (const [k, v] of runtimeDefs) defs.set(k, v);
       return defs;
@@ -78,9 +70,7 @@ export const makeKvToolRegistry = (
         if (filter?.query) {
           const q = filter.query.toLowerCase();
           tools = tools.filter(
-            (t) =>
-              t.name.toLowerCase().includes(q) ||
-              t.description?.toLowerCase().includes(q),
+            (t) => t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
           );
         }
         return tools.map((t) => ({
@@ -149,7 +139,9 @@ export const makeKvToolRegistry = (
       }),
 
     registerInvoker: (pluginKey: string, invoker: ToolInvoker) =>
-      Effect.sync(() => { invokers.set(pluginKey, invoker); }),
+      Effect.sync(() => {
+        invokers.set(pluginKey, invoker);
+      }),
 
     resolveAnnotations: (toolId: ToolId) =>
       Effect.gen(function* () {

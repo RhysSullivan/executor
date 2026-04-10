@@ -15,7 +15,13 @@ npm install @executor/sdk
 ## Quick start
 
 ```ts
-import { createExecutor, definePlugin, ToolRegistration, ToolId, ToolInvocationResult } from "@executor/sdk";
+import {
+  createExecutor,
+  definePlugin,
+  ToolRegistration,
+  ToolId,
+  ToolInvocationResult,
+} from "@executor/sdk";
 
 // Define a custom plugin with async/await.
 const weatherPlugin = definePlugin({
@@ -97,8 +103,15 @@ const executor = await createExecutor({
   plugins: [mcpPlugin(), openApiPlugin(), graphqlPlugin()] as const,
 });
 
-await executor.mcp.addSource({ transport: "remote", name: "Context7", endpoint: "https://mcp.context7.com/mcp" });
-await executor.openapi.addSpec({ spec: "https://petstore3.swagger.io/api/v3/openapi.json", namespace: "petstore" });
+await executor.mcp.addSource({
+  transport: "remote",
+  name: "Context7",
+  endpoint: "https://mcp.context7.com/mcp",
+});
+await executor.openapi.addSpec({
+  spec: "https://petstore3.swagger.io/api/v3/openapi.json",
+  namespace: "petstore",
+});
 await executor.graphql.addSource({ endpoint: "https://graphql.anilist.co", namespace: "anilist" });
 
 const tools = await executor.tools.list();

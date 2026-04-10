@@ -8,11 +8,7 @@ import {
   CommandItem,
   CommandList,
 } from "../components/command";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "../components/popover";
+import { Popover, PopoverAnchor, PopoverContent } from "../components/popover";
 
 export interface SecretPickerSecret {
   readonly id: string;
@@ -67,7 +63,7 @@ export function SecretPicker(props: {
       <Popover open={open} onOpenChange={setOpen} modal={false}>
         <PopoverAnchor asChild>
           <Input
-            value={open ? query : (selected ? selected.name : "")}
+            value={open ? query : selected ? selected.name : ""}
             onChange={(event: ChangeEvent<HTMLInputElement>) => {
               setQuery(event.target.value);
               if (!open) setOpen(true);
@@ -100,9 +96,10 @@ export function SecretPicker(props: {
               {groups.map(([label, items]) => {
                 const lowerQuery = query.toLowerCase();
                 const filtered = lowerQuery
-                  ? items.filter((secret) =>
-                      secret.name.toLowerCase().includes(lowerQuery) ||
-                      secret.id.toLowerCase().includes(lowerQuery),
+                  ? items.filter(
+                      (secret) =>
+                        secret.name.toLowerCase().includes(lowerQuery) ||
+                        secret.id.toLowerCase().includes(lowerQuery),
                     )
                   : items;
                 if (filtered.length === 0) return null;

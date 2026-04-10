@@ -6,7 +6,9 @@ import { useScopeInfo } from "../api/scope-context";
 type TransportMode = "stdio" | "http";
 
 const isDev = import.meta.env.DEV;
-const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+const isLocal =
+  typeof window !== "undefined" &&
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 
 export function McpInstallCard(props: { className?: string }) {
   const showStdio = isLocal;
@@ -35,16 +37,9 @@ export function McpInstallCard(props: { className?: string }) {
       : "Connect to executor as a remote MCP server over streamable HTTP.";
 
   return (
-    <section
-      className={
-        props.className ??
-        "rounded-2xl border border-border bg-card/80 p-5"
-      }
-    >
+    <section className={props.className ?? "rounded-2xl border border-border bg-card/80 p-5"}>
       <div className="mb-3 space-y-1">
-        <h2 className="text-sm font-semibold text-foreground">
-          Connect an agent
-        </h2>
+        <h2 className="text-sm font-semibold text-foreground">Connect an agent</h2>
         <p className="text-[13px] text-muted-foreground">{description}</p>
       </div>
 

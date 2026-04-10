@@ -8,13 +8,10 @@ import { getBaseUrl } from "./base-url";
 // Core API client — tools + secrets
 // ---------------------------------------------------------------------------
 
-class ExecutorApiClient extends AtomHttpApi.Tag<ExecutorApiClient>()(
-  "ExecutorApiClient",
-  {
-    api: ExecutorApi,
-    httpClient: FetchHttpClient.layer,
-    baseUrl: getBaseUrl(),
-  },
-) {}
+class ExecutorApiClient extends AtomHttpApi.Tag<ExecutorApiClient>()("ExecutorApiClient", {
+  api: ExecutorApi,
+  httpClient: FetchHttpClient.layer,
+  baseUrl: getBaseUrl(),
+}) {}
 
 export { ExecutorApiClient };

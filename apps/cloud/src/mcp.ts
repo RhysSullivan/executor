@@ -95,11 +95,10 @@ const unauthorized = () =>
 // ---------------------------------------------------------------------------
 
 const jsonRpcError = (status: number, code: number, message: string) =>
-  new Response(
-    JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
-    { status, headers: { "content-type": "application/json" } },
-  );
-
+  new Response(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 /**
  * Route an MCP request to a session DO.
@@ -107,10 +106,7 @@ const jsonRpcError = (status: number, code: number, message: string) =>
  * - No session header → create a new DO (initialize flow)
  * - With session header → route to existing DO
  */
-const handleMcpRequest_POST = async (
-  request: Request,
-  token: VerifiedToken,
-): Promise<Response> => {
+const handleMcpRequest_POST = async (request: Request, token: VerifiedToken): Promise<Response> => {
   if (!token.organizationId) {
     return jsonRpcError(403, -32001, "No organization in session — log in via the web app first");
   }
@@ -165,20 +161,22 @@ const handleMcpRequest_GET = async (request: Request): Promise<Response> => {
 // Main request handler
 // ---------------------------------------------------------------------------
 
-export const handleMcpRequest = async (
-  request: Request,
-): Promise<Response | null> => {
+export const handleMcpRequest = async (request: Request): Promise<Response | null> => {
   const url = new URL(request.url);
   const pathname = url.pathname;
 
   // CORS preflight for MCP paths
-  if (request.method === "OPTIONS" && (pathname === "/mcp" || pathname.startsWith("/.well-known/"))) {
+  if (
+    request.method === "OPTIONS" &&
+    (pathname === "/mcp" || pathname.startsWith("/.well-known/"))
+  ) {
     return new Response(null, {
       status: 204,
       headers: {
         "access-control-allow-origin": "*",
         "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
-        "access-control-allow-headers": "authorization, content-type, mcp-session-id, accept, mcp-protocol-version",
+        "access-control-allow-headers":
+          "authorization, content-type, mcp-session-id, accept, mcp-protocol-version",
         "access-control-expose-headers": "mcp-session-id",
       },
     });

@@ -20,44 +20,54 @@ interface KvRow {
 
 export const makeSqliteKv = (sql: SqlClient.SqlClient): Kv => ({
   get: (namespace, key) =>
-    absorbSql(Effect.gen(function* () {
-      const rows = yield* sql<KvRow>`
+    absorbSql(
+      Effect.gen(function* () {
+        const rows = yield* sql<KvRow>`
         SELECT value FROM kv WHERE namespace = ${namespace} AND key = ${key}
       `;
-      return rows[0]?.value ?? null;
-    })),
+        return rows[0]?.value ?? null;
+      }),
+    ),
 
   set: (namespace, key, value) =>
-    absorbSql(sql`
+    absorbSql(
+      sql`
       INSERT OR REPLACE INTO kv (namespace, key, value)
       VALUES (${namespace}, ${key}, ${value})
-    `.pipe(Effect.asVoid)),
+    `.pipe(Effect.asVoid),
+    ),
 
   delete: (namespace, key) =>
-    absorbSql(Effect.gen(function* () {
-      const before = yield* sql<{ c: number }>`
+    absorbSql(
+      Effect.gen(function* () {
+        const before = yield* sql<{ c: number }>`
         SELECT COUNT(*) as c FROM kv WHERE namespace = ${namespace} AND key = ${key}
       `;
-      yield* sql`DELETE FROM kv WHERE namespace = ${namespace} AND key = ${key}`;
-      return (before[0]?.c ?? 0) > 0;
-    })),
+        yield* sql`DELETE FROM kv WHERE namespace = ${namespace} AND key = ${key}`;
+        return (before[0]?.c ?? 0) > 0;
+      }),
+    ),
 
   list: (namespace) =>
-    absorbSql(Effect.gen(function* () {
-      const rows = yield* sql<KvRow>`
+    absorbSql(
+      Effect.gen(function* () {
+        const rows = yield* sql<KvRow>`
         SELECT key, value FROM kv WHERE namespace = ${namespace}
       `;
-      return rows.map((r) => ({ key: r.key, value: r.value }));
-    })),
+        return rows.map((r) => ({ key: r.key, value: r.value }));
+      }),
+    ),
 
   deleteAll: (namespace) =>
-    absorbSql(Effect.gen(function* () {
-      const before = yield* sql<{ c: number }>`
+    absorbSql(
+      Effect.gen(function* () {
+        const before = yield* sql<{ c: number }>`
         SELECT COUNT(*) as c FROM kv WHERE namespace = ${namespace}
       `;
-      yield* sql`DELETE FROM kv WHERE namespace = ${namespace}`;
-      return before[0]?.c ?? 0;
-    })),
+        yield* sql`DELETE FROM kv WHERE namespace = ${namespace}`;
+        return before[0]?.c ?? 0;
+      }),
+    ),
 
   withTransaction: <A, E>(effect: Effect.Effect<A, E, never>) =>
     absorbSql(
@@ -90,24 +100,25 @@ export const makeInMemoryKv = (): Kv => {
 
   const bucket = (namespace: string) => {
     let m = store.get(namespace);
-    if (!m) { m = new Map(); store.set(namespace, m); }
+    if (!m) {
+      m = new Map();
+      store.set(namespace, m);
+    }
     return m;
   };
 
   return {
-    get: (namespace, key) =>
-      Effect.succeed(bucket(namespace).get(key) ?? null),
+    get: (namespace, key) => Effect.succeed(bucket(namespace).get(key) ?? null),
 
     set: (namespace, key, value) =>
-      Effect.sync(() => { bucket(namespace).set(key, value); }),
+      Effect.sync(() => {
+        bucket(namespace).set(key, value);
+      }),
 
-    delete: (namespace, key) =>
-      Effect.sync(() => bucket(namespace).delete(key)),
+    delete: (namespace, key) => Effect.sync(() => bucket(namespace).delete(key)),
 
     list: (namespace) =>
-      Effect.sync(() =>
-        [...bucket(namespace).entries()].map(([key, value]) => ({ key, value })),
-      ),
+      Effect.sync(() => [...bucket(namespace).entries()].map(([key, value]) => ({ key, value }))),
 
     deleteAll: (namespace) =>
       Effect.sync(() => {

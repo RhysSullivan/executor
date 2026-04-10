@@ -1,10 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
 
-import {
-  createExecutor,
-  makeTestConfig,
-} from "@executor/sdk";
+import { createExecutor, makeTestConfig } from "@executor/sdk";
 import { graphqlPlugin } from "./plugin";
 import type { IntrospectionResult } from "./introspect";
 
@@ -65,7 +62,14 @@ const introspectionResult: IntrospectionResult = {
         inputFields: null,
         enumValues: null,
       },
-      { kind: "SCALAR", name: "String", description: null, fields: null, inputFields: null, enumValues: null },
+      {
+        kind: "SCALAR",
+        name: "String",
+        description: null,
+        fields: null,
+        inputFields: null,
+        enumValues: null,
+      },
     ],
   },
 };
@@ -188,9 +192,7 @@ describe("graphqlPlugin", () => {
     expect(mutationTool).toBeDefined();
 
     // Verify the mutation requires approval via annotations
-    const schema = await Effect.runPromise(
-      executor.tools.schema(mutationTool!.id),
-    );
+    const schema = await Effect.runPromise(executor.tools.schema(mutationTool!.id));
     expect(schema).toBeDefined();
 
     await Effect.runPromise(executor.close());

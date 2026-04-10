@@ -1,65 +1,26 @@
 {
   "name": "@executor/plugin-google-discovery",
-  "type": "module",
   "version": "0.0.1-beta.5",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/google-discovery",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RhysSullivan/executor.git",
     "directory": "packages/plugins/google-discovery"
   },
-  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/google-discovery",
-  "bugs": {
-    "url": "https://github.com/RhysSullivan/executor/issues"
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": "./src/sdk/index.ts",
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
     "./presets": "./src/sdk/presets.ts"
-  },
-  "scripts": {
-    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "dependencies": {
-    "@effect/platform": "catalog:",
-    "@executor/api": "workspace:*",
-    "@executor/sdk": "workspace:*",
-    "effect": "catalog:"
-  },
-  "peerDependencies": {
-    "react": "catalog:",
-    "@effect-atom/atom-react": "^0.5.0",
-    "@tanstack/react-router": "catalog:",
-    "@executor/react": "workspace:*"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "@effect-atom/atom-react": {
-      "optional": true
-    },
-    "@tanstack/react-router": {
-      "optional": true
-    },
-    "@executor/react": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@effect-atom/atom-react": "^0.5.0",
-    "@executor/react": "workspace:*",
-    "@types/node": "catalog:",
-    "@types/react": "catalog:",
-    "bun-types": "catalog:",
-    "react": "catalog:",
-    "vitest": "catalog:",
-    "tsup": "catalog:"
   },
   "publishConfig": {
     "access": "public",
@@ -78,7 +39,46 @@
       }
     }
   },
-  "files": [
-    "dist"
-  ]
+  "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@effect/platform": "catalog:",
+    "@executor/api": "workspace:*",
+    "@executor/sdk": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect-atom/atom-react": "^0.5.0",
+    "@executor/react": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "bun-types": "catalog:",
+    "react": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@effect-atom/atom-react": "^0.5.0",
+    "@executor/react": "workspace:*",
+    "@tanstack/react-router": "catalog:",
+    "react": "catalog:"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "@effect-atom/atom-react": {
+      "optional": true
+    },
+    "@tanstack/react-router": {
+      "optional": true
+    },
+    "@executor/react": {
+      "optional": true
+    }
+  }
 }

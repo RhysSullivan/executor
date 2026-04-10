@@ -15,12 +15,7 @@ export {
 } from "./promise-executor";
 
 // Plugin context services
-export type {
-  ToolRegistry,
-  SourceRegistry,
-  SecretStore,
-  PolicyEngine,
-} from "./promise-executor";
+export type { ToolRegistry, SourceRegistry, SecretStore, PolicyEngine } from "./promise-executor";
 
 // Plugin callback types
 export type {
@@ -31,11 +26,7 @@ export type {
 } from "./promise-executor";
 
 // Invocation
-export type {
-  InvokeOptions,
-  ElicitationHandler,
-  ElicitationResponse,
-} from "./promise-executor";
+export type { InvokeOptions, ElicitationHandler, ElicitationResponse } from "./promise-executor";
 
 // Re-export data classes from the Effect core that users need
 export {

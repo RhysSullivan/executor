@@ -67,9 +67,7 @@ export class SpecPreview extends Schema.Class<SpecPreview>("SpecPreview")({
 // Security scheme extraction
 // ---------------------------------------------------------------------------
 
-const extractSecuritySchemes = (
-  rawSchemes: Record<string, unknown>,
-): SecurityScheme[] =>
+const extractSecuritySchemes = (rawSchemes: Record<string, unknown>): SecurityScheme[] =>
   Object.entries(rawSchemes).flatMap(([name, schemeOrRef]) => {
     if (!schemeOrRef || typeof schemeOrRef !== "object") return [];
     const scheme = schemeOrRef as Record<string, unknown>;
@@ -83,9 +81,7 @@ const extractSecuritySchemes = (
         name,
         type: type as "http" | "apiKey" | "oauth2" | "openIdConnect",
         scheme: Option.fromNullable(scheme.scheme as string | undefined),
-        in: Option.fromNullable(
-          scheme.in as "header" | "query" | "cookie" | undefined,
-        ),
+        in: Option.fromNullable(scheme.in as "header" | "query" | "cookie" | undefined),
         headerName: Option.fromNullable(scheme.name as string | undefined),
         description: Option.fromNullable(scheme.description as string | undefined),
       }),
@@ -135,14 +131,10 @@ const buildHeaderPresets = (
     }
 
     if (Object.keys(headers).length === 0 && resolved.length > 0) {
-      return [
-        new HeaderPreset({ label: labelParts.join(" + "), headers: {}, secretHeaders: [] }),
-      ];
+      return [new HeaderPreset({ label: labelParts.join(" + "), headers: {}, secretHeaders: [] })];
     }
 
-    return [
-      new HeaderPreset({ label: labelParts.join(" + "), headers, secretHeaders }),
-    ];
+    return [new HeaderPreset({ label: labelParts.join(" + "), headers, secretHeaders })];
   });
 };
 
@@ -164,15 +156,11 @@ const collectTags = (result: ExtractionResult): string[] => {
 
 /** Preview an OpenAPI spec — extract metadata without registering anything.
  *  Reuses parse() + extract() for the heavy lifting. */
-export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (
-  specText: string,
-) {
+export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (specText: string) {
   const doc = yield* parse(specText);
   const result = yield* extract(doc);
 
-  const securitySchemes = extractSecuritySchemes(
-    doc.components?.securitySchemes ?? {},
-  );
+  const securitySchemes = extractSecuritySchemes(doc.components?.securitySchemes ?? {});
 
   const rawSecurity = (doc.security ?? []) as Array<Record<string, unknown>>;
   const authStrategies = rawSecurity.map(

@@ -57,12 +57,12 @@ export const makeInMemoryScopedKv = (): ScopedKv => {
   const store = new Map<string, string>();
   return {
     get: (key) => Effect.succeed(store.get(key) ?? null),
-    set: (key, value) => Effect.sync(() => { store.set(key, value); }),
+    set: (key, value) =>
+      Effect.sync(() => {
+        store.set(key, value);
+      }),
     delete: (key) => Effect.sync(() => store.delete(key)),
-    list: () =>
-      Effect.sync(() =>
-        [...store.entries()].map(([key, value]) => ({ key, value })),
-      ),
+    list: () => Effect.sync(() => [...store.entries()].map(([key, value]) => ({ key, value }))),
     deleteAll: () =>
       Effect.sync(() => {
         const n = store.size;

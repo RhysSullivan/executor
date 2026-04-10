@@ -10,11 +10,8 @@ import { OnePasswordGroup } from "../api/group";
 
 const OnePasswordApi = addGroup(OnePasswordGroup);
 
-export const OnePasswordClient = AtomHttpApi.Tag<"OnePasswordClient">()(
-  "OnePasswordClient",
-  {
-    api: OnePasswordApi,
-    httpClient: FetchHttpClient.layer,
-    baseUrl: getBaseUrl(),
-  },
-);
+export const OnePasswordClient = AtomHttpApi.Tag<"OnePasswordClient">()("OnePasswordClient", {
+  api: OnePasswordApi,
+  httpClient: FetchHttpClient.layer,
+  baseUrl: getBaseUrl(),
+});

@@ -75,7 +75,7 @@ const runCommand = async (input: CommandInput): Promise<CommandOutput> => {
 };
 
 const readVersion = async (): Promise<string> => {
-  const pkg = await Bun.file(versionPackagePath).json() as { version?: string };
+  const pkg = (await Bun.file(versionPackagePath).json()) as { version?: string };
   const version = pkg.version?.trim();
 
   if (!version) {
@@ -147,15 +147,14 @@ const packWrapperPackage = async (): Promise<string> => {
   return destinationPath;
 };
 
-const collectReleaseAssetPaths = async (wrapperArchivePath: string): Promise<ReadonlyArray<string>> => {
+const collectReleaseAssetPaths = async (
+  wrapperArchivePath: string,
+): Promise<ReadonlyArray<string>> => {
   const assetNames = (await readdir(distDir))
     .filter((entry) => /^executor-.*\.(?:tar\.gz|zip)$/.test(entry))
     .sort();
 
-  return [
-    wrapperArchivePath,
-    ...assetNames.map((entry) => join(distDir, entry)),
-  ];
+  return [wrapperArchivePath, ...assetNames.map((entry) => join(distDir, entry))];
 };
 
 const githubReleaseExists = async (tag: string, repository: string): Promise<boolean> => {
@@ -182,7 +181,15 @@ const syncGitHubRelease = async (input: {
   if (await githubReleaseExists(input.tag, repository)) {
     await runCommand({
       command: "gh",
-      args: ["release", "upload", input.tag, ...input.assetPaths, "--repo", repository, "--clobber"],
+      args: [
+        "release",
+        "upload",
+        input.tag,
+        ...input.assetPaths,
+        "--repo",
+        repository,
+        "--clobber",
+      ],
       cwd: repoRoot,
     });
     return;

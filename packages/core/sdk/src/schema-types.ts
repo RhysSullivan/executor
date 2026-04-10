@@ -22,20 +22,15 @@ const asRecord = (value: unknown): JsonSchemaRecord =>
     : {};
 
 const asStringArray = (value: unknown): Array<string> =>
-  Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 
 const truncate = (value: string, maxLength: number): string =>
-  value.length <= maxLength
-    ? value
-    : `${value.slice(0, Math.max(0, maxLength - 4))} ...`;
+  value.length <= maxLength ? value : `${value.slice(0, Math.max(0, maxLength - 4))} ...`;
 
 const formatPropertyKey = (value: string): string =>
   VALID_IDENTIFIER_PATTERN.test(value) ? value : JSON.stringify(value);
 
-const refNameFromPointer = (ref: string): string | undefined =>
-  ref.match(REF_PATTERN)?.[1];
+const refNameFromPointer = (ref: string): string | undefined => ref.match(REF_PATTERN)?.[1];
 
 const refFallbackLabel = (ref: string): string =>
   refNameFromPointer(ref) ?? ref.split("/").at(-1) ?? ref;
@@ -156,9 +151,7 @@ export const schemaToTypeScriptPreviewWithDefs = (
 
     if (typeof current.$ref === "string") {
       const refLabel = refFallbackLabel(current.$ref);
-      return input.refDepthRemaining > 0
-        ? refLabel
-        : `unknown /* ${refLabel} omitted */`;
+      return input.refDepthRemaining > 0 ? refLabel : `unknown /* ${refLabel} omitted */`;
     }
 
     if ("const" in current) {
@@ -167,10 +160,7 @@ export const schemaToTypeScriptPreviewWithDefs = (
 
     const enumValues = Array.isArray(current.enum) ? current.enum : [];
     if (enumValues.length > 0) {
-      return truncate(
-        enumValues.map((value) => JSON.stringify(value)).join(" | "),
-        maxLength,
-      );
+      return truncate(enumValues.map((value) => JSON.stringify(value)).join(" | "), maxLength);
     }
 
     const largeComposite = summarizeLargeComposite(current, maxCompositeMembers);
@@ -191,14 +181,14 @@ export const schemaToTypeScriptPreviewWithDefs = (
         schema: current,
         render: (value) => renderNested(value),
         depthRemaining: input.depthRemaining,
-      })
-      ?? renderComposite({
+      }) ??
+      renderComposite({
         key: "anyOf",
         schema: current,
         render: (value) => renderNested(value),
         depthRemaining: input.depthRemaining,
-      })
-      ?? renderComposite({
+      }) ??
+      renderComposite({
         key: "allOf",
         schema: current,
         render: (value) => renderNested(value),
@@ -223,10 +213,10 @@ export const schemaToTypeScriptPreviewWithDefs = (
     if (current.type === "array") {
       const itemLabel = current.items
         ? render({
-          currentInput: current.items,
-          depthRemaining: input.depthRemaining - 1,
-          refDepthRemaining: input.refDepthRemaining,
-        })
+            currentInput: current.items,
+            depthRemaining: input.depthRemaining - 1,
+            refDepthRemaining: input.refDepthRemaining,
+          })
         : "unknown";
       return truncate(`${itemLabel}[]`, maxLength);
     }
@@ -240,10 +230,10 @@ export const schemaToTypeScriptPreviewWithDefs = (
       const additionalPropertiesLabel =
         additionalProperties && typeof additionalProperties === "object"
           ? render({
-            currentInput: additionalProperties,
-            depthRemaining: input.depthRemaining - 1,
-            refDepthRemaining: input.refDepthRemaining,
-          })
+              currentInput: additionalProperties,
+              depthRemaining: input.depthRemaining - 1,
+              refDepthRemaining: input.refDepthRemaining,
+            })
           : additionalProperties === true
             ? "unknown"
             : null;
@@ -257,12 +247,13 @@ export const schemaToTypeScriptPreviewWithDefs = (
       }
 
       const visibleKeys = propertyKeys.slice(0, maxProperties);
-      const parts = visibleKeys.map((key) =>
-        `${formatPropertyKey(key)}${required.has(key) ? "" : "?"}: ${render({
-          currentInput: properties[key],
-          depthRemaining: input.depthRemaining - 1,
-          refDepthRemaining: input.refDepthRemaining,
-        })}`
+      const parts = visibleKeys.map(
+        (key) =>
+          `${formatPropertyKey(key)}${required.has(key) ? "" : "?"}: ${render({
+            currentInput: properties[key],
+            depthRemaining: input.depthRemaining - 1,
+            refDepthRemaining: input.refDepthRemaining,
+          })}`,
       );
 
       if (visibleKeys.length < propertyKeys.length) {
@@ -295,10 +286,7 @@ export const schemaToTypeScriptPreviewWithDefs = (
 
   const referencedDepths = new Map<string, number>();
 
-  const collectPreviewRefs = (
-    currentInput: unknown,
-    refDepth: number,
-  ): void => {
+  const collectPreviewRefs = (currentInput: unknown, refDepth: number): void => {
     const current = asRecord(currentInput);
 
     if (summarizeLargeComposite(current, maxCompositeMembers)) {
@@ -353,11 +341,16 @@ export const schemaToTypeScriptPreviewWithDefs = (
           return [];
         }
 
-        return [[name, render({
-          currentInput: target,
-          depthRemaining: maxDepth,
-          refDepthRemaining: Math.max(0, maxRefDepth - refDepth),
-        })]] as const;
+        return [
+          [
+            name,
+            render({
+              currentInput: target,
+              depthRemaining: maxDepth,
+              refDepthRemaining: Math.max(0, maxRefDepth - refDepth),
+            }),
+          ],
+        ] as const;
       }),
   );
 

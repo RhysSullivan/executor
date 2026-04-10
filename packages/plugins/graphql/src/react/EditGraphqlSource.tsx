@@ -78,14 +78,19 @@ function EditForm(props: {
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-card-foreground">{props.sourceId}</p>
         </div>
-        <Badge variant="secondary" className="text-[10px]">GraphQL</Badge>
+        <Badge variant="secondary" className="text-[10px]">
+          GraphQL
+        </Badge>
       </div>
 
       <section className="space-y-2">
         <Label>Endpoint</Label>
         <Input
           value={endpoint}
-          onChange={(e) => { setEndpoint((e.target as HTMLInputElement).value); setDirty(true); }}
+          onChange={(e) => {
+            setEndpoint((e.target as HTMLInputElement).value);
+            setDirty(true);
+          }}
           placeholder="https://api.example.com/graphql"
           className="font-mono text-sm"
         />
@@ -102,11 +107,22 @@ function EditForm(props: {
             secretId={h.secretId}
             onChange={(update) => updateHeader(i, update)}
             onSelectSecret={(secretId) => updateHeader(i, { secretId })}
-            onRemove={() => { setHeaders((prev) => prev.filter((_, j) => j !== i)); setDirty(true); }}
+            onRemove={() => {
+              setHeaders((prev) => prev.filter((_, j) => j !== i));
+              setDirty(true);
+            }}
             existingSecrets={secretList}
           />
         ))}
-        <Button variant="outline" size="sm" className="w-full border-dashed" onClick={() => { setHeaders((prev) => [...prev, { name: "", secretId: null }]); setDirty(true); }}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full border-dashed"
+          onClick={() => {
+            setHeaders((prev) => [...prev, { name: "", secretId: null }]);
+            setDirty(true);
+          }}
+        >
           + Add header
         </Button>
       </section>
@@ -118,7 +134,9 @@ function EditForm(props: {
       )}
 
       <div className="flex items-center justify-between border-t border-border pt-4">
-        <Button variant="ghost" onClick={props.onSave}>Cancel</Button>
+        <Button variant="ghost" onClick={props.onSave}>
+          Cancel
+        </Button>
         <Button onClick={handleSave} disabled={!dirty || saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
@@ -131,10 +149,7 @@ function EditForm(props: {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function EditGraphqlSource(props: {
-  sourceId: string;
-  onSave: () => void;
-}) {
+export default function EditGraphqlSource(props: { sourceId: string; onSave: () => void }) {
   const scopeId = useScope();
   const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId));
 

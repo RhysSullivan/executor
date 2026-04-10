@@ -26,10 +26,7 @@ const executor = makeQuickJsExecutor({ timeoutMs: 5_000 });
 describe("quickjs executor", () => {
   it.effect("runs plain code", () =>
     Effect.gen(function* () {
-      const result = yield* executor.execute(
-        `return 1 + 2`,
-        makeTestInvoker({}),
-      );
+      const result = yield* executor.execute(`return 1 + 2`, makeTestInvoker({}));
       expect(result.result).toBe(3);
       expect(result.error).toBeUndefined();
     }),

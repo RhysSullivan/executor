@@ -8,7 +8,9 @@ import type { IntrospectionResult } from "./introspect";
 // Minimal introspection fixture
 // ---------------------------------------------------------------------------
 
-const makeIntrospection = (overrides?: Partial<IntrospectionResult["__schema"]>): IntrospectionResult => ({
+const makeIntrospection = (
+  overrides?: Partial<IntrospectionResult["__schema"]>,
+): IntrospectionResult => ({
   __schema: {
     queryType: { name: "Query" },
     mutationType: { name: "Mutation" },
@@ -25,7 +27,11 @@ const makeIntrospection = (overrides?: Partial<IntrospectionResult["__schema"]>)
               {
                 name: "id",
                 description: "User ID",
-                type: { kind: "NON_NULL", name: null, ofType: { kind: "SCALAR", name: "ID", ofType: null } },
+                type: {
+                  kind: "NON_NULL",
+                  name: null,
+                  ofType: { kind: "SCALAR", name: "ID", ofType: null },
+                },
                 defaultValue: null,
               },
             ],
@@ -61,7 +67,11 @@ const makeIntrospection = (overrides?: Partial<IntrospectionResult["__schema"]>)
               {
                 name: "name",
                 description: null,
-                type: { kind: "NON_NULL", name: null, ofType: { kind: "SCALAR", name: "String", ofType: null } },
+                type: {
+                  kind: "NON_NULL",
+                  name: null,
+                  ofType: { kind: "SCALAR", name: "String", ofType: null },
+                },
                 defaultValue: null,
               },
               {
@@ -82,16 +92,56 @@ const makeIntrospection = (overrides?: Partial<IntrospectionResult["__schema"]>)
         name: "User",
         description: null,
         fields: [
-          { name: "id", description: null, args: [], type: { kind: "NON_NULL", name: null, ofType: { kind: "SCALAR", name: "ID", ofType: null } } },
-          { name: "name", description: null, args: [], type: { kind: "SCALAR", name: "String", ofType: null } },
-          { name: "email", description: null, args: [], type: { kind: "SCALAR", name: "String", ofType: null } },
+          {
+            name: "id",
+            description: null,
+            args: [],
+            type: {
+              kind: "NON_NULL",
+              name: null,
+              ofType: { kind: "SCALAR", name: "ID", ofType: null },
+            },
+          },
+          {
+            name: "name",
+            description: null,
+            args: [],
+            type: { kind: "SCALAR", name: "String", ofType: null },
+          },
+          {
+            name: "email",
+            description: null,
+            args: [],
+            type: { kind: "SCALAR", name: "String", ofType: null },
+          },
         ],
         inputFields: null,
         enumValues: null,
       },
-      { kind: "SCALAR", name: "ID", description: null, fields: null, inputFields: null, enumValues: null },
-      { kind: "SCALAR", name: "String", description: null, fields: null, inputFields: null, enumValues: null },
-      { kind: "SCALAR", name: "Boolean", description: null, fields: null, inputFields: null, enumValues: null },
+      {
+        kind: "SCALAR",
+        name: "ID",
+        description: null,
+        fields: null,
+        inputFields: null,
+        enumValues: null,
+      },
+      {
+        kind: "SCALAR",
+        name: "String",
+        description: null,
+        fields: null,
+        inputFields: null,
+        enumValues: null,
+      },
+      {
+        kind: "SCALAR",
+        name: "Boolean",
+        description: null,
+        fields: null,
+        inputFields: null,
+        enumValues: null,
+      },
     ],
     ...overrides,
   },
@@ -142,18 +192,14 @@ describe("extract", () => {
   });
 
   it("handles schema with no mutations", async () => {
-    const { result } = await Effect.runPromise(
-      extract(makeIntrospection({ mutationType: null })),
-    );
+    const { result } = await Effect.runPromise(extract(makeIntrospection({ mutationType: null })));
 
     const mutations = result.fields.filter((f) => f.kind === "mutation");
     expect(mutations).toHaveLength(0);
   });
 
   it("handles empty query type", async () => {
-    const { result } = await Effect.runPromise(
-      extract(makeIntrospection({ queryType: null })),
-    );
+    const { result } = await Effect.runPromise(extract(makeIntrospection({ queryType: null })));
 
     const queries = result.fields.filter((f) => f.kind === "query");
     expect(queries).toHaveLength(0);
@@ -227,13 +273,32 @@ describe("extract", () => {
             name: "Issue",
             description: null,
             fields: [
-              { name: "id", description: null, args: [], type: { kind: "SCALAR", name: "ID", ofType: null } },
+              {
+                name: "id",
+                description: null,
+                args: [],
+                type: { kind: "SCALAR", name: "ID", ofType: null },
+              },
             ],
             inputFields: null,
             enumValues: null,
           },
-          { kind: "SCALAR", name: "String", description: null, fields: null, inputFields: null, enumValues: null },
-          { kind: "SCALAR", name: "ID", description: null, fields: null, inputFields: null, enumValues: null },
+          {
+            kind: "SCALAR",
+            name: "String",
+            description: null,
+            fields: null,
+            inputFields: null,
+            enumValues: null,
+          },
+          {
+            kind: "SCALAR",
+            name: "ID",
+            description: null,
+            fields: null,
+            inputFields: null,
+            enumValues: null,
+          },
         ],
       },
     };

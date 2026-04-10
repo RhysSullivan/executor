@@ -36,12 +36,6 @@ export const onepasswordVaultsAtom = (
 // Mutation atoms
 // ---------------------------------------------------------------------------
 
-export const configureOnePassword = OnePasswordClient.mutation(
-  "onepassword",
-  "configure",
-);
+export const configureOnePassword = OnePasswordClient.mutation("onepassword", "configure");
 
-export const removeOnePasswordConfig = OnePasswordClient.mutation(
-  "onepassword",
-  "removeConfig",
-);
+export const removeOnePasswordConfig = OnePasswordClient.mutation("onepassword", "removeConfig");

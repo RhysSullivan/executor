@@ -13,14 +13,9 @@ export type OAuth2TokenResponse = {
 };
 
 const encodeBase64Url = (input: Buffer): string =>
-  input
-    .toString("base64")
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
+  input.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 
-export const createPkceCodeVerifier = (): string =>
-  encodeBase64Url(randomBytes(48));
+export const createPkceCodeVerifier = (): string => encodeBase64Url(randomBytes(48));
 
 const createPkceCodeChallenge = (verifier: string): string =>
   encodeBase64Url(createHash("sha256").update(verifier).digest());
@@ -39,33 +34,24 @@ export const buildGoogleAuthorizationUrl = (input: {
   url.searchParams.set("scope", input.scopes.join(" "));
   url.searchParams.set("state", input.state);
   url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set(
-    "code_challenge",
-    createPkceCodeChallenge(input.codeVerifier),
-  );
+  url.searchParams.set("code_challenge", createPkceCodeChallenge(input.codeVerifier));
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("prompt", "consent");
   return url.toString();
 };
 
-const decodeTokenResponse = async (
-  response: Response,
-): Promise<OAuth2TokenResponse> => {
+const decodeTokenResponse = async (response: Response): Promise<OAuth2TokenResponse> => {
   const rawText = await response.text();
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawText);
   } catch {
-    throw new Error(
-      `OAuth token endpoint returned non-JSON response (${response.status})`,
-    );
+    throw new Error(`OAuth token endpoint returned non-JSON response (${response.status})`);
   }
 
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(
-      `OAuth token endpoint returned invalid JSON payload (${response.status})`,
-    );
+    throw new Error(`OAuth token endpoint returned invalid JSON payload (${response.status})`);
   }
 
   const record = parsed as Record<string, unknown>;
@@ -90,12 +76,8 @@ const decodeTokenResponse = async (
 
   return {
     access_token: accessToken,
-    token_type:
-      typeof record.token_type === "string" ? record.token_type : undefined,
-    refresh_token:
-      typeof record.refresh_token === "string"
-        ? record.refresh_token
-        : undefined,
+    token_type: typeof record.token_type === "string" ? record.token_type : undefined,
+    refresh_token: typeof record.refresh_token === "string" ? record.refresh_token : undefined,
     expires_in:
       typeof record.expires_in === "number"
         ? record.expires_in

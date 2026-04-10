@@ -4,45 +4,43 @@
   "compatibility_date": "2025-04-01",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/server.ts",
-  "routes": [
-    { "pattern": "executor.sh", "custom_domain": true }
-  ],
+  "routes": [{ "pattern": "executor.sh", "custom_domain": true }],
   "limits": {
-    "cpu_ms": 300000
+    "cpu_ms": 300000,
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "durable_objects": {
     "bindings": [
       {
         "name": "MCP_SESSION",
-        "class_name": "McpSessionDO"
-      }
-    ]
+        "class_name": "McpSessionDO",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["McpSessionDO"]
-    }
+      "new_classes": ["McpSessionDO"],
+    },
   ],
   "services": [
     {
       "binding": "MARKETING",
-      "service": "executor-marketing"
-    }
+      "service": "executor-marketing",
+    },
   ],
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
       "id": "776c27dfec5f47f59343603b35a7b4c2",
-      "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5433/postgres"
-    }
+      "localConnectionString": "postgresql://postgres:postgres@127.0.0.1:5433/postgres",
+    },
   ],
   "worker_loaders": [
     {
-      "binding": "LOADER"
-    }
-  ]
+      "binding": "LOADER",
+    },
+  ],
 }

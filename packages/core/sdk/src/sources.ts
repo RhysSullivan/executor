@@ -25,7 +25,9 @@ export class Source extends Schema.Class<Source>("Source")({
 // SourceDetectionResult — returned by detect() on a SourceManager
 // ---------------------------------------------------------------------------
 
-export class SourceDetectionResult extends Schema.Class<SourceDetectionResult>("SourceDetectionResult")({
+export class SourceDetectionResult extends Schema.Class<SourceDetectionResult>(
+  "SourceDetectionResult",
+)({
   /** Plugin kind that detected this source */
   kind: Schema.String,
   /** How confident the plugin is that the URL matches */
@@ -66,9 +68,7 @@ export interface SourceManager {
 // SourceRegistry — core service, coordinates across all plugins
 // ---------------------------------------------------------------------------
 
-export class SourceRegistry extends Context.Tag(
-  "@executor/sdk/SourceRegistry",
-)<
+export class SourceRegistry extends Context.Tag("@executor/sdk/SourceRegistry")<
   SourceRegistry,
   {
     /** Register a source manager (called by plugins during init) */

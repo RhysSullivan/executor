@@ -7,9 +7,7 @@ export class ToolNotFoundError extends Schema.TaggedError<ToolNotFoundError>()(
   { toolId: ToolId },
 ) {}
 
-export class ToolInvocationError extends Data.TaggedError(
-  "ToolInvocationError",
-)<{
+export class ToolInvocationError extends Data.TaggedError("ToolInvocationError")<{
   readonly toolId: ToolId;
   readonly message: string;
   readonly cause?: unknown;

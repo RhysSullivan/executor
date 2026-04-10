@@ -29,10 +29,7 @@ const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(StoredSourceSchem
 // Implementation
 // ---------------------------------------------------------------------------
 
-const makeStore = (
-  bindings: ScopedKv,
-  sources: ScopedKv,
-): GraphqlOperationStore => ({
+const makeStore = (bindings: ScopedKv, sources: ScopedKv): GraphqlOperationStore => ({
   get: (toolId) =>
     Effect.gen(function* () {
       const raw = yield* bindings.get(toolId);
@@ -42,10 +39,7 @@ const makeStore = (
     }),
 
   put: (toolId, namespace, binding, config) =>
-    bindings.set(
-      toolId,
-      encodeEntry(new StoredEntry({ namespace, binding, config })),
-    ),
+    bindings.set(toolId, encodeEntry(new StoredEntry({ namespace, binding, config }))),
 
   remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
 
@@ -74,11 +68,9 @@ const makeStore = (
       return ids;
     }),
 
-  putSource: (source) =>
-    sources.set(source.namespace, encodeSource(source)),
+  putSource: (source) => sources.set(source.namespace, encodeSource(source)),
 
-  removeSource: (namespace) =>
-    sources.delete(namespace).pipe(Effect.asVoid),
+  removeSource: (namespace) => sources.delete(namespace).pipe(Effect.asVoid),
 
   listSources: () =>
     Effect.gen(function* () {
@@ -106,17 +98,8 @@ const makeStore = (
 // Factory
 // ---------------------------------------------------------------------------
 
-export const makeKvOperationStore = (
-  kv: Kv,
-  namespace: string,
-): GraphqlOperationStore =>
-  makeStore(
-    scopeKv(kv, `${namespace}.bindings`),
-    scopeKv(kv, `${namespace}.sources`),
-  );
+export const makeKvOperationStore = (kv: Kv, namespace: string): GraphqlOperationStore =>
+  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
 
 export const makeInMemoryOperationStore = (): GraphqlOperationStore =>
-  makeStore(
-    makeInMemoryScopedKv(),
-    makeInMemoryScopedKv(),
-  );
+  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

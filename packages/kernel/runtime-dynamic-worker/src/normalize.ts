@@ -5,8 +5,7 @@
  * function suitable for embedding inside the WorkerEntrypoint template.
  */
 
-const FENCED_CODE =
-  /^```(?:js|javascript|typescript|ts|tsx|jsx)?\s*\n([\s\S]*?)```\s*$/;
+const FENCED_CODE = /^```(?:js|javascript|typescript|ts|tsx|jsx)?\s*\n([\s\S]*?)```\s*$/;
 
 const stripCodeFences = (code: string): string => {
   const match = code.match(FENCED_CODE);
@@ -22,8 +21,7 @@ const stripCodeFences = (code: string): string => {
  * that it evaluates to a callable.
  */
 const looksLikeArrowFunction = (source: string): boolean =>
-  (source.startsWith("async") || source.startsWith("(")) &&
-  source.includes("=>");
+  (source.startsWith("async") || source.startsWith("(")) && source.includes("=>");
 
 /**
  * Detect a single named function declaration (sync or async).
@@ -47,9 +45,7 @@ export const normalizeCode = (code: string): string => {
 
   // Single named function declaration — wrap and call.
   if (looksLikeFunctionDeclaration(source)) {
-    const nameMatch = source.match(
-      /^(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/,
-    );
+    const nameMatch = source.match(/^(?:async\s+)?function\s+([a-zA-Z_$][a-zA-Z0-9_$]*)/);
     const name = nameMatch?.[1] ?? "fn";
     return `async () => {\n${source}\nreturn ${name}();\n}`;
   }

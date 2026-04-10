@@ -58,24 +58,27 @@ const DetectResultResponse = Schema.Struct({
 
 export class SourcesApi extends HttpApiGroup.make("sources")
   .add(
-    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/sources`
-      .addSuccess(Schema.Array(SourceResponse)),
+    HttpApiEndpoint.get("list")`/scopes/${scopeIdParam}/sources`.addSuccess(
+      Schema.Array(SourceResponse),
+    ),
   )
   .add(
-    HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`
-      .addSuccess(SourceRemoveResponse),
+    HttpApiEndpoint.del("remove")`/scopes/${scopeIdParam}/sources/${sourceIdParam}`.addSuccess(
+      SourceRemoveResponse,
+    ),
   )
   .add(
-    HttpApiEndpoint.post("refresh")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/refresh`
-      .addSuccess(SourceRefreshResponse),
+    HttpApiEndpoint.post(
+      "refresh",
+    )`/scopes/${scopeIdParam}/sources/${sourceIdParam}/refresh`.addSuccess(SourceRefreshResponse),
   )
   .add(
-    HttpApiEndpoint.get("tools")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/tools`
-      .addSuccess(Schema.Array(ToolMetadataResponse)),
+    HttpApiEndpoint.get("tools")`/scopes/${scopeIdParam}/sources/${sourceIdParam}/tools`.addSuccess(
+      Schema.Array(ToolMetadataResponse),
+    ),
   )
   .add(
     HttpApiEndpoint.post("detect")`/scopes/${scopeIdParam}/sources/detect`
       .setPayload(DetectRequest)
       .addSuccess(Schema.Array(DetectResultResponse)),
-  )
-  {}
+  ) {}

@@ -11,13 +11,8 @@ export const GoogleDiscoveryHttpMethod = Schema.Literal(
 );
 export type GoogleDiscoveryHttpMethod = typeof GoogleDiscoveryHttpMethod.Type;
 
-export const GoogleDiscoveryParameterLocation = Schema.Literal(
-  "path",
-  "query",
-  "header",
-);
-export type GoogleDiscoveryParameterLocation =
-  typeof GoogleDiscoveryParameterLocation.Type;
+export const GoogleDiscoveryParameterLocation = Schema.Literal("path", "query", "header");
+export type GoogleDiscoveryParameterLocation = typeof GoogleDiscoveryParameterLocation.Type;
 
 export class GoogleDiscoveryParameter extends Schema.Class<GoogleDiscoveryParameter>(
   "GoogleDiscoveryParameter",
@@ -58,10 +53,9 @@ export class GoogleDiscoveryManifest extends Schema.Class<GoogleDiscoveryManifes
   version: Schema.String,
   rootUrl: Schema.String,
   servicePath: Schema.String,
-  oauthScopes: Schema.optionalWith(
-    Schema.Record({ key: Schema.String, value: Schema.String }),
-    { as: "Option" },
-  ),
+  oauthScopes: Schema.optionalWith(Schema.Record({ key: Schema.String, value: Schema.String }), {
+    as: "Option",
+  }),
   schemaDefinitions: Schema.Record({ key: Schema.String, value: Schema.Unknown }),
   methods: Schema.Array(GoogleDiscoveryManifestMethod),
 }) {}

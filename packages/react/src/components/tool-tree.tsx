@@ -156,9 +156,7 @@ function TreeNodeView(props: {
     );
   }
 
-  const sorted = [...node.children.values()].sort((a, b) =>
-    a.segment.localeCompare(b.segment),
-  );
+  const sorted = [...node.children.values()].sort((a, b) => a.segment.localeCompare(b.segment));
   const leafCount = countLeaves(node);
 
   return (
@@ -178,12 +176,7 @@ function TreeNodeView(props: {
           <path d="M2 1l4 3-4 3z" fill="currentColor" />
         </svg>
         <svg viewBox="0 0 16 16" className="size-3 shrink-0 text-muted-foreground/30">
-          <path
-            d="M2 4h5l2 2h5v7H2V4z"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.2"
-          />
+          <path d="M2 4h5l2 2h5v7H2V4z" fill="none" stroke="currentColor" strokeWidth="1.2" />
         </svg>
         <span className="flex-1 truncate font-mono text-foreground/70">
           {highlightMatch(node.segment, search)}
@@ -304,9 +297,7 @@ export function ToolTree(props: {
     return () => document.removeEventListener("keydown", handler);
   }, [search]);
 
-  const entries = [...tree.children.values()].sort((a, b) =>
-    a.segment.localeCompare(b.segment),
-  );
+  const entries = [...tree.children.values()].sort((a, b) => a.segment.localeCompare(b.segment));
 
   return (
     <div className="flex h-full flex-col">
@@ -315,7 +306,12 @@ export function ToolTree(props: {
         <div className="flex h-8 items-center gap-2 rounded-md border border-input bg-background px-2.5">
           <svg viewBox="0 0 16 16" className="size-3.5 shrink-0 text-muted-foreground/40">
             <circle cx="6.5" cy="6.5" r="5" fill="none" stroke="currentColor" strokeWidth="1.2" />
-            <path d="M10 10l4.5 4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+            <path
+              d="M10 10l4.5 4.5"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
           </svg>
           <input
             ref={searchRef}

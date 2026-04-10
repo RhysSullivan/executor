@@ -51,7 +51,11 @@ const decodeServerInfo = Schema.decodeUnknownOption(ServerInfo);
 // ---------------------------------------------------------------------------
 
 const sanitize = (value: string): string => {
-  const s = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const s = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
   return s || "tool";
 };
 
@@ -66,10 +70,7 @@ const uniqueId = (value: string, seen: Map<string, number>): string => {
 // Public API
 // ---------------------------------------------------------------------------
 
-export const joinToolPath = (
-  namespace: string | undefined,
-  toolId: string,
-): string =>
+export const joinToolPath = (namespace: string | undefined, toolId: string): string =>
   namespace?.trim() ? `${namespace}.${toolId}` : toolId;
 
 export const extractManifestFromListToolsResult = (
@@ -78,15 +79,14 @@ export const extractManifestFromListToolsResult = (
 ): McpToolManifest => {
   const seen = new Map<string, number>();
 
-  const listed = decodeListToolsResult(listToolsResult).pipe(
-    (opt) => (opt._tag === "Some" ? opt.value.tools : []),
+  const listed = decodeListToolsResult(listToolsResult).pipe((opt) =>
+    opt._tag === "Some" ? opt.value.tools : [],
   );
 
-  const server = decodeServerInfo(metadata?.serverInfo).pipe(
-    (opt): McpServerMetadata | null =>
-      opt._tag === "Some"
-        ? { name: opt.value.name ?? null, version: opt.value.version ?? null }
-        : null,
+  const server = decodeServerInfo(metadata?.serverInfo).pipe((opt): McpServerMetadata | null =>
+    opt._tag === "Some"
+      ? { name: opt.value.name ?? null, version: opt.value.version ?? null }
+      : null,
   );
 
   const tools = listed.flatMap((tool): McpToolManifestEntry[] => {
@@ -112,7 +112,10 @@ export const extractManifestFromListToolsResult = (
 // ---------------------------------------------------------------------------
 
 const slugify = (value: string): string =>
-  value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 
 const hostnameOf = (url: string): string | null => {
   try {
@@ -122,8 +125,7 @@ const hostnameOf = (url: string): string | null => {
   }
 };
 
-const basenameOf = (path: string): string =>
-  path.trim().split(/[\\/]/).pop() ?? path.trim();
+const basenameOf = (path: string): string => path.trim().split(/[\\/]/).pop() ?? path.trim();
 
 export const deriveMcpNamespace = (input: {
   name?: string | null;
@@ -132,9 +134,7 @@ export const deriveMcpNamespace = (input: {
 }): string => {
   if (input.name?.trim()) return slugify(input.name) || "mcp";
 
-  const fromEndpoint = input.endpoint?.trim()
-    ? hostnameOf(input.endpoint)
-    : null;
+  const fromEndpoint = input.endpoint?.trim() ? hostnameOf(input.endpoint) : null;
   if (fromEndpoint) return slugify(fromEndpoint) || "mcp";
 
   if (input.command?.trim()) return slugify(basenameOf(input.command)) || "mcp";

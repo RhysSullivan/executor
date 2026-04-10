@@ -5,12 +5,8 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "lib": [
-      "ES2022"
-    ],
-    "types": [
-      "node"
-    ],
+    "lib": ["ES2022"],
+    "types": ["node"],
     "noUnusedLocals": true,
     "noImplicitOverride": true,
     "plugins": [
@@ -22,8 +18,5 @@
       }
     ]
   },
-  "include": [
-    "src/api/**/*.ts",
-    "src/sdk/**/*.ts"
-  ]
+  "include": ["src/api/**/*.ts", "src/sdk/**/*.ts"]
 }

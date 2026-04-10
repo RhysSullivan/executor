@@ -10,13 +10,10 @@ import { CloudAuthApi } from "../auth/api";
 
 const CloudApi = addGroup(CloudAuthApi);
 
-class CloudApiClient extends AtomHttpApi.Tag<CloudApiClient>()(
-  "CloudApiClient",
-  {
-    api: CloudApi,
-    httpClient: FetchHttpClient.layer,
-    baseUrl: getBaseUrl(),
-  },
-) {}
+class CloudApiClient extends AtomHttpApi.Tag<CloudApiClient>()("CloudApiClient", {
+  api: CloudApi,
+  httpClient: FetchHttpClient.layer,
+  baseUrl: getBaseUrl(),
+}) {}
 
 export { CloudApiClient };

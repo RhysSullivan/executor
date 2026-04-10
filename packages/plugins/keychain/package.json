@@ -1,38 +1,23 @@
 {
   "name": "@executor/plugin-keychain",
-  "type": "module",
   "version": "0.0.1-beta.5",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/keychain",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RhysSullivan/executor.git",
     "directory": "packages/plugins/keychain"
   },
-  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/keychain",
-  "bugs": {
-    "url": "https://github.com/RhysSullivan/executor/issues"
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./promise": "./src/promise.ts"
-  },
-  "scripts": {
-    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
-    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "dependencies": {
-    "@napi-rs/keyring": "^1.2.0",
-    "@executor/sdk": "workspace:*",
-    "effect": "catalog:"
-  },
-  "devDependencies": {
-    "@effect/vitest": "catalog:",
-    "@types/node": "catalog:",
-    "bun-types": "catalog:",
-    "vitest": "catalog:",
-    "tsup": "catalog:"
   },
   "publishConfig": {
     "access": "public",
@@ -51,7 +36,22 @@
       }
     }
   },
-  "files": [
-    "dist"
-  ]
+  "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
+    "typecheck": "bunx tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@executor/sdk": "workspace:*",
+    "@napi-rs/keyring": "^1.2.0",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "bun-types": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:"
+  }
 }

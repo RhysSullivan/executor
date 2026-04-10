@@ -15,9 +15,7 @@ export class OpenApiExtractionError extends Schema.TaggedError<OpenApiExtraction
   },
 ) {}
 
-export class OpenApiInvocationError extends Data.TaggedError(
-  "OpenApiInvocationError",
-)<{
+export class OpenApiInvocationError extends Data.TaggedError("OpenApiInvocationError")<{
   readonly message: string;
   readonly statusCode: Option.Option<number>;
   readonly cause?: unknown;

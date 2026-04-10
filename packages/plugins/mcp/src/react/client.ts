@@ -10,11 +10,8 @@ import { McpGroup } from "../api/group";
 
 const McpApi = addGroup(McpGroup);
 
-export const McpClient = AtomHttpApi.Tag<"McpClient">()(
-  "McpClient",
-  {
-    api: McpApi,
-    httpClient: FetchHttpClient.layer,
-    baseUrl: getBaseUrl(),
-  },
-);
+export const McpClient = AtomHttpApi.Tag<"McpClient">()("McpClient", {
+  api: McpApi,
+  httpClient: FetchHttpClient.layer,
+  baseUrl: getBaseUrl(),
+});

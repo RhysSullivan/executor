@@ -1,8 +1,8 @@
 {
   "name": "@executor/codemode-core",
+  "version": "1.4.2",
   "private": true,
   "type": "module",
-  "version": "1.4.2",
   "exports": {
     ".": "./src/index.ts"
   },

@@ -55,7 +55,10 @@ const isRef = (value: unknown): value is { $ref: string } =>
 // ---------------------------------------------------------------------------
 
 export const resolveBaseUrl = (
-  servers: readonly { url: string; variables: import("effect/Option").Option<Record<string, string>> }[],
+  servers: readonly {
+    url: string;
+    variables: import("effect/Option").Option<Record<string, string>>;
+  }[],
 ): string => {
   const server = servers[0];
   if (!server) return "";

@@ -64,12 +64,7 @@ const weatherPlugin = definePlugin({
 
 const executor = await createExecutor({
   scope: { name: "my-app" },
-  plugins: [
-    mcpPlugin(),
-    openApiPlugin(),
-    graphqlPlugin(),
-    weatherPlugin,
-  ] as const,
+  plugins: [mcpPlugin(), openApiPlugin(), graphqlPlugin(), weatherPlugin] as const,
 });
 
 // ---------------------------------------------------------------------------

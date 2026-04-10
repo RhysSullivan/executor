@@ -29,11 +29,7 @@ function CopyButton(props: { text: string; label?: string }) {
       className="size-6 shrink-0 flex items-center justify-center text-muted-foreground/30 hover:text-muted-foreground transition-colors"
       title={props.label ?? "Copy"}
     >
-      {copied ? (
-        <Check className="size-3.5 shrink-0" />
-      ) : (
-        <Copy className="size-3.5 shrink-0" />
-      )}
+      {copied ? <Check className="size-3.5 shrink-0" /> : <Copy className="size-3.5 shrink-0" />}
     </button>
   );
 }
@@ -52,7 +48,8 @@ const friendlyName = (name: string): string => {
 
 const breadcrumbParts = (name: string): string[] =>
   name.split(".").map((p) =>
-    p.replace(/([a-z])([A-Z])/g, "$1 $2")
+    p
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
       .replace(/[_-]/g, " ")
       .replace(/\b\w/g, (c) => c.toUpperCase()),
   );
@@ -67,9 +64,7 @@ export function ToolDetail(props: {
   toolDescription?: string;
   scopeId: ScopeId;
 }) {
-  const toolContract = useAtomValue(
-    toolSchemaAtom(props.scopeId, props.toolId as ToolId),
-  );
+  const toolContract = useAtomValue(toolSchemaAtom(props.scopeId, props.toolId as ToolId));
   const [tab, setTab] = useState<"schema" | "typescript">("schema");
 
   const data = useMemo(() => {
@@ -83,12 +78,8 @@ export function ToolDetail(props: {
     return {
       inputSchema: v.inputSchema,
       outputSchema: v.outputSchema,
-      inputTypeScript: v.inputTypeScript
-        ? `type Input = ${v.inputTypeScript}`
-        : null,
-      outputTypeScript: v.outputTypeScript
-        ? `type Output = ${v.outputTypeScript}`
-        : null,
+      inputTypeScript: v.inputTypeScript ? `type Input = ${v.inputTypeScript}` : null,
+      outputTypeScript: v.outputTypeScript ? `type Output = ${v.outputTypeScript}` : null,
       definitions,
     };
   }, [toolContract, props.toolName]);
@@ -112,9 +103,7 @@ export function ToolDetail(props: {
             </div>
           )}
           <div className="mt-1 flex items-center gap-2">
-            <h3 className="text-base font-semibold text-foreground truncate">
-              {displayName}
-            </h3>
+            <h3 className="text-base font-semibold text-foreground truncate">{displayName}</h3>
             <CopyButton text={props.toolId} label="Copy tool ID" />
           </div>
           {props.toolDescription && (
@@ -160,12 +149,8 @@ export function ToolDetail(props: {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {Result.match(toolContract, {
-          onInitial: () => (
-            <div className="p-5 text-sm text-muted-foreground">Loading…</div>
-          ),
-          onFailure: () => (
-            <div className="p-5 text-sm text-destructive">Something went wrong</div>
-          ),
+          onInitial: () => <div className="p-5 text-sm text-muted-foreground">Loading…</div>,
+          onFailure: () => <div className="p-5 text-sm text-destructive">Something went wrong</div>,
           onSuccess: () =>
             tab === "schema" ? (
               <div className="px-5 py-5 space-y-6">

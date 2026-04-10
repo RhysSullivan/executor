@@ -1,10 +1,7 @@
 {
   "name": "@executor/marketing",
-  "type": "module",
   "version": "0.0.3",
-  "engines": {
-    "node": ">=22.12.0"
-  },
+  "type": "module",
   "scripts": {
     "dev": "portless run --name executor-marketing astro dev",
     "build": "astro build",
@@ -12,19 +9,22 @@
     "deploy": "astro build && npx wrangler deploy --config dist/server/wrangler.json",
     "astro": "astro"
   },
-  "devDependencies": {
-    "portless": "^0.10.1",
-    "wrangler": "^4.0.0"
-  },
   "dependencies": {
     "@astrojs/cloudflare": "^13.0.0",
-    "@executor/sdk": "workspace:*",
-    "@executor/plugin-openapi": "workspace:*",
-    "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-google-discovery": "workspace:*",
+    "@executor/plugin-graphql": "workspace:*",
+    "@executor/plugin-openapi": "workspace:*",
+    "@executor/sdk": "workspace:*",
     "@tailwindcss/vite": "^4.2.2",
     "astro": "^6.1.3",
     "effect": "^3.14.16",
     "tailwindcss": "^4.2.2"
+  },
+  "devDependencies": {
+    "portless": "^0.10.1",
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

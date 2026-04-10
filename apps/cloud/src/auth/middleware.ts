@@ -47,16 +47,13 @@ export class NoOrganization extends Schema.TaggedError<NoOrganization>()(
 // SessionAuth — resolves the WorkOS session cookie, provides SessionContext
 // ---------------------------------------------------------------------------
 
-export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()(
-  "SessionAuth",
-  {
-    failure: Unauthorized,
-    provides: SessionContext,
-    security: {
-      cookie: HttpApiSecurity.apiKey({ in: "cookie", key: "wos-session" }),
-    },
+export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()("SessionAuth", {
+  failure: Unauthorized,
+  provides: SessionContext,
+  security: {
+    cookie: HttpApiSecurity.apiKey({ in: "cookie", key: "wos-session" }),
   },
-) {}
+}) {}
 
 // ---------------------------------------------------------------------------
 // OrgAuth — like SessionAuth but rejects sessions with no organization

@@ -1,8 +1,4 @@
-import {
-  createHighlighterCore,
-  type HighlighterCore,
-  type LanguageInput,
-} from "shiki/core";
+import { createHighlighterCore, type HighlighterCore, type LanguageInput } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 
 // ---------------------------------------------------------------------------
@@ -98,10 +94,7 @@ const LANG_LOADERS: Record<SupportedLang, () => LanguageInput> = {
   proto: () => import("@shikijs/langs/proto"),
 };
 
-const supportedSet = new Set<string>([
-  ...SUPPORTED_LANGS,
-  ...Object.keys(LANG_ALIASES),
-]);
+const supportedSet = new Set<string>([...SUPPORTED_LANGS, ...Object.keys(LANG_ALIASES)]);
 
 export const THEME = "vitesse-dark";
 

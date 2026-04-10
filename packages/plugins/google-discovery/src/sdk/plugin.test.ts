@@ -5,12 +5,7 @@ import { resolve } from "node:path";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  createExecutor,
-  makeTestConfig,
-  SecretId,
-  type InvokeOptions,
-} from "@executor/sdk";
+import { createExecutor, makeTestConfig, SecretId, type InvokeOptions } from "@executor/sdk";
 import { googleDiscoveryPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -116,30 +111,24 @@ describe("Google Discovery plugin", () => {
     );
 
     const originalFetch = globalThis.fetch;
-    const fetchMock = vi
-      .spyOn(globalThis, "fetch")
-      .mockImplementation(((
-        input: RequestInfo | URL,
-        init?: RequestInit,
-      ) => {
-        const url =
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.toString()
-              : input.url;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(((
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
-        if (url === "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest") {
-          return Promise.resolve(
-            new Response(fixtureText, {
-              status: 200,
-              headers: { "content-type": "application/json" },
-            }),
-          );
-        }
+      if (url === "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest") {
+        return Promise.resolve(
+          new Response(fixtureText, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
 
-        return originalFetch(input, init);
-      }) as typeof fetch);
+      return originalFetch(input, init);
+    }) as typeof fetch);
 
     try {
       const result = await Effect.runPromise(
@@ -210,38 +199,32 @@ describe("Google Discovery plugin", () => {
       );
 
       const originalFetch = globalThis.fetch;
-      const fetchMock = vi
-        .spyOn(globalThis, "fetch")
-        .mockImplementation(((
-          input: RequestInfo | URL,
-          init?: RequestInit,
-        ) => {
-          const url =
-            typeof input === "string"
-              ? input
-              : input instanceof URL
-                ? input.toString()
-                : input.url;
-          if (url === "https://oauth2.googleapis.com/token") {
-            expect(init?.method).toBe("POST");
-            return Promise.resolve(
-              new Response(
-                JSON.stringify({
-                  access_token: "access-token-value",
-                  refresh_token: "refresh-token-value",
-                  token_type: "Bearer",
-                  expires_in: 3600,
-                  scope: "https://www.googleapis.com/auth/drive",
-                }),
-                {
-                  status: 200,
-                  headers: { "content-type": "application/json" },
-                },
-              ),
-            );
-          }
-          return originalFetch(input, init);
-        }) as typeof fetch);
+      const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(((
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (url === "https://oauth2.googleapis.com/token") {
+          expect(init?.method).toBe("POST");
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                access_token: "access-token-value",
+                refresh_token: "refresh-token-value",
+                token_type: "Bearer",
+                expires_in: 3600,
+                scope: "https://www.googleapis.com/auth/drive",
+              }),
+              {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              },
+            ),
+          );
+        }
+        return originalFetch(input, init);
+      }) as typeof fetch);
 
       try {
         const started = await Effect.runPromise(

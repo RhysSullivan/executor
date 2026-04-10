@@ -15,5 +15,4 @@ export class GoogleDiscoveryStoredSourceSchema extends Schema.Class<GoogleDiscov
   config: GoogleDiscoveryStoredSourceData,
 }) {}
 
-export type GoogleDiscoveryStoredSourceSchemaType =
-  typeof GoogleDiscoveryStoredSourceSchema.Type;
+export type GoogleDiscoveryStoredSourceSchemaType = typeof GoogleDiscoveryStoredSourceSchema.Type;

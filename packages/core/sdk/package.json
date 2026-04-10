@@ -1,17 +1,20 @@
 {
   "name": "@executor/sdk",
   "version": "0.0.1-beta.5",
-  "type": "module",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/sdk",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RhysSullivan/executor.git",
     "directory": "packages/core/sdk"
   },
-  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/sdk",
-  "bugs": {
-    "url": "https://github.com/RhysSullivan/executor/issues"
-  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./promise": "./src/promise.ts"
@@ -33,9 +36,6 @@
       }
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsc --noEmit",
@@ -48,7 +48,7 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "tsup": "catalog:",
-    "vitest": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
