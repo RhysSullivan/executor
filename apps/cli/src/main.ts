@@ -7,20 +7,30 @@ if (process.env.PATH && !process.env.PATH.includes(execDir)) {
 
 // Pre-load QuickJS WASM for compiled binaries — must run before server imports
 const wasmOnDisk = join(execDir, "emscripten-module.wasm");
-if (typeof Bun !== "undefined" && await Bun.file(wasmOnDisk).exists()) {
+if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
   const { setQuickJSModule } = await import("@executor/runtime-quickjs");
   const { newQuickJSWASMModule } = await import("quickjs-emscripten");
   const wasmBinary = await Bun.file(wasmOnDisk).arrayBuffer();
   const variant = {
     type: "sync" as const,
-    importFFI: () => import("@jitl/quickjs-wasmfile-release-sync/ffi").then((m: any) => m.QuickJSFFI),
+    importFFI: () =>
+      import("@jitl/quickjs-wasmfile-release-sync/ffi").then(
+        (m: unknown) => (m as { readonly QuickJSFFI: unknown }).QuickJSFFI,
+      ),
     importModuleLoader: () =>
-      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then((m: any) => {
-        const original = m.default;
-        return (moduleArg: any = {}) => original({ ...moduleArg, wasmBinary });
+      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then((m: unknown) => {
+        const original = (
+          m as {
+            readonly default: (moduleArg?: Readonly<Record<string, unknown>>) => unknown;
+          }
+        ).default;
+        return (moduleArg: Readonly<Record<string, unknown>> = {}) =>
+          original({ ...moduleArg, wasmBinary });
       }),
   };
-  const mod = await newQuickJSWASMModule(variant as any);
+  const mod = await newQuickJSWASMModule(
+    variant as unknown as Parameters<typeof newQuickJSWASMModule>[0],
+  );
   setQuickJSModule(mod);
 }
 
@@ -34,6 +44,7 @@ import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor/api";
 import { startServer, runMcpStdioServer, getExecutor } from "@executor/local";
+import { makeServiceCommand } from "@executor/plugin-launchd";
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 import embeddedWebUI from "./embedded-web-ui.gen";
@@ -106,9 +117,7 @@ const makeApiClient = (baseUrl: string) =>
 
 const runForegroundSession = (input: { port: number }) =>
   Effect.gen(function* () {
-    const server = yield* Effect.promise(() =>
-      startServer({ port: input.port, embeddedWebUI }),
-    );
+    const server = yield* Effect.promise(() => startServer({ port: input.port, embeddedWebUI }));
 
     const baseUrl = `http://localhost:${server.port}`;
     console.log(`Executor is ready.`);
@@ -201,7 +210,9 @@ const callCommand = Command.make(
         }
       } else {
         console.log(result.text);
-        const executionId = (result.structured as any)?.executionId;
+        const structured = result.structured as { readonly executionId?: unknown } | undefined;
+        const executionId =
+          typeof structured?.executionId === "string" ? structured.executionId : undefined;
         if (executionId) {
           console.log(
             `\nTo resume:\n  ${cliPrefix} resume --execution-id ${executionId} --action accept`,
@@ -259,16 +270,15 @@ const webCommand = Command.make(
     port: Options.integer("port").pipe(Options.withDefault(DEFAULT_PORT)),
     scope,
   },
-  ({ port, scope }) => Effect.gen(function* () {
-    applyScope(scope);
-    yield* runForegroundSession({ port });
-  }),
+  ({ port, scope }) =>
+    Effect.gen(function* () {
+      applyScope(scope);
+      yield* runForegroundSession({ port });
+    }),
 ).pipe(Command.withDescription("Start a foreground web session"));
 
-const mcpCommand = Command.make(
-  "mcp",
-  { scope },
-  ({ scope }) => Effect.gen(function* () {
+const mcpCommand = Command.make("mcp", { scope }, ({ scope }) =>
+  Effect.gen(function* () {
     applyScope(scope);
     yield* runStdioMcpSession();
   }),
@@ -278,8 +288,17 @@ const mcpCommand = Command.make(
 // Root command
 // ---------------------------------------------------------------------------
 
+// Host-contributed commands; future host plugin work can replace this seam.
+const hostCommandFactories = [makeServiceCommand()] as const;
+
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([callCommand, resumeCommand, webCommand, mcpCommand] as const),
+  Command.withSubcommands([
+    callCommand,
+    resumeCommand,
+    webCommand,
+    mcpCommand,
+    ...hostCommandFactories,
+  ] as const),
   Command.withDescription("Executor local CLI"),
 );
 
