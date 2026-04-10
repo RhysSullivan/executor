@@ -39,7 +39,9 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): GraphqlOperationStore
     }),
 
   put: (toolId, namespace, binding, config) =>
-    bindings.set([{ key: toolId, value: encodeEntry(new StoredEntry({ namespace, binding, config })) }]),
+    bindings.set([
+      { key: toolId, value: encodeEntry(new StoredEntry({ namespace, binding, config })) },
+    ]),
 
   remove: (toolId) => bindings.delete([toolId]).pipe(Effect.asVoid),
 
