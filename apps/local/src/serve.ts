@@ -106,6 +106,17 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
   const server = Bun.serve({
     port,
     hostname: "127.0.0.1",
+    // Bun's default idleTimeout is 10 seconds (see `ServerConfig.zig`), which
+    // is too short for the MCP streamable-HTTP transport on `/mcp` and the
+    // executor's own `/api/executions` pause/resume flow: a single tool call
+    // may legitimately spend longer than that awaiting an elicitation
+    // response, running a long sandboxed computation, or holding the
+    // connection open while a human approves. `idleTimeout: 0` disables the
+    // idle timeout entirely — verified in `bun-usockets/src/socket.c`'s
+    // `us_socket_timeout`, where `seconds == 0` sets the internal timeout
+    // field to the sentinel 255 which never fires. The MCP/HTTP clients are
+    // responsible for their own per-request timeouts.
+    idleTimeout: 0,
     routes: { ...staticRoutes },
     async fetch(req) {
       if (!isAllowedHost(req)) {
