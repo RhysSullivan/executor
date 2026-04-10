@@ -74,23 +74,27 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     name: "DigitalOcean",
     summary: "Droplets, Kubernetes, databases, and networking.",
     url: "https://raw.githubusercontent.com/digitalocean/openapi/main/specification/DigitalOcean-public.v2.yaml",
+    icon: "https://assets.digitalocean.com/favicon.ico",
   },
   {
     id: "petstore",
     name: "Petstore",
     summary: "Classic OpenAPI demo — no auth required.",
     url: "https://petstore3.swagger.io/api/v3/openapi.json",
+    icon: "https://petstore3.swagger.io/favicon-32x32.png",
   },
   {
     id: "val-town",
     name: "Val Town",
     summary: "Vals, runs, blobs, and email/web endpoints.",
     url: "https://api.val.town/openapi.json",
+    icon: "https://www.val.town/favicon.svg",
   },
   {
     id: "resend",
     name: "Resend",
     summary: "Transactional email sending and domain management.",
     url: "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml",
+    icon: "https://resend.com/static/favicons/favicon.ico",
   },
 ];
