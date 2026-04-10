@@ -259,33 +259,8 @@ const handleAutumnRequest = async (request: Request): Promise<Response> => {
 // Widget token endpoint — returns a WorkOS widget token for the session user
 // ---------------------------------------------------------------------------
 
-const handleWidgetTokenRequest = async (request: Request): Promise<Response> => {
-  const program = Effect.gen(function* () {
-    const workos = yield* WorkOSAuth;
-    const result = yield* workos.authenticateRequest(request);
-
-    if (!result || !result.organizationId) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const token = yield* workos.getWidgetToken(result.userId, result.organizationId);
-    return Response.json({ token });
-  });
-
-  return Effect.runPromise(program.pipe(Effect.provide(SharedServices), Effect.scoped)).catch(
-    (err) => {
-      console.error("[widget-token] request failed:", err instanceof Error ? err.stack : err);
-      return Response.json({ error: "Internal server error" }, { status: 500 });
-    },
-  );
-};
-
 export const handleApiRequest = async (request: Request): Promise<Response> => {
   const pathname = new URL(request.url).pathname;
-
-  if (pathname === "/widget-token") {
-    return handleWidgetTokenRequest(request);
-  }
 
   if (isTeamPath(pathname)) {
     const handler = createTeamHandler();

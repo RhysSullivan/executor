@@ -139,16 +139,6 @@ const make = Effect.gen(function* () {
         return yield* authenticateSealedSession(sessionData);
       }),
 
-    /** Generate a widget token for the UsersManagement widget. */
-    getWidgetToken: (userId: string, organizationId: string) =>
-      use((wos) =>
-        wos.widgets.getToken({
-          userId,
-          organizationId,
-          scopes: ["widgets:users-table:manage"],
-        }),
-      ),
-
     /** List organization memberships with user details. */
     listOrgMembers: (organizationId: string) =>
       use((wos) =>
