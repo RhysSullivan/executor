@@ -317,40 +317,13 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     );
 
   /**
-   * Start an execution in the pause/resume mode. Forks the sandbox
-   * onto its own fiber and waits for either completion or the first
-   * elicitation pause.
-   *
-   * The sandbox fiber MUST outlive the outer `runPromise` that drives this
-   * effect. Over HTTP (and any host that drives `executeWithPause` and
-   * `resume` from separate contexts) each call runs in its own top-level
-   * `Effect.runPromise`. If we used `Effect.fork`, the sandbox fiber would
-   * attach to the first runPromise's root fiber via a `Local` `FiberScope`,
-   * and that root fiber's `FiberRuntime.evaluateEffect` would call
-   * `interruptAllChildren()` on exit — sending an interrupt signal to the
-   * sandbox before the pause result is even returned to the caller.
-   *
-   * The subsequent `resume` would then race `Fiber.join(paused.fiber)`
-   * against `Deferred.await(nextSignal)`. With a dead sandbox, join returns
-   * the interrupt exit (converted to a defect by `Effect.orDie` in
-   * `awaitCompletionOrPause`). `Effect.race`'s `onSelfDone` on failure
-   * waits for the loser, but nothing ever signals the next pause Deferred:
-   * the tool's continuation runs on a SEPARATE root fiber that the quickjs
-   * sandbox bridge spawns per tool call via its own `Effect.runPromise`
-   * (see `__executor_invokeTool` in `@executor/runtime-quickjs`), and once
-   * that completes with no further elicitations, `nextSignal` is never
-   * filled. The resume HTTP call hangs forever. The underlying HTTP side
-   * effect of the tool can still succeed in this window — producing
-   * "phantom writes" where the upstream observes the mutation but the
-   * caller never sees the response.
-   *
-   * `Effect.forkDaemon` attaches the sandbox fiber to the global
-   * `FiberScope` instead of the parent's children set, so the parent's
-   * `interruptAllChildren` on exit does not touch it. FiberRefs and
-   * Context are copied at fork time, so the daemon is fully independent
-   * of the driving runPromise's lifetime. Regression test: `"resume
-   * returns across separate runPromise boundaries for a single-elicit
-   * tool"` in `tool-invoker.test.ts`.
+   * Start an execution in the pause/resume mode. Forks the sandbox as a
+   * daemon (not a regular `Effect.fork`) because the logical lifetime of a
+   * paused execution outlives any single `runPromise` that drives it — each
+   * HTTP call (`executeWithPause`, `resume`) is its own top-level
+   * `runPromise`, and a local-scoped fork would be interrupted by the
+   * parent's `interruptAllChildren` the moment the first call returns. See
+   * the `"HTTP-like"` regression test in `tool-invoker.test.ts`.
    */
   const startPausableExecution = (code: string): Effect.Effect<ExecutionResult> =>
     Effect.gen(function* () {

@@ -363,29 +363,11 @@ describe("pause/resume with multiple elicitations", () => {
     { timeout: 10000 },
   );
 
-  // Regression test for a fiber-scoping bug that the `it.effect` test above
-  // does NOT catch, for two reasons stacked on each other:
-  //
-  //   1. `it.effect` wraps the whole body in a single `Effect.gen` → single
-  //      `Effect.runPromise`, so the first call's root fiber is still alive
-  //      when resume runs. The HTTP API (and any host that drives
-  //      `executeWithPause` and `resume` from separate contexts) runs each
-  //      call in its own top-level `runPromise`.
-  //
-  //   2. `multiApproval` elicits twice. If the sandbox fiber were attached
-  //      to the first runPromise's scope (via `Effect.fork`), it would be
-  //      interrupted between the two calls. The resume's
-  //      `awaitCompletionOrPause` would then race a dead `Fiber.join`
-  //      against `Deferred.await(nextSignal)`. With a double-elicit tool
-  //      the second elicit eventually fills `nextSignal` (from the invoker
-  //      fiber spawned on a separate root by the quickjs sandbox bridge)
-  //      and the race completes — hiding the bug.
-  //
-  // A single-elicit tool (matching the Gmail shape) has nothing to produce
-  // a second pause signal, so with `Effect.fork` the resume hangs forever
-  // waiting on a Deferred that will never be filled. The fix is to use
-  // `Effect.forkDaemon` at the fork site in engine.ts; see the JSDoc on
-  // `startPausableExecution` for the full trace.
+  // Regression: each engine call must run in its own top-level
+  // `runPromise` to reproduce the HTTP shape. Uses a single-elicit tool so
+  // nothing can accidentally unstick a dead-fiber race via a second
+  // elicitation (which is what masks the bug in the `multiApproval` test
+  // above).
   it(
     "resume returns across separate runPromise boundaries for a single-elicit tool (HTTP-like)",
     async () => {
@@ -394,21 +376,13 @@ describe("pause/resume with multiple elicitations", () => {
 
       const code = "return await tools.api.singleApproval({});";
 
-      // First call — own runPromise. Sandbox fiber is forked here.
       const outcome1 = await engine.executeWithPause(code);
       expect(outcome1.status).toBe("paused");
       const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
       expect(paused1.execution.elicitationContext.request.message).toBe("Only approval");
 
-      // Assert the sandbox fiber is still alive across the runPromise
-      // boundary. Under `Effect.fork`, it would already be `Done` with an
-      // `Interrupt` exit cause here (its parent's `interruptAllChildren()`
-      // ran on exit). Under `Effect.forkDaemon`, it is attached to the
-      // global FiberScope and remains suspended on the response Deferred
-      // inside the elicitation handler.
-      //
-      // `execution.fiber` is on the internal paused shape, not the public
-      // `PausedExecution` type exported from the engine — cast to read it.
+      // `execution.fiber` is on `InternalPausedExecution`; the exported
+      // `PausedExecution` type doesn't carry it. Cast to read.
       const sandboxFiber = (
         paused1.execution as unknown as {
           readonly fiber: Fiber.Fiber<unknown, unknown>;
@@ -422,21 +396,11 @@ describe("pause/resume with multiple elicitations", () => {
       );
       expect(exitProbe).toBe("still-running");
 
-      // Second call — another top-level runPromise. With the tool only
-      // eliciting once, the only way this can return is for `Fiber.join`
-      // inside `awaitCompletionOrPause` to see a CLEAN completion from the
-      // sandbox fiber. That requires the sandbox fiber to still be alive
-      // going into resume.
       const outcome2 = await Promise.race([
         engine.resume(paused1.execution.id, { action: "accept" }),
         new Promise<never>((_, reject) =>
           setTimeout(
-            () =>
-              reject(
-                new Error(
-                  "resume hung across runPromise boundaries — sandbox fiber was interrupted by the first runPromise's exit. Fix: use Effect.forkDaemon in startPausableExecution.",
-                ),
-              ),
+            () => reject(new Error("resume hung across runPromise boundaries")),
             2000,
           ),
         ),
@@ -444,7 +408,6 @@ describe("pause/resume with multiple elicitations", () => {
 
       expect(outcome2).not.toBeNull();
       const resumed = outcome2 as NonNullable<typeof outcome2>;
-      // Single-elicit tool completes after one approval.
       expect(resumed.status).toBe("completed");
       if (resumed.status === "completed") {
         expect(resumed.result.error).toBeUndefined();
