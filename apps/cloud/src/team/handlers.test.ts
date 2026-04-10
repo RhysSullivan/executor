@@ -10,12 +10,12 @@ import { Forbidden } from "./api";
 // ---------------------------------------------------------------------------
 
 type StubOverrides = {
-  listOrgMembers?: (...args: any[]) => Effect.Effect<any>;
-  getUser?: (...args: any[]) => Effect.Effect<any>;
-  sendInvitation?: (...args: any[]) => Effect.Effect<any>;
-  deleteOrgMembership?: (...args: any[]) => Effect.Effect<any>;
-  updateOrgMembershipRole?: (...args: any[]) => Effect.Effect<any>;
-  listOrgRoles?: (...args: any[]) => Effect.Effect<any>;
+  listOrgMembers?: (...args: unknown[]) => Effect.Effect<unknown>;
+  getUser?: (...args: unknown[]) => Effect.Effect<unknown>;
+  sendInvitation?: (...args: unknown[]) => Effect.Effect<unknown>;
+  deleteOrgMembership?: (...args: unknown[]) => Effect.Effect<unknown>;
+  updateOrgMembershipRole?: (...args: unknown[]) => Effect.Effect<unknown>;
+  listOrgRoles?: (...args: unknown[]) => Effect.Effect<unknown>;
 };
 
 const stubWorkOS = (overrides: StubOverrides = {}) =>
@@ -51,12 +51,16 @@ const memberAuth = {
   avatarUrl: null,
 };
 
-const fakeMemberships = [
+type FakeMembership = { id: string; userId: string; status: string; role: { slug: string } };
+type FakeUser = { email: string; firstName: string | null; lastName: string | null; profilePictureUrl: string | null; lastSignInAt: string | null };
+type FakeRole = { slug: string; name: string };
+
+const fakeMemberships: FakeMembership[] = [
   { id: "mem_admin", userId: "user_admin", status: "active", role: { slug: "admin" } },
   { id: "mem_member", userId: "user_member", status: "active", role: { slug: "member" } },
 ];
 
-const fakeUsers: Record<string, any> = {
+const fakeUsers: Record<string, FakeUser> = {
   user_admin: {
     email: "admin@test.com",
     firstName: "Admin",
@@ -73,7 +77,7 @@ const fakeUsers: Record<string, any> = {
   },
 };
 
-const fakeRoles = [
+const fakeRoles: FakeRole[] = [
   { slug: "admin", name: "Admin" },
   { slug: "member", name: "Member" },
 ];
@@ -86,7 +90,7 @@ const requireAdmin = Effect.gen(function* () {
   const auth = yield* AuthContext;
   const workos = yield* WorkOSAuth;
   const memberships = yield* workos.listOrgMembers(auth.organizationId);
-  const current = memberships.data.find((m: any) => m.userId === auth.accountId);
+  const current = memberships.data.find((m: FakeMembership) => m.userId === auth.accountId);
   if (!current || current.role?.slug !== "admin") {
     return yield* new Forbidden();
   }
@@ -111,7 +115,7 @@ describe("Team handlers", () => {
         const workos = yield* WorkOSAuth;
         const result = yield* workos.listOrgMembers(auth.organizationId);
         const members = yield* Effect.all(
-          result.data.map((m: any) =>
+          result.data.map((m: FakeMembership) =>
             Effect.gen(function* () {
               const user = yield* workos.getUser(m.userId);
               return {
@@ -144,7 +148,7 @@ describe("Team handlers", () => {
         const auth = yield* AuthContext;
         const workos = yield* WorkOSAuth;
         const result = yield* workos.listOrgRoles(auth.organizationId);
-        const roles = result.data.map((r: any) => ({ slug: r.slug, name: r.name }));
+        const roles = result.data.map((r: FakeRole) => ({ slug: r.slug, name: r.name }));
 
         expect(roles).toEqual(fakeRoles);
       }).pipe(
@@ -186,7 +190,7 @@ describe("Team handlers", () => {
         Effect.provide(
           provide(adminAuth, {
             ...withMembers,
-            sendInvitation: (p: any) => Effect.succeed({ id: "inv_1", email: p.email }),
+            sendInvitation: (p: { email: string }) => Effect.succeed({ id: "inv_1", email: p.email }),
           }),
         ),
       ),
