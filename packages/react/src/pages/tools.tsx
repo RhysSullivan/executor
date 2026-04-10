@@ -1,6 +1,7 @@
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { toolsAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
+import { Badge } from "../components/badge";
 
 export function ToolsPage() {
   const scopeId = useScope();
@@ -61,9 +62,7 @@ export function ToolsPage() {
                         </p>
                       )}
                     </div>
-                    <span className="shrink-0 rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-                      {t.sourceId}
-                    </span>
+                    <Badge variant="secondary">{t.sourceId}</Badge>
                   </div>
                 ))}
               </div>

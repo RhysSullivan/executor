@@ -44,7 +44,7 @@ export const mcpPresets: readonly McpPreset[] = [
     name: "Browserbase",
     summary: "Cloud browser sessions for web scraping and automation.",
     url: "https://mcp.browserbase.com/mcp",
-    icon: "https://www.browserbase.com/icon.svg",
+    icon: "https://www.browserbase.com/favicon.ico",
     featured: true,
   },
   {
@@ -92,7 +92,7 @@ export const mcpPresets: readonly McpPreset[] = [
     name: "Sentry",
     summary: "Error monitoring, issues, and performance data.",
     url: "https://mcp.sentry.dev/mcp",
-    icon: "https://sentry.io/_assets/favicon.ico",
+    icon: "https://sentry-brand.storage.googleapis.com/sentry-glyph-black.png",
   },
   {
     id: "cloudflare",

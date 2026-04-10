@@ -13,6 +13,7 @@ import {
   DialogClose,
 } from "@executor/react/components/dialog";
 import { Button } from "@executor/react/components/button";
+import { Badge } from "@executor/react/components/badge";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import {
@@ -214,14 +215,12 @@ function TeamPage() {
                           {member.name ?? member.email}
                         </p>
                         {member.isCurrentUser && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground leading-none">
-                            You
-                          </span>
+                          <Badge className="bg-muted text-muted-foreground">You</Badge>
                         )}
                         {member.status === "pending" && (
-                          <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-600 dark:text-amber-400 leading-none">
+                          <Badge className="bg-amber-500/10 text-amber-600 dark:text-amber-400">
                             Invited
-                          </span>
+                          </Badge>
                         )}
                       </div>
                       {member.name && (
