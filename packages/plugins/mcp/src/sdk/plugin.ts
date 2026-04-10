@@ -21,6 +21,7 @@ import {
 import {
   makeInMemoryBindingStore,
   type McpBindingStore,
+  type McpStoredSource,
 } from "./binding-store";
 import {
   createMcpConnector,
@@ -110,6 +111,13 @@ export interface McpProbeResult {
   readonly serverName: string | null;
 }
 
+export interface McpUpdateSourceInput {
+  readonly endpoint?: string;
+  readonly headers?: Record<string, string>;
+  readonly queryParams?: Record<string, string>;
+  readonly auth?: McpConnectionAuth;
+}
+
 export interface McpPluginExtension {
   readonly probeEndpoint: (
     endpoint: string,
@@ -135,6 +143,17 @@ export interface McpPluginExtension {
   readonly completeOAuth: (
     input: McpOAuthCompleteInput,
   ) => Effect.Effect<McpOAuthCompleteResponse, Error>;
+
+  /** Fetch the full stored source by namespace (or null if missing) */
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<McpStoredSource | null>;
+
+  /** Update config for an existing remote MCP source */
+  readonly updateSource: (
+    namespace: string,
+    input: McpUpdateSourceInput,
+  ) => Effect.Effect<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,9 +315,15 @@ export const mcpPlugin = (options?: {
         // Restore source metadata
         const savedSources = yield* bindingStore.listSources();
         for (const s of savedSources) {
+          const isRemote = s.config.transport === "remote";
           addedSources.set(
             s.namespace,
-            new Source({ id: s.namespace, name: s.name, kind: "mcp" }),
+            new Source({
+              id: s.namespace,
+              name: s.name,
+              kind: "mcp",
+              canEdit: isRemote,
+            }),
           );
         }
 
@@ -594,6 +619,7 @@ export const mcpPlugin = (options?: {
                 id: namespace,
                 name: sourceName,
                 kind: "mcp",
+                canEdit: config.transport === "remote",
               }),
             );
 
@@ -769,6 +795,41 @@ export const mcpPlugin = (options?: {
             };
           });
 
+        const updateSource = (namespace: string, input: McpUpdateSourceInput) =>
+          Effect.gen(function* () {
+            const existingConfig = yield* bindingStore.getSourceConfig(namespace);
+            if (!existingConfig || existingConfig.transport !== "remote") return;
+
+            const remote = existingConfig as Extract<McpStoredSourceData, { transport: "remote" }>;
+            const updatedConfig: McpStoredSourceData = {
+              ...remote,
+              ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
+              ...(input.headers !== undefined ? { headers: input.headers } : {}),
+              ...(input.auth !== undefined ? { auth: input.auth } : {}),
+              ...(input.queryParams !== undefined ? { queryParams: input.queryParams } : {}),
+            };
+
+            const sources = yield* bindingStore.listSources();
+            const existingMeta = sources.find((s) => s.namespace === namespace);
+
+            yield* bindingStore.putSource({
+              namespace,
+              name: existingMeta?.name ?? namespace,
+              config: updatedConfig,
+            });
+
+            const toolIds = yield* bindingStore.listByNamespace(namespace);
+            for (const toolId of toolIds) {
+              const entry = yield* bindingStore.get(toolId);
+              if (entry) {
+                yield* bindingStore.put(toolId, namespace, entry.binding, updatedConfig);
+              }
+            }
+          });
+
+        const getSource = (namespace: string) =>
+          bindingStore.getSource(namespace);
+
         return {
           extension: {
             probeEndpoint,
@@ -777,6 +838,8 @@ export const mcpPlugin = (options?: {
             refreshSource,
             startOAuth,
             completeOAuth,
+            getSource,
+            updateSource,
           },
 
           close: () =>

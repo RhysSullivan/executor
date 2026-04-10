@@ -48,6 +48,7 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
+    "@executor/config": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "effect": "catalog:"

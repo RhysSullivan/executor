@@ -2,7 +2,7 @@ import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Context, Effect } from "effect";
 
 import { addGroup } from "@executor/api";
-import type { McpPluginExtension, McpSourceConfig } from "../sdk/plugin";
+import type { McpPluginExtension, McpSourceConfig, McpUpdateSourceInput } from "../sdk/plugin";
 import { McpGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -194,6 +194,24 @@ export const McpHandlers = HttpApiBuilder.group(
             code: payload.code,
             error: payload.error,
           });
+        }).pipe(Effect.orDie),
+      )
+      .handle("getSource", ({ path }) =>
+        Effect.gen(function* () {
+          const ext = yield* McpExtensionService;
+          return yield* ext.getSource(path.namespace);
+        }).pipe(Effect.orDie),
+      )
+      .handle("updateSource", ({ path, payload }) =>
+        Effect.gen(function* () {
+          const ext = yield* McpExtensionService;
+          yield* ext.updateSource(path.namespace, {
+            endpoint: payload.endpoint,
+            headers: payload.headers,
+            queryParams: payload.queryParams,
+            auth: payload.auth as McpUpdateSourceInput["auth"],
+          });
+          return { updated: true };
         }).pipe(Effect.orDie),
       )
       .handle("oauthCallback", ({ urlParams }) =>
