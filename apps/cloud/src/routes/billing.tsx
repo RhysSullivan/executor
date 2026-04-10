@@ -44,7 +44,8 @@ function BillingPage() {
   const tagline = PLAN_TAGLINES[planId] ?? "";
 
   const sub = customer?.subscriptions?.find(
-    (s) => s.planId === (activePlan?.id ?? "free") && (s.status === "active" || s.status === "trialing"),
+    (s) =>
+      s.planId === (activePlan?.id ?? "free") && (s.status === "active" || s.status === "trialing"),
   );
 
   const executions = customer?.balances?.executions;
