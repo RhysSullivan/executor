@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
 import { createHighlighterCore, type HighlighterCore, type LanguageInput } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import { useIsDark } from "../hooks/use-is-dark";
 
 // ---------------------------------------------------------------------------
 // Supported languages — explicit imports to avoid bundling all grammars
@@ -97,9 +97,7 @@ const LANG_LOADERS: Record<SupportedLang, () => LanguageInput> = {
 
 const supportedSet = new Set<string>([...SUPPORTED_LANGS, ...Object.keys(LANG_ALIASES)]);
 
-export const THEME = "github-light";
-
-export const SUPPORTED_THEMES = ["vitesse-dark", "github-dark", "github-light"] as const;
+export const SUPPORTED_THEMES = ["github-dark", "github-light"] as const;
 export type SupportedTheme = (typeof SUPPORTED_THEMES)[number];
 
 export const DEFAULT_LIGHT_THEME: SupportedTheme = "github-light";
@@ -108,27 +106,6 @@ export const DEFAULT_DARK_THEME: SupportedTheme = "github-dark";
 export type ShikiThemeProp =
   | SupportedTheme
   | { light: SupportedTheme; dark: SupportedTheme };
-
-/**
- * Returns `true` when the user's system prefers a dark color scheme.
- * Reactive: updates when the media query changes.
- */
-export function useIsDark(): boolean {
-  const [dark, setDark] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
-  });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mql = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = (event: MediaQueryListEvent) => setDark(event.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
-
-  return dark;
-}
 
 /**
  * Resolve a `ShikiThemeProp` (either a single theme or a `{ light, dark }`
@@ -167,7 +144,6 @@ export function getHighlighter(): Promise<HighlighterCore> {
   if (!_promise) {
     _promise = createHighlighterCore({
       themes: [
-        import("@shikijs/themes/vitesse-dark"),
         import("@shikijs/themes/github-dark"),
         import("@shikijs/themes/github-light"),
       ],
