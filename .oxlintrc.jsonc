@@ -10,9 +10,9 @@
           { "element": "input", "message": "Use <Input> from @executor/react" },
           { "element": "textarea", "message": "Use <Textarea> from @executor/react" },
           { "element": "select", "message": "Use <Select> or <NativeSelect> from @executor/react" },
-          { "element": "table", "message": "Use <Table> from @executor/react" }
-        ]
-      }
+          { "element": "table", "message": "Use <Table> from @executor/react" },
+        ],
+      },
     ],
   },
   "ignorePatterns": [".astro/"],

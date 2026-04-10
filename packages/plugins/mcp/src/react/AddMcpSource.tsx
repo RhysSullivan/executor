@@ -421,7 +421,17 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to add source",
       });
     }
-  }, [probe, remoteAuthMode, remoteHeaderAuth, remoteHeaders, tokens, state.url, doAdd, props, scopeId]);
+  }, [
+    probe,
+    remoteAuthMode,
+    remoteHeaderAuth,
+    remoteHeaders,
+    tokens,
+    state.url,
+    doAdd,
+    props,
+    scopeId,
+  ]);
 
   // ---- Stdio actions ----
 

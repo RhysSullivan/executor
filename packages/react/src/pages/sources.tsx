@@ -95,10 +95,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                 disabled={detecting}
                 className="flex-1"
               />
-              <Button
-                onClick={handleDetect}
-                disabled={detecting || !url.trim()}
-              >
+              <Button onClick={handleDetect} disabled={detecting || !url.trim()}>
                 {detecting ? "Detecting..." : "Detect"}
               </Button>
             </div>

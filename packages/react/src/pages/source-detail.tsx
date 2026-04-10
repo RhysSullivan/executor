@@ -132,21 +132,13 @@ export function SourceDetailPage(props: {
 
         <div className="flex shrink-0 items-center gap-2">
           {canEdit && editPlugin && !editing && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditing(true)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               Edit
             </Button>
           )}
 
           {editing && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setEditing(false)}
-            >
+            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
               Back to tools
             </Button>
           )}
