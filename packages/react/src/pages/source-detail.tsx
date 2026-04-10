@@ -14,6 +14,7 @@ import type { ToolSummary } from "../components/tool-tree";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
 import { Button } from "../components/button";
+import { Badge } from "../components/badge";
 
 export function SourceDetailPage(props: {
   namespace: string;
@@ -116,13 +117,9 @@ export function SourceDetailPage(props: {
             {sourceData?.name ?? namespace}
           </h2>
           {sourceData?.runtime && (
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              built-in
-            </span>
+            <Badge className="bg-muted text-muted-foreground">built-in</Badge>
           )}
-          <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-medium text-secondary-foreground">
-            {sourceData?.kind ?? "source"}
-          </span>
+          <Badge variant="secondary">{sourceData?.kind ?? "source"}</Badge>
           {Result.isSuccess(tools) && !editing && (
             <span className="hidden text-[11px] tabular-nums text-muted-foreground/50 sm:block">
               {sourceTools.length} {sourceTools.length === 1 ? "tool" : "tools"}
@@ -208,7 +205,7 @@ export function SourceDetailPage(props: {
           onSuccess: () => (
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {/* Left: tool tree */}
-              <div className="flex w-72 shrink-0 flex-col border-r border-border bg-card/30 lg:w-80 xl:w-[22rem]">
+              <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
                 <ToolTree
                   tools={sourceTools}
                   selectedToolId={selectedToolId}
