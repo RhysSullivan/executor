@@ -7,12 +7,14 @@ import {
   OpenApiExtractionError,
 } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
+import { StoredSourceSchema } from "../sdk/stored-source";
 
 // ---------------------------------------------------------------------------
 // Params
 // ---------------------------------------------------------------------------
 
 const scopeIdParam = HttpApiSchema.param("scopeId", ScopeId);
+const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
 // ---------------------------------------------------------------------------
 // Payloads
@@ -29,6 +31,17 @@ const AddSpecPayload = Schema.Struct({
 
 const PreviewSpecPayload = Schema.Struct({
   spec: Schema.String,
+});
+
+const UpdateSourcePayload = Schema.Struct({
+  baseUrl: Schema.optional(Schema.String),
+  headers: Schema.optional(
+    Schema.Record({ key: Schema.String, value: Schema.Unknown }),
+  ),
+});
+
+const UpdateSourceResponse = Schema.Struct({
+  updated: Schema.Boolean,
 });
 
 // ---------------------------------------------------------------------------
@@ -69,5 +82,14 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
       .addSuccess(AddSpecResponse)
       .addError(ParseError)
       .addError(ExtractionError),
+  )
+  .add(
+    HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
+      .addSuccess(Schema.NullOr(StoredSourceSchema)),
+  )
+  .add(
+    HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/openapi/sources/${namespaceParam}`
+      .setPayload(UpdateSourcePayload)
+      .addSuccess(UpdateSourceResponse),
   )
   {}

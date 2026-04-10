@@ -13,14 +13,15 @@ import {
   makeScopedKv,
   migrate,
 } from "@executor/storage-file";
-import { withConfigFile } from "@executor/config";
 import {
   openApiPlugin,
   makeKvOperationStore,
+  withConfigFile as withOpenApiConfigFile,
 } from "@executor/plugin-openapi";
 import {
   mcpPlugin,
   makeKvBindingStore,
+  withConfigFile as withMcpConfigFile,
 } from "@executor/plugin-mcp";
 import {
   googleDiscoveryPlugin,
@@ -29,6 +30,7 @@ import {
 import {
   graphqlPlugin,
   makeKvOperationStore as makeKvGraphqlOperationStore,
+  withConfigFile as withGraphqlConfigFile,
 } from "@executor/plugin-graphql";
 import { keychainPlugin } from "@executor/plugin-keychain";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
@@ -55,14 +57,14 @@ const createLocalPlugins = (
 ) =>
   [
     openApiPlugin({
-      operationStore: withConfigFile.openapi(
+      operationStore: withOpenApiConfigFile(
         makeKvOperationStore(scopedKv, "openapi"),
         configPath,
         fsLayer,
       ),
     }),
     mcpPlugin({
-      bindingStore: withConfigFile.mcp(
+      bindingStore: withMcpConfigFile(
         makeKvBindingStore(scopedKv, "mcp"),
         configPath,
         fsLayer,
@@ -75,7 +77,7 @@ const createLocalPlugins = (
       ),
     }),
     graphqlPlugin({
-      operationStore: withConfigFile.graphql(
+      operationStore: withGraphqlConfigFile(
         makeKvGraphqlOperationStore(scopedKv, "graphql"),
         configPath,
         fsLayer,

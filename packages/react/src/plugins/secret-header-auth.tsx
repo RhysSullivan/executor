@@ -209,6 +209,59 @@ function HeaderValuePreview(props: {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Header state helpers — shared by edit forms
+// ---------------------------------------------------------------------------
+
+export type HeaderState = {
+  name: string;
+  secretId: string | null;
+  prefix?: string;
+  presetKey?: string;
+  fromPreset?: boolean;
+};
+
+export function matchPresetKey(name: string, prefix?: string): string {
+  const preset =
+    defaultHeaderAuthPresets.find((p) => p.name === name && p.prefix === prefix)
+    ?? defaultHeaderAuthPresets.find((p) => p.name === name && p.prefix === undefined);
+  return preset?.key ?? "custom";
+}
+
+export function headerValueToState(
+  name: string,
+  value: { secretId: string; prefix?: string } | string,
+): HeaderState {
+  if (typeof value === "string") {
+    return { name, secretId: null, presetKey: matchPresetKey(name, undefined) };
+  }
+  return {
+    name,
+    secretId: value.secretId,
+    prefix: value.prefix,
+    presetKey: matchPresetKey(name, value.prefix),
+  };
+}
+
+export function headersFromState(
+  entries: readonly HeaderState[],
+): Record<string, { secretId: string; prefix?: string }> {
+  const result: Record<string, { secretId: string; prefix?: string }> = {};
+  for (const entry of entries) {
+    const name = entry.name.trim();
+    if (!name || !entry.secretId) continue;
+    result[name] = {
+      secretId: entry.secretId,
+      ...(entry.prefix ? { prefix: entry.prefix } : {}),
+    };
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Secret header auth row
+// ---------------------------------------------------------------------------
+
 export function SecretHeaderAuthRow(props: {
   name: string;
   prefix?: string;

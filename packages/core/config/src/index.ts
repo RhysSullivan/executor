@@ -20,5 +20,3 @@ export {
   addSecretToConfig,
   removeSecretFromConfig,
 } from "./write";
-
-export { withConfigFile } from "./config-store";

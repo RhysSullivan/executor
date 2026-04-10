@@ -8,7 +8,8 @@ import { Effect, Schema } from "effect";
 import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
 import type { OpenApiOperationStore, StoredOperation, StoredSource } from "./operation-store";
-import { OperationBinding, InvocationConfig, HeaderValue } from "./types";
+import { OperationBinding, InvocationConfig } from "./types";
+import { StoredSourceSchema } from "./stored-source";
 
 // ---------------------------------------------------------------------------
 // Stored schemas
@@ -23,18 +24,6 @@ class StoredEntry extends Schema.Class<StoredEntry>("StoredEntry")({
 const encodeEntry = Schema.encodeSync(Schema.parseJson(StoredEntry));
 const decodeEntry = Schema.decodeUnknownSync(Schema.parseJson(StoredEntry));
 
-const StoredSourceSchema = Schema.Struct({
-  namespace: Schema.String,
-  name: Schema.String,
-  config: Schema.Struct({
-    spec: Schema.String,
-    baseUrl: Schema.optional(Schema.String),
-    namespace: Schema.optional(Schema.String),
-    headers: Schema.optional(
-      Schema.Record({ key: Schema.String, value: HeaderValue }),
-    ),
-  }),
-});
 const encodeSource = Schema.encodeSync(Schema.parseJson(StoredSourceSchema));
 const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(StoredSourceSchema));
 
@@ -111,6 +100,21 @@ const makeStore = (
     Effect.gen(function* () {
       const entries = yield* sources.list();
       return entries.map((e) => decodeSource(e.value) as StoredSource);
+    }),
+
+  getSource: (namespace) =>
+    Effect.gen(function* () {
+      const raw = yield* sources.get(namespace);
+      if (!raw) return null;
+      return decodeSource(raw) as StoredSource;
+    }),
+
+  getSourceConfig: (namespace) =>
+    Effect.gen(function* () {
+      const raw = yield* sources.get(namespace);
+      if (!raw) return null;
+      const source = decodeSource(raw) as StoredSource;
+      return source.config;
     }),
   });
 };

@@ -46,9 +46,16 @@ apps/desktop/resources/
 
 # cloud local dev database
 .pglite
+apps/cloud/.dev-db/
 .claude/
 .nitro/
 .output/
 .tanstack/
 .env*
 !.env.example
+
+# local user config
+apps/local/executor.jsonc
+
+# VS Code (per-workspace user settings)
+.vscode/mcp.json

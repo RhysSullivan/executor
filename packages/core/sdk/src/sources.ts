@@ -17,6 +17,8 @@ export class Source extends Schema.Class<Source>("Source")({
   canRemove: Schema.optional(Schema.Boolean),
   /** Whether the source supports refresh */
   canRefresh: Schema.optional(Schema.Boolean),
+  /** Whether the source supports editing (config changes) */
+  canEdit: Schema.optional(Schema.Boolean),
 }) {}
 
 // ---------------------------------------------------------------------------

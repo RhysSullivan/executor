@@ -2,7 +2,7 @@ import { HttpApiBuilder } from "@effect/platform";
 import { Context, Effect } from "effect";
 
 import { addGroup } from "@executor/api";
-import type { OpenApiPluginExtension, HeaderValue } from "../sdk/plugin";
+import type { OpenApiPluginExtension, HeaderValue, OpenApiUpdateSourceInput } from "../sdk/plugin";
 import { OpenApiGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -49,5 +49,20 @@ export const OpenApiHandlers = HttpApiBuilder.group(
           };
         }).pipe(Effect.orDie),
       )
-      ,
+      .handle("getSource", ({ path }) =>
+        Effect.gen(function* () {
+          const ext = yield* OpenApiExtensionService;
+          return yield* ext.getSource(path.namespace);
+        }).pipe(Effect.orDie),
+      )
+      .handle("updateSource", ({ path, payload }) =>
+        Effect.gen(function* () {
+          const ext = yield* OpenApiExtensionService;
+          yield* ext.updateSource(path.namespace, {
+            baseUrl: payload.baseUrl,
+            headers: payload.headers as Record<string, HeaderValue> | undefined,
+          } as OpenApiUpdateSourceInput);
+          return { updated: true };
+        }).pipe(Effect.orDie),
+      ),
 );
