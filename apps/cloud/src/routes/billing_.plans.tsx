@@ -49,7 +49,7 @@ function PlansPage() {
   const isLoading = customerLoading || plansLoading;
 
   const paidPlans = (plans ?? ([] as Plan[])).filter(
-    (p) => p.id === "hobby" || p.id === "professional",
+    (p: Plan) => p.id === "hobby" || p.id === "professional",
   );
 
   return (
@@ -91,7 +91,7 @@ function PlansPage() {
               isFetching ? "opacity-50 pointer-events-none" : "",
             ].join(" ")}
           >
-            {paidPlans.map((plan) => {
+            {paidPlans.map((plan: Plan) => {
               const meta = PLAN_META[plan.id];
               if (!meta) return null;
 

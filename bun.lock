@@ -655,6 +655,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "postgres@3.4.9": "patches/postgres@3.4.9.patch",
+  },
   "catalog": {
     "@effect/cli": "^0.73.2",
     "@effect/experimental": "^0.60.0",
