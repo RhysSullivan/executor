@@ -206,8 +206,7 @@ const callCommand = Command.make(
         }
       } else {
         console.log(result.text);
-        const executionId = (result.structured as Record<string, unknown> | undefined)
-          ?.executionId;
+        const executionId = (result.structured as Record<string, unknown> | undefined)?.executionId;
         if (executionId) {
           console.log(
             `\nTo resume:\n  ${cliPrefix} resume --execution-id ${executionId} --action accept`,

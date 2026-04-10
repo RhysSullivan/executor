@@ -476,7 +476,15 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
   },
   policies: {
     list: (scopeId) => run(ctx.policies.list(ScopeId.make(scopeId))),
-    check: (input) => run(ctx.policies.check(new PolicyCheckInput({ scopeId: ScopeId.make(input.scopeId), toolId: ToolId.make(input.toolId) }))),
+    check: (input) =>
+      run(
+        ctx.policies.check(
+          new PolicyCheckInput({
+            scopeId: ScopeId.make(input.scopeId),
+            toolId: ToolId.make(input.toolId),
+          }),
+        ),
+      ),
     add: (policy) => run(ctx.policies.add(policy)),
     remove: (policyId) => run(ctx.policies.remove(PolicyId.make(policyId))),
   },

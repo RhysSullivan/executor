@@ -127,9 +127,7 @@ export const formatPausedExecution = (
         kind: req._tag === "UrlElicitation" ? "url" : "form",
         message: req.message,
         ...(req._tag === "UrlElicitation" ? { url: req.url } : {}),
-        ...(req._tag === "FormElicitation"
-          ? { requestedSchema: req.requestedSchema }
-          : {}),
+        ...(req._tag === "FormElicitation" ? { requestedSchema: req.requestedSchema } : {}),
       },
     },
   };
