@@ -12,6 +12,9 @@ const serverShape = {
   WORKOS_COOKIE_PASSWORD: Env.string("WORKOS_COOKIE_PASSWORD"),
   VITE_PUBLIC_SITE_URL: Env.stringOr("VITE_PUBLIC_SITE_URL", ""),
   AUTUMN_SECRET_KEY: Env.stringOr("AUTUMN_SECRET_KEY", ""),
+  SENTRY_DSN: Env.stringOr("SENTRY_DSN", ""),
+  AXIOM_TOKEN: Env.stringOr("AXIOM_TOKEN", ""),
+  AXIOM_DATASET: Env.stringOr("AXIOM_DATASET", "executor-cloud"),
 };
 
 type SharedEnv = Readonly<{
@@ -27,6 +30,9 @@ type ServerEnv = SharedEnv &
     WORKOS_COOKIE_PASSWORD: string;
     VITE_PUBLIC_SITE_URL: string;
     AUTUMN_SECRET_KEY: string;
+    SENTRY_DSN: string;
+    AXIOM_TOKEN: string;
+    AXIOM_DATASET: string;
   }>;
 
 type WebEnv = Readonly<Record<string, never>>;

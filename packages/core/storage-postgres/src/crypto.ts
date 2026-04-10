@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
@@ -9,7 +9,6 @@ const AUTH_TAG_LENGTH = 16;
  * Uses SHA-256 to normalize any length input to exactly 32 bytes.
  */
 const deriveKey = (key: string): Buffer => {
-  const { createHash } = require("node:crypto") as typeof import("node:crypto");
   return createHash("sha256").update(key).digest();
 };
 

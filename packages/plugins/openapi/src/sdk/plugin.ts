@@ -38,6 +38,7 @@ export type HeaderValue = HeaderValueValue;
 
 export interface OpenApiSpecConfig {
   readonly spec: string;
+  readonly name?: string;
   readonly baseUrl?: string;
   readonly namespace?: string;
   /** Headers applied to every request. Values can reference secrets. */
@@ -279,7 +280,7 @@ export const openApiPlugin = (options?: {
 
             yield* ctx.tools.register(registrations);
 
-            const sourceName = Option.getOrElse(result.title, () => namespace);
+            const sourceName = config.name ?? Option.getOrElse(result.title, () => namespace);
             yield* operationStore.putSource({
               namespace,
               name: sourceName,

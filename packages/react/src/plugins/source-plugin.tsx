@@ -54,6 +54,7 @@ export interface SourcePlugin {
     readonly onCancel: () => void;
     readonly initialUrl?: string;
     readonly initialPreset?: string;
+    readonly initialNamespace?: string;
   }>;
 
   /**

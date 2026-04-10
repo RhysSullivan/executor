@@ -2,9 +2,16 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "executor-cloud",
   "compatibility_date": "2025-04-01",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "main": "src/server.ts",
-  "routes": [{ "pattern": "executor.sh", "custom_domain": true }],
+  "routes": [
+    {
+      "pattern": "executor.sh",
+      "custom_domain": true
+    }
+  ],
   "limits": {
     "cpu_ms": 300000,
   },
@@ -22,7 +29,9 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["McpSessionDO"],
+      "new_classes": [
+        "McpSessionDO"
+      ],
     },
   ],
   "services": [
@@ -44,6 +53,7 @@
     },
   ],
   "vars": {
+    "VITE_PUBLIC_SENTRY_DSN": "https://e20b1bdeea27008092a4dc0ac303e97a@o4511196985556992.ingest.us.sentry.io/4511197010067456",
     "VITE_PUBLIC_SITE_URL": "https://executor.sh",
   },
 }

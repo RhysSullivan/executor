@@ -13,9 +13,10 @@ export function SourcesAddPage(props: {
   pluginKey: string;
   url?: string;
   preset?: string;
+  namespace?: string;
   sourcePlugins: readonly SourcePlugin[];
 }) {
-  const { pluginKey, url, preset, sourcePlugins } = props;
+  const { pluginKey, url, preset, namespace, sourcePlugins } = props;
   const scopeId = useScope();
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
   const navigate = useNavigate();
@@ -54,6 +55,7 @@ export function SourcesAddPage(props: {
           <AddComponent
             initialUrl={url}
             initialPreset={preset}
+            initialNamespace={namespace}
             onComplete={() => {
               refreshSources();
               void navigate({ to: "/" });

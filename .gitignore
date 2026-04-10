@@ -62,3 +62,4 @@ executor.jsonc
 
 # reference repos (pulled via `bun run pull:references`)
 .reference/
+.mcp.json

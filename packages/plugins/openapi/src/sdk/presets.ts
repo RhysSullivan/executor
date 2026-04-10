@@ -56,6 +56,21 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     featured: true,
   },
   {
+    id: "sentry",
+    name: "Sentry",
+    summary: "Error tracking, performance monitoring, and releases.",
+    url: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/main/openapi-derefed.json",
+    icon: "https://sentry.io/favicon.ico",
+    featured: true,
+  },
+  {
+    id: "axiom",
+    name: "Axiom",
+    summary: "Log ingestion, querying, datasets, and monitors.",
+    url: "https://axiom.co/docs/restapi/versions/v2.json",
+    icon: "https://axiom.co/favicon.ico",
+  },
+  {
     id: "asana",
     name: "Asana",
     summary: "Tasks, projects, teams, and workspace management.",
