@@ -106,10 +106,8 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
   const server = Bun.serve({
     port,
     hostname: "127.0.0.1",
-    // Disable Bun's default 10s idle timeout. `/mcp` elicitation round-trips
-    // and `/api/executions` pause/resume can legitimately keep the socket
-    // idle longer than that. `0` is the "no timeout" sentinel per Bun's
-    // uSockets; MCP/HTTP clients enforce their own per-request timeouts.
+    // Disable Bun's default 10s idle timeout. MCP elicitation and pause/resume
+    // can idle longer during human approval; `0` disables the socket timeout.
     idleTimeout: 0,
     routes: { ...staticRoutes },
     async fetch(req) {

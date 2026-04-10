@@ -317,13 +317,10 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     );
 
   /**
-   * Start an execution in the pause/resume mode. Forks the sandbox as a
-   * daemon (not a regular `Effect.fork`) because the logical lifetime of a
-   * paused execution outlives any single `runPromise` that drives it — each
-   * HTTP call (`executeWithPause`, `resume`) is its own top-level
-   * `runPromise`, and a local-scoped fork would be interrupted by the
-   * parent's `interruptAllChildren` the moment the first call returns. See
-   * the `"HTTP-like"` regression test in `tool-invoker.test.ts`.
+   * Start an execution in pause/resume mode.
+   *
+   * The sandbox is forked as a daemon because paused executions can outlive the
+   * caller scope that returned the first pause, such as an HTTP request handler.
    */
   const startPausableExecution = (code: string): Effect.Effect<ExecutionResult> =>
     Effect.gen(function* () {

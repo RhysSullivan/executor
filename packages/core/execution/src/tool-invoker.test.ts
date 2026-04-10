@@ -363,11 +363,9 @@ describe("pause/resume with multiple elicitations", () => {
     { timeout: 10000 },
   );
 
-  // Regression: each engine call must run in its own top-level
-  // `runPromise` to reproduce the HTTP shape. Uses a single-elicit tool so
-  // nothing can accidentally unstick a dead-fiber race via a second
-  // elicitation (which is what masks the bug in the `multiApproval` test
-  // above).
+  // Regression: use separate top-level runPromise calls to match HTTP/CLI
+  // pause/resume, and a single-elicit tool so no later pause can mask a dead
+  // sandbox fiber.
   it(
     "resume returns across separate runPromise boundaries for a single-elicit tool (HTTP-like)",
     async () => {
