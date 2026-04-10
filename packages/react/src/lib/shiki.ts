@@ -103,9 +103,7 @@ export type SupportedTheme = (typeof SUPPORTED_THEMES)[number];
 export const DEFAULT_LIGHT_THEME: SupportedTheme = "github-light";
 export const DEFAULT_DARK_THEME: SupportedTheme = "github-dark";
 
-export type ShikiThemeProp =
-  | SupportedTheme
-  | { light: SupportedTheme; dark: SupportedTheme };
+export type ShikiThemeProp = SupportedTheme | { light: SupportedTheme; dark: SupportedTheme };
 
 /**
  * Resolve a `ShikiThemeProp` (either a single theme or a `{ light, dark }`
@@ -143,10 +141,7 @@ let _promise: Promise<HighlighterCore> | null = null;
 export function getHighlighter(): Promise<HighlighterCore> {
   if (!_promise) {
     _promise = createHighlighterCore({
-      themes: [
-        import("@shikijs/themes/github-dark"),
-        import("@shikijs/themes/github-light"),
-      ],
+      themes: [import("@shikijs/themes/github-dark"), import("@shikijs/themes/github-light")],
       langs: Object.values(LANG_LOADERS).map((loader) => loader()),
       engine: jsEngine,
     });
@@ -178,10 +173,7 @@ export function createCodeHighlighterPlugin(): CodeHighlighterPlugin {
     name: "shiki" as const,
     type: "code-highlighter" as const,
     getSupportedLanguages: () => [...SUPPORTED_LANGS] as string[] as never,
-    getThemes: () => [
-      DEFAULT_LIGHT_THEME as ThemeInput,
-      DEFAULT_DARK_THEME as ThemeInput,
-    ],
+    getThemes: () => [DEFAULT_LIGHT_THEME as ThemeInput, DEFAULT_DARK_THEME as ThemeInput],
     supportsLanguage: (language: string) => isSupportedLang(language),
     highlight(options, callback) {
       const resolved = resolveLang(options.language);
