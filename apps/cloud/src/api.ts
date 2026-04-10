@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
+import * as Sentry from "@sentry/cloudflare";
 import {
   HttpApiBuilder,
   HttpApiSwagger,
@@ -48,6 +49,7 @@ import { DbService } from "./services/db";
 import { createOrgExecutor } from "./services/executor";
 import { TeamOrgApi } from "./team/compose";
 import { TeamHandlers } from "./team/handlers";
+import { TelemetryLive } from "./services/telemetry";
 import { server } from "./env";
 
 // ---------------------------------------------------------------------------
@@ -73,7 +75,7 @@ const SharedServices = Layer.mergeAll(
   UserStoreLive,
   WorkOSAuth.Default,
   HttpServer.layerContext,
-);
+).pipe(Layer.provideMerge(TelemetryLive));
 const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -249,6 +251,7 @@ const handleAutumnRequest = async (request: Request): Promise<Response> => {
 
   return Effect.runPromise(program.pipe(Effect.provide(SharedServices), Effect.scoped)).catch(
     (err) => {
+      Sentry.captureException(err);
       console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
       return Response.json({ error: "Internal server error" }, { status: 500 });
     },
@@ -259,8 +262,40 @@ const handleAutumnRequest = async (request: Request): Promise<Response> => {
 // Widget token endpoint — returns a WorkOS widget token for the session user
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Sentry tunnel — proxies client events to Sentry to bypass ad blockers
+// ---------------------------------------------------------------------------
+
+const SENTRY_HOST = "o4511196985556992.ingest.us.sentry.io";
+const SENTRY_PROJECT_IDS = new Set(["4511197001416704", "4511197010067456"]);
+
+const handleSentryTunnel = async (request: Request): Promise<Response> => {
+  try {
+    const body = await request.text();
+    const header = body.split("\n")[0];
+    const { dsn } = JSON.parse(header) as { dsn: string };
+    const url = new URL(dsn);
+    const projectId = url.pathname.replace("/", "");
+
+    if (url.host !== SENTRY_HOST || !SENTRY_PROJECT_IDS.has(projectId)) {
+      return new Response("Invalid Sentry DSN", { status: 400 });
+    }
+
+    return fetch(`https://${SENTRY_HOST}/api/${projectId}/envelope/`, {
+      method: "POST",
+      body,
+    });
+  } catch {
+    return new Response("Invalid request", { status: 400 });
+  }
+};
+
 export const handleApiRequest = async (request: Request): Promise<Response> => {
   const pathname = new URL(request.url).pathname;
+
+  if (pathname === "/sentry-tunnel" && request.method === "POST") {
+    return handleSentryTunnel(request);
+  }
 
   if (isTeamPath(pathname)) {
     const handler = createTeamHandler();
@@ -293,6 +328,30 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
       const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
       const handler = yield* buildProtectedHandler(org.id, org.name, codeExecutor);
       const response = yield* Effect.promise(() => handler.handler(request));
+
+      // Sanitize error responses — only let declared API errors through,
+      // replace anything else with a generic message to prevent leaking internals
+      if (!response.ok) {
+        const sanitized = yield* Effect.promise(async () => {
+          try {
+            const body = await response.clone().json();
+            const hasTag = body && typeof body === "object" && "_tag" in body;
+            if (!hasTag) {
+              Sentry.captureMessage(`API ${response.status}: ${pathname}`, { level: "error" });
+              return Response.json(
+                { error: "Internal server error" },
+                { status: response.status >= 500 ? 500 : response.status },
+              );
+            }
+          } catch {
+            Sentry.captureMessage(`API ${response.status}: ${pathname}`, { level: "error" });
+            return Response.json({ error: "Internal server error" }, { status: 500 });
+          }
+          return null;
+        });
+        if (sanitized) return { response: sanitized, orgId: org.id };
+      }
+
       return { response, orgId: org.id };
     });
 
@@ -325,9 +384,10 @@ export const handleApiRequest = async (request: Request): Promise<Response> => {
 
     return result.response;
   } catch (err) {
+    Sentry.captureException(err);
     console.error("[api] request failed:", err instanceof Error ? err.stack : err);
     return Response.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: "Internal server error" },
       { status: 500 },
     );
   }
