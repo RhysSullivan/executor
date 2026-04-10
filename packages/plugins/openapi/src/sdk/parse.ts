@@ -10,9 +10,10 @@ export type ParsedDocument = OpenAPIV3.Document | OpenAPIV3_1.Document;
 export const parse = Effect.fn("OpenApi.parse")(function* (input: string) {
   const api: OpenAPI.Document = yield* Effect.tryPromise({
     try: async () => {
-      const source = input.startsWith("http://") || input.startsWith("https://")
-        ? input
-        : parseTextToObject(input);
+      const source =
+        input.startsWith("http://") || input.startsWith("https://")
+          ? input
+          : parseTextToObject(input);
 
       // Try full bundle first (resolves $refs cleanly)
       try {
@@ -20,7 +21,7 @@ export const parse = Effect.fn("OpenApi.parse")(function* (input: string) {
       } catch {
         // Bundle failed (broken $refs) — parse without ref resolution,
         // then manually resolve valid refs and strip broken ones
-        const parsed = await SwaggerParser.parse(source) as OpenAPI.Document;
+        const parsed = (await SwaggerParser.parse(source)) as OpenAPI.Document;
         resolveRefsInPlace(parsed);
         return parsed;
       }
@@ -154,4 +155,7 @@ const resolveRefsInPlace = (doc: OpenAPI.Document): void => {
 };
 
 const isRef = (v: unknown): v is { $ref: string } =>
-  typeof v === "object" && v !== null && "$ref" in v && typeof (v as Record<string, unknown>).$ref === "string";
+  typeof v === "object" &&
+  v !== null &&
+  "$ref" in v &&
+  typeof (v as Record<string, unknown>).$ref === "string";

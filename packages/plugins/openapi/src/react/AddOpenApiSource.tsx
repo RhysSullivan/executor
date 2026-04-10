@@ -145,7 +145,10 @@ export default function AddOpenApiSource(props: {
       if (!sourceName) setSourceName(title);
       if (!props.initialNamespace) {
         setNamespace(
-          title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "api",
+          title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "") || "api",
         );
       }
 
@@ -318,9 +321,7 @@ export default function AddOpenApiSource(props: {
               value={namespace}
               onChange={(e) =>
                 setNamespace(
-                  (e.target as HTMLInputElement).value
-                    .toLowerCase()
-                    .replace(/[^a-z0-9_-]/g, "_"),
+                  (e.target as HTMLInputElement).value.toLowerCase().replace(/[^a-z0-9_-]/g, "_"),
                 )
               }
               placeholder="e.g. sentry, stripe, github"
