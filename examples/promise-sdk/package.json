@@ -13,6 +13,7 @@
     "@executor/plugin-graphql": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "latest"
+    "typescript": "latest",
+    "@types/node": "catalog:"
   }
 }

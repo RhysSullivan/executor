@@ -171,6 +171,7 @@
         "@executor/sdk": "workspace:*",
       },
       "devDependencies": {
+        "@types/node": "catalog:",
         "typescript": "latest",
       },
     },
