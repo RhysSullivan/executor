@@ -43,4 +43,7 @@
       "binding": "LOADER",
     },
   ],
+  "vars": {
+    "VITE_PUBLIC_SITE_URL": "https://executor.sh",
+  },
 }
