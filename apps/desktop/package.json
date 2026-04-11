@@ -20,7 +20,10 @@
     "typecheck": "tsgo --noEmit",
     "typecheck:slow": "tsc --noEmit"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@executor/supervisor": "workspace:*",
+    "effect": "catalog:"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "electron": "35.7.5",

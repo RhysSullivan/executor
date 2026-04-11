@@ -278,7 +278,20 @@ const buildBinaries = async (targets: Target[], mode: BuildMode) => {
 
       await Bun.build({
         entrypoints: [join(cliRoot, "src/main.ts")],
-        minify: mode === "production",
+        // `syntax: true` is unconditional because the platform-gated plugin
+        // switch in `main.ts` and `apps/local/src/server/executor.ts` relies
+        // on Bun's DCE to fold the ternary and tree-shake the unused plugin.
+        // Identifier/whitespace minification stays gated on production.
+        minify: {
+          syntax: true,
+          whitespace: mode === "production",
+          identifiers: mode === "production",
+        },
+        // Inject the compile target's OS as `BUILD_PLATFORM` so the ternary
+        // in the platform switch folds to a single branch at bundle time.
+        define: {
+          BUILD_PLATFORM: JSON.stringify(target.os),
+        },
         compile: {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Bun compile target string is dynamically constructed
           target: bunTarget(target) as any,

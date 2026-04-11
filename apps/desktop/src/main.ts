@@ -20,6 +20,8 @@ import {
   appendFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
+import { Effect } from "effect";
+import { gracefulStopPid, pollReadiness } from "@executor/supervisor";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -193,37 +195,22 @@ const resolveServerCommand = (): { command: string; args: string[] } => {
   throw new Error(`Sidecar binary not found at ${sidecar}`);
 };
 
-const isServerReady = async (port: number): Promise<boolean> => {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/docs`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-};
-
-const stopServer = (): Promise<void> => {
-  return new Promise((resolve) => {
-    if (!serverProcess) {
-      resolve();
-      return;
-    }
-    const proc = serverProcess;
+const stopServer = async (): Promise<void> => {
+  const proc = serverProcess;
+  if (!proc?.pid) {
     serverProcess = null;
+    return;
+  }
 
-    proc.once("exit", () => resolve());
-    proc.kill("SIGTERM");
-
-    // Force kill after 5s
-    setTimeout(() => {
-      try {
-        proc.kill("SIGKILL");
-      } catch {}
-      resolve();
-    }, 5000);
-  });
+  const pid = proc.pid;
+  serverProcess = null;
+  await Effect.runPromise(
+    gracefulStopPid(pid, {
+      signals: ["SIGTERM"],
+      signalDelayMs: 5_000,
+      killAfterMs: 5_000,
+    }),
+  );
 };
 
 const startServer = async (scopePath: string, port: number): Promise<void> => {
@@ -261,14 +248,18 @@ const startServer = async (scopePath: string, port: number): Promise<void> => {
     app.quit();
   });
 
-  // Wait for server to become ready
-  const deadline = Date.now() + SERVER_STARTUP_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (await isServerReady(port)) return;
-    await new Promise((r) => setTimeout(r, 200));
-  }
-
-  throw new Error(`Server failed to start within ${SERVER_STARTUP_TIMEOUT_MS / 1000}s`);
+  await Effect.runPromise(
+    pollReadiness(`http://127.0.0.1:${port}/docs`, {
+      timeoutMs: SERVER_STARTUP_TIMEOUT_MS,
+      intervalMs: 200,
+    }).pipe(
+      Effect.catchTag("ReadinessTimeout", () =>
+        Effect.fail(
+          new Error(`Server failed to start within ${SERVER_STARTUP_TIMEOUT_MS / 1000}s`),
+        ),
+      ),
+    ),
+  );
 };
 
 // ---------------------------------------------------------------------------

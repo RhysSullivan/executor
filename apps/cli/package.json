@@ -24,7 +24,9 @@
     "@effect/platform-bun": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/local": "workspace:*",
+    "@executor/plugin-launchd": "workspace:*",
     "@executor/runtime-quickjs": "workspace:*",
+    "@executor/supervisor": "workspace:*",
     "@jitl/quickjs-wasmfile-release-sync": "catalog:",
     "effect": "catalog:",
     "quickjs-emscripten": "catalog:"

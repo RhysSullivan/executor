@@ -28,8 +28,15 @@ import {
   withConfigFile as withGraphqlConfigFile,
 } from "@executor/plugin-graphql";
 import { keychainPlugin } from "@executor/plugin-keychain";
+import { makeLaunchdSupervisorLayer } from "@executor/plugin-launchd";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor/plugin-onepassword";
+import { makeServiceToolsPlugin } from "@executor/supervisor";
+
+// Build-time platform discriminator injected by `Bun.build({ define: ... })`
+// in apps/cli/src/build.ts. Falls back to process.platform in dev mode so
+// local `bun run dev` works without any build setup.
+declare const BUILD_PLATFORM: "darwin" | "linux" | "win32" | undefined;
 
 // ---------------------------------------------------------------------------
 // Data directory
@@ -76,6 +83,19 @@ const createLocalPlugins = (
     onepasswordPlugin({
       kv: scopeKv(scopedKv, "onepassword"),
     }),
+    // Platform-gated service management plugin. The ternary pattern — with
+    // `BUILD_PLATFORM` used directly at the branch discriminator, not through
+    // an intermediate const — is what Bun's DCE needs to fold the switch and
+    // tree-shake the unused plugin import at build time. Do not refactor this
+    // into `const p = ...; p === "darwin" ? ...` — that pattern does NOT fold.
+    ...((typeof BUILD_PLATFORM !== "undefined" ? BUILD_PLATFORM : process.platform) === "darwin"
+      ? ([
+          makeServiceToolsPlugin(makeLaunchdSupervisorLayer(), {
+            displayName: "macOS launchd",
+            backendKind: "launchd",
+          }),
+        ] as const)
+      : ([] as const)),
   ] as const;
 
 // Full typed executor — inferred from plugin list

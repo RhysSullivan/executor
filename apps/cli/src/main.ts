@@ -15,19 +15,22 @@ if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
     type: "sync" as const,
     importFFI: () =>
       import("@jitl/quickjs-wasmfile-release-sync/ffi").then(
-        (m: Record<string, unknown>) => m.QuickJSFFI,
+        (m: unknown) => (m as { readonly QuickJSFFI: unknown }).QuickJSFFI,
       ),
     importModuleLoader: () =>
-      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then(
-        (m: Record<string, unknown>) => {
-          const original = m.default as (...args: unknown[]) => unknown;
-          return (moduleArg: Record<string, unknown> = {}) =>
-            original({ ...moduleArg, wasmBinary });
-        },
-      ),
+      import("@jitl/quickjs-wasmfile-release-sync/emscripten-module").then((m: unknown) => {
+        const original = (
+          m as {
+            readonly default: (moduleArg?: Readonly<Record<string, unknown>>) => unknown;
+          }
+        ).default;
+        return (moduleArg: Readonly<Record<string, unknown>> = {}) =>
+          original({ ...moduleArg, wasmBinary });
+      }),
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- quickjs-emscripten variant type is not publicly exported
-  const mod = await newQuickJSWASMModule(variant as any);
+  const mod = await newQuickJSWASMModule(
+    variant as unknown as Parameters<typeof newQuickJSWASMModule>[0],
+  );
   setQuickJSModule(mod);
 }
 
@@ -41,6 +44,8 @@ import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor/api";
 import { startServer, runMcpStdioServer, getExecutor } from "@executor/local";
+import { makeServiceCommand, makeUnsupportedPlatformSupervisor } from "@executor/supervisor";
+import { makeLaunchdSupervisorLayer } from "@executor/plugin-launchd";
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 import embeddedWebUI from "./embedded-web-ui.gen";
@@ -206,7 +211,9 @@ const callCommand = Command.make(
         }
       } else {
         console.log(result.text);
-        const executionId = (result.structured as Record<string, unknown> | undefined)?.executionId;
+        const structured = result.structured as { readonly executionId?: unknown } | undefined;
+        const executionId =
+          typeof structured?.executionId === "string" ? structured.executionId : undefined;
         if (executionId) {
           console.log(
             `\nTo resume:\n  ${cliPrefix} resume --execution-id ${executionId} --action accept`,
@@ -282,8 +289,25 @@ const mcpCommand = Command.make("mcp", { scope }, ({ scope }) =>
 // Root command
 // ---------------------------------------------------------------------------
 
+// Platform-gated PlatformSupervisor layer. The ternary discriminator must use
+// `BUILD_PLATFORM` directly (not via an intermediate const) so Bun's DCE can
+// fold the switch and tree-shake the unused plugin import at build time.
+const platformSupervisorLayer =
+  (typeof BUILD_PLATFORM !== "undefined" ? BUILD_PLATFORM : process.platform) === "darwin"
+    ? makeLaunchdSupervisorLayer()
+    : makeUnsupportedPlatformSupervisor({
+        platform:
+          typeof BUILD_PLATFORM !== "undefined" ? BUILD_PLATFORM : (process.platform as string),
+      });
+
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([callCommand, resumeCommand, webCommand, mcpCommand] as const),
+  Command.withSubcommands([
+    callCommand,
+    resumeCommand,
+    webCommand,
+    mcpCommand,
+    makeServiceCommand(),
+  ] as const),
   Command.withDescription("Executor local CLI"),
 );
 
@@ -303,6 +327,7 @@ if (process.argv.includes("-v")) {
 }
 
 const program = runCli(process.argv).pipe(
+  Effect.provide(platformSupervisorLayer),
   Effect.catchAllCause((cause) =>
     Effect.sync(() => {
       console.error(Cause.pretty(cause));
