@@ -8,7 +8,8 @@ import { parse } from "./parse";
 import { extract } from "./extract";
 import { previewSpec } from "./preview";
 import type { ExtractionResult } from "./types";
-import { createExecutor, makeTestConfig } from "@executor/sdk";
+import { createExecutor } from "@executor/sdk";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { openApiPlugin } from "./plugin";
 
 // ---------------------------------------------------------------------------
@@ -99,10 +100,8 @@ describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
 
   it.effect("registers all operations as tools via the plugin", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin()] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin()] as const }),
       );
 
       const result = yield* executor.openapi.addSpec({
@@ -130,8 +129,8 @@ describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
 
   it.effect("schema deduplication: definitions stored once, tools reference via $ref", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({ plugins: [openApiPlugin()] as const }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin()] as const }),
       );
 
       yield* executor.openapi.addSpec({
@@ -194,10 +193,8 @@ describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
 
   it.effect("removeSpec cleans up all Cloudflare tools", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin()] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin()] as const }),
       );
 
       yield* executor.openapi.addSpec({

@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import type { ScopedKv, ToolId } from "@executor/sdk";
+import type { ScopedKv, ToolId } from "@executor/storage";
 
 import type { GraphqlOperationStore, StoredSource } from "./operation-store";
 import { OperationBinding, InvocationConfig } from "./types";

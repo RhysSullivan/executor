@@ -1,14 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 
-import {
-  type ScopeId,
-  type SecretId,
-  type ToolId,
-  ToolInvocationError,
-  ToolInvocationResult,
-  type ToolInvoker,
-} from "@executor/sdk";
+import { type ScopeId, type SecretId, type ToolId, ToolInvocationError, ToolInvocationResult, type ToolInvoker } from "@executor/storage";
 
 import { GoogleDiscoveryInvocationError } from "./errors";
 import type { GoogleDiscoveryBindingStore } from "./binding-store";

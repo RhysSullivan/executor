@@ -39,17 +39,19 @@
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
-    "test": "vitest run",
+    "test": "bunx --bun vitest run",
     "test:watch": "vitest",
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@executor/sdk": "workspace:*",
+    "@executor/storage": "workspace:*",
     "@napi-rs/keyring": "^1.2.0",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@executor/storage-sqlite": "workspace:*",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
     "tsup": "catalog:",

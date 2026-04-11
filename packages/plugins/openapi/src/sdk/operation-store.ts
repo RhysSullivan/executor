@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { ToolId } from "@executor/sdk";
+import type { ToolId } from "@executor/storage";
 
 import type { OperationBinding, InvocationConfig, HeaderValue } from "./types";
 

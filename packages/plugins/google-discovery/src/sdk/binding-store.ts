@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import type { ScopedKv, ToolId } from "@executor/sdk";
+import type { ScopedKv, ToolId } from "@executor/storage";
 
 import { GoogleDiscoveryMethodBinding, GoogleDiscoveryStoredSourceData } from "./types";
 

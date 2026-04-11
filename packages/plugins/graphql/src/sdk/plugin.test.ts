@@ -1,7 +1,8 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { createExecutor, makeTestConfig } from "@executor/sdk";
+import { createExecutor } from "@executor/sdk";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { graphqlPlugin } from "./plugin";
 import type { IntrospectionResult } from "./introspect";
 
@@ -77,10 +78,8 @@ const introspectionResult: IntrospectionResult = {
 describe("graphqlPlugin", () => {
   it("registers tools from introspection JSON", async () => {
     const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
+      Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [graphqlPlugin()] }),
       ),
     );
 
@@ -112,10 +111,8 @@ describe("graphqlPlugin", () => {
 
   it("removes a source and its tools", async () => {
     const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
+      Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [graphqlPlugin()] }),
       ),
     );
 
@@ -141,10 +138,8 @@ describe("graphqlPlugin", () => {
 
   it("lists sources", async () => {
     const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
+      Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [graphqlPlugin()] }),
       ),
     );
 
@@ -172,10 +167,8 @@ describe("graphqlPlugin", () => {
 
   it("mutations require approval", async () => {
     const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
+      Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [graphqlPlugin()] }),
       ),
     );
 

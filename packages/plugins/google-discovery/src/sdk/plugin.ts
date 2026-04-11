@@ -2,16 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { Effect, Option } from "effect";
 
-import {
-  Source,
-  SourceDetectionResult,
-  definePlugin,
-  type ExecutorPlugin,
-  type PluginContext,
-  SecretId,
-  ToolId,
-  type ToolRegistration,
-} from "@executor/sdk";
+import { definePlugin, type ExecutorPlugin, type PluginContext } from "@executor/sdk";
+import { Source, SourceDetectionResult, SecretId, ToolId, type ToolRegistration } from "@executor/storage";
 
 import type { GoogleDiscoveryBindingStore, GoogleDiscoveryStoredSource } from "./binding-store";
 import { makeBindingStore } from "./binding-store";

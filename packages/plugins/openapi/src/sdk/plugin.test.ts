@@ -11,14 +11,9 @@ import {
 } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 
-import {
-  createExecutor,
-  makeTestConfig,
-  ScopeId,
-  SecretId,
-  type InvokeOptions,
-} from "@executor/sdk";
-import { makeMemoryStorage } from "@executor/storage-memory";
+import { createExecutor } from "@executor/sdk";
+import { ScopeId, SecretId, type InvokeOptions } from "@executor/storage";
+import { makeInMemoryConfig, makeInMemorySqliteServices } from "@executor/storage-sqlite/memory";
 import { openApiPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -104,10 +99,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       const preview = yield* executor.openapi.previewSpec(specJson);
@@ -122,10 +115,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       const tools = yield* executor.tools.list();
@@ -140,10 +131,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       const sources = yield* executor.sources.list();
@@ -172,11 +161,11 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         createdAt: new Date(),
       } as const;
 
-      const sharedStorage = yield* makeMemoryStorage();
+      const sharedServices = yield* makeInMemorySqliteServices({ scope, encryptionKey: "test-key" });
 
       const executor1 = yield* createExecutor({
         scope,
-        storage: sharedStorage,
+        ...sharedServices,
         plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
@@ -193,7 +182,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor2 = yield* createExecutor({
         scope,
-        storage: sharedStorage,
+        ...sharedServices,
         plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
@@ -208,10 +197,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       const result = yield* executor.tools.invoke(
@@ -230,10 +217,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       const result = yield* executor.tools.invoke(
@@ -253,10 +238,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       // Store a secret
@@ -292,10 +275,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       // Add spec with secret-backed header but DON'T store the secret
@@ -323,10 +304,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       const result = yield* executor.openapi.addSpec({
@@ -349,10 +328,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       yield* executor.openapi.addSpec({
@@ -372,10 +349,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       yield* executor.openapi.addSpec({
@@ -401,10 +376,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const }),
       );
 
       yield* executor.openapi.addSpec({

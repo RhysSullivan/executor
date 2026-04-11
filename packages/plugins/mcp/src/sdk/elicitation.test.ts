@@ -5,13 +5,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 
-import {
-  createExecutor,
-  makeTestConfig,
-  FormElicitation,
-  ElicitationResponse,
-  type InvokeOptions,
-} from "@executor/sdk";
+import { createExecutor } from "@executor/sdk";
+import { FormElicitation, ElicitationResponse, type InvokeOptions } from "@executor/storage";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 
 import { mcpPlugin } from "./plugin";
 
@@ -134,10 +130,8 @@ const serveMcpServer = Effect.acquireRelease(
 // ---------------------------------------------------------------------------
 
 const makeTestExecutor = (serverUrl: string) =>
-  createExecutor(
-    makeTestConfig({
-      plugins: [mcpPlugin()] as const,
-    }),
+  Effect.flatMap(makeInMemoryConfig(), (config) =>
+    createExecutor({ ...config, plugins: [mcpPlugin()] as const }),
   ).pipe(
     Effect.tap((executor) =>
       executor.mcp.addSource({

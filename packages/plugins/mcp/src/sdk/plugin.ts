@@ -4,16 +4,8 @@ import { FileSystem } from "@effect/platform";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
-import {
-  Source,
-  SourceDetectionResult,
-  definePlugin,
-  type ExecutorPlugin,
-  type PluginContext,
-  ToolId,
-  SecretId,
-  type ToolRegistration,
-} from "@executor/sdk";
+import { definePlugin, type ExecutorPlugin, type PluginContext } from "@executor/sdk";
+import { Source, SourceDetectionResult, ToolId, SecretId, type ToolRegistration } from "@executor/storage";
 
 import { type McpStoredSourceData, type McpConnectionAuth, McpToolBinding } from "./types";
 import { makeBindingStore, type McpStoredSource } from "./binding-store";

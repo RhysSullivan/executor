@@ -1,7 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { createExecutor, makeTestConfig } from "@executor/sdk";
+import { createExecutor } from "@executor/sdk";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 
 import { mcpPlugin } from "./plugin";
 import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
@@ -125,10 +126,8 @@ describe("joinToolPath", () => {
 describe("mcpPlugin", () => {
   it.effect("creates executor with mcp plugin", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(
-        makeTestConfig({
-          plugins: [mcpPlugin()] as const,
-        }),
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [mcpPlugin()] as const }),
       );
 
       expect(executor.mcp).toBeDefined();
@@ -143,7 +142,9 @@ describe("mcpPlugin", () => {
 
   it.effect("sources list is initially empty", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [mcpPlugin()] as const }),
+      );
       const sources = yield* executor.sources.list();
       expect(sources).toHaveLength(0);
     }),
@@ -151,7 +152,9 @@ describe("mcpPlugin", () => {
 
   it.effect("tools list is initially empty", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
+      const executor = yield* Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [mcpPlugin()] as const }),
+      );
       const tools = yield* executor.tools.list();
       expect(tools).toHaveLength(0);
     }),

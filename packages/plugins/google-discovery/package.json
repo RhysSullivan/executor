@@ -42,7 +42,7 @@
   "scripts": {
     "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
-    "test": "vitest run",
+    "test": "bunx --bun vitest run",
     "test:watch": "vitest",
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
@@ -50,11 +50,13 @@
     "@effect/platform": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@executor/storage": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect-atom/atom-react": "^0.5.0",
     "@executor/react": "workspace:*",
+    "@executor/storage-sqlite": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "bun-types": "catalog:",

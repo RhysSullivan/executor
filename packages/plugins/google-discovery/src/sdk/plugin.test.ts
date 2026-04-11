@@ -5,7 +5,9 @@ import { resolve } from "node:path";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { createExecutor, makeTestConfig, SecretId, type InvokeOptions } from "@executor/sdk";
+import { createExecutor } from "@executor/sdk";
+import { SecretId, type InvokeOptions } from "@executor/storage";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { googleDiscoveryPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -103,10 +105,8 @@ const withGoogleDiscoveryServer = async <T>(
 describe("Google Discovery plugin", () => {
   it("normalizes legacy googleapis discovery urls", async () => {
     const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [googleDiscoveryPlugin()] as const,
-        }),
+      Effect.flatMap(makeInMemoryConfig(), (config) =>
+        createExecutor({ ...config, plugins: [googleDiscoveryPlugin()] as const }),
       ),
     );
 
@@ -153,10 +153,8 @@ describe("Google Discovery plugin", () => {
   it("starts oauth using discovery scopes", async () => {
     await withGoogleDiscoveryServer(async ({ discoveryUrl }) => {
       const executor = await Effect.runPromise(
-        createExecutor(
-          makeTestConfig({
-            plugins: [googleDiscoveryPlugin()] as const,
-          }),
+        Effect.flatMap(makeInMemoryConfig(), (config) =>
+          createExecutor({ ...config, plugins: [googleDiscoveryPlugin()] as const }),
         ),
       );
 
@@ -182,10 +180,8 @@ describe("Google Discovery plugin", () => {
   it("completes oauth and stores token secrets", async () => {
     await withGoogleDiscoveryServer(async ({ discoveryUrl }) => {
       const executor = await Effect.runPromise(
-        createExecutor(
-          makeTestConfig({
-            plugins: [googleDiscoveryPlugin()] as const,
-          }),
+        Effect.flatMap(makeInMemoryConfig(), (config) =>
+          createExecutor({ ...config, plugins: [googleDiscoveryPlugin()] as const }),
         ),
       );
 
@@ -266,10 +262,8 @@ describe("Google Discovery plugin", () => {
   it("registers and invokes google discovery tools with oauth headers", async () => {
     await withGoogleDiscoveryServer(async ({ discoveryUrl, requests }) => {
       const executor = await Effect.runPromise(
-        createExecutor(
-          makeTestConfig({
-            plugins: [googleDiscoveryPlugin()] as const,
-          }),
+        Effect.flatMap(makeInMemoryConfig(), (config) =>
+          createExecutor({ ...config, plugins: [googleDiscoveryPlugin()] as const }),
         ),
       );
 
