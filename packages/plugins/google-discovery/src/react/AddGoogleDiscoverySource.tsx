@@ -69,7 +69,7 @@ function InlineCreateSecret(props: {
             value={secretId}
             onChange={(e) => setSecretIdValue((e.target as HTMLInputElement).value)}
             placeholder="google-client-secret"
-            className="h-8 text-xs font-mono"
+            className="h-8 text-sm font-mono"
           />
         </div>
         <div className="space-y-1">
@@ -80,7 +80,7 @@ function InlineCreateSecret(props: {
             value={secretName}
             onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
             placeholder="Client Secret"
-            className="h-8 text-xs"
+            className="h-8 text-sm"
           />
         </div>
       </div>
@@ -91,10 +91,10 @@ function InlineCreateSecret(props: {
           value={secretValue}
           onChange={(e) => setSecretValue((e.target as HTMLInputElement).value)}
           placeholder="paste your client secret…"
-          className="h-8 text-xs font-mono"
+          className="h-8 text-sm font-mono"
         />
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
@@ -582,7 +582,7 @@ export default function AddGoogleDiscoverySource(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Add Google Discovery Source</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Connect a Google API from its Discovery document and register its methods as tools.
         </p>
       </div>
@@ -590,7 +590,7 @@ export default function AddGoogleDiscoverySource(props: {
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <Label>Presets</Label>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             Select a Google API to prefill the source.
           </span>
         </div>
@@ -620,7 +620,7 @@ export default function AddGoogleDiscoverySource(props: {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-foreground">{template.name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{template.summary}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{template.summary}</p>
                   </div>
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3">
@@ -680,7 +680,7 @@ export default function AddGoogleDiscoverySource(props: {
               </div>
               <div>
                 <p className="text-sm font-semibold text-foreground">{probe.title ?? probe.name}</p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {probe.service} · {probe.version}
                 </p>
               </div>
@@ -731,7 +731,7 @@ export default function AddGoogleDiscoverySource(props: {
             <Collapsible open={showScopes} onOpenChange={setShowScopes} className="space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 space-y-1">
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {canUseOAuth
                       ? `${probe?.scopes.length ?? 0} scopes will be requested from Google.`
                       : "This API does not advertise OAuth scopes."}

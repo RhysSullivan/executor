@@ -89,7 +89,7 @@ function RemoteEditForm(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Update the endpoint and headers for this MCP connection.
         </p>
       </div>
@@ -126,13 +126,13 @@ function RemoteEditForm(props: {
               value={entry.name}
               onChange={(e) => updateHeader(i, "name", (e.target as HTMLInputElement).value)}
               placeholder="Header name"
-              className="h-8 text-xs font-mono flex-1"
+              className="h-8 text-sm font-mono flex-1"
             />
             <Input
               value={entry.value}
               onChange={(e) => updateHeader(i, "value", (e.target as HTMLInputElement).value)}
               placeholder="Header value"
-              className="h-8 text-xs font-mono flex-1"
+              className="h-8 text-sm font-mono flex-1"
             />
             <Button
               variant="ghost"
@@ -151,7 +151,7 @@ function RemoteEditForm(props: {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-xs text-destructive">{error}</p>
+          <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
 
@@ -181,7 +181,7 @@ function StdioReadOnly(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Stdio MCP sources cannot be edited in the UI. Modify the executor.jsonc config file
           directly.
         </p>
@@ -225,7 +225,7 @@ export default function EditMcpSource({
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Edit MCP Source</h1>
-          <p className="mt-1 text-xs text-muted-foreground">Loading configuration…</p>
+          <p className="mt-1 text-sm text-muted-foreground">Loading configuration…</p>
         </div>
       </div>
     );

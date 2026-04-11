@@ -110,7 +110,7 @@ export function CodeBlock(props: {
     <div className={cn("rounded-lg border border-border bg-card/60 overflow-hidden", className)}>
       {title && (
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          <span className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
             {title}
           </span>
           <Button
@@ -138,11 +138,11 @@ export function CodeBlock(props: {
         )}
 
         <div
-          className="overflow-auto text-xs leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_code]:font-mono"
+          className="overflow-auto text-sm leading-relaxed [&_pre]:!bg-transparent [&_pre]:p-3 [&_code]:font-mono"
           style={maxH ? { maxHeight: maxH } : undefined}
         >
           {highlighted ?? (
-            <pre className="p-3 font-mono text-xs leading-relaxed text-foreground/60">
+            <pre className="p-3 font-mono text-sm leading-relaxed text-foreground/60">
               {code}
             </pre>
           )}

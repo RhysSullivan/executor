@@ -23,7 +23,7 @@ export default function EditGoogleDiscoverySource({
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit Google Discovery Source</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           View configuration for this Google API source. To change authentication, remove and re-add
           the source with updated OAuth credentials.
         </p>

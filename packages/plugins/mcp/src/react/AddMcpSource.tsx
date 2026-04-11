@@ -487,7 +487,7 @@ export default function AddMcpSource(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Add MCP Source</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Connect to an MCP server to discover and use its tools.
         </p>
       </div>
@@ -550,7 +550,7 @@ export default function AddMcpSource(props: {
                 </Button>
               )}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Supports Streamable HTTP and SSE transports.
             </p>
           </section>
@@ -710,7 +710,7 @@ export default function AddMcpSource(props: {
                   {state.step === "oauth-starting" && (
                     <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
                       <Spinner className="size-3.5" />
-                      <span className="text-xs text-muted-foreground">Starting authorization…</span>
+                      <span className="text-sm text-muted-foreground">Starting authorization…</span>
                     </div>
                   )}
 
@@ -764,7 +764,7 @@ export default function AddMcpSource(props: {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <Label>Additional headers</Label>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Plaintext headers sent with every request. Use authentication for secret-backed
                     auth headers.
                   </p>
@@ -824,7 +824,7 @@ export default function AddMcpSource(props: {
                               )
                             }
                             placeholder="X-Organization-Id"
-                            className="h-8 text-xs font-mono"
+                            className="h-8 text-sm font-mono"
                           />
                         </div>
                         <div className="space-y-1">
@@ -846,7 +846,7 @@ export default function AddMcpSource(props: {
                               )
                             }
                             placeholder="workspace-id"
-                            className="h-8 text-xs font-mono"
+                            className="h-8 text-sm font-mono"
                           />
                         </div>
                       </div>
@@ -861,7 +861,7 @@ export default function AddMcpSource(props: {
           {error && (
             <div className="space-y-2">
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-                <p className="text-xs text-destructive">{error}</p>
+                <p className="text-sm text-destructive">{error}</p>
               </div>
               <Button
                 variant="outline"
@@ -914,7 +914,7 @@ export default function AddMcpSource(props: {
                 placeholder="npx"
                 className="font-mono text-sm"
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 The executable to run (e.g. npx, uvx, node).
               </p>
             </div>
@@ -927,7 +927,7 @@ export default function AddMcpSource(props: {
                 placeholder="-y chrome-devtools-mcp@latest"
                 className="font-mono text-sm"
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Space-separated arguments passed to the command.
               </p>
             </div>
@@ -956,14 +956,14 @@ export default function AddMcpSource(props: {
                 rows={3}
                 className="font-mono text-sm"
               />
-              <p className="text-xs text-muted-foreground">One per line, KEY=value format.</p>
+              <p className="text-sm text-muted-foreground">One per line, KEY=value format.</p>
             </div>
           </section>
 
           {/* Stdio error */}
           {stdioError && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-xs text-destructive">{stdioError}</p>
+              <p className="text-sm text-destructive">{stdioError}</p>
             </div>
           )}
 

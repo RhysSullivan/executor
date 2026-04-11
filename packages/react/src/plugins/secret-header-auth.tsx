@@ -107,7 +107,7 @@ function InlineCreateSecret(props: {
             value={secretId}
             onChange={(e) => setSecretId((e.target as HTMLInputElement).value)}
             placeholder="my-api-token"
-            className="h-8 text-xs font-mono"
+            className="h-8 text-sm font-mono"
           />
         </div>
         <div className="space-y-1">
@@ -118,7 +118,7 @@ function InlineCreateSecret(props: {
             value={secretName}
             onChange={(e) => setSecretName((e.target as HTMLInputElement).value)}
             placeholder="API Token"
-            className="h-8 text-xs"
+            className="h-8 text-sm"
           />
         </div>
       </div>
@@ -144,7 +144,7 @@ function InlineCreateSecret(props: {
           </Button>
         </div>
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
@@ -382,7 +382,7 @@ export function SecretHeaderAuthRow(props: {
                 })
               }
               placeholder="Authorization"
-              className="h-8 text-xs font-mono"
+              className="h-8 text-sm font-mono"
             />
           </div>
           <div className="space-y-1">
@@ -402,7 +402,7 @@ export function SecretHeaderAuthRow(props: {
                 })
               }
               placeholder="Bearer "
-              className="h-8 text-xs font-mono"
+              className="h-8 text-sm font-mono"
             />
           </div>
         </div>

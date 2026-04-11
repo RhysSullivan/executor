@@ -452,7 +452,7 @@ function OrgPage() {
                             </>
                           )}
                           <DropdownMenuItem
-                            className="text-destructive focus:text-destructive text-xs"
+                            className="text-destructive focus:text-destructive text-sm"
                             onClick={() => handleRemove(member.id, member.name ?? member.email)}
                           >
                             Remove member
@@ -539,7 +539,7 @@ function DomainCard({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem
-                className="text-destructive focus:text-destructive text-xs"
+                className="text-destructive focus:text-destructive text-sm"
                 onClick={onDelete}
               >
                 Remove domain
@@ -627,7 +627,7 @@ function InviteDialog(props: {
           <div className="grid gap-1.5">
             <Label
               htmlFor="invite-email"
-              className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+              className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
             >
               Email
             </Label>
@@ -650,7 +650,7 @@ function InviteDialog(props: {
             <div className="grid gap-1.5">
               <Label
                 htmlFor="invite-role"
-                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
               >
                 Role
               </Label>
@@ -674,7 +674,7 @@ function InviteDialog(props: {
 
           {state.status === "error" && state.error && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-xs text-destructive">{state.error}</p>
+              <p className="text-sm text-destructive">{state.error}</p>
             </div>
           )}
         </div>

@@ -90,7 +90,7 @@ function VaultPicker(props: {
           if (v) props.onVaultSelect(v.id, v.name);
         }}
       >
-        <SelectTrigger className="h-9 text-xs">
+        <SelectTrigger className="h-9 text-sm">
           <SelectValue placeholder={isLoading ? "Loading…" : "Select a vault"} />
         </SelectTrigger>
         <SelectContent>
@@ -182,7 +182,7 @@ function ConfigDialog(props: {
           <DialogTitle className="font-display text-xl">
             {isEdit ? "Edit 1Password" : "Connect 1Password"}
           </DialogTitle>
-          <DialogDescription className="text-xs leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             Link a vault to resolve secrets via the 1Password desktop app or a service account.
           </DialogDescription>
         </DialogHeader>
@@ -197,7 +197,7 @@ function ConfigDialog(props: {
               value={authKind}
               onValueChange={(v) => setAuthKind(v as "desktop-app" | "service-account")}
             >
-              <SelectTrigger className="h-9 text-xs">
+              <SelectTrigger className="h-9 text-sm">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -251,7 +251,7 @@ function ConfigDialog(props: {
               placeholder="1Password"
               value={vaultName}
               onChange={(e) => setVaultName((e.target as HTMLInputElement).value)}
-              className="text-xs h-9"
+              className="text-sm h-9"
             />
           </div>
 
@@ -367,11 +367,11 @@ export default function OnePasswordSettings() {
         {isLoading ? (
           <div className="flex items-center gap-2">
             <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-            <p className="text-xs text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">Loading…</p>
           </div>
         ) : isError ? (
           <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2">
-            <p className="text-xs text-destructive">Failed to load configuration</p>
+            <p className="text-sm text-destructive">Failed to load configuration</p>
           </div>
         ) : config ? (
           <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-xs">

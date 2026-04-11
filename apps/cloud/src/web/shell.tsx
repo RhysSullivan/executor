@@ -54,7 +54,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
     ),
     onSuccess: ({ value }) =>
       value.length === 0 ? (
-        <div className="px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
+        <div className="px-2.5 py-2 text-sm leading-relaxed text-muted-foreground">
           No sources yet
         </div>
       ) : (

@@ -6,7 +6,7 @@ export default function GoogleDiscoverySourceSummary({ sourceId }: { readonly so
       <Badge variant="secondary" className="text-xs">
         Google
       </Badge>
-      <span className="text-xs text-muted-foreground">{sourceId}</span>
+      <span className="text-sm text-muted-foreground">{sourceId}</span>
     </span>
   );
 }

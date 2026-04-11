@@ -106,7 +106,7 @@ export default function AddGraphqlSource(props: {
           placeholder="https://api.example.com/graphql"
           className="font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           The endpoint will be introspected to discover available queries and mutations.
         </p>
       </section>
@@ -122,7 +122,7 @@ export default function AddGraphqlSource(props: {
           placeholder="my_api"
           className="font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           A prefix for the tool names. Derived from the endpoint hostname if not provided.
         </p>
       </section>
@@ -134,7 +134,7 @@ export default function AddGraphqlSource(props: {
             <Label>
               Authentication <span className="text-muted-foreground font-normal">(optional)</span>
             </Label>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground">
               Secret-backed headers sent with every request, including introspection.
             </p>
           </div>
@@ -171,7 +171,7 @@ export default function AddGraphqlSource(props: {
       {/* Error */}
       {addError && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-xs text-destructive">{addError}</p>
+          <p className="text-sm text-destructive">{addError}</p>
         </div>
       )}
 

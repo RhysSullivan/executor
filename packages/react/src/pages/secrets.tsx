@@ -103,7 +103,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
           <DialogTitle className="font-display text-xl">New secret</DialogTitle>
-          <DialogDescription className="text-xs leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             Store a credential or API key. Values are kept in your system keychain when available,
             with a local encrypted file fallback.
           </DialogDescription>
@@ -114,7 +114,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
             <div className="grid gap-1.5">
               <Label
                 htmlFor="secret-id"
-                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
               >
                 ID
               </Label>
@@ -129,7 +129,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
             <div className="grid gap-1.5">
               <Label
                 htmlFor="secret-name"
-                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
               >
                 Name
               </Label>
@@ -138,7 +138,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
                 placeholder="GitHub PAT"
                 value={name}
                 onChange={(e) => setName((e.target as HTMLInputElement).value)}
-                className="text-xs h-9"
+                className="text-sm h-9"
               />
             </div>
           </div>
@@ -146,7 +146,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
           <div className="grid gap-1.5">
             <Label
               htmlFor="secret-value"
-              className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+              className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
             >
               Value
             </Label>
@@ -164,7 +164,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
             <div className="grid gap-1.5">
               <Label
                 htmlFor="secret-purpose"
-                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
               >
                 Purpose{" "}
                 <span className="normal-case tracking-normal font-normal text-muted-foreground">
@@ -176,18 +176,18 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
                 placeholder="GitHub API auth"
                 value={purpose}
                 onChange={(e) => setPurpose((e.target as HTMLInputElement).value)}
-                className="text-xs h-9"
+                className="text-sm h-9"
               />
             </div>
             <div className="grid gap-1.5">
               <Label
                 htmlFor="secret-provider"
-                className="text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
               >
                 Storage
               </Label>
               <Select value={provider} onValueChange={setProvider}>
-                <SelectTrigger id="secret-provider" className="h-9 text-xs">
+                <SelectTrigger id="secret-provider" className="h-9 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -201,7 +201,7 @@ function AddSecretDialog(props: { open: boolean; onOpenChange: (v: boolean) => v
 
           {error && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-xs text-destructive">{error}</p>
+              <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
         </div>
@@ -265,7 +265,7 @@ function SecretRow(props: {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem
-              className="text-destructive focus:text-destructive text-xs"
+              className="text-destructive focus:text-destructive text-sm"
               onClick={props.onRemove}
             >
               Remove secret
@@ -312,7 +312,7 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
             <h1 className="font-display text-[2rem] tracking-tight text-foreground leading-none">
               Secrets
             </h1>
-            <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+            <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
               Credentials and API keys used by your connected sources.
             </p>
           </div>
@@ -349,12 +349,12 @@ export function SecretsPage(props: { secretProviderPlugins: readonly SecretProvi
           onInitial: () => (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-xs text-muted-foreground">Loading secrets…</p>
+              <p className="text-sm text-muted-foreground">Loading secrets…</p>
             </div>
           ),
           onFailure: () => (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-xs text-destructive">Failed to load secrets</p>
+              <p className="text-sm text-destructive">Failed to load secrets</p>
             </div>
           ),
           onSuccess: ({ value }) => (

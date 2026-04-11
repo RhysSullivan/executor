@@ -253,13 +253,13 @@ export default function AddOpenApiSource(props: {
 
         {analyzeError && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-            <p className="text-xs text-destructive">{analyzeError}</p>
+            <p className="text-sm text-destructive">{analyzeError}</p>
           </div>
         )}
 
         {!preview && (
           <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Paste a URL or raw JSON/YAML content.
             </p>
             <Button disabled={!specUrl.trim() || analyzing} onClick={handleAnalyze}>
@@ -295,7 +295,7 @@ export default function AddOpenApiSource(props: {
                   </Badge>
                 ))}
                 {preview.tags.length > 4 && (
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-sm text-muted-foreground">
                     +{preview.tags.length - 4}
                   </span>
                 )}
@@ -327,7 +327,7 @@ export default function AddOpenApiSource(props: {
               placeholder="e.g. sentry, stripe, github"
               className="font-mono text-sm"
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Unique identifier for this source. Used in tool names.
             </p>
           </section>
@@ -472,7 +472,7 @@ export default function AddOpenApiSource(props: {
           {/* Add error */}
           {addError && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-              <p className="text-xs text-destructive">{addError}</p>
+              <p className="text-sm text-destructive">{addError}</p>
             </div>
           )}
 

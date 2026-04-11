@@ -136,14 +136,14 @@ function PlansPage() {
                       </Badge>
                     )}
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{meta.tagline}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{meta.tagline}</p>
 
                   <div className="mt-4 flex items-baseline gap-1.5">
                     <span className="text-2xl font-semibold text-foreground tabular-nums">
                       ${plan.price?.amount ?? 0}
                     </span>
                     {plan.price?.interval && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         USD / seat / {plan.price.interval}
                       </span>
                     )}

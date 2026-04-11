@@ -41,7 +41,7 @@ export function ToolsPage() {
                 <p className="text-sm font-medium text-foreground/70 mb-1">
                   No tools registered
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   Add a source to start discovering tools.
                 </p>
               </div>

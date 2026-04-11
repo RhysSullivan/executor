@@ -27,7 +27,7 @@ function PreBlock(props: { children?: ReactNode; node?: unknown }) {
 }
 
 const PROSE_CLASSES = [
-  "text-xs leading-relaxed text-muted-foreground",
+  "text-sm leading-relaxed text-muted-foreground",
   // paragraphs
   "[&_p]:mb-[0.4em] [&_p:last-child]:mb-0",
   // bold

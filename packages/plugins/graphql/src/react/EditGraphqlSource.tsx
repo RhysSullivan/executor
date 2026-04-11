@@ -69,7 +69,7 @@ function EditForm(props: {
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           Update the endpoint and authentication headers for this source.
         </p>
       </div>
@@ -129,7 +129,7 @@ function EditForm(props: {
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-          <p className="text-xs text-destructive">{error}</p>
+          <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
 
@@ -158,7 +158,7 @@ export default function EditGraphqlSource(props: { sourceId: string; onSave: () 
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
-          <p className="mt-1 text-xs text-muted-foreground">Loading configuration…</p>
+          <p className="mt-1 text-sm text-muted-foreground">Loading configuration…</p>
         </div>
       </div>
     );

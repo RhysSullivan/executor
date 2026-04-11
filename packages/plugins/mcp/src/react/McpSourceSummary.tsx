@@ -10,7 +10,7 @@ export default function McpSourceSummary({ sourceId }: { readonly sourceId: stri
       <Badge variant="secondary" className="text-xs">
         MCP
       </Badge>
-      <span className="text-xs text-muted-foreground">{sourceId}</span>
+      <span className="text-sm text-muted-foreground">{sourceId}</span>
     </span>
   );
 }

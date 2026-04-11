@@ -153,7 +153,7 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
         </div>
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">Update available</p>
-          <p className="text-xs text-muted-foreground">v{props.latestVersion}</p>
+          <p className="text-sm text-muted-foreground">v{props.latestVersion}</p>
         </div>
       </div>
       <Button
@@ -233,7 +233,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
     ),
     onSuccess: ({ value }) =>
       value.length === 0 ? (
-        <div className="px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
+        <div className="px-2.5 py-2 text-sm leading-relaxed text-muted-foreground">
           No sources yet
         </div>
       ) : (

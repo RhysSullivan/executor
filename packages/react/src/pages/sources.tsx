@@ -150,7 +150,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                   <section className="space-y-3">
                     <div>
                       <h2 className="text-sm font-semibold text-foreground">Built-in</h2>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         Runtime sources exposed by the loaded executor plugins.
                       </p>
                     </div>
@@ -162,7 +162,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                   <section className="space-y-3">
                     <div>
                       <h2 className="text-sm font-semibold text-foreground">Connected</h2>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         User-configured sources available in this workspace.
                       </p>
                     </div>
@@ -234,7 +234,7 @@ function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
     <section className="mb-8 space-y-3">
       <div>
         <h2 className="text-sm font-semibold text-foreground">Popular sources</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           One-click setup for common APIs and services.
         </p>
       </div>
