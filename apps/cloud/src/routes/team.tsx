@@ -15,6 +15,7 @@ import {
 } from "@executor/react/components/dialog";
 import { Button } from "@executor/react/components/button";
 import { Badge } from "@executor/react/components/badge";
+import { CopyButton } from "@executor/react/components/copy-button";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import {
@@ -60,7 +61,7 @@ type InviteState = {
 
 const initialInviteState: InviteState = {
   email: "",
-  roleSlug: "",
+  roleSlug: "member",
   status: "idle",
   error: null,
 };
@@ -191,13 +192,10 @@ function TeamPage() {
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
         {/* Header */}
-        <div className="flex items-end justify-between mb-8">
+        <div className="mb-8">
           <h1 className="font-display text-[2rem] tracking-tight text-foreground">
             Team
           </h1>
-          <Button size="sm" className="min-w-32" onClick={() => setInviteOpen(true)}>
-            Invite member
-          </Button>
         </div>
 
         {/* Settings */}
@@ -301,6 +299,9 @@ function TeamPage() {
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-medium text-foreground">Members</h2>
+            <Button size="sm" className="min-w-32" onClick={() => setInviteOpen(true)}>
+              Invite member
+            </Button>
           </div>
           <Input
             type="text"
@@ -487,58 +488,6 @@ type DomainData = {
   verificationToken?: string;
   verificationPrefix?: string;
 };
-
-function CopyButton({ value, label }: { value: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const icon = copied ? (
-    <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-      <path
-        d="M3.5 8.5L6.5 11.5L12.5 5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-      <rect x="5.5" y="5.5" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M3.5 10.5V3.5H10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-
-  if (label) {
-    return (
-      <button
-        type="button"
-        onClick={handleCopy}
-        className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground transition-colors hover:text-muted-foreground"
-        aria-label={label}
-      >
-        {icon}
-        {copied ? "Copied" : label}
-      </button>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="ml-1.5 inline-flex shrink-0 items-center justify-center rounded p-0.5 text-muted-foreground transition-colors hover:text-muted-foreground"
-      aria-label="Copy to clipboard"
-    >
-      {icon}
-    </button>
-  );
-}
 
 function DomainCard({
   domain: d,
