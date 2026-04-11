@@ -21,7 +21,6 @@
     "@executor/react",
     "@executor/api",
     "@executor/config",
-    "@executor/storage",
     "@executor/storage-postgres",
     "@executor/sdk",
     "@executor/plugin-file-secrets",
