@@ -24,6 +24,19 @@ type OAuthProps = {
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/** Decode the CF Access JWT to get the user's email. No signature verification
+ *  needed — Access already validated it before the request reached us. */
+const getCfAccessIdentity = (request: Request): { email: string } | null => {
+  const jwt = request.headers.get("cf-access-jwt-assertion");
+  if (!jwt) return null;
+  try {
+    const payload = JSON.parse(atob(jwt.split(".")[1]!));
+    return payload.email ? { email: payload.email } : null;
+  } catch {
+    return null;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // MCP server factory — creates a fresh server per request
 // ---------------------------------------------------------------------------
@@ -112,6 +125,11 @@ const defaultHandler = {
         return new Response("Missing client_id", { status: 400 });
       }
 
+      // Get user identity from Cloudflare Access (if configured)
+      const identity = getCfAccessIdentity(request);
+      const userEmail = identity?.email ?? "demo@example.com";
+      const userId = identity?.email ?? "demo-user";
+
       const clientInfo = await env.OAUTH_PROVIDER.lookupClient(oauthReq.clientId);
       const clientName = clientInfo?.clientName ?? oauthReq.clientId;
 
@@ -119,10 +137,10 @@ const defaultHandler = {
       if (request.method === "POST") {
         const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
           request: oauthReq,
-          userId: "demo-user",
-          metadata: { label: "demo" },
+          userId,
+          metadata: { label: "authorized" },
           scope: oauthReq.scope,
-          props: { email: "demo@example.com" } satisfies OAuthProps,
+          props: { email: userEmail } satisfies OAuthProps,
         });
         return Response.redirect(redirectTo, 302);
       }
@@ -156,12 +174,24 @@ const defaultHandler = {
     .deny:hover { background: #333; }
     .allow { background: #fafafa; color: #0a0a0a; }
     .allow:hover { background: #e5e5e5; }
+    .user-badge { display: flex; align-items: center; gap: 0.625rem; background: #0a0a0a; border: 1px solid #262626; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1.5rem; }
+    .user-avatar { width: 32px; height: 32px; background: #262626; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 600; color: #a3a3a3; flex-shrink: 0; }
+    .user-info { min-width: 0; }
+    .user-label { font-size: 0.6875rem; color: #525252; margin-bottom: 0.125rem; }
+    .user-email { font-size: 0.8125rem; color: #e5e5e5; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="icon">🔌</div>
     <h1>Authorization Request</h1>
+    <div class="user-badge">
+      <div class="user-avatar">${escapeHtml(userEmail[0]!.toUpperCase())}</div>
+      <div class="user-info">
+        <div class="user-label">Signed in as</div>
+        <div class="user-email">${escapeHtml(userEmail)}</div>
+      </div>
+    </div>
     <p class="subtitle">
       <span class="client-name">${escapeHtml(clientName)}</span> wants to connect to your MCP server.
     </p>
