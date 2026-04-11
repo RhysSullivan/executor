@@ -13,6 +13,8 @@ const RunsSearchSchema = Schema.standardSchemaV1(
     to: Schema.optional(Schema.String),
     code: Schema.optional(Schema.String),
     live: Schema.optional(Schema.String),
+    sort: Schema.optional(Schema.String),
+    elicitation: Schema.optional(Schema.String),
   }),
 );
 
