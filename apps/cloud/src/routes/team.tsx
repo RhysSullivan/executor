@@ -228,6 +228,74 @@ function TeamPage() {
           </div>
         </section>
 
+        {/* Domains */}
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-medium text-foreground">Domains</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                Verify a domain to let anyone with a matching email join automatically.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              disabled={!canUseDomains}
+              onClick={handleAddDomain}
+            >
+              Add domain
+            </Button>
+          </div>
+
+          {!canUseDomains && (
+            <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
+              <p className="text-sm text-muted-foreground">
+                Domain verification is available on the Professional plan.
+              </p>
+              <Link to="/billing/plans">
+                <Button size="sm" variant="outline">
+                  Upgrade
+                </Button>
+              </Link>
+            </div>
+          )}
+
+          {Result.match(domainsResult, {
+            onInitial: () => (
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/50" />
+                ))}
+              </div>
+            ),
+            onFailure: () => (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+                <p className="text-sm text-destructive">Failed to load domains</p>
+              </div>
+            ),
+            onSuccess: ({ value }) => {
+              if (value.domains.length === 0) {
+                return (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No domains yet. Add your company domain so teammates can join without an invite.
+                  </p>
+                );
+              }
+
+              return (
+                <div className="space-y-2">
+                  {value.domains.map((d) => (
+                    <DomainCard
+                      key={d.id}
+                      domain={d}
+                      onDelete={() => handleDeleteDomain(d.id, d.domain)}
+                    />
+                  ))}
+                </div>
+              );
+            },
+          })}
+        </section>
+
         {/* Members */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
@@ -251,7 +319,7 @@ function TeamPage() {
           ),
           onFailure: () => (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-[0.8125rem] text-destructive">Failed to load team members</p>
+              <p className="text-sm text-destructive">Failed to load team members</p>
             </div>
           ),
           onSuccess: ({ value }) => {
@@ -266,7 +334,7 @@ function TeamPage() {
 
             if (filtered.length === 0) {
               return (
-                <p className="py-8 text-center text-[0.8125rem] text-muted-foreground">
+                <p className="py-8 text-center text-sm text-muted-foreground">
                   {search ? "No matching members" : "No team members yet"}
                 </p>
               );
@@ -398,74 +466,6 @@ function TeamPage() {
             );
           },
         })}
-        </section>
-
-        {/* Domains */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="text-sm font-medium text-foreground">Domains</h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                Verify a domain to let anyone with a matching email join automatically.
-              </p>
-            </div>
-            <Button
-              size="sm"
-              disabled={!canUseDomains}
-              onClick={handleAddDomain}
-            >
-              Add domain
-            </Button>
-          </div>
-
-          {!canUseDomains && (
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <p className="text-sm text-muted-foreground">
-                Domain verification is available on the Professional plan.
-              </p>
-              <Link to="/billing/plans">
-                <Button size="sm" variant="outline">
-                  Upgrade
-                </Button>
-              </Link>
-            </div>
-          )}
-
-          {Result.match(domainsResult, {
-            onInitial: () => (
-              <div className="space-y-3">
-                {[1, 2].map((i) => (
-                  <div key={i} className="h-16 animate-pulse rounded-lg bg-muted/50" />
-                ))}
-              </div>
-            ),
-            onFailure: () => (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-                <p className="text-[0.8125rem] text-destructive">Failed to load domains</p>
-              </div>
-            ),
-            onSuccess: ({ value }) => {
-              if (value.domains.length === 0) {
-                return (
-                  <p className="py-6 text-center text-sm text-muted-foreground">
-                    No domains yet. Add your company domain so teammates can join without an invite.
-                  </p>
-                );
-              }
-
-              return (
-                <div className="space-y-2">
-                  {value.domains.map((d) => (
-                    <DomainCard
-                      key={d.id}
-                      domain={d}
-                      onDelete={() => handleDeleteDomain(d.id, d.domain)}
-                    />
-                  ))}
-                </div>
-              );
-            },
-          })}
         </section>
 
         <InviteDialog
