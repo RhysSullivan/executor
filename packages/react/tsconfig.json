@@ -12,7 +12,7 @@
     "declarationMap": true,
     "sourceMap": true,
     "jsx": "react-jsx",
-    "types": ["vite/client"],
+    "types": ["vite/client", "node"],
     "plugins": [
       {
         "name": "@effect/language-service"

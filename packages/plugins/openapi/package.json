@@ -61,6 +61,7 @@
     "@effect/vitest": "catalog:",
     "@executor/api": "workspace:*",
     "@executor/react": "workspace:*",
+    "@executor/storage-memory": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "bun-types": "catalog:",
