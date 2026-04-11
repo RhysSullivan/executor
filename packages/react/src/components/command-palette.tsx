@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
-import { DatabaseIcon, PlusIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
+import { SourceFavicon } from "./source-favicon";
 import { sourcesAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
@@ -52,6 +53,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
             id: string;
             name: string;
             kind: string;
+            url?: string;
             runtime?: boolean;
           }>,
         onFailure: () =>
@@ -59,6 +61,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
             id: string;
             name: string;
             kind: string;
+            url?: string;
             runtime?: boolean;
           }>,
         onSuccess: ({ value }) => value.filter((s) => !s.runtime),
@@ -141,7 +144,7 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
                 value={`connected ${s.name} ${s.id} ${s.kind}`}
                 onSelect={() => goToSource(s.id)}
               >
-                <DatabaseIcon />
+                <SourceFavicon url={s.url} />
                 <span className="flex-1 truncate">{s.name}</span>
                 <CommandShortcut>{s.kind}</CommandShortcut>
               </CommandItem>
