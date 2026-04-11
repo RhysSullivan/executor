@@ -1,12 +1,14 @@
 import { Deferred, Effect, Fiber, Ref } from "effect";
 
 import type {
+  ExecutionInteractionId,
   Executor,
   InvokeOptions,
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
 } from "@executor/sdk";
+import { ExecutionId } from "@executor/sdk";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
@@ -26,6 +28,7 @@ import { buildExecuteDescription } from "./description";
 export type ExecutionEngineConfig = {
   readonly executor: Executor;
   readonly codeExecutor?: CodeExecutor;
+  readonly executionStore?: Executor["executions"];
 };
 
 export type ExecutionResult =
@@ -39,6 +42,7 @@ export type PausedExecution = {
 
 /** Internal representation with Effect runtime state for pause/resume. */
 type InternalPausedExecution = PausedExecution & {
+  readonly interactionId: ExecutionInteractionId;
   readonly response: Deferred.Deferred<typeof ElicitationResponse.Type>;
   readonly fiber: Fiber.Fiber<ExecuteResult, unknown>;
   readonly pauseSignalRef: Ref.Ref<Deferred.Deferred<InternalPausedExecution>>;
@@ -139,6 +143,35 @@ export const formatPausedExecution = (
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const serializeJson = (value: unknown): string | null => {
+  if (value === null || typeof value === "undefined") {
+    return null;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return JSON.stringify(String(value));
+  }
+};
+
+const serializeLogs = (logs: readonly string[] | undefined): string | null =>
+  logs && logs.length > 0 ? JSON.stringify(logs) : null;
+
+const buildInteractionPayload = (ctx: ElicitationContext) => {
+  const req = ctx.request;
+  return {
+    kind: req._tag === "UrlElicitation" ? "url" : "form",
+    purpose: req.message,
+    payloadJson: JSON.stringify({
+      message: req.message,
+      kind: req._tag === "UrlElicitation" ? "url" : "form",
+      ...(req._tag === "UrlElicitation" ? { url: req.url } : {}),
+      ...(req._tag === "FormElicitation" ? { requestedSchema: req.requestedSchema } : {}),
+    }),
+  };
+};
 
 const readOptionalLimit = (value: unknown, toolName: string): number | ExecutionToolError => {
   if (value === undefined) {
@@ -294,8 +327,39 @@ const runEffect = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionEngine => {
   const { executor } = config;
   const codeExecutor = config.codeExecutor ?? makeQuickJsExecutor();
+  const executionStore = config.executionStore ?? executor.executions;
   const pausedExecutions = new Map<string, InternalPausedExecution>();
-  let nextId = 0;
+
+  const persistTerminalState = (
+    executionId: ExecutionId,
+    result: ExecuteResult,
+  ): Effect.Effect<ExecuteResult> =>
+    Effect.gen(function* () {
+      const now = Date.now();
+      yield* executionStore.update(executionId, {
+        status: result.error ? "failed" : "completed",
+        resultJson: serializeJson(result.result),
+        errorText: result.error ?? null,
+        logsJson: serializeLogs(result.logs),
+        completedAt: now,
+        updatedAt: now,
+      });
+      return result;
+    });
+
+  const createExecutionRecord = (code: string) =>
+    executionStore.create({
+      scopeId: executor.scope.id,
+      status: "running",
+      code,
+      resultJson: null,
+      errorText: null,
+      logsJson: null,
+      startedAt: Date.now(),
+      completedAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
 
   /**
    * Race a running fiber against a pause signal. Returns when either
@@ -303,12 +367,14 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
    * comes first). Re-used by both executeWithPause and resume.
    */
   const awaitCompletionOrPause = (
+    executionId: ExecutionId,
     fiber: Fiber.Fiber<ExecuteResult, unknown>,
     pauseSignal: Deferred.Deferred<InternalPausedExecution>,
   ): Effect.Effect<ExecutionResult> =>
     Effect.race(
       Fiber.join(fiber).pipe(
         Effect.orDie,
+        Effect.flatMap((result) => persistTerminalState(executionId, result)),
         Effect.map((result): ExecutionResult => ({ status: "completed", result })),
       ),
       Deferred.await(pauseSignal).pipe(
@@ -324,6 +390,8 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
    */
   const startPausableExecution = (code: string): Effect.Effect<ExecutionResult> =>
     Effect.gen(function* () {
+      const execution = yield* createExecutionRecord(code);
+
       // Ref holds the current pause signal. The elicitation handler reads
       // it each time it fires, so resume() can swap in a fresh Deferred
       // before unblocking the fiber.
@@ -334,17 +402,34 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
 
       const elicitationHandler: ElicitationHandler = (ctx) =>
         Effect.gen(function* () {
+          const now = Date.now();
           const responseDeferred = yield* Deferred.make<typeof ElicitationResponse.Type>();
-          const id = `exec_${++nextId}`;
+          const interactionPayload = buildInteractionPayload(ctx);
+          const interaction = yield* executionStore.recordInteraction(execution.id, {
+            executionId: execution.id,
+            status: "pending",
+            kind: interactionPayload.kind,
+            purpose: interactionPayload.purpose,
+            payloadJson: interactionPayload.payloadJson,
+            responseJson: null,
+            responsePrivateJson: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          yield* executionStore.update(execution.id, {
+            status: "waiting_for_interaction",
+            updatedAt: now,
+          });
 
           const paused: InternalPausedExecution = {
-            id,
+            id: execution.id,
             elicitationContext: ctx,
+            interactionId: interaction.id,
             response: responseDeferred,
             fiber: fiber!,
             pauseSignalRef,
           };
-          pausedExecutions.set(id, paused);
+          pausedExecutions.set(execution.id, paused);
 
           const currentSignal = yield* Ref.get(pauseSignalRef);
           yield* Deferred.succeed(currentSignal, paused);
@@ -357,7 +442,55 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       fiber = yield* Effect.forkDaemon(codeExecutor.execute(code, invoker));
 
       const initialSignal = yield* Ref.get(pauseSignalRef);
-      return yield* awaitCompletionOrPause(fiber, initialSignal);
+      return yield* awaitCompletionOrPause(execution.id, fiber, initialSignal);
+    });
+
+  const executeWithManagedRecording = (
+    code: string,
+    onElicitation: ElicitationHandler,
+  ): Effect.Effect<ExecuteResult> =>
+    Effect.gen(function* () {
+      const execution = yield* createExecutionRecord(code);
+
+      const recordingHandler: ElicitationHandler = (ctx) =>
+        Effect.gen(function* () {
+          const now = Date.now();
+          const interactionPayload = buildInteractionPayload(ctx);
+          const interaction = yield* executionStore.recordInteraction(execution.id, {
+            executionId: execution.id,
+            status: "pending",
+            kind: interactionPayload.kind,
+            purpose: interactionPayload.purpose,
+            payloadJson: interactionPayload.payloadJson,
+            responseJson: null,
+            responsePrivateJson: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          yield* executionStore.update(execution.id, {
+            status: "waiting_for_interaction",
+            updatedAt: now,
+          });
+
+          const response = yield* onElicitation(ctx);
+          yield* executionStore.resolveInteraction(interaction.id, {
+            status: response.action === "accept" ? "resolved" : "cancelled",
+            responseJson: serializeJson({
+              action: response.action,
+              content: response.content ?? null,
+            }),
+            updatedAt: Date.now(),
+          });
+          yield* executionStore.update(execution.id, {
+            status: "running",
+            updatedAt: Date.now(),
+          });
+          return response;
+        });
+
+      const invoker = makeFullInvoker(executor, { onElicitation: recordingHandler });
+      const result = yield* codeExecutor.execute(code, invoker).pipe(Effect.orDie);
+      return yield* persistTerminalState(execution.id, result);
     });
 
   /**
@@ -366,7 +499,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
    * against the next pause.
    */
   const resumeExecution = (
-    executionId: string,
+    executionId: ExecutionId,
     response: ResumeResponse,
   ): Effect.Effect<ExecutionResult | null> =>
     Effect.gen(function* () {
@@ -374,30 +507,57 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       if (!paused) return null;
       pausedExecutions.delete(executionId);
 
+      const now = Date.now();
+      yield* executionStore.resolveInteraction(paused.interactionId, {
+        status: response.action === "accept" ? "resolved" : "cancelled",
+        responseJson: serializeJson({
+          action: response.action,
+          content: response.content ?? null,
+        }),
+        updatedAt: now,
+      });
+
+      if (response.action !== "accept") {
+        yield* executionStore.update(executionId, {
+          status: "cancelled",
+          completedAt: now,
+          updatedAt: now,
+        });
+        yield* Fiber.interrupt(paused.fiber);
+        return {
+          status: "completed",
+          result: {
+            result: null,
+            error: "Execution cancelled by user",
+            logs: [],
+          },
+        };
+      }
+
       // Swap in a fresh pause signal BEFORE unblocking the fiber, so the
       // next elicitation handler call signals this new Deferred.
       const nextSignal = yield* Deferred.make<InternalPausedExecution>();
       yield* Ref.set(paused.pauseSignalRef, nextSignal);
+      yield* executionStore.update(executionId, {
+        status: "running",
+        updatedAt: now,
+      });
 
       yield* Deferred.succeed(paused.response, {
         action: response.action,
         content: response.content,
       });
 
-      return yield* awaitCompletionOrPause(paused.fiber, nextSignal);
+      return yield* awaitCompletionOrPause(executionId, paused.fiber, nextSignal);
     });
 
   return {
-    execute: async (code, options) => {
-      const invoker = makeFullInvoker(executor, {
-        onElicitation: options.onElicitation,
-      });
-      return runEffect(codeExecutor.execute(code, invoker));
-    },
+    execute: (code, options) => runEffect(executeWithManagedRecording(code, options.onElicitation)),
 
     executeWithPause: (code) => runEffect(startPausableExecution(code)),
 
-    resume: (executionId, response) => runEffect(resumeExecution(executionId, response)),
+    resume: (executionId, response) =>
+      runEffect(resumeExecution(ExecutionId.make(executionId), response)),
 
     getDescription: () => runEffect(buildExecuteDescription(executor)),
   };
