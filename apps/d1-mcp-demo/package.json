@@ -1,0 +1,22 @@
+{
+  "name": "@executor/d1-mcp-demo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply demo-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply demo-db --remote"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.4.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "agents": "^0.10.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "wrangler": "^4.81.0"
+  }
+}

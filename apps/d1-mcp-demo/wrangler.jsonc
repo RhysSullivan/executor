@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "d1-mcp-demo",
+  "compatibility_date": "2025-04-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "src/index.ts",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "d1-mcp-demo",
+      "database_id": "local"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "local"
+    }
+  ]
+}
