@@ -4,9 +4,11 @@ import {
   timestamp,
   boolean,
   integer,
+  bigint,
   jsonb,
   customType,
   primaryKey,
+  index,
 } from "drizzle-orm/pg-core";
 
 // ---------------------------------------------------------------------------
@@ -109,4 +111,47 @@ export const pluginKv = pgTable(
     value: text("value").notNull(),
   },
   (table) => [primaryKey({ columns: [table.organizationId, table.namespace, table.key] })],
+);
+
+export const executions = pgTable(
+  "executions",
+  {
+    id: text("id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    scopeId: text("scope_id").notNull(),
+    status: text("status").notNull(),
+    code: text("code").notNull(),
+    resultJson: text("result_json"),
+    errorText: text("error_text"),
+    logsJson: text("logs_json"),
+    startedAt: bigint("started_at", { mode: "number" }),
+    completedAt: bigint("completed_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id, table.organizationId] }),
+    index("executions_scope_created_at_idx").on(table.scopeId, table.createdAt, table.id),
+  ],
+);
+
+export const executionInteractions = pgTable(
+  "execution_interactions",
+  {
+    id: text("id").notNull(),
+    organizationId: text("organization_id").notNull(),
+    executionId: text("execution_id").notNull(),
+    status: text("status").notNull(),
+    kind: text("kind").notNull(),
+    purpose: text("purpose").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    responseJson: text("response_json"),
+    responsePrivateJson: text("response_private_json"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.id, table.organizationId] }),
+    index("execution_interactions_execution_status_idx").on(table.executionId, table.status),
+  ],
 );

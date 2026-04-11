@@ -4,13 +4,20 @@ import { Effect } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as SqlClient from "@effect/sql/SqlClient";
 
-import { ScopeId, ToolId, SecretId, makeInMemorySecretProvider, scopeKv } from "@executor/sdk";
+import {
+  ScopeId,
+  ToolId,
+  SecretId,
+  makeInMemorySecretProvider,
+  scopeKv,
+} from "@executor/sdk";
 import type { Kv } from "@executor/sdk";
 import { migrate } from "./schema";
 import { makeSqliteKv } from "./plugin-kv";
 import { makeKvToolRegistry } from "./tool-registry";
 import { makeKvSecretStore } from "./secret-store";
 import { makeKvPolicyEngine } from "./policy-engine";
+import { makeSqliteExecutionStore } from "./execution-store";
 
 // ---------------------------------------------------------------------------
 // Test layer: in-memory SQLite + migrated KV
@@ -259,5 +266,115 @@ describe("KvPolicyEngine", () => {
         expect(yield* engine.list(ScopeId.make("s1"))).toHaveLength(0);
       }),
     ),
+  );
+});
+
+describe("SqliteExecutionStore", () => {
+  it.effect("lists scoped executions with filters and pending interactions", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const store = makeSqliteExecutionStore(sql);
+      const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const now = Date.now();
+
+      const first = yield* store.create({
+        scopeId,
+        status: "completed",
+        code: "return 1",
+        resultJson: "1",
+        errorText: null,
+        logsJson: null,
+        startedAt: now - 20,
+        completedAt: now - 10,
+        createdAt: now - 20,
+        updatedAt: now - 10,
+      });
+      const second = yield* store.create({
+        scopeId,
+        status: "waiting_for_interaction",
+        code: "return await tools.api.singleApproval({})",
+        resultJson: null,
+        errorText: null,
+        logsJson: null,
+        startedAt: now,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      yield* store.recordInteraction(second.id, {
+        executionId: second.id,
+        status: "pending",
+        kind: "form",
+        purpose: "Approval required",
+        payloadJson: "{}",
+        responseJson: null,
+        responsePrivateJson: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const filtered = yield* store.list(scopeId, {
+        limit: 1,
+        statusFilter: ["waiting_for_interaction"],
+        codeQuery: "singleApproval",
+      });
+      expect(filtered.executions).toHaveLength(1);
+      expect(filtered.executions[0]?.id).toBe(second.id);
+      expect(filtered.executions[0]?.pendingInteraction?.purpose).toBe("Approval required");
+
+      const firstPage = yield* store.list(scopeId, {
+        limit: 1,
+      });
+      expect(firstPage.executions[0]?.id).toBe(second.id);
+
+      const pageTwo = yield* store.list(scopeId, {
+        limit: 1,
+        cursor: firstPage.nextCursor,
+      });
+      expect(pageTwo.executions).toHaveLength(1);
+      expect(pageTwo.executions[0]?.id).toBe(first.id);
+    }).pipe(Effect.provide(TestSqlLayer)),
+  );
+
+  it.effect("sweeps expired executions and their interactions", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const store = makeSqliteExecutionStore(sql);
+      const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const expiredAt = Date.now() - 31 * 24 * 60 * 60 * 1000;
+
+      const expired = yield* store.create({
+        scopeId,
+        status: "failed",
+        code: "throw new Error('boom')",
+        resultJson: null,
+        errorText: "boom",
+        logsJson: null,
+        startedAt: expiredAt,
+        completedAt: expiredAt,
+        createdAt: expiredAt,
+        updatedAt: expiredAt,
+      });
+
+      yield* store.recordInteraction(expired.id, {
+        executionId: expired.id,
+        status: "pending",
+        kind: "form",
+        purpose: "Expired interaction",
+        payloadJson: "{}",
+        responseJson: null,
+        responsePrivateJson: null,
+        createdAt: expiredAt,
+        updatedAt: expiredAt,
+      });
+
+      yield* store.sweep();
+
+      const result = yield* store.get(expired.id);
+      expect(result).toBeNull();
+    }).pipe(Effect.provide(TestSqlLayer)),
   );
 });

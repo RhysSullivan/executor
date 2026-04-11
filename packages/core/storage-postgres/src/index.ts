@@ -24,11 +24,13 @@ import type { DrizzleDb } from "./types";
 import { makePgToolRegistry } from "./tool-registry";
 import { makePgSecretStore } from "./secret-store";
 import { makePgPolicyEngine } from "./policy-engine";
+import { makePgExecutionStore } from "./execution-store";
 
 export { makePgKv } from "./pg-kv";
 export { makePgToolRegistry } from "./tool-registry";
 export { makePgSecretStore } from "./secret-store";
 export { makePgPolicyEngine } from "./policy-engine";
+export { makePgExecutionStore } from "./execution-store";
 export { encrypt, decrypt } from "./crypto";
 export type { DrizzleDb } from "./types";
 
@@ -57,6 +59,7 @@ export const makePgConfig = <const TPlugins extends readonly ExecutorPlugin<stri
     sources: makeInMemorySourceRegistry(),
     secrets: makePgSecretStore(db, options.organizationId, options.encryptionKey),
     policies: makePgPolicyEngine(db, options.organizationId),
+    executions: makePgExecutionStore(db, options.organizationId),
     plugins: options.plugins,
   };
 };

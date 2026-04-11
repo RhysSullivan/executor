@@ -19,6 +19,7 @@ import {
 } from "@executor/sdk";
 
 import { makePgConfig } from "./index";
+import { makePgExecutionStore } from "./execution-store";
 import { makePgKv } from "./pg-kv";
 import * as schema from "./schema";
 
@@ -43,7 +44,9 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  await db.execute(sql`TRUNCATE plugin_kv, policies, secrets, tool_definitions, tools, sources`);
+  await db.execute(
+    sql`TRUNCATE execution_interactions, executions, plugin_kv, policies, secrets, tool_definitions, tools, sources`,
+  );
 });
 
 afterAll(async () => {
@@ -365,6 +368,116 @@ describe("Executor with Postgres storage", () => {
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor();
       yield* executor.close();
+    }),
+  );
+});
+
+describe("PostgresExecutionStore", () => {
+  it.effect("lists scoped executions with filters and pending interactions", () =>
+    Effect.gen(function* () {
+      const store = makePgExecutionStore(db, TEST_ORG_ID);
+      const scopeId = ScopeId.make(
+        `${TEST_ORG_ID}-runs-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
+      const now = Date.now();
+
+      const first = yield* store.create({
+        scopeId,
+        status: "completed",
+        code: "return 1",
+        resultJson: "1",
+        errorText: null,
+        logsJson: null,
+        startedAt: now - 20,
+        completedAt: now - 10,
+        createdAt: now - 20,
+        updatedAt: now - 10,
+      });
+      const second = yield* store.create({
+        scopeId,
+        status: "waiting_for_interaction",
+        code: "return await tools.api.singleApproval({})",
+        resultJson: null,
+        errorText: null,
+        logsJson: null,
+        startedAt: now,
+        completedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      yield* store.recordInteraction(second.id, {
+        executionId: second.id,
+        status: "pending",
+        kind: "form",
+        purpose: "Approval required",
+        payloadJson: "{}",
+        responseJson: null,
+        responsePrivateJson: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const filtered = yield* store.list(scopeId, {
+        limit: 1,
+        statusFilter: ["waiting_for_interaction"],
+        codeQuery: "singleApproval",
+      });
+      expect(filtered.executions).toHaveLength(1);
+      expect(filtered.executions[0]?.id).toBe(second.id);
+      expect(filtered.executions[0]?.pendingInteraction?.purpose).toBe("Approval required");
+
+      const firstPage = yield* store.list(scopeId, {
+        limit: 1,
+      });
+      expect(firstPage.executions[0]?.id).toBe(second.id);
+
+      const pageTwo = yield* store.list(scopeId, {
+        limit: 1,
+        cursor: firstPage.nextCursor,
+      });
+      expect(pageTwo.executions).toHaveLength(1);
+      expect(pageTwo.executions[0]?.id).toBe(first.id);
+    }),
+  );
+
+  it.effect("sweeps expired executions and their interactions", () =>
+    Effect.gen(function* () {
+      const store = makePgExecutionStore(db, TEST_ORG_ID);
+      const scopeId = ScopeId.make(
+        `${TEST_ORG_ID}-runs-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      );
+      const expiredAt = Date.now() - 31 * 24 * 60 * 60 * 1000;
+
+      const expired = yield* store.create({
+        scopeId,
+        status: "failed",
+        code: "throw new Error('boom')",
+        resultJson: null,
+        errorText: "boom",
+        logsJson: null,
+        startedAt: expiredAt,
+        completedAt: expiredAt,
+        createdAt: expiredAt,
+        updatedAt: expiredAt,
+      });
+
+      yield* store.recordInteraction(expired.id, {
+        executionId: expired.id,
+        status: "pending",
+        kind: "form",
+        purpose: "Expired interaction",
+        payloadJson: "{}",
+        responseJson: null,
+        responsePrivateJson: null,
+        createdAt: expiredAt,
+        updatedAt: expiredAt,
+      });
+
+      yield* store.sweep();
+
+      const result = yield* store.get(expired.id);
+      expect(result).toBeNull();
     }),
   );
 });
