@@ -18,6 +18,13 @@ type OAuthProps = {
 };
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// ---------------------------------------------------------------------------
 // MCP server factory — creates a fresh server per request
 // ---------------------------------------------------------------------------
 
@@ -98,26 +105,81 @@ const defaultHandler = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // OAuth authorize endpoint — simple auto-approve for demo purposes.
-    // In production, this would show a consent screen and verify the user's
-    // identity via Cloudflare Access JWT or another auth mechanism.
+    // OAuth authorize — show consent screen on GET, process approval on POST
     if (url.pathname === "/authorize") {
       const oauthReq = await env.OAUTH_PROVIDER.parseAuthRequest(request);
       if (!oauthReq.clientId) {
         return new Response("Missing client_id", { status: 400 });
       }
 
-      // Auto-approve — in a real app you'd validate a CF Access JWT here
-      // and show a consent screen
-      const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-        request: oauthReq,
-        userId: "demo-user",
-        metadata: { label: "demo" },
-        scope: oauthReq.scope,
-        props: { email: "demo@example.com" } satisfies OAuthProps,
-      });
+      const clientInfo = await env.OAUTH_PROVIDER.lookupClient(oauthReq.clientId);
+      const clientName = clientInfo?.clientName ?? oauthReq.clientId;
 
-      return Response.redirect(redirectTo, 302);
+      // POST = user clicked "Allow"
+      if (request.method === "POST") {
+        const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+          request: oauthReq,
+          userId: "demo-user",
+          metadata: { label: "demo" },
+          scope: oauthReq.scope,
+          props: { email: "demo@example.com" } satisfies OAuthProps,
+        });
+        return Response.redirect(redirectTo, 302);
+      }
+
+      // GET = show consent screen
+      const scopes = oauthReq.scope?.length ? oauthReq.scope : ["full access"];
+      const scopeList = scopes.map((s: string) => `<li>${escapeHtml(s)}</li>`).join("");
+
+      return new Response(
+        `<!DOCTYPE html>
+<html>
+<head>
+  <title>Authorize - D1 MCP Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: #171717; border: 1px solid #262626; border-radius: 16px; padding: 2rem; width: 100%; max-width: 400px; margin: 1rem; }
+    .icon { width: 48px; height: 48px; background: #262626; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; font-size: 24px; }
+    h1 { font-size: 1.25rem; font-weight: 600; margin-bottom: 0.5rem; color: #fafafa; }
+    .subtitle { color: #a3a3a3; font-size: 0.875rem; margin-bottom: 1.5rem; line-height: 1.5; }
+    .client-name { color: #fafafa; font-weight: 500; }
+    .permissions { background: #0a0a0a; border: 1px solid #262626; border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+    .permissions-label { font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: #737373; margin-bottom: 0.75rem; }
+    .permissions ul { list-style: none; }
+    .permissions li { font-size: 0.875rem; padding: 0.375rem 0; color: #d4d4d4; display: flex; align-items: center; gap: 0.5rem; }
+    .permissions li::before { content: ""; width: 6px; height: 6px; background: #525252; border-radius: 50%; flex-shrink: 0; }
+    .buttons { display: flex; gap: 0.75rem; }
+    button { flex: 1; padding: 0.625rem 1rem; border-radius: 8px; font-size: 0.875rem; font-weight: 500; cursor: pointer; border: none; transition: background 0.15s; }
+    .deny { background: #262626; color: #e5e5e5; }
+    .deny:hover { background: #333; }
+    .allow { background: #fafafa; color: #0a0a0a; }
+    .allow:hover { background: #e5e5e5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🔌</div>
+    <h1>Authorization Request</h1>
+    <p class="subtitle">
+      <span class="client-name">${escapeHtml(clientName)}</span> wants to connect to your MCP server.
+    </p>
+    <div class="permissions">
+      <div class="permissions-label">Permissions requested</div>
+      <ul>${scopeList}</ul>
+    </div>
+    <div class="buttons">
+      <button class="deny" onclick="window.close()">Deny</button>
+      <form method="POST" action="/authorize?${escapeHtml(url.search.slice(1))}">
+        <button type="submit" class="allow">Allow</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>`,
+        { headers: { "content-type": "text/html" } },
+      );
     }
 
     // Landing page
