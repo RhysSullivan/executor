@@ -6,11 +6,13 @@ import { SourcesApi } from "./sources/api";
 import { SecretsApi } from "./secrets/api";
 import { ExecutionsApi } from "./executions/api";
 import { ScopeApi } from "./scope/api";
+import { PoliciesApi } from "./policies/api";
 
 export const CoreExecutorApi = HttpApi.make("executor")
   .add(ToolsApi)
   .add(SourcesApi)
   .add(SecretsApi)
+  .add(PoliciesApi)
   .add(ExecutionsApi)
   .add(ScopeApi)
   .annotateContext(
