@@ -41,6 +41,14 @@ export type RunsQueryInput = {
   /** Live-mode floor: epoch-ms. Rows strictly newer than this. */
   readonly after?: string;
   readonly code?: string;
+  /** Sort expression `"<field>,<direction>"` e.g. `"createdAt,desc"`. */
+  readonly sort?: string;
+  /**
+   * Interactions filter: `"true"` → only runs that recorded an
+   * elicitation, `"false"` → only runs that didn't, omitted → no
+   * filter. Maps to `hadElicitation` on the server side.
+   */
+  readonly elicitation?: string;
 };
 
 const toEpochRange = (date: string | undefined, mode: "start" | "end"): number | undefined => {
@@ -72,6 +80,8 @@ export const listExecutions = async (input: RunsQueryInput): Promise<ListExecuti
   if (input.trigger) params.set("trigger", input.trigger);
   if (input.tool) params.set("tool", input.tool);
   if (input.after) params.set("after", input.after);
+  if (input.sort) params.set("sort", input.sort);
+  if (input.elicitation) params.set("elicitation", input.elicitation);
 
   const from = toEpochRange(input.from, "start");
   const to = toEpochRange(input.to, "end");

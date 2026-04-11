@@ -14,7 +14,6 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "../command";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../dialog";
 import {
   FILTER_COMMAND_KEYS,
   parseFilterCommand,
@@ -22,43 +21,72 @@ import {
 } from "./filter-command-parser";
 
 // ---------------------------------------------------------------------------
-// FilterCommand — openstatus-style cmdk filter palette for /runs
+// RunsFilterCommand — inline cmdk palette (openstatus /infinite pattern)
 // ---------------------------------------------------------------------------
 //
-// Entry points:
-//   - Hit `/` anywhere on /runs to open the palette.
-//   - Click the thin "Filter" bar in the top bar to open it.
+// Always-visible search input in the top bar. Focus (or `/` hotkey via the
+// forwarded ref) opens an absolutely-positioned dropdown below the input
+// with suggestions + grammar footer. Enter applies, Escape or blur closes.
 //
-// Type `status:` / `trigger:` / `tool:` prefixes to discover values
-// from the current `meta` — no blind typing required. Press Enter to
-// apply.
+// Ported shape from `~/Developer/openstatus-data-table/src/components/data-table/
+// data-table-filter-command/index.tsx:165-398`. We use a plain `div.relative`
+// as the positioning context and toggle the dropdown via a local `open`
+// state. No Radix Popover — openstatus keeps the dropdown inline in the
+// same DOM subtree so it participates in the form's blur behavior.
+//
+// `/` hotkey in `runs.tsx` grabs the forwarded ref and calls `.focus()`,
+// which triggers `onFocus → setOpen(true)`.
 
 export interface RunsFilterCommandProps {
-  readonly open: boolean;
-  readonly onOpenChange: (open: boolean) => void;
   readonly meta?: ExecutionListMeta;
   readonly onApply: (tokens: RunsFilterTokens) => void;
+  readonly value: string;
+  readonly onValueChange: (value: string) => void;
   /**
-   * Pre-fill the input on open. Used so the palette reopens with the
-   * last-applied expression for quick tweaks.
+   * Called whenever the dropdown's open state changes. Parent uses this
+   * to guard conflicting hotkeys (e.g. `b` → rail collapse) while the
+   * palette is active.
    */
-  readonly initialValue?: string;
+  readonly onOpenChange?: (open: boolean) => void;
 }
 
-export function RunsFilterCommand({
-  open,
-  onOpenChange,
-  meta,
-  onApply,
-  initialValue,
-}: RunsFilterCommandProps) {
-  const [value, setValue] = React.useState(initialValue ?? "");
+export const RunsFilterCommand = React.forwardRef<
+  HTMLInputElement,
+  RunsFilterCommandProps
+>(function RunsFilterCommand(
+  { meta, onApply, value, onValueChange, onOpenChange },
+  forwardedRef,
+) {
+  const [open, setOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
 
+  // Forward the input ref so the parent can focus from a `/` hotkey.
+  React.useImperativeHandle(
+    forwardedRef,
+    () => inputRef.current as HTMLInputElement,
+    [],
+  );
+
+  // Notify parent when open state changes so it can guard conflicting
+  // hotkeys like `b` (rail toggle) while the palette is active.
   React.useEffect(() => {
-    if (open) {
-      setValue(initialValue ?? "");
-    }
-  }, [open, initialValue]);
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
+
+  // Close on click outside the container.
+  React.useEffect(() => {
+    if (!open) return;
+    const handlePointer = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!containerRef.current || !target) return;
+      if (!containerRef.current.contains(target)) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", handlePointer);
+    return () => window.removeEventListener("pointerdown", handlePointer);
+  }, [open]);
 
   const currentKey = React.useMemo(() => detectActiveKey(value), [value]);
 
@@ -88,192 +116,159 @@ export function RunsFilterCommand({
   const handleApply = () => {
     const tokens = parseFilterCommand(value);
     onApply(tokens);
-    onOpenChange(false);
+    setOpen(false);
+    inputRef.current?.blur();
   };
 
   const handleSuggestionSelect = (suggestion: string) => {
-    // Replace the trailing fragment after the active `key:` with the
-    // selected value. If the user had a partial like `status:fai`,
-    // `status:fai` → `status:failed`.
     const updated = replaceTrailingValue(value, suggestion);
-    setValue(updated);
+    onValueChange(updated);
+    inputRef.current?.focus();
   };
 
   const handleKeyInsert = (key: string) => {
-    // Insert `key:` after a leading space so multiple filters don't
-    // collide. If the input is empty, drop the leading space.
     const trimmed = value.trimEnd();
-    setValue(trimmed.length === 0 ? `${key}:` : `${trimmed} ${key}:`);
+    onValueChange(trimmed.length === 0 ? `${key}:` : `${trimmed} ${key}:`);
+    inputRef.current?.focus();
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>Filter runs</DialogTitle>
-        <DialogDescription>
-          Type filter tokens like `status:failed tool:github.*` and press Enter to apply.
-        </DialogDescription>
-      </DialogHeader>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-2xl" showCloseButton={false}>
-        <Command
-          shouldFilter={false}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              handleApply();
-            }
-          }}
-        >
-          <CommandInput
-            value={value}
-            onValueChange={setValue}
-            placeholder="status:failed tool:github.* duration_ms:>5000"
-            className="font-mono text-xs"
-          />
-          <CommandList className="max-h-[420px]">
-            {suggestions.length > 0 ? (
-              <CommandGroup heading={`${currentKey}:`}>
-                {suggestions.map((suggestion) => (
+    <div ref={containerRef} className="relative w-full">
+      <Command
+        shouldFilter={false}
+        className="overflow-visible bg-transparent"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            handleApply();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            setOpen(false);
+            inputRef.current?.blur();
+          }
+        }}
+      >
+        <CommandInput
+          ref={inputRef}
+          value={value}
+          onValueChange={onValueChange}
+          onFocus={() => setOpen(true)}
+          placeholder="Filter runs — status:… trigger:… tool:… code:…"
+          className="font-mono text-xs"
+        />
+
+        {open ? (
+          <div
+            className={cn(
+              "absolute top-full left-0 right-0 z-20 mt-1",
+              "overflow-hidden rounded-md border border-border",
+              "bg-popover text-popover-foreground shadow-md",
+            )}
+          >
+            <CommandList className="max-h-[420px]">
+              {suggestions.length > 0 ? (
+                <CommandGroup heading={`${currentKey}:`}>
+                  {suggestions.map((suggestion) => (
+                    <CommandItem
+                      key={suggestion.label}
+                      value={suggestion.label}
+                      onSelect={() => handleSuggestionSelect(suggestion.label)}
+                    >
+                      <span className="font-mono text-xs">{suggestion.label}</span>
+                      <CommandShortcut>{suggestion.hint}</CommandShortcut>
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : (
+                <CommandEmpty>
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    No live suggestions for this token.
+                  </span>
+                </CommandEmpty>
+              )}
+
+              <CommandSeparator />
+
+              <CommandGroup heading="Add filter">
+                {FILTER_COMMAND_KEYS.map((entry) => (
                   <CommandItem
-                    key={suggestion.label}
-                    value={suggestion.label}
-                    onSelect={() => handleSuggestionSelect(suggestion.label)}
+                    key={entry.key}
+                    value={`key-${entry.key}`}
+                    onSelect={() => handleKeyInsert(entry.key)}
+                    className="group"
                   >
-                    <span className="font-mono text-xs">{suggestion.label}</span>
-                    <CommandShortcut>{suggestion.hint}</CommandShortcut>
+                    <span className="font-mono text-xs text-foreground">{entry.key}:</span>
+                    <span className="text-[11px] text-muted-foreground">{entry.description}</span>
+                    {/* Focus-only bracket hints */}
+                    {entry.hints && entry.hints.length > 0 ? (
+                      <span className="ml-auto hidden gap-1 group-aria-selected:flex group-data-[selected=true]:flex">
+                        {entry.hints.map((hint) => (
+                          <span
+                            key={hint}
+                            className="rounded-sm bg-muted/60 px-1 font-mono text-[10px] text-muted-foreground"
+                          >
+                            {hint}
+                          </span>
+                        ))}
+                      </span>
+                    ) : null}
                   </CommandItem>
                 ))}
               </CommandGroup>
-            ) : (
-              <CommandEmpty>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  No live suggestions for this token.
-                </span>
-              </CommandEmpty>
-            )}
 
-            <CommandSeparator />
+              <CommandSeparator />
 
-            <CommandGroup heading="Add filter">
-              {FILTER_COMMAND_KEYS.map((entry) => (
-                <CommandItem
-                  key={entry.key}
-                  value={`key-${entry.key}`}
-                  onSelect={() => handleKeyInsert(entry.key)}
-                  className="group"
-                >
-                  <span className="font-mono text-xs text-foreground">{entry.key}:</span>
-                  <span className="text-[11px] text-muted-foreground">{entry.description}</span>
-                  {/* Openstatus-style focus-only bracket hints */}
-                  {entry.hints && entry.hints.length > 0 ? (
-                    <span className="ml-auto hidden gap-1 group-aria-selected:flex group-data-[selected=true]:flex">
-                      {entry.hints.map((hint) => (
-                        <span
-                          key={hint}
-                          className="rounded-sm bg-muted/60 px-1 font-mono text-[10px] text-muted-foreground"
-                        >
-                          {hint}
-                        </span>
-                      ))}
-                    </span>
-                  ) : null}
+              <CommandGroup heading="Apply">
+                <CommandItem value="apply-filters" onSelect={handleApply}>
+                  <span className="text-xs font-medium text-foreground">Apply filters</span>
+                  <CommandShortcut>Enter</CommandShortcut>
                 </CommandItem>
-              ))}
-            </CommandGroup>
+              </CommandGroup>
+            </CommandList>
 
-            <CommandSeparator />
-
-            <CommandGroup heading="Apply">
-              <CommandItem value="apply-filters" onSelect={handleApply}>
-                <span className="text-xs font-medium text-foreground">Apply filters</span>
-                <CommandShortcut>Enter</CommandShortcut>
-              </CommandItem>
-            </CommandGroup>
-          </CommandList>
-
-          {/* Grammar footer — openstatus /infinite style */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 bg-muted/20 px-3 py-2 font-mono text-[10px] text-muted-foreground/70">
-            <span className="flex items-center gap-1">
-              <span>Use</span>
-              <kbd className="rounded-sm border border-border bg-muted/50 px-1 font-sans">↑↓</kbd>
-              <span>to navigate</span>
-            </span>
-            <span className="text-muted-foreground/30">·</span>
-            <span className="flex items-center gap-1">
-              <kbd className="rounded-sm border border-border bg-muted/50 px-1 font-sans">Enter</kbd>
-              <span>to query</span>
-            </span>
-            <span className="text-muted-foreground/30">·</span>
-            <span className="flex items-center gap-1">
-              <kbd className="rounded-sm border border-border bg-muted/50 px-1 font-sans">Esc</kbd>
-              <span>to close</span>
-            </span>
-            <span className="text-muted-foreground/30">·</span>
-            <span>
-              Union:{" "}
-              <code className="rounded-sm bg-muted/50 px-1 text-muted-foreground">
-                status:failed,completed
-              </code>
-            </span>
-            <span className="text-muted-foreground/30">·</span>
-            <span>
-              Range:{" "}
-              <code className="rounded-sm bg-muted/50 px-1 text-muted-foreground">
-                duration_ms:&gt;5000
-              </code>
-            </span>
-            <span className="text-muted-foreground/30">·</span>
-            <span>
-              Time:{" "}
-              <code className="rounded-sm bg-muted/50 px-1 text-muted-foreground">after:1h</code>
-            </span>
+            {/* Grammar footer — openstatus /infinite style */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 bg-muted/20 px-3 py-2 font-mono text-[10px] text-muted-foreground/70">
+              <span className="flex items-center gap-1">
+                <span>Use</span>
+                <kbd className="rounded-sm border border-border bg-muted/50 px-1 font-sans">↑↓</kbd>
+                <span>to navigate</span>
+              </span>
+              <span className="text-muted-foreground/30">·</span>
+              <span className="flex items-center gap-1">
+                <kbd className="rounded-sm border border-border bg-muted/50 px-1 font-sans">Enter</kbd>
+                <span>to query</span>
+              </span>
+              <span className="text-muted-foreground/30">·</span>
+              <span className="flex items-center gap-1">
+                <kbd className="rounded-sm border border-border bg-muted/50 px-1 font-sans">Esc</kbd>
+                <span>to close</span>
+              </span>
+              <span className="text-muted-foreground/30">·</span>
+              <span>
+                Union:{" "}
+                <code className="rounded-sm bg-muted/50 px-1 text-muted-foreground">
+                  status:failed,completed
+                </code>
+              </span>
+              <span className="text-muted-foreground/30">·</span>
+              <span>
+                Range:{" "}
+                <code className="rounded-sm bg-muted/50 px-1 text-muted-foreground">
+                  duration_ms:&gt;5000
+                </code>
+              </span>
+              <span className="text-muted-foreground/30">·</span>
+              <span>
+                Time:{" "}
+                <code className="rounded-sm bg-muted/50 px-1 text-muted-foreground">after:1h</code>
+              </span>
+            </div>
           </div>
-        </Command>
-      </DialogContent>
-    </Dialog>
+        ) : null}
+      </Command>
+    </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Trigger strip — thin, always-visible clickable chip above the top bar
-// ---------------------------------------------------------------------------
-//
-// Shows the currently-applied filter expression (or a placeholder)
-// with a `/` shortcut hint.
-
-export function RunsFilterCommandTrigger({
-  value,
-  onClick,
-  className,
-}: {
-  readonly value: string;
-  readonly onClick: () => void;
-  readonly className?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "group flex w-full items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5",
-        "font-mono text-[11px] text-muted-foreground",
-        "hover:border-foreground/30 hover:text-foreground",
-        className,
-      )}
-    >
-      <svg viewBox="0 0 16 16" className="size-3 shrink-0 opacity-60" aria-hidden>
-        <circle cx="7" cy="7" r="4" fill="none" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M10.5 10.5L14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      </svg>
-      <span className="flex-1 truncate text-left">
-        {value ? value : "Filter runs — status:… trigger:… tool:… code:…"}
-      </span>
-      <kbd className="hidden shrink-0 rounded border border-border bg-muted/30 px-1 text-[10px] text-muted-foreground/70 sm:inline-block">
-        /
-      </kbd>
-    </button>
-  );
-}
+});
 
 // ---------------------------------------------------------------------------
 // Helpers

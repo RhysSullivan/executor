@@ -8,7 +8,12 @@ import { useHotkeys } from "react-hotkeys-hook";
 import { useLiveMode } from "../hooks/use-live-mode";
 import { useLocalStorage } from "../hooks/use-local-storage";
 import { RunsShell } from "../components/runs/shell";
-import { RunRow, RunRowHeader } from "../components/runs/row";
+import { RunRow } from "../components/runs/row";
+import {
+  RunsColumnHeader,
+  type SortField,
+  type SortState,
+} from "../components/runs/column-header";
 import {
   RunsFilterRail,
   resolveTimeRange,
@@ -24,10 +29,7 @@ import {
   DEFAULT_FIELD_VISIBILITY,
   type RunFieldKey,
 } from "../components/runs/view-options-button";
-import {
-  RunsFilterCommand,
-  RunsFilterCommandTrigger,
-} from "../components/runs/filter-command";
+import { RunsFilterCommand } from "../components/runs/filter-command";
 import type { RunsFilterTokens } from "../components/runs/filter-command-parser";
 import { STATUS_ORDER } from "../components/runs/status";
 
@@ -50,6 +52,10 @@ export type RunsSearch = {
   readonly to?: string;
   readonly code?: string;
   readonly live?: string;
+  /** Sort expression `"<field>,<direction>"` e.g. `"createdAt,desc"`. */
+  readonly sort?: string;
+  /** `"true"` | `"false"` — elicitation filter. Absent → no filter. */
+  readonly elicitation?: string;
 };
 
 const DEFAULT_RANGE: TimeRangePreset = "24h";
@@ -87,6 +93,28 @@ const toggleCsv = (values: readonly string[], value: string): string[] =>
     ? values.filter((entry) => entry !== value)
     : [...values, value].sort();
 
+const VALID_SORT_FIELDS: readonly SortField[] = ["createdAt", "durationMs"];
+
+const parseSortSearch = (value: string | undefined): SortState => {
+  if (!value) return null;
+  const [field, direction] = value.split(",");
+  if (!field || !direction) return null;
+  if (!VALID_SORT_FIELDS.includes(field as SortField)) return null;
+  if (direction !== "asc" && direction !== "desc") return null;
+  return { field: field as SortField, direction };
+};
+
+/**
+ * Cycle sort state for a given field: `none → desc → asc → none`.
+ * If the clicked field is different from the currently active field,
+ * start at `desc` for that field.
+ */
+const cycleSort = (current: SortState, field: SortField): SortState => {
+  if (current?.field !== field) return { field, direction: "desc" };
+  if (current.direction === "desc") return { field, direction: "asc" };
+  return null;
+};
+
 export function RunsPage({ search }: { search: RunsSearch }) {
   const navigate = useNavigate();
 
@@ -94,6 +122,11 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   const selectedTriggers = React.useMemo(() => parseCsv(search.trigger), [search.trigger]);
   const selectedTools = React.useMemo(() => parseCsv(search.tool), [search.tool]);
   const range = React.useMemo(() => parseRange(search.range), [search.range]);
+  const sort = React.useMemo(() => parseSortSearch(search.sort), [search.sort]);
+  const selectedElicitation: "true" | "false" | null =
+    search.elicitation === "true" || search.elicitation === "false"
+      ? search.elicitation
+      : null;
   const live = search.live === "1";
 
   const [codeInput, setCodeInput] = React.useState(search.code ?? "");
@@ -154,6 +187,8 @@ export function RunsPage({ search }: { search: RunsSearch }) {
       resolvedTimeRange.from ?? "",
       resolvedTimeRange.to ?? "",
       search.code ?? "",
+      search.sort ?? "",
+      search.elicitation ?? "",
     ],
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
@@ -166,6 +201,8 @@ export function RunsPage({ search }: { search: RunsSearch }) {
         from: resolvedTimeRange.from ? String(resolvedTimeRange.from) : undefined,
         to: resolvedTimeRange.to ? String(resolvedTimeRange.to) : undefined,
         code: search.code,
+        sort: search.sort,
+        elicitation: search.elicitation,
       }),
     getNextPageParam: (page) => page.nextCursor,
     staleTime: 10_000,
@@ -238,6 +275,31 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [selectedTools, updateSearch],
   );
 
+  // Tri-state: clicking a checked row clears to `null`, clicking the
+  // other row switches. Two separate toggles would allow "show neither"
+  // which is incoherent.
+  const handleToggleElicitation = React.useCallback(
+    (value: "true" | "false") => {
+      updateSearch({
+        elicitation: selectedElicitation === value ? undefined : value,
+        executionId: undefined,
+      });
+    },
+    [selectedElicitation, updateSearch],
+  );
+
+  // Sort handler — cycles none → desc → asc → none and updates URL.
+  const handleSort = React.useCallback(
+    (field: SortField) => {
+      const next = cycleSort(sort, field);
+      updateSearch({
+        sort: next ? `${next.field},${next.direction}` : undefined,
+        executionId: undefined,
+      });
+    },
+    [sort, updateSearch],
+  );
+
   // `only` quick-filter handlers — replace the facet's current selection
   // with just the clicked value.
   const handleOnlyStatus = React.useCallback(
@@ -280,6 +342,7 @@ export function RunsPage({ search }: { search: RunsSearch }) {
       from: undefined,
       to: undefined,
       code: undefined,
+      elicitation: undefined,
       executionId: undefined,
     });
   }, [updateSearch]);
@@ -318,6 +381,8 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     updateSearch({ live: live ? undefined : "1" });
   }, [live, updateSearch]);
 
+  const filterCommandInputRef = React.useRef<HTMLInputElement>(null);
+  const [filterCommandValue, setFilterCommandValue] = React.useState("");
   const [filterCommandOpen, setFilterCommandOpen] = React.useState(false);
   const [keyboardHelpOpen, setKeyboardHelpOpen] = React.useState(false);
   const [railCollapsed, setRailCollapsed] = React.useState(false);
@@ -335,9 +400,10 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [setFieldVisibility],
   );
 
-  // Current filter expression rendered into the trigger chip. Built
-  // from the raw search params so it round-trips when the palette
-  // reopens.
+  // Serialize the current URL filters into a single filter expression
+  // string. The inline palette's input stays in sync with this so that
+  // rail-driven filter changes show up in the input, and user edits
+  // apply back to the URL on Enter.
   const currentFilterExpression = React.useMemo(() => {
     const parts: string[] = [];
     if (selectedStatuses.length > 0) parts.push(`status:${selectedStatuses.join(",")}`);
@@ -346,6 +412,14 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     if (search.code) parts.push(`code:${search.code}`);
     return parts.join(" ");
   }, [selectedStatuses, selectedTriggers, selectedTools, search.code]);
+
+  // Sync the palette input with external URL changes. If the user edits
+  // the input locally, `filterCommandValue` diverges until they submit
+  // or refocus. Re-sync on any URL change that's not their own recent
+  // apply.
+  React.useEffect(() => {
+    setFilterCommandValue(currentFilterExpression);
+  }, [currentFilterExpression]);
 
   const handleApplyFilterCommand = React.useCallback(
     (tokens: RunsFilterTokens) => {
@@ -371,11 +445,17 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   // Keyboard shortcuts. `/` and `?` need preventDefault to suppress the
   // browser find bar / help shortcut. Default behavior (skip inputs /
   // textareas / contentEditable) is built into react-hotkeys-hook.
-  useHotkeys("j", toggleLive);
-  useHotkeys("r", () => void listQuery.refetch());
-  useHotkeys("/", () => setFilterCommandOpen(true), { preventDefault: true });
+  useHotkeys("j", toggleLive, { enabled: !filterCommandOpen });
+  useHotkeys("r", () => void listQuery.refetch(), { enabled: !filterCommandOpen });
+  useHotkeys(
+    "/",
+    () => filterCommandInputRef.current?.focus(),
+    { preventDefault: true },
+  );
   useHotkeys("shift+/", () => setKeyboardHelpOpen(true), { preventDefault: true });
-  useHotkeys("b", () => setRailCollapsed((prev) => !prev));
+  useHotkeys("b", () => setRailCollapsed((prev) => !prev), {
+    enabled: !filterCommandOpen,
+  });
 
   return (
     <>
@@ -388,6 +468,8 @@ export function RunsPage({ search }: { search: RunsSearch }) {
             selectedTriggers={selectedTriggers}
             onToggleTrigger={handleToggleTrigger}
             onOnlyTrigger={handleOnlyTrigger}
+            selectedElicitation={selectedElicitation}
+            onToggleElicitation={handleToggleElicitation}
             selectedTools={selectedTools}
             onToggleTool={handleToggleTool}
             onOnlyTool={handleOnlyTool}
@@ -426,9 +508,13 @@ export function RunsPage({ search }: { search: RunsSearch }) {
                 />
               </div>
             </div>
-            <RunsFilterCommandTrigger
-              value={currentFilterExpression}
-              onClick={() => setFilterCommandOpen(true)}
+            <RunsFilterCommand
+              ref={filterCommandInputRef}
+              meta={meta}
+              onApply={handleApplyFilterCommand}
+              value={filterCommandValue}
+              onValueChange={setFilterCommandValue}
+              onOpenChange={setFilterCommandOpen}
             />
           </div>
         }
@@ -441,7 +527,13 @@ export function RunsPage({ search }: { search: RunsSearch }) {
             />
           ) : null
         }
-        columnHeader={<RunRowHeader />}
+        columnHeader={
+          <RunsColumnHeader
+            sort={sort}
+            onSort={handleSort}
+            visibleFields={fieldVisibility}
+          />
+        }
         isLoading={listQuery.isLoading}
         isFetchingNextPage={listQuery.isFetchingNextPage}
         hasNextPage={listQuery.hasNextPage}
@@ -478,14 +570,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
         nextRowId={nextRowId}
         onPrev={() => prevRowId && updateSearch({ executionId: prevRowId })}
         onNext={() => nextRowId && updateSearch({ executionId: nextRowId })}
-      />
-
-      <RunsFilterCommand
-        open={filterCommandOpen}
-        onOpenChange={setFilterCommandOpen}
-        meta={meta}
-        onApply={handleApplyFilterCommand}
-        initialValue={currentFilterExpression}
       />
     </>
   );

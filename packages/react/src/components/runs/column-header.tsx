@@ -1,0 +1,126 @@
+import * as React from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+
+import { cn } from "../../lib/utils";
+
+// ---------------------------------------------------------------------------
+// RunsColumnHeader — per-field column header row with sort affordances
+// ---------------------------------------------------------------------------
+//
+// Replaces the old `RunRowHeader` (which showed just `_time | Raw Data`).
+// Width cells must match `RunRow`'s field widths exactly so labels line up
+// with the values below. Only `_time` (createdAt) and `duration_ms` are
+// sortable — other columns are plain labels.
+//
+// Sort cycling: `none → desc → asc → none`. State lives in the URL via the
+// parent `runs.tsx` page.
+
+export type SortField = "createdAt" | "durationMs";
+export type SortDirection = "asc" | "desc";
+export type SortState = {
+  readonly field: SortField;
+  readonly direction: SortDirection;
+} | null;
+
+export interface RunsColumnHeaderProps {
+  readonly sort: SortState;
+  readonly onSort: (field: SortField) => void;
+  readonly visibleFields?: {
+    readonly via?: boolean;
+    readonly tools?: boolean;
+    readonly log?: boolean;
+    readonly duration_ms?: boolean;
+  };
+}
+
+export function RunsColumnHeader({
+  sort,
+  onSort,
+  visibleFields,
+}: RunsColumnHeaderProps) {
+  const showVia = visibleFields?.via !== false;
+  const showTools = visibleFields?.tools !== false;
+  const showLog = visibleFields?.log !== false;
+  const showDuration = visibleFields?.duration_ms !== false;
+
+  return (
+    <div className="flex min-w-0 items-center gap-2 overflow-hidden px-4 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+      {/* dot column (spacer to match row layout) */}
+      <span aria-hidden className="size-2 shrink-0" />
+
+      <SortHeader
+        className="w-[190px] shrink-0"
+        label="_time"
+        field="createdAt"
+        currentSort={sort}
+        onSort={onSort}
+      />
+
+      <span className="w-[140px] shrink-0">status</span>
+
+      {showVia ? (
+        <span className="hidden w-[120px] shrink-0 2xl:inline">via</span>
+      ) : null}
+
+      {showTools ? (
+        <span className="hidden w-[88px] shrink-0 lg:inline">tools</span>
+      ) : null}
+
+      {showLog ? (
+        <span className="hidden w-[100px] shrink-0 2xl:inline">log</span>
+      ) : null}
+
+      {showDuration ? (
+        <SortHeader
+          className="w-[130px] shrink-0"
+          label="duration_ms"
+          field="durationMs"
+          currentSort={sort}
+          onSort={onSort}
+        />
+      ) : null}
+
+      <span className="min-w-0 flex-1 truncate">code</span>
+    </div>
+  );
+}
+
+/**
+ * Sortable column header — clickable button with chevron indicator.
+ * Inactive state uses the triple-arrow `ArrowUpDown` icon at 40% opacity.
+ */
+function SortHeader({
+  label,
+  field,
+  currentSort,
+  onSort,
+  className,
+}: {
+  readonly label: string;
+  readonly field: SortField;
+  readonly currentSort: SortState;
+  readonly onSort: (field: SortField) => void;
+  readonly className?: string;
+}) {
+  const isActive = currentSort?.field === field;
+  const direction = isActive ? currentSort.direction : null;
+  const Icon =
+    direction === "desc" ? ArrowDown : direction === "asc" ? ArrowUp : ArrowUpDown;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSort(field)}
+      className={cn(
+        "group inline-flex items-center gap-1 text-left",
+        "text-[10px] font-medium uppercase tracking-wider",
+        "text-muted-foreground/60 hover:text-foreground",
+        isActive && "text-foreground",
+        className,
+      )}
+    >
+      <span>{label}</span>
+      <Icon className={cn("size-3 shrink-0", !isActive && "opacity-40")} />
+    </button>
+  );
+}

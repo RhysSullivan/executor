@@ -17,8 +17,12 @@ import { statusTone, triggerTone } from "./status";
 // Layout (left to right):
 //   [dot] [timestamp]  status:<…>  via:<…>  tools:N  log:NE MW  duration_ms:<…>  code:"…"
 //
-// `via` and `log` hide on viewports <1280px (xl breakpoint) so the code
-// snippet still has room.
+// Responsive visibility (after Round 4 retightening):
+//   - `via` and `log` hide below 2xl (1536px) so the code snippet has
+//     room on 1280-1440px laptop viewports.
+//   - `tools` hides below lg (1024px).
+//   - `status` abbreviates `waiting_for_interaction` → `waiting` so the
+//     140px column fits; the full label still shows in the drawer.
 
 const formatTimestamp = (value: number | null): string => {
   if (value === null) return "—";
@@ -40,7 +44,15 @@ const formatDurationMs = (execution: Execution): string | null => {
 const truncateCode = (code: string, max: number): string =>
   code.trim().replace(/\s+/g, " ").slice(0, max);
 
-const statusWord = (status: ExecutionStatus): string => status.replaceAll("_", " ");
+/**
+ * Row label for a status. `waiting_for_interaction` gets abbreviated to
+ * `waiting` so the status column can fit in 140px — the full label
+ * still appears in the drawer's Status meta card.
+ */
+const statusWord = (status: ExecutionStatus): string => {
+  if (status === "waiting_for_interaction") return "waiting";
+  return status.replaceAll("_", " ");
+};
 
 /**
  * Count `[error]` and `[warn]` lines in the serialized logsJson array.
@@ -111,7 +123,7 @@ export function RunRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        "group flex w-full items-start gap-3 border-border/40 border-b px-4 py-2",
+        "group flex w-full min-w-0 items-start gap-2 overflow-hidden border-border/40 border-b px-4 py-2",
         "text-left font-mono text-xs transition-colors",
         "hover:bg-foreground/[0.03]",
         isSelected && "bg-foreground/[0.05] hover:bg-foreground/[0.05]",
@@ -130,23 +142,23 @@ export function RunRow({
       <HoverCardTimestamp
         date={new Date(execution.createdAt)}
         side="right"
-        className="w-[120px] shrink-0 tabular-nums text-muted-foreground"
+        className="w-[190px] shrink-0 tabular-nums text-muted-foreground"
       />
 
-      <span className="inline-flex w-[160px] shrink-0 gap-1">
+      <span className="inline-flex w-[140px] shrink-0 gap-1">
         <span className="text-muted-foreground/60">status:</span>
         <span className={tone.text}>{statusWord(execution.status)}</span>
       </span>
 
       {showVia ? (
-        <span className="hidden w-[140px] shrink-0 xl:inline-flex xl:gap-1">
+        <span className="hidden w-[120px] shrink-0 2xl:inline-flex 2xl:gap-1">
           <span className="text-muted-foreground/60">via:</span>
           <span className={trigger.text}>{trigger.label}</span>
         </span>
       ) : null}
 
       {showTools ? (
-        <span className="inline-flex w-[88px] shrink-0 gap-1 tabular-nums">
+        <span className="hidden w-[88px] shrink-0 gap-1 tabular-nums lg:inline-flex">
           <span className="text-muted-foreground/60">tools:</span>
           <span
             className={cn(
@@ -159,7 +171,7 @@ export function RunRow({
       ) : null}
 
       {showLog ? (
-        <span className="hidden w-[100px] shrink-0 gap-1 tabular-nums xl:inline-flex">
+        <span className="hidden w-[100px] shrink-0 gap-1 tabular-nums 2xl:inline-flex">
           <span className="text-muted-foreground/60">log:</span>
           {logs.errors === 0 && logs.warns === 0 ? (
             <span className="text-muted-foreground/60">—</span>
@@ -182,7 +194,7 @@ export function RunRow({
       ) : null}
 
       {showDuration ? (
-        <span className="inline-flex w-[150px] shrink-0 gap-1">
+        <span className="inline-flex w-[130px] shrink-0 gap-1">
           <span className="text-muted-foreground/60">duration_ms:</span>
           <span
             className={cn(
@@ -206,16 +218,5 @@ export function RunRow({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Header — `_time | Raw Data` (v1.3)
-// ---------------------------------------------------------------------------
-
-export function RunRowHeader() {
-  return (
-    <div className="flex items-center gap-3 px-4 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-      <span className="size-2 shrink-0" aria-hidden />
-      <span className="w-[120px] shrink-0">_time</span>
-      <span>Raw Data</span>
-    </div>
-  );
-}
+// `RunRowHeader` used to live here but has been replaced by the
+// per-field sortable `RunsColumnHeader` in `./column-header.tsx`.

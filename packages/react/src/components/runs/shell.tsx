@@ -122,10 +122,11 @@ export function RunsShell<T>({
         } as React.CSSProperties
       }
     >
-      {/* Left rail */}
+      {/* Left rail — plain flex child, no sticky/z-index. Collapsible
+          via the `b` hotkey; otherwise always visible. */}
       <aside
         className={cn(
-          "sticky top-0 z-10 flex h-screen w-full shrink-0 flex-col self-start",
+          "flex h-screen w-full shrink-0 flex-col self-start",
           "sm:max-w-60 sm:min-w-60 md:max-w-72 md:min-w-72",
           "border-border sm:border-r",
           "hidden sm:flex",
@@ -135,13 +136,15 @@ export function RunsShell<T>({
         <div className="min-h-0 flex-1 overflow-y-auto">{filterRail}</div>
       </aside>
 
-      {/* Main pane */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* Sticky top bar */}
+      {/* Main pane. `min-w-0` prevents row content from forcing the
+          flex-row parent to grow horizontally and push the aside off. */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Sticky top bar. `z-30` so the chart tooltip (inside topBar)
+            paints over the column header + row content below. */}
         <div
           ref={topBarRef}
           className={cn(
-            "sticky top-0 z-10 flex flex-col gap-3",
+            "sticky top-0 z-30 flex flex-col gap-3",
             "border-border border-b bg-background px-4 pt-3 pb-3",
           )}
         >
@@ -180,12 +183,12 @@ export function RunsShell<T>({
                 );
               })}
               {isFetchingNextPage ? (
-                <div className="flex items-center justify-center border-border/50 border-b py-3 text-[11px] font-mono uppercase tracking-wider text-muted-foreground/60">
+                <div className="flex w-full items-center justify-center border-border/50 border-b py-3 text-[11px] font-mono uppercase tracking-wider text-muted-foreground/60">
                   Loading more…
                 </div>
               ) : null}
               {!hasNextPage && totalRowsFetched > 0 ? (
-                <div className="flex items-center justify-center py-4 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40">
+                <div className="flex w-full items-center justify-center py-4 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/40">
                   End of history
                 </div>
               ) : null}

@@ -193,7 +193,12 @@ export function TimelineChart({ data, bucketMs, className, onRangeSelect }: Time
           minTickGap={32}
           tickFormatter={axisLabelFormatter}
         />
-        <ChartTooltip content={<ChartTooltipContent labelFormatter={tooltipLabelFormatter} />} />
+        <ChartTooltip
+          cursor={false}
+          allowEscapeViewBox={{ x: false, y: true }}
+          wrapperStyle={{ zIndex: 50, pointerEvents: "none" }}
+          content={<ChartTooltipContent labelFormatter={tooltipLabelFormatter} />}
+        />
         {BAR_STACK_ORDER.map((status) => (
           <Bar
             key={status}

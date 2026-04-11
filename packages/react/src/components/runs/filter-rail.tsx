@@ -33,6 +33,13 @@ export interface RunsFilterRailProps {
   readonly selectedTriggers: readonly string[];
   readonly onToggleTrigger: (trigger: string) => void;
   readonly onOnlyTrigger: (trigger: string) => void;
+  /**
+   * Tri-state interactions filter: `"true"` → runs that elicited,
+   * `"false"` → runs that didn't, `null` → no filter. Only one of
+   * the two rows can be checked at a time.
+   */
+  readonly selectedElicitation: "true" | "false" | null;
+  readonly onToggleElicitation: (value: "true" | "false") => void;
   readonly selectedTools: readonly string[];
   readonly onToggleTool: (toolPath: string) => void;
   readonly onOnlyTool: (toolPath: string) => void;
@@ -82,6 +89,8 @@ export function RunsFilterRail({
   selectedTriggers,
   onToggleTrigger,
   onOnlyTrigger,
+  selectedElicitation,
+  onToggleElicitation,
   selectedTools,
   onToggleTool,
   onOnlyTool,
@@ -97,6 +106,7 @@ export function RunsFilterRail({
     selectedStatuses.length > 0 ||
     selectedTriggers.length > 0 ||
     selectedTools.length > 0 ||
+    selectedElicitation !== null ||
     codeQuery.trim().length > 0 ||
     range !== "24h";
 
@@ -148,7 +158,7 @@ export function RunsFilterRail({
       <div className="flex-1 overflow-y-auto px-2 pb-4">
         <Accordion
           type="multiple"
-          defaultValue={["status", "trigger", "time-range", "tools"]}
+          defaultValue={["status", "trigger", "interactions", "time-range", "tools"]}
           className="w-full"
         >
           <FacetSection value="status" label="Status">
@@ -193,6 +203,29 @@ export function RunsFilterRail({
                   </li>
                 );
               })}
+            </ul>
+          </FacetSection>
+
+          <FacetSection value="interactions" label="Interactions">
+            <ul className="space-y-0">
+              <li>
+                <FacetRow
+                  checked={selectedElicitation === "true"}
+                  onToggle={() => onToggleElicitation("true")}
+                  dotClass="bg-[color:var(--color-warning)]"
+                  label="Used elicitation"
+                  count={meta?.interactionCounts.withElicitation}
+                />
+              </li>
+              <li>
+                <FacetRow
+                  checked={selectedElicitation === "false"}
+                  onToggle={() => onToggleElicitation("false")}
+                  dotClass="bg-muted-foreground/40"
+                  label="No elicitation"
+                  count={meta?.interactionCounts.withoutElicitation}
+                />
+              </li>
             </ul>
           </FacetSection>
 
