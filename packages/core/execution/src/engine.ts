@@ -126,6 +126,11 @@ export const formatPausedExecution = (
       interaction: {
         kind: req._tag === "UrlElicitation" ? "url" : "form",
         message: req.message,
+        ...(paused.elicitationContext.approval
+          ? {
+              approval: paused.elicitationContext.approval,
+            }
+          : {}),
         ...(req._tag === "UrlElicitation" ? { url: req.url } : {}),
         ...(req._tag === "FormElicitation" ? { requestedSchema: req.requestedSchema } : {}),
       },

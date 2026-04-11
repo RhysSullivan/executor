@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 
-import { ToolId } from "./ids";
+import { PolicyId, ToolId } from "./ids";
 
 // ---------------------------------------------------------------------------
 // Elicitation request — what a tool sends when it needs user input
@@ -44,6 +44,10 @@ export interface ElicitationContext {
   readonly toolId: ToolId;
   readonly args: unknown;
   readonly request: ElicitationRequest;
+  readonly approval?: {
+    readonly source: "policy" | "annotation";
+    readonly matchedPolicyId?: PolicyId;
+  };
 }
 
 /**
