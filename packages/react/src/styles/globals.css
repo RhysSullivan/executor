@@ -8,7 +8,7 @@
 @source "../../../plugins/*/src/react/**/*.{ts,tsx}";
 
 @theme inline {
-  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --font-display: "Instrument Serif", Georgia, serif;
 

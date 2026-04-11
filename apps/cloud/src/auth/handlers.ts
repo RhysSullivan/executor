@@ -87,7 +87,12 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
 
           setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
           return HttpServerResponse.redirect("/", { status: 302 });
-        }),
+        }).pipe(
+          Effect.catchTags({
+            WorkOSError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
+            UserStoreError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
+          }),
+        ),
       ),
 );
 

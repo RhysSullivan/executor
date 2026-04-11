@@ -48,7 +48,7 @@ function PlansPage() {
 
   const isLoading = customerLoading || plansLoading;
 
-  const paidPlans: Plan[] = (plans ?? ([] as Plan[])).filter(
+  const paidPlans = (plans ?? ([] as Plan[])).filter(
     (p: Plan) => p.id === "hobby" || p.id === "professional",
   );
 

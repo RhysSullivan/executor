@@ -26,7 +26,8 @@ export const makeKvPolicyEngine = (policiesKv: ScopedKv, metaKv: ScopedKv) => {
       return raw ? parseInt(raw, 10) : 0;
     });
 
-  const setCounter = (n: number): Effect.Effect<void> => metaKv.set("policy_counter", String(n));
+  const setCounter = (n: number): Effect.Effect<void> =>
+    metaKv.set([{ key: "policy_counter", value: String(n) }]);
 
   return {
     list: (scopeId: ScopeId) =>
@@ -43,7 +44,7 @@ export const makeKvPolicyEngine = (policiesKv: ScopedKv, metaKv: ScopedKv) => {
         yield* setCounter(counter);
         const id = PolicyId.make(`policy-${counter}`);
         const full = new Policy({ ...policy, id, createdAt: new Date() });
-        yield* policiesKv.set(id, encodePolicy(full));
+        yield* policiesKv.set([{ key: id, value: encodePolicy(full) }]);
         return full;
       }),
 
@@ -51,7 +52,7 @@ export const makeKvPolicyEngine = (policiesKv: ScopedKv, metaKv: ScopedKv) => {
       Effect.gen(function* () {
         const raw = yield* policiesKv.get(policyId);
         if (!raw) return false;
-        yield* policiesKv.delete(policyId);
+        yield* policiesKv.delete([policyId]);
         return true;
       }),
   };

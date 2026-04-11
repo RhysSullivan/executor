@@ -8,7 +8,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import type { ToolId } from "@executor/sdk";
 import type { DrizzleDb } from "./types";
 import { ToolNotFoundError, ToolInvocationError, ToolRegistration } from "@executor/sdk";
-import { buildToolTypeScriptPreview } from "@executor/sdk";
+import { buildToolTypeScriptPreview, reattachDefs } from "@executor/sdk";
 import type { ToolInvoker, ToolListFilter, InvokeOptions, RuntimeToolHandler } from "@executor/sdk";
 
 import { tools, toolDefinitions } from "./schema";
@@ -105,7 +105,12 @@ export const makePgToolRegistry = (db: DrizzleDb, organizationId: string) => {
           outputSchema: t.outputSchema,
           defs,
         });
-        return { id: t.id, ...typeScriptPreview };
+        return {
+          id: t.id,
+          ...typeScriptPreview,
+          inputSchema: t.inputSchema ? reattachDefs(t.inputSchema, defs) : undefined,
+          outputSchema: t.outputSchema ? reattachDefs(t.outputSchema, defs) : undefined,
+        };
       }),
 
     definitions: () =>

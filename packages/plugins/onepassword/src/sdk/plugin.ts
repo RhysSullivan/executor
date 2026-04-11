@@ -150,16 +150,19 @@ const loadConfig = (kv: ScopedKv): Effect.Effect<OnePasswordConfig | null, OnePa
   );
 
 const saveConfig = (kv: ScopedKv, config: OnePasswordConfig): Effect.Effect<void> =>
-  kv.set(
-    CONFIG_KEY,
-    JSON.stringify({
-      auth: config.auth,
-      vaultId: config.vaultId,
-      name: config.name,
-    }),
-  );
+  kv.set([
+    {
+      key: CONFIG_KEY,
+      value: JSON.stringify({
+        auth: config.auth,
+        vaultId: config.vaultId,
+        name: config.name,
+      }),
+    },
+  ]);
 
-const deleteConfig = (kv: ScopedKv): Effect.Effect<void> => kv.delete(CONFIG_KEY);
+const deleteConfig = (kv: ScopedKv): Effect.Effect<void> =>
+  kv.delete([CONFIG_KEY]).pipe(Effect.asVoid);
 
 // ---------------------------------------------------------------------------
 // Plugin factory

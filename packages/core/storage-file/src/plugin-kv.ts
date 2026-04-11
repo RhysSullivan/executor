@@ -29,22 +29,30 @@ export const makeSqliteKv = (sql: SqlClient.SqlClient): Kv => ({
       }),
     ),
 
-  set: (namespace, key, value) =>
-    absorbSql(
-      sql`
-      INSERT OR REPLACE INTO kv (namespace, key, value)
-      VALUES (${namespace}, ${key}, ${value})
-    `.pipe(Effect.asVoid),
-    ),
-
-  delete: (namespace, key) =>
+  set: (namespace, entries) =>
     absorbSql(
       Effect.gen(function* () {
-        const before = yield* sql<{ c: number }>`
-        SELECT COUNT(*) as c FROM kv WHERE namespace = ${namespace} AND key = ${key}
-      `;
-        yield* sql`DELETE FROM kv WHERE namespace = ${namespace} AND key = ${key}`;
-        return (before[0]?.c ?? 0) > 0;
+        for (const { key, value } of entries) {
+          yield* sql`
+            INSERT OR REPLACE INTO kv (namespace, key, value)
+            VALUES (${namespace}, ${key}, ${value})
+          `;
+        }
+      }),
+    ),
+
+  delete: (namespace, keys) =>
+    absorbSql(
+      Effect.gen(function* () {
+        let count = 0;
+        for (const key of keys) {
+          const before = yield* sql<{ c: number }>`
+            SELECT COUNT(*) as c FROM kv WHERE namespace = ${namespace} AND key = ${key}
+          `;
+          yield* sql`DELETE FROM kv WHERE namespace = ${namespace} AND key = ${key}`;
+          if ((before[0]?.c ?? 0) > 0) count++;
+        }
+        return count;
       }),
     ),
 
@@ -110,12 +118,19 @@ export const makeInMemoryKv = (): Kv => {
   return {
     get: (namespace, key) => Effect.succeed(bucket(namespace).get(key) ?? null),
 
-    set: (namespace, key, value) =>
+    set: (namespace, entries) =>
       Effect.sync(() => {
-        bucket(namespace).set(key, value);
+        const b = bucket(namespace);
+        for (const { key, value } of entries) b.set(key, value);
       }),
 
-    delete: (namespace, key) => Effect.sync(() => bucket(namespace).delete(key)),
+    delete: (namespace, keys) =>
+      Effect.sync(() => {
+        const b = bucket(namespace);
+        let count = 0;
+        for (const key of keys) if (b.delete(key)) count++;
+        return count;
+      }),
 
     list: (namespace) =>
       Effect.sync(() => [...bucket(namespace).entries()].map(([key, value]) => ({ key, value }))),

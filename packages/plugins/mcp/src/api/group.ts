@@ -152,9 +152,21 @@ const CompleteOAuthResponse = Schema.Struct({
 // Error
 // ---------------------------------------------------------------------------
 
-const McpApiError = Schema.Struct({
-  message: Schema.String,
-}).annotations(HttpApiSchema.annotations({ status: 400 }));
+export class McpApiError extends Schema.TaggedError<McpApiError>()(
+  "McpApiError",
+  {
+    message: Schema.String,
+  },
+  HttpApiSchema.annotations({ status: 400 }),
+) {}
+
+export class McpInternalError extends Schema.TaggedError<McpInternalError>()(
+  "McpInternalError",
+  {
+    message: Schema.String,
+  },
+  HttpApiSchema.annotations({ status: 500 }),
+) {}
 
 // ---------------------------------------------------------------------------
 // Group
@@ -165,52 +177,61 @@ export class McpGroup extends HttpApiGroup.make("mcp")
     HttpApiEndpoint.post("probeEndpoint")`/scopes/${scopeIdParam}/mcp/probe`
       .setPayload(ProbeEndpointPayload)
       .addSuccess(ProbeEndpointResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.post("addSource")`/scopes/${scopeIdParam}/mcp/sources`
       .setPayload(AddSourcePayload)
       .addSuccess(AddSourceResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.post("removeSource")`/scopes/${scopeIdParam}/mcp/sources/remove`
       .setPayload(NamespacePayload)
       .addSuccess(RemoveSourceResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.post("refreshSource")`/scopes/${scopeIdParam}/mcp/sources/refresh`
       .setPayload(NamespacePayload)
       .addSuccess(RefreshSourceResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/mcp/oauth/start`
       .setPayload(StartOAuthPayload)
       .addSuccess(StartOAuthResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/mcp/oauth/complete`
       .setPayload(CompleteOAuthPayload)
       .addSuccess(CompleteOAuthResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.get("oauthCallback")`/mcp/oauth/callback`
       .setUrlParams(OAuthCallbackParams)
       .addSuccess(HtmlResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.get("getSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
       .addSuccess(Schema.NullOr(McpStoredSourceSchema))
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   )
   .add(
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
       .addSuccess(UpdateSourceResponse)
-      .addError(McpApiError),
+      .addError(McpApiError)
+      .addError(McpInternalError),
   ) {}

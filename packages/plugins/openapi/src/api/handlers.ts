@@ -37,6 +37,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         const ext = yield* OpenApiExtensionService;
         const result = yield* ext.addSpec({
           spec: payload.spec,
+          name: payload.name,
           baseUrl: payload.baseUrl,
           namespace: payload.namespace,
           headers: payload.headers as Record<string, HeaderValue> | undefined,

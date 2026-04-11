@@ -6,14 +6,19 @@ import { DurableObject, env } from "cloudflare:workers";
 import { Data, Effect, Layer } from "effect";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WorkerTransport, type TransportState } from "agents/mcp";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
 import { createExecutorMcpServer } from "@executor/host-mcp";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
+import type { DrizzleDb } from "@executor/storage-postgres";
+import * as sharedSchema from "@executor/storage-postgres/schema";
 
 import { UserStoreService } from "./auth/context";
 import { server } from "./env";
 import { createOrgExecutor } from "./services/executor";
 import { DbService } from "./services/db";
+import * as cloudSchema from "./services/schema";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,47 +28,19 @@ export type McpSessionInit = {
   organizationId: string;
 };
 
-// Heartbeat interval — keeps the DO alive by re-scheduling an alarm before
-// Cloudflare's ~60s idle eviction kicks in.
 const HEARTBEAT_MS = 30 * 1000;
-
-// Session timeout — clean up after no requests for this long.
-// TODO: Make tier-based — free users get 60s, paid users get 5 minutes.
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// Session initialization effect
+// Errors
 // ---------------------------------------------------------------------------
-
-const DbLive = DbService.Live;
-const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
-const Services = Layer.mergeAll(DbLive, UserStoreLive);
 
 class OrganizationNotFoundError extends Data.TaggedError("OrganizationNotFoundError")<{
   readonly organizationId: string;
 }> {}
 
-const initSession = (organizationId: string) =>
-  Effect.gen(function* () {
-    const users = yield* UserStoreService;
-    const org = yield* users.use((store) => store.getOrganization(organizationId));
-
-    if (!org) {
-      return yield* new OrganizationNotFoundError({ organizationId });
-    }
-
-    const executor = yield* createOrgExecutor(org.id, org.name, server.ENCRYPTION_KEY);
-
-    const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
-    const mcpServer = yield* Effect.promise(() =>
-      createExecutorMcpServer({ executor, codeExecutor }),
-    );
-
-    return mcpServer;
-  }).pipe(Effect.provide(Services));
-
 // ---------------------------------------------------------------------------
-// JSON-RPC error response helper
+// Helpers
 // ---------------------------------------------------------------------------
 
 const jsonRpcError = (status: number, code: number, message: string) =>
@@ -71,6 +48,32 @@ const jsonRpcError = (status: number, code: number, message: string) =>
     status,
     headers: { "content-type": "application/json" },
   });
+
+const combinedSchema = { ...sharedSchema, ...cloudSchema };
+
+/**
+ * Create a long-lived DB connection for the DO lifetime.
+ *
+ * Unlike the per-request `DbService.Live` used in `api.ts`, this connection
+ * stays open across requests within the DO. DOs have a single-threaded
+ * execution model — there's no cross-request socket reuse issue because
+ * only one request runs at a time. The connection is closed when the DO
+ * cleans up (timeout or eviction).
+ */
+const makeLongLivedDb = (): { db: DrizzleDb; end: () => Promise<void> } => {
+  const connectionString = env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
+  const sql = postgres(connectionString, {
+    max: 1,
+    idle_timeout: 20,
+    max_lifetime: 300,
+    connect_timeout: 10,
+    onnotice: () => undefined,
+  });
+  return {
+    db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb,
+    end: () => sql.end({ timeout: 0 }).catch(() => undefined),
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Durable Object
@@ -81,6 +84,7 @@ export class McpSessionDO extends DurableObject {
   private transport: WorkerTransport | null = null;
   private initialized = false;
   private lastActivityMs = 0;
+  private dbHandle: { db: DrizzleDb; end: () => Promise<void> } | null = null;
 
   private makeStorage() {
     return {
@@ -96,7 +100,25 @@ export class McpSessionDO extends DurableObject {
   async init(token: McpSessionInit): Promise<void> {
     if (this.initialized) return;
 
-    this.mcpServer = await Effect.runPromise(initSession(token.organizationId));
+    // Create a long-lived DB connection for the DO's lifetime
+    this.dbHandle = makeLongLivedDb();
+
+    const DbLive = Layer.succeed(DbService, this.dbHandle.db);
+    const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
+    const Services = Layer.mergeAll(DbLive, UserStoreLive);
+
+    const program = Effect.gen(function* () {
+      const users = yield* UserStoreService;
+      const org = yield* users.use((store) => store.getOrganization(token.organizationId));
+      if (!org)
+        return yield* new OrganizationNotFoundError({ organizationId: token.organizationId });
+
+      const executor = yield* createOrgExecutor(org.id, org.name, server.ENCRYPTION_KEY);
+      const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
+      return yield* Effect.promise(() => createExecutorMcpServer({ executor, codeExecutor }));
+    }).pipe(Effect.provide(Services));
+
+    this.mcpServer = await Effect.runPromise(program);
 
     this.transport = new WorkerTransport({
       sessionIdGenerator: () => this.ctx.id.toString(),
@@ -121,7 +143,7 @@ export class McpSessionDO extends DurableObject {
       return await this.transport.handleRequest(request);
     } catch (err) {
       console.error("[mcp-session] handleRequest error:", err instanceof Error ? err.stack : err);
-      return jsonRpcError(500, -32603, err instanceof Error ? err.message : "Internal error");
+      return jsonRpcError(500, -32603, "Internal error");
     }
   }
 
@@ -142,6 +164,10 @@ export class McpSessionDO extends DurableObject {
     if (this.mcpServer) {
       await this.mcpServer.close().catch(() => undefined);
       this.mcpServer = null;
+    }
+    if (this.dbHandle) {
+      await this.dbHandle.end();
+      this.dbHandle = null;
     }
     this.initialized = false;
   }

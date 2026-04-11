@@ -19,6 +19,7 @@ const namespaceParam = HttpApiSchema.param("namespace", Schema.String);
 
 const AddSpecPayload = Schema.Struct({
   spec: Schema.String,
+  name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   namespace: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),

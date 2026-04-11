@@ -1,6 +1,6 @@
 {
   "name": "@executor/plugin-file-secrets",
-  "version": "0.0.1-beta.5",
+  "version": "0.0.1-beta.6",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/file-secrets",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"

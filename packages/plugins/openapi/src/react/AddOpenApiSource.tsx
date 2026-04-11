@@ -61,6 +61,7 @@ export default function AddOpenApiSource(props: {
   onComplete: () => void;
   onCancel: () => void;
   initialUrl?: string;
+  initialNamespace?: string;
 }) {
   // Spec input
   const [specUrl, setSpecUrl] = useState(props.initialUrl ?? "");
@@ -70,6 +71,8 @@ export default function AddOpenApiSource(props: {
   // After analysis
   const [preview, setPreview] = useState<SpecPreview | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
+  const [namespace, setNamespace] = useState(props.initialNamespace ?? "");
+  const [sourceName, setSourceName] = useState("");
 
   // Auth
   const [presetIndex, setPresetIndex] = useState(0);
@@ -137,6 +140,18 @@ export default function AddOpenApiSource(props: {
       });
       setPreview(result);
 
+      // Derive defaults from the title
+      const title = Option.getOrElse(result.title, () => "api");
+      if (!sourceName) setSourceName(title);
+      if (!props.initialNamespace) {
+        setNamespace(
+          title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "") || "api",
+        );
+      }
+
       const firstUrl = (result.servers as Array<{ url?: string }>)?.[0]?.url;
       if (firstUrl) setBaseUrl(firstUrl);
 
@@ -199,6 +214,8 @@ export default function AddOpenApiSource(props: {
         path: { scopeId },
         payload: {
           spec: specUrl,
+          name: sourceName.trim() || undefined,
+          namespace: namespace.trim() || undefined,
           baseUrl: baseUrl.trim() || undefined,
           ...(hasHeaders ? { headers: allHeaders } : {}),
         },
@@ -285,6 +302,35 @@ export default function AddOpenApiSource(props: {
               </div>
             )}
           </div>
+
+          {/* Name */}
+          <section className="space-y-2">
+            <Label>Name</Label>
+            <Input
+              value={sourceName}
+              onChange={(e) => setSourceName((e.target as HTMLInputElement).value)}
+              placeholder="e.g. Sentry API"
+              className="text-[0.8125rem]"
+            />
+          </section>
+
+          {/* Namespace */}
+          <section className="space-y-2">
+            <Label>Namespace</Label>
+            <Input
+              value={namespace}
+              onChange={(e) =>
+                setNamespace(
+                  (e.target as HTMLInputElement).value.toLowerCase().replace(/[^a-z0-9_-]/g, "_"),
+                )
+              }
+              placeholder="e.g. sentry, stripe, github"
+              className="font-mono text-[0.8125rem]"
+            />
+            <p className="text-[0.75rem] text-muted-foreground">
+              Unique identifier for this source. Used in tool names.
+            </p>
+          </section>
 
           {/* Base URL */}
           <section className="space-y-2">

@@ -69,15 +69,12 @@ export const createMcpRequestHandler = (config: ExecutorMcpServerConfig): McpReq
         }
         return response;
       } catch (error) {
+        console.error("[mcp] handleRequest error:", error instanceof Error ? error.stack : error);
         if (!transport.sessionId) {
           await transport.close().catch(() => undefined);
           await created?.close().catch(() => undefined);
         }
-        return jsonError(
-          500,
-          -32603,
-          error instanceof Error ? error.message : "Internal server error",
-        );
+        return jsonError(500, -32603, "Internal server error");
       }
     },
 

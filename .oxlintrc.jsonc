@@ -16,5 +16,5 @@
       },
     ],
   },
-  "ignorePatterns": [".astro/"],
+  "ignorePatterns": [".astro/", "**/routeTree.gen.ts"],
 }

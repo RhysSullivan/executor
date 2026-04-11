@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, startTransition } from "react";
-import { getHighlighter, THEME } from "../lib/shiki";
+import {
+  getHighlighter,
+  useResolvedShikiTheme,
+  type ShikiThemeProp,
+  type SupportedTheme,
+} from "../lib/shiki";
 import { cn } from "../lib/utils";
 import { Button } from "./button";
 import type { ThemedToken } from "shiki/core";
@@ -98,7 +103,7 @@ const CheckIcon = () => (
 // Shiki tokenization hook — non-blocking
 // ---------------------------------------------------------------------------
 
-function useTokens(code: string): ThemedToken[][] | null {
+function useTokens(code: string, theme: SupportedTheme): ThemedToken[][] | null {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null);
 
   useEffect(() => {
@@ -107,7 +112,7 @@ function useTokens(code: string): ThemedToken[][] | null {
       if (cancelled) return;
       const result = highlighter.codeToTokens(code, {
         lang: "typescript",
-        theme: THEME,
+        theme,
       });
       if (!cancelled) {
         startTransition(() => setTokens(result.tokens));
@@ -116,7 +121,7 @@ function useTokens(code: string): ThemedToken[][] | null {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, theme]);
 
   return tokens;
 }
@@ -300,8 +305,10 @@ export function ExpandableCodeBlock(props: {
   code: string;
   definitions?: readonly Definition[];
   className?: string;
+  theme?: ShikiThemeProp;
 }) {
-  const { code, definitions = [], className } = props;
+  const { code, definitions = [], className, theme } = props;
+  const resolvedTheme = useResolvedShikiTheme(theme);
   // Auto-expand trivial aliases (primitives, simple unions, string literals)
   const trivialNames = useMemo(() => {
     const trivial = new Set<string>();
@@ -348,7 +355,7 @@ export function ExpandableCodeBlock(props: {
     return formatTypeScript(withExpansions);
   }, [code, allExpanded, definitionMap, emptyAncestors]);
 
-  const tokens = useTokens(displayCode);
+  const tokens = useTokens(displayCode, resolvedTheme);
 
   const handleToggle = useCallback((name: string) => {
     setExpanded((prev) => {

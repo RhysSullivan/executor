@@ -8,14 +8,21 @@
 
 import { Effect } from "effect";
 
+export interface KvEntry {
+  readonly key: string;
+  readonly value: string;
+}
+
 /**
  * Global KV — requires a namespace on every call.
  * Implementations: makeSqliteKv, makeInMemoryKv
  */
 export interface Kv {
   readonly get: (namespace: string, key: string) => Effect.Effect<string | null>;
-  readonly set: (namespace: string, key: string, value: string) => Effect.Effect<void>;
-  readonly delete: (namespace: string, key: string) => Effect.Effect<boolean>;
+  /** Batch upsert — inserts or updates one or more key-value pairs. */
+  readonly set: (namespace: string, entries: readonly KvEntry[]) => Effect.Effect<void>;
+  /** Batch delete — removes one or more keys. */
+  readonly delete: (namespace: string, keys: readonly string[]) => Effect.Effect<number>;
   readonly list: (namespace: string) => Effect.Effect<readonly { key: string; value: string }[]>;
   readonly deleteAll: (namespace: string) => Effect.Effect<number>;
   readonly withTransaction?: <A, E>(
@@ -29,8 +36,10 @@ export interface Kv {
  */
 export interface ScopedKv {
   readonly get: (key: string) => Effect.Effect<string | null>;
-  readonly set: (key: string, value: string) => Effect.Effect<void>;
-  readonly delete: (key: string) => Effect.Effect<boolean>;
+  /** Batch upsert — inserts or updates one or more key-value pairs. */
+  readonly set: (entries: readonly KvEntry[]) => Effect.Effect<void>;
+  /** Batch delete — removes one or more keys. */
+  readonly delete: (keys: readonly string[]) => Effect.Effect<number>;
   readonly list: () => Effect.Effect<readonly { key: string; value: string }[]>;
   readonly deleteAll: () => Effect.Effect<number>;
   readonly withTransaction?: <A, E>(
@@ -43,8 +52,8 @@ export interface ScopedKv {
  */
 export const scopeKv = (kv: Kv, namespace: string): ScopedKv => ({
   get: (key) => kv.get(namespace, key),
-  set: (key, value) => kv.set(namespace, key, value),
-  delete: (key) => kv.delete(namespace, key),
+  set: (entries) => kv.set(namespace, entries),
+  delete: (keys) => kv.delete(namespace, keys),
   list: () => kv.list(namespace),
   deleteAll: () => kv.deleteAll(namespace),
   withTransaction: kv.withTransaction,
@@ -57,11 +66,16 @@ export const makeInMemoryScopedKv = (): ScopedKv => {
   const store = new Map<string, string>();
   return {
     get: (key) => Effect.succeed(store.get(key) ?? null),
-    set: (key, value) =>
+    set: (entries) =>
       Effect.sync(() => {
-        store.set(key, value);
+        for (const { key, value } of entries) store.set(key, value);
       }),
-    delete: (key) => Effect.sync(() => store.delete(key)),
+    delete: (keys) =>
+      Effect.sync(() => {
+        let count = 0;
+        for (const key of keys) if (store.delete(key)) count++;
+        return count;
+      }),
     list: () => Effect.sync(() => [...store.entries()].map(([key, value]) => ({ key, value }))),
     deleteAll: () =>
       Effect.sync(() => {

@@ -1,5 +1,5 @@
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
-import { Context, Effect } from "effect";
+import { Cause, Context, Effect } from "effect";
 
 import { addGroup } from "@executor/api";
 import type {
@@ -7,7 +7,17 @@ import type {
   GoogleDiscoveryOAuthAuthResult,
   GoogleDiscoveryPluginExtension,
 } from "../sdk/plugin";
-import { GoogleDiscoveryGroup } from "./group";
+import {
+  GoogleDiscoveryInvocationError,
+  GoogleDiscoveryOAuthError,
+  GoogleDiscoveryParseError,
+  GoogleDiscoverySourceError,
+} from "../sdk/errors";
+import {
+  GoogleDiscoveryApiError,
+  GoogleDiscoveryGroup,
+  GoogleDiscoveryInternalError,
+} from "./group";
 
 export class GoogleDiscoveryExtensionService extends Context.Tag("GoogleDiscoveryExtensionService")<
   GoogleDiscoveryExtensionService,
@@ -66,6 +76,37 @@ const popupDocument = (payload: OAuthPopupResult): string => {
 </body></html>`;
 };
 
+const toPopupErrorMessage = (error: unknown): string => {
+  if (error instanceof GoogleDiscoveryOAuthError) {
+    return error.message;
+  }
+  return "Authentication failed";
+};
+
+const toGoogleDiscoveryApiError = (
+  error: unknown,
+): GoogleDiscoveryApiError | GoogleDiscoveryInternalError => {
+  if (error instanceof GoogleDiscoveryApiError || error instanceof GoogleDiscoveryInternalError) {
+    return error;
+  }
+  if (
+    error instanceof GoogleDiscoveryParseError ||
+    error instanceof GoogleDiscoverySourceError ||
+    error instanceof GoogleDiscoveryOAuthError ||
+    error instanceof GoogleDiscoveryInvocationError
+  ) {
+    return new GoogleDiscoveryApiError({ message: error.message });
+  }
+  return new GoogleDiscoveryInternalError({ message: "Internal server error" });
+};
+
+const sanitizeGoogleDiscoveryFailure = <A, R>(
+  effect: Effect.Effect<A, unknown, R>,
+): Effect.Effect<A, GoogleDiscoveryApiError | GoogleDiscoveryInternalError, R> =>
+  Effect.catchAllCause(effect, (cause) =>
+    Effect.fail(toGoogleDiscoveryApiError(Cause.squash(cause))),
+  );
+
 export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
   ExecutorApiWithGoogleDiscovery,
   "googleDiscovery",
@@ -75,13 +116,13 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
         Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.probeDiscovery(payload.discoveryUrl);
-        }).pipe(Effect.orDie),
+        }).pipe(sanitizeGoogleDiscoveryFailure),
       )
       .handle("addSource", ({ payload }) =>
         Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.addSource(payload as GoogleDiscoveryAddSourceInput);
-        }).pipe(Effect.orDie),
+        }).pipe(sanitizeGoogleDiscoveryFailure),
       )
       .handle("startOAuth", ({ payload }) =>
         Effect.gen(function* () {
@@ -94,7 +135,7 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
             redirectUrl: payload.redirectUrl,
             scopes: payload.scopes,
           });
-        }).pipe(Effect.orDie),
+        }).pipe(sanitizeGoogleDiscoveryFailure),
       )
       .handle("completeOAuth", ({ payload }) =>
         Effect.gen(function* () {
@@ -104,13 +145,13 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
             code: payload.code,
             error: payload.error,
           });
-        }).pipe(Effect.orDie),
+        }).pipe(sanitizeGoogleDiscoveryFailure),
       )
       .handle("getSource", ({ path }) =>
         Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.getSource(path.namespace);
-        }).pipe(Effect.orDie),
+        }).pipe(sanitizeGoogleDiscoveryFailure),
       )
       .handle("oauthCallback", ({ urlParams }) =>
         Effect.gen(function* () {
@@ -130,16 +171,16 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
                   ...auth,
                 }),
               ),
-              Effect.catchAll((error) =>
+              Effect.catchAllCause((cause) =>
                 Effect.succeed<OAuthPopupResult>({
                   type: "executor:oauth-result",
                   ok: false,
                   sessionId: null,
-                  error: error instanceof Error ? error.message : String(error),
+                  error: toPopupErrorMessage(Cause.squash(cause)),
                 }),
               ),
             );
           return yield* HttpServerResponse.html(popupDocument(result));
-        }).pipe(Effect.orDie),
+        }).pipe(sanitizeGoogleDiscoveryFailure),
       ),
 );

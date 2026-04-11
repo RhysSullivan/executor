@@ -53,6 +53,7 @@
     "release:publish": "bun run --cwd apps/cli release:publish",
     "release:publish:packages": "bun run scripts/publish-packages.ts",
     "release:publish:packages:dry-run": "bun run scripts/publish-packages.ts --dry-run",
+    "clean": "rm -rf node_modules .turbo .astro dist && find apps packages -maxdepth 5 \\( -name node_modules -o -name dist -o -name .turbo -o -name .output -o -name .astro -o -name '*.tsbuildinfo' \\) -not -path '*/node_modules/*' -exec rm -rf {} +",
     "prepare": "effect-language-service patch"
   },
   "dependencies": {},
@@ -100,5 +101,8 @@
     "quickjs-emscripten": "^0.31.0",
     "@jitl/quickjs-wasmfile-release-sync": "0.31.0",
     "tsup": "^8.5.0"
+  },
+  "patchedDependencies": {
+    "postgres@3.4.9": "patches/postgres@3.4.9.patch"
   }
 }

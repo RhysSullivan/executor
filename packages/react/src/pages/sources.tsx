@@ -50,7 +50,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
         void navigate({
           to: "/sources/add/$pluginKey",
           params: { pluginKey },
-          search: { url: trimmed },
+          search: { url: trimmed, namespace: results[0].namespace },
         });
       } else {
         setError(`Detected source type "${results[0].kind}" but no plugin is available for it.`);

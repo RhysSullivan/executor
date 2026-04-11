@@ -116,12 +116,13 @@ export const makeKvToolRegistry = (toolsKv: ScopedKv, defsKv: ScopedKv) => {
     registerDefinitions: (newDefs: Record<string, unknown>) =>
       withKvTransaction(
         defsKv,
-        Effect.gen(function* () {
-          for (const [name, schema] of Object.entries(newDefs)) {
+        defsKv.set(
+          Object.entries(newDefs).map(([name, schema]) => ({
+            key: name,
             // @effect-diagnostics-next-line preferSchemaOverJson:off
-            yield* defsKv.set(name, JSON.stringify(schema));
-          }
-        }),
+            value: JSON.stringify(schema),
+          })),
+        ),
       ),
 
     registerRuntimeDefinitions: (newDefs: Record<string, unknown>) =>
@@ -178,11 +179,7 @@ export const makeKvToolRegistry = (toolsKv: ScopedKv, defsKv: ScopedKv) => {
     register: (newTools: readonly ToolRegistration[]) =>
       withKvTransaction(
         toolsKv,
-        Effect.gen(function* () {
-          for (const t of newTools) {
-            yield* toolsKv.set(t.id, encodeTool(t));
-          }
-        }),
+        toolsKv.set(newTools.map((t) => ({ key: t.id, value: encodeTool(t) }))),
       ),
 
     registerRuntime: (newTools: readonly ToolRegistration[]) =>
@@ -210,18 +207,15 @@ export const makeKvToolRegistry = (toolsKv: ScopedKv, defsKv: ScopedKv) => {
         for (const id of toolIds) {
           runtimeTools.delete(id);
           runtimeHandlers.delete(id);
-          yield* toolsKv.delete(id);
         }
+        yield* toolsKv.delete([...toolIds]);
       }),
 
     unregisterBySource: (sourceId: string) =>
       Effect.gen(function* () {
         const allTools = yield* getAllTools();
-        for (const t of allTools) {
-          if (t.sourceId === sourceId) {
-            yield* toolsKv.delete(t.id);
-          }
-        }
+        const idsToDelete = allTools.filter((t) => t.sourceId === sourceId).map((t) => t.id);
+        if (idsToDelete.length > 0) yield* toolsKv.delete(idsToDelete);
         for (const [id, t] of runtimeTools) {
           if (t.sourceId === sourceId) {
             runtimeTools.delete(id);

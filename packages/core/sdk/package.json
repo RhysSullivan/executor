@@ -1,6 +1,6 @@
 {
   "name": "@executor/sdk",
-  "version": "0.0.1-beta.5",
+  "version": "0.0.1-beta.6",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/sdk",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"

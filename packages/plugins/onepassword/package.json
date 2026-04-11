@@ -1,6 +1,6 @@
 {
   "name": "@executor/plugin-onepassword",
-  "version": "0.0.1-beta.5",
+  "version": "0.0.1-beta.6",
   "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/plugins/onepassword",
   "bugs": {
     "url": "https://github.com/RhysSullivan/executor/issues"

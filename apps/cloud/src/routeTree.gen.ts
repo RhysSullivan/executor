@@ -8,190 +8,190 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
-import { Route as rootRouteImport } from "./routes/__root";
-import { Route as ToolsRouteImport } from "./routes/tools";
-import { Route as TeamRouteImport } from "./routes/team";
-import { Route as SecretsRouteImport } from "./routes/secrets";
-import { Route as BillingRouteImport } from "./routes/billing";
-import { Route as IndexRouteImport } from "./routes/index";
-import { Route as SourcesNamespaceRouteImport } from "./routes/sources.$namespace";
-import { Route as BillingPlansRouteImport } from "./routes/billing_.plans";
-import { Route as SourcesAddPluginKeyRouteImport } from "./routes/sources.add.$pluginKey";
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as ToolsRouteImport } from './routes/tools'
+import { Route as TeamRouteImport } from './routes/team'
+import { Route as SecretsRouteImport } from './routes/secrets'
+import { Route as BillingRouteImport } from './routes/billing'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as SourcesNamespaceRouteImport } from './routes/sources.$namespace'
+import { Route as BillingPlansRouteImport } from './routes/billing_.plans'
+import { Route as SourcesAddPluginKeyRouteImport } from './routes/sources.add.$pluginKey'
 
 const ToolsRoute = ToolsRouteImport.update({
-  id: "/tools",
-  path: "/tools",
+  id: '/tools',
+  path: '/tools',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const TeamRoute = TeamRouteImport.update({
-  id: "/team",
-  path: "/team",
+  id: '/team',
+  path: '/team',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SecretsRoute = SecretsRouteImport.update({
-  id: "/secrets",
-  path: "/secrets",
+  id: '/secrets',
+  path: '/secrets',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const BillingRoute = BillingRouteImport.update({
-  id: "/billing",
-  path: "/billing",
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SourcesNamespaceRoute = SourcesNamespaceRouteImport.update({
-  id: "/sources/$namespace",
-  path: "/sources/$namespace",
+  id: '/sources/$namespace',
+  path: '/sources/$namespace',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const BillingPlansRoute = BillingPlansRouteImport.update({
-  id: "/billing_/plans",
-  path: "/billing/plans",
+  id: '/billing_/plans',
+  path: '/billing/plans',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 const SourcesAddPluginKeyRoute = SourcesAddPluginKeyRouteImport.update({
-  id: "/sources/add/$pluginKey",
-  path: "/sources/add/$pluginKey",
+  id: '/sources/add/$pluginKey',
+  path: '/sources/add/$pluginKey',
   getParentRoute: () => rootRouteImport,
-} as any);
+} as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute;
-  "/billing": typeof BillingRoute;
-  "/secrets": typeof SecretsRoute;
-  "/team": typeof TeamRoute;
-  "/tools": typeof ToolsRoute;
-  "/billing/plans": typeof BillingPlansRoute;
-  "/sources/$namespace": typeof SourcesNamespaceRoute;
-  "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
+  '/': typeof IndexRoute
+  '/billing': typeof BillingRoute
+  '/secrets': typeof SecretsRoute
+  '/team': typeof TeamRoute
+  '/tools': typeof ToolsRoute
+  '/billing/plans': typeof BillingPlansRoute
+  '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute;
-  "/billing": typeof BillingRoute;
-  "/secrets": typeof SecretsRoute;
-  "/team": typeof TeamRoute;
-  "/tools": typeof ToolsRoute;
-  "/billing/plans": typeof BillingPlansRoute;
-  "/sources/$namespace": typeof SourcesNamespaceRoute;
-  "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
+  '/': typeof IndexRoute
+  '/billing': typeof BillingRoute
+  '/secrets': typeof SecretsRoute
+  '/team': typeof TeamRoute
+  '/tools': typeof ToolsRoute
+  '/billing/plans': typeof BillingPlansRoute
+  '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRoutesById {
-  __root__: typeof rootRouteImport;
-  "/": typeof IndexRoute;
-  "/billing": typeof BillingRoute;
-  "/secrets": typeof SecretsRoute;
-  "/team": typeof TeamRoute;
-  "/tools": typeof ToolsRoute;
-  "/billing_/plans": typeof BillingPlansRoute;
-  "/sources/$namespace": typeof SourcesNamespaceRoute;
-  "/sources/add/$pluginKey": typeof SourcesAddPluginKeyRoute;
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/billing': typeof BillingRoute
+  '/secrets': typeof SecretsRoute
+  '/team': typeof TeamRoute
+  '/tools': typeof ToolsRoute
+  '/billing_/plans': typeof BillingPlansRoute
+  '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath;
+  fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | "/"
-    | "/billing"
-    | "/secrets"
-    | "/team"
-    | "/tools"
-    | "/billing/plans"
-    | "/sources/$namespace"
-    | "/sources/add/$pluginKey";
-  fileRoutesByTo: FileRoutesByTo;
+    | '/'
+    | '/billing'
+    | '/secrets'
+    | '/team'
+    | '/tools'
+    | '/billing/plans'
+    | '/sources/$namespace'
+    | '/sources/add/$pluginKey'
+  fileRoutesByTo: FileRoutesByTo
   to:
-    | "/"
-    | "/billing"
-    | "/secrets"
-    | "/team"
-    | "/tools"
-    | "/billing/plans"
-    | "/sources/$namespace"
-    | "/sources/add/$pluginKey";
+    | '/'
+    | '/billing'
+    | '/secrets'
+    | '/team'
+    | '/tools'
+    | '/billing/plans'
+    | '/sources/$namespace'
+    | '/sources/add/$pluginKey'
   id:
-    | "__root__"
-    | "/"
-    | "/billing"
-    | "/secrets"
-    | "/team"
-    | "/tools"
-    | "/billing_/plans"
-    | "/sources/$namespace"
-    | "/sources/add/$pluginKey";
-  fileRoutesById: FileRoutesById;
+    | '__root__'
+    | '/'
+    | '/billing'
+    | '/secrets'
+    | '/team'
+    | '/tools'
+    | '/billing_/plans'
+    | '/sources/$namespace'
+    | '/sources/add/$pluginKey'
+  fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute;
-  BillingRoute: typeof BillingRoute;
-  SecretsRoute: typeof SecretsRoute;
-  TeamRoute: typeof TeamRoute;
-  ToolsRoute: typeof ToolsRoute;
-  BillingPlansRoute: typeof BillingPlansRoute;
-  SourcesNamespaceRoute: typeof SourcesNamespaceRoute;
-  SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute;
+  IndexRoute: typeof IndexRoute
+  BillingRoute: typeof BillingRoute
+  SecretsRoute: typeof SecretsRoute
+  TeamRoute: typeof TeamRoute
+  ToolsRoute: typeof ToolsRoute
+  BillingPlansRoute: typeof BillingPlansRoute
+  SourcesNamespaceRoute: typeof SourcesNamespaceRoute
+  SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute
 }
 
-declare module "@tanstack/react-router" {
+declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    "/tools": {
-      id: "/tools";
-      path: "/tools";
-      fullPath: "/tools";
-      preLoaderRoute: typeof ToolsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/team": {
-      id: "/team";
-      path: "/team";
-      fullPath: "/team";
-      preLoaderRoute: typeof TeamRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/secrets": {
-      id: "/secrets";
-      path: "/secrets";
-      fullPath: "/secrets";
-      preLoaderRoute: typeof SecretsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/billing": {
-      id: "/billing";
-      path: "/billing";
-      fullPath: "/billing";
-      preLoaderRoute: typeof BillingRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/": {
-      id: "/";
-      path: "/";
-      fullPath: "/";
-      preLoaderRoute: typeof IndexRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/sources/$namespace": {
-      id: "/sources/$namespace";
-      path: "/sources/$namespace";
-      fullPath: "/sources/$namespace";
-      preLoaderRoute: typeof SourcesNamespaceRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/billing_/plans": {
-      id: "/billing_/plans";
-      path: "/billing/plans";
-      fullPath: "/billing/plans";
-      preLoaderRoute: typeof BillingPlansRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/sources/add/$pluginKey": {
-      id: "/sources/add/$pluginKey";
-      path: "/sources/add/$pluginKey";
-      fullPath: "/sources/add/$pluginKey";
-      preLoaderRoute: typeof SourcesAddPluginKeyRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
+    '/tools': {
+      id: '/tools'
+      path: '/tools'
+      fullPath: '/tools'
+      preLoaderRoute: typeof ToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/secrets': {
+      id: '/secrets'
+      path: '/secrets'
+      fullPath: '/secrets'
+      preLoaderRoute: typeof SecretsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing': {
+      id: '/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof BillingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sources/$namespace': {
+      id: '/sources/$namespace'
+      path: '/sources/$namespace'
+      fullPath: '/sources/$namespace'
+      preLoaderRoute: typeof SourcesNamespaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing_/plans': {
+      id: '/billing_/plans'
+      path: '/billing/plans'
+      fullPath: '/billing/plans'
+      preLoaderRoute: typeof BillingPlansRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sources/add/$pluginKey': {
+      id: '/sources/add/$pluginKey'
+      path: '/sources/add/$pluginKey'
+      fullPath: '/sources/add/$pluginKey'
+      preLoaderRoute: typeof SourcesAddPluginKeyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -204,17 +204,17 @@ const rootRouteChildren: RootRouteChildren = {
   BillingPlansRoute: BillingPlansRoute,
   SourcesNamespaceRoute: SourcesNamespaceRoute,
   SourcesAddPluginKeyRoute: SourcesAddPluginKeyRoute,
-};
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>();
+  ._addFileTypes<FileRouteTypes>()
 
-import type { getRouter } from "./router.tsx";
-import type { startInstance } from "./start.ts";
-declare module "@tanstack/react-start" {
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
   interface Register {
-    ssr: true;
-    router: Awaited<ReturnType<typeof getRouter>>;
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>;
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

@@ -49,15 +49,15 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore
     put: (entries: readonly StoredOperation[]) =>
       withKvTransaction(
         bindings,
-        Effect.forEach(
-          entries,
-          ({ toolId, namespace, binding, config }) =>
-            bindings.set(toolId, encodeEntry(new StoredEntry({ namespace, binding, config }))),
-          { discard: true },
+        bindings.set(
+          entries.map(({ toolId, namespace, binding, config }) => ({
+            key: toolId,
+            value: encodeEntry(new StoredEntry({ namespace, binding, config })),
+          })),
         ),
       ),
 
-    remove: (toolId) => bindings.delete(toolId).pipe(Effect.asVoid),
+    remove: (toolId) => bindings.delete([toolId]).pipe(Effect.asVoid),
 
     listByNamespace: (namespace) =>
       Effect.gen(function* () {
@@ -76,17 +76,15 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore
         const ids: ToolId[] = [];
         for (const e of entries) {
           const entry = decodeEntry(e.value);
-          if (entry.namespace === namespace) {
-            ids.push(e.key as ToolId);
-            yield* bindings.delete(e.key);
-          }
+          if (entry.namespace === namespace) ids.push(e.key as ToolId);
         }
+        if (ids.length > 0) yield* bindings.delete(ids);
         return ids;
       }),
 
-    putSource: (source) => sources.set(source.namespace, encodeSource(source)),
+    putSource: (source) => sources.set([{ key: source.namespace, value: encodeSource(source) }]),
 
-    removeSource: (namespace) => sources.delete(namespace).pipe(Effect.asVoid),
+    removeSource: (namespace) => sources.delete([namespace]).pipe(Effect.asVoid),
 
     listSources: () =>
       Effect.gen(function* () {

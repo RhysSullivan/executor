@@ -93,45 +93,63 @@ const OAuthCallbackParams = Schema.Struct({
 
 const HtmlResponse = HttpApiSchema.Text({ contentType: "text/html" });
 
-const ApiError = Schema.Struct({
-  message: Schema.String,
-}).annotations(HttpApiSchema.annotations({ status: 400 }));
+export class GoogleDiscoveryApiError extends Schema.TaggedError<GoogleDiscoveryApiError>()(
+  "GoogleDiscoveryApiError",
+  {
+    message: Schema.String,
+  },
+  HttpApiSchema.annotations({ status: 400 }),
+) {}
+
+export class GoogleDiscoveryInternalError extends Schema.TaggedError<GoogleDiscoveryInternalError>()(
+  "GoogleDiscoveryInternalError",
+  {
+    message: Schema.String,
+  },
+  HttpApiSchema.annotations({ status: 500 }),
+) {}
 
 export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
   .add(
     HttpApiEndpoint.post("probeDiscovery")`/scopes/${scopeIdParam}/google-discovery/probe`
       .setPayload(ProbePayload)
       .addSuccess(ProbeResponse)
-      .addError(ApiError),
+      .addError(GoogleDiscoveryApiError)
+      .addError(GoogleDiscoveryInternalError),
   )
   .add(
     HttpApiEndpoint.post("addSource")`/scopes/${scopeIdParam}/google-discovery/sources`
       .setPayload(AddSourcePayload)
       .addSuccess(AddSourceResponse)
-      .addError(ApiError),
+      .addError(GoogleDiscoveryApiError)
+      .addError(GoogleDiscoveryInternalError),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/google-discovery/oauth/start`
       .setPayload(StartOAuthPayload)
       .addSuccess(StartOAuthResponse)
-      .addError(ApiError),
+      .addError(GoogleDiscoveryApiError)
+      .addError(GoogleDiscoveryInternalError),
   )
   .add(
     HttpApiEndpoint.post("completeOAuth")`/scopes/${scopeIdParam}/google-discovery/oauth/complete`
       .setPayload(CompleteOAuthPayload)
       .addSuccess(CompleteOAuthResponse)
-      .addError(ApiError),
+      .addError(GoogleDiscoveryApiError)
+      .addError(GoogleDiscoveryInternalError),
   )
   .add(
     HttpApiEndpoint.get("oauthCallback")`/google-discovery/oauth/callback`
       .setUrlParams(OAuthCallbackParams)
       .addSuccess(HtmlResponse)
-      .addError(ApiError),
+      .addError(GoogleDiscoveryApiError)
+      .addError(GoogleDiscoveryInternalError),
   )
   .add(
     HttpApiEndpoint.get(
       "getSource",
     )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
       .addSuccess(Schema.NullOr(GoogleDiscoveryStoredSourceSchema))
-      .addError(ApiError),
+      .addError(GoogleDiscoveryApiError)
+      .addError(GoogleDiscoveryInternalError),
   ) {}

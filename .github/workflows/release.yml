@@ -58,9 +58,6 @@ jobs:
 
       - name: Publish @executor-js library packages
         if: steps.changesets.outputs.hasChangesets == 'false'
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: bun run release:publish:packages
 
       - name: Detect release version change
