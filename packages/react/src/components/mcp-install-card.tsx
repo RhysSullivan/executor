@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import CursorIcon from "@lobehub/icons/es/Cursor/components/Mono";
 import ClaudeIcon from "@lobehub/icons/es/Claude/components/Color";
-import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Text";
-import { Button } from "./button";
+import OpenCodeIcon from "@lobehub/icons/es/OpenCode/components/Mono";
 import { CodeBlock } from "./code-block";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "./tabs";
 import { cn } from "../lib/utils";
 import { useScopeInfo } from "../api/scope-context";
 
@@ -18,7 +18,9 @@ const SUPPORTED_AGENTS = [
 const isDev = import.meta.env.DEV;
 const isLocal =
   typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname.endsWith(".localhost"));
 
 export function McpInstallCard(props: { className?: string }) {
   const showStdio = isLocal;
@@ -74,36 +76,26 @@ export function McpInstallCard(props: { className?: string }) {
         </div>
       </div>
 
-      {showStdio && (
-        <div className="mb-3 inline-flex rounded-lg border border-border bg-background/70 p-1">
-          {(
-            [
-              { key: "http", label: "Remote HTTP" },
-              { key: "stdio", label: "Standard I/O" },
-            ] as const
-          ).map((opt) => (
-            <Button
-              key={opt.key}
-              type="button"
-              variant={mode === opt.key ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setMode(opt.key)}
-              className="rounded-md px-3 py-1.5"
-            >
-              {opt.label}
-            </Button>
-          ))}
-        </div>
-      )}
-
-      <CodeBlock code={command} lang="bash" />
-
-      {mode === "stdio" && (
-        <p className="mt-3 text-[12px] text-muted-foreground">
-          {isDev
-            ? "Uses the repo-local dev CLI. Run from the repository root."
-            : "Requires the executor CLI on your PATH."}
-        </p>
+      {showStdio ? (
+        <Tabs value={mode} onValueChange={(v) => setMode(v as TransportMode)}>
+          <TabsList>
+            <TabsTrigger value="http">Remote HTTP</TabsTrigger>
+            <TabsTrigger value="stdio">Standard I/O</TabsTrigger>
+          </TabsList>
+          <TabsContent value="http">
+            <CodeBlock code={command} lang="bash" />
+          </TabsContent>
+          <TabsContent value="stdio">
+            <CodeBlock code={command} lang="bash" />
+            <p className="mt-3 text-[12px] text-muted-foreground">
+              {isDev
+                ? "Uses the repo-local dev CLI. Run from the repository root."
+                : "Requires the executor CLI on your PATH."}
+            </p>
+          </TabsContent>
+        </Tabs>
+      ) : (
+        <CodeBlock code={command} lang="bash" />
       )}
     </section>
   );
