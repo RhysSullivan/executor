@@ -7,11 +7,7 @@ import { Check, Copy } from "lucide-react";
 import type { ComponentPropsWithoutRef } from "react";
 
 import { cn } from "../../lib/utils";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "../hover-card";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "../hover-card";
 
 // ---------------------------------------------------------------------------
 // HoverCardTimestamp — ported from openstatus /infinite
@@ -64,18 +60,9 @@ export function HoverCardTimestamp({
       >
         <dl className="flex flex-col gap-1">
           <CopyRow value={String(date.getTime())} label="Timestamp" />
-          <CopyRow
-            value={format(new UTCDate(date), "LLL dd, y HH:mm:ss")}
-            label="UTC"
-          />
-          <CopyRow
-            value={format(date, "LLL dd, y HH:mm:ss")}
-            label={timezone}
-          />
-          <CopyRow
-            value={formatDistanceToNowStrict(date, { addSuffix: true })}
-            label="Relative"
-          />
+          <CopyRow value={format(new UTCDate(date), "LLL dd, y HH:mm:ss")} label="UTC" />
+          <CopyRow value={format(date, "LLL dd, y HH:mm:ss")} label={timezone} />
+          <CopyRow value={formatDistanceToNowStrict(date, { addSuffix: true })} label="Relative" />
         </dl>
       </HoverCardContent>
     </HoverCard>
@@ -115,11 +102,7 @@ function CopyRow({ value, label }: { readonly value: string; readonly label: str
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="flex items-center gap-1 truncate font-mono">
         <span className="invisible group-hover:visible">
-          {copied ? (
-            <Check className="size-3" />
-          ) : (
-            <Copy className="size-3" />
-          )}
+          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
         </span>
         {value}
       </dd>

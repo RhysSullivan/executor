@@ -33,11 +33,7 @@ export interface RunsColumnHeaderProps {
   };
 }
 
-export function RunsColumnHeader({
-  sort,
-  onSort,
-  visibleFields,
-}: RunsColumnHeaderProps) {
+export function RunsColumnHeader({ sort, onSort, visibleFields }: RunsColumnHeaderProps) {
   const showVia = visibleFields?.via !== false;
   const showTools = visibleFields?.tools !== false;
   const showLog = visibleFields?.log !== false;
@@ -49,30 +45,24 @@ export function RunsColumnHeader({
       <span aria-hidden className="size-2 shrink-0" />
 
       <SortHeader
-        className="w-[190px] shrink-0"
+        className="w-[150px] shrink-0 md:w-[190px]"
         label="_time"
         field="createdAt"
         currentSort={sort}
         onSort={onSort}
       />
 
-      <span className="w-[140px] shrink-0">status</span>
+      <span className="w-[120px] shrink-0 md:w-[140px]">status</span>
 
-      {showVia ? (
-        <span className="hidden w-[120px] shrink-0 2xl:inline">via</span>
-      ) : null}
+      {showVia ? <span className="hidden w-[120px] shrink-0 2xl:inline">via</span> : null}
 
-      {showTools ? (
-        <span className="hidden w-[88px] shrink-0 lg:inline">tools</span>
-      ) : null}
+      {showTools ? <span className="hidden w-[88px] shrink-0 xl:inline">tools</span> : null}
 
-      {showLog ? (
-        <span className="hidden w-[100px] shrink-0 2xl:inline">log</span>
-      ) : null}
+      {showLog ? <span className="hidden w-[100px] shrink-0 2xl:inline">log</span> : null}
 
       {showDuration ? (
         <SortHeader
-          className="w-[130px] shrink-0"
+          className="hidden w-[130px] shrink-0 md:inline-flex"
           label="duration_ms"
           field="durationMs"
           currentSort={sort}
@@ -104,8 +94,7 @@ function SortHeader({
 }) {
   const isActive = currentSort?.field === field;
   const direction = isActive ? currentSort.direction : null;
-  const Icon =
-    direction === "desc" ? ArrowDown : direction === "asc" ? ArrowUp : ArrowUpDown;
+  const Icon = direction === "desc" ? ArrowDown : direction === "asc" ? ArrowUp : ArrowUpDown;
 
   return (
     <button

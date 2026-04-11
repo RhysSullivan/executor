@@ -372,9 +372,7 @@ describe("Executor with Postgres storage", () => {
   );
 });
 
-type CreateExecutionInputBuilder = Parameters<
-  ReturnType<typeof makePgExecutionStore>["create"]
->[0];
+type CreateExecutionInputBuilder = Parameters<ReturnType<typeof makePgExecutionStore>["create"]>[0];
 
 const makePgExecutionInput = (
   overrides: Partial<CreateExecutionInputBuilder>,
@@ -472,8 +470,12 @@ describe("PostgresExecutionStore", () => {
       );
       const now = Date.now();
 
-      yield* store.create(makePgExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 30 }));
-      yield* store.create(makePgExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 20 }));
+      yield* store.create(
+        makePgExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 30 }),
+      );
+      yield* store.create(
+        makePgExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 20 }),
+      );
       yield* store.create(
         makePgExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 10 }),
       );
@@ -707,22 +709,14 @@ describe("PostgresExecutionStore", () => {
         limit: 10,
         sort: { field: "durationMs", direction: "desc" },
       });
-      expect(durDesc.executions.map((e) => e.id)).toEqual([
-        oldLong.id,
-        midShort.id,
-        newNull.id,
-      ]);
+      expect(durDesc.executions.map((e) => e.id)).toEqual([oldLong.id, midShort.id, newNull.id]);
 
       // durationMs asc — shortest first, null still to the end
       const durAsc = yield* store.list(scopeId, {
         limit: 10,
         sort: { field: "durationMs", direction: "asc" },
       });
-      expect(durAsc.executions.map((e) => e.id)).toEqual([
-        midShort.id,
-        oldLong.id,
-        newNull.id,
-      ]);
+      expect(durAsc.executions.map((e) => e.id)).toEqual([midShort.id, oldLong.id, newNull.id]);
     }),
   );
 

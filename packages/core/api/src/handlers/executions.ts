@@ -60,7 +60,9 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
         const statusFilter = urlParams.status
           ?.split(",")
           .map((value) => value.trim())
-          .filter((value): value is ExecutionStatus => EXECUTION_STATUSES.has(value as ExecutionStatus));
+          .filter((value): value is ExecutionStatus =>
+            EXECUTION_STATUSES.has(value as ExecutionStatus),
+          );
         const triggerFilter = urlParams.trigger
           ?.split(",")
           .map((value) => value.trim())

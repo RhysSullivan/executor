@@ -11,12 +11,7 @@ type RechartsMouseEvent = { readonly activeLabel?: string | number };
 import type { ExecutionChartBucket } from "@executor/sdk";
 
 import { cn } from "../../lib/utils";
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-  type ChartConfig,
-} from "../chart";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "../chart";
 import { STATUS_LABELS, STATUS_TONES } from "./status";
 
 // ---------------------------------------------------------------------------

@@ -34,8 +34,7 @@ export function useLocalStorage<T>(
   const setPersistedValue = React.useCallback(
     (next: T | ((prev: T) => T)) => {
       setValue((prev) => {
-        const resolved =
-          typeof next === "function" ? (next as (p: T) => T)(prev) : next;
+        const resolved = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
         if (isHydrated) {
           try {
             window.localStorage.setItem(key, JSON.stringify(resolved));

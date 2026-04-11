@@ -122,15 +122,18 @@ export function RunsShell<T>({
         } as React.CSSProperties
       }
     >
-      {/* Left rail — plain flex child, no sticky/z-index. Collapsible
-          via the `b` hotkey; otherwise always visible. */}
+      {/* Left rail — plain flex child, no sticky/z-index. Appears at
+          lg+ (1024px) so tablet/phone viewports get the full width
+          for the runs list. The filter command dropdown in the top
+          bar is the fallback filter UX at smaller sizes. Collapsible
+          via the `b` hotkey. */}
       <aside
         className={cn(
           "flex h-screen w-full shrink-0 flex-col self-start",
-          "sm:max-w-60 sm:min-w-60 md:max-w-72 md:min-w-72",
-          "border-border sm:border-r",
-          "hidden sm:flex",
-          collapseRail && "sm:hidden",
+          "lg:max-w-72 lg:min-w-72",
+          "border-border lg:border-r",
+          "hidden lg:flex",
+          collapseRail && "lg:hidden",
         )}
       >
         <div className="min-h-0 flex-1 overflow-y-auto">{filterRail}</div>
@@ -167,9 +170,7 @@ export function RunsShell<T>({
             </div>
           ) : rows.length === 0 ? (
             <div className="flex h-full min-h-48 items-center justify-center px-4 py-8">
-              {emptyState ?? (
-                <p className="text-xs font-mono text-muted-foreground">No runs.</p>
-              )}
+              {emptyState ?? <p className="text-xs font-mono text-muted-foreground">No runs.</p>}
             </div>
           ) : (
             <>

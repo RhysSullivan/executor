@@ -62,9 +62,7 @@ export function KeyboardHelpButton({ open, onOpenChange }: KeyboardHelpButtonPro
         {SHORTCUTS.map((shortcut) => (
           <DropdownMenuItem key={shortcut.label} className="text-xs">
             <span>{shortcut.label}</span>
-            <DropdownMenuShortcut className="font-mono">
-              {shortcut.key}
-            </DropdownMenuShortcut>
+            <DropdownMenuShortcut className="font-mono">{shortcut.key}</DropdownMenuShortcut>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

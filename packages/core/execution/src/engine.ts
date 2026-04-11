@@ -742,8 +742,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     execute: (code, options) =>
       runEffect(executeWithManagedRecording(code, options.onElicitation, options.trigger)),
 
-    executeWithPause: (code, options) =>
-      runEffect(startPausableExecution(code, options?.trigger)),
+    executeWithPause: (code, options) => runEffect(startPausableExecution(code, options?.trigger)),
 
     resume: (executionId, response) =>
       runEffect(resumeExecution(ExecutionId.make(executionId), response)),

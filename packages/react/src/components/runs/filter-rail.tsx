@@ -2,20 +2,9 @@ import * as React from "react";
 import type { ExecutionListMeta, ExecutionStatus } from "@executor/sdk";
 
 import { cn } from "../../lib/utils";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "../accordion";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../accordion";
 import { Input } from "../input";
-import {
-  STATUS_ORDER,
-  STATUS_LABELS,
-  TRIGGER_ORDER,
-  statusTone,
-  triggerTone,
-} from "./status";
+import { STATUS_ORDER, STATUS_LABELS, TRIGGER_ORDER, statusTone, triggerTone } from "./status";
 
 // ---------------------------------------------------------------------------
 // FilterRail — left rail with page title, facets, time range, code query
@@ -126,9 +115,7 @@ export function RunsFilterRail({
     <div className="flex h-full flex-col">
       {/* Title block */}
       <div className="border-border border-b px-4 py-5">
-        <h1 className="font-display text-xl tracking-tight text-foreground">
-          Execution history
-        </h1>
+        <h1 className="font-display text-xl tracking-tight text-foreground">Execution history</h1>
         <p className="mt-1 text-xs text-muted-foreground">
           Every execution recorded for this scope, newest first.
         </p>
@@ -274,9 +261,7 @@ export function RunsFilterRail({
                         )}
                         aria-hidden
                       >
-                        {active ? (
-                          <span className="size-1.5 rounded-full bg-foreground" />
-                        ) : null}
+                        {active ? <span className="size-1.5 rounded-full bg-foreground" /> : null}
                       </span>
                       <span className="flex-1">{preset.label}</span>
                     </button>
@@ -380,9 +365,7 @@ function FacetRow({
 
         <span aria-hidden className={cn("size-2 shrink-0 rounded-full", dotClass)} />
 
-        <span className={cn("flex-1 truncate", monoLabel && "font-mono text-[11px]")}>
-          {label}
-        </span>
+        <span className={cn("flex-1 truncate", monoLabel && "font-mono text-[11px]")}>{label}</span>
 
         <span className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
           {count ?? ""}

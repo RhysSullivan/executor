@@ -30,12 +30,7 @@ export const DEFAULT_FIELD_VISIBILITY: Record<RunFieldKey, boolean> = {
   duration_ms: true,
 };
 
-const FIELD_ORDER: readonly RunFieldKey[] = [
-  "via",
-  "tools",
-  "log",
-  "duration_ms",
-];
+const FIELD_ORDER: readonly RunFieldKey[] = ["via", "tools", "log", "duration_ms"];
 
 export interface ViewOptionsButtonProps {
   readonly visible: Record<RunFieldKey, boolean>;

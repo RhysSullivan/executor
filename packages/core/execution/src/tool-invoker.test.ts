@@ -459,10 +459,7 @@ describe("execution history persistence", () => {
 
       const result = yield* Effect.promise(() =>
         engine.execute(
-          [
-            'console.log("hello from run");',
-            "return { ok: true, value: 42 };",
-          ].join("\n"),
+          ['console.log("hello from run");', "return { ok: true, value: 42 };"].join("\n"),
           { onElicitation: acceptAll },
         ),
       );
@@ -485,7 +482,9 @@ describe("execution history persistence", () => {
       const executor = yield* makeHistoryExecutor();
       const engine = createExecutionEngine({ executor });
 
-      const paused = yield* Effect.promise(() => engine.executeWithPause("return await tools.api.singleApproval({});"));
+      const paused = yield* Effect.promise(() =>
+        engine.executeWithPause("return await tools.api.singleApproval({});"),
+      );
       expect(paused.status).toBe("paused");
 
       if (paused.status !== "paused") {
@@ -514,7 +513,9 @@ describe("execution history persistence", () => {
       const executor = yield* makeHistoryExecutor();
       const engine = createExecutionEngine({ executor });
 
-      const paused = yield* Effect.promise(() => engine.executeWithPause("return await tools.api.singleApproval({});"));
+      const paused = yield* Effect.promise(() =>
+        engine.executeWithPause("return await tools.api.singleApproval({});"),
+      );
       expect(paused.status).toBe("paused");
 
       if (paused.status !== "paused") {
@@ -573,11 +574,7 @@ describe("execution history persistence", () => {
 
       yield* Effect.promise(() =>
         engine.execute(
-          [
-            "await tools.api.ping({});",
-            "await tools.api.pong({});",
-            "return 'done';",
-          ].join("\n"),
+          ["await tools.api.ping({});", "await tools.api.pong({});", "return 'done';"].join("\n"),
           { onElicitation: acceptAll, trigger: { kind: "test" } },
         ),
       );

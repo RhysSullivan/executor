@@ -17,12 +17,7 @@ import {
   type UpdateExecutionInteractionInput,
   type UpdateExecutionToolCallInput,
 } from "../executions";
-import {
-  ExecutionId,
-  ExecutionInteractionId,
-  ExecutionToolCallId,
-  ScopeId,
-} from "../ids";
+import { ExecutionId, ExecutionInteractionId, ExecutionToolCallId, ScopeId } from "../ids";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -49,7 +44,6 @@ const decodeCursor = (
   }
 };
 
-
 export const makeInMemoryExecutionStore = () => {
   const executions = new Map<ExecutionId, Execution>();
   const interactions = new Map<ExecutionInteractionId, ExecutionInteraction>();
@@ -66,14 +60,9 @@ export const makeInMemoryExecutionStore = () => {
       .map((call) => call.toolPath);
 
   const hasInteraction = (executionId: ExecutionId): boolean =>
-    [...interactions.values()].some(
-      (interaction) => interaction.executionId === executionId,
-    );
+    [...interactions.values()].some((interaction) => interaction.executionId === executionId);
 
-  const matchesFilters = (
-    execution: Execution,
-    options: ExecutionListOptions,
-  ): boolean => {
+  const matchesFilters = (execution: Execution, options: ExecutionListOptions): boolean => {
     if (options.statusFilter && options.statusFilter.length > 0) {
       const allowed = new Set<ExecutionStatus>(options.statusFilter);
       if (!allowed.has(execution.status)) return false;
@@ -173,10 +162,7 @@ export const makeInMemoryExecutionStore = () => {
           const toolPathCounts = new Map<string, number>();
           for (const call of toolCalls.values()) {
             if (filteredIds.has(call.executionId)) {
-              toolPathCounts.set(
-                call.toolPath,
-                (toolPathCounts.get(call.toolPath) ?? 0) + 1,
-              );
+              toolPathCounts.set(call.toolPath, (toolPathCounts.get(call.toolPath) ?? 0) + 1);
             }
           }
           const executionIdsWithInteractions = new Set<ExecutionId>();
@@ -223,7 +209,10 @@ export const makeInMemoryExecutionStore = () => {
         return stored;
       }),
 
-    resolveInteraction: (interactionId: ExecutionInteractionId, patch: UpdateExecutionInteractionInput) =>
+    resolveInteraction: (
+      interactionId: ExecutionInteractionId,
+      patch: UpdateExecutionInteractionInput,
+    ) =>
       Effect.sync(() => {
         const current = interactions.get(interactionId);
         if (!current) {

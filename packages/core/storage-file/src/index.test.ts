@@ -4,13 +4,7 @@ import { Effect } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as SqlClient from "@effect/sql/SqlClient";
 
-import {
-  ScopeId,
-  ToolId,
-  SecretId,
-  makeInMemorySecretProvider,
-  scopeKv,
-} from "@executor/sdk";
+import { ScopeId, ToolId, SecretId, makeInMemorySecretProvider, scopeKv } from "@executor/sdk";
 import type { Kv } from "@executor/sdk";
 import { migrate } from "./schema";
 import { makeSqliteKv } from "./plugin-kv";
@@ -369,8 +363,12 @@ describe("SqliteExecutionStore", () => {
       const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const now = Date.now();
 
-      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 30 }));
-      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 20 }));
+      yield* store.create(
+        makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 30 }),
+      );
+      yield* store.create(
+        makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 20 }),
+      );
       yield* store.create(makeExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 10 }));
       yield* store.create(makeExecutionInput({ scopeId, triggerKind: null, createdAt: now }));
 
@@ -399,9 +397,7 @@ describe("SqliteExecutionStore", () => {
       const elicited = yield* store.create(
         makeExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 20 }),
       );
-      yield* store.create(
-        makeExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 10 }),
-      );
+      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 10 }));
 
       // Record an interaction only on the first run.
       yield* store.recordInteraction(elicited.id, {
@@ -554,7 +550,7 @@ describe("SqliteExecutionStore", () => {
           scopeId,
           createdAt: now - 300,
           startedAt: now - 300,
-          completedAt: now - 200,  // duration = 100
+          completedAt: now - 200, // duration = 100
         }),
       );
       const midShort = yield* store.create(
@@ -562,7 +558,7 @@ describe("SqliteExecutionStore", () => {
           scopeId,
           createdAt: now - 200,
           startedAt: now - 200,
-          completedAt: now - 190,  // duration = 10
+          completedAt: now - 190, // duration = 10
         }),
       );
       const newNull = yield* store.create(
@@ -570,7 +566,7 @@ describe("SqliteExecutionStore", () => {
           scopeId,
           createdAt: now - 100,
           startedAt: null,
-          completedAt: null,  // duration = null
+          completedAt: null, // duration = null
         }),
       );
 
@@ -598,22 +594,14 @@ describe("SqliteExecutionStore", () => {
         limit: 10,
         sort: { field: "durationMs", direction: "desc" },
       });
-      expect(durDesc.executions.map((e) => e.id)).toEqual([
-        oldLong.id,
-        midShort.id,
-        newNull.id,
-      ]);
+      expect(durDesc.executions.map((e) => e.id)).toEqual([oldLong.id, midShort.id, newNull.id]);
 
       // durationMs asc — shortest first, null still to the end
       const durAsc = yield* store.list(scopeId, {
         limit: 10,
         sort: { field: "durationMs", direction: "asc" },
       });
-      expect(durAsc.executions.map((e) => e.id)).toEqual([
-        midShort.id,
-        oldLong.id,
-        newNull.id,
-      ]);
+      expect(durAsc.executions.map((e) => e.id)).toEqual([midShort.id, oldLong.id, newNull.id]);
     }).pipe(Effect.provide(TestSqlLayer)),
   );
 

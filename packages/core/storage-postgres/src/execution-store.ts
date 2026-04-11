@@ -228,12 +228,7 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
           const subquery = db
             .select({ id: executionToolCalls.executionId })
             .from(executionToolCalls)
-            .where(
-              and(
-                eq(executionToolCalls.organizationId, organizationId),
-                patternWhere,
-              ),
-            );
+            .where(and(eq(executionToolCalls.organizationId, organizationId), patternWhere));
           filterConditions.push(inArray(executions.id, subquery));
         }
         if (options.hadElicitation !== undefined) {
@@ -473,7 +468,10 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
         return new ExecutionInteraction({ id, ...interaction });
       }).pipe(Effect.orDie),
 
-    resolveInteraction: (interactionId: ExecutionInteractionId, patch: UpdateExecutionInteractionInput) =>
+    resolveInteraction: (
+      interactionId: ExecutionInteractionId,
+      patch: UpdateExecutionInteractionInput,
+    ) =>
       Effect.tryPromise(async () => {
         const currentRows = await db
           .select()
@@ -600,7 +598,9 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
         const expiredExecutions = await db
           .select({ id: executions.id })
           .from(executions)
-          .where(and(eq(executions.organizationId, organizationId), lt(executions.createdAt, cutoff)));
+          .where(
+            and(eq(executions.organizationId, organizationId), lt(executions.createdAt, cutoff)),
+          );
         const expiredIds = expiredExecutions.map((row) => row.id);
 
         if (expiredIds.length > 0) {
@@ -624,7 +624,9 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
 
         await db
           .delete(executions)
-          .where(and(eq(executions.organizationId, organizationId), lt(executions.createdAt, cutoff)));
+          .where(
+            and(eq(executions.organizationId, organizationId), lt(executions.createdAt, cutoff)),
+          );
       }).pipe(Effect.orDie),
   };
 };

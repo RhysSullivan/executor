@@ -1,11 +1,6 @@
 import { Context, Effect, Schema } from "effect";
 
-import {
-  ExecutionId,
-  ExecutionInteractionId,
-  ExecutionToolCallId,
-  ScopeId,
-} from "./ids";
+import { ExecutionId, ExecutionInteractionId, ExecutionToolCallId, ScopeId } from "./ids";
 
 export const ExecutionStatus = Schema.Literal(
   "pending",
@@ -55,7 +50,9 @@ export class Execution extends Schema.Class<Execution>("Execution")({
 export const ExecutionInteractionStatus = Schema.Literal("pending", "resolved", "cancelled");
 export type ExecutionInteractionStatus = typeof ExecutionInteractionStatus.Type;
 
-export class ExecutionInteraction extends Schema.Class<ExecutionInteraction>("ExecutionInteraction")({
+export class ExecutionInteraction extends Schema.Class<ExecutionInteraction>(
+  "ExecutionInteraction",
+)({
   id: ExecutionInteractionId,
   executionId: ExecutionId,
   status: ExecutionInteractionStatus,
@@ -116,16 +113,19 @@ export type CreateExecutionInteractionInput = Omit<ExecutionInteraction, "id">;
 export type UpdateExecutionInteractionInput = Partial<
   Pick<
     ExecutionInteraction,
-    "status" | "kind" | "purpose" | "payloadJson" | "responseJson" | "responsePrivateJson" | "updatedAt"
+    | "status"
+    | "kind"
+    | "purpose"
+    | "payloadJson"
+    | "responseJson"
+    | "responsePrivateJson"
+    | "updatedAt"
   >
 >;
 
 export type CreateExecutionToolCallInput = Omit<ExecutionToolCall, "id">;
 export type UpdateExecutionToolCallInput = Partial<
-  Pick<
-    ExecutionToolCall,
-    "status" | "resultJson" | "errorText" | "completedAt" | "durationMs"
-  >
+  Pick<ExecutionToolCall, "status" | "resultJson" | "errorText" | "completedAt" | "durationMs">
 >;
 
 /**
@@ -303,16 +303,9 @@ const TRIGGER_KIND_UNKNOWN = "unknown";
  * executions. Shared by every {@link ExecutionStore} implementation so
  * the chart math lives in one place.
  */
-export const buildExecutionListMeta = (
-  input: BuildExecutionListMetaInput,
-): ExecutionListMeta => {
-  const {
-    filtered,
-    timeRange,
-    totalRowCount,
-    toolPathCounts,
-    executionIdsWithInteractions,
-  } = input;
+export const buildExecutionListMeta = (input: BuildExecutionListMetaInput): ExecutionListMeta => {
+  const { filtered, timeRange, totalRowCount, toolPathCounts, executionIdsWithInteractions } =
+    input;
   const filterRowCount = filtered.length;
 
   const statusCounts: Record<ExecutionStatus, number> = {
@@ -464,10 +457,7 @@ export class ExecutionStore extends Context.Tag("@executor/sdk/ExecutionStore")<
   ExecutionStore,
   {
     readonly create: (input: CreateExecutionInput) => Effect.Effect<Execution>;
-    readonly update: (
-      id: ExecutionId,
-      patch: UpdateExecutionInput,
-    ) => Effect.Effect<Execution>;
+    readonly update: (id: ExecutionId, patch: UpdateExecutionInput) => Effect.Effect<Execution>;
     readonly list: (
       scopeId: ScopeId,
       options: ExecutionListOptions,
@@ -476,15 +466,10 @@ export class ExecutionStore extends Context.Tag("@executor/sdk/ExecutionStore")<
       readonly nextCursor?: string;
       readonly meta?: ExecutionListMeta;
     }>;
-    readonly get: (
-      id: ExecutionId,
-    ) => Effect.Effect<
-      | {
-          readonly execution: Execution;
-          readonly pendingInteraction: ExecutionInteraction | null;
-        }
-      | null
-    >;
+    readonly get: (id: ExecutionId) => Effect.Effect<{
+      readonly execution: Execution;
+      readonly pendingInteraction: ExecutionInteraction | null;
+    } | null>;
     readonly recordInteraction: (
       executionId: ExecutionId,
       interaction: CreateExecutionInteractionInput,

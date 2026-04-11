@@ -17,12 +17,17 @@ import { statusTone, triggerTone } from "./status";
 // Layout (left to right):
 //   [dot] [timestamp]  status:<…>  via:<…>  tools:N  log:NE MW  duration_ms:<…>  code:"…"
 //
-// Responsive visibility (after Round 4 retightening):
-//   - `via` and `log` hide below 2xl (1536px) so the code snippet has
-//     room on 1280-1440px laptop viewports.
-//   - `tools` hides below lg (1024px).
+// Responsive visibility (after Round 4 Phase 2b retightening):
+//   - `_time` / `status` are slim (150/120) below md, full (190/140) md+.
+//   - `duration_ms` hides below md (<768px) where the aside is also hidden.
+//   - `tools` hides below xl (<1280px).
+//   - `via` and `log` hide below 2xl (<1536px).
 //   - `status` abbreviates `waiting_for_interaction` → `waiting` so the
-//     140px column fits; the full label still shows in the drawer.
+//     slim column fits; the full label still shows in the drawer.
+//
+// The aside (filter rail) is hidden below lg (<1024px), giving the
+// row body the full viewport width on tablet/phone. The filter command
+// dropdown in the top bar is the fallback filter UX at those sizes.
 
 const formatTimestamp = (value: number | null): string => {
   if (value === null) return "—";
@@ -99,13 +104,7 @@ export interface RunRowProps {
   readonly onSelect?: () => void;
 }
 
-export function RunRow({
-  execution,
-  isSelected,
-  isPast,
-  visibleFields,
-  onSelect,
-}: RunRowProps) {
+export function RunRow({ execution, isSelected, isPast, visibleFields, onSelect }: RunRowProps) {
   const showVia = visibleFields?.via !== false;
   const showTools = visibleFields?.tools !== false;
   const showLog = visibleFields?.log !== false;
@@ -142,10 +141,10 @@ export function RunRow({
       <HoverCardTimestamp
         date={new Date(execution.createdAt)}
         side="right"
-        className="w-[190px] shrink-0 tabular-nums text-muted-foreground"
+        className="w-[150px] shrink-0 tabular-nums text-muted-foreground md:w-[190px]"
       />
 
-      <span className="inline-flex w-[140px] shrink-0 gap-1">
+      <span className="inline-flex w-[120px] shrink-0 gap-1 md:w-[140px]">
         <span className="text-muted-foreground/60">status:</span>
         <span className={tone.text}>{statusWord(execution.status)}</span>
       </span>
@@ -158,7 +157,7 @@ export function RunRow({
       ) : null}
 
       {showTools ? (
-        <span className="hidden w-[88px] shrink-0 gap-1 tabular-nums lg:inline-flex">
+        <span className="hidden w-[88px] shrink-0 gap-1 tabular-nums xl:inline-flex">
           <span className="text-muted-foreground/60">tools:</span>
           <span
             className={cn(
@@ -194,7 +193,7 @@ export function RunRow({
       ) : null}
 
       {showDuration ? (
-        <span className="inline-flex w-[130px] shrink-0 gap-1">
+        <span className="hidden w-[130px] shrink-0 gap-1 md:inline-flex">
           <span className="text-muted-foreground/60">duration_ms:</span>
           <span
             className={cn(
@@ -210,9 +209,7 @@ export function RunRow({
 
       <span className="min-w-0 flex-1 truncate">
         <span className="text-muted-foreground/60">code: </span>
-        <span className="text-foreground/80">
-          &quot;{truncateCode(execution.code, 160)}&quot;
-        </span>
+        <span className="text-foreground/80">&quot;{truncateCode(execution.code, 160)}&quot;</span>
       </span>
     </button>
   );

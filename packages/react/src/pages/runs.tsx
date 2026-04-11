@@ -9,11 +9,7 @@ import { useLiveMode } from "../hooks/use-live-mode";
 import { useLocalStorage } from "../hooks/use-local-storage";
 import { RunsShell } from "../components/runs/shell";
 import { RunRow } from "../components/runs/row";
-import {
-  RunsColumnHeader,
-  type SortField,
-  type SortState,
-} from "../components/runs/column-header";
+import { RunsColumnHeader, type SortField, type SortState } from "../components/runs/column-header";
 import {
   RunsFilterRail,
   resolveTimeRange,
@@ -89,9 +85,7 @@ const parseRange = (value: string | undefined): TimeRangePreset => {
 };
 
 const toggleCsv = (values: readonly string[], value: string): string[] =>
-  values.includes(value)
-    ? values.filter((entry) => entry !== value)
-    : [...values, value].sort();
+  values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value].sort();
 
 const VALID_SORT_FIELDS: readonly SortField[] = ["createdAt", "durationMs"];
 
@@ -124,9 +118,7 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   const range = React.useMemo(() => parseRange(search.range), [search.range]);
   const sort = React.useMemo(() => parseSortSearch(search.sort), [search.sort]);
   const selectedElicitation: "true" | "false" | null =
-    search.elicitation === "true" || search.elicitation === "false"
-      ? search.elicitation
-      : null;
+    search.elicitation === "true" || search.elicitation === "false" ? search.elicitation : null;
   const live = search.live === "1";
 
   const [codeInput, setCodeInput] = React.useState(search.code ?? "");
@@ -228,12 +220,9 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     () => (search.executionId ? rows.findIndex((r) => r.id === search.executionId) : -1),
     [rows, search.executionId],
   );
-  const prevRowId =
-    selectedIndex > 0 ? rows[selectedIndex - 1]?.id : undefined;
+  const prevRowId = selectedIndex > 0 ? rows[selectedIndex - 1]?.id : undefined;
   const nextRowId =
-    selectedIndex >= 0 && selectedIndex < rows.length - 1
-      ? rows[selectedIndex + 1]?.id
-      : undefined;
+    selectedIndex >= 0 && selectedIndex < rows.length - 1 ? rows[selectedIndex + 1]?.id : undefined;
 
   // Meta is only returned on the first page request — pin it
   const meta = listQuery.data?.pages[0]?.meta;
@@ -303,8 +292,7 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   // `only` quick-filter handlers — replace the facet's current selection
   // with just the clicked value.
   const handleOnlyStatus = React.useCallback(
-    (status: ExecutionStatus) =>
-      updateSearch({ status, executionId: undefined }),
+    (status: ExecutionStatus) => updateSearch({ status, executionId: undefined }),
     [updateSearch],
   );
   const handleOnlyTrigger = React.useCallback(
@@ -389,9 +377,10 @@ export function RunsPage({ search }: { search: RunsSearch }) {
 
   // Row field visibility — persisted so users keep their preferences
   // across reloads. The ViewOptionsButton in the top bar drives this.
-  const [fieldVisibility, setFieldVisibility] = useLocalStorage<
-    Record<RunFieldKey, boolean>
-  >("runs.fieldVisibility", DEFAULT_FIELD_VISIBILITY);
+  const [fieldVisibility, setFieldVisibility] = useLocalStorage<Record<RunFieldKey, boolean>>(
+    "runs.fieldVisibility",
+    DEFAULT_FIELD_VISIBILITY,
+  );
 
   const toggleFieldVisibility = React.useCallback(
     (key: RunFieldKey) => {
@@ -447,11 +436,7 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   // textareas / contentEditable) is built into react-hotkeys-hook.
   useHotkeys("j", toggleLive, { enabled: !filterCommandOpen });
   useHotkeys("r", () => void listQuery.refetch(), { enabled: !filterCommandOpen });
-  useHotkeys(
-    "/",
-    () => filterCommandInputRef.current?.focus(),
-    { preventDefault: true },
-  );
+  useHotkeys("/", () => filterCommandInputRef.current?.focus(), { preventDefault: true });
   useHotkeys("shift+/", () => setKeyboardHelpOpen(true), { preventDefault: true });
   useHotkeys("b", () => setRailCollapsed((prev) => !prev), {
     enabled: !filterCommandOpen,
@@ -502,10 +487,7 @@ export function RunsPage({ search }: { search: RunsSearch }) {
                 />
                 <LiveButton active={live} onClick={toggleLive} />
                 <ViewOptionsButton visible={fieldVisibility} onToggle={toggleFieldVisibility} />
-                <KeyboardHelpButton
-                  open={keyboardHelpOpen}
-                  onOpenChange={setKeyboardHelpOpen}
-                />
+                <KeyboardHelpButton open={keyboardHelpOpen} onOpenChange={setKeyboardHelpOpen} />
               </div>
             </div>
             <RunsFilterCommand
@@ -528,11 +510,7 @@ export function RunsPage({ search }: { search: RunsSearch }) {
           ) : null
         }
         columnHeader={
-          <RunsColumnHeader
-            sort={sort}
-            onSort={handleSort}
-            visibleFields={fieldVisibility}
-          />
+          <RunsColumnHeader sort={sort} onSort={handleSort} visibleFields={fieldVisibility} />
         }
         isLoading={listQuery.isLoading}
         isFetchingNextPage={listQuery.isFetchingNextPage}
@@ -555,7 +533,9 @@ export function RunsPage({ search }: { search: RunsSearch }) {
         liveMarkerBeforeRowId={liveMode.cutoffRow?.id}
         emptyState={
           <div className="text-center">
-            <p className="font-mono text-xs text-foreground/80">No runs match the current filters.</p>
+            <p className="font-mono text-xs text-foreground/80">
+              No runs match the current filters.
+            </p>
             <p className="mt-1 font-mono text-[10px] text-muted-foreground/60">
               Try widening the time range or removing the status filter.
             </p>

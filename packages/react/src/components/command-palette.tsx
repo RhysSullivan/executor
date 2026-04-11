@@ -170,18 +170,18 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
         {sourcePlugins.length > 0 && (
           <>
             <CommandSeparator />
-          <CommandGroup heading="Add source">
-            {sourcePlugins.map((plugin) => (
-              <CommandItem
-                key={`add-${plugin.key}`}
-                value={`add ${plugin.label} ${plugin.key}`}
-                onSelect={() => goToAdd(plugin.key)}
-              >
-                <PlusIcon />
-                <span className="flex-1 truncate">Add {plugin.label}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
+            <CommandGroup heading="Add source">
+              {sourcePlugins.map((plugin) => (
+                <CommandItem
+                  key={`add-${plugin.key}`}
+                  value={`add ${plugin.label} ${plugin.key}`}
+                  onSelect={() => goToAdd(plugin.key)}
+                >
+                  <PlusIcon />
+                  <span className="flex-1 truncate">Add {plugin.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
           </>
         )}
 

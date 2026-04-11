@@ -29,11 +29,7 @@ export function LiveButton({ active, onClick }: LiveButtonProps) {
       )}
       title={active ? "Pause live refresh (j)" : "Start live refresh (j)"}
     >
-      {active ? (
-        <CirclePause className="size-4" />
-      ) : (
-        <CirclePlay className="size-4" />
-      )}
+      {active ? <CirclePause className="size-4" /> : <CirclePlay className="size-4" />}
       Live
     </Button>
   );

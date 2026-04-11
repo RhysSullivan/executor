@@ -10,13 +10,7 @@ import { cn } from "../../lib/utils";
 import { Button } from "../button";
 import { CodeBlock } from "../code-block";
 import { HoverCardTimestamp } from "./hover-card-timestamp";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "../sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../sheet";
 import {
   getExecution,
   listExecutionToolCalls,
@@ -142,12 +136,11 @@ export function RunsDetailDrawer({
   // Arrow keys step through rows while the drawer is open. Enabled gate
   // means the global hotkey only fires when there's an open drawer and
   // the corresponding neighbor exists.
-  useHotkeys(
-    "ArrowUp",
-    () => onPrev?.(),
-    { enabled: open && !!prevRowId, preventDefault: true },
-    [open, prevRowId, onPrev],
-  );
+  useHotkeys("ArrowUp", () => onPrev?.(), { enabled: open && !!prevRowId, preventDefault: true }, [
+    open,
+    prevRowId,
+    onPrev,
+  ]);
   useHotkeys(
     "ArrowDown",
     () => onNext?.(),
@@ -238,9 +231,7 @@ function DrawerBody({
       {/* Visible header — mono id + prev/next + actions */}
       <div className="flex items-center justify-between border-border/60 border-b px-5 py-3">
         <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-sm text-foreground">
-            {executionId ?? "—"}
-          </div>
+          <div className="truncate font-mono text-sm text-foreground">{executionId ?? "—"}</div>
         </div>
         <div className="flex items-center gap-1">
           <Button
@@ -323,9 +314,7 @@ function DrawerBody({
         {query.isLoading ? (
           <p className="font-mono text-xs text-muted-foreground">Loading execution…</p>
         ) : query.isError ? (
-          <p className="font-mono text-xs text-destructive">
-            Failed to load execution details.
-          </p>
+          <p className="font-mono text-xs text-destructive">Failed to load execution details.</p>
         ) : envelope ? (
           tab === "properties" ? (
             <PropertiesTab envelope={envelope} />
@@ -392,10 +381,7 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
         <div className="flex items-baseline gap-1">
           <span className="text-muted-foreground/60">Created</span>
           {execution.createdAt ? (
-            <HoverCardTimestamp
-              date={new Date(execution.createdAt)}
-              className="text-xs"
-            />
+            <HoverCardTimestamp date={new Date(execution.createdAt)} className="text-xs" />
           ) : (
             <span>—</span>
           )}
@@ -403,10 +389,7 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
         <div className="flex items-baseline gap-1">
           <span className="text-muted-foreground/60">Started</span>
           {execution.startedAt ? (
-            <HoverCardTimestamp
-              date={new Date(execution.startedAt)}
-              className="text-xs"
-            />
+            <HoverCardTimestamp date={new Date(execution.startedAt)} className="text-xs" />
           ) : (
             <span>—</span>
           )}
@@ -416,10 +399,7 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
       {/* Tertiary — trigger + tools on a single muted mono line */}
       <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground/70">
         <span className="inline-flex items-center gap-1.5">
-          <span
-            aria-hidden
-            className={cn("size-1.5 rounded-full", trigger.dot)}
-          />
+          <span aria-hidden className={cn("size-1.5 rounded-full", trigger.dot)} />
           <span>via {trigger.label}</span>
         </span>
         <span className="text-muted-foreground/30">•</span>
@@ -583,11 +563,7 @@ function ToolCallsTab({ execution }: { execution: Execution }) {
     return <p className="font-mono text-xs text-muted-foreground">Loading tool calls…</p>;
   }
   if (query.isError) {
-    return (
-      <p className="font-mono text-xs text-destructive">
-        Failed to load tool calls.
-      </p>
-    );
+    return <p className="font-mono text-xs text-destructive">Failed to load tool calls.</p>;
   }
 
   const calls = query.data?.toolCalls ?? [];
@@ -603,9 +579,7 @@ function ToolCallsTab({ execution }: { execution: Execution }) {
   const windowStart = execution.startedAt ?? calls[0]!.startedAt;
   const windowEnd =
     execution.completedAt ??
-    Math.max(
-      ...calls.map((call) => call.completedAt ?? call.startedAt + (call.durationMs ?? 0)),
-    );
+    Math.max(...calls.map((call) => call.completedAt ?? call.startedAt + (call.durationMs ?? 0)));
   const windowWidth = Math.max(1, windowEnd - windowStart);
 
   return (
@@ -667,9 +641,7 @@ function ToolCallRow({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-xs text-foreground">
-            {call.toolPath}
-          </div>
+          <div className="truncate font-mono text-xs text-foreground">{call.toolPath}</div>
         </div>
 
         <div className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">

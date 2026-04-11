@@ -210,9 +210,7 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
       }),
     );
 
-  const getToolPathsForScope = (
-    scopeId: ScopeId,
-  ): Effect.Effect<Map<ExecutionId, string[]>> =>
+  const getToolPathsForScope = (scopeId: ScopeId): Effect.Effect<Map<ExecutionId, string[]>> =>
     absorbSql(
       Effect.gen(function* () {
         const rows = yield* sql<{ execution_id: string; tool_path: string }>`
@@ -240,9 +238,7 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
    * least one recorded {@link ExecutionInteraction}. Used by the
    * `hadElicitation` filter and `meta.interactionCounts`.
    */
-  const getExecutionIdsWithInteractions = (
-    scopeId: ScopeId,
-  ): Effect.Effect<Set<ExecutionId>> =>
+  const getExecutionIdsWithInteractions = (scopeId: ScopeId): Effect.Effect<Set<ExecutionId>> =>
     absorbSql(
       Effect.gen(function* () {
         const rows = yield* sql<{ execution_id: string }>`
@@ -345,7 +341,12 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
           // already loaded every row in scope.
           const allFiltered = allInScope
             .filter((execution) =>
-              matchesFilters(execution, options, toolPathsByExecution, executionIdsWithInteractions),
+              matchesFilters(
+                execution,
+                options,
+                toolPathsByExecution,
+                executionIdsWithInteractions,
+              ),
             )
             .sort(pickExecutionSorter(options.sort));
 
@@ -447,7 +448,10 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
         }),
       ),
 
-    resolveInteraction: (interactionId: ExecutionInteractionId, patch: UpdateExecutionInteractionInput) =>
+    resolveInteraction: (
+      interactionId: ExecutionInteractionId,
+      patch: UpdateExecutionInteractionInput,
+    ) =>
       absorbSql(
         Effect.gen(function* () {
           const currentRows = yield* sql<ExecutionInteractionRow>`
@@ -455,7 +459,9 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
           `;
           const current = currentRows[0];
           if (!current) {
-            return yield* Effect.die(new Error(`Execution interaction not found: ${interactionId}`));
+            return yield* Effect.die(
+              new Error(`Execution interaction not found: ${interactionId}`),
+            );
           }
 
           const next = new ExecutionInteraction({

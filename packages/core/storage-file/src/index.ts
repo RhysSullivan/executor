@@ -25,7 +25,12 @@ import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import type * as SqlClient from "@effect/sql/SqlClient";
 
-import { scopeKv, ScopeId, makeInMemoryExecutionStore, makeInMemorySourceRegistry } from "@executor/sdk";
+import {
+  scopeKv,
+  ScopeId,
+  makeInMemoryExecutionStore,
+  makeInMemorySourceRegistry,
+} from "@executor/sdk";
 import type { Kv, Scope, ExecutorConfig, ExecutorPlugin } from "@executor/sdk";
 
 import { makeKvToolRegistry } from "./tool-registry";
