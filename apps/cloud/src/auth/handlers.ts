@@ -5,6 +5,7 @@ import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
+import { UserStoreError, WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 import { server } from "../env";
 
@@ -87,7 +88,12 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
 
           setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
           return HttpServerResponse.redirect("/", { status: 302 });
-        }),
+        }).pipe(
+          Effect.catchTags({
+            WorkOSError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
+            UserStoreError: () => Effect.succeed(HttpServerResponse.redirect("/", { status: 302 })),
+          }),
+        ),
       ),
 );
 
