@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./bun": "./src/bun.ts",
+    "./core": "./src/core.ts",
     "./schema": "./src/schema.ts"
   },
   "scripts": {
@@ -21,6 +23,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/better-sqlite3": "^7.6.13",
+    "bun-types": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

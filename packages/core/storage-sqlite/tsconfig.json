@@ -11,6 +11,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "types": ["node", "bun-types"],
     "plugins": [
       {
         "name": "@effect/language-service",
