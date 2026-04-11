@@ -15,10 +15,7 @@ function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
 
 const IOS_SPINNER_BLADES = 12;
 
-function IOSSpinner({
-  className,
-  ...props
-}: React.ComponentProps<"svg">) {
+function IOSSpinner({ className, ...props }: React.ComponentProps<"svg">) {
   return (
     <svg
       role="status"

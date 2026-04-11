@@ -156,8 +156,7 @@ function reducer(state: State, action: Action): State {
       };
 
     case "oauth-fail":
-      if (state.step !== "oauth-starting" && state.step !== "oauth-waiting")
-        return state;
+      if (state.step !== "oauth-starting" && state.step !== "oauth-waiting") return state;
       return {
         step: "error",
         url: state.url,
@@ -172,11 +171,7 @@ function reducer(state: State, action: Action): State {
 
     case "add-start": {
       const tokens =
-        state.step === "oauth-done"
-          ? state.tokens
-          : state.step === "probed"
-            ? null
-            : null;
+        state.step === "oauth-done" ? state.tokens : state.step === "probed" ? null : null;
       const probe = "probe" in state ? state.probe : null;
       if (!probe) return state;
       return { step: "adding", url: state.url, probe, tokens };
@@ -247,9 +242,7 @@ function openOAuthPopup(
 
   let settled = false;
   const channel =
-    typeof BroadcastChannel !== "undefined"
-      ? new BroadcastChannel(OAUTH_RESULT_CHANNEL)
-      : null;
+    typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(OAUTH_RESULT_CHANNEL) : null;
   const settle = () => {
     if (settled) return;
     settled = true;
@@ -299,9 +292,7 @@ export default function AddMcpSource(props: {
   );
 
   // --- Stdio state ---
-  const [stdioCommand, setStdioCommand] = useState(
-    isStdioPreset ? preset.command : "",
-  );
+  const [stdioCommand, setStdioCommand] = useState(isStdioPreset ? preset.command : "");
   const [stdioArgs, setStdioArgs] = useState(
     isStdioPreset && preset.args ? preset.args.join(" ") : "",
   );
@@ -342,13 +333,10 @@ export default function AddMcpSource(props: {
   const tokens = "tokens" in state ? state.tokens : null;
   const isProbing = state.step === "probing";
   const isAdding = state.step === "adding";
-  const isOAuthBusy =
-    state.step === "oauth-starting" || state.step === "oauth-waiting";
+  const isOAuthBusy = state.step === "oauth-starting" || state.step === "oauth-waiting";
   const canUseNone = probe?.requiresOAuth !== true;
   const remoteAuthHeader = remoteAuthHeaders[0];
-  const headerAuthComplete = Boolean(
-    remoteAuthHeader?.name.trim() && remoteAuthHeader?.secretId,
-  );
+  const headerAuthComplete = Boolean(remoteAuthHeader?.name.trim() && remoteAuthHeader?.secretId);
   const remoteHeadersComplete = remoteHeaders.every(
     (header) => header.name.trim() && header.value.trim(),
   );
@@ -358,18 +346,11 @@ export default function AddMcpSource(props: {
       : remoteAuthMode === "header"
         ? headerAuthComplete
         : tokens !== null;
-  const canAdd =
-    Boolean(probe) &&
-    authReady &&
-    remoteHeadersComplete &&
-    !isAdding &&
-    !isOAuthBusy;
+  const canAdd = Boolean(probe) && authReady && remoteHeadersComplete && !isAdding && !isOAuthBusy;
   // Probe failures are shown inline on the URL field; other failures
   // (OAuth start, add source) render in the bottom error block.
-  const probeError =
-    state.step === "error" && state.probe === null ? state.error : null;
-  const otherError =
-    state.step === "error" && state.probe !== null ? state.error : null;
+  const probeError = state.step === "error" && state.probe === null ? state.error : null;
+  const otherError = state.step === "error" && state.probe !== null ? state.error : null;
 
   // ---- Remote actions ----
 
@@ -570,9 +551,7 @@ export default function AddMcpSource(props: {
   return (
     <div className="flex flex-1 flex-col gap-6">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">
-          Add MCP Source
-        </h1>
+        <h1 className="text-xl font-semibold text-foreground">Add MCP Source</h1>
         <p className="mt-1 text-[13px] text-muted-foreground">
           Connect to an MCP server to discover and use its tools.
         </p>
@@ -617,9 +596,7 @@ export default function AddMcpSource(props: {
                     <SourceFavicon url={state.url} size={32} />
                   </CardStackEntryMedia>
                   <CardStackEntryContent>
-                    <CardStackEntryTitle>
-                      {probe.serverName ?? probe.name}
-                    </CardStackEntryTitle>
+                    <CardStackEntryTitle>{probe.serverName ?? probe.name}</CardStackEntryTitle>
                     <CardStackEntryDescription>
                       {probe.connected
                         ? `${probe.toolCount} tool${probe.toolCount !== 1 ? "s" : ""} available`
@@ -670,11 +647,7 @@ export default function AddMcpSource(props: {
             <CardStackContent className="border-t-0">
               <CardStackEntryField
                 label="Server URL"
-                hint={
-                  probeError
-                    ? undefined
-                    : "Supports Streamable HTTP and SSE transports."
-                }
+                hint={probeError ? undefined : "Supports Streamable HTTP and SSE transports."}
               >
                 <div className="relative">
                   <Input
@@ -717,11 +690,7 @@ export default function AddMcpSource(props: {
               oauth2Slot={
                 <>
                   {!tokens && state.step === "probed" && (
-                    <Button
-                      onClick={handleOAuth}
-                      className="w-full bg-white"
-                      variant="outline"
-                    >
+                    <Button onClick={handleOAuth} className="w-full bg-white" variant="outline">
                       Sign in
                     </Button>
                   )}
@@ -729,9 +698,7 @@ export default function AddMcpSource(props: {
                   {!tokens && state.step === "oauth-starting" && (
                     <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
                       <Spinner className="size-3.5" />
-                      <span className="text-xs text-muted-foreground">
-                        Starting authorization…
-                      </span>
+                      <span className="text-xs text-muted-foreground">Starting authorization…</span>
                     </div>
                   )}
 
@@ -754,11 +721,7 @@ export default function AddMcpSource(props: {
 
                   {tokens && (
                     <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
-                      <svg
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        className="size-3.5 text-emerald-500"
-                      >
+                      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 text-emerald-500">
                         <path
                           d="M3 8.5l3 3 7-7"
                           stroke="currentColor"
@@ -783,8 +746,8 @@ export default function AddMcpSource(props: {
               <div>
                 <Label>Additional headers</Label>
                 <p className="mt-1 text-[12px] text-muted-foreground">
-                  Plaintext headers sent with every request. Use authentication
-                  for secret-backed auth headers.
+                  Plaintext headers sent with every request. Use authentication for secret-backed
+                  auth headers.
                 </p>
               </div>
 
@@ -794,97 +757,82 @@ export default function AddMcpSource(props: {
                     <AddPlainHeaderRow
                       leading={<span>No headers</span>}
                       onClick={() =>
-                        setRemoteHeaders((headers) => [
-                          ...headers,
-                          { name: "", value: "" },
-                        ])
+                        setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
                       }
                     />
                   ) : (
                     <>
                       {remoteHeaders.map((header, index) => (
-                      <CardStackEntry
-                        key={index}
-                        className="flex-col items-stretch gap-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                            Header
-                          </Label>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            className="text-muted-foreground hover:text-destructive"
-                            onClick={() =>
-                              setRemoteHeaders((headers) =>
-                                headers.filter(
-                                  (_, headerIndex) => headerIndex !== index,
-                                ),
-                              )
-                            }
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
+                        <CardStackEntry key={index} className="flex-col items-stretch gap-2">
+                          <div className="flex items-center justify-between">
                             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                              Name
+                              Header
                             </Label>
-                            <Input
-                              value={header.name}
-                              onChange={(event) =>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              className="text-muted-foreground hover:text-destructive"
+                              onClick={() =>
                                 setRemoteHeaders((headers) =>
-                                  headers.map((current, headerIndex) =>
-                                    headerIndex === index
-                                      ? {
-                                          ...current,
-                                          name: (
-                                            event.target as HTMLInputElement
-                                          ).value,
-                                        }
-                                      : current,
-                                  ),
+                                  headers.filter((_, headerIndex) => headerIndex !== index),
                                 )
                               }
-                              placeholder="X-Organization-Id"
-                              className="h-8 text-xs font-mono"
-                            />
+                            >
+                              Remove
+                            </Button>
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                              Value
-                            </Label>
-                            <Input
-                              value={header.value}
-                              onChange={(event) =>
-                                setRemoteHeaders((headers) =>
-                                  headers.map((current, headerIndex) =>
-                                    headerIndex === index
-                                      ? {
-                                          ...current,
-                                          value: (
-                                            event.target as HTMLInputElement
-                                          ).value,
-                                        }
-                                      : current,
-                                  ),
-                                )
-                              }
-                              placeholder="workspace-id"
-                              className="h-8 text-xs font-mono"
-                            />
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Name
+                              </Label>
+                              <Input
+                                value={header.name}
+                                onChange={(event) =>
+                                  setRemoteHeaders((headers) =>
+                                    headers.map((current, headerIndex) =>
+                                      headerIndex === index
+                                        ? {
+                                            ...current,
+                                            name: (event.target as HTMLInputElement).value,
+                                          }
+                                        : current,
+                                    ),
+                                  )
+                                }
+                                placeholder="X-Organization-Id"
+                                className="h-8 text-xs font-mono"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Value
+                              </Label>
+                              <Input
+                                value={header.value}
+                                onChange={(event) =>
+                                  setRemoteHeaders((headers) =>
+                                    headers.map((current, headerIndex) =>
+                                      headerIndex === index
+                                        ? {
+                                            ...current,
+                                            value: (event.target as HTMLInputElement).value,
+                                          }
+                                        : current,
+                                    ),
+                                  )
+                                }
+                                placeholder="workspace-id"
+                                className="h-8 text-xs font-mono"
+                              />
+                            </div>
                           </div>
-                        </div>
-                      </CardStackEntry>
+                        </CardStackEntry>
                       ))}
                       <AddPlainHeaderRow
                         onClick={() =>
-                          setRemoteHeaders((headers) => [
-                            ...headers,
-                            { name: "", value: "" },
-                          ])
+                          setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
                         }
                       />
                     </>
@@ -912,11 +860,7 @@ export default function AddMcpSource(props: {
           )}
 
           <FloatActions>
-            <Button
-              variant="ghost"
-              onClick={props.onCancel}
-              disabled={isAdding}
-            >
+            <Button variant="ghost" onClick={props.onCancel} disabled={isAdding}>
               Cancel
             </Button>
             {(probe || isProbing) && (
@@ -943,9 +887,7 @@ export default function AddMcpSource(props: {
               >
                 <Input
                   value={stdioCommand}
-                  onChange={(e) =>
-                    setStdioCommand((e.target as HTMLInputElement).value)
-                  }
+                  onChange={(e) => setStdioCommand((e.target as HTMLInputElement).value)}
                   placeholder="npx"
                   className="font-mono text-sm"
                 />
@@ -957,9 +899,7 @@ export default function AddMcpSource(props: {
               >
                 <Input
                   value={stdioArgs}
-                  onChange={(e) =>
-                    setStdioArgs((e.target as HTMLInputElement).value)
-                  }
+                  onChange={(e) => setStdioArgs((e.target as HTMLInputElement).value)}
                   placeholder="-y chrome-devtools-mcp@latest"
                   className="font-mono text-sm"
                 />
@@ -968,9 +908,7 @@ export default function AddMcpSource(props: {
               <CardStackEntryField label="Name" description="(optional)">
                 <Input
                   value={stdioName}
-                  onChange={(e) =>
-                    setStdioName((e.target as HTMLInputElement).value)
-                  }
+                  onChange={(e) => setStdioName((e.target as HTMLInputElement).value)}
                   placeholder="My MCP Server"
                   className="text-sm"
                 />
@@ -982,9 +920,7 @@ export default function AddMcpSource(props: {
               >
                 <Textarea
                   value={stdioEnv}
-                  onChange={(e) =>
-                    setStdioEnv((e.target as HTMLTextAreaElement).value)
-                  }
+                  onChange={(e) => setStdioEnv((e.target as HTMLTextAreaElement).value)}
                   placeholder={"KEY=value\nANOTHER=value"}
                   rows={3}
                   maxRows={10}
@@ -1002,17 +938,10 @@ export default function AddMcpSource(props: {
           )}
 
           <FloatActions>
-            <Button
-              variant="ghost"
-              onClick={props.onCancel}
-              disabled={stdioAdding}
-            >
+            <Button variant="ghost" onClick={props.onCancel} disabled={stdioAdding}>
               Cancel
             </Button>
-            <Button
-              onClick={handleAddStdio}
-              disabled={!stdioCommand.trim() || stdioAdding}
-            >
+            <Button onClick={handleAddStdio} disabled={!stdioCommand.trim() || stdioAdding}>
               {stdioAdding ? (
                 <>
                   <Spinner className="size-3.5" /> Adding…
@@ -1036,6 +965,7 @@ function AddPlainHeaderRow({
   readonly leading?: ReactNode;
 }) {
   return (
+    // oxlint-disable-next-line react/forbid-elements
     <button
       type="button"
       onClick={(event) => {
@@ -1046,18 +976,8 @@ function AddPlainHeaderRow({
       className="flex w-full items-center justify-between gap-4 px-4 py-3 text-sm text-muted-foreground outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent/40 focus-visible:bg-accent/40"
     >
       <span className="min-w-0 flex-1 text-left">{leading}</span>
-      <svg
-        aria-hidden
-        viewBox="0 0 16 16"
-        fill="none"
-        className="size-4 shrink-0"
-      >
-        <path
-          d="M8 3.5v9M3.5 8h9"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-        />
+      <svg aria-hidden viewBox="0 0 16 16" fill="none" className="size-4 shrink-0">
+        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     </button>
   );

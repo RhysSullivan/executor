@@ -2,7 +2,11 @@ import * as React from "react";
 
 import { cn } from "../lib/utils";
 
-function Textarea({ className, maxRows, ...props }: React.ComponentProps<"textarea"> & { maxRows?: number }) {
+function Textarea({
+  className,
+  maxRows,
+  ...props
+}: React.ComponentProps<"textarea"> & { maxRows?: number }) {
   return (
     // oxlint-disable-next-line react/forbid-elements
     <textarea

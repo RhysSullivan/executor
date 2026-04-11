@@ -3,9 +3,7 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
 import { useScope } from "@executor/react/api/scope-context";
-import {
-  defaultHeaderAuthPresets,
-} from "@executor/react/plugins/secret-header-auth";
+import { defaultHeaderAuthPresets } from "@executor/react/plugins/secret-header-auth";
 import {
   AuthenticationSection,
   type AuthMethod,
@@ -29,10 +27,7 @@ import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Textarea } from "@executor/react/components/textarea";
 import { Badge } from "@executor/react/components/badge";
-import {
-  RadioGroup,
-  RadioGroupItem,
-} from "@executor/react/components/radio-group";
+import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { previewOpenApiSpec, addOpenApiSpec } from "./atoms";
@@ -43,10 +38,7 @@ import type { HeaderValue } from "../sdk/types";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function prefixForHeader(
-  preset: HeaderPreset,
-  headerName: string,
-): string | undefined {
+function prefixForHeader(preset: HeaderPreset, headerName: string): string | undefined {
   const label = preset.label.toLowerCase();
   if (headerName.toLowerCase() === "authorization") {
     if (label.includes("bearer")) return "Bearer ";
@@ -57,12 +49,8 @@ function prefixForHeader(
 
 function matchPresetKey(name: string, prefix?: string): string {
   const preset =
-    defaultHeaderAuthPresets.find(
-      (entry) => entry.name === name && entry.prefix === prefix,
-    ) ??
-    defaultHeaderAuthPresets.find(
-      (entry) => entry.name === name && entry.prefix === undefined,
-    );
+    defaultHeaderAuthPresets.find((entry) => entry.name === name && entry.prefix === prefix) ??
+    defaultHeaderAuthPresets.find((entry) => entry.name === name && entry.prefix === undefined);
 
   return preset?.key ?? "custom";
 }
@@ -187,9 +175,7 @@ export default function AddOpenApiSource(props: {
   }
   const hasHeaders = Object.keys(allHeaders).length > 0;
 
-  const customHeadersValid = customHeaders.every(
-    (ch) => ch.name.trim() && ch.secretId,
-  );
+  const customHeadersValid = customHeaders.every((ch) => ch.name.trim() && ch.secretId);
 
   const canAdd =
     preview !== null &&
@@ -273,9 +259,7 @@ export default function AddOpenApiSource(props: {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <h1 className="text-xl font-semibold text-foreground">
-        Add OpenAPI Source
-      </h1>
+      <h1 className="text-xl font-semibold text-foreground">Add OpenAPI Source</h1>
 
       {/* ── Title card (shown above text area after analysis) ── */}
       {preview ? (
@@ -369,11 +353,7 @@ export default function AddOpenApiSource(props: {
               <CardStackEntryField label="Base URL">
                 {servers.length > 1 ? (
                   <div className="space-y-2">
-                    <RadioGroup
-                      value={baseUrl}
-                      onValueChange={setBaseUrl}
-                      className="gap-1.5"
-                    >
+                    <RadioGroup value={baseUrl} onValueChange={setBaseUrl} className="gap-1.5">
                       {servers.map((s, i) => {
                         const url = s.url ?? "";
                         return (
@@ -395,9 +375,7 @@ export default function AddOpenApiSource(props: {
                     </RadioGroup>
                     <Input
                       value={baseUrl}
-                      onChange={(e) =>
-                        setBaseUrl((e.target as HTMLInputElement).value)
-                      }
+                      onChange={(e) => setBaseUrl((e.target as HTMLInputElement).value)}
                       placeholder="Or enter a custom URL…"
                       className="font-mono text-sm"
                     />
@@ -405,9 +383,7 @@ export default function AddOpenApiSource(props: {
                 ) : (
                   <Input
                     value={baseUrl}
-                    onChange={(e) =>
-                      setBaseUrl((e.target as HTMLInputElement).value)
-                    }
+                    onChange={(e) => setBaseUrl((e.target as HTMLInputElement).value)}
                     placeholder="https://api.example.com"
                     className="font-mono text-sm"
                   />
@@ -433,10 +409,7 @@ export default function AddOpenApiSource(props: {
 
           {/* Operations */}
           {preview.operations.length > 0 && (
-            <CardStack
-              searchable
-              className="opacity-50 hover:opacity-100 transition-opacity"
-            >
+            <CardStack searchable className="opacity-50 hover:opacity-100 transition-opacity">
               <CardStackHeader>
                 {preview.operations.length} operation
                 {preview.operations.length !== 1 ? "s" : ""}
@@ -460,9 +433,7 @@ export default function AddOpenApiSource(props: {
                         <span className="truncate font-mono">{op.path}</span>
                       </CardStackEntryTitle>
                       {Option.isSome(op.summary) && (
-                        <CardStackEntryDescription>
-                          {op.summary.value}
-                        </CardStackEntryDescription>
+                        <CardStackEntryDescription>{op.summary.value}</CardStackEntryDescription>
                       )}
                     </CardStackEntryContent>
                     {op.deprecated && (

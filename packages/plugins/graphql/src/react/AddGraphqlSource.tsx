@@ -43,11 +43,8 @@ export default function AddGraphqlSource(props: {
   const doAdd = useAtomSet(addGraphqlSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
-  const headersValid = headers.every(
-    (header) => header.name.trim() && header.secretId,
-  );
-  const canAdd =
-    endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
+  const headersValid = headers.every((header) => header.name.trim() && header.secretId);
+  const canAdd = endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
 
   const handleAdd = async () => {
     setAdding(true);
@@ -81,9 +78,7 @@ export default function AddGraphqlSource(props: {
 
   return (
     <div className="flex flex-1 flex-col gap-6">
-      <h1 className="text-xl font-semibold text-foreground">
-        Add GraphQL Source
-      </h1>
+      <h1 className="text-xl font-semibold text-foreground">Add GraphQL Source</h1>
 
       <CardStack>
         <CardStackContent className="border-t-0">
@@ -93,9 +88,7 @@ export default function AddGraphqlSource(props: {
           >
             <Input
               value={endpoint}
-              onChange={(e) =>
-                setEndpoint((e.target as HTMLInputElement).value)
-              }
+              onChange={(e) => setEndpoint((e.target as HTMLInputElement).value)}
               placeholder="https://api.example.com/graphql"
               className="font-mono text-sm"
             />
@@ -108,9 +101,7 @@ export default function AddGraphqlSource(props: {
           >
             <Input
               value={namespace}
-              onChange={(e) =>
-                setNamespace((e.target as HTMLInputElement).value)
-              }
+              onChange={(e) => setNamespace((e.target as HTMLInputElement).value)}
               placeholder="my_api"
               className="font-mono text-sm"
             />

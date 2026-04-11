@@ -54,9 +54,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
         payload: { url: trimmed },
       });
       if (results.length === 0) {
-        setError(
-          "Could not detect a source type from this URL. Try adding manually.",
-        );
+        setError("Could not detect a source type from this URL. Try adding manually.");
         setDetecting(false);
         return;
       }
@@ -68,9 +66,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
           search: { url: trimmed, namespace: results[0].namespace },
         });
       } else {
-        setError(
-          `Detected source type "${results[0].kind}" but no plugin is available for it.`,
-        );
+        setError(`Detected source type "${results[0].kind}" but no plugin is available for it.`);
       }
     } catch {
       setError("Detection failed. Try adding a source manually.");
@@ -119,10 +115,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                       disabled={detecting}
                       className="flex-1"
                     />
-                    <Button
-                      onClick={handleDetect}
-                      disabled={detecting || !url.trim()}
-                    >
+                    <Button onClick={handleDetect} disabled={detecting || !url.trim()}>
                       {detecting ? "Detecting..." : "Detect"}
                     </Button>
                   </div>
@@ -150,12 +143,8 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
         </div>
 
         {Result.match(sources, {
-          onInitial: () => (
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          ),
-          onFailure: () => (
-            <p className="text-sm text-destructive">Failed to load sources</p>
-          ),
+          onInitial: () => <p className="text-sm text-muted-foreground">Loading…</p>,
+          onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
           onSuccess: ({ value }) => {
             const connectedSources = value.filter((source) => !source.runtime);
 
@@ -171,9 +160,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                     />
                   </svg>
                 </div>
-                <p className="text-[14px] font-medium text-foreground/70 mb-1">
-                  No sources yet
-                </p>
+                <p className="text-[14px] font-medium text-foreground/70 mb-1">No sources yet</p>
                 <p className="text-[13px] text-muted-foreground/60 mb-5">
                   Add a source to get started.
                 </p>
@@ -239,11 +226,7 @@ function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
                 asChild
                 searchText={`${preset.name} ${preset.summary ?? ""} ${pluginLabel}`}
               >
-                <Link
-                  to="/sources/add/$pluginKey"
-                  params={{ pluginKey }}
-                  search={search}
-                >
+                <Link to="/sources/add/$pluginKey" params={{ pluginKey }} search={search}>
                   <CardStackEntryMedia>
                     {preset.icon ? (
                       <img
@@ -254,21 +237,13 @@ function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
                       />
                     ) : (
                       <svg viewBox="0 0 16 16" className="size-3.5" fill="none">
-                        <circle
-                          cx="8"
-                          cy="8"
-                          r="6"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                        />
+                        <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
                       </svg>
                     )}
                   </CardStackEntryMedia>
                   <CardStackEntryContent>
                     <CardStackEntryTitle>{preset.name}</CardStackEntryTitle>
-                    <CardStackEntryDescription>
-                      {preset.summary}
-                    </CardStackEntryDescription>
+                    <CardStackEntryDescription>{preset.summary}</CardStackEntryDescription>
                   </CardStackEntryContent>
                   <CardStackEntryActions>
                     <Badge variant="secondary">{pluginLabel}</Badge>
@@ -300,24 +275,11 @@ function SourceGrid(props: {
       <CardStackHeader>Connected</CardStackHeader>
       <CardStackContent>
         {props.sources.map((s) => (
-          <CardStackEntry
-            key={s.id}
-            asChild
-            searchText={`${s.name} ${s.id} ${s.kind}`}
-          >
-            <Link
-              to="/sources/$namespace"
-              params={{ namespace: s.id }}
-            >
+          <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>
+            <Link to="/sources/$namespace" params={{ namespace: s.id }}>
               <CardStackEntryMedia>
                 <svg viewBox="0 0 16 16" className="size-3.5" fill="none">
-                  <circle
-                    cx="8"
-                    cy="8"
-                    r="6"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                  />
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
                   <path
                     d="M8 5v6M5 8h6"
                     stroke="currentColor"
@@ -331,11 +293,7 @@ function SourceGrid(props: {
                 <CardStackEntryDescription>{s.id}</CardStackEntryDescription>
               </CardStackEntryContent>
               <CardStackEntryActions>
-                {s.runtime && (
-                  <Badge className="bg-muted text-muted-foreground">
-                    built-in
-                  </Badge>
-                )}
+                {s.runtime && <Badge className="bg-muted text-muted-foreground">built-in</Badge>}
                 <Badge variant="secondary">{s.kind}</Badge>
               </CardStackEntryActions>
             </Link>

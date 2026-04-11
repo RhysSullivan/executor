@@ -835,10 +835,7 @@ export default function AddGoogleDiscoverySource(props: {
       />
 
       {probe && probe.operations.length > 0 && (
-        <CardStack
-          searchable
-          className="opacity-50 hover:opacity-100 transition-opacity"
-        >
+        <CardStack searchable className="opacity-50 hover:opacity-100 transition-opacity">
           <CardStackHeader>
             {probe.operations.length} operation
             {probe.operations.length !== 1 ? "s" : ""}
@@ -865,9 +862,7 @@ export default function AddGoogleDiscoverySource(props: {
                     {op.toolPath}
                   </CardStackEntryDescription>
                   {op.description && (
-                    <CardStackEntryDescription>
-                      {op.description}
-                    </CardStackEntryDescription>
+                    <CardStackEntryDescription>{op.description}</CardStackEntryDescription>
                   )}
                 </CardStackEntryContent>
               </CardStackEntry>

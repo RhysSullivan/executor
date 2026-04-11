@@ -336,9 +336,7 @@ export default function OnePasswordSettings() {
             <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-[12px]">
               <span className="text-muted-foreground/60">Auth</span>
               <span className="font-mono text-foreground/80 truncate">
-                {config.auth.kind === "desktop-app"
-                  ? config.auth.accountName
-                  : "service-account"}
+                {config.auth.kind === "desktop-app" ? config.auth.accountName : "service-account"}
               </span>
               <span className="text-muted-foreground/60">Vault</span>
               <div className="flex items-center gap-2 min-w-0">

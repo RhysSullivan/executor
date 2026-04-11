@@ -84,16 +84,11 @@ export function AuthenticationSection(props: AuthenticationSectionProps) {
   // When both "none" and "header" are offered, collapse them into a single
   // UI surface: the empty CardStack is the "none" state, and adding a header
   // transitions `value` to "header" automatically.
-  const unifiesHeaders =
-    methods.includes("none") && methods.includes("header");
-  const displayMethods = unifiesHeaders
-    ? methods.filter((m) => m !== "none")
-    : methods;
-  const displayValue: AuthMethod =
-    unifiesHeaders && value === "none" ? "header" : value;
+  const unifiesHeaders = methods.includes("none") && methods.includes("header");
+  const displayMethods = unifiesHeaders ? methods.filter((m) => m !== "none") : methods;
+  const displayValue: AuthMethod = unifiesHeaders && value === "none" ? "header" : value;
 
-  const showHeaders =
-    value === "header" || (unifiesHeaders && value === "none");
+  const showHeaders = value === "header" || (unifiesHeaders && value === "none");
   const canAddMore = !singleHeader || headers.length === 0;
 
   const addHeaderFromPreset = (preset: HeaderAuthPreset) => {
@@ -121,11 +116,7 @@ export function AuthenticationSection(props: AuthenticationSectionProps) {
       presetKey?: string;
     }>,
   ) => {
-    onHeadersChange?.(
-      headers.map((entry, i) =>
-        i === index ? { ...entry, ...update } : entry,
-      ),
-    );
+    onHeadersChange?.(headers.map((entry, i) => (i === index ? { ...entry, ...update } : entry)));
   };
 
   const removeHeader = (index: number) => {
@@ -158,16 +149,10 @@ export function AuthenticationSection(props: AuthenticationSectionProps) {
         <CardStack>
           <CardStackContent className="[&>*+*]:before:inset-x-0">
             {picking ? (
-              <HeaderPresetPicker
-                onPick={addHeaderFromPreset}
-                onCancel={() => setPicking(false)}
-              />
+              <HeaderPresetPicker onPick={addHeaderFromPreset} onCancel={() => setPicking(false)} />
             ) : headers.length === 0 ? (
               canAddMore ? (
-                <AddHeaderRow
-                  leading={<span>No headers</span>}
-                  onClick={() => setPicking(true)}
-                />
+                <AddHeaderRow leading={<span>No headers</span>} onClick={() => setPicking(true)} />
               ) : (
                 <CardStackEmpty>
                   <span>No headers</span>
@@ -183,18 +168,12 @@ export function AuthenticationSection(props: AuthenticationSectionProps) {
                     presetKey={header.presetKey}
                     secretId={header.secretId}
                     onChange={(update) => updateHeader(index, update)}
-                    onSelectSecret={(secretId) =>
-                      updateHeader(index, { secretId })
-                    }
-                    onRemove={
-                      singleHeader ? undefined : () => removeHeader(index)
-                    }
+                    onSelectSecret={(secretId) => updateHeader(index, { secretId })}
+                    onRemove={singleHeader ? undefined : () => removeHeader(index)}
                     existingSecrets={existingSecrets}
                   />
                 ))}
-                {canAddMore && (
-                  <AddHeaderRow onClick={() => setPicking(true)} />
-                )}
+                {canAddMore && <AddHeaderRow onClick={() => setPicking(true)} />}
               </>
             )}
           </CardStackContent>
@@ -217,6 +196,7 @@ interface AddHeaderRowProps {
 
 function AddHeaderRow({ onClick, leading }: AddHeaderRowProps) {
   return (
+    // oxlint-disable-next-line react/forbid-elements
     <button
       type="button"
       onClick={(event) => {

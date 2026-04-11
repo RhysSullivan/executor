@@ -333,9 +333,7 @@ export function SecretHeaderAuthRow(props: {
   return (
     <div className="space-y-2.5 px-4 py-3">
       <div className="flex w-full items-center justify-between gap-4">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-          {label}
-        </span>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
         {onRemove && (
           <Button
             variant="ghost"
@@ -367,8 +365,7 @@ export function SecretHeaderAuthRow(props: {
         </Field>
         <Field>
           <FieldLabel htmlFor={prefixInputId}>
-            Prefix{" "}
-            <span className="font-normal text-muted-foreground/60">(optional)</span>
+            Prefix <span className="font-normal text-muted-foreground/60">(optional)</span>
           </FieldLabel>
           <Input
             id={prefixInputId}
@@ -389,11 +386,7 @@ export function SecretHeaderAuthRow(props: {
       {name.trim() && (
         <div className="flex items-center gap-1.5">
           <div className="flex-1 min-w-0">
-            <SecretPicker
-              value={secretId}
-              onSelect={onSelectSecret}
-              secrets={existingSecrets}
-            />
+            <SecretPicker value={secretId} onSelect={onSelectSecret} secrets={existingSecrets} />
           </div>
           <Button
             variant="outline"
@@ -407,11 +400,7 @@ export function SecretHeaderAuthRow(props: {
       )}
 
       {secretId && name.trim() && (
-        <HeaderValuePreview
-          headerName={name.trim()}
-          secretId={secretId}
-          prefix={prefix}
-        />
+        <HeaderValuePreview headerName={name.trim()} secretId={secretId} prefix={prefix} />
       )}
     </div>
   );
