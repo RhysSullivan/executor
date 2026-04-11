@@ -12,6 +12,8 @@ import { ExecutionId } from "@executor/sdk";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
+type ExecutionStoreType = Executor["executions"];
+
 import {
   makeExecutorToolInvoker,
   searchTools,
@@ -51,6 +53,30 @@ type InternalPausedExecution = PausedExecution & {
 export type ResumeResponse = {
   readonly action: "accept" | "decline" | "cancel";
   readonly content?: Record<string, unknown>;
+};
+
+/**
+ * Describes where a run came from. Recorded on the execution row so
+ * /runs can facet by entry point (HTTP vs MCP-inline vs CLI, etc.).
+ * Callers that don't supply a trigger get `triggerKind: null` and show
+ * up as `"unknown"` in the trigger facet.
+ */
+export type ExecutionTrigger = {
+  readonly kind: string;
+  readonly meta?: Record<string, unknown>;
+};
+
+/**
+ * Context threaded through `makeFullInvoker` so every sandbox
+ * `tools.x.y` invocation can be persisted as an `ExecutionToolCall`
+ * row. The `counter` ref is incremented per invoke so the engine can
+ * write the final count into `executions.tool_call_count` at terminal
+ * state.
+ */
+type ToolCallRecordingContext = {
+  readonly executionId: ExecutionId;
+  readonly executionStore: ExecutionStoreType;
+  readonly counter: Ref.Ref<number>;
 };
 
 // ---------------------------------------------------------------------------
@@ -187,7 +213,103 @@ const readOptionalLimit = (value: unknown, toolName: string): number | Execution
   return Math.floor(value);
 };
 
-const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): SandboxToolInvoker => {
+/**
+ * Wrap a single sandbox `base.invoke` call with tool-call recording.
+ * Writes a `running` row at start, finalizes with `completed` or
+ * `failed` on end. Runs regardless of whether the inner Effect
+ * succeeds or dies.
+ *
+ * Engine-internal tool branches (`search`, `describe.tool`,
+ * `executor.sources.list`) are NOT recorded — they're plumbing, not
+ * meaningful work.
+ */
+const withToolCallRecording = (
+  base: SandboxToolInvoker,
+  recording: ToolCallRecordingContext,
+  path: string,
+  args: unknown,
+): Effect.Effect<unknown, unknown> =>
+  Effect.gen(function* () {
+    const { executionId, executionStore, counter } = recording;
+    const startedAt = Date.now();
+    const namespace = path.includes(".") ? path.split(".")[0]! : path;
+    const argsJson = (() => {
+      try {
+        return args === undefined ? null : JSON.stringify(args);
+      } catch {
+        return null;
+      }
+    })();
+
+    yield* Ref.update(counter, (n) => n + 1);
+
+    const toolCall = yield* executionStore.recordToolCall({
+      executionId,
+      status: "running",
+      toolPath: path,
+      namespace,
+      argsJson,
+      resultJson: null,
+      errorText: null,
+      startedAt,
+      completedAt: null,
+      durationMs: null,
+    });
+
+    return yield* base.invoke({ path, args }).pipe(
+      Effect.tap((value) =>
+        Effect.gen(function* () {
+          const completedAt = Date.now();
+          const durationMs = Math.max(0, completedAt - startedAt);
+          const resultJson = (() => {
+            try {
+              return value === undefined ? null : JSON.stringify(value);
+            } catch {
+              return null;
+            }
+          })();
+          yield* executionStore.finishToolCall(toolCall.id, {
+            status: "completed",
+            resultJson,
+            errorText: null,
+            completedAt,
+            durationMs,
+          });
+        }),
+      ),
+      Effect.tapError((cause) =>
+        Effect.gen(function* () {
+          const completedAt = Date.now();
+          const durationMs = Math.max(0, completedAt - startedAt);
+          const errorText =
+            cause instanceof Error
+              ? cause.message
+              : typeof cause === "string"
+                ? cause
+                : (() => {
+                    try {
+                      return JSON.stringify(cause);
+                    } catch {
+                      return String(cause);
+                    }
+                  })();
+          yield* executionStore.finishToolCall(toolCall.id, {
+            status: "failed",
+            resultJson: null,
+            errorText,
+            completedAt,
+            durationMs,
+          });
+        }),
+      ),
+    );
+  });
+
+const makeFullInvoker = (
+  executor: Executor,
+  invokeOptions: InvokeOptions,
+  recording?: ToolCallRecordingContext,
+): SandboxToolInvoker => {
   const base = makeExecutorToolInvoker(executor, { invokeOptions });
   return {
     invoke: ({ path, args }) => {
@@ -280,6 +402,9 @@ const makeFullInvoker = (executor: Executor, invokeOptions: InvokeOptions): Sand
 
         return describeTool(executor, args.path);
       }
+      if (recording) {
+        return withToolCallRecording(base, recording, path, args);
+      }
       return base.invoke({ path, args });
     },
   };
@@ -293,10 +418,16 @@ export type ExecutionEngine = {
   /**
    * Execute code with elicitation handled inline by the provided handler.
    * Use this when the host supports elicitation (e.g. MCP with elicitation capability).
+   *
+   * `options.trigger` identifies the entry point (HTTP / MCP / CLI / …)
+   * and gets written to the execution record for facet filtering.
    */
   readonly execute: (
     code: string,
-    options: { readonly onElicitation: ElicitationHandler },
+    options: {
+      readonly onElicitation: ElicitationHandler;
+      readonly trigger?: ExecutionTrigger;
+    },
   ) => Promise<ExecuteResult>;
 
   /**
@@ -304,7 +435,10 @@ export type ExecutionEngine = {
    * Use this when the host doesn't support inline elicitation.
    * Returns either a completed result or a paused execution that can be resumed.
    */
-  readonly executeWithPause: (code: string) => Promise<ExecutionResult>;
+  readonly executeWithPause: (
+    code: string,
+    options?: { readonly trigger?: ExecutionTrigger },
+  ) => Promise<ExecutionResult>;
 
   /**
    * Resume a paused execution. Returns a completed result, a new pause, or
@@ -329,26 +463,42 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
   const codeExecutor = config.codeExecutor ?? makeQuickJsExecutor();
   const executionStore = config.executionStore ?? executor.executions;
   const pausedExecutions = new Map<string, InternalPausedExecution>();
+  // Per-execution tool-call counter shared with the invoker wrapper and
+  // read when persisting terminal state. Kept outside the InternalPaused
+  // record so `resume()` can still update the same counter across the
+  // pause/resume boundary.
+  const pausedCounters = new Map<string, Ref.Ref<number>>();
 
   const persistTerminalState = (
     executionId: ExecutionId,
     result: ExecuteResult,
+    counter: Ref.Ref<number>,
   ): Effect.Effect<ExecuteResult> =>
     Effect.gen(function* () {
       const now = Date.now();
+      const toolCallCount = yield* Ref.get(counter);
       yield* executionStore.update(executionId, {
         status: result.error ? "failed" : "completed",
         resultJson: serializeJson(result.result),
         errorText: result.error ?? null,
         logsJson: serializeLogs(result.logs),
         completedAt: now,
+        toolCallCount,
         updatedAt: now,
       });
       return result;
     });
 
-  const createExecutionRecord = (code: string) =>
-    executionStore.create({
+  const createExecutionRecord = (code: string, trigger: ExecutionTrigger | undefined) => {
+    const triggerMetaJson = (() => {
+      if (!trigger?.meta) return null;
+      try {
+        return JSON.stringify(trigger.meta);
+      } catch {
+        return null;
+      }
+    })();
+    return executionStore.create({
       scopeId: executor.scope.id,
       status: "running",
       code,
@@ -357,9 +507,13 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       logsJson: null,
       startedAt: Date.now(),
       completedAt: null,
+      triggerKind: trigger?.kind ?? null,
+      triggerMetaJson,
+      toolCallCount: 0,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+  };
 
   /**
    * Race a running fiber against a pause signal. Returns when either
@@ -370,11 +524,12 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     executionId: ExecutionId,
     fiber: Fiber.Fiber<ExecuteResult, unknown>,
     pauseSignal: Deferred.Deferred<InternalPausedExecution>,
+    counter: Ref.Ref<number>,
   ): Effect.Effect<ExecutionResult> =>
     Effect.race(
       Fiber.join(fiber).pipe(
         Effect.orDie,
-        Effect.flatMap((result) => persistTerminalState(executionId, result)),
+        Effect.flatMap((result) => persistTerminalState(executionId, result, counter)),
         Effect.map((result): ExecutionResult => ({ status: "completed", result })),
       ),
       Deferred.await(pauseSignal).pipe(
@@ -388,9 +543,15 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
    * The sandbox is forked as a daemon because paused executions can outlive the
    * caller scope that returned the first pause, such as an HTTP request handler.
    */
-  const startPausableExecution = (code: string): Effect.Effect<ExecutionResult> =>
+  const startPausableExecution = (
+    code: string,
+    trigger: ExecutionTrigger | undefined,
+  ): Effect.Effect<ExecutionResult> =>
     Effect.gen(function* () {
-      const execution = yield* createExecutionRecord(code);
+      const execution = yield* createExecutionRecord(code, trigger);
+
+      // Counter shared by the invoker wrapper and persistTerminalState.
+      const counter = yield* Ref.make(0);
 
       // Ref holds the current pause signal. The elicitation handler reads
       // it each time it fires, so resume() can swap in a fresh Deferred
@@ -438,19 +599,30 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
           return yield* Deferred.await(responseDeferred);
         });
 
-      const invoker = makeFullInvoker(executor, { onElicitation: elicitationHandler });
+      const invoker = makeFullInvoker(
+        executor,
+        { onElicitation: elicitationHandler },
+        { executionId: execution.id, executionStore, counter },
+      );
       fiber = yield* Effect.forkDaemon(codeExecutor.execute(code, invoker));
 
+      // Stash the counter on the paused record so resume() can also
+      // reuse it (so the second half of the run also records tool calls
+      // against the same total).
+      pausedCounters.set(execution.id, counter);
+
       const initialSignal = yield* Ref.get(pauseSignalRef);
-      return yield* awaitCompletionOrPause(execution.id, fiber, initialSignal);
+      return yield* awaitCompletionOrPause(execution.id, fiber, initialSignal, counter);
     });
 
   const executeWithManagedRecording = (
     code: string,
     onElicitation: ElicitationHandler,
+    trigger: ExecutionTrigger | undefined,
   ): Effect.Effect<ExecuteResult> =>
     Effect.gen(function* () {
-      const execution = yield* createExecutionRecord(code);
+      const execution = yield* createExecutionRecord(code, trigger);
+      const counter = yield* Ref.make(0);
 
       const recordingHandler: ElicitationHandler = (ctx) =>
         Effect.gen(function* () {
@@ -488,9 +660,13 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
           return response;
         });
 
-      const invoker = makeFullInvoker(executor, { onElicitation: recordingHandler });
+      const invoker = makeFullInvoker(
+        executor,
+        { onElicitation: recordingHandler },
+        { executionId: execution.id, executionStore, counter },
+      );
       const result = yield* codeExecutor.execute(code, invoker).pipe(Effect.orDie);
-      return yield* persistTerminalState(execution.id, result);
+      return yield* persistTerminalState(execution.id, result, counter);
     });
 
   /**
@@ -506,6 +682,10 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       const paused = pausedExecutions.get(executionId);
       if (!paused) return null;
       pausedExecutions.delete(executionId);
+      // Look up the counter for this paused run. Should exist because
+      // startPausableExecution always registers one. Fall back to a
+      // fresh counter just in case (keeps the engine from crashing).
+      const counter = pausedCounters.get(executionId) ?? (yield* Ref.make(0));
 
       const now = Date.now();
       yield* executionStore.resolveInteraction(paused.interactionId, {
@@ -518,11 +698,14 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       });
 
       if (response.action !== "accept") {
+        const toolCallCount = yield* Ref.get(counter);
         yield* executionStore.update(executionId, {
           status: "cancelled",
           completedAt: now,
+          toolCallCount,
           updatedAt: now,
         });
+        pausedCounters.delete(executionId);
         yield* Fiber.interrupt(paused.fiber);
         return {
           status: "completed",
@@ -548,13 +731,19 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
         content: response.content,
       });
 
-      return yield* awaitCompletionOrPause(executionId, paused.fiber, nextSignal);
+      const outcome = yield* awaitCompletionOrPause(executionId, paused.fiber, nextSignal, counter);
+      if (outcome.status === "completed") {
+        pausedCounters.delete(executionId);
+      }
+      return outcome;
     });
 
   return {
-    execute: (code, options) => runEffect(executeWithManagedRecording(code, options.onElicitation)),
+    execute: (code, options) =>
+      runEffect(executeWithManagedRecording(code, options.onElicitation, options.trigger)),
 
-    executeWithPause: (code) => runEffect(startPausableExecution(code)),
+    executeWithPause: (code, options) =>
+      runEffect(startPausableExecution(code, options?.trigger)),
 
     resume: (executionId, response) =>
       runEffect(resumeExecution(ExecutionId.make(executionId), response)),

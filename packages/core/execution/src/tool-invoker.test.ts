@@ -534,4 +534,127 @@ describe("execution history persistence", () => {
       expect(cancelled?.pendingInteraction).toBeNull();
     }),
   );
+
+  it.effect("records trigger kind and tool call count on persisted executions", () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig({
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "api",
+            tools: [
+              tool({
+                name: "ping",
+                description: "ping",
+                inputSchema: EmptyInput,
+                handler: () => Effect.succeed({ ok: true }),
+              }),
+              tool({
+                name: "pong",
+                description: "pong",
+                inputSchema: EmptyInput,
+                handler: () => Effect.succeed({ ok: true }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
+      yield* config.sources.registerRuntime(
+        new Source({
+          id: "api",
+          name: "API",
+          kind: "in-memory",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
+      const executor = yield* createExecutor(config);
+      const engine = createExecutionEngine({ executor });
+
+      yield* Effect.promise(() =>
+        engine.execute(
+          [
+            "await tools.api.ping({});",
+            "await tools.api.pong({});",
+            "return 'done';",
+          ].join("\n"),
+          { onElicitation: acceptAll, trigger: { kind: "test" } },
+        ),
+      );
+
+      const listed = yield* executor.executions.list(executor.scope.id, { limit: 10 });
+      expect(listed.executions).toHaveLength(1);
+      const execution = listed.executions[0]!;
+      expect(execution.triggerKind).toBe("test");
+      expect(execution.toolCallCount).toBe(2);
+
+      const calls = yield* executor.executions.listToolCalls(execution.id);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.toolPath).toBe("api.ping");
+      expect(calls[0]?.status).toBe("completed");
+      expect(calls[0]?.namespace).toBe("api");
+      expect(calls[1]?.toolPath).toBe("api.pong");
+    }),
+  );
+
+  it.effect("list meta exposes triggerCounts and toolFacets", () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig({
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "api",
+            tools: [
+              tool({
+                name: "ping",
+                description: "ping",
+                inputSchema: EmptyInput,
+                handler: () => Effect.succeed({ ok: true }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
+      yield* config.sources.registerRuntime(
+        new Source({
+          id: "api",
+          name: "API",
+          kind: "in-memory",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
+      const executor = yield* createExecutor(config);
+      const engine = createExecutionEngine({ executor });
+
+      yield* Effect.promise(() =>
+        engine.execute("await tools.api.ping({}); return 1;", {
+          onElicitation: acceptAll,
+          trigger: { kind: "http" },
+        }),
+      );
+      yield* Effect.promise(() =>
+        engine.execute("return 1;", {
+          onElicitation: acceptAll,
+          trigger: { kind: "http" },
+        }),
+      );
+      yield* Effect.promise(() =>
+        engine.execute("return 1;", {
+          onElicitation: acceptAll,
+          trigger: { kind: "mcp-inline" },
+        }),
+      );
+
+      const listed = yield* executor.executions.list(executor.scope.id, {
+        limit: 10,
+        includeMeta: true,
+      });
+      expect(listed.meta?.triggerCounts.http).toBe(2);
+      expect(listed.meta?.triggerCounts["mcp-inline"]).toBe(1);
+      expect(listed.meta?.toolFacets).toHaveLength(1);
+      expect(listed.meta?.toolFacets[0]?.toolPath).toBe("api.ping");
+      expect(listed.meta?.toolFacets[0]?.count).toBe(1);
+    }),
+  );
 });
