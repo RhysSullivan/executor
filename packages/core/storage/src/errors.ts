@@ -1,38 +1,36 @@
-import { Data } from "effect";
+import { Data, Schema } from "effect";
 
-import type { StorageCapabilities } from "./types";
+import { ToolId, SecretId, PolicyId } from "./ids";
 
-export class StorageModelError extends Data.TaggedError("StorageModelError")<{
-  readonly model: string;
-  readonly message: string;
-}> {}
+export class ToolNotFoundError extends Schema.TaggedError<ToolNotFoundError>()(
+  "ToolNotFoundError",
+  { toolId: ToolId },
+) {}
 
-export class StorageFieldError extends Data.TaggedError("StorageFieldError")<{
-  readonly model: string;
-  readonly field: string;
-  readonly message: string;
-}> {}
-
-export class StorageQueryError extends Data.TaggedError("StorageQueryError")<{
-  readonly model: string;
+export class ToolInvocationError extends Data.TaggedError("ToolInvocationError")<{
+  readonly toolId: ToolId;
   readonly message: string;
   readonly cause?: unknown;
 }> {}
 
-export class StorageCapabilityError extends Data.TaggedError("StorageCapabilityError")<{
-  readonly adapterId: string;
-  readonly capability: keyof StorageCapabilities;
-  readonly message: string;
-}> {}
+export class SecretNotFoundError extends Schema.TaggedError<SecretNotFoundError>()(
+  "SecretNotFoundError",
+  { secretId: SecretId },
+) {}
 
-export class StorageTransactionError extends Data.TaggedError("StorageTransactionError")<{
-  readonly adapterId: string;
-  readonly cause: unknown;
-}> {}
+export class SecretResolutionError extends Schema.TaggedError<SecretResolutionError>()(
+  "SecretResolutionError",
+  {
+    secretId: SecretId,
+    message: Schema.String,
+  },
+) {}
 
-export type StorageError =
-  | StorageModelError
-  | StorageFieldError
-  | StorageQueryError
-  | StorageCapabilityError
-  | StorageTransactionError;
+export class PolicyDeniedError extends Schema.TaggedError<PolicyDeniedError>()(
+  "PolicyDeniedError",
+  {
+    policyId: PolicyId,
+    toolId: ToolId,
+    reason: Schema.String,
+  },
+) {}
