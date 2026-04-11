@@ -60,7 +60,7 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     name: "Sentry",
     summary: "Error tracking, performance monitoring, and releases.",
     url: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/main/openapi-derefed.json",
-    icon: "https://sentry.io/favicon.ico",
+    icon: "https://www.google.com/s2/favicons?domain=sentry.io&sz=64",
     featured: true,
   },
   {

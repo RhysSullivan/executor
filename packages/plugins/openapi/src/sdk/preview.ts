@@ -3,7 +3,7 @@ import { Schema } from "effect";
 
 import { parse } from "./parse";
 import { extract } from "./extract";
-import type { ExtractionResult } from "./types";
+import { HttpMethod, type ExtractionResult } from "./types";
 
 // ---------------------------------------------------------------------------
 // Security scheme — what the spec declares it needs
@@ -46,6 +46,19 @@ export class HeaderPreset extends Schema.Class<HeaderPreset>("HeaderPreset")({
 }) {}
 
 // ---------------------------------------------------------------------------
+// Preview operation — lightweight shape for the add-source UI list
+// ---------------------------------------------------------------------------
+
+export class PreviewOperation extends Schema.Class<PreviewOperation>("PreviewOperation")({
+  operationId: Schema.String,
+  method: HttpMethod,
+  path: Schema.String,
+  summary: Schema.optionalWith(Schema.String, { as: "Option" }),
+  tags: Schema.Array(Schema.String),
+  deprecated: Schema.Boolean,
+}) {}
+
+// ---------------------------------------------------------------------------
 // Spec preview — everything the frontend needs
 // ---------------------------------------------------------------------------
 
@@ -55,6 +68,8 @@ export class SpecPreview extends Schema.Class<SpecPreview>("SpecPreview")({
   /** Reuses ServerInfo from extraction */
   servers: Schema.Array(Schema.Unknown),
   operationCount: Schema.Number,
+  /** Lightweight operation list for the add-source UI */
+  operations: Schema.Array(PreviewOperation),
   tags: Schema.Array(Schema.String),
   securitySchemes: Schema.Array(SecurityScheme),
   /** Valid auth strategies (each is a set of schemes used together) */
@@ -172,6 +187,17 @@ export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (specText:
     version: result.version,
     servers: result.servers as unknown as readonly unknown[],
     operationCount: result.operations.length,
+    operations: result.operations.map(
+      (op) =>
+        new PreviewOperation({
+          operationId: op.operationId,
+          method: op.method,
+          path: op.pathTemplate,
+          summary: op.summary,
+          tags: op.tags,
+          deprecated: op.deprecated,
+        }),
+    ),
     tags: collectTags(result),
     securitySchemes,
     authStrategies,

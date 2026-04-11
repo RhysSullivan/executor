@@ -10,7 +10,14 @@ export {
 } from "./operation-store";
 export { makeKvOperationStore, makeInMemoryOperationStore } from "./kv-operation-store";
 export { withConfigFile } from "./config-file-store";
-export { previewSpec, SecurityScheme, AuthStrategy, HeaderPreset, SpecPreview } from "./preview";
+export {
+  previewSpec,
+  SecurityScheme,
+  AuthStrategy,
+  HeaderPreset,
+  PreviewOperation,
+  SpecPreview,
+} from "./preview";
 export { DocResolver, resolveBaseUrl, preferredContent } from "./openapi-utils";
 
 export { OpenApiParseError, OpenApiExtractionError, OpenApiInvocationError } from "./errors";
