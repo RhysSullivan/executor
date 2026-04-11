@@ -5,25 +5,24 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./bun": "./src/bun.ts",
-    "./core": "./src/core.ts",
+    "./memory": "./src/memory/index.ts",
     "./schema": "./src/schema.ts"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "bunx --bun vitest run",
     "typecheck": "tsgo --noEmit",
-    "typecheck:slow": "tsc --noEmit"
+    "typecheck:slow": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@executor/storage": "workspace:*",
-    "better-sqlite3": "^12.8.0",
     "drizzle-orm": "catalog:",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/better-sqlite3": "^7.6.13",
     "bun-types": "catalog:",
+    "drizzle-kit": "^0.31.10",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

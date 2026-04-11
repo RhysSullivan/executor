@@ -22,10 +22,12 @@ export const tools = sqliteTable(
     pluginKey: text("plugin_key").notNull(),
     name: text("name").notNull(),
     description: text("description"),
-    mayElicit: integer("may_elicit", { mode: "boolean" }),
+    mayElicit: integer("may_elicit", { mode: "boolean" }).$default(() => false),
     inputSchema: text("input_schema", { mode: "json" }).$type<unknown>(),
     outputSchema: text("output_schema", { mode: "json" }).$type<unknown>(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$default(() => new Date()),
   },
   (table) => [
     primaryKey({ columns: [table.id, table.scopeId] }),
@@ -53,7 +55,9 @@ export const secrets = sqliteTable(
     provider: text("provider"),
     encryptedValue: blob("encrypted_value", { mode: "buffer" }),
     iv: blob("iv", { mode: "buffer" }),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$default(() => new Date()),
   },
   (table) => [primaryKey({ columns: [table.id, table.scopeId] })],
 );
@@ -68,7 +72,9 @@ export const policies = sqliteTable(
     matchToolPattern: text("match_tool_pattern"),
     matchSourceId: text("match_source_id"),
     priority: integer("priority").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .$default(() => new Date()),
   },
   (table) => [primaryKey({ columns: [table.id, table.scopeId] })],
 );
