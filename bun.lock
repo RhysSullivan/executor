@@ -33,6 +33,7 @@
         "@executor/local": "workspace:*",
         "@executor/plugin-launchd": "workspace:*",
         "@executor/runtime-quickjs": "workspace:*",
+        "@executor/supervisor": "workspace:*",
         "@jitl/quickjs-wasmfile-release-sync": "catalog:",
         "effect": "catalog:",
         "quickjs-emscripten": "catalog:",
@@ -143,6 +144,7 @@
         "@executor/react": "workspace:*",
         "@executor/sdk": "workspace:*",
         "@executor/storage-file": "workspace:*",
+        "@executor/supervisor": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.12.1",
         "@tanstack/react-router": "catalog:",
         "effect": "catalog:",
@@ -310,6 +312,8 @@
       "name": "@executor/supervisor",
       "version": "1.4.0",
       "dependencies": {
+        "@effect/cli": "catalog:",
+        "@executor/sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
