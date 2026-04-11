@@ -166,13 +166,15 @@ export const mergeSchemas = (...schemas: readonly ExecutorDBSchema[]): ExecutorD
 
   for (const schema of schemas) {
     for (const [modelName, model] of Object.entries(schema)) {
-      if (models[modelName]) {
-        throw new Error(`Duplicate storage model "${modelName}"`);
-      }
-      const existing = tableToModel.get(model.tableName);
+      const existing = models[modelName];
       if (existing) {
+        models[modelName] = mergeModel(existing, model);
+        continue;
+      }
+      const existingTable = tableToModel.get(model.tableName);
+      if (existingTable) {
         throw new Error(
-          `Duplicate storage table "${model.tableName}" for ${existing} and ${modelName}`,
+          `Duplicate storage table "${model.tableName}" for ${existingTable} and ${modelName}`,
         );
       }
       models[modelName] = model;
@@ -189,6 +191,63 @@ export const mergeSchemas = (...schemas: readonly ExecutorDBSchema[]): ExecutorD
   validateMergedSchema(merged);
   return merged;
 };
+
+const mergeModel = (base: ExecutorModelSchema, addition: ExecutorModelSchema): ExecutorModelSchema => {
+  if (base.tableName !== addition.tableName) {
+    throw new Error(
+      `Storage model "${base.modelName}" has conflicting tableName: "${base.tableName}" vs "${addition.tableName}"`,
+    );
+  }
+  if (!arraysEqual(base.primaryKey, addition.primaryKey)) {
+    throw new Error(
+      `Storage model "${base.modelName}" has conflicting primaryKey: [${base.primaryKey.join(", ")}] vs [${addition.primaryKey.join(", ")}]`,
+    );
+  }
+  if (addition.order !== undefined && base.order !== undefined && base.order !== addition.order) {
+    throw new Error(
+      `Storage model "${base.modelName}" has conflicting order: ${base.order} vs ${addition.order}`,
+    );
+  }
+  if (
+    addition.disableMigrations !== undefined &&
+    base.disableMigrations !== undefined &&
+    base.disableMigrations !== addition.disableMigrations
+  ) {
+    throw new Error(
+      `Storage model "${base.modelName}" has conflicting disableMigrations: ${base.disableMigrations} vs ${addition.disableMigrations}`,
+    );
+  }
+
+  const fields: Record<string, ExecutorFieldAttribute> = { ...base.fields };
+  for (const [fieldName, field] of Object.entries(addition.fields)) {
+    if (fields[fieldName]) {
+      throw new Error(
+        `Storage model "${base.modelName}" already has field "${fieldName}"; field additions must use unique names`,
+      );
+    }
+    if (field.required) {
+      throw new Error(
+        `Storage model "${base.modelName}" cannot add required field "${fieldName}"; added fields must be optional`,
+      );
+    }
+    fields[fieldName] = field;
+  }
+
+  const indexes = [...(base.indexes ?? []), ...(addition.indexes ?? [])];
+
+  return {
+    modelName: base.modelName,
+    tableName: base.tableName,
+    primaryKey: base.primaryKey,
+    fields,
+    indexes: indexes.length > 0 ? indexes : undefined,
+    disableMigrations: base.disableMigrations ?? addition.disableMigrations,
+    order: base.order ?? addition.order,
+  };
+};
+
+const arraysEqual = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((value, index) => value === b[index]);
 
 export const composeExecutorSchema = <
   TPlugin extends ExecutorSchemaContributor = ExecutorSchemaContributor,

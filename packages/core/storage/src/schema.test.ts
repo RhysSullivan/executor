@@ -10,7 +10,7 @@ import {
 } from "./index";
 
 describe("storage schema helpers", () => {
-  it("merges schemas, composes plugin schemas, and rejects duplicate models", () => {
+  it("merges schemas and composes plugin schemas", () => {
     const custom = {
       customRecords: {
         modelName: "customRecords",
@@ -24,7 +24,6 @@ describe("storage schema helpers", () => {
 
     const merged = mergeSchemas(executorCoreSchema, custom);
     expect(merged.customRecords?.tableName).toBe("custom_records");
-    expect(() => mergeSchemas(custom, custom)).toThrow('Duplicate storage model "customRecords"');
 
     const composed = composeExecutorSchema({
       plugins: [{ storage: { schema: custom } }],
@@ -69,6 +68,100 @@ describe("storage schema helpers", () => {
         },
       ),
     ).toThrow('Duplicate storage index "idx_duplicate" for first and second');
+  });
+
+  describe("field additions to existing models", () => {
+    const base = {
+      tools: {
+        modelName: "tools",
+        tableName: "tools",
+        primaryKey: ["id", "scopeId"],
+        fields: {
+          id: { type: "string", required: true },
+          scopeId: { type: "string", columnName: "scope_id", required: true },
+          name: { type: "string", required: true },
+        },
+      },
+    } as const satisfies Record<string, import("./schema").ExecutorModelSchema>;
+
+    it("unions fields when the same model is contributed twice", () => {
+      const addition = {
+        tools: {
+          modelName: "tools",
+          tableName: "tools",
+          primaryKey: ["id", "scopeId"],
+          fields: {
+            extraField: { type: "string" },
+          },
+          indexes: [{ name: "idx_tools_extra", fields: ["extraField"] }],
+        },
+      } as const;
+
+      const merged = mergeSchemas(base, addition);
+      expect(merged.tools?.fields.extraField?.type).toBe("string");
+      expect(merged.tools?.fields.name?.required).toBe(true);
+      expect(merged.tools?.indexes).toEqual([{ name: "idx_tools_extra", fields: ["extraField"] }]);
+    });
+
+    it("rejects duplicate field names across contributors", () => {
+      const addition = {
+        tools: {
+          modelName: "tools",
+          tableName: "tools",
+          primaryKey: ["id", "scopeId"],
+          fields: {
+            name: { type: "string" },
+          },
+        },
+      } as const;
+
+      expect(() => mergeSchemas(base, addition)).toThrow(/already has field "name"/);
+    });
+
+    it("rejects required field additions", () => {
+      const addition = {
+        tools: {
+          modelName: "tools",
+          tableName: "tools",
+          primaryKey: ["id", "scopeId"],
+          fields: {
+            criticalField: { type: "string", required: true },
+          },
+        },
+      } as const;
+
+      expect(() => mergeSchemas(base, addition)).toThrow(/added fields must be optional/);
+    });
+
+    it("rejects conflicting tableName across contributors", () => {
+      const addition = {
+        tools: {
+          modelName: "tools",
+          tableName: "tools_v2",
+          primaryKey: ["id", "scopeId"],
+          fields: {
+            extraField: { type: "string" },
+          },
+        },
+      } as const;
+
+      expect(() => mergeSchemas(base, addition)).toThrow(/conflicting tableName/);
+    });
+
+    it("rejects conflicting primaryKey across contributors", () => {
+      const addition = {
+        tools: {
+          modelName: "tools",
+          tableName: "tools",
+          primaryKey: ["id"],
+          fields: {
+            extraField: { type: "string" },
+          },
+        },
+      } as const;
+
+      expect(() => mergeSchemas(base, addition)).toThrow(/conflicting primaryKey/);
+    });
   });
 
   it("rejects invalid references", () => {
