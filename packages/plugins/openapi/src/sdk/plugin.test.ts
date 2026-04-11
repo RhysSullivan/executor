@@ -11,9 +11,8 @@ import {
 } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 
-import { createExecutor } from "@executor/sdk";
-import { ScopeId, SecretId, type InvokeOptions } from "@executor/storage";
-import { makeInMemoryConfig, makeInMemorySqliteServices } from "@executor/storage-sqlite/memory";
+import { createExecutor, Scope, ScopeId, SecretId, type InvokeOptions } from "@executor/sdk";
+import { makeInMemoryConfig, makeInMemorySqliteStores } from "@executor/storage-sqlite/memory";
 import { openApiPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -155,17 +154,20 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
 
-      const scope = {
+      const scope = new Scope({
         id: ScopeId.make("test-scope"),
         name: "/test",
         createdAt: new Date(),
-      } as const;
+      });
 
-      const sharedServices = yield* makeInMemorySqliteServices({ scope, encryptionKey: "test-key" });
+      // Share the same backing stores across two executor instances to verify
+      // persistence — the second executor reads back what the first wrote.
+      const sharedStores = makeInMemorySqliteStores();
 
       const executor1 = yield* createExecutor({
         scope,
-        ...sharedServices,
+        stores: sharedStores,
+        encryptionKey: "test-key",
         plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
@@ -182,7 +184,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const executor2 = yield* createExecutor({
         scope,
-        ...sharedServices,
+        stores: sharedStores,
+        encryptionKey: "test-key",
         plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
