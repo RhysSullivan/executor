@@ -105,7 +105,7 @@ function formatLastActive(lastActiveAt: string | null): string {
 function TeamPage() {
   const auth = useAuth();
   const orgName =
-    auth.status === "authenticated" ? (auth.organization?.name ?? "Team") : "Team";
+    auth.status === "authenticated" ? (auth.organization?.name ?? "Organization") : "Organization";
   const membersResult = useAtomValue(teamMembersAtom);
   const rolesResult = useAtomValue(teamRolesAtom);
   const domainsResult = useAtomValue(teamDomainsAtom);
@@ -160,10 +160,10 @@ function TeamPage() {
     setSavingName(true);
     const exit = await doUpdateTeamName({ payload: { name: trimmed } });
     if (Exit.isSuccess(exit)) {
-      toast.success("Team name updated");
+      toast.success("Organization name updated");
       refreshAuth();
     } else {
-      toast.error("Failed to update team name");
+      toast.error("Failed to update organization name");
       setEditName(orgName);
     }
     setSavingName(false);
@@ -194,7 +194,7 @@ function TeamPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-[2rem] tracking-tight text-foreground">
-            Team
+            Organization
           </h1>
         </div>
 
@@ -206,7 +206,7 @@ function TeamPage() {
                 htmlFor="team-name"
                 className="text-sm font-medium text-foreground"
               >
-                Team name
+                Organization name
               </Label>
               <Input
                 id="team-name"
@@ -321,7 +321,7 @@ function TeamPage() {
           ),
           onFailure: () => (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load team members</p>
+              <p className="text-sm text-destructive">Failed to load members</p>
             </div>
           ),
           onSuccess: ({ value }) => {
@@ -337,7 +337,7 @@ function TeamPage() {
             if (filtered.length === 0) {
               return (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  {search ? "No matching members" : "No team members yet"}
+                  {search ? "No matching members" : "No members yet"}
                 </p>
               );
             }
@@ -619,7 +619,7 @@ function InviteDialog(props: {
         <DialogHeader>
           <DialogTitle className="font-display text-xl">Invite member</DialogTitle>
           <DialogDescription className="text-[0.8125rem] leading-relaxed">
-            Send an email invitation to join your team.
+            Send an email invitation to join your organization.
           </DialogDescription>
         </DialogHeader>
 

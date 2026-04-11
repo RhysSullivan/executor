@@ -167,7 +167,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
-        <NavItem to="/team" label="Team" active={isTeam} onNavigate={props.onNavigate} />
+        <NavItem to="/team" label="Organization" active={isTeam} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
         <div className="mt-5 mb-1 px-2.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
