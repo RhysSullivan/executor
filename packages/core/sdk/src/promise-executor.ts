@@ -6,6 +6,7 @@ import {
   makeInMemoryToolRegistry,
   makeInMemorySecretStore,
   makeInMemoryPolicyEngine,
+  makeInMemoryExecutionStore,
   makeInMemorySourceRegistry,
   ScopeId,
   ToolId,
@@ -640,6 +641,7 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
     sources: config.sources ? toEffectSourceRegistry(config.sources) : makeInMemorySourceRegistry(),
     secrets: config.secrets ? toEffectSecretStore(config.secrets) : makeInMemorySecretStore(),
     policies: config.policies ? toEffectPolicyEngine(config.policies) : makeInMemoryPolicyEngine(),
+    executions: makeInMemoryExecutionStore(),
     plugins: effectPlugins,
   };
 
