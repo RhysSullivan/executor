@@ -15,9 +15,9 @@
     "dist"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts",
-    "./promise": "./src/promise.ts"
+    ".": "./src/index.ts"
   },
   "publishConfig": {
     "access": "public",
