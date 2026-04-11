@@ -195,7 +195,7 @@ function TeamPage() {
           <h1 className="font-display text-[2rem] tracking-tight text-foreground">
             Team
           </h1>
-          <Button size="sm" onClick={() => setInviteOpen(true)}>
+          <Button size="sm" className="min-w-32" onClick={() => setInviteOpen(true)}>
             Invite member
           </Button>
         </div>
@@ -239,6 +239,7 @@ function TeamPage() {
             </div>
             <Button
               size="sm"
+              className="min-w-32"
               disabled={!canUseDomains}
               onClick={handleAddDomain}
             >
