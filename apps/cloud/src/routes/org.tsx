@@ -36,20 +36,20 @@ import {
   DropdownMenuSeparator,
 } from "@executor/react/components/dropdown-menu";
 import {
-  teamMembersAtom,
-  teamRolesAtom,
-  teamDomainsAtom,
+  orgMembersAtom,
+  orgRolesAtom,
+  orgDomainsAtom,
   inviteMember,
   removeMember,
   updateMemberRole,
   getDomainVerificationLink,
   deleteDomain,
-  updateTeamName,
-} from "../web/team-atoms";
+  updateOrgName,
+} from "../web/org-atoms";
 import { authAtom, useAuth } from "../web/auth";
 
-export const Route = createFileRoute("/team")({
-  component: TeamPage,
+export const Route = createFileRoute("/org")({
+  component: OrgPage,
 });
 
 type InviteState = {
@@ -102,20 +102,20 @@ function formatLastActive(lastActiveAt: string | null): string {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function TeamPage() {
+function OrgPage() {
   const auth = useAuth();
   const orgName =
-    auth.status === "authenticated" ? (auth.organization?.name ?? "Team") : "Team";
-  const membersResult = useAtomValue(teamMembersAtom);
-  const rolesResult = useAtomValue(teamRolesAtom);
-  const domainsResult = useAtomValue(teamDomainsAtom);
-  const refreshMembers = useAtomRefresh(teamMembersAtom);
-  const refreshDomains = useAtomRefresh(teamDomainsAtom);
+    auth.status === "authenticated" ? (auth.organization?.name ?? "Organization") : "Organization";
+  const membersResult = useAtomValue(orgMembersAtom);
+  const rolesResult = useAtomValue(orgRolesAtom);
+  const domainsResult = useAtomValue(orgDomainsAtom);
+  const refreshMembers = useAtomRefresh(orgMembersAtom);
+  const refreshDomains = useAtomRefresh(orgDomainsAtom);
   const doRemove = useAtomSet(removeMember, { mode: "promiseExit" });
   const doUpdateRole = useAtomSet(updateMemberRole, { mode: "promiseExit" });
   const doDeleteDomain = useAtomSet(deleteDomain, { mode: "promiseExit" });
   const doGetVerificationLink = useAtomSet(getDomainVerificationLink, { mode: "promiseExit" });
-  const doUpdateTeamName = useAtomSet(updateTeamName, { mode: "promiseExit" });
+  const doUpdateOrgName = useAtomSet(updateOrgName, { mode: "promiseExit" });
   const { check, isLoading: customerLoading } = useCustomer();
   const canUseDomains = customerLoading ? false : check({ featureId: "domain-verification" }).allowed;
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -158,12 +158,12 @@ function TeamPage() {
       return;
     }
     setSavingName(true);
-    const exit = await doUpdateTeamName({ payload: { name: trimmed } });
+    const exit = await doUpdateOrgName({ payload: { name: trimmed } });
     if (Exit.isSuccess(exit)) {
-      toast.success("Team name updated");
+      toast.success("Organization name updated");
       refreshAuth();
     } else {
-      toast.error("Failed to update team name");
+      toast.error("Failed to update organization name");
       setEditName(orgName);
     }
     setSavingName(false);
@@ -194,7 +194,7 @@ function TeamPage() {
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-[2rem] tracking-tight text-foreground">
-            Team
+            Organization
           </h1>
         </div>
 
@@ -203,13 +203,13 @@ function TeamPage() {
           <div className="flex items-end gap-3">
             <div className="min-w-0 flex-1">
               <Label
-                htmlFor="team-name"
+                htmlFor="org-name"
                 className="text-sm font-medium text-foreground"
               >
-                Team name
+                Organization name
               </Label>
               <Input
-                id="team-name"
+                id="org-name"
                 value={editName}
                 onChange={(e) => setEditName((e.target as HTMLInputElement).value)}
                 onKeyDown={(e) => {
@@ -275,7 +275,7 @@ function TeamPage() {
               if (value.domains.length === 0) {
                 return (
                   <p className="py-6 text-center text-sm text-muted-foreground">
-                    No domains yet. Add your company domain so teammates can join without an invite.
+                    No domains yet. Add your company domain so members can join without an invite.
                   </p>
                 );
               }
@@ -321,7 +321,7 @@ function TeamPage() {
           ),
           onFailure: () => (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load team members</p>
+              <p className="text-sm text-destructive">Failed to load members</p>
             </div>
           ),
           onSuccess: ({ value }) => {
@@ -337,7 +337,7 @@ function TeamPage() {
             if (filtered.length === 0) {
               return (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  {search ? "No matching members" : "No team members yet"}
+                  {search ? "No matching members" : "No members yet"}
                 </p>
               );
             }
@@ -619,7 +619,7 @@ function InviteDialog(props: {
         <DialogHeader>
           <DialogTitle className="font-display text-xl">Invite member</DialogTitle>
           <DialogDescription className="text-[0.8125rem] leading-relaxed">
-            Send an email invitation to join your team.
+            Send an email invitation to join your organization.
           </DialogDescription>
         </DialogHeader>
 

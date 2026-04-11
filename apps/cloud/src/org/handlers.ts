@@ -6,7 +6,7 @@ import { AuthContext } from "../auth/middleware";
 import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
 import { AutumnService } from "../services/autumn";
-import { TeamOrgApi } from "./compose";
+import { OrgHttpApi } from "./compose";
 import { Forbidden } from "./api";
 
 const requireAdmin = Effect.gen(function* () {
@@ -19,7 +19,7 @@ const requireAdmin = Effect.gen(function* () {
   }
 });
 
-export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) =>
+export const OrgHandlers = HttpApiBuilder.group(OrgHttpApi, "org", (handlers) =>
   handlers
     .handle("listMembers", () =>
       Effect.gen(function* () {
@@ -144,7 +144,7 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
         const workos = yield* WorkOSAuth;
         const { link } = yield* workos.generateDomainVerificationPortalLink(
           auth.organizationId,
-          server.VITE_PUBLIC_SITE_URL ? `${server.VITE_PUBLIC_SITE_URL}/team` : "/team",
+          server.VITE_PUBLIC_SITE_URL ? `${server.VITE_PUBLIC_SITE_URL}/org` : "/org",
         );
         return { link };
       }),
@@ -157,7 +157,7 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
         return { success: true };
       }),
     )
-    .handle("updateTeamName", ({ payload }) =>
+    .handle("updateOrgName", ({ payload }) =>
       Effect.gen(function* () {
         yield* requireAdmin;
         const auth = yield* AuthContext;

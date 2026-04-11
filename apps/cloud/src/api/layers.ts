@@ -22,8 +22,8 @@ import {
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
-import { TeamOrgApi } from "../team/compose";
-import { TeamHandlers } from "../team/handlers";
+import { OrgHttpApi } from "../org/compose";
+import { OrgHandlers } from "../org/handlers";
 
 const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .add(McpGroup)
@@ -62,8 +62,8 @@ const NonProtectedApiLive = HttpApiBuilder.api(NonProtectedApi).pipe(
   Layer.provideMerge(SessionAuthLive),
 );
 
-const TeamApiLive = HttpApiBuilder.api(TeamOrgApi).pipe(
-  Layer.provide(TeamHandlers),
+const OrgApiLive = HttpApiBuilder.api(OrgHttpApi).pipe(
+  Layer.provide(OrgHandlers),
   Layer.provideMerge(OrgAuthLive),
 );
 
@@ -74,7 +74,7 @@ const NonProtectedRequestLayer = NonProtectedApiLive.pipe(
   Layer.provideMerge(HttpApiBuilder.Middleware.layer),
 );
 
-const TeamRequestLayer = TeamApiLive.pipe(
+const OrgRequestLayer = OrgApiLive.pipe(
   Layer.provideMerge(RouterConfig),
   Layer.provideMerge(HttpServer.layerContext),
   Layer.provideMerge(HttpApiBuilder.Router.Live),
@@ -86,7 +86,7 @@ export const NonProtectedApiApp = Effect.flatMap(
   HttpMiddleware.logger,
 ).pipe(Effect.provide(SharedServices));
 
-export const TeamApiApp = Effect.flatMap(
-  HttpApiBuilder.httpApp.pipe(Effect.provide(TeamRequestLayer)),
+export const OrgApiApp = Effect.flatMap(
+  HttpApiBuilder.httpApp.pipe(Effect.provide(OrgRequestLayer)),
   HttpMiddleware.logger,
 ).pipe(Effect.provide(SharedServices));

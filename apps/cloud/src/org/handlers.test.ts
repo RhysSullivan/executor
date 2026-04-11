@@ -131,7 +131,7 @@ const withMembers: StubOverrides = {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("Team handlers", () => {
+describe("Org handlers", () => {
   describe("listMembers", () => {
     it.effect("returns members with isCurrentUser set correctly", () =>
       Effect.gen(function* () {

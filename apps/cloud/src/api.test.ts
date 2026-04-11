@@ -18,17 +18,17 @@ import {
   AutumnRequestHandlerService,
   NonProtectedRequestHandlerService,
   ProtectedRequestHandlerService,
-  TeamRequestHandlerService,
+  OrgRequestHandlerService,
 } from "./api/router";
 
 const SourceResponse = Schema.Struct({ source: Schema.String });
 
-const TeamGroup = HttpApiGroup.make("team").add(
-  HttpApiEndpoint.get("ping", "/team/ping").addSuccess(SourceResponse),
+const OrgGroup = HttpApiGroup.make("org").add(
+  HttpApiEndpoint.get("ping", "/org/ping").addSuccess(SourceResponse),
 );
-const TeamApi = HttpApi.make("teamApi").add(TeamGroup);
-const TeamHandlers = HttpApiBuilder.group(TeamApi, "team", (handlers) =>
-  handlers.handle("ping", () => Effect.succeed({ source: "team" })),
+const OrgTestApi = HttpApi.make("orgApi").add(OrgGroup);
+const OrgTestHandlers = HttpApiBuilder.group(OrgTestApi, "org", (handlers) =>
+  handlers.handle("ping", () => Effect.succeed({ source: "org" })),
 );
 
 const AuthGroup = HttpApiGroup.make("auth").add(
@@ -53,11 +53,11 @@ const ProtectedHandlers = HttpApiBuilder.group(ProtectedApi, "protected", (handl
     .handle("resume", () => Effect.succeed({ source: "protected" })),
 );
 
-const TeamTestApp = Effect.flatMap(
+const OrgTestApp = Effect.flatMap(
   HttpApiBuilder.httpApp.pipe(
     Effect.provide(
-      HttpApiBuilder.api(TeamApi).pipe(
-        Layer.provide(TeamHandlers),
+      HttpApiBuilder.api(OrgTestApi).pipe(
+        Layer.provide(OrgTestHandlers),
         Layer.provideMerge(HttpServer.layerContext),
         Layer.provideMerge(HttpApiBuilder.Router.Live),
         Layer.provideMerge(HttpApiBuilder.Middleware.layer),
@@ -124,7 +124,7 @@ const ProtectedTestApp = Effect.gen(function* () {
 });
 
 const TestRequestHandlersLive = Layer.mergeAll(
-  Layer.succeed(TeamRequestHandlerService, { app: TeamTestApp }),
+  Layer.succeed(OrgRequestHandlerService, { app: OrgTestApp }),
   Layer.succeed(NonProtectedRequestHandlerService, { app: AuthTestApp }),
   Layer.succeed(AutumnRequestHandlerService, {
     app: Effect.succeed(HttpServerResponse.unsafeJson({ source: "autumn" })),
@@ -135,7 +135,7 @@ const TestRequestHandlersLive = Layer.mergeAll(
 const requestHandler = Effect.runSync(Effect.provide(ApiRequestHandler, TestRequestHandlersLive));
 
 const TestApi = HttpApi.make("testApi")
-  .add(TeamGroup)
+  .add(OrgGroup)
   .add(AuthGroup)
   .add(
     HttpApiGroup.make("autumn").add(
@@ -151,12 +151,12 @@ const TestServerLayer = HttpServer.serve(HttpApp.fromWebHandler(requestHandler))
 const getClient = () => HttpApiClient.make(TestApi);
 
 layer(TestServerLayer)("handleApiRequest", (it) => {
-  it.effect("routes /team/* to the team API handler", () =>
+  it.effect("routes /org/* to the org API handler", () =>
     Effect.gen(function* () {
       resetState();
       const client = yield* getClient();
-      const result = yield* client.team.ping();
-      expect(result).toEqual({ source: "team" });
+      const result = yield* client.org.ping();
+      expect(result).toEqual({ source: "org" });
     }),
   );
 

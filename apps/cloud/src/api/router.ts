@@ -5,9 +5,9 @@ type RequestAppService = {
   readonly app: HttpApp.Default;
 };
 
-export class TeamRequestHandlerService extends Context.Tag(
-  "@executor/cloud/TeamRequestHandlerService",
-)<TeamRequestHandlerService, RequestAppService>() {}
+export class OrgRequestHandlerService extends Context.Tag(
+  "@executor/cloud/OrgRequestHandlerService",
+)<OrgRequestHandlerService, RequestAppService>() {}
 
 export class NonProtectedRequestHandlerService extends Context.Tag(
   "@executor/cloud/NonProtectedRequestHandlerService",
@@ -22,13 +22,13 @@ export class ProtectedRequestHandlerService extends Context.Tag(
 )<ProtectedRequestHandlerService, RequestAppService>() {}
 
 export const ApiRouterApp = Effect.gen(function* () {
-  const team = yield* TeamRequestHandlerService;
+  const org = yield* OrgRequestHandlerService;
   const nonProtected = yield* NonProtectedRequestHandlerService;
   const autumn = yield* AutumnRequestHandlerService;
   const protectedHandler = yield* ProtectedRequestHandlerService;
 
   return yield* HttpRouter.empty.pipe(
-    HttpRouter.mountApp("/team", team.app, { includePrefix: true }),
+    HttpRouter.mountApp("/org", org.app, { includePrefix: true }),
     HttpRouter.mountApp("/auth", nonProtected.app, { includePrefix: true }),
     HttpRouter.mountApp("/autumn", autumn.app, { includePrefix: true }),
     HttpRouter.mountApp("/", protectedHandler.app),

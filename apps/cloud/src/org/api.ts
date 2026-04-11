@@ -8,7 +8,7 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
   HttpApiSchema.annotations({ status: 403 }),
 ) {}
 
-const TeamMember = Schema.Struct({
+const OrgMember = Schema.Struct({
   id: Schema.String,
   userId: Schema.String,
   email: Schema.String,
@@ -20,17 +20,17 @@ const TeamMember = Schema.Struct({
   isCurrentUser: Schema.Boolean,
 });
 
-const TeamMembersResponse = Schema.Struct({
-  members: Schema.Array(TeamMember),
+const OrgMembersResponse = Schema.Struct({
+  members: Schema.Array(OrgMember),
 });
 
-const TeamRole = Schema.Struct({
+const OrgRole = Schema.Struct({
   slug: Schema.String,
   name: Schema.String,
 });
 
-const TeamRolesResponse = Schema.Struct({
-  roles: Schema.Array(TeamRole),
+const OrgRolesResponse = Schema.Struct({
+  roles: Schema.Array(OrgRole),
 });
 
 const InviteBody = Schema.Struct({
@@ -57,11 +57,11 @@ const UpdateRoleResponse = Schema.Struct({
   success: Schema.Boolean,
 });
 
-const UpdateTeamNameBody = Schema.Struct({
+const UpdateOrgNameBody = Schema.Struct({
   name: Schema.String,
 });
 
-const UpdateTeamNameResponse = Schema.Struct({
+const UpdateOrgNameResponse = Schema.Struct({
   name: Schema.String,
 });
 
@@ -83,60 +83,60 @@ const DomainVerificationLinkResponse = Schema.Struct({
 
 const domainIdParam = HttpApiSchema.param("domainId", Schema.String);
 
-export { TeamMember, TeamMembersResponse };
+export { OrgMember, OrgMembersResponse };
 
-export class TeamApi extends HttpApiGroup.make("team")
+export class OrgApi extends HttpApiGroup.make("org")
   .add(
-    HttpApiEndpoint.get("listMembers")`/team/members`
-      .addSuccess(TeamMembersResponse)
+    HttpApiEndpoint.get("listMembers")`/org/members`
+      .addSuccess(OrgMembersResponse)
       .addError(WorkOSError),
   )
   .add(
-    HttpApiEndpoint.get("listRoles")`/team/roles`
-      .addSuccess(TeamRolesResponse)
+    HttpApiEndpoint.get("listRoles")`/org/roles`
+      .addSuccess(OrgRolesResponse)
       .addError(WorkOSError),
   )
   .add(
-    HttpApiEndpoint.post("invite")`/team/invite`
+    HttpApiEndpoint.post("invite")`/org/invite`
       .setPayload(InviteBody)
       .addSuccess(InviteResponse)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
   .add(
-    HttpApiEndpoint.del("removeMember")`/team/members/${membershipIdParam}`
+    HttpApiEndpoint.del("removeMember")`/org/members/${membershipIdParam}`
       .addSuccess(RemoveResponse)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
   .add(
-    HttpApiEndpoint.patch("updateMemberRole")`/team/members/${membershipIdParam}/role`
+    HttpApiEndpoint.patch("updateMemberRole")`/org/members/${membershipIdParam}/role`
       .setPayload(UpdateRoleBody)
       .addSuccess(UpdateRoleResponse)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
   .add(
-    HttpApiEndpoint.get("listDomains")`/team/domains`
+    HttpApiEndpoint.get("listDomains")`/org/domains`
       .addSuccess(DomainsResponse)
       .addError(WorkOSError),
   )
   .add(
-    HttpApiEndpoint.post("getDomainVerificationLink")`/team/domains/verify-link`
+    HttpApiEndpoint.post("getDomainVerificationLink")`/org/domains/verify-link`
       .addSuccess(DomainVerificationLinkResponse)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
   .add(
-    HttpApiEndpoint.del("deleteDomain")`/team/domains/${domainIdParam}`
+    HttpApiEndpoint.del("deleteDomain")`/org/domains/${domainIdParam}`
       .addSuccess(RemoveResponse)
       .addError(WorkOSError)
       .addError(Forbidden),
   )
   .add(
-    HttpApiEndpoint.patch("updateTeamName")`/team/name`
-      .setPayload(UpdateTeamNameBody)
-      .addSuccess(UpdateTeamNameResponse)
+    HttpApiEndpoint.patch("updateOrgName")`/org/name`
+      .setPayload(UpdateOrgNameBody)
+      .addSuccess(UpdateOrgNameResponse)
       .addError(WorkOSError)
       .addError(UserStoreError)
       .addError(Forbidden),
