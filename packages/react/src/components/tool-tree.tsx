@@ -254,7 +254,7 @@ export function ToolTree(props: {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <CardStack className="flex min-h-0 flex-1 flex-col rounded-none border-0">
+      <CardStack className="flex min-h-0 flex-1 flex-col rounded-none border-0 bg-transparent">
         {/* Search header */}
         <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2">
           <SearchIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
