@@ -5,11 +5,7 @@ import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
-import {
-  HttpResponseError,
-  isServerError,
-  toErrorServerResponse,
-} from "./error-response";
+import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { SharedServices } from "./layers";
 
 let cachedAutumn: Autumn | null = null;
@@ -38,12 +34,14 @@ export const trackExecutionUsage = (organizationId: string): void => {
 
 const handleAutumnRequestEffect = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
-  const webRequest = yield* Effect.mapError(HttpServerRequest.toWeb(request), () =>
-    new HttpResponseError({
-      status: 500,
-      code: "invalid_request",
-      message: "Invalid request",
-    }),
+  const webRequest = yield* Effect.mapError(
+    HttpServerRequest.toWeb(request),
+    () =>
+      new HttpResponseError({
+        status: 500,
+        code: "invalid_request",
+        message: "Invalid request",
+      }),
   );
 
   const workos = yield* WorkOSAuth;
@@ -62,12 +60,14 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
   const url = new URL(webRequest.url);
   const body =
     request.method !== "GET" && request.method !== "HEAD"
-      ? yield* Effect.mapError(request.json, () =>
-          new HttpResponseError({
-            status: 400,
-            code: "invalid_json",
-            message: "Invalid request body",
-          }),
+      ? yield* Effect.mapError(
+          request.json,
+          () =>
+            new HttpResponseError({
+              status: 400,
+              code: "invalid_json",
+              message: "Invalid request body",
+            }),
         )
       : undefined;
 

@@ -20,10 +20,7 @@ export const isServerError = (error: unknown): boolean => toHttpResponseError(er
 
 export const toErrorResponse = (error: unknown): Response => {
   const mapped = toHttpResponseError(error);
-  return Response.json(
-    { error: mapped.message, code: mapped.code },
-    { status: mapped.status },
-  );
+  return Response.json({ error: mapped.message, code: mapped.code }, { status: mapped.status });
 };
 
 export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {

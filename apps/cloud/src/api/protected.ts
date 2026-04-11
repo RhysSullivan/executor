@@ -21,12 +21,14 @@ import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
 
 const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
   Effect.gen(function* () {
-    const webRequest = yield* Effect.mapError(HttpServerRequest.toWeb(request), () =>
-      new HttpResponseError({
-        status: 500,
-        code: "invalid_request",
-        message: "Invalid request",
-      }),
+    const webRequest = yield* Effect.mapError(
+      HttpServerRequest.toWeb(request),
+      () =>
+        new HttpResponseError({
+          status: 500,
+          code: "invalid_request",
+          message: "Invalid request",
+        }),
     );
     const workos = yield* WorkOSAuth;
     const session = yield* workos.authenticateRequest(webRequest);
@@ -73,30 +75,29 @@ const createProtectedApp = (organizationId: string, organizationName: string) =>
     );
   });
 
-const handleProtectedRequestEffect =
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const org = yield* lookupOrgForRequest(request);
-    if (!org) {
-      return yield* Effect.fail(
-        new HttpResponseError({
-          status: 403,
-          code: "no_organization",
-          message: "No organization in session",
-        }),
-      );
-    }
+const handleProtectedRequestEffect = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const org = yield* lookupOrgForRequest(request);
+  if (!org) {
+    return yield* Effect.fail(
+      new HttpResponseError({
+        status: 403,
+        code: "no_organization",
+        message: "No organization in session",
+      }),
+    );
+  }
 
-    const app = yield* createProtectedApp(org.id, org.name);
-    return yield* app;
-  }).pipe(
-    Effect.provide(SharedServices),
-    Effect.catchAll((err) => {
-      if (isServerError(err)) {
-        console.error("[api] request failed:", err instanceof Error ? err.stack : err);
-      }
-      return Effect.succeed(toErrorServerResponse(err));
-    }),
-  );
+  const app = yield* createProtectedApp(org.id, org.name);
+  return yield* app;
+}).pipe(
+  Effect.provide(SharedServices),
+  Effect.catchAll((err) => {
+    if (isServerError(err)) {
+      console.error("[api] request failed:", err instanceof Error ? err.stack : err);
+    }
+    return Effect.succeed(toErrorServerResponse(err));
+  }),
+);
 
 export const ProtectedApiApp = handleProtectedRequestEffect;
