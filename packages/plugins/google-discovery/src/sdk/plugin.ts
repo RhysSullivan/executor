@@ -36,6 +36,13 @@ import type {
 } from "./types";
 import { GoogleDiscoveryStoredSourceData as GoogleDiscoveryStoredSourceDataSchema } from "./types";
 
+export interface GoogleDiscoveryProbeOperation {
+  readonly toolPath: string;
+  readonly method: string;
+  readonly pathTemplate: string;
+  readonly description: string | null;
+}
+
 export interface GoogleDiscoveryProbeResult {
   readonly name: string;
   readonly title: string | null;
@@ -43,6 +50,7 @@ export interface GoogleDiscoveryProbeResult {
   readonly version: string;
   readonly toolCount: number;
   readonly scopes: readonly string[];
+  readonly operations: readonly GoogleDiscoveryProbeOperation[];
 }
 
 export interface GoogleDiscoveryAddSourceInput {
@@ -370,6 +378,12 @@ export const googleDiscoveryPlugin = (options?: {
               const scopes = Object.keys(
                 manifest.oauthScopes._tag === "Some" ? manifest.oauthScopes.value : {},
               ).sort();
+              const operations = manifest.methods.map((method) => ({
+                toolPath: method.toolPath,
+                method: method.binding.method,
+                pathTemplate: method.binding.pathTemplate,
+                description: method.description._tag === "Some" ? method.description.value : null,
+              }));
               return {
                 name:
                   manifest.title._tag === "Some"
@@ -380,6 +394,7 @@ export const googleDiscoveryPlugin = (options?: {
                 version: manifest.version,
                 toolCount: manifest.methods.length,
                 scopes,
+                operations,
               };
             }),
 

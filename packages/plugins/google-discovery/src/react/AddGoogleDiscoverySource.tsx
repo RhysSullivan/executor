@@ -8,15 +8,57 @@ import { SecretId } from "@executor/sdk";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
 import {
+  CardStack,
+  CardStackContent,
+  CardStackEntry,
+  CardStackEntryContent,
+  CardStackEntryDescription,
+  CardStackEntryField,
+  CardStackEntryTitle,
+  CardStackHeader,
+} from "@executor/react/components/card-stack";
+import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@executor/react/components/collapsible";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+  FieldTitle,
+} from "@executor/react/components/field";
+import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
+import { cn } from "@executor/react/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
-import { Spinner } from "@executor/react/components/spinner";
+import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
+import {
+  AuthenticationSection,
+  type AuthMethod,
+} from "@executor/react/plugins/authentication-section";
 import { addGoogleDiscoverySource, probeGoogleDiscovery, startGoogleDiscoveryOAuth } from "./atoms";
+
+function methodBadgeClasses(method: string): string {
+  switch (method.toLowerCase()) {
+    case "get":
+      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+    case "post":
+      return "bg-blue-500/10 text-blue-700 dark:text-blue-400";
+    case "put":
+    case "patch":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-400";
+    case "delete":
+      return "bg-red-500/10 text-red-600 dark:text-red-400";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Inline secret creation
@@ -315,6 +357,13 @@ function GoogleServiceIcon(props: { readonly service: string; readonly className
   );
 }
 
+type ProbeOperation = {
+  toolPath: string;
+  method: string;
+  pathTemplate: string;
+  description: string | null;
+};
+
 type ProbeResult = {
   name: string;
   title: string | null;
@@ -322,6 +371,7 @@ type ProbeResult = {
   version: string;
   toolCount: number;
   scopes: readonly string[];
+  operations: readonly ProbeOperation[];
 };
 
 type OAuthAuth = {
@@ -417,7 +467,7 @@ export default function AddGoogleDiscoverySource(props: {
   );
   const selectedTemplate =
     GOOGLE_DISCOVERY_TEMPLATES.find((template) => template.id === selectedTemplateId) ?? null;
-  const [authKind, setAuthKind] = useState<"none" | "oauth2">("oauth2");
+  const [authKind, setAuthKind] = useState<AuthMethod>("oauth2");
   const [clientId, setClientId] = useState("");
   const [clientSecretSecretId, setClientSecretSecretId] = useState<string | null>(null);
   const [probe, setProbe] = useState<ProbeResult | null>(null);
@@ -468,7 +518,11 @@ export default function AddGoogleDiscoverySource(props: {
         path: { scopeId },
         payload: { discoveryUrl: discoveryUrl.trim() },
       });
-      setProbe({ ...result, scopes: [...result.scopes] });
+      setProbe({
+        ...result,
+        scopes: [...result.scopes],
+        operations: [...result.operations],
+      });
       if (!name.trim()) {
         setName(result.name);
       }
@@ -483,13 +537,23 @@ export default function AddGoogleDiscoverySource(props: {
     }
   }, [discoveryUrl, doProbe, name, scopeId]);
 
-  const autoProbed = useRef(false);
+  // Keep the latest handleProbe in a ref so the debounced effect can call it
+  // without depending on its identity (which changes every render).
+  const handleProbeRef = useRef(handleProbe);
+  handleProbeRef.current = handleProbe;
+
+  // Auto-probe whenever the discovery URL changes (debounced). Clearing the
+  // previous probe in the onChange handler resets the preview so a new run
+  // will be triggered.
   useEffect(() => {
-    if (props.initialUrl && !autoProbed.current) {
-      autoProbed.current = true;
-      handleProbe();
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const trimmed = discoveryUrl.trim();
+    if (!trimmed) return;
+    if (probe) return;
+    const handle = setTimeout(() => {
+      handleProbeRef.current();
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [discoveryUrl, probe]);
 
   const oauthCleanup = useRef<(() => void) | null>(null);
 
@@ -579,7 +643,7 @@ export default function AddGoogleDiscoverySource(props: {
     !probe || adding || (authKind === "oauth2" && (!canUseOAuth || oauthAuth === null));
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-1 flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold text-foreground">Add Google Discovery Source</h1>
         <p className="mt-1 text-[13px] text-muted-foreground">
@@ -587,86 +651,72 @@ export default function AddGoogleDiscoverySource(props: {
         </p>
       </div>
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between gap-3">
-          <Label>Presets</Label>
-          <span className="text-xs text-muted-foreground">
-            Select a Google API to prefill the source.
-          </span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {GOOGLE_DISCOVERY_TEMPLATES.map((template) => {
-            const selected = template.id === selectedTemplateId;
-            return (
-              <Button
-                key={template.id}
-                variant="ghost"
-                type="button"
-                onClick={() => applyTemplate(template)}
-                className={`relative h-auto rounded-xl border px-4 py-3 text-left transition-colors ${
-                  selected
-                    ? "border-primary bg-primary/5 shadow-[0_0_0_1px_rgba(0,0,0,0.02)]"
-                    : "border-border bg-card hover:border-primary/30 hover:bg-card/80"
-                }`}
-              >
-                {selected && (
-                  <Badge variant="secondary" className="absolute top-3 right-3">
-                    Selected
-                  </Badge>
-                )}
-                <div className="flex min-w-0 gap-3 pr-20">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background/80 shadow-xs">
-                    <GoogleServiceIcon service={template.service} className="size-6" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">{template.name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{template.summary}</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-[11px] font-mono text-muted-foreground">
-                    {template.service} · {template.version}
-                  </p>
-                  <div className="h-px flex-1 bg-border/70" />
-                </div>
-              </Button>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="space-y-2">
-        <Label>Discovery URL</Label>
-        <div className="flex gap-2">
-          <Input
-            value={discoveryUrl}
-            onChange={(e) => {
-              setSelectedTemplateId("");
-              setDiscoveryUrl((e.target as HTMLInputElement).value);
+      <FieldGroup>
+        <FieldSet>
+          <FieldLegend variant="label">Presets</FieldLegend>
+          <FieldDescription>Select a Google API to prefill the source.</FieldDescription>
+          <RadioGroup
+            value={selectedTemplateId}
+            onValueChange={(value) => {
+              const template = GOOGLE_DISCOVERY_TEMPLATES.find((t) => t.id === value);
+              if (template) applyTemplate(template);
             }}
-            placeholder="https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest"
-            className="flex-1 font-mono text-sm"
-          />
-          <Button onClick={handleProbe} disabled={!discoveryUrl.trim() || loadingProbe}>
-            {loadingProbe ? (
-              <>
-                <Spinner className="size-3.5" /> Inspecting…
-              </>
-            ) : (
-              "Inspect"
-            )}
-          </Button>
-        </div>
-      </section>
+            className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+          >
+            {GOOGLE_DISCOVERY_TEMPLATES.map((template) => {
+              const inputId = `google-discovery-preset-${template.id}`;
+              return (
+                <FieldLabel key={template.id} htmlFor={inputId}>
+                  <Field orientation="horizontal">
+                    <GoogleServiceIcon service={template.service} className="size-8" />
+                    <FieldContent>
+                      <FieldTitle>{template.name}</FieldTitle>
+                      <FieldDescription className="line-clamp-2">
+                        {template.summary}
+                      </FieldDescription>
+                    </FieldContent>
+                    <RadioGroupItem id={inputId} value={template.id} />
+                  </Field>
+                </FieldLabel>
+              );
+            })}
+          </RadioGroup>
+        </FieldSet>
+      </FieldGroup>
 
-      <section className="space-y-2">
-        <Label>Display Name</Label>
-        <Input
-          value={name}
-          onChange={(e) => setName((e.target as HTMLInputElement).value)}
-          placeholder="Google Sheets"
-        />
-      </section>
+      <CardStack>
+        <CardStackContent className="border-t-0">
+          <CardStackEntryField label="Discovery URL">
+            <div className="relative">
+              <Input
+                value={discoveryUrl}
+                onChange={(e) => {
+                  setSelectedTemplateId("");
+                  setDiscoveryUrl((e.target as HTMLInputElement).value);
+                  setProbe(null);
+                  setOauthAuth(null);
+                  setError(null);
+                }}
+                placeholder="https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest"
+                className="w-full pr-9 font-mono text-sm"
+              />
+              {loadingProbe && (
+                <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
+                  <IOSSpinner className="size-4" />
+                </div>
+              )}
+            </div>
+          </CardStackEntryField>
+
+          <CardStackEntryField label="Display Name">
+            <Input
+              value={name}
+              onChange={(e) => setName((e.target as HTMLInputElement).value)}
+              placeholder="Google Sheets"
+            />
+          </CardStackEntryField>
+        </CardStackContent>
+      </CardStack>
 
       {probe && (
         <section className="space-y-3 rounded-xl border border-border bg-card px-4 py-4">
@@ -693,27 +743,11 @@ export default function AddGoogleDiscoverySource(props: {
         </section>
       )}
 
-      <section className="space-y-3">
-        <RadioGroup
-          value={authKind}
-          onValueChange={(value) => setAuthKind(value as "none" | "oauth2")}
-          className="flex items-center gap-4"
-        >
-          <div className="flex items-center gap-2">
-            <RadioGroupItem id="google-discovery-auth-none" value="none" />
-            <Label htmlFor="google-discovery-auth-none" className="text-sm">
-              No auth
-            </Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <RadioGroupItem id="google-discovery-auth-oauth2" value="oauth2" />
-            <Label htmlFor="google-discovery-auth-oauth2" className="text-sm">
-              OAuth 2.0
-            </Label>
-          </div>
-        </RadioGroup>
-
-        {authKind === "oauth2" && (
+      <AuthenticationSection
+        methods={["none", "oauth2"]}
+        value={authKind}
+        onChange={setAuthKind}
+        oauth2Slot={
           <div className="space-y-3 rounded-xl border border-border bg-card px-4 py-4">
             <div className="space-y-2">
               <Label>OAuth Client ID</Label>
@@ -797,8 +831,45 @@ export default function AddGoogleDiscoverySource(props: {
               </div>
             )}
           </div>
-        )}
-      </section>
+        }
+      />
+
+      {probe && probe.operations.length > 0 && (
+        <CardStack searchable className="opacity-50 hover:opacity-100 transition-opacity">
+          <CardStackHeader>
+            {probe.operations.length} operation
+            {probe.operations.length !== 1 ? "s" : ""}
+          </CardStackHeader>
+          <CardStackContent>
+            {probe.operations.map((op) => (
+              <CardStackEntry
+                key={op.toolPath}
+                searchText={`${op.method} ${op.pathTemplate} ${op.toolPath} ${op.description ?? ""}`}
+              >
+                <CardStackEntryContent>
+                  <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase",
+                        methodBadgeClasses(op.method),
+                      )}
+                    >
+                      {op.method}
+                    </span>
+                    <span className="truncate font-mono">{op.pathTemplate}</span>
+                  </CardStackEntryTitle>
+                  <CardStackEntryDescription className="font-mono">
+                    {op.toolPath}
+                  </CardStackEntryDescription>
+                  {op.description && (
+                    <CardStackEntryDescription>{op.description}</CardStackEntryDescription>
+                  )}
+                </CardStackEntryContent>
+              </CardStackEntry>
+            ))}
+          </CardStackContent>
+        </CardStack>
+      )}
 
       {error && (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
@@ -806,14 +877,15 @@ export default function AddGoogleDiscoverySource(props: {
         </div>
       )}
 
-      <div className="flex items-center justify-between border-t border-border pt-4">
-        <Button variant="outline" onClick={props.onCancel}>
+      <FloatActions>
+        <Button variant="ghost" onClick={props.onCancel} disabled={adding}>
           Cancel
         </Button>
         <Button onClick={handleAdd} disabled={addDisabled}>
+          {adding && <Spinner className="size-3.5" />}
           {adding ? "Adding…" : "Add Source"}
         </Button>
-      </div>
+      </FloatActions>
     </div>
   );
 }
