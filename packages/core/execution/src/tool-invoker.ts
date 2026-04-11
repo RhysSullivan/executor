@@ -1,12 +1,6 @@
 import { Effect } from "effect";
-import type {
-  Executor,
-  ToolId,
-  ToolMetadata,
-  ToolSchema,
-  InvokeOptions,
-  Source,
-} from "@executor/sdk";
+import type { Executor } from "@executor/sdk";
+import type { ToolId, ToolMetadata, ToolSchema, InvokeOptions, Source } from "@executor/storage";
 import type { SandboxToolInvoker } from "@executor/codemode-core";
 import { ExecutionToolError } from "./errors";
 

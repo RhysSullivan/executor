@@ -8,17 +8,19 @@
   },
   "scripts": {
     "typecheck": "tsgo --noEmit",
-    "test": "vitest run",
+    "test": "bunx --bun vitest run",
     "typecheck:slow": "bunx tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@executor/codemode-core": "workspace:*",
     "@executor/runtime-quickjs": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@executor/storage": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
+    "@executor/storage-sqlite": "workspace:*",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
     "vitest": "catalog:"

@@ -1,15 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Fiber, Schema } from "effect";
 
-import {
-  ElicitationResponse,
-  Source,
-  createExecutor,
-  definePlugin,
-  inMemoryToolsPlugin,
-  makeTestConfig,
-  tool,
-} from "@executor/sdk";
+import { createExecutor, definePlugin, inMemoryToolsPlugin, tool } from "@executor/sdk";
+import { ElicitationResponse, FormElicitation, Source } from "@executor/storage";
+import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
 
@@ -38,13 +32,13 @@ const ContactInput = Schema.Struct({
   email: Schema.String,
 });
 
-import { FormElicitation } from "@executor/sdk";
-
 const acceptAll = () => Effect.succeed(new ElicitationResponse({ action: "accept" }));
 
 const makeSearchExecutor = () =>
   Effect.gen(function* () {
-    const config = makeTestConfig({
+    const config = yield* makeInMemoryConfig();
+    return yield* createExecutor({
+      ...config,
       plugins: [
         runtimeSourcesPlugin([
           new Source({
@@ -106,8 +100,6 @@ const makeSearchExecutor = () =>
         }),
       ] as const,
     });
-
-    return yield* createExecutor(config);
   });
 
 describe("tool discovery", () => {
@@ -281,7 +273,9 @@ describe("tool discovery", () => {
 describe("pause/resume with multiple elicitations", () => {
   const makeElicitingExecutor = () =>
     Effect.gen(function* () {
-      const config = makeTestConfig({
+      const config = yield* makeInMemoryConfig();
+      return yield* createExecutor({
+        ...config,
         plugins: [
           runtimeSourcesPlugin([
             new Source({
@@ -337,8 +331,6 @@ describe("pause/resume with multiple elicitations", () => {
           }),
         ] as const,
       });
-
-      return yield* createExecutor(config);
     });
 
   it.effect(

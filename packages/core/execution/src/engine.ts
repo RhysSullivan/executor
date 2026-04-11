@@ -1,12 +1,12 @@
 import { Deferred, Effect, Fiber, Ref } from "effect";
 
+import type { Executor } from "@executor/sdk";
 import type {
-  Executor,
   InvokeOptions,
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
-} from "@executor/sdk";
+} from "@executor/storage";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
