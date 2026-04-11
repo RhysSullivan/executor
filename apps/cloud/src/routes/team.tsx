@@ -190,8 +190,9 @@ function TeamPage() {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
-        <div className="flex items-end justify-between mb-10">
-          <h1 className="font-display text-[2rem] tracking-tight text-foreground leading-none">
+        {/* Header */}
+        <div className="flex items-end justify-between mb-8">
+          <h1 className="font-display text-[2rem] tracking-tight text-foreground">
             Team
           </h1>
           <Button size="sm" onClick={() => setInviteOpen(true)}>
@@ -199,13 +200,13 @@ function TeamPage() {
           </Button>
         </div>
 
-        {/* Team name */}
-        <div className="mb-6 rounded-lg border border-border px-4 py-3">
-          <div className="flex items-center gap-3">
+        {/* Settings */}
+        <section className="mb-10">
+          <div className="flex items-end gap-3">
             <div className="min-w-0 flex-1">
               <Label
                 htmlFor="team-name"
-                className="text-[0.6875rem] font-medium uppercase tracking-wider text-muted-foreground"
+                className="text-sm font-medium text-foreground"
               >
                 Team name
               </Label>
@@ -216,29 +217,30 @@ function TeamPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleSaveName();
                 }}
-                className="mt-1 text-[0.8125rem] h-9"
+                className="mt-1.5 h-9 text-sm"
               />
             </div>
             {editName.trim() !== orgName && editName.trim() !== "" && (
-              <Button size="sm" className="h-7 text-[0.75rem]" onClick={handleSaveName} disabled={savingName}>
+              <Button size="sm" onClick={handleSaveName} disabled={savingName}>
                 {savingName ? "Saving\u2026" : "Save"}
               </Button>
             )}
           </div>
-        </div>
+        </section>
 
-        {/* Search */}
-        <div className="mb-4">
+        {/* Members */}
+        <section className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium text-foreground">Members</h2>
+          </div>
           <Input
             type="text"
             placeholder="Search by name or email..."
             value={search}
             onChange={(e) => setSearch((e.target as HTMLInputElement).value)}
-            className="text-[0.8125rem] h-9"
+            className="mb-3 h-9 text-sm"
           />
-        </div>
 
-        {/* Members */}
         {Result.match(membersResult, {
           onInitial: () => (
             <div className="space-y-2">
@@ -396,15 +398,14 @@ function TeamPage() {
             );
           },
         })}
+        </section>
 
         {/* Domains */}
-        <div className="mt-14">
-          <div className="flex items-end justify-between mb-6">
+        <section>
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="font-display text-xl tracking-tight text-foreground leading-none">
-                Domains
-              </h2>
-              <p className="mt-2 text-[0.8125rem] text-muted-foreground leading-relaxed">
+              <h2 className="text-sm font-medium text-foreground">Domains</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">
                 Verify a domain to let anyone with a matching email join automatically.
               </p>
             </div>
@@ -419,11 +420,11 @@ function TeamPage() {
 
           {!canUseDomains && (
             <div className="mb-3 flex items-center justify-between rounded-lg border border-border px-4 py-3">
-              <p className="text-[0.8125rem] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Domain verification is available on the Professional plan.
               </p>
               <Link to="/billing/plans">
-                <Button size="sm" variant="outline" className="h-7 text-[0.75rem]">
+                <Button size="sm" variant="outline">
                   Upgrade
                 </Button>
               </Link>
@@ -446,19 +447,14 @@ function TeamPage() {
             onSuccess: ({ value }) => {
               if (value.domains.length === 0) {
                 return (
-                  <div className="rounded-lg border border-dashed border-border px-6 py-10 text-center">
-                    <p className="text-[0.8125rem] font-medium text-foreground">
-                      No domains yet
-                    </p>
-                    <p className="mt-1 text-[0.75rem] text-muted-foreground">
-                      Add your company domain so teammates can join without an invite.
-                    </p>
-                  </div>
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No domains yet. Add your company domain so teammates can join without an invite.
+                  </p>
                 );
               }
 
               return (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {value.domains.map((d) => (
                     <DomainCard
                       key={d.id}
@@ -470,7 +466,7 @@ function TeamPage() {
               );
             },
           })}
-        </div>
+        </section>
 
         <InviteDialog
           open={inviteOpen}
@@ -564,7 +560,7 @@ function DomainCard({
       <div className="flex items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className="truncate text-[0.8125rem] font-medium text-foreground leading-none">
+            <p className="truncate text-sm font-medium text-foreground">
               {d.domain}
             </p>
             <Badge
@@ -606,23 +602,23 @@ function DomainCard({
       {!isVerified && d.verificationToken && (
         <div className="border-t border-border px-4 py-3">
           <div className="flex items-center justify-between">
-            <p className="text-[0.75rem] text-muted-foreground leading-none">
+            <p className="text-sm text-muted-foreground">
               Add this TXT record to your DNS provider to verify ownership.
             </p>
             <CopyButton value={copyPromptValue} label="Copy prompt" />
           </div>
           <div className="mt-3 grid grid-cols-[4rem_3.5rem_1fr] items-center gap-y-2">
-            <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Type</p>
-            <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Name</p>
-            <p className="text-[0.75rem] font-medium text-muted-foreground leading-none">Value</p>
-            <p className="text-[0.8125rem] font-mono text-foreground leading-none">TXT</p>
-            <p className="text-[0.8125rem] font-mono text-foreground leading-none">@</p>
+            <p className="text-xs font-medium text-muted-foreground">Type</p>
+            <p className="text-xs font-medium text-muted-foreground">Name</p>
+            <p className="text-xs font-medium text-muted-foreground">Value</p>
+            <p className="text-sm font-mono text-foreground">TXT</p>
+            <p className="text-sm font-mono text-foreground">@</p>
             <span className="inline-flex min-w-0 items-center gap-1">
-              <code className="truncate text-[0.8125rem] font-mono text-foreground leading-none">{recordValue}</code>
+              <code className="truncate text-sm font-mono text-foreground">{recordValue}</code>
               <CopyButton value={recordValue} />
             </span>
           </div>
-          <p className="mt-3 text-[0.75rem] text-muted-foreground leading-none">
+          <p className="mt-3 text-xs text-muted-foreground">
             DNS changes can take up to 72 hours to propagate, but usually complete within a few minutes.
           </p>
         </div>
