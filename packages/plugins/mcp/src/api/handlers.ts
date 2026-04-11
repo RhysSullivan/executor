@@ -236,6 +236,7 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
       Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         yield* ext.updateSource(path.namespace, {
+          name: payload.name,
           endpoint: payload.endpoint,
           headers: payload.headers,
           queryParams: payload.queryParams,

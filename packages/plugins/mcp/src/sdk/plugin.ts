@@ -92,6 +92,7 @@ export interface McpProbeResult {
 }
 
 export interface McpUpdateSourceInput {
+  readonly name?: string;
   readonly endpoint?: string;
   readonly headers?: Record<string, string>;
   readonly queryParams?: Record<string, string>;
@@ -721,7 +722,7 @@ export const mcpPlugin = (options?: {
 
             yield* bindingStore.putSource({
               namespace,
-              name: existingMeta?.name ?? namespace,
+              name: input.name?.trim() || existingMeta?.name || namespace,
               config: updatedConfig,
             });
 

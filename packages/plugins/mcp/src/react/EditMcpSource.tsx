@@ -2,7 +2,16 @@ import { useState } from "react";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
+import {
+  SourceIdentityFields,
+  useSourceIdentity,
+} from "@executor/react/plugins/source-identity";
 import { Button } from "@executor/react/components/button";
+import {
+  CardStack,
+  CardStackContent,
+  CardStackEntryField,
+} from "@executor/react/components/card-stack";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
@@ -30,6 +39,10 @@ function RemoteEditForm(props: {
   const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
   const refreshSource = useAtomRefresh(mcpSourceAtom(scopeId, props.sourceId));
 
+  const identity = useSourceIdentity({
+    fallbackName: props.initial.name,
+    fallbackNamespace: props.initial.namespace,
+  });
   const [endpoint, setEndpoint] = useState(props.initial.config.endpoint);
   const [headerEntries, setHeaderEntries] = useState<HeaderEntry[]>(() =>
     Object.entries(props.initial.config.headers ?? {}).map(([name, value]) => ({
@@ -40,6 +53,8 @@ function RemoteEditForm(props: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+
+  const identityDirty = identity.name.trim() !== props.initial.name.trim();
 
   const updateHeader = (index: number, field: "name" | "value", val: string) => {
     setHeaderEntries((prev) =>
@@ -71,6 +86,7 @@ function RemoteEditForm(props: {
       await doUpdate({
         path: { scopeId, namespace: props.sourceId },
         payload: {
+          name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
           headers: headersObj,
         },
@@ -103,19 +119,24 @@ function RemoteEditForm(props: {
         </Badge>
       </div>
 
+      <SourceIdentityFields identity={identity} namespaceReadOnly />
+
       {/* Endpoint */}
-      <section className="space-y-2">
-        <Label>Endpoint</Label>
-        <Input
-          value={endpoint}
-          onChange={(e) => {
-            setEndpoint((e.target as HTMLInputElement).value);
-            setDirty(true);
-          }}
-          placeholder="https://mcp.example.com"
-          className="font-mono text-sm"
-        />
-      </section>
+      <CardStack>
+        <CardStackContent className="border-t-0">
+          <CardStackEntryField label="Endpoint">
+            <Input
+              value={endpoint}
+              onChange={(e) => {
+                setEndpoint((e.target as HTMLInputElement).value);
+                setDirty(true);
+              }}
+              placeholder="https://mcp.example.com"
+              className="font-mono text-sm"
+            />
+          </CardStackEntryField>
+        </CardStackContent>
+      </CardStack>
 
       {/* Headers */}
       <section className="space-y-2.5">
@@ -159,7 +180,7 @@ function RemoteEditForm(props: {
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={!dirty || saving}>
+        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

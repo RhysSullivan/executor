@@ -70,6 +70,7 @@ const AddSourcePayload = Schema.Union(AddRemoteSourcePayload, AddStdioSourcePayl
 // ---------------------------------------------------------------------------
 
 const UpdateSourcePayload = Schema.Struct({
+  name: Schema.optional(Schema.String),
   endpoint: Schema.optional(Schema.String),
   headers: Schema.optional(StringMap),
   queryParams: Schema.optional(StringMap),
