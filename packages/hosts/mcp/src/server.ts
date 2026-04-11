@@ -168,13 +168,13 @@ export const createExecutorMcpServer = async (
     if (supportsManagedElicitation(server)) {
       const result = await engine.execute(code, {
         onElicitation: makeMcpElicitationHandler(server),
-        trigger: { kind: "mcp-inline" },
+        trigger: { kind: "mcp" },
       });
       return toMcpResult(formatExecuteResult(result));
     }
 
     const outcome = await engine.executeWithPause(code, {
-      trigger: { kind: "mcp-pause" },
+      trigger: { kind: "mcp" },
     });
     return outcome.status === "completed"
       ? toMcpResult(formatExecuteResult(outcome.result))

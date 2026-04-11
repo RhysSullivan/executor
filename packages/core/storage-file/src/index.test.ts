@@ -320,7 +320,7 @@ describe("SqliteExecutionStore", () => {
           status: "waiting_for_interaction",
           code: "return await tools.api.singleApproval({})",
           startedAt: now,
-          triggerKind: "mcp-pause",
+          triggerKind: "mcp",
           createdAt: now,
           updatedAt: now,
         }),
@@ -371,7 +371,7 @@ describe("SqliteExecutionStore", () => {
 
       yield* store.create(makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 30 }));
       yield* store.create(makeExecutionInput({ scopeId, triggerKind: "http", createdAt: now - 20 }));
-      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "mcp-inline", createdAt: now - 10 }));
+      yield* store.create(makeExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 10 }));
       yield* store.create(makeExecutionInput({ scopeId, triggerKind: null, createdAt: now }));
 
       const httpOnly = yield* store.list(scopeId, {
@@ -383,8 +383,56 @@ describe("SqliteExecutionStore", () => {
 
       const all = yield* store.list(scopeId, { limit: 10, includeMeta: true });
       expect(all.meta?.triggerCounts.http).toBe(2);
-      expect(all.meta?.triggerCounts["mcp-inline"]).toBe(1);
+      expect(all.meta?.triggerCounts.mcp).toBe(1);
       expect(all.meta?.triggerCounts.unknown).toBe(1);
+    }).pipe(Effect.provide(TestSqlLayer)),
+  );
+
+  it.effect("filters by hadElicitation and populates interactionCounts", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const store = makeSqliteExecutionStore(sql);
+      const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const now = Date.now();
+
+      const elicited = yield* store.create(
+        makeExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 20 }),
+      );
+      yield* store.create(
+        makeExecutionInput({ scopeId, triggerKind: "mcp", createdAt: now - 10 }),
+      );
+
+      // Record an interaction only on the first run.
+      yield* store.recordInteraction(elicited.id, {
+        executionId: elicited.id,
+        status: "resolved",
+        kind: "form",
+        purpose: "Confirm action",
+        payloadJson: "{}",
+        responseJson: null,
+        responsePrivateJson: null,
+        createdAt: now - 20,
+        updatedAt: now - 15,
+      });
+
+      const withElicit = yield* store.list(scopeId, {
+        limit: 10,
+        hadElicitation: true,
+      });
+      expect(withElicit.executions).toHaveLength(1);
+      expect(withElicit.executions[0]?.id).toBe(elicited.id);
+
+      const withoutElicit = yield* store.list(scopeId, {
+        limit: 10,
+        hadElicitation: false,
+      });
+      expect(withoutElicit.executions).toHaveLength(1);
+      expect(withoutElicit.executions[0]?.id).not.toBe(elicited.id);
+
+      const all = yield* store.list(scopeId, { limit: 10, includeMeta: true });
+      expect(all.meta?.interactionCounts.withElicitation).toBe(1);
+      expect(all.meta?.interactionCounts.withoutElicitation).toBe(1);
     }).pipe(Effect.provide(TestSqlLayer)),
   );
 
@@ -489,6 +537,83 @@ describe("SqliteExecutionStore", () => {
       const afterResult = yield* store.list(scopeId, { limit: 10, after: base - 60 });
       expect(afterResult.executions).toHaveLength(2);
       expect(afterResult.executions.every((e) => e.createdAt > base - 60)).toBe(true);
+    }).pipe(Effect.provide(TestSqlLayer)),
+  );
+
+  it.effect("sort option controls list order by createdAt and durationMs", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
+      const store = makeSqliteExecutionStore(sql);
+      const scopeId = ScopeId.make(`scope-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const now = Date.now();
+
+      // Three executions: oldest+longest, middle+shortest, newest+nulldur.
+      const oldLong = yield* store.create(
+        makeExecutionInput({
+          scopeId,
+          createdAt: now - 300,
+          startedAt: now - 300,
+          completedAt: now - 200,  // duration = 100
+        }),
+      );
+      const midShort = yield* store.create(
+        makeExecutionInput({
+          scopeId,
+          createdAt: now - 200,
+          startedAt: now - 200,
+          completedAt: now - 190,  // duration = 10
+        }),
+      );
+      const newNull = yield* store.create(
+        makeExecutionInput({
+          scopeId,
+          createdAt: now - 100,
+          startedAt: null,
+          completedAt: null,  // duration = null
+        }),
+      );
+
+      // Default sort (createdAt desc) — newest first
+      const defaultSort = yield* store.list(scopeId, { limit: 10 });
+      expect(defaultSort.executions.map((e) => e.id)).toEqual([
+        newNull.id,
+        midShort.id,
+        oldLong.id,
+      ]);
+
+      // createdAt asc — oldest first
+      const createdAtAsc = yield* store.list(scopeId, {
+        limit: 10,
+        sort: { field: "createdAt", direction: "asc" },
+      });
+      expect(createdAtAsc.executions.map((e) => e.id)).toEqual([
+        oldLong.id,
+        midShort.id,
+        newNull.id,
+      ]);
+
+      // durationMs desc — longest first, null to the end
+      const durDesc = yield* store.list(scopeId, {
+        limit: 10,
+        sort: { field: "durationMs", direction: "desc" },
+      });
+      expect(durDesc.executions.map((e) => e.id)).toEqual([
+        oldLong.id,
+        midShort.id,
+        newNull.id,
+      ]);
+
+      // durationMs asc — shortest first, null still to the end
+      const durAsc = yield* store.list(scopeId, {
+        limit: 10,
+        sort: { field: "durationMs", direction: "asc" },
+      });
+      expect(durAsc.executions.map((e) => e.id)).toEqual([
+        midShort.id,
+        oldLong.id,
+        newNull.id,
+      ]);
     }).pipe(Effect.provide(TestSqlLayer)),
   );
 

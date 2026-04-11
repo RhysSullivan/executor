@@ -642,7 +642,7 @@ describe("execution history persistence", () => {
       yield* Effect.promise(() =>
         engine.execute("return 1;", {
           onElicitation: acceptAll,
-          trigger: { kind: "mcp-inline" },
+          trigger: { kind: "mcp" },
         }),
       );
 
@@ -651,7 +651,7 @@ describe("execution history persistence", () => {
         includeMeta: true,
       });
       expect(listed.meta?.triggerCounts.http).toBe(2);
-      expect(listed.meta?.triggerCounts["mcp-inline"]).toBe(1);
+      expect(listed.meta?.triggerCounts.mcp).toBe(1);
       expect(listed.meta?.toolFacets).toHaveLength(1);
       expect(listed.meta?.toolFacets[0]?.toolPath).toBe("api.ping");
       expect(listed.meta?.toolFacets[0]?.count).toBe(1);
