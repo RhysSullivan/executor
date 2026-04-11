@@ -24,6 +24,7 @@ export const toErrorResponse = (error: unknown): Response => {
 };
 
 export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {
+  console.error("[api] toErrorServerResponse error:", error instanceof Error ? error.stack : error);
   const mapped = toHttpResponseError(error);
   return HttpServerResponse.unsafeJson(
     { error: mapped.message, code: mapped.code },

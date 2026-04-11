@@ -128,7 +128,7 @@ const handleMcpRequest_POST = async (request: Request, token: VerifiedToken): Pr
     return await stub.handleRequest(request);
   } catch (err) {
     console.error("[mcp] POST handler error:", err instanceof Error ? err.stack : err);
-    return jsonRpcError(500, -32603, err instanceof Error ? err.message : "Internal server error");
+    return jsonRpcError(500, -32603, "Internal server error");
   }
 };
 

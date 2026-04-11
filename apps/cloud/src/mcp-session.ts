@@ -143,7 +143,7 @@ export class McpSessionDO extends DurableObject {
       return await this.transport.handleRequest(request);
     } catch (err) {
       console.error("[mcp-session] handleRequest error:", err instanceof Error ? err.stack : err);
-      return jsonRpcError(500, -32603, err instanceof Error ? err.message : "Internal error");
+      return jsonRpcError(500, -32603, "Internal error");
     }
   }
 
