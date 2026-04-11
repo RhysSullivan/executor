@@ -30,6 +30,13 @@ const ProbePayload = Schema.Struct({
   discoveryUrl: Schema.String,
 });
 
+const ProbeOperation = Schema.Struct({
+  toolPath: Schema.String,
+  method: Schema.String,
+  pathTemplate: Schema.String,
+  description: Schema.NullOr(Schema.String),
+});
+
 const ProbeResponse = Schema.Struct({
   name: Schema.String,
   title: Schema.NullOr(Schema.String),
@@ -37,6 +44,7 @@ const ProbeResponse = Schema.Struct({
   version: Schema.String,
   toolCount: Schema.Number,
   scopes: Schema.Array(Schema.String),
+  operations: Schema.Array(ProbeOperation),
 });
 
 const AddSourcePayload = Schema.Struct({

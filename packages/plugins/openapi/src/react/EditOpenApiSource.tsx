@@ -4,14 +4,18 @@ import { openApiSourceAtom, updateOpenApiSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  SecretHeaderAuthRow,
   headerValueToState,
   headersFromState,
   type HeaderState,
 } from "@executor/react/plugins/secret-header-auth";
+import { AuthenticationSection } from "@executor/react/plugins/authentication-section";
 import { Button } from "@executor/react/components/button";
+import {
+  CardStack,
+  CardStackContent,
+  CardStackEntryField,
+} from "@executor/react/components/card-stack";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import type { StoredSourceSchemaType } from "../sdk/stored-source";
 
@@ -39,8 +43,8 @@ function EditForm(props: {
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  const updateHeader = (index: number, update: Partial<HeaderState>) => {
-    setHeaders((prev) => prev.map((h, i) => (i === index ? { ...h, ...update } : h)));
+  const handleHeadersChange = (next: HeaderState[]) => {
+    setHeaders(next);
     setDirty(true);
   };
 
@@ -83,49 +87,31 @@ function EditForm(props: {
         </Badge>
       </div>
 
-      <section className="space-y-2">
-        <Label>Base URL</Label>
-        <Input
-          value={baseUrl}
-          onChange={(e) => {
-            setBaseUrl((e.target as HTMLInputElement).value);
-            setDirty(true);
-          }}
-          placeholder="https://api.example.com"
-          className="font-mono text-sm"
-        />
-      </section>
+      <CardStack>
+        <CardStackContent className="border-t-0">
+          <CardStackEntryField label="Base URL">
+            <Input
+              value={baseUrl}
+              onChange={(e) => {
+                setBaseUrl((e.target as HTMLInputElement).value);
+                setDirty(true);
+              }}
+              placeholder="https://api.example.com"
+              className="font-mono text-sm"
+            />
+          </CardStackEntryField>
+        </CardStackContent>
+      </CardStack>
 
-      <section className="space-y-2.5">
-        <Label>Headers</Label>
-        {headers.map((h, i) => (
-          <SecretHeaderAuthRow
-            key={i}
-            name={h.name}
-            prefix={h.prefix}
-            presetKey={h.presetKey}
-            secretId={h.secretId}
-            onChange={(update) => updateHeader(i, update)}
-            onSelectSecret={(secretId) => updateHeader(i, { secretId })}
-            onRemove={() => {
-              setHeaders((prev) => prev.filter((_, j) => j !== i));
-              setDirty(true);
-            }}
-            existingSecrets={secretList}
-          />
-        ))}
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full border-dashed"
-          onClick={() => {
-            setHeaders((prev) => [...prev, { name: "", secretId: null }]);
-            setDirty(true);
-          }}
-        >
-          + Add header
-        </Button>
-      </section>
+      <AuthenticationSection
+        methods={["header"]}
+        value="header"
+        onChange={() => {}}
+        label="Headers"
+        headers={headers}
+        onHeadersChange={handleHeadersChange}
+        existingSecrets={secretList}
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">

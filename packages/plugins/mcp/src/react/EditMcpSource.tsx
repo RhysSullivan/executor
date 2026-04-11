@@ -3,6 +3,11 @@ import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/a
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import {
+  CardStack,
+  CardStackContent,
+  CardStackEntryField,
+} from "@executor/react/components/card-stack";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
@@ -104,18 +109,21 @@ function RemoteEditForm(props: {
       </div>
 
       {/* Endpoint */}
-      <section className="space-y-2">
-        <Label>Endpoint</Label>
-        <Input
-          value={endpoint}
-          onChange={(e) => {
-            setEndpoint((e.target as HTMLInputElement).value);
-            setDirty(true);
-          }}
-          placeholder="https://mcp.example.com"
-          className="font-mono text-sm"
-        />
-      </section>
+      <CardStack>
+        <CardStackContent className="border-t-0">
+          <CardStackEntryField label="Endpoint">
+            <Input
+              value={endpoint}
+              onChange={(e) => {
+                setEndpoint((e.target as HTMLInputElement).value);
+                setDirty(true);
+              }}
+              placeholder="https://mcp.example.com"
+              className="font-mono text-sm"
+            />
+          </CardStackEntryField>
+        </CardStackContent>
+      </CardStack>
 
       {/* Headers */}
       <section className="space-y-2.5">
