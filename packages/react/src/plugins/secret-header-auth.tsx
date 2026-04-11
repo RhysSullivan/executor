@@ -8,7 +8,7 @@ import { Input } from "../components/input";
 import { Label } from "../components/label";
 import { Spinner } from "../components/spinner";
 import { SecretPicker, type SecretPickerSecret } from "./secret-picker";
-import { SecretId } from "@executor/sdk";
+import { SecretId } from "@executor/storage";
 
 export interface HeaderAuthPreset {
   readonly key: string;

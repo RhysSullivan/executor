@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { toolSchemaAtom } from "../api/atoms";
-import { ScopeId, ToolId } from "@executor/sdk";
+import { ScopeId, ToolId } from "@executor/storage";
 import { Button } from "./button";
 import { Markdown } from "./markdown";
 import { SchemaExplorer } from "./schema-explorer";
