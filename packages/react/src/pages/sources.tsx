@@ -188,7 +188,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                     </p>
                   </div>
                 ) : (
-                  <CardStackContent>
+                  <CardStackContent className="max-h-[25rem] overflow-y-auto">
                       {connectedSources.map((s) => (
                         <CardStackEntry
                           key={s.id}
