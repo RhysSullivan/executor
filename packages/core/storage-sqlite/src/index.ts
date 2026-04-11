@@ -137,19 +137,21 @@ const create = <T>(
     const columns = Object.keys(model.fields);
     const query = sql`
       INSERT INTO ${sql.identifier(model.tableName)}
-      (${sql.join(columns.map((field) => sql.identifier(columnName(model.fields[field]!, field))), sql`, `)})
-      VALUES (${sql.join(columns.map((field) => sql`${toDriverValue(model.fields[field]!, row[field])}`), sql`, `)})
+      (${sql.join(
+        columns.map((field) => sql.identifier(columnName(model.fields[field]!, field))),
+        sql`, `,
+      )})
+      VALUES (${sql.join(
+        columns.map((field) => sql`${toDriverValue(model.fields[field]!, row[field])}`),
+        sql`, `,
+      )})
     `;
 
     yield* run(db, args.model, query);
     return fromDriverRow(model, row) as T;
   });
 
-const findOne = <T>(
-  db: SqliteDatabase,
-  schema: ExecutorDBSchema,
-  args: FindOneArgs,
-) =>
+const findOne = <T>(db: SqliteDatabase, schema: ExecutorDBSchema, args: FindOneArgs) =>
   findMany<T>(db, schema, { ...args, limit: 1 }).pipe(Effect.map((rows) => rows[0] ?? null));
 
 const findMany = <T>(
@@ -160,7 +162,14 @@ const findMany = <T>(
   Effect.gen(function* () {
     const model = yield* getModel(schema, args.model);
     yield* validateQuery(model, args.where ?? [], args.sortBy?.field, args.select);
-    const query = selectSql(model, args.where ?? [], args.select, args.sortBy, args.limit, args.offset);
+    const query = selectSql(
+      model,
+      args.where ?? [],
+      args.select,
+      args.sortBy,
+      args.limit,
+      args.offset,
+    );
     const rows = yield* all<Row>(db, args.model, query);
     return rows.map((row: Row) => fromDriverRow(model, row, args.select) as T);
   });
@@ -193,7 +202,11 @@ const updateMany = (
     yield* validateQuery(model, args.where, undefined, undefined);
     const updateFields = Object.keys(args.update);
     for (const field of updateFields) yield* getField(model, field);
-    const result = yield* run(db, args.model, updateSql(model, updateFields, args.update, args.where));
+    const result = yield* run(
+      db,
+      args.model,
+      updateSql(model, updateFields, args.update, args.where),
+    );
     return result.changes;
   });
 
@@ -207,9 +220,13 @@ const deleteOne = (
     yield* validateQuery(model, args.where, undefined, undefined);
     const target = yield* get<Row>(db, args.model, selectRowIdSql(model, args.where));
     if (!target) return false;
-    const result = yield* run(db, args.model, sql`
+    const result = yield* run(
+      db,
+      args.model,
+      sql`
       DELETE FROM ${sql.identifier(model.tableName)} WHERE rowid = ${target.__rowid}
-    `);
+    `,
+    );
     return result.changes > 0;
   });
 
@@ -221,10 +238,14 @@ const deleteMany = (
   Effect.gen(function* () {
     const model = yield* getModel(schema, args.model);
     yield* validateQuery(model, args.where, undefined, undefined);
-    const result = yield* run(db, args.model, sql`
+    const result = yield* run(
+      db,
+      args.model,
+      sql`
       DELETE FROM ${sql.identifier(model.tableName)}
       ${whereSql(model, args.where)}
-    `);
+    `,
+    );
     return result.changes;
   });
 
@@ -236,11 +257,15 @@ const count = (
   Effect.gen(function* () {
     const model = yield* getModel(schema, args.model);
     yield* validateQuery(model, args.where ?? [], undefined, undefined);
-    const row = yield* get<{ count: number }>(db, args.model, sql`
+    const row = yield* get<{ count: number }>(
+      db,
+      args.model,
+      sql`
       SELECT COUNT(*) AS count
       FROM ${sql.identifier(model.tableName)}
       ${whereSql(model, args.where ?? [])}
-    `);
+    `,
+    );
     return row?.count ?? 0;
   });
 
@@ -271,7 +296,11 @@ const materializeRow = (
     for (const [field, attr] of Object.entries(fields)) {
       const value = data[field] ?? evaluateDefault(attr.defaultValue) ?? null;
       if (attr.required && value === null) {
-        return yield* new StorageFieldError({ model, field, message: `Missing required field "${field}"` });
+        return yield* new StorageFieldError({
+          model,
+          field,
+          message: `Missing required field "${field}"`,
+        });
       }
       row[field] = value;
     }
@@ -413,8 +442,14 @@ const inSql = (
     return insensitive && typeof driverValue === "string" ? driverValue.toLowerCase() : driverValue;
   });
   return negate
-    ? sql`${left} NOT IN (${sql.join(values.map((item) => sql`${item}`), sql`, `)})`
-    : sql`${left} IN (${sql.join(values.map((item) => sql`${item}`), sql`, `)})`;
+    ? sql`${left} NOT IN (${sql.join(
+        values.map((item) => sql`${item}`),
+        sql`, `,
+      )})`
+    : sql`${left} IN (${sql.join(
+        values.map((item) => sql`${item}`),
+        sql`, `,
+      )})`;
 };
 
 const orderBySql = (model: ExecutorModelSchema, sortBy: NonNullable<FindManyArgs["sortBy"]>) => {
@@ -466,11 +501,7 @@ const sqliteType = (type: ExecutorFieldType) => {
   }
 };
 
-const fromDriverRow = (
-  model: ExecutorModelSchema,
-  row: Row,
-  select?: readonly string[],
-) => {
+const fromDriverRow = (model: ExecutorModelSchema, row: Row, select?: readonly string[]) => {
   const fields = select ?? Object.keys(model.fields);
   return Object.fromEntries(
     fields.map((field) => [field, fromDriverValue(model.fields[field]!, row[field])]),

@@ -88,7 +88,12 @@ export const executorCoreSchema = {
       mayElicit: { type: "boolean", columnName: "may_elicit", defaultValue: false },
       inputSchema: { type: "json", columnName: "input_schema" },
       outputSchema: { type: "json", columnName: "output_schema" },
-      createdAt: { type: "date", columnName: "created_at", required: true, defaultValue: () => new Date() },
+      createdAt: {
+        type: "date",
+        columnName: "created_at",
+        required: true,
+        defaultValue: () => new Date(),
+      },
     },
   },
   toolDefinitions: {
@@ -113,7 +118,12 @@ export const executorCoreSchema = {
       provider: { type: "string" },
       encryptedValue: { type: "bytes", columnName: "encrypted_value" },
       iv: { type: "bytes" },
-      createdAt: { type: "date", columnName: "created_at", required: true, defaultValue: () => new Date() },
+      createdAt: {
+        type: "date",
+        columnName: "created_at",
+        required: true,
+        defaultValue: () => new Date(),
+      },
     },
   },
   policies: {
@@ -128,7 +138,12 @@ export const executorCoreSchema = {
       matchToolPattern: { type: "string", columnName: "match_tool_pattern" },
       matchSourceId: { type: "string", columnName: "match_source_id" },
       priority: { type: "number", required: true, sortable: true, defaultValue: 0 },
-      createdAt: { type: "date", columnName: "created_at", required: true, defaultValue: () => new Date() },
+      createdAt: {
+        type: "date",
+        columnName: "created_at",
+        required: true,
+        defaultValue: () => new Date(),
+      },
     },
   },
   pluginKv: {
@@ -156,7 +171,9 @@ export const mergeSchemas = (...schemas: readonly ExecutorDBSchema[]): ExecutorD
       }
       const existing = tableToModel.get(model.tableName);
       if (existing) {
-        throw new Error(`Duplicate storage table "${model.tableName}" for ${existing} and ${modelName}`);
+        throw new Error(
+          `Duplicate storage table "${model.tableName}" for ${existing} and ${modelName}`,
+        );
       }
       models[modelName] = model;
       tableToModel.set(model.tableName, modelName);
@@ -164,7 +181,9 @@ export const mergeSchemas = (...schemas: readonly ExecutorDBSchema[]): ExecutorD
   }
 
   const merged = Object.fromEntries(
-    Object.entries(models).sort(([, a], [, b]) => (a.order ?? 0) - (b.order ?? 0) || a.modelName.localeCompare(b.modelName)),
+    Object.entries(models).sort(
+      ([, a], [, b]) => (a.order ?? 0) - (b.order ?? 0) || a.modelName.localeCompare(b.modelName),
+    ),
   );
 
   validateMergedSchema(merged);

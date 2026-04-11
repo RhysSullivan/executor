@@ -105,11 +105,7 @@ const create = <T>(
     return project(row) as T;
   });
 
-const findOne = <T>(
-  schema: ExecutorDBSchema,
-  tables: Map<string, Row[]>,
-  args: FindOneArgs,
-) =>
+const findOne = <T>(schema: ExecutorDBSchema, tables: Map<string, Row[]>, args: FindOneArgs) =>
   findMany<T>(schema, tables, { ...args, limit: 1 }).pipe(Effect.map((rows) => rows[0] ?? null));
 
 const findMany = <T>(
@@ -128,18 +124,17 @@ const findMany = <T>(
     let rows = table(tables, args.model).filter((row) => matchesWhere(row, args.where ?? []));
     if (args.sortBy) {
       const { field, direction } = args.sortBy;
-      rows = [...rows].sort((a, b) => compareValues(a[field], b[field]) * (direction === "asc" ? 1 : -1));
+      rows = [...rows].sort(
+        (a, b) => compareValues(a[field], b[field]) * (direction === "asc" ? 1 : -1),
+      );
     }
     const offset = args.offset ?? 0;
-    const limited = typeof args.limit === "number" ? rows.slice(offset, offset + args.limit) : rows.slice(offset);
+    const limited =
+      typeof args.limit === "number" ? rows.slice(offset, offset + args.limit) : rows.slice(offset);
     return limited.map((row) => project(row, args.select) as T);
   });
 
-const update = <T>(
-  schema: ExecutorDBSchema,
-  tables: Map<string, Row[]>,
-  args: UpdateArgs,
-) =>
+const update = <T>(schema: ExecutorDBSchema, tables: Map<string, Row[]>, args: UpdateArgs) =>
   Effect.gen(function* () {
     const rows = yield* matchingRows(schema, tables, args.model, args.where);
     const row = rows[0];
@@ -150,11 +145,7 @@ const update = <T>(
     return project(row) as T;
   });
 
-const updateMany = (
-  schema: ExecutorDBSchema,
-  tables: Map<string, Row[]>,
-  args: UpdateManyArgs,
-) =>
+const updateMany = (schema: ExecutorDBSchema, tables: Map<string, Row[]>, args: UpdateManyArgs) =>
   Effect.gen(function* () {
     const rows = yield* matchingRows(schema, tables, args.model, args.where);
     const model = yield* getModel(schema, args.model);
@@ -163,18 +154,10 @@ const updateMany = (
     return rows.length;
   });
 
-const deleteOne = (
-  schema: ExecutorDBSchema,
-  tables: Map<string, Row[]>,
-  args: DeleteArgs,
-) =>
+const deleteOne = (schema: ExecutorDBSchema, tables: Map<string, Row[]>, args: DeleteArgs) =>
   deleteMany(schema, tables, args).pipe(Effect.map((deleted) => deleted > 0));
 
-const deleteMany = (
-  schema: ExecutorDBSchema,
-  tables: Map<string, Row[]>,
-  args: DeleteManyArgs,
-) =>
+const deleteMany = (schema: ExecutorDBSchema, tables: Map<string, Row[]>, args: DeleteManyArgs) =>
   Effect.gen(function* () {
     const model = yield* getModel(schema, args.model);
     yield* validateWhere(model.fields, args.model, args.where);
@@ -185,12 +168,10 @@ const deleteMany = (
     return deleted;
   });
 
-const count = (
-  schema: ExecutorDBSchema,
-  tables: Map<string, Row[]>,
-  args: CountArgs,
-) =>
-  findMany(schema, tables, { model: args.model, where: args.where }).pipe(Effect.map((rows) => rows.length));
+const count = (schema: ExecutorDBSchema, tables: Map<string, Row[]>, args: CountArgs) =>
+  findMany(schema, tables, { model: args.model, where: args.where }).pipe(
+    Effect.map((rows) => rows.length),
+  );
 
 const matchingRows = (
   schema: ExecutorDBSchema,
@@ -219,7 +200,11 @@ const materializeRow = (
     for (const [field, attr] of Object.entries(fields)) {
       const value = data[field] ?? evaluateDefault(attr.defaultValue);
       if (attr.required && (value === undefined || value === null)) {
-        return yield* new StorageFieldError({ model, field, message: `Missing required field "${field}"` });
+        return yield* new StorageFieldError({
+          model,
+          field,
+          message: `Missing required field "${field}"`,
+        });
       }
       if (value !== undefined) row[field] = cloneValue(value);
     }
@@ -293,7 +278,10 @@ const evalInsensitive = (left: unknown, right: unknown, operator: Where["operato
   const normalize = (value: unknown) => (typeof value === "string" ? value.toLowerCase() : value);
   const normalizedLeft = normalize(left);
   const normalizedRight = Array.isArray(right) ? right.map(normalize) : normalize(right);
-  return evalWhere({ value: normalizedLeft }, { field: "value", operator, value: normalizedRight as Where["value"] });
+  return evalWhere(
+    { value: normalizedLeft },
+    { field: "value", operator, value: normalizedRight as Where["value"] },
+  );
 };
 
 const compareScalar = (left: unknown, right: unknown): number => {

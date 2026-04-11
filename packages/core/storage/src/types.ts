@@ -102,9 +102,7 @@ export interface ExecutorStorage {
 
   readonly create: <T = unknown>(args: CreateArgs) => Effect.Effect<T, StorageError>;
   readonly findOne: <T = unknown>(args: FindOneArgs) => Effect.Effect<T | null, StorageError>;
-  readonly findMany: <T = unknown>(
-    args: FindManyArgs,
-  ) => Effect.Effect<readonly T[], StorageError>;
+  readonly findMany: <T = unknown>(args: FindManyArgs) => Effect.Effect<readonly T[], StorageError>;
   readonly update: <T = unknown>(args: UpdateArgs) => Effect.Effect<T | null, StorageError>;
   readonly updateMany: (args: UpdateManyArgs) => Effect.Effect<number, StorageError>;
   readonly delete: (args: DeleteArgs) => Effect.Effect<boolean, StorageError>;

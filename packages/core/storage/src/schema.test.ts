@@ -1,7 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { composeExecutorSchema, executorCoreSchema, getField, getModel, mergeSchemas } from "./index";
+import {
+  composeExecutorSchema,
+  executorCoreSchema,
+  getField,
+  getModel,
+  mergeSchemas,
+} from "./index";
 
 describe("storage schema helpers", () => {
   it("merges schemas, composes plugin schemas, and rejects duplicate models", () => {

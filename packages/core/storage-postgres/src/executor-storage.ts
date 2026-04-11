@@ -115,20 +115,26 @@ const create = <T>(
     const model = yield* getModel(schema, args.model);
     const row = yield* materializeRow(model.fields, args.model, args.data);
     const columns = Object.keys(model.fields);
-    const inserted = yield* rows<Row>(db, args.model, sql`
+    const inserted = yield* rows<Row>(
+      db,
+      args.model,
+      sql`
       INSERT INTO ${sql.identifier(model.tableName)}
-      (${sql.join(columns.map((field) => sql.identifier(columnName(model.fields[field]!, field))), sql`, `)})
-      VALUES (${sql.join(columns.map((field) => driverValueSql(model.fields[field]!, row[field])), sql`, `)})
+      (${sql.join(
+        columns.map((field) => sql.identifier(columnName(model.fields[field]!, field))),
+        sql`, `,
+      )})
+      VALUES (${sql.join(
+        columns.map((field) => driverValueSql(model.fields[field]!, row[field])),
+        sql`, `,
+      )})
       RETURNING ${selectColumnsSql(model)}
-    `);
+    `,
+    );
     return fromDriverRow(model, inserted[0] ?? row) as T;
   });
 
-const findOne = <T>(
-  db: DrizzleDb,
-  schema: ExecutorDBSchema,
-  args: FindOneArgs,
-) =>
+const findOne = <T>(db: DrizzleDb, schema: ExecutorDBSchema, args: FindOneArgs) =>
   findMany<T>(db, schema, { ...args, limit: 1 }).pipe(Effect.map((items) => items[0] ?? null));
 
 const findMany = <T>(
@@ -157,7 +163,11 @@ const update = <T>(
     yield* validateQuery(model, args.where, undefined, undefined);
     const updateFields = Object.keys(args.update);
     for (const field of updateFields) yield* getField(model, field);
-    const updated = yield* rows<Row>(db, args.model, updateSql(model, updateFields, args.update, args.where, 1));
+    const updated = yield* rows<Row>(
+      db,
+      args.model,
+      updateSql(model, updateFields, args.update, args.where, 1),
+    );
     return updated[0] ? (fromDriverRow(model, updated[0]) as T) : null;
   });
 
@@ -171,7 +181,11 @@ const updateMany = (
     yield* validateQuery(model, args.where, undefined, undefined);
     const updateFields = Object.keys(args.update);
     for (const field of updateFields) yield* getField(model, field);
-    const updated = yield* rows<Row>(db, args.model, updateSql(model, updateFields, args.update, args.where));
+    const updated = yield* rows<Row>(
+      db,
+      args.model,
+      updateSql(model, updateFields, args.update, args.where),
+    );
     return updated.length;
   });
 
@@ -207,11 +221,15 @@ const count = (
   Effect.gen(function* () {
     const model = yield* getModel(schema, args.model);
     yield* validateQuery(model, args.where ?? [], undefined, undefined);
-    const counted = yield* rows<{ count: string | number }>(db, args.model, sql`
+    const counted = yield* rows<{ count: string | number }>(
+      db,
+      args.model,
+      sql`
       SELECT COUNT(*) AS count
       FROM ${sql.identifier(model.tableName)}
       ${whereSql(model, args.where ?? [])}
-    `);
+    `,
+    );
     return Number(counted[0]?.count ?? 0);
   });
 
@@ -242,7 +260,11 @@ const materializeRow = (
     for (const [field, attr] of Object.entries(fields)) {
       const value = data[field] ?? evaluateDefault(attr.defaultValue) ?? null;
       if (attr.required && value === null) {
-        return yield* new StorageFieldError({ model, field, message: `Missing required field "${field}"` });
+        return yield* new StorageFieldError({
+          model,
+          field,
+          message: `Missing required field "${field}"`,
+        });
       }
       row[field] = value;
     }
@@ -388,8 +410,14 @@ const inSql = (
     return insensitive && typeof driverValue === "string" ? driverValue.toLowerCase() : driverValue;
   });
   return negate
-    ? sql`${left} NOT IN (${sql.join(values.map((item) => sql`${item}`), sql`, `)})`
-    : sql`${left} IN (${sql.join(values.map((item) => sql`${item}`), sql`, `)})`;
+    ? sql`${left} NOT IN (${sql.join(
+        values.map((item) => sql`${item}`),
+        sql`, `,
+      )})`
+    : sql`${left} IN (${sql.join(
+        values.map((item) => sql`${item}`),
+        sql`, `,
+      )})`;
 };
 
 const orderBySql = (model: ExecutorModelSchema, sortBy: NonNullable<FindManyArgs["sortBy"]>) => {
@@ -444,11 +472,7 @@ const postgresType = (type: ExecutorFieldType) => {
   }
 };
 
-const fromDriverRow = (
-  model: ExecutorModelSchema,
-  row: Row,
-  select?: readonly string[],
-) => {
+const fromDriverRow = (model: ExecutorModelSchema, row: Row, select?: readonly string[]) => {
   const fields = select ?? Object.keys(model.fields);
   return Object.fromEntries(
     fields.map((field) => [field, fromDriverValue(model.fields[field]!, row[field])]),
