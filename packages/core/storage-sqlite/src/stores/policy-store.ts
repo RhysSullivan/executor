@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { and, desc, eq } from "drizzle-orm";
 
-import { StoreQueryError, policyToRow, rowToPolicy, type PolicyStore } from "@executor/storage";
-import type { Policy, PolicyId, ScopeId } from "@executor/storage";
+import { StoreQueryError, policyToRow, rowToPolicy, type PolicyStore } from "@executor/sdk";
+import type { Policy, PolicyId, ScopeId } from "@executor/sdk";
 
 import type { DrizzleDb } from "../db";
 import { policies } from "../schema";

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { createPolicyStoreContract } from "@executor/storage/testing";
+import { createPolicyStoreContract } from "@executor/sdk/testing";
 import { createPgliteDb } from "../testing/pglite";
 import { makePostgresPolicyStore } from "./policy-store";
 

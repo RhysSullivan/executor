@@ -1,21 +1,15 @@
 // ---------------------------------------------------------------------------
-// makePostgresServices — assemble all services from Postgres-backed stores.
+// makePostgresStores — assemble all stores from a Postgres Drizzle instance.
 //
 // Migrations are NOT run here. Callers are responsible for running migrations
 // externally before invoking this factory. For PGlite-based tests, use
 // src/testing/pglite.ts which runs migrations automatically via drizzle-kit.
+//
+// Returns plain `ToolStore` / `SecretStore` / `PolicyStore` / `PluginKvStore`
+// instances. Callers pass the bundle into `createExecutor({ scope, stores, ... })`.
 // ---------------------------------------------------------------------------
 
-import { Effect } from "effect";
-import {
-  makeInMemorySourceRegistry,
-  makeToolRegistry,
-  makeSecretManager,
-  makePolicyEngine,
-  makePluginKvFactory,
-  type Scope,
-  type SecretProvider,
-} from "@executor/storage";
+import type { ExecutorStores } from "@executor/sdk";
 
 import type { DrizzleDb } from "./db";
 import {
@@ -25,27 +19,9 @@ import {
   makePostgresPluginKvStore,
 } from "./stores";
 
-export interface PostgresServicesOptions {
-  readonly scope: Scope;
-  readonly encryptionKey: string;
-  readonly secretProviders?: readonly SecretProvider[];
-}
-
-export const makePostgresServices = (db: DrizzleDb, options: PostgresServicesOptions) =>
-  Effect.gen(function* () {
-    const toolStore = makePostgresToolStore(db);
-    const secretStore = makePostgresSecretStore(db);
-    const policyStore = makePostgresPolicyStore(db);
-    const pluginKvStore = makePostgresPluginKvStore(db);
-
-    return {
-      tools: makeToolRegistry(toolStore, options.scope),
-      sources: makeInMemorySourceRegistry(),
-      secrets: makeSecretManager(secretStore, options.scope, {
-        encryptionKey: options.encryptionKey,
-        providers: options.secretProviders ?? [],
-      }),
-      policies: makePolicyEngine(policyStore, options.scope),
-      pluginKv: makePluginKvFactory(pluginKvStore, options.scope),
-    };
-  });
+export const makePostgresStores = (db: DrizzleDb): ExecutorStores => ({
+  tools: makePostgresToolStore(db),
+  secrets: makePostgresSecretStore(db),
+  policies: makePostgresPolicyStore(db),
+  pluginKv: makePostgresPluginKvStore(db),
+});

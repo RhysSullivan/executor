@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { createPluginKvStoreContract } from "@executor/storage/testing";
+import { createPluginKvStoreContract } from "@executor/sdk/testing";
 import { createInMemorySqliteDb } from "../testing/in-memory-db";
 import { makeSqlitePluginKvStore } from "./plugin-kv-store";
 

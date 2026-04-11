@@ -1,6 +1,7 @@
 import { Effect } from "effect";
-import { ScopeId, Scope, type SecretProvider } from "@executor/storage";
-import { makeInMemorySqliteServices } from "../index";
+import { ScopeId, Scope, type SecretProvider } from "@executor/sdk";
+
+import { makeInMemorySqliteStores } from "../index";
 
 export interface InMemoryConfigOptions {
   readonly cwd?: string;
@@ -9,20 +10,25 @@ export interface InMemoryConfigOptions {
   readonly secretProviders?: readonly SecretProvider[];
 }
 
+/**
+ * Build a fully-spreadable executor config bundle backed by an in-memory
+ * SQLite database. Returns `{ scope, stores, encryptionKey, secretProviders }`
+ * ready to spread into `createExecutor({ ...config, plugins })`.
+ */
 export const makeInMemoryConfig = (options?: InMemoryConfigOptions) =>
-  Effect.gen(function* () {
+  Effect.sync(() => {
     const cwd = options?.cwd ?? "/memory";
     const scope = new Scope({
       id: ScopeId.make(options?.scopeId ?? "memory-scope"),
       name: cwd,
       createdAt: new Date(),
     });
-    const services = yield* makeInMemorySqliteServices({
+    return {
       scope,
+      stores: makeInMemorySqliteStores(),
       encryptionKey: options?.encryptionKey ?? "memory-default-key",
       secretProviders: options?.secretProviders,
-    });
-    return { scope, ...services };
+    };
   });
 
-export { makeInMemorySqliteServices } from "../index";
+export { makeInMemorySqliteStores } from "../index";

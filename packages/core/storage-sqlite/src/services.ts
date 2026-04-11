@@ -1,13 +1,11 @@
-import { Effect } from "effect";
-import {
-  makeInMemorySourceRegistry,
-  makeToolRegistry,
-  makeSecretManager,
-  makePolicyEngine,
-  makePluginKvFactory,
-  type Scope,
-  type SecretProvider,
-} from "@executor/storage";
+// ---------------------------------------------------------------------------
+// makeSqliteStores — assemble all stores from a SQLite Drizzle instance.
+//
+// Returns plain store implementations. Callers pass the bundle into
+// `createExecutor({ scope, stores, ... })`, which wraps them into services.
+// ---------------------------------------------------------------------------
+
+import type { ExecutorStores } from "@executor/sdk";
 
 import type { DrizzleDb } from "./db";
 import {
@@ -17,27 +15,9 @@ import {
   makeSqlitePluginKvStore,
 } from "./stores";
 
-export interface SqliteServicesOptions {
-  readonly scope: Scope;
-  readonly encryptionKey: string;
-  readonly secretProviders?: readonly SecretProvider[];
-}
-
-export const makeSqliteServices = (db: DrizzleDb, options: SqliteServicesOptions) =>
-  Effect.gen(function* () {
-    const toolStore = makeSqliteToolStore(db);
-    const secretStore = makeSqliteSecretStore(db);
-    const policyStore = makeSqlitePolicyStore(db);
-    const pluginKvStore = makeSqlitePluginKvStore(db);
-
-    return {
-      tools: makeToolRegistry(toolStore, options.scope),
-      sources: makeInMemorySourceRegistry(),
-      secrets: makeSecretManager(secretStore, options.scope, {
-        encryptionKey: options.encryptionKey,
-        providers: options.secretProviders ?? [],
-      }),
-      policies: makePolicyEngine(policyStore, options.scope),
-      pluginKv: makePluginKvFactory(pluginKvStore, options.scope),
-    };
-  });
+export const makeSqliteStores = (db: DrizzleDb): ExecutorStores => ({
+  tools: makeSqliteToolStore(db),
+  secrets: makeSqliteSecretStore(db),
+  policies: makeSqlitePolicyStore(db),
+  pluginKv: makeSqlitePluginKvStore(db),
+});

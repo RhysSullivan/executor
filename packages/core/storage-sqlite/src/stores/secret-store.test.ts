@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { createSecretStoreContract } from "@executor/storage/testing";
+import { createSecretStoreContract } from "@executor/sdk/testing";
 import { createInMemorySqliteDb } from "../testing/in-memory-db";
 import { makeSqliteSecretStore } from "./secret-store";
 

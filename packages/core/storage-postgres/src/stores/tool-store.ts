@@ -6,8 +6,8 @@ import {
   toolRegistrationToRow,
   StoreQueryError,
   type ToolStore,
-} from "@executor/storage";
-import type { ScopeId, ToolId } from "@executor/storage";
+} from "@executor/sdk";
+import type { ScopeId, ToolId } from "@executor/sdk";
 
 import type { DrizzleDb } from "../db";
 import { tools, toolDefinitions } from "../schema";

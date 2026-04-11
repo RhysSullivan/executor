@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { StoreQueryError, type PluginKvStore } from "@executor/storage";
-import type { KvEntry, ScopeId } from "@executor/storage";
+import { StoreQueryError, type PluginKvStore } from "@executor/sdk";
+import type { KvEntry, ScopeId } from "@executor/sdk";
 
 import type { DrizzleDb } from "../db";
 import { pluginKv } from "../schema";

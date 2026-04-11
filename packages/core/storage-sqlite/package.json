@@ -15,7 +15,7 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@executor/storage": "workspace:*",
+    "@executor/sdk": "workspace:*",
     "drizzle-orm": "catalog:",
     "effect": "catalog:"
   },

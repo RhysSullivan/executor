@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { and, eq } from "drizzle-orm";
 
-import { StoreQueryError, type SecretStore, type SecretRow } from "@executor/storage";
-import type { SecretId, ScopeId } from "@executor/storage";
+import { StoreQueryError, type SecretStore, type SecretRow } from "@executor/sdk";
+import type { SecretId, ScopeId } from "@executor/sdk";
 
 import type { DrizzleDb } from "../db";
 import { secrets } from "../schema";

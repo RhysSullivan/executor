@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { createPluginKvStoreContract } from "@executor/storage/testing";
+import { createPluginKvStoreContract } from "@executor/sdk/testing";
 import { createPgliteDb } from "../testing/pglite";
 import { makePostgresPluginKvStore } from "./plugin-kv-store";
 
