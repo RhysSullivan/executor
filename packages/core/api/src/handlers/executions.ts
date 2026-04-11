@@ -3,7 +3,13 @@ import { Effect } from "effect";
 
 import { ExecutorApi } from "../api";
 import { formatExecuteResult, formatPausedExecution } from "@executor/execution";
-import { ExecutionId, type ExecutionStatus } from "@executor/sdk";
+import {
+  ExecutionId,
+  type ExecutionSort,
+  type ExecutionSortDirection,
+  type ExecutionSortField,
+  type ExecutionStatus,
+} from "@executor/sdk";
 import { ExecutionEngineService, ExecutorService } from "../services";
 
 const EXECUTION_STATUSES = new Set<ExecutionStatus>([
@@ -14,6 +20,37 @@ const EXECUTION_STATUSES = new Set<ExecutionStatus>([
   "failed",
   "cancelled",
 ]);
+
+const SORT_FIELDS = new Set<ExecutionSortField>(["createdAt", "durationMs"]);
+const SORT_DIRECTIONS = new Set<ExecutionSortDirection>(["asc", "desc"]);
+
+/**
+ * Parse a sort expression like `"createdAt,desc"` into an
+ * `ExecutionSort` object. Returns `undefined` if the input is missing,
+ * malformed, or references an unknown field/direction.
+ */
+const parseSortParam = (value: string | undefined): ExecutionSort | undefined => {
+  if (!value) return undefined;
+  const [rawField, rawDirection] = value.split(",");
+  if (!rawField || !rawDirection) return undefined;
+  if (!SORT_FIELDS.has(rawField as ExecutionSortField)) return undefined;
+  if (!SORT_DIRECTIONS.has(rawDirection as ExecutionSortDirection)) return undefined;
+  return {
+    field: rawField as ExecutionSortField,
+    direction: rawDirection as ExecutionSortDirection,
+  };
+};
+
+/**
+ * Parse the `elicitation` URL param into a tri-state boolean used by
+ * the `hadElicitation` filter. `"true"` → `true`, `"false"` → `false`,
+ * anything else (including `undefined`) → `undefined` (no filter).
+ */
+const parseElicitationParam = (value: string | undefined): boolean | undefined => {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
+};
 
 export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions", (handlers) =>
   handlers
@@ -36,6 +73,8 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
         // client can pin it without refetching on scroll. Live mode
         // refetches with ?after= and also skips meta — no chart rebucket.
         const includeMeta = urlParams.cursor === undefined && urlParams.after === undefined;
+        const sort = parseSortParam(urlParams.sort);
+        const hadElicitation = parseElicitationParam(urlParams.elicitation);
         const result = yield* executor.executions.list(executor.scope.id, {
           limit: Math.max(1, Math.min(urlParams.limit ?? 25, 100)),
           cursor: urlParams.cursor,
@@ -51,6 +90,8 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
                 }
               : undefined,
           codeQuery: urlParams.code,
+          sort,
+          hadElicitation,
           includeMeta,
         });
 

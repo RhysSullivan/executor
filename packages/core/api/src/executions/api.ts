@@ -64,6 +64,18 @@ const ListExecutionsParams = Schema.Struct({
   to: Schema.optional(Schema.NumberFromString),
   after: Schema.optional(Schema.NumberFromString),
   code: Schema.optional(Schema.String),
+  /**
+   * Sort expression in `"<field>,<direction>"` format.
+   * Supported fields: `createdAt` (default), `durationMs`.
+   * Directions: `asc`, `desc` (default for createdAt).
+   */
+  sort: Schema.optional(Schema.String),
+  /**
+   * Filter by whether the run recorded at least one elicitation.
+   * `"true"` → elicited runs only, `"false"` → autonomous runs only,
+   * omitted → no filter.
+   */
+  elicitation: Schema.optional(Schema.String),
 });
 
 const ExecutionChartBucket = Schema.Struct({
@@ -96,6 +108,10 @@ const ExecutionListMeta = Schema.Struct({
   }),
   triggerCounts: Schema.Record({ key: Schema.String, value: Schema.Number }),
   toolFacets: Schema.Array(ExecutionToolFacet),
+  interactionCounts: Schema.Struct({
+    withElicitation: Schema.Number,
+    withoutElicitation: Schema.Number,
+  }),
 });
 
 const ListExecutionsResponse = Schema.Struct({

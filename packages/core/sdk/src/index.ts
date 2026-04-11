@@ -72,6 +72,7 @@ export {
   pickChartBucketMs,
   buildExecutionListMeta,
   matchToolPathPattern,
+  pickExecutionSorter,
   type CreateExecutionInput,
   type UpdateExecutionInput,
   type CreateExecutionInteractionInput,
@@ -84,6 +85,9 @@ export {
   type ExecutionChartBucket,
   type ExecutionToolFacet,
   type BuildExecutionListMetaInput,
+  type ExecutionSort,
+  type ExecutionSortField,
+  type ExecutionSortDirection,
 } from "./executions";
 
 // Scope

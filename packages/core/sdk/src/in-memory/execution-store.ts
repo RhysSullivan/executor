@@ -6,6 +6,7 @@ import {
   ExecutionToolCall,
   buildExecutionListMeta,
   matchToolPathPattern,
+  pickExecutionSorter,
   type CreateExecutionInput,
   type CreateExecutionInteractionInput,
   type CreateExecutionToolCallInput,
@@ -48,12 +49,6 @@ const decodeCursor = (
   }
 };
 
-const compareExecutionOrder = (left: Execution, right: Execution): number => {
-  if (left.createdAt !== right.createdAt) {
-    return right.createdAt - left.createdAt;
-  }
-  return right.id.localeCompare(left.id);
-};
 
 export const makeInMemoryExecutionStore = () => {
   const executions = new Map<ExecutionId, Execution>();
@@ -69,6 +64,11 @@ export const makeInMemoryExecutionStore = () => {
     [...toolCalls.values()]
       .filter((call) => call.executionId === executionId)
       .map((call) => call.toolPath);
+
+  const hasInteraction = (executionId: ExecutionId): boolean =>
+    [...interactions.values()].some(
+      (interaction) => interaction.executionId === executionId,
+    );
 
   const matchesFilters = (
     execution: Execution,
@@ -107,6 +107,10 @@ export const makeInMemoryExecutionStore = () => {
       if (!any) return false;
     }
 
+    if (options.hadElicitation !== undefined) {
+      if (options.hadElicitation !== hasInteraction(execution.id)) return false;
+    }
+
     return true;
   };
 
@@ -142,14 +146,13 @@ export const makeInMemoryExecutionStore = () => {
         );
         const filtered = inScope
           .filter((execution) => matchesFilters(execution, options))
-          .sort(compareExecutionOrder);
+          .sort(pickExecutionSorter(options.sort));
 
+        // Cursor-by-id: since `filtered` is always sorted stably, we can
+        // locate the cursor row by its id regardless of sort order.
         const cursor = options.cursor ? decodeCursor(options.cursor) : null;
         const startIndex = cursor
-          ? filtered.findIndex(
-              (execution) =>
-                execution.createdAt === cursor.createdAt && execution.id === cursor.id,
-            ) + 1
+          ? filtered.findIndex((execution) => execution.id === cursor.id) + 1
           : 0;
         const page = filtered.slice(
           Math.max(0, startIndex),
@@ -176,11 +179,18 @@ export const makeInMemoryExecutionStore = () => {
               );
             }
           }
+          const executionIdsWithInteractions = new Set<ExecutionId>();
+          for (const interaction of interactions.values()) {
+            if (filteredIds.has(interaction.executionId)) {
+              executionIdsWithInteractions.add(interaction.executionId);
+            }
+          }
           meta = buildExecutionListMeta({
             filtered,
             timeRange: options.timeRange,
             totalRowCount: inScope.length,
             toolPathCounts,
+            executionIdsWithInteractions,
           });
         }
 

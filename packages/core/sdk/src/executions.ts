@@ -29,7 +29,9 @@ export class Execution extends Schema.Class<Execution>("Execution")({
   completedAt: Schema.NullOr(Schema.Number),
   /**
    * Label identifying which execution entry point started this run —
-   * `"mcp-inline"`, `"mcp-pause"`, `"http"`, `"cli"`, `"test"`, etc.
+   * `"mcp"`, `"http"`, `"cli"`, `"test"`, etc. Whether an `mcp` run
+   * actually elicited the user is tracked separately via the
+   * `hadElicitation` filter (derived from `execution_interactions`).
    * Null for rows recorded before this field existed (migration 0003).
    */
   triggerKind: Schema.NullOr(Schema.String),
@@ -126,6 +128,17 @@ export type UpdateExecutionToolCallInput = Partial<
   >
 >;
 
+/**
+ * Supported sort field for the executions list. Kept narrow — only
+ * numeric / ordinal fields where sort order has intuitive meaning.
+ */
+export type ExecutionSortField = "createdAt" | "durationMs";
+export type ExecutionSortDirection = "asc" | "desc";
+export interface ExecutionSort {
+  readonly field: ExecutionSortField;
+  readonly direction: ExecutionSortDirection;
+}
+
 export interface ExecutionListOptions {
   readonly limit: number;
   readonly cursor?: string;
@@ -143,11 +156,28 @@ export interface ExecutionListOptions {
   };
   readonly codeQuery?: string;
   /**
+   * Filter by whether the execution recorded at least one
+   * {@link ExecutionInteraction}. `true` → only runs that elicited
+   * the user. `false` → only runs that didn't. Omitted → no filter.
+   *
+   * Used by the /runs "Interactions" facet to separate autonomous
+   * runs from ones that paused for user input, independent of the
+   * `triggerKind` (which just records *who started* the run).
+   */
+  readonly hadElicitation?: boolean;
+  /**
    * Live-mode floor: return only rows with `createdAt > after`. Used
    * by the `/runs` UI's live mode to fetch rows newer than the most
    * recent one we already have without duplicating the page window.
    */
   readonly after?: number;
+  /**
+   * Sort order for the page. Defaults to `{ field: "createdAt",
+   * direction: "desc" }` when omitted (newest runs first). Stores that
+   * implement this option should respect it for the page itself AND
+   * for the filtered superset used to compute `meta`.
+   */
+  readonly sort?: ExecutionSort;
   /**
    * When true, the store computes and returns {@link ExecutionListMeta}
    * alongside the page. Typically requested only on the first page
@@ -194,6 +224,16 @@ export interface ExecutionListMeta {
   readonly triggerCounts: Readonly<Record<string, number>>;
   /** Top-N tool paths by invocation count across the filtered set. */
   readonly toolFacets: readonly ExecutionToolFacet[];
+  /**
+   * Count of runs in the filtered set split by whether they recorded
+   * any {@link ExecutionInteraction}. Used to populate the /runs
+   * "Interactions" facet — `withElicitation + withoutElicitation`
+   * should equal `filterRowCount`.
+   */
+  readonly interactionCounts: {
+    readonly withElicitation: number;
+    readonly withoutElicitation: number;
+  };
 }
 
 export const EXECUTION_STATUS_KEYS = [
@@ -246,6 +286,14 @@ export interface BuildExecutionListMetaInput {
    * data yet.
    */
   readonly toolPathCounts?: ReadonlyMap<string, number>;
+  /**
+   * Set of execution IDs from the *filtered* set that have at least
+   * one recorded {@link ExecutionInteraction}. Used to compute
+   * `meta.interactionCounts`. Stores pass this in from a separate
+   * query against `execution_interactions`; defaults to empty if
+   * omitted (implying no elicitation was used).
+   */
+  readonly executionIdsWithInteractions?: ReadonlySet<ExecutionId>;
 }
 
 const TRIGGER_KIND_UNKNOWN = "unknown";
@@ -258,7 +306,13 @@ const TRIGGER_KIND_UNKNOWN = "unknown";
 export const buildExecutionListMeta = (
   input: BuildExecutionListMetaInput,
 ): ExecutionListMeta => {
-  const { filtered, timeRange, totalRowCount, toolPathCounts } = input;
+  const {
+    filtered,
+    timeRange,
+    totalRowCount,
+    toolPathCounts,
+    executionIdsWithInteractions,
+  } = input;
   const filterRowCount = filtered.length;
 
   const statusCounts: Record<ExecutionStatus, number> = {
@@ -270,11 +324,19 @@ export const buildExecutionListMeta = (
     cancelled: 0,
   };
   const triggerCounts: Record<string, number> = {};
+  let withElicitation = 0;
   for (const execution of filtered) {
     statusCounts[execution.status] += 1;
     const key = execution.triggerKind ?? TRIGGER_KIND_UNKNOWN;
     triggerCounts[key] = (triggerCounts[key] ?? 0) + 1;
+    if (executionIdsWithInteractions?.has(execution.id)) {
+      withElicitation += 1;
+    }
   }
+  const interactionCounts = {
+    withElicitation,
+    withoutElicitation: filterRowCount - withElicitation,
+  };
 
   const toolFacets: ExecutionToolFacet[] = toolPathCounts
     ? [...toolPathCounts.entries()]
@@ -292,6 +354,7 @@ export const buildExecutionListMeta = (
       statusCounts,
       triggerCounts,
       toolFacets,
+      interactionCounts,
     };
   }
 
@@ -339,6 +402,7 @@ export const buildExecutionListMeta = (
     statusCounts,
     triggerCounts,
     toolFacets,
+    interactionCounts,
   };
 };
 
@@ -353,6 +417,47 @@ export const matchToolPathPattern = (toolPath: string, pattern: string): boolean
     return toolPath.startsWith(prefix);
   }
   return false;
+};
+
+// ---------------------------------------------------------------------------
+// Execution comparators — shared sort logic for all stores
+// ---------------------------------------------------------------------------
+
+const computeDuration = (execution: Execution): number | null => {
+  if (execution.startedAt === null || execution.completedAt === null) return null;
+  return Math.max(0, execution.completedAt - execution.startedAt);
+};
+
+/**
+ * Comparator suitable for `Array.prototype.sort`. Returns `< 0` when
+ * `a` should come before `b`. Tie-breaks on `id` DESC for stable
+ * ordering. Rows with `null` duration sort to the end regardless of
+ * direction.
+ */
+export const pickExecutionSorter = (
+  sort: ExecutionSort | undefined,
+): ((a: Execution, b: Execution) => number) => {
+  if (!sort || sort.field === "createdAt") {
+    const ascending = sort?.direction === "asc";
+    return (a, b) => {
+      const delta = a.createdAt - b.createdAt;
+      if (delta !== 0) return ascending ? delta : -delta;
+      return b.id.localeCompare(a.id);
+    };
+  }
+
+  // durationMs
+  const ascending = sort.direction === "asc";
+  return (a, b) => {
+    const da = computeDuration(a);
+    const db = computeDuration(b);
+    if (da === null && db === null) return b.id.localeCompare(a.id);
+    if (da === null) return 1;
+    if (db === null) return -1;
+    const delta = da - db;
+    if (delta !== 0) return ascending ? delta : -delta;
+    return b.id.localeCompare(a.id);
+  };
 };
 
 export class ExecutionStore extends Context.Tag("@executor/sdk/ExecutionStore")<
