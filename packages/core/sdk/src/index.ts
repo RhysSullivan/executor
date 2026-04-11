@@ -1,5 +1,12 @@
 // IDs
-export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
+export {
+  ScopeId,
+  ToolId,
+  SecretId,
+  PolicyId,
+  ExecutionId,
+  ExecutionInteractionId,
+} from "./ids";
 
 // Errors
 export {
@@ -51,6 +58,26 @@ export { SecretRef, SetSecretInput, SecretStore, type SecretProvider } from "./s
 // Policies
 export { Policy, PolicyAction, PolicyCheckInput, PolicyEngine } from "./policies";
 
+// Executions
+export {
+  ExecutionStatus,
+  Execution,
+  ExecutionInteractionStatus,
+  ExecutionInteraction,
+  ExecutionStore,
+  EXECUTION_STATUS_KEYS,
+  pickChartBucketMs,
+  buildExecutionListMeta,
+  type CreateExecutionInput,
+  type UpdateExecutionInput,
+  type CreateExecutionInteractionInput,
+  type UpdateExecutionInteractionInput,
+  type ExecutionListItem,
+  type ExecutionListOptions,
+  type ExecutionListMeta,
+  type ExecutionChartBucket,
+} from "./executions";
+
 // Scope
 export { Scope } from "./scope";
 
@@ -98,6 +125,7 @@ export {
 export { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
 export { makeInMemorySecretStore, makeInMemorySecretProvider } from "./in-memory/secret-store";
 export { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
+export { makeInMemoryExecutionStore } from "./in-memory/execution-store";
 
 // Testing
 export { makeTestConfig } from "./testing";

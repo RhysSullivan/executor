@@ -11,3 +11,9 @@ export type SecretId = typeof SecretId.Type;
 
 export const PolicyId = Schema.String.pipe(Schema.brand("PolicyId"));
 export type PolicyId = typeof PolicyId.Type;
+
+export const ExecutionId = Schema.String.pipe(Schema.brand("ExecutionId"));
+export type ExecutionId = typeof ExecutionId.Type;
+
+export const ExecutionInteractionId = Schema.String.pipe(Schema.brand("ExecutionInteractionId"));
+export type ExecutionInteractionId = typeof ExecutionInteractionId.Type;
