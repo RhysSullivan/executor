@@ -32,6 +32,7 @@
     "@executor/plugin-graphql": "workspace:*",
     "@executor/plugin-mcp": "workspace:*",
     "@executor/plugin-openapi": "workspace:*",
+    "@executor/plugin-policies": "workspace:*",
     "@executor/react": "workspace:*",
     "@executor/runtime-dynamic-worker": "workspace:*",
     "@executor/sdk": "workspace:*",

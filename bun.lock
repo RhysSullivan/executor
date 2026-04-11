@@ -59,6 +59,7 @@
         "@executor/plugin-graphql": "workspace:*",
         "@executor/plugin-mcp": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
+        "@executor/plugin-policies": "workspace:*",
         "@executor/react": "workspace:*",
         "@executor/runtime-dynamic-worker": "workspace:*",
         "@executor/sdk": "workspace:*",
@@ -135,6 +136,7 @@
         "@executor/plugin-mcp": "workspace:*",
         "@executor/plugin-onepassword": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
+        "@executor/plugin-policies": "workspace:*",
         "@executor/react": "workspace:*",
         "@executor/sdk": "workspace:*",
         "@executor/storage-file": "workspace:*",
@@ -586,6 +588,42 @@
         "effect": "catalog:",
         "openapi-types": "^12.1.3",
         "yaml": "^2.7.1",
+      },
+      "devDependencies": {
+        "@effect-atom/atom-react": "^0.5.0",
+        "@effect/vitest": "catalog:",
+        "@executor/api": "workspace:*",
+        "@executor/react": "workspace:*",
+        "@types/node": "catalog:",
+        "@types/react": "catalog:",
+        "bun-types": "catalog:",
+        "react": "catalog:",
+        "tsup": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "@effect-atom/atom-react": "^0.5.0",
+        "@executor/api": "workspace:*",
+        "@executor/react": "workspace:*",
+        "@tanstack/react-router": "catalog:",
+        "react": "catalog:",
+      },
+      "optionalPeers": [
+        "@effect-atom/atom-react",
+        "@executor/api",
+        "@executor/react",
+        "@tanstack/react-router",
+        "react",
+      ],
+    },
+    "packages/plugins/policies": {
+      "name": "@executor/plugin-policies",
+      "version": "0.0.1-beta.1",
+      "dependencies": {
+        "@effect/platform": "catalog:",
+        "@executor/sdk": "workspace:*",
+        "drizzle-orm": "catalog:",
+        "effect": "catalog:",
       },
       "devDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
@@ -1106,6 +1144,8 @@
     "@executor/plugin-onepassword": ["@executor/plugin-onepassword@workspace:packages/plugins/onepassword"],
 
     "@executor/plugin-openapi": ["@executor/plugin-openapi@workspace:packages/plugins/openapi"],
+
+    "@executor/plugin-policies": ["@executor/plugin-policies@workspace:packages/plugins/policies"],
 
     "@executor/react": ["@executor/react@workspace:packages/react"],
 

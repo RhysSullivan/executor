@@ -31,6 +31,10 @@ import {
   GraphqlHandlers,
   GraphqlExtensionService,
 } from "@executor/plugin-graphql/api";
+import {
+  PoliciesGroup,
+  PoliciesHandlers,
+} from "@executor/plugin-policies/api";
 import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 
@@ -42,7 +46,8 @@ const LocalApi = addGroup(OpenApiGroup)
   .add(McpGroup)
   .add(GoogleDiscoveryGroup)
   .add(OnePasswordGroup)
-  .add(GraphqlGroup);
+  .add(GraphqlGroup)
+  .add(PoliciesGroup);
 
 const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
   Layer.provide(CoreHandlers),
@@ -53,6 +58,7 @@ const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
       GoogleDiscoveryHandlers,
       OnePasswordHandlers,
       GraphqlHandlers,
+      PoliciesHandlers,
     ),
   ),
 );
