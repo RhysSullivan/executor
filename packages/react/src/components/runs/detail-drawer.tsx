@@ -2,11 +2,14 @@
 
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Execution, ExecutionInteraction } from "@executor/sdk";
+import { useHotkeys } from "react-hotkeys-hook";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import type { Execution, ExecutionInteraction, ExecutionToolCall } from "@executor/sdk";
 
 import { cn } from "../../lib/utils";
 import { Button } from "../button";
 import { CodeBlock } from "../code-block";
+import { HoverCardTimestamp } from "./hover-card-timestamp";
 import {
   Sheet,
   SheetContent,
@@ -14,8 +17,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "../sheet";
-import { getExecution, type GetExecutionResponse } from "../../api/executions";
-import { statusTone, statusLabel } from "./status";
+import {
+  getExecution,
+  listExecutionToolCalls,
+  type GetExecutionResponse,
+} from "../../api/executions";
+import { statusTone, statusLabel, triggerTone } from "./status";
 
 // ---------------------------------------------------------------------------
 // Detail drawer — v1.3 aesthetic, openstatus-triggered via URL state
@@ -30,7 +37,7 @@ import { statusTone, statusLabel } from "./status";
 // Same elsewhere: tabbed Properties / Logs, 2-col status+duration cards,
 // compact created/started row, per-line log coloring, Copy JSON button.
 
-type DetailTab = "properties" | "logs";
+type DetailTab = "properties" | "logs" | "toolCalls";
 
 const formatTimestamp = (value: number | null): string => {
   if (value === null) return "—";
@@ -51,12 +58,44 @@ const formatDuration = (execution: Execution): string => {
   return `${(ms / 60_000).toFixed(1)}m`;
 };
 
-const prettyJson = (value: string | null): string | null => {
-  if (value === null) return null;
+/**
+ * Bounded recursive JSON unwrap for display in the drawer.
+ *
+ * Context: the QuickJS runtime serializes tool results to JSON strings
+ * before returning them to user code (see `packages/kernel/runtime-quickjs/
+ * src/index.ts:202` — `context.newString(serialized)`). User code
+ * receives strings, not objects. When user code does `return await
+ * tools.x.y(...)` without parsing, `result.result` is a JSON string, and
+ * the engine's `serializeJson` at `packages/core/execution/src/engine.ts:147`
+ * wraps it a second time. A single `JSON.parse` would unwrap only one
+ * layer, leaving us showing `"{\"success\":true,...}"` verbatim.
+ *
+ * We parse up to 4 levels deep, stopping as soon as a parse fails or
+ * lands on a non-string. The final value is pretty-printed if it's
+ * structured, or shown as plain text if it's a string literal.
+ */
+const unwrapJson = (
+  raw: string | null,
+): { readonly formatted: string | null; readonly lang: "json" | "text" } => {
+  if (raw === null) return { formatted: null, lang: "json" };
+
+  let value: unknown = raw;
+  for (let i = 0; i < 4; i += 1) {
+    if (typeof value !== "string") break;
+    try {
+      value = JSON.parse(value);
+    } catch {
+      break;
+    }
+  }
+
+  if (typeof value === "string") {
+    return { formatted: value, lang: "text" };
+  }
   try {
-    return JSON.stringify(JSON.parse(value), null, 2);
+    return { formatted: JSON.stringify(value, null, 2), lang: "json" };
   } catch {
-    return value;
+    return { formatted: String(value), lang: "text" };
   }
 };
 
@@ -76,9 +115,22 @@ const parseLogs = (logsJson: string | null): string[] | null => {
 export interface RunsDetailDrawerProps {
   readonly executionId?: string;
   readonly onOpenChange: (open: boolean) => void;
+  /** Id of the previous row in the current filter set, or undefined if none. */
+  readonly prevRowId?: string;
+  /** Id of the next row in the current filter set, or undefined if none. */
+  readonly nextRowId?: string;
+  readonly onPrev?: () => void;
+  readonly onNext?: () => void;
 }
 
-export function RunsDetailDrawer({ executionId, onOpenChange }: RunsDetailDrawerProps) {
+export function RunsDetailDrawer({
+  executionId,
+  onOpenChange,
+  prevRowId,
+  nextRowId,
+  onPrev,
+  onNext,
+}: RunsDetailDrawerProps) {
   const open = Boolean(executionId);
   const query = useQuery({
     queryKey: ["execution", executionId],
@@ -86,6 +138,22 @@ export function RunsDetailDrawer({ executionId, onOpenChange }: RunsDetailDrawer
     enabled: open,
     staleTime: 10_000,
   });
+
+  // Arrow keys step through rows while the drawer is open. Enabled gate
+  // means the global hotkey only fires when there's an open drawer and
+  // the corresponding neighbor exists.
+  useHotkeys(
+    "ArrowUp",
+    () => onPrev?.(),
+    { enabled: open && !!prevRowId, preventDefault: true },
+    [open, prevRowId, onPrev],
+  );
+  useHotkeys(
+    "ArrowDown",
+    () => onNext?.(),
+    { enabled: open && !!nextRowId, preventDefault: true },
+    [open, nextRowId, onNext],
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -98,7 +166,15 @@ export function RunsDetailDrawer({ executionId, onOpenChange }: RunsDetailDrawer
           "border-l border-border/70",
         )}
       >
-        <DrawerBody executionId={executionId} query={query} onClose={() => onOpenChange(false)} />
+        <DrawerBody
+          executionId={executionId}
+          query={query}
+          onClose={() => onOpenChange(false)}
+          prevRowId={prevRowId}
+          nextRowId={nextRowId}
+          onPrev={onPrev}
+          onNext={onNext}
+        />
       </SheetContent>
     </Sheet>
   );
@@ -108,10 +184,18 @@ function DrawerBody({
   executionId,
   query,
   onClose,
+  prevRowId,
+  nextRowId,
+  onPrev,
+  onNext,
 }: {
   readonly executionId?: string;
   readonly query: ReturnType<typeof useQuery<GetExecutionResponse>>;
   readonly onClose: () => void;
+  readonly prevRowId?: string;
+  readonly nextRowId?: string;
+  readonly onPrev?: () => void;
+  readonly onNext?: () => void;
 }) {
   const [tab, setTab] = React.useState<DetailTab>("properties");
   const [copied, setCopied] = React.useState(false);
@@ -151,14 +235,39 @@ function DrawerBody({
         <SheetDescription>{executionId ?? "No execution selected"}</SheetDescription>
       </SheetHeader>
 
-      {/* Visible header — mono id + actions */}
+      {/* Visible header — mono id + prev/next + actions */}
       <div className="flex items-center justify-between border-border/60 border-b px-5 py-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="truncate font-mono text-sm text-foreground">
             {executionId ?? "—"}
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onPrev}
+            disabled={!prevRowId}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+            title="Previous run (↑)"
+            aria-label="Previous run"
+          >
+            <ChevronUp className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onNext}
+            disabled={!nextRowId}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+            title="Next run (↓)"
+            aria-label="Next run"
+          >
+            <ChevronDown className="size-3.5" />
+          </Button>
+          <div className="mx-1 h-4 w-px bg-border/60" aria-hidden />
           <Button
             type="button"
             variant="ghost"
@@ -192,7 +301,20 @@ function DrawerBody({
 
       {/* Tabs */}
       <div className="flex gap-0 border-border/60 border-b px-5">
-        <TabButton label="Properties" active={tab === "properties"} onClick={() => setTab("properties")} />
+        <TabButton
+          label="Properties"
+          active={tab === "properties"}
+          onClick={() => setTab("properties")}
+        />
+        <TabButton
+          label={
+            envelope && envelope.execution.toolCallCount > 0
+              ? `Tool calls · ${envelope.execution.toolCallCount}`
+              : "Tool calls"
+          }
+          active={tab === "toolCalls"}
+          onClick={() => setTab("toolCalls")}
+        />
         <TabButton label="Logs" active={tab === "logs"} onClick={() => setTab("logs")} />
       </div>
 
@@ -201,12 +323,14 @@ function DrawerBody({
         {query.isLoading ? (
           <p className="font-mono text-xs text-muted-foreground">Loading execution…</p>
         ) : query.isError ? (
-          <p className="font-mono text-xs text-[color:var(--color-error)]">
+          <p className="font-mono text-xs text-destructive">
             Failed to load execution details.
           </p>
         ) : envelope ? (
           tab === "properties" ? (
             <PropertiesTab envelope={envelope} />
+          ) : tab === "toolCalls" ? (
+            <ToolCallsTab execution={envelope.execution} />
           ) : (
             <LogsTab logsJson={envelope.execution.logsJson} />
           )
@@ -226,7 +350,7 @@ function TabButton(props: { label: string; active: boolean; onClick: () => void 
       className={cn(
         "px-3 py-2 text-xs font-medium transition-colors",
         props.active
-          ? "border-b-2 border-foreground text-foreground"
+          ? "border-b-2 border-primary text-foreground"
           : "border-b-2 border-transparent text-muted-foreground hover:text-foreground",
       )}
     >
@@ -242,11 +366,12 @@ function TabButton(props: { label: string; active: boolean; onClick: () => void 
 function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
   const { execution, pendingInteraction } = envelope;
   const tone = statusTone(execution.status);
-  const formattedResult = prettyJson(execution.resultJson);
+  const trigger = triggerTone(execution.triggerKind);
+  const result = unwrapJson(execution.resultJson);
 
   return (
     <div className="space-y-4">
-      {/* 2-col status/duration cards */}
+      {/* Primary meta — v1.3 match: just Status + Duration */}
       <div className="grid grid-cols-2 gap-3">
         <MetaCard label="Status">
           <span className="flex items-center gap-2">
@@ -262,25 +387,56 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
         </MetaCard>
       </div>
 
-      {/* Compact timeline row */}
-      <div className="grid grid-cols-2 gap-3 font-mono text-[11px] text-muted-foreground">
-        <TimelineLine label="Created" value={formatTimestamp(execution.createdAt)} />
-        <TimelineLine label="Started" value={formatTimestamp(execution.startedAt)} />
-        <TimelineLine label="Completed" value={formatTimestamp(execution.completedAt)} />
-        <TimelineLine label="Updated" value={formatTimestamp(execution.updatedAt)} />
+      {/* Compact secondary — plain muted text with HoverCardTimestamp */}
+      <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+        <div className="flex items-baseline gap-1">
+          <span className="text-muted-foreground/60">Created</span>
+          {execution.createdAt ? (
+            <HoverCardTimestamp
+              date={new Date(execution.createdAt)}
+              className="text-xs"
+            />
+          ) : (
+            <span>—</span>
+          )}
+        </div>
+        <div className="flex items-baseline gap-1">
+          <span className="text-muted-foreground/60">Started</span>
+          {execution.startedAt ? (
+            <HoverCardTimestamp
+              date={new Date(execution.startedAt)}
+              className="text-xs"
+            />
+          ) : (
+            <span>—</span>
+          )}
+        </div>
+      </div>
+
+      {/* Tertiary — trigger + tools on a single muted mono line */}
+      <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground/70">
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className={cn("size-1.5 rounded-full", trigger.dot)}
+          />
+          <span>via {trigger.label}</span>
+        </span>
+        <span className="text-muted-foreground/30">•</span>
+        <span>tools {execution.toolCallCount}</span>
       </div>
 
       <CodeBlock title="Code" code={execution.code} lang="ts" />
 
-      {formattedResult ? (
-        <CodeBlock title="Result" code={formattedResult} lang="json" />
+      {result.formatted ? (
+        <CodeBlock title="Result" code={result.formatted} lang={result.lang} />
       ) : (
         <EmptyPanel title="Result" message="No result recorded." />
       )}
 
       {execution.errorText ? (
-        <div className="overflow-hidden rounded-lg border border-[color:var(--color-error)]/40 bg-[color:color-mix(in_srgb,var(--color-error)_7%,transparent)]">
-          <div className="border-b border-[color:var(--color-error)]/40 px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-[color:var(--color-error)]">
+        <div className="overflow-hidden rounded-lg border border-destructive/40 bg-[color:color-mix(in_srgb,var(--destructive)_7%,transparent)]">
+          <div className="border-b border-destructive/40 px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-destructive">
             Error
           </div>
           <pre className="overflow-x-auto px-3 py-3 font-mono text-[12px] leading-relaxed text-foreground whitespace-pre-wrap">
@@ -305,15 +461,6 @@ function MetaCard(props: { label: string; children: React.ReactNode }) {
   );
 }
 
-function TimelineLine(props: { label: string; value: string }) {
-  return (
-    <div>
-      <span className="text-muted-foreground/60">{props.label} </span>
-      <span className="tabular-nums">{props.value}</span>
-    </div>
-  );
-}
-
 function EmptyPanel(props: { title: string; message: string }) {
   return (
     <div className="overflow-hidden rounded-lg border border-border/60 bg-card/40">
@@ -328,8 +475,8 @@ function EmptyPanel(props: { title: string; message: string }) {
 }
 
 function PendingInteractionBlock({ interaction }: { interaction: ExecutionInteraction }) {
-  const request = prettyJson(interaction.payloadJson);
-  const response = prettyJson(interaction.responseJson);
+  const request = unwrapJson(interaction.payloadJson);
+  const response = unwrapJson(interaction.responseJson);
 
   return (
     <div className="space-y-3 rounded-lg border border-border/60 bg-card/40 p-3">
@@ -346,13 +493,13 @@ function PendingInteractionBlock({ interaction }: { interaction: ExecutionIntera
       </div>
 
       <div className="grid gap-3 xl:grid-cols-2">
-        {request ? (
-          <CodeBlock title="Request" code={request} lang="json" />
+        {request.formatted ? (
+          <CodeBlock title="Request" code={request.formatted} lang={request.lang} />
         ) : (
           <EmptyPanel title="Request" message="No request captured." />
         )}
-        {response ? (
-          <CodeBlock title="Response" code={response} lang="json" />
+        {response.formatted ? (
+          <CodeBlock title="Response" code={response.formatted} lang={response.lang} />
         ) : (
           <EmptyPanel title="Response" message="No response captured." />
         )}
@@ -369,15 +516,15 @@ function LogsTab({ logsJson }: { logsJson: string | null }) {
   const lines = React.useMemo(() => parseLogs(logsJson), [logsJson]);
 
   if (!lines) {
-    const formatted = prettyJson(logsJson);
-    if (!formatted) {
+    const fallback = unwrapJson(logsJson);
+    if (!fallback.formatted) {
       return (
         <div className="rounded-lg border border-border/60 bg-card/40 px-4 py-12 text-center font-mono text-xs text-muted-foreground/60">
           No logs recorded.
         </div>
       );
     }
-    return <CodeBlock title="Logs" code={formatted} lang="json" />;
+    return <CodeBlock title="Logs" code={fallback.formatted} lang={fallback.lang} />;
   }
 
   if (lines.length === 0) {
@@ -402,8 +549,8 @@ function LogsTab({ logsJson }: { logsJson: string | null }) {
               key={`${index}-${line.slice(0, 32)}`}
               className={cn(
                 "px-3 py-1.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all",
-                isError && "text-[color:var(--color-error)]",
-                isWarn && "text-[color:var(--color-warning)]",
+                isError && "text-red-400",
+                isWarn && "text-amber-400",
                 !isError && !isWarn && "text-foreground/80",
               )}
             >
@@ -412,6 +559,147 @@ function LogsTab({ logsJson }: { logsJson: string | null }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tool calls tab
+// ---------------------------------------------------------------------------
+//
+// Chronological list of every `tools.x.y` call the run made. Each row is
+// a flame-graph-lite bar positioned by the call's offset from execution
+// start, widened by its duration. Click a row to expand args + result
+// into inline CodeBlocks.
+
+function ToolCallsTab({ execution }: { execution: Execution }) {
+  const query = useQuery({
+    queryKey: ["execution", execution.id, "tool-calls"],
+    queryFn: () => listExecutionToolCalls(execution.id),
+    staleTime: 10_000,
+  });
+
+  if (query.isLoading) {
+    return <p className="font-mono text-xs text-muted-foreground">Loading tool calls…</p>;
+  }
+  if (query.isError) {
+    return (
+      <p className="font-mono text-xs text-destructive">
+        Failed to load tool calls.
+      </p>
+    );
+  }
+
+  const calls = query.data?.toolCalls ?? [];
+  if (calls.length === 0) {
+    return (
+      <div className="rounded-lg border border-border/60 bg-card/40 px-4 py-12 text-center font-mono text-xs text-muted-foreground/60">
+        No tool calls recorded.
+      </div>
+    );
+  }
+
+  // Derive a time scale for the flame-graph bars.
+  const windowStart = execution.startedAt ?? calls[0]!.startedAt;
+  const windowEnd =
+    execution.completedAt ??
+    Math.max(
+      ...calls.map((call) => call.completedAt ?? call.startedAt + (call.durationMs ?? 0)),
+    );
+  const windowWidth = Math.max(1, windowEnd - windowStart);
+
+  return (
+    <div className="space-y-1.5">
+      {calls.map((call) => (
+        <ToolCallRow
+          key={call.id}
+          call={call}
+          windowStart={windowStart}
+          windowWidth={windowWidth}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ToolCallRow({
+  call,
+  windowStart,
+  windowWidth,
+}: {
+  readonly call: ExecutionToolCall;
+  readonly windowStart: number;
+  readonly windowWidth: number;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+
+  const offsetMs = Math.max(0, call.startedAt - windowStart);
+  const durationMs = call.durationMs ?? Math.max(0, Date.now() - call.startedAt);
+  const offsetPct = (offsetMs / windowWidth) * 100;
+  const widthPct = Math.max(0.75, (durationMs / windowWidth) * 100);
+
+  const args = unwrapJson(call.argsJson);
+  const result = unwrapJson(call.resultJson);
+
+  const statusColor =
+    call.status === "failed"
+      ? "bg-destructive"
+      : call.status === "running"
+        ? "bg-blue-400 animate-pulse"
+        : "bg-primary";
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/60 bg-card/40">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        className="group flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-foreground/[0.03]"
+      >
+        {/* Flame-graph-lite bar */}
+        <div className="relative h-5 w-40 shrink-0 rounded-sm border border-border/40 bg-background">
+          <div
+            className={cn("absolute top-0 h-full rounded-sm", statusColor)}
+            style={{
+              left: `${offsetPct}%`,
+              width: `${Math.min(100 - offsetPct, widthPct)}%`,
+            }}
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-mono text-xs text-foreground">
+            {call.toolPath}
+          </div>
+        </div>
+
+        <div className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+          {call.durationMs !== null ? `${call.durationMs}ms` : "—"}
+        </div>
+      </button>
+
+      {expanded ? (
+        <div className="grid gap-3 border-t border-border/40 px-3 py-3 xl:grid-cols-2">
+          {args.formatted ? (
+            <CodeBlock title="Args" code={args.formatted} lang={args.lang} />
+          ) : (
+            <EmptyPanel title="Args" message="No args recorded." />
+          )}
+          {call.status === "failed" && call.errorText ? (
+            <div className="overflow-hidden rounded-lg border border-destructive/40 bg-[color:color-mix(in_srgb,var(--destructive)_7%,transparent)]">
+              <div className="border-b border-destructive/40 px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-destructive">
+                Error
+              </div>
+              <pre className="overflow-x-auto px-3 py-3 font-mono text-[11px] leading-relaxed text-foreground whitespace-pre-wrap">
+                {call.errorText}
+              </pre>
+            </div>
+          ) : result.formatted ? (
+            <CodeBlock title="Result" code={result.formatted} lang={result.lang} />
+          ) : (
+            <EmptyPanel title="Result" message="No result recorded." />
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

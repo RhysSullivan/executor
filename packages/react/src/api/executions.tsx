@@ -4,6 +4,7 @@ import type {
   ExecutionChartBucket,
   ExecutionInteraction,
   ExecutionListMeta,
+  ExecutionToolCall,
 } from "@executor/sdk";
 
 import { getBaseUrl } from "./base-url";
@@ -18,19 +19,27 @@ export type ListExecutionsResponse = {
   readonly meta?: ExecutionListMeta;
 };
 
-export type { ExecutionChartBucket, ExecutionListMeta };
+export type { ExecutionChartBucket, ExecutionListMeta, ExecutionToolCall };
 
 export type GetExecutionResponse = {
   readonly execution: Execution;
   readonly pendingInteraction: ExecutionInteraction | null;
 };
 
+export type ListToolCallsResponse = {
+  readonly toolCalls: readonly ExecutionToolCall[];
+};
+
 export type RunsQueryInput = {
   readonly limit: number;
   readonly cursor?: string;
   readonly status?: string;
+  readonly trigger?: string;
+  readonly tool?: string;
   readonly from?: string;
   readonly to?: string;
+  /** Live-mode floor: epoch-ms. Rows strictly newer than this. */
+  readonly after?: string;
   readonly code?: string;
 };
 
@@ -60,6 +69,9 @@ export const listExecutions = async (input: RunsQueryInput): Promise<ListExecuti
 
   if (input.cursor) params.set("cursor", input.cursor);
   if (input.status) params.set("status", input.status);
+  if (input.trigger) params.set("trigger", input.trigger);
+  if (input.tool) params.set("tool", input.tool);
+  if (input.after) params.set("after", input.after);
 
   const from = toEpochRange(input.from, "start");
   const to = toEpochRange(input.to, "end");
@@ -80,4 +92,14 @@ export const getExecution = async (executionId: string): Promise<GetExecutionRes
   });
 
   return readJson<GetExecutionResponse>(response);
+};
+
+export const listExecutionToolCalls = async (
+  executionId: string,
+): Promise<ListToolCallsResponse> => {
+  const response = await fetch(`${getBaseUrl()}/executions/${executionId}/tool-calls`, {
+    credentials: "include",
+  });
+
+  return readJson<ListToolCallsResponse>(response);
 };

@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import { cn } from "../../lib/utils";
+import { LiveRow } from "./live-row";
 
 // ---------------------------------------------------------------------------
 // RunsShell — split-screen observability layout
@@ -19,44 +20,59 @@ import { cn } from "../../lib/utils";
 //   │            │                                             │
 //   │            └────────────────────────────────────────────┘
 //
-// No TanStack Table, no BYOS store, no column model — the body is just a
-// vertical list of whatever rows the caller renders. Pagination is driven by
-// an onScroll hook on the body, matching openstatus's approach.
+// No TanStack Table, no BYOS store, no column model — the body is a
+// vertical list rendered via `renderRow(row)`. Pagination is driven by an
+// onScroll hook, matching openstatus's approach. Live mode injects a
+// `<LiveRow>` divider above `liveMarkerBeforeRowId`.
 //
 // v1.3 aesthetic: no outer card/border radius around the list, no alternating
 // row background, dense mono typography.
 
-export interface RunsShellProps {
+export interface RunsShellProps<T> {
   readonly filterRail: React.ReactNode;
   readonly topBar?: React.ReactNode;
   readonly chartSlot?: React.ReactNode;
   readonly columnHeader?: React.ReactNode;
   readonly emptyState?: React.ReactNode;
+  readonly rows: readonly T[];
+  readonly getRowId: (row: T) => string;
+  readonly renderRow: (row: T) => React.ReactNode;
+  /**
+   * If set, render a `<LiveRow>` divider immediately before the row
+   * whose id equals this value. Used by live mode to mark the boundary
+   * between "new since you went live" and "already there" rows.
+   */
+  readonly liveMarkerBeforeRowId?: string;
   readonly isLoading?: boolean;
   readonly isFetchingNextPage?: boolean;
   readonly hasNextPage?: boolean;
   readonly fetchNextPage?: () => void;
   readonly totalRowsFetched?: number;
   readonly filterRowCount?: number;
-  readonly children: React.ReactNode;
+  /** When true, hide the filter rail and let the main pane fill the width. */
+  readonly collapseRail?: boolean;
   readonly className?: string;
 }
 
-export function RunsShell({
+export function RunsShell<T>({
   filterRail,
   topBar,
   chartSlot,
   columnHeader,
   emptyState,
+  rows,
+  getRowId,
+  renderRow,
+  liveMarkerBeforeRowId,
   isLoading,
   isFetchingNextPage,
   hasNextPage,
   fetchNextPage,
   totalRowsFetched = 0,
   filterRowCount,
-  children,
+  collapseRail,
   className,
-}: RunsShellProps) {
+}: RunsShellProps<T>) {
   const topBarRef = React.useRef<HTMLDivElement>(null);
   const bodyRef = React.useRef<HTMLDivElement>(null);
   const [topBarHeight, setTopBarHeight] = React.useState(0);
@@ -113,6 +129,7 @@ export function RunsShell({
           "sm:max-w-60 sm:min-w-60 md:max-w-72 md:min-w-72",
           "border-border sm:border-r",
           "hidden sm:flex",
+          collapseRail && "sm:hidden",
         )}
       >
         <div className="min-h-0 flex-1 overflow-y-auto">{filterRail}</div>
@@ -140,16 +157,12 @@ export function RunsShell({
         ) : null}
 
         {/* Scrollable body */}
-        <div
-          ref={bodyRef}
-          onScroll={onScroll}
-          className="flex-1 overflow-y-auto"
-        >
+        <div ref={bodyRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex h-48 items-center justify-center text-xs font-mono text-muted-foreground">
               Loading runs…
             </div>
-          ) : !hasRows(children) ? (
+          ) : rows.length === 0 ? (
             <div className="flex h-full min-h-48 items-center justify-center px-4 py-8">
               {emptyState ?? (
                 <p className="text-xs font-mono text-muted-foreground">No runs.</p>
@@ -157,7 +170,15 @@ export function RunsShell({
             </div>
           ) : (
             <>
-              {children}
+              {rows.map((row) => {
+                const id = getRowId(row);
+                return (
+                  <React.Fragment key={id}>
+                    {id === liveMarkerBeforeRowId ? <LiveRow /> : null}
+                    {renderRow(row)}
+                  </React.Fragment>
+                );
+              })}
               {isFetchingNextPage ? (
                 <div className="flex items-center justify-center border-border/50 border-b py-3 text-[11px] font-mono uppercase tracking-wider text-muted-foreground/60">
                   Loading more…
@@ -174,35 +195,4 @@ export function RunsShell({
       </div>
     </div>
   );
-}
-
-/**
- * React children can be a single element, an array, a fragment, or null.
- * We only want to show the empty state when there are *no* row children,
- * but React.Children.count() returns 1 for a fragment with 0 rows. So we
- * walk a level deeper when the child is a fragment or array.
- */
-function hasRows(children: React.ReactNode): boolean {
-  const count = React.Children.count(children);
-  if (count === 0) return false;
-
-  let found = false;
-  React.Children.forEach(children, (child) => {
-    if (found) return;
-    if (child == null || typeof child === "boolean") return;
-    if (
-      typeof child === "object" &&
-      "type" in child &&
-      child.type === React.Fragment &&
-      "props" in child &&
-      child.props &&
-      typeof child.props === "object" &&
-      "children" in child.props
-    ) {
-      found = hasRows(child.props.children as React.ReactNode);
-      return;
-    }
-    found = true;
-  });
-  return found;
 }

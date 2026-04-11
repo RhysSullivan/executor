@@ -41,27 +41,29 @@ export type StatusTone = {
 
 export const STATUS_TONES: Record<ExecutionStatus, StatusTone> = {
   completed: {
-    dot: "bg-[color:var(--color-success)]",
-    text: "text-[color:var(--color-success)]",
-    chartFill: "var(--color-success)",
+    dot: "bg-primary",
+    text: "text-primary",
+    chartFill: "var(--primary)",
     pulse: false,
   },
   failed: {
-    dot: "bg-[color:var(--color-error)]",
-    text: "text-[color:var(--color-error)]",
-    chartFill: "var(--color-error)",
+    dot: "bg-destructive",
+    text: "text-destructive",
+    chartFill: "var(--destructive)",
     pulse: false,
   },
   running: {
-    dot: "bg-[color:var(--color-info)]",
-    text: "text-[color:var(--color-info)]",
-    chartFill: "var(--color-info)",
+    // v1.3 used bg-blue-400 animate-pulse / text-blue-400 hard-coded.
+    // Hex literal for chart fill because recharts doesn't evaluate classes.
+    dot: "bg-blue-400",
+    text: "text-blue-400",
+    chartFill: "#60a5fa",
     pulse: true,
   },
   waiting_for_interaction: {
-    dot: "bg-[color:var(--color-warning)]",
-    text: "text-[color:var(--color-warning)]",
-    chartFill: "var(--color-warning)",
+    dot: "bg-amber-400",
+    text: "text-amber-400",
+    chartFill: "#fbbf24",
     pulse: true,
   },
   cancelled: {
@@ -80,3 +82,58 @@ export const STATUS_TONES: Record<ExecutionStatus, StatusTone> = {
 
 export const statusLabel = (status: ExecutionStatus): string => STATUS_LABELS[status];
 export const statusTone = (status: ExecutionStatus): StatusTone => STATUS_TONES[status];
+
+// ---------------------------------------------------------------------------
+// Trigger tones
+// ---------------------------------------------------------------------------
+//
+// A second palette, keyed on `triggerKind` ("mcp-inline" | "mcp-pause" |
+// "http" | "cli" | "test" | null), used by the row `via:` indicator,
+// the filter rail Trigger facet, and the drawer trigger chip.
+
+export type TriggerTone = {
+  readonly dot: string;
+  readonly text: string;
+  readonly label: string;
+};
+
+const UNKNOWN_TRIGGER_TONE: TriggerTone = {
+  dot: "bg-muted-foreground/40",
+  text: "text-muted-foreground",
+  label: "unknown",
+};
+
+export const TRIGGER_TONES: Record<string, TriggerTone> = {
+  "mcp-inline": {
+    dot: "bg-[color:var(--color-info)]",
+    text: "text-[color:var(--color-info)]",
+    label: "mcp-inline",
+  },
+  "mcp-pause": {
+    dot: "bg-[color:var(--color-warning)]",
+    text: "text-[color:var(--color-warning)]",
+    label: "mcp-pause",
+  },
+  http: {
+    dot: "bg-[color:var(--color-success)]",
+    text: "text-[color:var(--color-success)]",
+    label: "http",
+  },
+  cli: {
+    dot: "bg-foreground/70",
+    text: "text-foreground",
+    label: "cli",
+  },
+  test: {
+    dot: "bg-foreground/40",
+    text: "text-muted-foreground",
+    label: "test",
+  },
+};
+
+export const triggerTone = (kind: string | null | undefined): TriggerTone => {
+  if (!kind) return UNKNOWN_TRIGGER_TONE;
+  return TRIGGER_TONES[kind] ?? { ...UNKNOWN_TRIGGER_TONE, label: kind };
+};
+
+export const TRIGGER_ORDER = ["mcp-inline", "mcp-pause", "http", "cli", "test"] as const;

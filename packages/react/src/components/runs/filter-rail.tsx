@@ -2,22 +2,40 @@ import * as React from "react";
 import type { ExecutionListMeta, ExecutionStatus } from "@executor/sdk";
 
 import { cn } from "../../lib/utils";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../accordion";
 import { Input } from "../input";
-import { STATUS_ORDER, STATUS_LABELS, statusTone } from "./status";
+import {
+  STATUS_ORDER,
+  STATUS_LABELS,
+  TRIGGER_ORDER,
+  statusTone,
+  triggerTone,
+} from "./status";
 
 // ---------------------------------------------------------------------------
-// FilterRail — left rail with page title, status facets, range, code input
+// FilterRail — left rail with page title, facets, time range, code query
 // ---------------------------------------------------------------------------
 //
-// Openstatus `/infinite` puts `<DataTableFilterControls>` in a sticky left
-// rail. We do the same but with v1.3 density: header = `font-display`
-// page title + muted subtitle, then a status facet list (dot + label +
-// checkbox + count), then a time-range preset group, then a code contains
-// input.
+// Layout borrowed from openstatus `/infinite` `<DataTableFilterControls>` —
+// each facet group is a collapsible accordion section. v1.3 aesthetic:
+// compact mono labels, subtle dots, muted counts. Each facet row supports
+// hover-reveal `only` quick-filter that clears sibling selections.
 
 export interface RunsFilterRailProps {
   readonly selectedStatuses: readonly ExecutionStatus[];
   readonly onToggleStatus: (status: ExecutionStatus) => void;
+  readonly onOnlyStatus: (status: ExecutionStatus) => void;
+  readonly selectedTriggers: readonly string[];
+  readonly onToggleTrigger: (trigger: string) => void;
+  readonly onOnlyTrigger: (trigger: string) => void;
+  readonly selectedTools: readonly string[];
+  readonly onToggleTool: (toolPath: string) => void;
+  readonly onOnlyTool: (toolPath: string) => void;
   readonly range: TimeRangePreset;
   readonly onRangeChange: (range: TimeRangePreset) => void;
   readonly codeQuery: string;
@@ -60,6 +78,13 @@ export const resolveTimeRange = (
 export function RunsFilterRail({
   selectedStatuses,
   onToggleStatus,
+  onOnlyStatus,
+  selectedTriggers,
+  onToggleTrigger,
+  onOnlyTrigger,
+  selectedTools,
+  onToggleTool,
+  onOnlyTool,
   range,
   onRangeChange,
   codeQuery,
@@ -69,7 +94,23 @@ export function RunsFilterRail({
   totalsLine,
 }: RunsFilterRailProps) {
   const filtersActive =
-    selectedStatuses.length > 0 || codeQuery.trim().length > 0 || range !== "24h";
+    selectedStatuses.length > 0 ||
+    selectedTriggers.length > 0 ||
+    selectedTools.length > 0 ||
+    codeQuery.trim().length > 0 ||
+    range !== "24h";
+
+  // Trigger keys in the current filter set, union'd with the canonical
+  // order so a filter that matches nothing still shows known kinds.
+  const triggerKeys = React.useMemo(() => {
+    const set = new Set<string>(TRIGGER_ORDER);
+    if (meta?.triggerCounts) {
+      for (const key of Object.keys(meta.triggerCounts)) set.add(key);
+    }
+    return [...set].sort();
+  }, [meta?.triggerCounts]);
+
+  const toolFacets = meta?.toolFacets ?? [];
 
   return (
     <div className="flex h-full flex-col">
@@ -104,125 +145,234 @@ export function RunsFilterRail({
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {/* Status facets */}
-        <FacetGroup label="Status">
-          {STATUS_ORDER.map((status) => {
-            const tone = statusTone(status);
-            const checked = selectedStatuses.includes(status);
-            const count = meta?.statusCounts[status];
-            return (
-              <li key={status}>
-                <button
-                  type="button"
-                  onClick={() => onToggleStatus(status)}
-                  className={cn(
-                    "group flex w-full items-center gap-2.5 py-1 text-left text-xs",
-                    "text-muted-foreground hover:text-foreground",
-                    checked && "text-foreground",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border border-border",
-                      checked && "border-foreground bg-foreground/10",
-                    )}
-                    aria-hidden
-                  >
-                    {checked ? (
-                      <svg viewBox="0 0 12 12" className="size-2.5 text-foreground">
-                        <path
-                          d="M2 6l3 3 5-6"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    ) : null}
-                  </span>
+      <div className="flex-1 overflow-y-auto px-2 pb-4">
+        <Accordion
+          type="multiple"
+          defaultValue={["status", "trigger", "time-range", "tools"]}
+          className="w-full"
+        >
+          <FacetSection value="status" label="Status">
+            <ul className="space-y-0">
+              {STATUS_ORDER.map((status) => {
+                const tone = statusTone(status);
+                const checked = selectedStatuses.includes(status);
+                const count = meta?.statusCounts[status];
+                return (
+                  <li key={status}>
+                    <FacetRow
+                      checked={checked}
+                      onToggle={() => onToggleStatus(status)}
+                      onOnly={() => onOnlyStatus(status)}
+                      dotClass={cn(tone.dot, tone.pulse && "animate-pulse")}
+                      label={STATUS_LABELS[status]}
+                      count={count}
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </FacetSection>
 
-                  <span
-                    aria-hidden
-                    className={cn("size-2 shrink-0 rounded-full", tone.dot, tone.pulse && "animate-pulse")}
-                  />
+          <FacetSection value="trigger" label="Trigger">
+            <ul className="space-y-0">
+              {triggerKeys.map((key) => {
+                const tone = triggerTone(key);
+                const checked = selectedTriggers.includes(key);
+                const count = meta?.triggerCounts[key];
+                return (
+                  <li key={key}>
+                    <FacetRow
+                      checked={checked}
+                      onToggle={() => onToggleTrigger(key)}
+                      onOnly={() => onOnlyTrigger(key)}
+                      dotClass={tone.dot}
+                      label={tone.label}
+                      count={count}
+                      monoLabel
+                    />
+                  </li>
+                );
+              })}
+            </ul>
+          </FacetSection>
 
-                  <span className="flex-1 truncate">{STATUS_LABELS[status]}</span>
+          {toolFacets.length > 0 ? (
+            <FacetSection value="tools" label="Tools">
+              <ul className="space-y-0">
+                {toolFacets.map((facet) => {
+                  const checked = selectedTools.includes(facet.toolPath);
+                  return (
+                    <li key={facet.toolPath}>
+                      <FacetRow
+                        checked={checked}
+                        onToggle={() => onToggleTool(facet.toolPath)}
+                        onOnly={() => onOnlyTool(facet.toolPath)}
+                        dotClass="bg-foreground/40"
+                        label={facet.toolPath}
+                        count={facet.count}
+                        monoLabel
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+            </FacetSection>
+          ) : null}
 
-                  <span className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
-                    {count ?? ""}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </FacetGroup>
+          <FacetSection value="time-range" label="Time range">
+            <ul className="space-y-0">
+              {TIME_RANGE_PRESETS.map((preset) => {
+                const active = preset.value === range;
+                return (
+                  <li key={preset.value}>
+                    <button
+                      type="button"
+                      onClick={() => onRangeChange(preset.value)}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 py-1 text-left text-xs",
+                        "text-muted-foreground hover:text-foreground",
+                        active && "text-foreground",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-border",
+                          active && "border-foreground",
+                        )}
+                        aria-hidden
+                      >
+                        {active ? (
+                          <span className="size-1.5 rounded-full bg-foreground" />
+                        ) : null}
+                      </span>
+                      <span className="flex-1">{preset.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </FacetSection>
 
-        {/* Time range */}
-        <FacetGroup label="Time range">
-          {TIME_RANGE_PRESETS.map((preset) => {
-            const active = preset.value === range;
-            return (
-              <li key={preset.value}>
-                <button
-                  type="button"
-                  onClick={() => onRangeChange(preset.value)}
-                  className={cn(
-                    "flex w-full items-center gap-2.5 py-1 text-left text-xs",
-                    "text-muted-foreground hover:text-foreground",
-                    active && "text-foreground",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border border-border",
-                      active && "border-foreground",
-                    )}
-                    aria-hidden
-                  >
-                    {active ? (
-                      <span className="size-1.5 rounded-full bg-foreground" />
-                    ) : null}
-                  </span>
-                  <span className="flex-1">{preset.label}</span>
-                </button>
-              </li>
-            );
-          })}
-        </FacetGroup>
-
-        {/* Code contains */}
-        <div className="mt-4">
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
-            Code contains
-          </p>
-          <Input
-            type="text"
-            value={codeQuery}
-            onChange={(event) => onCodeQueryChange(event.currentTarget.value)}
-            placeholder="tools.github.list"
-            className="h-8 font-mono text-[11px]"
-          />
-        </div>
+          <FacetSection value="code" label="Code contains">
+            <Input
+              type="text"
+              value={codeQuery}
+              onChange={(event) => onCodeQueryChange(event.currentTarget.value)}
+              placeholder="tools.github.list"
+              className="h-8 font-mono text-[11px]"
+            />
+          </FacetSection>
+        </Accordion>
       </div>
     </div>
   );
 }
 
-function FacetGroup({
+// ---------------------------------------------------------------------------
+// Compact accordion section wrapper — overrides the default accordion
+// styling (py-4, hover:underline) to match the rail's dense look.
+// ---------------------------------------------------------------------------
+
+function FacetSection({
+  value,
   label,
   children,
 }: {
+  readonly value: string;
   readonly label: string;
   readonly children: React.ReactNode;
 }) {
   return (
-    <div className="mb-4">
-      <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+    <AccordionItem value={value} className="border-b border-border/40 last:border-b-0">
+      <AccordionTrigger className="py-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70 hover:no-underline hover:text-foreground">
         {label}
-      </p>
-      <ul className="space-y-0">{children}</ul>
+      </AccordionTrigger>
+      <AccordionContent className="pb-2 pt-0 px-2">{children}</AccordionContent>
+    </AccordionItem>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FacetRow — shared checkbox + dot + label + count + hover-reveal "only"
+// ---------------------------------------------------------------------------
+
+function FacetRow({
+  checked,
+  onToggle,
+  onOnly,
+  dotClass,
+  label,
+  count,
+  monoLabel,
+}: {
+  readonly checked: boolean;
+  readonly onToggle: () => void;
+  readonly onOnly?: () => void;
+  readonly dotClass: string;
+  readonly label: string;
+  readonly count: number | undefined;
+  readonly monoLabel?: boolean;
+}) {
+  return (
+    <div className="group relative flex items-center">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={cn(
+          "flex flex-1 items-center gap-2.5 py-1 text-left text-xs",
+          "text-muted-foreground hover:text-foreground",
+          checked && "text-foreground",
+        )}
+      >
+        <span
+          className={cn(
+            "inline-flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border border-border",
+            checked && "border-foreground bg-foreground/10",
+          )}
+          aria-hidden
+        >
+          {checked ? (
+            <svg viewBox="0 0 12 12" className="size-2.5 text-foreground">
+              <path
+                d="M2 6l3 3 5-6"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ) : null}
+        </span>
+
+        <span aria-hidden className={cn("size-2 shrink-0 rounded-full", dotClass)} />
+
+        <span className={cn("flex-1 truncate", monoLabel && "font-mono text-[11px]")}>
+          {label}
+        </span>
+
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
+          {count ?? ""}
+        </span>
+      </button>
+
+      {onOnly ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOnly();
+          }}
+          className={cn(
+            "absolute right-0 hidden h-full items-center rounded-sm bg-background px-1.5",
+            "font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70",
+            "hover:text-foreground group-hover:flex",
+          )}
+          title="Filter to only this value"
+        >
+          only
+        </button>
+      ) : null}
     </div>
   );
 }
