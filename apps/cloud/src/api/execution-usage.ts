@@ -17,9 +17,7 @@ export const withExecutionUsageTracking = (
   },
   resume: async (executionId, response) => {
     const result = await engine.resume(executionId, response);
-    if (result !== null) {
-      trackUsage(organizationId);
-    }
+    // resume doesn't count as usage
     return result;
   },
   getDescription: engine.getDescription,
