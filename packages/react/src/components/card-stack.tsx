@@ -3,6 +3,8 @@ import { PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import { Collapsible as CollapsiblePrimitive, Slot } from "radix-ui";
 
 import { cn } from "../lib/utils";
+import { Button } from "./button";
+import { Input } from "./input";
 import { Label } from "./label";
 
 type CardStackContextValue = {
@@ -88,9 +90,7 @@ function CardStack({
     );
   }
 
-  return (
-    <CardStackContext.Provider value={contextValue}>{card}</CardStackContext.Provider>
-  );
+  return <CardStackContext.Provider value={contextValue}>{card}</CardStackContext.Provider>;
 }
 
 function CardStackSearchInput() {
@@ -103,23 +103,25 @@ function CardStackSearchInput() {
       onClick={(event) => event.stopPropagation()}
     >
       <SearchIcon aria-hidden className="size-3.5 shrink-0" />
-      <input
+      <Input
         type="text"
         value={searchQuery}
         onChange={(event) => setSearchQuery(event.target.value)}
         placeholder="Search…"
         aria-label="Search entries"
-        className="h-5 w-32 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+        className="h-5 w-32 rounded-none border-0 bg-transparent p-0 text-xs text-foreground shadow-none outline-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:text-xs dark:bg-transparent"
       />
       {searchQuery && (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon-xs"
           aria-label="Clear search"
           onClick={() => setSearchQuery("")}
-          className="flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-[color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:text-foreground"
+          className="size-4 rounded-sm text-muted-foreground transition-[color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-transparent hover:text-foreground"
         >
           <XIcon aria-hidden className="size-3" />
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -133,12 +135,7 @@ type CardStackHeaderProps = React.HTMLAttributes<HTMLElement> & {
   rightSlot?: React.ReactNode;
 };
 
-function CardStackHeader({
-  className,
-  children,
-  rightSlot,
-  ...props
-}: CardStackHeaderProps) {
+function CardStackHeader({ className, children, rightSlot, ...props }: CardStackHeaderProps) {
   const { collapsible, searchable } = React.useContext(CardStackContext);
 
   const title = <span className="min-w-0 flex-1 truncate">{children}</span>;
@@ -180,33 +177,22 @@ function CardStackHeader({
   );
 }
 
-function CardStackHeaderAction({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function CardStackHeaderAction({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-stack-header-action"
-      className={cn(
-        "flex shrink-0 items-center gap-1 text-muted-foreground",
-        className,
-      )}
+      className={cn("flex shrink-0 items-center gap-1 text-muted-foreground", className)}
       {...props}
     />
   );
 }
 
-function CardStackContent({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function CardStackContent({ className, ...props }: React.ComponentProps<"div">) {
   const { collapsible } = React.useContext(CardStackContext);
 
   if (collapsible) {
     return (
-      <CollapsiblePrimitive.Content
-        className="overflow-hidden transition-[height] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] data-[state=closed]:h-0 data-[state=open]:h-[var(--radix-collapsible-content-height)]"
-      >
+      <CollapsiblePrimitive.Content className="overflow-hidden transition-[height] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] data-[state=closed]:h-0 data-[state=open]:h-[var(--radix-collapsible-content-height)]">
         <div
           data-slot="card-stack-content"
           className={cn(
@@ -224,10 +210,10 @@ function CardStackContent({
     <div
       data-slot="card-stack-content"
       className={cn(
-            "flex flex-col border-t border-border/50 first:border-t-0",
-            "[&>*+*]:relative [&>*+*]:before:pointer-events-none [&>*+*]:before:absolute [&>*+*]:before:inset-x-0 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-border/50",
-            className,
-          )}
+        "flex flex-col border-t border-border/50 first:border-t-0",
+        "[&>*+*]:relative [&>*+*]:before:pointer-events-none [&>*+*]:before:absolute [&>*+*]:before:inset-x-0 [&>*+*]:before:top-0 [&>*+*]:before:h-px [&>*+*]:before:bg-border/50",
+        className,
+      )}
       {...props}
     />
   );
@@ -242,12 +228,7 @@ type CardStackEntryProps = React.ComponentProps<"div"> & {
   searchText?: string;
 };
 
-function CardStackEntry({
-  className,
-  asChild = false,
-  searchText,
-  ...props
-}: CardStackEntryProps) {
+function CardStackEntry({ className, asChild = false, searchText, ...props }: CardStackEntryProps) {
   const { searchable, searchQuery } = React.useContext(CardStackContext);
 
   if (searchable && searchText !== undefined) {
@@ -310,10 +291,7 @@ function CardStackEntryField({
             <Label className="text-sm font-medium">
               {label}
               {description && (
-                <span className="font-normal text-muted-foreground">
-                  {" "}
-                  {description}
-                </span>
+                <span className="font-normal text-muted-foreground"> {description}</span>
               )}
             </Label>
           )}
@@ -326,10 +304,7 @@ function CardStackEntryField({
   );
 }
 
-function CardStackEntryMedia({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function CardStackEntryMedia({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-stack-entry-media"
@@ -342,10 +317,7 @@ function CardStackEntryMedia({
   );
 }
 
-function CardStackEntryContent({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function CardStackEntryContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-stack-entry-content"
@@ -355,10 +327,7 @@ function CardStackEntryContent({
   );
 }
 
-function CardStackEntryTitle({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function CardStackEntryTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-stack-entry-title"
@@ -368,10 +337,7 @@ function CardStackEntryTitle({
   );
 }
 
-function CardStackEntryDescription({
-  className,
-  ...props
-}: React.ComponentProps<"p">) {
+function CardStackEntryDescription({ className, ...props }: React.ComponentProps<"p">) {
   return (
     <p
       data-slot="card-stack-entry-description"
@@ -381,17 +347,11 @@ function CardStackEntryDescription({
   );
 }
 
-function CardStackEntryActions({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function CardStackEntryActions({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-stack-entry-actions"
-      className={cn(
-        "flex shrink-0 items-center gap-2 text-sm text-muted-foreground",
-        className,
-      )}
+      className={cn("flex shrink-0 items-center gap-2 text-sm text-muted-foreground", className)}
       {...props}
     />
   );
