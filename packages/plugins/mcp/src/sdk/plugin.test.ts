@@ -4,7 +4,6 @@ import { Effect } from "effect";
 import { createExecutor, makeTestConfig } from "@executor/sdk";
 
 import { mcpPlugin } from "./plugin";
-import { makeInMemoryBindingStore } from "./binding-store";
 import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
 
 // ---------------------------------------------------------------------------
@@ -128,7 +127,7 @@ describe("mcpPlugin", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [mcpPlugin({ bindingStore: makeInMemoryBindingStore() })] as const,
+          plugins: [mcpPlugin()] as const,
         }),
       );
 

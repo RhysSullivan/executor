@@ -13,15 +13,12 @@ import { NodeHttpServer } from "@effect/platform-node";
 
 import {
   createExecutor,
-  makeInMemoryPolicyEngine,
-  makeInMemorySecretStore,
-  makeInMemorySourceRegistry,
-  makeInMemoryToolRegistry,
   makeTestConfig,
   ScopeId,
   SecretId,
   type InvokeOptions,
 } from "@executor/sdk";
+import { makeMemoryStorage } from "@executor/storage-memory";
 import { openApiPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -175,16 +172,11 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         createdAt: new Date(),
       } as const;
 
-      const sharedConfig = {
-        scope,
-        tools: makeInMemoryToolRegistry(),
-        sources: makeInMemorySourceRegistry(),
-        secrets: makeInMemorySecretStore(),
-        policies: makeInMemoryPolicyEngine(),
-      };
+      const sharedStorage = yield* makeMemoryStorage();
 
       const executor1 = yield* createExecutor({
-        ...sharedConfig,
+        scope,
+        storage: sharedStorage,
         plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
@@ -200,7 +192,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       yield* executor1.close();
 
       const executor2 = yield* createExecutor({
-        ...sharedConfig,
+        scope,
+        storage: sharedStorage,
         plugins: [openApiPlugin({ httpClientLayer: clientLayer })] as const,
       });
 
