@@ -230,15 +230,45 @@ describe("KvPolicyEngine", () => {
         const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
         const policy = yield* engine.add({
           scopeId: ScopeId.make("s1"),
-          name: "allow-t1",
-          action: "allow" as const,
-          match: { toolPattern: "t1" },
+          toolPattern: "t1",
+          effect: "allow" as const,
+          approvalMode: "auto" as const,
           priority: 0,
+          enabled: true,
         });
 
         expect(policy.id).toBeDefined();
         const listed = yield* engine.list(ScopeId.make("s1"));
         expect(listed).toHaveLength(1);
+        expect(listed[0]!.updatedAt.getTime()).toBe(policy.updatedAt.getTime());
+      }),
+    ),
+  );
+
+  it.effect("get and update policies", () =>
+    withKv((kv) =>
+      Effect.gen(function* () {
+        const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
+        const policy = yield* engine.add({
+          scopeId: ScopeId.make("s1"),
+          toolPattern: "t1",
+          effect: "allow" as const,
+          approvalMode: "auto" as const,
+          priority: 0,
+          enabled: true,
+        });
+
+        const loaded = yield* engine.get(policy.id);
+        expect(loaded.toolPattern).toBe("t1");
+
+        const updated = yield* engine.update(policy.id, {
+          approvalMode: "required",
+          priority: 3,
+          enabled: false,
+        });
+        expect(updated.approvalMode).toBe("required");
+        expect(updated.priority).toBe(3);
+        expect(updated.enabled).toBe(false);
       }),
     ),
   );
@@ -249,14 +279,37 @@ describe("KvPolicyEngine", () => {
         const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
         const policy = yield* engine.add({
           scopeId: ScopeId.make("s1"),
-          name: "allow-t1",
-          action: "allow" as const,
-          match: { toolPattern: "t1" },
+          toolPattern: "t1",
+          effect: "allow" as const,
+          approvalMode: "auto" as const,
           priority: 0,
+          enabled: true,
         });
 
         expect(yield* engine.remove(policy.id)).toBe(true);
         expect(yield* engine.list(ScopeId.make("s1"))).toHaveLength(0);
+      }),
+    ),
+  );
+
+  it.effect("check evaluates policies", () =>
+    withKv((kv) =>
+      Effect.gen(function* () {
+        const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
+        yield* engine.add({
+          scopeId: ScopeId.make("s1"),
+          toolPattern: "blocked.*",
+          effect: "deny" as const,
+          approvalMode: "auto" as const,
+          priority: 0,
+          enabled: true,
+        });
+
+        const decision = yield* engine.check({
+          scopeId: ScopeId.make("s1"),
+          toolId: ToolId.make("blocked.tool"),
+        });
+        expect(decision.kind).toBe("deny");
       }),
     ),
   );

@@ -11,15 +11,22 @@ import type {
   InvokeOptions,
 } from "./tools";
 import type { Source, SourceDetectionResult, SourceRegistry } from "./sources";
-import type { Policy, PolicyEngine } from "./policies";
+import type {
+  Policy,
+  PolicyEngine,
+  PolicyDecision,
+  CreatePolicyPayload,
+  UpdatePolicyPayload,
+} from "./policies";
 import type { Scope } from "./scope";
 import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
+import { PolicyDeniedError } from "./errors";
 import type {
   ToolNotFoundError,
   ToolInvocationError,
   SecretNotFoundError,
   SecretResolutionError,
-  PolicyDeniedError,
+  PolicyNotFoundError,
 } from "./errors";
 import {
   FormElicitation,
@@ -64,7 +71,12 @@ export type Executor<TPlugins extends readonly ExecutorPlugin<string, object>[] 
 
   readonly policies: {
     readonly list: () => Effect.Effect<readonly Policy[]>;
-    readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Effect.Effect<Policy>;
+    readonly get: (policyId: string) => Effect.Effect<Policy, PolicyNotFoundError>;
+    readonly add: (policy: CreatePolicyPayload) => Effect.Effect<Policy>;
+    readonly update: (
+      policyId: string,
+      patch: UpdatePolicyPayload,
+    ) => Effect.Effect<Policy, PolicyNotFoundError>;
     readonly remove: (policyId: string) => Effect.Effect<boolean>;
   };
 
@@ -120,6 +132,29 @@ export const createExecutor = <
   Effect.gen(function* () {
     const { scope, tools, sources, secrets, policies, plugins = [] } = config;
 
+    const runApproval = (
+      decision: PolicyDecision,
+      toolId: ToolId,
+      args: unknown,
+      options: InvokeOptions,
+      message: string,
+      source: "policy" | "annotation",
+    ) => {
+      const handler = resolveElicitationHandler(options);
+      return handler({
+        toolId,
+        args,
+        request: new FormElicitation({
+          message,
+          requestedSchema: {},
+        }),
+        approval: {
+          source,
+          ...(decision.matchedPolicyId ? { matchedPolicyId: decision.matchedPolicyId } : {}),
+        },
+      });
+    };
+
     // Initialize all plugins
     const handles = new Map<string, PluginHandle<object>>();
     const extensions: Record<string, object> = {};
@@ -146,20 +181,53 @@ export const createExecutor = <
         invoke: (toolId: string, args: unknown, options: InvokeOptions) => {
           const tid = toolId as ToolId;
           return Effect.gen(function* () {
-            yield* policies.check({ scopeId: scope.id, toolId: tid });
+            const decision = yield* policies.check({ scopeId: scope.id, toolId: tid });
+
+            if (decision.kind === "deny") {
+              return yield* new PolicyDeniedError({
+                policyId: decision.matchedPolicyId as PolicyId,
+                toolId: tid,
+                reason: decision.reason,
+              });
+            }
+
+            if (decision.kind === "require_interaction") {
+              const response = yield* runApproval(
+                decision,
+                tid,
+                args,
+                options,
+                decision.reason,
+                "policy",
+              );
+              if (response.action !== "accept") {
+                return yield* new ElicitationDeclinedError({
+                  toolId: tid,
+                  action: response.action,
+                });
+              }
+              return yield* tools.invoke(tid, args, options);
+            }
+
+            if (decision.kind === "allow") {
+              return yield* tools.invoke(tid, args, options);
+            }
 
             // Dynamically resolve annotations from the plugin
             const annotations = yield* tools.resolveAnnotations(tid);
             if (annotations?.requiresApproval) {
-              const handler = resolveElicitationHandler(options);
-              const response = yield* handler({
-                toolId: tid,
+              const response = yield* runApproval(
+                {
+                  kind: "fallback",
+                  matchedPolicyId: null,
+                  reason: annotations.approvalDescription ?? `Approve ${toolId}?`,
+                } as PolicyDecision,
+                tid,
                 args,
-                request: new FormElicitation({
-                  message: annotations.approvalDescription ?? `Approve ${toolId}?`,
-                  requestedSchema: {},
-                }),
-              });
+                options,
+                annotations.approvalDescription ?? `Approve ${toolId}?`,
+                "annotation",
+              );
               if (response.action !== "accept") {
                 return yield* new ElicitationDeclinedError({
                   toolId: tid,
@@ -182,8 +250,11 @@ export const createExecutor = <
 
       policies: {
         list: () => policies.list(scope.id),
-        add: (policy: Omit<Policy, "id" | "createdAt">) =>
+        get: (policyId: string) => policies.get(policyId as PolicyId),
+        add: (policy: CreatePolicyPayload) =>
           policies.add({ ...policy, scopeId: scope.id }),
+        update: (policyId: string, patch: UpdatePolicyPayload) =>
+          policies.update(policyId as PolicyId, patch),
         remove: (policyId: string) => policies.remove(policyId as PolicyId),
       },
 

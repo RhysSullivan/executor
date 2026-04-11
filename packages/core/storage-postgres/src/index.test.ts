@@ -233,16 +233,44 @@ describe("Executor with Postgres storage", () => {
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor();
       const policy = yield* executor.policies.add({
-        scopeId: ScopeId.make(TEST_ORG_ID),
-        name: "allow-t1",
-        action: "allow" as const,
-        match: { toolPattern: "t1" },
+        toolPattern: "t1",
+        effect: "allow" as const,
+        approvalMode: "auto" as const,
         priority: 0,
+        enabled: true,
       });
 
       expect(policy.id).toBeDefined();
       const listed = yield* executor.policies.list();
       expect(listed).toHaveLength(1);
+      expect(listed[0]!.toolPattern).toBe("t1");
+    }),
+  );
+
+  it.effect("get and update policies", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeTestExecutor();
+      const policy = yield* executor.policies.add({
+        toolPattern: "t1",
+        effect: "allow" as const,
+        approvalMode: "auto" as const,
+        priority: 0,
+        enabled: true,
+      });
+
+      const loaded = yield* executor.policies.get(policy.id);
+      expect(loaded.toolPattern).toBe("t1");
+
+      const updated = yield* executor.policies.update(policy.id, {
+        toolPattern: "t1.write",
+        approvalMode: "required",
+        priority: 4,
+        enabled: false,
+      });
+      expect(updated.toolPattern).toBe("t1.write");
+      expect(updated.approvalMode).toBe("required");
+      expect(updated.priority).toBe(4);
+      expect(updated.enabled).toBe(false);
     }),
   );
 
@@ -250,11 +278,11 @@ describe("Executor with Postgres storage", () => {
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor();
       const policy = yield* executor.policies.add({
-        scopeId: ScopeId.make(TEST_ORG_ID),
-        name: "allow-t1",
-        action: "allow" as const,
-        match: { toolPattern: "t1" },
+        toolPattern: "t1",
+        effect: "allow" as const,
+        approvalMode: "auto" as const,
         priority: 0,
+        enabled: true,
       });
 
       expect(yield* executor.policies.remove(policy.id)).toBe(true);
