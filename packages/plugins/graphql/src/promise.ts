@@ -4,8 +4,6 @@ export type { GraphqlSourceConfig } from "./sdk/plugin";
 export type { HeaderValue } from "./sdk/types";
 export type { GraphqlOperationStore } from "./sdk/operation-store";
 
-export interface GraphqlPluginOptions {
-  readonly operationStore?: import("./sdk/operation-store").GraphqlOperationStore;
-}
+export type GraphqlPluginOptions = Record<string, never>;
 
-export const graphqlPlugin = (options?: GraphqlPluginOptions) => graphqlPluginEffect(options);
+export const graphqlPlugin = (_options?: GraphqlPluginOptions) => graphqlPluginEffect();

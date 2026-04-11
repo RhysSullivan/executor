@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import { makeInMemoryScopedKv, scopeKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
+import type { ScopedKv, ToolId } from "@executor/sdk";
 
 import { McpToolBinding } from "./types";
 import type { McpStoredSourceData } from "./types";
@@ -62,10 +62,13 @@ export interface McpBindingStore {
 }
 
 // ---------------------------------------------------------------------------
-// Implementation — two KV namespaces: bindings + sources
+// Implementation — two scoped KV sub-namespaces: bindings + sources
 // ---------------------------------------------------------------------------
 
-const makeStore = (bindings: ScopedKv, sources: ScopedKv): McpBindingStore => ({
+export const makeBindingStore = (
+  bindings: ScopedKv,
+  sources: ScopedKv,
+): McpBindingStore => ({
   // ---- Bindings ----
 
   get: (toolId) =>
@@ -136,17 +139,3 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): McpBindingStore => ({
       return source.config;
     }),
 });
-
-// ---------------------------------------------------------------------------
-// Factory from global Kv — two scoped sub-namespaces
-// ---------------------------------------------------------------------------
-
-export const makeKvBindingStore = (kv: Kv, namespace: string): McpBindingStore =>
-  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
-
-// ---------------------------------------------------------------------------
-// In-memory convenience
-// ---------------------------------------------------------------------------
-
-export const makeInMemoryBindingStore = (): McpBindingStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

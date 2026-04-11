@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { FetchHttpClient, HttpClient } from "@effect/platform";
+import { FetchHttpClient, FileSystem, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import {
@@ -19,8 +19,9 @@ import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
 import { makeOpenApiInvoker } from "./invoke";
 import { resolveBaseUrl } from "./openapi-utils";
-import type { OpenApiOperationStore, StoredSource } from "./operation-store";
-import { makeInMemoryOperationStore } from "./kv-operation-store";
+import type { StoredSource } from "./operation-store";
+import { makeOperationStore } from "./kv-operation-store";
+import { withConfigFile } from "./config-file-store";
 import { previewSpec, SpecPreview } from "./preview";
 import {
   HeaderValue as HeaderValueSchema,
@@ -157,17 +158,34 @@ const toBinding = (def: ToolDefinition): OperationBinding =>
 // Plugin factory
 // ---------------------------------------------------------------------------
 
+export interface OpenApiPluginConfigFile {
+  readonly path: string;
+  readonly fsLayer: Layer.Layer<FileSystem.FileSystem>;
+}
+
 export const openApiPlugin = (options?: {
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
-  readonly operationStore?: OpenApiOperationStore;
+  /**
+   * Optional executor.jsonc mirror. When set, `putSource`/`removeSource`
+   * writes are reflected into the config file at `path` using the
+   * supplied `fsLayer`.
+   */
+  readonly configFile?: OpenApiPluginConfigFile;
 }): ExecutorPlugin<"openapi", OpenApiPluginExtension> => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
-  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
 
   return definePlugin({
     key: "openapi",
     init: (ctx: PluginContext) =>
       Effect.gen(function* () {
+        const baseStore = makeOperationStore(
+          ctx.pluginKv("openapi.bindings"),
+          ctx.pluginKv("openapi.sources"),
+        );
+        const operationStore = options?.configFile
+          ? withConfigFile(baseStore, options.configFile.path, options.configFile.fsLayer)
+          : baseStore;
+
         yield* ctx.tools.registerInvoker(
           "openapi",
           makeOpenApiInvoker({

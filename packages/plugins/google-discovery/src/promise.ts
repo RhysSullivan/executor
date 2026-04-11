@@ -11,9 +11,7 @@ export type {
 
 export type { GoogleDiscoveryBindingStore } from "./sdk/binding-store";
 
-export interface GoogleDiscoveryPluginOptions {
-  readonly bindingStore?: import("./sdk/binding-store").GoogleDiscoveryBindingStore;
-}
+export type GoogleDiscoveryPluginOptions = Record<string, never>;
 
-export const googleDiscoveryPlugin = (options?: GoogleDiscoveryPluginOptions) =>
-  googleDiscoveryPluginEffect(options);
+export const googleDiscoveryPlugin = (_options?: GoogleDiscoveryPluginOptions) =>
+  googleDiscoveryPluginEffect();

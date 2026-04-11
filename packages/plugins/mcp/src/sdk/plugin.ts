@@ -1,4 +1,6 @@
 import { Effect, Exit, ScopedCache, Duration, Scope } from "effect";
+import type { Layer } from "effect";
+import { FileSystem } from "@effect/platform";
 
 import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import type { OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js";
@@ -14,11 +16,8 @@ import {
 } from "@executor/sdk";
 
 import { type McpStoredSourceData, type McpConnectionAuth, McpToolBinding } from "./types";
-import {
-  makeInMemoryBindingStore,
-  type McpBindingStore,
-  type McpStoredSource,
-} from "./binding-store";
+import { makeBindingStore, type McpStoredSource } from "./binding-store";
+import { withConfigFile } from "./config-file-store";
 import { createMcpConnector, type McpConnection, type ConnectorInput } from "./connection";
 import { McpConnectionError, McpOAuthError, McpToolDiscoveryError } from "./errors";
 import { startMcpOAuthAuthorization, exchangeMcpOAuthCode, type McpOAuthSession } from "./oauth";
@@ -223,10 +222,19 @@ const mcpDiscoveryError = (message: string) =>
 // Plugin factory
 // ---------------------------------------------------------------------------
 
+export interface McpPluginConfigFile {
+  readonly path: string;
+  readonly fsLayer: Layer.Layer<FileSystem.FileSystem>;
+}
+
 export const mcpPlugin = (options?: {
-  readonly bindingStore?: McpBindingStore;
+  /**
+   * Optional executor.jsonc mirror. When set, `putSource`/`removeSource`
+   * writes are reflected into the config file at `path` using the
+   * supplied `fsLayer`.
+   */
+  readonly configFile?: McpPluginConfigFile;
 }): ExecutorPlugin<"mcp", McpPluginExtension> => {
-  const bindingStore = options?.bindingStore ?? makeInMemoryBindingStore();
   const addedSources = new Map<string, Source>();
   const oauthSessions = new Map<string, McpOAuthSession>();
 
@@ -234,6 +242,14 @@ export const mcpPlugin = (options?: {
     key: "mcp",
     init: (ctx: PluginContext) =>
       Effect.gen(function* () {
+        const baseBindingStore = makeBindingStore(
+          ctx.pluginKv("mcp.bindings"),
+          ctx.pluginKv("mcp.sources"),
+        );
+        const bindingStore = options?.configFile
+          ? withConfigFile(baseBindingStore, options.configFile.path, options.configFile.fsLayer)
+          : baseBindingStore;
+
         // Create a long-lived scope for the connection cache
         const cacheScope = yield* Scope.make();
 

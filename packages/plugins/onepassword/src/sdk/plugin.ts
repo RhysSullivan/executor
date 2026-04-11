@@ -169,8 +169,6 @@ const deleteConfig = (kv: ScopedKv): Effect.Effect<void> =>
 // ---------------------------------------------------------------------------
 
 export interface OnePasswordPluginOptions {
-  /** Scoped KV for persisting config (provided by server) */
-  readonly kv: ScopedKv;
   /** Request timeout in ms (default: 15000) */
   readonly timeoutMs?: number;
   /** Force use of the native SDK instead of the CLI (default: false) */
@@ -178,15 +176,15 @@ export interface OnePasswordPluginOptions {
 }
 
 export const onepasswordPlugin = (
-  options: OnePasswordPluginOptions,
+  options?: OnePasswordPluginOptions,
 ): ExecutorPlugin<typeof PLUGIN_KEY, OnePasswordExtension> => {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const kv = options.kv;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return definePlugin({
     key: PLUGIN_KEY,
     init: (ctx) =>
       Effect.gen(function* () {
+        const kv = ctx.pluginKv(PLUGIN_KEY);
         const getConfig = () => loadConfig(kv);
 
         yield* ctx.secrets.addProvider(makeProvider(getConfig, ctx, timeoutMs));
@@ -221,7 +219,7 @@ export const onepasswordPlugin = (
               const resolved = yield* resolveAuth(auth, ctx);
               const svc = yield* makeOnePasswordService(resolved, {
                 timeoutMs,
-                preferSdk: options.preferSdk,
+                preferSdk: options?.preferSdk,
               });
               const vaults = yield* svc.listVaults();
               return vaults

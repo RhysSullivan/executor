@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { makeInMemoryScopedKv, scopeKv, type Kv, type ScopedKv, type ToolId } from "@executor/sdk";
+import type { ScopedKv, ToolId } from "@executor/sdk";
 
 import { GoogleDiscoveryMethodBinding, GoogleDiscoveryStoredSourceData } from "./types";
 
@@ -42,7 +42,10 @@ export interface GoogleDiscoveryBindingStore {
   ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null>;
 }
 
-const makeStore = (bindings: ScopedKv, sources: ScopedKv): GoogleDiscoveryBindingStore => ({
+export const makeBindingStore = (
+  bindings: ScopedKv,
+  sources: ScopedKv,
+): GoogleDiscoveryBindingStore => ({
   get: (toolId) =>
     Effect.gen(function* () {
       const raw = yield* bindings.get(toolId);
@@ -109,9 +112,3 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): GoogleDiscoveryBindin
       return source.config;
     }),
 });
-
-export const makeKvBindingStore = (kv: Kv, namespace: string): GoogleDiscoveryBindingStore =>
-  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
-
-export const makeInMemoryBindingStore = (): GoogleDiscoveryBindingStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

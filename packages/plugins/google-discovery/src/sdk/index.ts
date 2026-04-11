@@ -9,7 +9,6 @@ export type {
   GoogleDiscoveryProbeResult,
 } from "./plugin";
 export { extractGoogleDiscoveryManifest } from "./document";
-export { makeKvBindingStore, makeInMemoryBindingStore } from "./binding-store";
 export type { GoogleDiscoveryBindingStore } from "./binding-store";
 export { makeGoogleDiscoveryInvoker } from "./invoke";
 export {

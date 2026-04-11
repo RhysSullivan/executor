@@ -1,9 +1,13 @@
 // ---------------------------------------------------------------------------
-// KV-backed GraphqlOperationStore
+// ScopedKv-backed GraphqlOperationStore
+//
+// Takes two ScopedKv instances (bindings + sources). Plugins typically
+// construct these via `ctx.pluginKv("graphql.bindings")` and
+// `ctx.pluginKv("graphql.sources")`.
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
+import type { ScopedKv, ToolId } from "@executor/sdk";
 
 import type { GraphqlOperationStore, StoredSource } from "./operation-store";
 import { OperationBinding, InvocationConfig } from "./types";
@@ -26,10 +30,13 @@ const encodeSource = Schema.encodeSync(Schema.parseJson(StoredSourceSchema));
 const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(StoredSourceSchema));
 
 // ---------------------------------------------------------------------------
-// Implementation
+// Factory
 // ---------------------------------------------------------------------------
 
-const makeStore = (bindings: ScopedKv, sources: ScopedKv): GraphqlOperationStore => ({
+export const makeOperationStore = (
+  bindings: ScopedKv,
+  sources: ScopedKv,
+): GraphqlOperationStore => ({
   get: (toolId) =>
     Effect.gen(function* () {
       const raw = yield* bindings.get(toolId);
@@ -93,13 +100,3 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): GraphqlOperationStore
       return source.config;
     }),
 });
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
-
-export const makeKvOperationStore = (kv: Kv, namespace: string): GraphqlOperationStore =>
-  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
-
-export const makeInMemoryOperationStore = (): GraphqlOperationStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

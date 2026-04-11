@@ -13,8 +13,6 @@ export type {
 
 export type { McpBindingStore } from "./sdk/binding-store";
 
-export interface McpPluginOptions {
-  readonly bindingStore?: import("./sdk/binding-store").McpBindingStore;
-}
+export type McpPluginOptions = Record<string, never>;
 
-export const mcpPlugin = (options?: McpPluginOptions) => mcpPluginEffect(options);
+export const mcpPlugin = (_options?: McpPluginOptions) => mcpPluginEffect();

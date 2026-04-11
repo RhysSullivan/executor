@@ -1,11 +1,14 @@
 // ---------------------------------------------------------------------------
-// KV-backed OpenApiOperationStore
+// ScopedKv-backed OpenApiOperationStore
 //
-// Uses two KV namespaces — one for bindings, one for sources (meta + config).
+// Takes two ScopedKv instances — one for operation bindings, one for stored
+// sources — and exposes the `OpenApiOperationStore` interface. Plugins
+// typically construct these via `ctx.pluginKv("openapi.bindings")` and
+// `ctx.pluginKv("openapi.sources")`.
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
+import type { ScopedKv, ToolId } from "@executor/sdk";
 
 import type { OpenApiOperationStore, StoredOperation, StoredSource } from "./operation-store";
 import { OperationBinding, InvocationConfig } from "./types";
@@ -28,10 +31,13 @@ const encodeSource = Schema.encodeSync(Schema.parseJson(StoredSourceSchema));
 const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(StoredSourceSchema));
 
 // ---------------------------------------------------------------------------
-// Implementation
+// Factory
 // ---------------------------------------------------------------------------
 
-const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore => {
+export const makeOperationStore = (
+  bindings: ScopedKv,
+  sources: ScopedKv,
+): OpenApiOperationStore => {
   const withKvTransaction = <A, E>(
     kv: ScopedKv,
     effect: Effect.Effect<A, E, never>,
@@ -108,13 +114,3 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore
       }),
   };
 };
-
-// ---------------------------------------------------------------------------
-// Factory from global Kv
-// ---------------------------------------------------------------------------
-
-export const makeKvOperationStore = (kv: Kv, namespace: string): OpenApiOperationStore =>
-  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
-
-export const makeInMemoryOperationStore = (): OpenApiOperationStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());

@@ -1,5 +1,5 @@
 import { Effect, Option, Schema } from "effect";
-import { FetchHttpClient, HttpClient } from "@effect/platform";
+import { FetchHttpClient, FileSystem, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import {
@@ -25,8 +25,9 @@ import {
 import { extract } from "./extract";
 import { GraphqlExtractionError } from "./errors";
 import { makeGraphqlInvoker } from "./invoke";
-import type { GraphqlOperationStore, StoredSource } from "./operation-store";
-import { makeInMemoryOperationStore } from "./kv-operation-store";
+import type { StoredSource } from "./operation-store";
+import { makeOperationStore } from "./kv-operation-store";
+import { withConfigFile } from "./config-file-store";
 import {
   ExtractedField,
   HeaderValue as HeaderValueSchema,
@@ -203,17 +204,34 @@ const toRegistration = (field: ExtractedField, namespace: string): ToolRegistrat
 // Plugin factory
 // ---------------------------------------------------------------------------
 
+export interface GraphqlPluginConfigFile {
+  readonly path: string;
+  readonly fsLayer: Layer.Layer<FileSystem.FileSystem>;
+}
+
 export const graphqlPlugin = (options?: {
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
-  readonly operationStore?: GraphqlOperationStore;
+  /**
+   * Optional executor.jsonc mirror. When set, `putSource`/`removeSource`
+   * writes are reflected into the config file at `path` using the
+   * supplied `fsLayer`.
+   */
+  readonly configFile?: GraphqlPluginConfigFile;
 }): ExecutorPlugin<"graphql", GraphqlPluginExtension> => {
   const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
-  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
 
   return definePlugin({
     key: "graphql",
     init: (ctx: PluginContext) =>
       Effect.gen(function* () {
+        const baseStore = makeOperationStore(
+          ctx.pluginKv("graphql.bindings"),
+          ctx.pluginKv("graphql.sources"),
+        );
+        const operationStore = options?.configFile
+          ? withConfigFile(baseStore, options.configFile.path, options.configFile.fsLayer)
+          : baseStore;
+
         yield* ctx.tools.registerInvoker(
           "graphql",
           makeGraphqlInvoker({

@@ -14,7 +14,7 @@ import {
 } from "@executor/sdk";
 
 import type { GoogleDiscoveryBindingStore, GoogleDiscoveryStoredSource } from "./binding-store";
-import { makeInMemoryBindingStore } from "./binding-store";
+import { makeBindingStore } from "./binding-store";
 import { extractGoogleDiscoveryManifest } from "./document";
 import { makeGoogleDiscoveryInvoker } from "./invoke";
 import {
@@ -258,16 +258,19 @@ const storeSecret = (
       ),
     );
 
-export const googleDiscoveryPlugin = (options?: {
-  readonly bindingStore?: GoogleDiscoveryBindingStore;
-}): ExecutorPlugin<"googleDiscovery", GoogleDiscoveryPluginExtension> => {
-  const bindingStore = options?.bindingStore ?? makeInMemoryBindingStore();
+export const googleDiscoveryPlugin =
+  (): ExecutorPlugin<"googleDiscovery", GoogleDiscoveryPluginExtension> => {
   const oauthSessions = new Map<string, GoogleDiscoveryOAuthSession>();
 
   return definePlugin({
     key: "googleDiscovery",
     init: (ctx: PluginContext) =>
       Effect.gen(function* () {
+        const bindingStore = makeBindingStore(
+          ctx.pluginKv("google-discovery.bindings"),
+          ctx.pluginKv("google-discovery.sources"),
+        );
+
         yield* ctx.tools.registerInvoker(
           "googleDiscovery",
           makeGoogleDiscoveryInvoker({
