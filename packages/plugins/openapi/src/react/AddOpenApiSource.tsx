@@ -14,15 +14,19 @@ import {
   CardStack,
   CardStackContent,
   CardStackEntry,
+  CardStackEntryActions,
   CardStackEntryContent,
   CardStackEntryDescription,
   CardStackEntryField,
   CardStackEntryTitle,
+  CardStackHeader,
 } from "@executor/react/components/card-stack";
 import { FloatActions } from "@executor/react/components/float-actions";
+import { cn } from "@executor/react/lib/utils";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
 import { Textarea } from "@executor/react/components/textarea";
+import { Badge } from "@executor/react/components/badge";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
@@ -49,6 +53,22 @@ function matchPresetKey(name: string, prefix?: string): string {
     defaultHeaderAuthPresets.find((entry) => entry.name === name && entry.prefix === undefined);
 
   return preset?.key ?? "custom";
+}
+
+function methodBadgeClasses(method: string): string {
+  switch (method) {
+    case "get":
+      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+    case "post":
+      return "bg-blue-500/10 text-blue-700 dark:text-blue-400";
+    case "put":
+    case "patch":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-400";
+    case "delete":
+      return "bg-red-500/10 text-red-600 dark:text-red-400";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
 }
 
 function presetEntriesFromHeaderPreset(preset: HeaderPreset) {
@@ -386,6 +406,48 @@ export default function AddOpenApiSource(props: {
             onHeadersChange={setCustomHeaders}
             existingSecrets={secretList}
           />
+
+          {/* Operations */}
+          {preview.operations.length > 0 && (
+            <CardStack searchable className="opacity-50 hover:opacity-100 transition-opacity">
+              <CardStackHeader>
+                {preview.operations.length} operation
+                {preview.operations.length !== 1 ? "s" : ""}
+              </CardStackHeader>
+              <CardStackContent>
+                {preview.operations.map((op) => (
+                  <CardStackEntry
+                    key={op.operationId}
+                    searchText={`${op.method} ${op.path} ${Option.getOrElse(op.summary, () => "")} ${op.tags.join(" ")}`}
+                  >
+                    <CardStackEntryContent>
+                      <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
+                        <span
+                          className={cn(
+                            "shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase",
+                            methodBadgeClasses(op.method),
+                          )}
+                        >
+                          {op.method}
+                        </span>
+                        <span className="truncate font-mono">{op.path}</span>
+                      </CardStackEntryTitle>
+                      {Option.isSome(op.summary) && (
+                        <CardStackEntryDescription>{op.summary.value}</CardStackEntryDescription>
+                      )}
+                    </CardStackEntryContent>
+                    {op.deprecated && (
+                      <CardStackEntryActions>
+                        <Badge variant="outline" className="text-[10px]">
+                          Deprecated
+                        </Badge>
+                      </CardStackEntryActions>
+                    )}
+                  </CardStackEntry>
+                ))}
+              </CardStackContent>
+            </CardStack>
+          )}
 
           {/* Add error */}
           {addError && (

@@ -10,7 +10,12 @@ import { Button } from "@executor/react/components/button";
 import {
   CardStack,
   CardStackContent,
+  CardStackEntry,
+  CardStackEntryContent,
+  CardStackEntryDescription,
   CardStackEntryField,
+  CardStackEntryTitle,
+  CardStackHeader,
 } from "@executor/react/components/card-stack";
 import {
   Collapsible,
@@ -30,6 +35,7 @@ import {
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
 import { Label } from "@executor/react/components/label";
+import { cn } from "@executor/react/lib/utils";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import {
@@ -37,6 +43,22 @@ import {
   type AuthMethod,
 } from "@executor/react/plugins/authentication-section";
 import { addGoogleDiscoverySource, probeGoogleDiscovery, startGoogleDiscoveryOAuth } from "./atoms";
+
+function methodBadgeClasses(method: string): string {
+  switch (method.toLowerCase()) {
+    case "get":
+      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
+    case "post":
+      return "bg-blue-500/10 text-blue-700 dark:text-blue-400";
+    case "put":
+    case "patch":
+      return "bg-amber-500/10 text-amber-700 dark:text-amber-400";
+    case "delete":
+      return "bg-red-500/10 text-red-600 dark:text-red-400";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Inline secret creation
@@ -811,6 +833,43 @@ export default function AddGoogleDiscoverySource(props: {
           </div>
         }
       />
+
+      {probe && probe.operations.length > 0 && (
+        <CardStack searchable className="opacity-50 hover:opacity-100 transition-opacity">
+          <CardStackHeader>
+            {probe.operations.length} operation
+            {probe.operations.length !== 1 ? "s" : ""}
+          </CardStackHeader>
+          <CardStackContent>
+            {probe.operations.map((op) => (
+              <CardStackEntry
+                key={op.toolPath}
+                searchText={`${op.method} ${op.pathTemplate} ${op.toolPath} ${op.description ?? ""}`}
+              >
+                <CardStackEntryContent>
+                  <CardStackEntryTitle className="flex min-w-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase",
+                        methodBadgeClasses(op.method),
+                      )}
+                    >
+                      {op.method}
+                    </span>
+                    <span className="truncate font-mono">{op.pathTemplate}</span>
+                  </CardStackEntryTitle>
+                  <CardStackEntryDescription className="font-mono">
+                    {op.toolPath}
+                  </CardStackEntryDescription>
+                  {op.description && (
+                    <CardStackEntryDescription>{op.description}</CardStackEntryDescription>
+                  )}
+                </CardStackEntryContent>
+              </CardStackEntry>
+            ))}
+          </CardStackContent>
+        </CardStack>
+      )}
 
       {error && (
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
