@@ -15,6 +15,7 @@
     "@effect/platform": "catalog:",
     "@executor/execution": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@executor/storage": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId, ToolId, ToolNotFoundError } from "@executor/sdk";
+import { ScopeId, ToolId, ToolNotFoundError } from "@executor/storage";
 
 // ---------------------------------------------------------------------------
 // Params

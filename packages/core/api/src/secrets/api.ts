@@ -1,6 +1,6 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId, SecretId, SecretNotFoundError, SecretResolutionError } from "@executor/sdk";
+import { ScopeId, SecretId, SecretNotFoundError, SecretResolutionError } from "@executor/storage";
 
 // ---------------------------------------------------------------------------
 // Params
