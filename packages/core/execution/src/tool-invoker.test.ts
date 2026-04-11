@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Fiber, Schema } from "effect";
 
 import { createExecutor, definePlugin, inMemoryToolsPlugin, tool } from "@executor/sdk";
-import { ElicitationResponse, FormElicitation, Source } from "@executor/storage";
+import { ElicitationResponse, FormElicitation, Source } from "@executor/sdk";
 import { makeInMemoryConfig } from "@executor/storage-sqlite/memory";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";

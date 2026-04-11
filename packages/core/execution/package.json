@@ -15,7 +15,6 @@
     "@executor/codemode-core": "workspace:*",
     "@executor/runtime-quickjs": "workspace:*",
     "@executor/sdk": "workspace:*",
-    "@executor/storage": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

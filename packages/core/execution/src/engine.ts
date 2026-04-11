@@ -6,7 +6,7 @@ import type {
   ElicitationResponse,
   ElicitationHandler,
   ElicitationContext,
-} from "@executor/storage";
+} from "@executor/sdk";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
