@@ -1,20 +1,19 @@
 // ---------------------------------------------------------------------------
-// @executor/storage-sqlite — better-sqlite3 (Node) factories
+// @executor/storage-sqlite/bun — bun:sqlite factories
 //
-// Use this entry point from Node. Bun consumers should import from
-// `@executor/storage-sqlite/bun` because `better-sqlite3` is not
-// loadable under current Bun releases.
+// Use this entry point when running under Bun. Bun's native `bun:sqlite`
+// module is faster and avoids the `better-sqlite3` native module load
+// failure on current Bun releases.
 // ---------------------------------------------------------------------------
 
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { Effect } from "effect";
 
 import type { ExecutorStorage, StorageError } from "@executor/storage";
 
 import {
   makeSqliteStorage,
-  sqliteCapabilities,
   type SqliteRunner,
   type SqliteStorageOptions,
 } from "./core";

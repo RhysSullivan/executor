@@ -1,63 +1,20 @@
 // ---------------------------------------------------------------------------
-// @executor/storage-postgres — Drizzle-backed relational storage
+// @executor/storage-postgres — Postgres `ExecutorStorage` adapter
 //
-// Replaces the KV-based storage-file with proper relational tables in
-// Postgres for the cloud/SaaS version. Implements the same SDK service
-// interfaces so all plugins work unchanged.
+// Thin package: it just exposes the Postgres implementation of the
+// generic storage contract in `@executor/storage`.
 //
 // Usage:
 //
-//   import { makePgConfig, makePgKv } from "@executor/storage-postgres"
+//   import { makePostgresStorage, migratePostgresStorage } from "@executor/storage-postgres"
 //   import { drizzle } from "drizzle-orm/node-postgres"
-//   import * as schema from "@executor/storage-postgres/schema"
+//   import { composeExecutorSchema } from "@executor/storage"
 //
-//   const db = drizzle(pool, { schema })
-//   const config = makePgConfig(db, { organizationId: "...", organizationName: "..." })
-//   const executor = yield* createExecutor(config)
-//
+//   const db = drizzle(pool)
+//   const schema = composeExecutorSchema({ plugins })
+//   const storage = yield* makePostgresStorage(db, { schema })
+//   const executor = yield* createExecutor({ scope, storage, plugins, encryptionKey })
 // ---------------------------------------------------------------------------
 
-import { ScopeId, makeInMemorySourceRegistry } from "@executor/sdk";
-import type { Scope, ExecutorConfig, ExecutorPlugin } from "@executor/sdk";
-import type { DrizzleDb } from "./types";
-
-import { makePgToolRegistry } from "./tool-registry";
-import { makePgSecretStore } from "./secret-store";
-import { makePgPolicyEngine } from "./policy-engine";
-
-export { makePgKv } from "./pg-kv";
-export { makePgToolRegistry } from "./tool-registry";
-export { makePgSecretStore } from "./secret-store";
-export { makePgPolicyEngine } from "./policy-engine";
 export { makePostgresStorage, migratePostgresStorage } from "./executor-storage";
-export { encrypt, decrypt } from "./crypto";
 export type { DrizzleDb } from "./types";
-
-// ---------------------------------------------------------------------------
-// Convenience: build a full ExecutorConfig from a Drizzle DB instance
-// ---------------------------------------------------------------------------
-
-export const makePgConfig = <const TPlugins extends readonly ExecutorPlugin<string, object>[] = []>(
-  db: DrizzleDb,
-  options: {
-    readonly organizationId: string;
-    readonly organizationName: string;
-    readonly encryptionKey: string;
-    readonly plugins?: TPlugins;
-  },
-): ExecutorConfig<TPlugins> => {
-  const scope: Scope = {
-    id: ScopeId.make(options.organizationId),
-    name: options.organizationName,
-    createdAt: new Date(),
-  };
-
-  return {
-    scope,
-    tools: makePgToolRegistry(db, options.organizationId),
-    sources: makeInMemorySourceRegistry(),
-    secrets: makePgSecretStore(db, options.organizationId, options.encryptionKey),
-    policies: makePgPolicyEngine(db, options.organizationId),
-    plugins: options.plugins,
-  };
-};
