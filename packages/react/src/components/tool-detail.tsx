@@ -7,7 +7,8 @@ import { Markdown } from "./markdown";
 import { SchemaExplorer } from "./schema-explorer";
 import { ExpandableCodeBlock } from "./expandable-code-block";
 import { CardStack, CardStackHeader, CardStackContent } from "./card-stack";
-import { Copy, Check, ChevronRight } from "lucide-react";
+import { CopyButton } from "./copy-button";
+import { ChevronRight } from "lucide-react";
 
 function EmptySection(props: { title: string; message: string }) {
   return (
@@ -17,31 +18,6 @@ function EmptySection(props: { title: string; message: string }) {
         <p className="px-4 py-3 text-sm text-muted-foreground">{props.message}</p>
       </CardStackContent>
     </CardStack>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Copy button
-// ---------------------------------------------------------------------------
-
-function CopyButton(props: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false);
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      onClick={() => {
-        void navigator.clipboard.writeText(props.text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
-      }}
-      className="shrink-0 text-muted-foreground/30 hover:text-muted-foreground transition-colors"
-      title={props.label ?? "Copy"}
-    >
-      {copied ? <Check className="size-3.5 shrink-0" /> : <Copy className="size-3.5 shrink-0" />}
-    </Button>
   );
 }
 
@@ -115,7 +91,7 @@ export function ToolDetail(props: {
           )}
           <div className="mt-1 flex items-center gap-2">
             <h3 className="text-base font-semibold text-foreground truncate">{displayName}</h3>
-            <CopyButton text={props.toolId} label="Copy tool ID" />
+            <CopyButton value={props.toolId} label="Copy tool ID" />
           </div>
           {props.toolDescription && (
             <div className="mt-1.5 max-w-lg text-sm text-muted-foreground line-clamp-2">

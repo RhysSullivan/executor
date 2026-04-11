@@ -13,8 +13,9 @@ import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
 import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
+import { AutumnService } from "../services/autumn";
 import { createOrgExecutor } from "../services/executor";
-import { trackExecutionUsage } from "./autumn";
+import { makeTrackExecutionUsage } from "./autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { withExecutionUsageTracking } from "./execution-usage";
 import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
@@ -46,10 +47,11 @@ const createProtectedApp = (organizationId: string, organizationName: string) =>
       server.ENCRYPTION_KEY,
     );
     const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
+    const autumn = yield* AutumnService;
     const engine = withExecutionUsageTracking(
       organizationId,
       createExecutionEngine({ executor, codeExecutor }),
-      trackExecutionUsage,
+      makeTrackExecutionUsage(autumn),
     );
 
     const requestServices = Layer.mergeAll(

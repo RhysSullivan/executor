@@ -1,8 +1,11 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
 
+import { UserStoreService } from "../auth/context";
 import { AuthContext } from "../auth/middleware";
 import { WorkOSAuth } from "../auth/workos";
+import { server } from "../env";
+import { AutumnService } from "../services/autumn";
 import { TeamOrgApi } from "./compose";
 import { Forbidden } from "./api";
 
@@ -92,6 +95,77 @@ export const TeamHandlers = HttpApiBuilder.group(TeamOrgApi, "team", (handlers) 
         const workos = yield* WorkOSAuth;
         yield* workos.updateOrgMembershipRole(path.membershipId, payload.roleSlug);
         return { success: true };
+      }),
+    )
+    .handle("listDomains", () =>
+      Effect.gen(function* () {
+        const auth = yield* AuthContext;
+        const workos = yield* WorkOSAuth;
+        const org = yield* workos.getOrganization(auth.organizationId);
+
+        const domains = yield* Effect.all(
+          org.domains.map((d) =>
+            Effect.gen(function* () {
+              const full = yield* workos.getOrganizationDomain(d.id);
+              return {
+                id: full.id,
+                domain: full.domain,
+                state: full.state,
+                verificationToken: full.verificationToken,
+                verificationPrefix: full.verificationPrefix,
+              };
+            }),
+          ),
+          { concurrency: 5 },
+        );
+
+        return { domains };
+      }),
+    )
+    .handle("getDomainVerificationLink", () =>
+      Effect.gen(function* () {
+        yield* requireAdmin;
+        const auth = yield* AuthContext;
+
+        const autumn = yield* AutumnService;
+        const check = yield* autumn
+          .use((client) =>
+            client.check({
+              customerId: auth.organizationId,
+              featureId: "domain-verification",
+            }),
+          )
+          .pipe(Effect.orElseSucceed(() => ({ allowed: true })));
+
+        if (!check.allowed) {
+          return yield* new Forbidden();
+        }
+
+        const workos = yield* WorkOSAuth;
+        const { link } = yield* workos.generateDomainVerificationPortalLink(
+          auth.organizationId,
+          server.VITE_PUBLIC_SITE_URL ? `${server.VITE_PUBLIC_SITE_URL}/team` : "/team",
+        );
+        return { link };
+      }),
+    )
+    .handle("deleteDomain", ({ path }) =>
+      Effect.gen(function* () {
+        yield* requireAdmin;
+        const workos = yield* WorkOSAuth;
+        yield* workos.deleteOrganizationDomain(path.domainId);
+        return { success: true };
+      }),
+    )
+    .handle("updateTeamName", ({ payload }) =>
+      Effect.gen(function* () {
+        yield* requireAdmin;
+        const auth = yield* AuthContext;
+        const workos = yield* WorkOSAuth;
+        const users = yield* UserStoreService;
+        const org = yield* workos.updateOrganization(auth.organizationId, payload.name);
+        yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
+        return { name: org.name };
       }),
     ),
 );

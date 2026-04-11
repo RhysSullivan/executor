@@ -63,6 +63,7 @@
     "@effect/platform": "catalog:",
     "@effect/vitest": "catalog:",
     "@typescript/native-preview": "^7.0.0-dev.20260410.1",
+    "atmn": "^1.1.8",
     "effect": "catalog:",
     "knip": "^6.3.0",
     "oxfmt": "^0.44.0",

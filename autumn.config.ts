@@ -15,6 +15,12 @@ export const executions = feature({
   consumable: true,
 });
 
+export const domainVerification = feature({
+  id: "domain-verification",
+  name: "Domain Verification",
+  type: "boolean",
+});
+
 // Plans
 export const free = plan({
   id: "free",
@@ -77,6 +83,9 @@ export const professional = plan({
       featureId: executions.id,
       included: 100000,
       reset: { interval: "month" },
+    }),
+    item({
+      featureId: domainVerification.id,
     }),
   ],
 });

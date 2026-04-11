@@ -98,12 +98,22 @@ const make = Effect.gen(function* () {
     createOrganization: (name: string) =>
       use((wos) => wos.organizations.createOrganization({ name })),
 
-    /** Add a user to an organization as a member. */
-    createMembership: (organizationId: string, userId: string) =>
+    /** Add a user to an organization. */
+    createMembership: (organizationId: string, userId: string, roleSlug?: string) =>
       use((wos) =>
         wos.userManagement.createOrganizationMembership({
           organizationId,
           userId,
+          ...(roleSlug ? { roleSlug } : {}),
+        }),
+      ),
+
+    /** List organization memberships for a user. */
+    listUserMemberships: (userId: string) =>
+      use((wos) =>
+        wos.userManagement.listOrganizationMemberships({
+          userId,
+          statuses: ["active", "pending"],
         }),
       ),
 
@@ -176,6 +186,33 @@ const make = Effect.gen(function* () {
     /** List available roles for an organization. */
     listOrgRoles: (organizationId: string) =>
       use((wos) => wos.organizations.listOrganizationRoles({ organizationId })),
+
+    /** Get an organization (includes domains). */
+    getOrganization: (organizationId: string) =>
+      use((wos) => wos.organizations.getOrganization(organizationId)),
+
+    /** Update an organization. */
+    updateOrganization: (organizationId: string, name: string) =>
+      use((wos) => wos.organizations.updateOrganization({ organization: organizationId, name })),
+
+    /** Generate an Admin Portal link for domain verification. */
+    generateDomainVerificationPortalLink: (organizationId: string, returnUrl: string) =>
+      use((wos) =>
+        wos.portal.generateLink({
+          organization: organizationId,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          intent: "domain_verification" as any,
+          returnUrl,
+        }),
+      ),
+
+    /** Get a domain by ID. */
+    getOrganizationDomain: (domainId: string) =>
+      use((wos) => wos.organizationDomains.get(domainId)),
+
+    /** Delete a domain claim. */
+    deleteOrganizationDomain: (domainId: string) =>
+      use((wos) => wos.organizationDomains.delete(domainId)),
   };
 });
 

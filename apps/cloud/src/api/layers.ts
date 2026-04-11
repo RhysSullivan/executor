@@ -20,6 +20,7 @@ import {
   NonProtectedApi,
 } from "../auth/handlers";
 import { WorkOSAuth } from "../auth/workos";
+import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { TeamOrgApi } from "../team/compose";
 import { TeamHandlers } from "../team/handlers";
@@ -37,6 +38,7 @@ export const SharedServices = Layer.mergeAll(
   DbLive,
   UserStoreLive,
   WorkOSAuth.Default,
+  AutumnService.Default,
   HttpServer.layerContext,
 );
 
