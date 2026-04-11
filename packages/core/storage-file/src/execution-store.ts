@@ -11,6 +11,7 @@ import {
   ExecutionToolCallId,
   buildExecutionListMeta,
   matchToolPathPattern,
+  pickExecutionSorter,
   type CreateExecutionInput,
   type CreateExecutionInteractionInput,
   type CreateExecutionToolCallInput,
@@ -145,6 +146,7 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
     execution: Execution,
     options: ExecutionListOptions,
     toolPathsByExecution: Map<ExecutionId, string[]>,
+    executionIdsWithInteractions: ReadonlySet<ExecutionId>,
   ): boolean => {
     if (options.statusFilter && options.statusFilter.length > 0) {
       const allowed = new Set<ExecutionStatus>(options.statusFilter);
@@ -177,6 +179,11 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
         paths.some((path) => matchToolPathPattern(path, pattern)),
       );
       if (!any) return false;
+    }
+
+    if (options.hadElicitation !== undefined) {
+      const hasInteraction = executionIdsWithInteractions.has(execution.id);
+      if (options.hadElicitation !== hasInteraction) return false;
     }
 
     return true;
@@ -225,6 +232,26 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
           }
         }
         return map;
+      }),
+    );
+
+  /**
+   * Distinct set of execution IDs in the given scope that have at
+   * least one recorded {@link ExecutionInteraction}. Used by the
+   * `hadElicitation` filter and `meta.interactionCounts`.
+   */
+  const getExecutionIdsWithInteractions = (
+    scopeId: ScopeId,
+  ): Effect.Effect<Set<ExecutionId>> =>
+    absorbSql(
+      Effect.gen(function* () {
+        const rows = yield* sql<{ execution_id: string }>`
+          SELECT DISTINCT ei.execution_id
+          FROM execution_interactions ei
+          INNER JOIN executions e ON e.id = ei.execution_id
+          WHERE e.scope_id = ${scopeId}
+        `;
+        return new Set(rows.map((row) => ExecutionId.make(row.execution_id)));
       }),
     );
 
@@ -302,7 +329,6 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
             SELECT *
             FROM executions
             WHERE scope_id = ${scopeId}
-            ORDER BY created_at DESC, id DESC
           `;
 
           const allInScope = allRows.map(toExecution);
@@ -310,18 +336,27 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
           // Tool path map is needed for both filter evaluation (when
           // toolPathFilter is set) and meta toolFacets. Load once.
           const toolPathsByExecution = yield* getToolPathsForScope(scopeId);
+          // Execution IDs with at least one interaction — needed for the
+          // `hadElicitation` filter and `meta.interactionCounts`.
+          const executionIdsWithInteractions = yield* getExecutionIdsWithInteractions(scopeId);
 
-          const allFiltered = allInScope.filter((execution) =>
-            matchesFilters(execution, options, toolPathsByExecution),
-          );
+          // Apply filters, then sort by the requested key (default:
+          // createdAt desc). Sort happens in JS since the SQL query
+          // already loaded every row in scope.
+          const allFiltered = allInScope
+            .filter((execution) =>
+              matchesFilters(execution, options, toolPathsByExecution, executionIdsWithInteractions),
+            )
+            .sort(pickExecutionSorter(options.sort));
 
+          // Cursor-by-id: find the row by its unique id in the sorted
+          // list and paginate from the next index. Works for any sort
+          // order because we match by identity, not by sort key.
           const cursor = options.cursor ? decodeCursor(options.cursor) : null;
-          const afterCursor = allFiltered.filter((execution) =>
-            cursor
-              ? execution.createdAt < cursor.createdAt ||
-                (execution.createdAt === cursor.createdAt && execution.id < cursor.id)
-              : true,
-          );
+          const startIndex = cursor
+            ? allFiltered.findIndex((execution) => execution.id === cursor.id) + 1
+            : 0;
+          const afterCursor = allFiltered.slice(Math.max(0, startIndex));
 
           const executions = afterCursor.slice(0, limit);
           const pendingInteractions = yield* getPendingInteractions();
@@ -349,6 +384,7 @@ export const makeSqliteExecutionStore = (sql: SqlClient.SqlClient) => {
               timeRange: options.timeRange,
               totalRowCount: allInScope.length,
               toolPathCounts,
+              executionIdsWithInteractions,
             });
           }
 

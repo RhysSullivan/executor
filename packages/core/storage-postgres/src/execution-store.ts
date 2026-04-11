@@ -12,6 +12,7 @@ import {
   like,
   lt,
   lte,
+  notInArray,
   or,
   sql,
   type SQL,
@@ -235,23 +236,77 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
             );
           filterConditions.push(inArray(executions.id, subquery));
         }
-
-        const conditions = [...filterConditions];
-        const cursor = options.cursor ? decodeCursor(options.cursor) : null;
-        if (cursor) {
-          conditions.push(
-            or(
-              lt(executions.createdAt, cursor.createdAt),
-              and(eq(executions.createdAt, cursor.createdAt), lt(executions.id, cursor.id)),
-            )!,
+        if (options.hadElicitation !== undefined) {
+          // Subquery: execution_ids with at least one recorded interaction,
+          // scoped to this org. `inArray` → elicited runs, `notInArray` →
+          // autonomous runs.
+          const interactionSubquery = db
+            .select({ id: executionInteractions.executionId })
+            .from(executionInteractions)
+            .where(eq(executionInteractions.organizationId, organizationId));
+          filterConditions.push(
+            options.hadElicitation
+              ? inArray(executions.id, interactionSubquery)
+              : notInArray(executions.id, interactionSubquery),
           );
         }
+
+        const conditions = [...filterConditions];
+
+        // Determine sort for ORDER BY. Default is `createdAt desc`
+        // which maps exactly to the historical behavior.
+        const sortField = options.sort?.field ?? "createdAt";
+        const sortDirection = options.sort?.direction ?? "desc";
+
+        // Cursor pagination is only honored when the sort matches the
+        // default (createdAt). For `durationMs` sort the cursor would
+        // need to encode the computed duration to be correct — we
+        // skip cursor support in that case; the first page returns
+        // the top `limit` rows and no nextCursor.
+        const cursor = options.cursor ? decodeCursor(options.cursor) : null;
+        const cursorAppliesToSort = sortField === "createdAt";
+        if (cursor && cursorAppliesToSort) {
+          // Preserve the existing createdAt-desc cursor predicate
+          // regardless of asc/desc — the cursor describes a boundary
+          // row, and we want rows strictly "after" it in sort order.
+          if (sortDirection === "desc") {
+            conditions.push(
+              or(
+                lt(executions.createdAt, cursor.createdAt),
+                and(eq(executions.createdAt, cursor.createdAt), lt(executions.id, cursor.id)),
+              )!,
+            );
+          } else {
+            conditions.push(
+              or(
+                gt(executions.createdAt, cursor.createdAt),
+                and(eq(executions.createdAt, cursor.createdAt), gt(executions.id, cursor.id)),
+              )!,
+            );
+          }
+        }
+
+        // Build ORDER BY based on the requested sort. `durationMs` is
+        // computed as `(completed_at - started_at)` with COALESCE so
+        // NULLs sort to the end regardless of direction.
+        const orderBy = (() => {
+          if (sortField === "durationMs") {
+            const expr =
+              sortDirection === "asc"
+                ? sql`coalesce(${executions.completedAt} - ${executions.startedAt}, 9223372036854775807) asc`
+                : sql`coalesce(${executions.completedAt} - ${executions.startedAt}, -1) desc`;
+            return [expr, desc(executions.id)];
+          }
+          return sortDirection === "asc"
+            ? [asc(executions.createdAt), desc(executions.id)]
+            : [desc(executions.createdAt), desc(executions.id)];
+        })();
 
         const rows = await db
           .select()
           .from(executions)
           .where(and(...conditions))
-          .orderBy(desc(executions.createdAt), desc(executions.id))
+          .orderBy(...orderBy)
           .limit(limit + 1);
 
         const pageRows = rows.slice(0, limit);
@@ -291,9 +346,10 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
         let meta;
         if (options.includeMeta) {
           // Meta summarizes the full filtered set, independent of pagination.
-          // Three queries: filtered rows (for triggerCounts + chart), the
-          // scope-wide total count, and a grouped tool-path count over the
-          // filtered subset.
+          // Four queries: filtered rows (for triggerCounts + chart), the
+          // scope-wide total count, a grouped tool-path count over the
+          // filtered subset, and the distinct set of filtered execution
+          // IDs that recorded at least one interaction.
           const [filteredForMeta, scopeTotals] = await Promise.all([
             db
               .select()
@@ -309,39 +365,61 @@ export const makePgExecutionStore = (db: DrizzleDb, organizationId: string) => {
           const filteredExecutions = filteredForMeta.map(toExecution);
           const filteredIds = filteredExecutions.map((execution) => execution.id);
 
-          const toolCountRows =
+          const [toolCountRows, interactionRows] =
             filteredIds.length === 0
-              ? []
-              : await db
-                  .select({
-                    toolPath: executionToolCalls.toolPath,
-                    count: sql<number>`count(*)::int`,
-                  })
-                  .from(executionToolCalls)
-                  .where(
-                    and(
-                      eq(executionToolCalls.organizationId, organizationId),
-                      inArray(executionToolCalls.executionId, filteredIds),
+              ? [[], []]
+              : await Promise.all([
+                  db
+                    .select({
+                      toolPath: executionToolCalls.toolPath,
+                      count: sql<number>`count(*)::int`,
+                    })
+                    .from(executionToolCalls)
+                    .where(
+                      and(
+                        eq(executionToolCalls.organizationId, organizationId),
+                        inArray(executionToolCalls.executionId, filteredIds),
+                      ),
+                    )
+                    .groupBy(executionToolCalls.toolPath),
+                  db
+                    .selectDistinct({ executionId: executionInteractions.executionId })
+                    .from(executionInteractions)
+                    .where(
+                      and(
+                        eq(executionInteractions.organizationId, organizationId),
+                        inArray(executionInteractions.executionId, filteredIds),
+                      ),
                     ),
-                  )
-                  .groupBy(executionToolCalls.toolPath);
+                ]);
 
           const toolPathCounts = new Map<string, number>();
           for (const row of toolCountRows) {
             toolPathCounts.set(row.toolPath, Number(row.count));
           }
 
+          const executionIdsWithInteractions = new Set<ExecutionId>(
+            interactionRows.map((row) => ExecutionId.make(row.executionId)),
+          );
+
           meta = buildExecutionListMeta({
             filtered: filteredExecutions,
             timeRange: options.timeRange,
             totalRowCount: scopeTotals.length,
             toolPathCounts,
+            executionIdsWithInteractions,
           });
         }
 
+        // Only issue a nextCursor when cursor pagination is valid for
+        // this sort. For `durationMs` sort the cursor format can't
+        // describe "next page" correctly; the frontend loads just the
+        // first page and shows `hasNextPage: false`.
+        const shouldEmitCursor = cursorAppliesToSort && hasMore && !!last;
+
         return {
           executions: items,
-          nextCursor: hasMore && last ? encodeCursor(last) : undefined,
+          nextCursor: shouldEmitCursor ? encodeCursor(last!) : undefined,
           meta,
         };
       }).pipe(Effect.orDie),
