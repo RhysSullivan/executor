@@ -25,7 +25,7 @@ export function SourcesAddPage(props: {
 
   if (!plugin) {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
             <p className="text-sm font-medium text-foreground/70 mb-1">
@@ -49,8 +49,8 @@ export function SourcesAddPage(props: {
   const AddComponent = plugin.add;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+    <div className="relative min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto flex min-h-full max-w-4xl flex-col px-6 py-10 lg:px-10 lg:py-14">
         <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
           <AddComponent
             initialUrl={url}
