@@ -564,7 +564,7 @@ const platform = platformMap[os.platform()] || os.platform();
 const arch = os.arch() === "arm64" ? "arm64" : "x64";
 const binary = platform === "windows" ? "executor.exe" : "executor";
 const cachedBinary = path.join(runtimeDir, binary);
-const legacyCachedBinary = path.join(binDir, platform === "win32" ? ".executor.exe" : ".executor");
+const legacyCachedBinary = path.join(binDir, platform === "windows" ? ".executor.exe" : ".executor");
 
 const isMusl = (() => {
   if (platform !== "linux") return false;
@@ -617,11 +617,16 @@ const extract = () => {
     return;
   }
 
-  const command = [
+  const psCommand = [
     "$ErrorActionPreference = 'Stop'",
     "Expand-Archive -LiteralPath '" + archivePath.replace(/'/g, "''") + "' -DestinationPath '" + runtimeDir.replace(/'/g, "''") + "' -Force",
   ].join("; ");
-  run("powershell.exe", ["-NoLogo", "-NoProfile", "-Command", command]);
+  const psArgs = ["-NoLogo", "-NoProfile", "-Command", psCommand];
+  // Prefer pwsh (PowerShell 7+) which reliably has Expand-Archive; fall back to powershell.exe
+  const pwshResult = childProcess.spawnSync("pwsh", psArgs, { stdio: "inherit" });
+  if (pwshResult.error || (typeof pwshResult.status === "number" && pwshResult.status !== 0)) {
+    run("powershell.exe", psArgs);
+  }
 };
 
 (async () => {
@@ -636,7 +641,7 @@ const extract = () => {
     if (fs.existsSync(legacyCachedBinary)) {
       fs.unlinkSync(legacyCachedBinary);
     }
-    fs.chmodSync(cachedBinary, 0o755);
+    if (platform !== "windows") fs.chmodSync(cachedBinary, 0o755);
     fs.rmSync(archivePath, { force: true });
     console.log("executor: installed " + assetBase + " from GitHub Releases");
   } catch (error) {

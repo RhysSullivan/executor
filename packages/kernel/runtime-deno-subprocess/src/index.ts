@@ -83,9 +83,12 @@ const defaultDenoExecutable = (): string => {
   const configured = process.env.DENO_BIN?.trim();
   if (configured) return configured;
 
-  const home = process.env.HOME?.trim();
+  const isWindows = process.platform === "win32";
+  const home = (process.env.HOME || process.env.USERPROFILE)?.trim();
   if (home) {
-    const installedPath = `${home}/.deno/bin/deno`;
+    const installedPath = isWindows
+      ? `${home}\\.deno\\bin\\deno.exe`
+      : `${home}/.deno/bin/deno`;
     const result = spawnSync(installedPath, ["--version"], {
       stdio: "ignore",
       timeout: 5000,
@@ -102,8 +105,6 @@ const defaultDenoExecutable = (): string => {
 
 const resolveWorkerScriptPath = (): string => {
   const moduleUrl = String(import.meta.url);
-  if (moduleUrl.startsWith("/")) return moduleUrl;
-
   try {
     const workerUrl = new URL("./deno-subprocess-worker.mjs", moduleUrl);
     if (workerUrl.protocol === "file:") return fileURLToPath(workerUrl);

@@ -97,7 +97,28 @@ const installCli = (): void => {
   }
 
   // Patch shell profiles with PATH
-  if (process.platform === "win32") return;
+  if (process.platform === "win32") {
+    // Add bin dir to the user PATH via registry so new terminals pick it up
+    const result = spawn(
+      "reg",
+      ["query", "HKCU\\Environment", "/v", "Path"],
+      { stdio: "pipe" },
+    );
+    let out = "";
+    result.stdout?.on("data", (d: Buffer) => (out += d.toString()));
+    result.on("close", () => {
+      const match = out.match(/Path\s+REG(?:_EXPAND)?_SZ\s+(.+)/i);
+      const current = match ? match[1].trim() : "";
+      if (!current.toLowerCase().includes(CLI_BIN_DIR.toLowerCase())) {
+        const updated = current ? `${current};${CLI_BIN_DIR}` : CLI_BIN_DIR;
+        spawn("reg", [
+          "add", "HKCU\\Environment", "/v", "Path",
+          "/t", "REG_EXPAND_SZ", "/d", updated, "/f",
+        ]);
+      }
+    });
+    return;
+  }
 
   const pathLine = `export PATH="${CLI_BIN_DIR}:$PATH"`;
   const profiles = [
@@ -503,7 +524,7 @@ const loadingHTML = (scopePath: string): string => {
   const subtle = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)";
   const barColor = isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.4)";
   const barTrack = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)";
-  const folder = scopePath.replace(/\/+$/, "").split("/").pop() || scopePath;
+  const folder = basename(scopePath.replace(/[/\\]+$/, "")) || scopePath;
 
   return `<!DOCTYPE html>
 <html>

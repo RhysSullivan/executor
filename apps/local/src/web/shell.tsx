@@ -273,7 +273,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 function ScopeLabel() {
   const { name } = useScopeInfo();
   // Show just the last folder name, with full path as tooltip
-  const parts = name.replace(/\/+$/, "").split("/");
+  const parts = name.replace(/[/\\]+$/, "").split(/[/\\]/);
   const folder = parts[parts.length - 1] || name;
 
   return (

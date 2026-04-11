@@ -11,7 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "op run --env-file=.env.production -- sh -c 'vite build && wrangler deploy'",
+    "deploy": "op run --env-file=.env.production -- bun run build && op run --env-file=.env.production -- wrangler deploy",
     "cf-typegen": "wrangler types",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",

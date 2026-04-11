@@ -53,7 +53,7 @@
     "release:publish": "bun run --cwd apps/cli release:publish",
     "release:publish:packages": "bun run scripts/publish-packages.ts",
     "release:publish:packages:dry-run": "bun run scripts/publish-packages.ts --dry-run",
-    "clean": "rm -rf node_modules .turbo .astro dist && find apps packages -maxdepth 5 \\( -name node_modules -o -name dist -o -name .turbo -o -name .output -o -name .astro -o -name '*.tsbuildinfo' \\) -not -path '*/node_modules/*' -exec rm -rf {} +",
+    "clean": "bun run scripts/clean.ts",
     "prepare": "effect-language-service patch"
   },
   "dependencies": {},

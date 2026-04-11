@@ -9,9 +9,13 @@ import * as path from "node:path";
 
 const APP_NAME = "executor";
 
-const xdgDataHome = (): string =>
-  process.env.XDG_DATA_HOME?.trim() ||
-  path.join(process.env.HOME || process.env.USERPROFILE || "~", ".local", "share");
+const xdgDataHome = (): string => {
+  if (process.env.XDG_DATA_HOME?.trim()) return process.env.XDG_DATA_HOME.trim();
+  if (process.platform === "win32") {
+    return process.env.LOCALAPPDATA || process.env.APPDATA || path.join(process.env.USERPROFILE || "~", "AppData", "Local");
+  }
+  return path.join(process.env.HOME || "~", ".local", "share");
+};
 
 const authDir = (overrideDir?: string): string => overrideDir ?? path.join(xdgDataHome(), APP_NAME);
 
