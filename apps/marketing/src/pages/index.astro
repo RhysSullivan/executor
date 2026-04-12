@@ -427,6 +427,7 @@ import Layout from '../layouts/Layout.astro'
           detectBtn.disabled = true;
           detectBtn.textContent = 'Detecting...';
           detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-ink-muted';
+          detectStatus.className += ' hidden';
           detectStatus.textContent = 'Probing URL...';
 
           try {
@@ -439,6 +440,7 @@ import Layout from '../layouts/Layout.astro'
 
             if (!res.ok) {
               detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-red-400/70';
+              detectStatus.className += ' hidden';
               detectStatus.textContent = data.error || 'Detection failed';
               return;
             }
@@ -479,6 +481,7 @@ import Layout from '../layouts/Layout.astro'
             renderSource(key);
 
             detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-teal';
+            detectStatus.className += ' hidden';
             detectStatus.textContent = `${data.kind} detected — ${data.count} tools found`;
             detectExamples.classList.add('hidden');
 
@@ -486,6 +489,7 @@ import Layout from '../layouts/Layout.astro'
             detectInput.value = '';
           } catch (err) {
             detectStatus.className = 'absolute left-0 right-0 -bottom-7 text-[11px] font-mono text-center text-red-400/70';
+            detectStatus.className += ' hidden';
             detectStatus.textContent = 'Network error — could not reach detection API';
           } finally {
             detectBtn.disabled = false;
