@@ -1,4 +1,4 @@
-import { Deferred, Effect, Fiber, Ref } from "effect";
+import { Deferred, Duration, Effect, Fiber, Metric, MetricBoundaries, Ref } from "effect";
 
 import type {
   ExecutionInteractionId,
@@ -9,7 +9,7 @@ import type {
   ElicitationContext,
 } from "@executor/sdk";
 import { ExecutionId } from "@executor/sdk";
-import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
+import { type CodeExecutor, type ExecuteResult, type SandboxToolInvoker, formatUnknownMessage } from "@executor/codemode-core";
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
 type ExecutionStoreType = Executor["executions"];
@@ -27,6 +27,11 @@ export type ExecutionEngineConfig = {
   readonly executor: Executor;
   readonly codeExecutor?: CodeExecutor;
   readonly executionStore?: Executor["executions"];
+  /**
+   * Custom effect runner, e.g. `managedRuntime.runPromise` with an OTel
+   * tracer layer. When omitted, `Effect.runPromise` is used (no-op tracer).
+   */
+  readonly runPromise?: <A>(effect: Effect.Effect<A, never>) => Promise<A>;
 };
 
 export type ExecutionResult =
@@ -61,6 +66,32 @@ type ToolCallRecordingContext = {
   readonly executionStore: ExecutionStoreType;
   readonly counter: Ref.Ref<number>;
 };
+
+// ---------------------------------------------------------------------------
+// Metrics
+// ---------------------------------------------------------------------------
+
+const executionOutcomes = Metric.counter("executor.execution.outcomes", {
+  description: "Execution outcome counts",
+});
+
+const executionDuration = Metric.histogram(
+  "executor.execution.duration_ms",
+  MetricBoundaries.exponential({ start: 10, factor: 2, count: 15 }),
+  "Execution duration distribution in milliseconds",
+);
+
+const toolCallCounter = Metric.counter("executor.tool_calls", {
+  description: "Number of tool invocations",
+});
+
+const toolCallDuration = Metric.histogram(
+  "executor.tool_call.duration_ms",
+  MetricBoundaries.exponential({ start: 1, factor: 2, count: 12 }),
+  "Tool call duration distribution in milliseconds",
+);
+
+// ---------------------------------------------------------------------------
 
 const MAX_PREVIEW_CHARS = 30_000;
 
@@ -197,20 +228,16 @@ const withToolCallRecording = (
   recording: ToolCallRecordingContext,
   path: string,
   args: unknown,
-): Effect.Effect<unknown, unknown> =>
-  Effect.gen(function* () {
+): Effect.Effect<unknown, unknown> => {
+  const namespace = path.includes(".") ? path.split(".")[0]! : path;
+
+  return Effect.gen(function* () {
     const { executionId, executionStore, counter } = recording;
     const startedAt = Date.now();
-    const namespace = path.includes(".") ? path.split(".")[0]! : path;
-    const argsJson = (() => {
-      try {
-        return args === undefined ? null : JSON.stringify(args);
-      } catch {
-        return null;
-      }
-    })();
+    const argsJson = serializeJson(args);
 
     yield* Ref.update(counter, (n) => n + 1);
+    yield* Metric.update(Metric.tagged(Metric.tagged(toolCallCounter, "tool_path", path), "namespace", namespace), 1);
 
     const toolCall = yield* executionStore.recordToolCall({
       executionId,
@@ -230,16 +257,11 @@ const withToolCallRecording = (
         Effect.gen(function* () {
           const completedAt = Date.now();
           const durationMs = Math.max(0, completedAt - startedAt);
-          const resultJson = (() => {
-            try {
-              return value === undefined ? null : JSON.stringify(value);
-            } catch {
-              return null;
-            }
-          })();
+          yield* Metric.update(toolCallDuration, durationMs);
+          yield* Effect.annotateCurrentSpan("executor.tool.result_size", serializeJson(value)?.length ?? 0);
           yield* executionStore.finishToolCall(toolCall.id, {
             status: "completed",
-            resultJson,
+            resultJson: serializeJson(value),
             errorText: null,
             completedAt,
             durationMs,
@@ -250,18 +272,9 @@ const withToolCallRecording = (
         Effect.gen(function* () {
           const completedAt = Date.now();
           const durationMs = Math.max(0, completedAt - startedAt);
-          const errorText =
-            cause instanceof Error
-              ? cause.message
-              : typeof cause === "string"
-                ? cause
-                : (() => {
-                    try {
-                      return JSON.stringify(cause);
-                    } catch {
-                      return String(cause);
-                    }
-                  })();
+          yield* Metric.update(toolCallDuration, durationMs);
+          const errorText = formatUnknownMessage(cause);
+          yield* Effect.annotateCurrentSpan("executor.tool.error", errorText);
           yield* executionStore.finishToolCall(toolCall.id, {
             status: "failed",
             resultJson: null,
@@ -272,7 +285,16 @@ const withToolCallRecording = (
         }),
       ),
     );
-  });
+  }).pipe(
+    Effect.withSpan(`executor.tool.${path}`, {
+      attributes: {
+        "executor.tool.path": path,
+        "executor.tool.namespace": namespace,
+        "executor.execution.id": recording.executionId,
+      },
+    }),
+  );
+};
 
 const makeFullInvoker = (
   executor: Executor,
@@ -420,13 +442,14 @@ export type ExecutionEngine = {
   readonly getDescription: () => Promise<string>;
 };
 
-const runEffect = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
-  Effect.runPromise(effect as Effect.Effect<A, never>);
-
 export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionEngine => {
   const { executor } = config;
   const codeExecutor = config.codeExecutor ?? makeQuickJsExecutor();
   const executionStore = config.executionStore ?? executor.executions;
+  const runEffect = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
+    config.runPromise
+      ? config.runPromise(effect as Effect.Effect<A, never>)
+      : Effect.runPromise(effect as Effect.Effect<A, never>);
   const pausedExecutions = new Map<string, InternalPausedExecution>();
   // Per-execution tool-call counter shared with the invoker wrapper and
   // read when persisting terminal state. Kept outside the InternalPaused
@@ -442,8 +465,14 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     Effect.gen(function* () {
       const now = Date.now();
       const toolCallCount = yield* Ref.get(counter);
+      const status = result.error ? "failed" : "completed";
+      yield* Metric.update(Metric.tagged(executionOutcomes, "status", status), 1);
+      yield* Effect.annotateCurrentSpan({
+        "executor.execution.status": status,
+        "executor.execution.tool_call_count": toolCallCount,
+      });
       yield* executionStore.update(executionId, {
-        status: result.error ? "failed" : "completed",
+        status,
         resultJson: serializeJson(result.result),
         errorText: result.error ?? null,
         logsJson: serializeLogs(result.logs),
@@ -515,6 +544,12 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     Effect.gen(function* () {
       const execution = yield* createExecutionRecord(code, trigger);
 
+      yield* Effect.annotateCurrentSpan({
+        "executor.execution.id": execution.id,
+        "executor.scope.id": executor.scope.id,
+        "executor.trigger.kind": trigger?.kind ?? "unknown",
+      });
+
       // Counter shared by the invoker wrapper and persistTerminalState.
       const counter = yield* Ref.make(0);
 
@@ -546,6 +581,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
             status: "waiting_for_interaction",
             updatedAt: now,
           });
+          yield* Effect.annotateCurrentSpan("executor.interaction.kind", interactionPayload.kind);
 
           const paused: InternalPausedExecution = {
             id: execution.id,
@@ -578,7 +614,10 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
 
       const initialSignal = yield* Ref.get(pauseSignalRef);
       return yield* awaitCompletionOrPause(execution.id, fiber, initialSignal, counter);
-    });
+    }).pipe(
+      Effect.withSpan("executor.execution"),
+      Metric.trackDurationWith(executionDuration, (d) => Duration.toMillis(d)),
+    );
 
   const executeWithManagedRecording = (
     code: string,
@@ -588,6 +627,12 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
     Effect.gen(function* () {
       const execution = yield* createExecutionRecord(code, trigger);
       const counter = yield* Ref.make(0);
+
+      yield* Effect.annotateCurrentSpan({
+        "executor.execution.id": execution.id,
+        "executor.scope.id": executor.scope.id,
+        "executor.trigger.kind": trigger?.kind ?? "unknown",
+      });
 
       const recordingHandler: ElicitationHandler = (ctx) =>
         Effect.gen(function* () {
@@ -608,6 +653,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
             status: "waiting_for_interaction",
             updatedAt: now,
           });
+          yield* Effect.annotateCurrentSpan("executor.interaction.kind", interactionPayload.kind);
 
           const response = yield* onElicitation(ctx);
           yield* executionStore.resolveInteraction(interaction.id, {
@@ -632,7 +678,10 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       );
       const result = yield* codeExecutor.execute(code, invoker).pipe(Effect.orDie);
       return yield* persistTerminalState(execution.id, result, counter);
-    });
+    }).pipe(
+      Effect.withSpan("executor.execution"),
+      Metric.trackDurationWith(executionDuration, (d) => Duration.toMillis(d)),
+    );
 
   /**
    * Resume a paused execution. Swaps in a fresh pause signal, completes
@@ -652,6 +701,11 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
       // fresh counter just in case (keeps the engine from crashing).
       const counter = pausedCounters.get(executionId) ?? (yield* Ref.make(0));
 
+      yield* Effect.annotateCurrentSpan({
+        "executor.execution.id": executionId,
+        "executor.resume.action": response.action,
+      });
+
       const now = Date.now();
       yield* executionStore.resolveInteraction(paused.interactionId, {
         status: response.action === "accept" ? "resolved" : "cancelled",
@@ -664,6 +718,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
 
       if (response.action !== "accept") {
         const toolCallCount = yield* Ref.get(counter);
+        yield* Effect.annotateCurrentSpan("executor.execution.status", "cancelled");
         yield* executionStore.update(executionId, {
           status: "cancelled",
           completedAt: now,
@@ -673,7 +728,7 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
         pausedCounters.delete(executionId);
         yield* Fiber.interrupt(paused.fiber);
         return {
-          status: "completed",
+          status: "completed" as const,
           result: {
             result: null,
             error: "Execution cancelled by user",
@@ -701,16 +756,22 @@ export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionE
         pausedCounters.delete(executionId);
       }
       return outcome;
-    });
+    }).pipe(
+      Effect.withSpan("executor.execution.resume"),
+    );
+
+  const annotate = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(Effect.annotateSpans("module", "ExecutionEngine"));
 
   return {
     execute: (code, options) =>
-      runEffect(executeWithManagedRecording(code, options.onElicitation, options.trigger)),
+      runEffect(annotate(executeWithManagedRecording(code, options.onElicitation, options.trigger))),
 
-    executeWithPause: (code, options) => runEffect(startPausableExecution(code, options?.trigger)),
+    executeWithPause: (code, options) =>
+      runEffect(annotate(startPausableExecution(code, options?.trigger))),
 
     resume: (executionId, response) =>
-      runEffect(resumeExecution(ExecutionId.make(executionId), response)),
+      runEffect(annotate(resumeExecution(ExecutionId.make(executionId), response))),
 
     getDescription: () => runEffect(buildExecuteDescription(executor)),
   };
