@@ -26,6 +26,8 @@ import {
   ExecutionToolCall,
   ExecutionToolCallId,
   buildExecutionListMeta,
+  encodeCursor,
+  decodeCursor,
   type CreateExecutionInput,
   type CreateExecutionInteractionInput,
   type CreateExecutionToolCallInput,
@@ -39,29 +41,6 @@ import {
 } from "@executor/sdk";
 import type { DrizzleDb } from "./types";
 import { executionInteractions, executionToolCalls, executions } from "./schema";
-
-const encodeCursor = (execution: Execution): string =>
-  encodeURIComponent(JSON.stringify({ createdAt: execution.createdAt, id: execution.id }));
-
-const decodeCursor = (
-  cursor: string,
-): {
-  readonly createdAt: number;
-  readonly id: ExecutionId;
-} | null => {
-  try {
-    const parsed = JSON.parse(decodeURIComponent(cursor)) as {
-      createdAt?: unknown;
-      id?: unknown;
-    };
-    if (typeof parsed.createdAt !== "number" || typeof parsed.id !== "string") {
-      return null;
-    }
-    return { createdAt: parsed.createdAt, id: ExecutionId.make(parsed.id) };
-  } catch {
-    return null;
-  }
-};
 
 const toExecution = (row: typeof executions.$inferSelect): Execution =>
   new Execution({

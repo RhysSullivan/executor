@@ -17,32 +17,10 @@ import {
   type UpdateExecutionInteractionInput,
   type UpdateExecutionToolCallInput,
 } from "../executions";
+import { encodeCursor, decodeCursor } from "../cursor";
 import { ExecutionId, ExecutionInteractionId, ExecutionToolCallId, ScopeId } from "../ids";
 
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-
-const encodeCursor = (execution: Execution): string =>
-  encodeURIComponent(JSON.stringify({ createdAt: execution.createdAt, id: execution.id }));
-
-const decodeCursor = (
-  cursor: string,
-): {
-  readonly createdAt: number;
-  readonly id: ExecutionId;
-} | null => {
-  try {
-    const parsed = JSON.parse(decodeURIComponent(cursor)) as {
-      createdAt?: unknown;
-      id?: unknown;
-    };
-    if (typeof parsed.createdAt !== "number" || typeof parsed.id !== "string") {
-      return null;
-    }
-    return { createdAt: parsed.createdAt, id: ExecutionId.make(parsed.id) };
-  } catch {
-    return null;
-  }
-};
 
 export const makeInMemoryExecutionStore = () => {
   const executions = new Map<ExecutionId, Execution>();

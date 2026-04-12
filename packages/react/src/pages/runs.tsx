@@ -48,23 +48,11 @@ const VALID_RANGES: readonly TimeRangePreset[] = ["15m", "1h", "24h", "7d", "30d
 const PAGE_SIZE = 50;
 const LIVE_REFRESH_INTERVAL_MS = 5_000;
 
-const parseStatuses = (value: string | undefined): ExecutionStatus[] =>
-  value
-    ? value
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter((entry): entry is ExecutionStatus =>
-          STATUS_ORDER.includes(entry as ExecutionStatus),
-        )
-    : [];
+const splitCsv = (value: string | undefined): string[] =>
+  value ? value.split(",").map((s) => s.trim()).filter((s) => s.length > 0) : [];
 
-const parseCsv = (value: string | undefined): string[] =>
-  value
-    ? value
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0)
-    : [];
+const parseStatuses = (value: string | undefined): ExecutionStatus[] =>
+  splitCsv(value).filter((s): s is ExecutionStatus => STATUS_ORDER.includes(s as ExecutionStatus));
 
 const parseRange = (value: string | undefined): TimeRangePreset => {
   if (!value) return DEFAULT_RANGE;
@@ -97,8 +85,8 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   const navigate = useNavigate();
 
   const selectedStatuses = React.useMemo(() => parseStatuses(search.status), [search.status]);
-  const selectedTriggers = React.useMemo(() => parseCsv(search.trigger), [search.trigger]);
-  const selectedTools = React.useMemo(() => parseCsv(search.tool), [search.tool]);
+  const selectedTriggers = React.useMemo(() => splitCsv(search.trigger), [search.trigger]);
+  const selectedTools = React.useMemo(() => splitCsv(search.tool), [search.tool]);
   const range = React.useMemo(() => parseRange(search.range), [search.range]);
   const sort = React.useMemo(() => parseSortSearch(search.sort), [search.sort]);
   const selectedElicitation: "true" | "false" | null =

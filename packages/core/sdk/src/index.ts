@@ -133,6 +133,9 @@ export {
   type RuntimeToolDefinition,
 } from "./runtime-tools";
 
+// Cursor
+export { encodeCursor, decodeCursor } from "./cursor";
+
 // In-memory implementations
 export { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
 export { makeInMemorySecretStore, makeInMemorySecretProvider } from "./in-memory/secret-store";

@@ -24,11 +24,9 @@ const EXECUTION_STATUSES = new Set<ExecutionStatus>([
 const SORT_FIELDS = new Set<ExecutionSortField>(["createdAt", "durationMs"]);
 const SORT_DIRECTIONS = new Set<ExecutionSortDirection>(["asc", "desc"]);
 
-/**
- * Parse a sort expression like `"createdAt,desc"` into an
- * `ExecutionSort` object. Returns `undefined` if the input is missing,
- * malformed, or references an unknown field/direction.
- */
+const splitCsv = (value: string | undefined): string[] =>
+  value ? value.split(",").map((s) => s.trim()).filter((s) => s.length > 0) : [];
+
 const parseSortParam = (value: string | undefined): ExecutionSort | undefined => {
   if (!value) return undefined;
   const [rawField, rawDirection] = value.split(",");
@@ -52,20 +50,11 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
     .handle("list", ({ urlParams }) =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        const statusFilter = urlParams.status
-          ?.split(",")
-          .map((value) => value.trim())
-          .filter((value): value is ExecutionStatus =>
-            EXECUTION_STATUSES.has(value as ExecutionStatus),
-          );
-        const triggerFilter = urlParams.trigger
-          ?.split(",")
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0);
-        const toolPathFilter = urlParams.tool
-          ?.split(",")
-          .map((value) => value.trim())
-          .filter((value) => value.length > 0);
+        const statusFilter = splitCsv(urlParams.status).filter(
+          (v): v is ExecutionStatus => EXECUTION_STATUSES.has(v as ExecutionStatus),
+        );
+        const triggerFilter = splitCsv(urlParams.trigger);
+        const toolPathFilter = splitCsv(urlParams.tool);
         const includeMeta = urlParams.cursor === undefined && urlParams.after === undefined;
         const sort = parseSortParam(urlParams.sort);
         const hadElicitation = parseElicitationParam(urlParams.elicitation);
