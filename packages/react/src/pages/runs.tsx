@@ -54,13 +54,6 @@ const splitCsv = (value: string | undefined): string[] =>
 const parseStatuses = (value: string | undefined): ExecutionStatus[] =>
   splitCsv(value).filter((s): s is ExecutionStatus => STATUS_ORDER.includes(s as ExecutionStatus));
 
-const parseRange = (value: string | undefined): TimeRangePreset => {
-  if (!value) return DEFAULT_RANGE;
-  return VALID_RANGES.includes(value as TimeRangePreset)
-    ? (value as TimeRangePreset)
-    : DEFAULT_RANGE;
-};
-
 const toggleCsv = (values: readonly string[], value: string): string[] =>
   values.includes(value) ? values.filter((entry) => entry !== value) : [...values, value].sort();
 
@@ -75,11 +68,6 @@ const parseSortSearch = (value: string | undefined): SortState => {
   return { field: field as SortField, direction };
 };
 
-const cycleSort = (current: SortState, field: SortField): SortState => {
-  if (current?.field !== field) return { field, direction: "desc" };
-  if (current.direction === "desc") return { field, direction: "asc" };
-  return null;
-};
 
 export function RunsPage({ search }: { search: RunsSearch }) {
   const navigate = useNavigate();
@@ -87,7 +75,13 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   const selectedStatuses = React.useMemo(() => parseStatuses(search.status), [search.status]);
   const selectedTriggers = React.useMemo(() => splitCsv(search.trigger), [search.trigger]);
   const selectedTools = React.useMemo(() => splitCsv(search.tool), [search.tool]);
-  const range = React.useMemo(() => parseRange(search.range), [search.range]);
+  const range = React.useMemo(
+    (): TimeRangePreset =>
+      search.range && VALID_RANGES.includes(search.range as TimeRangePreset)
+        ? (search.range as TimeRangePreset)
+        : DEFAULT_RANGE,
+    [search.range],
+  );
   const sort = React.useMemo(() => parseSortSearch(search.sort), [search.sort]);
   const selectedElicitation: "true" | "false" | null =
     search.elicitation === "true" || search.elicitation === "false" ? search.elicitation : null;
@@ -238,7 +232,12 @@ export function RunsPage({ search }: { search: RunsSearch }) {
 
   const handleSort = React.useCallback(
     (field: SortField) => {
-      const next = cycleSort(sort, field);
+      const next: SortState =
+        sort?.field !== field
+          ? { field, direction: "desc" }
+          : sort.direction === "desc"
+            ? { field, direction: "asc" }
+            : null;
       updateSearch({
         sort: next ? `${next.field},${next.direction}` : undefined,
         executionId: undefined,

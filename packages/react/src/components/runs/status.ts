@@ -68,7 +68,6 @@ export const STATUS_TONES: Record<ExecutionStatus, StatusTone> = {
   },
 };
 
-export const statusLabel = (status: ExecutionStatus): string => STATUS_LABELS[status];
 export const statusTone = (status: ExecutionStatus): StatusTone => STATUS_TONES[status];
 
 export type TriggerTone = {

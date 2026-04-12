@@ -32,14 +32,6 @@ export const makeInMemoryExecutionStore = () => {
       (interaction) => interaction.executionId === executionId && interaction.status === "pending",
     ) ?? null;
 
-  const toolPathsByExecution = (executionId: ExecutionId): string[] =>
-    [...toolCalls.values()]
-      .filter((call) => call.executionId === executionId)
-      .map((call) => call.toolPath);
-
-  const hasInteraction = (executionId: ExecutionId): boolean =>
-    [...interactions.values()].some((interaction) => interaction.executionId === executionId);
-
   const matchesFilters = (execution: Execution, options: ExecutionListOptions): boolean => {
     if (options.statusFilter && options.statusFilter.length > 0) {
       const allowed = new Set<ExecutionStatus>(options.statusFilter);
@@ -67,7 +59,9 @@ export const makeInMemoryExecutionStore = () => {
     }
 
     if (options.toolPathFilter && options.toolPathFilter.length > 0) {
-      const paths = toolPathsByExecution(execution.id);
+      const paths = [...toolCalls.values()]
+        .filter((call) => call.executionId === execution.id)
+        .map((call) => call.toolPath);
       const any = options.toolPathFilter.some((pattern) =>
         paths.some((path) => matchToolPathPattern(path, pattern)),
       );
@@ -75,7 +69,10 @@ export const makeInMemoryExecutionStore = () => {
     }
 
     if (options.hadElicitation !== undefined) {
-      if (options.hadElicitation !== hasInteraction(execution.id)) return false;
+      const hasAnyInteraction = [...interactions.values()].some(
+        (interaction) => interaction.executionId === execution.id,
+      );
+      if (options.hadElicitation !== hasAnyInteraction) return false;
     }
 
     return true;

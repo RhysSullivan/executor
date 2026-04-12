@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { Execution, ExecutionStatus } from "@executor/sdk";
+import type { Execution } from "@executor/sdk";
 
 import { cn } from "../../lib/utils";
 import { HoverCardTimestamp } from "./hover-card-timestamp";
@@ -11,14 +11,6 @@ const formatDurationMs = (execution: Execution): string | null => {
   return ms.toLocaleString();
 };
 
-const truncateCode = (code: string, max: number): string =>
-  code.trim().replace(/\s+/g, " ").slice(0, max);
-
-/** Abbreviates `waiting_for_interaction` to `waiting` for the row column. */
-const statusWord = (status: ExecutionStatus): string => {
-  if (status === "waiting_for_interaction") return "waiting";
-  return status.replaceAll("_", " ");
-};
 
 /** Count `[error]` and `[warn]` lines in the serialized logsJson array. */
 const parseLogCounts = (logsJson: string | null): { errors: number; warns: number } => {
@@ -103,7 +95,11 @@ export function RunRow({ execution, isSelected, isPast, visibleFields, onSelect 
 
       <span className="inline-flex w-[120px] shrink-0 gap-1 md:w-[140px]">
         <span className="text-muted-foreground/60">status:</span>
-        <span className={tone.text}>{statusWord(execution.status)}</span>
+        <span className={tone.text}>
+          {execution.status === "waiting_for_interaction"
+            ? "waiting"
+            : execution.status.replaceAll("_", " ")}
+        </span>
       </span>
 
       {showVia ? (
@@ -166,7 +162,9 @@ export function RunRow({ execution, isSelected, isPast, visibleFields, onSelect 
 
       <span className="min-w-0 flex-1 truncate">
         <span className="text-muted-foreground/60">code: </span>
-        <span className="text-foreground/80">&quot;{truncateCode(execution.code, 160)}&quot;</span>
+        <span className="text-foreground/80">
+          &quot;{execution.code.trim().replace(/\s+/g, " ").slice(0, 160)}&quot;
+        </span>
       </span>
     </button>
   );

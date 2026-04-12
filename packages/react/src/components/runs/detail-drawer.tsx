@@ -16,7 +16,7 @@ import {
   listExecutionToolCalls,
   type GetExecutionResponse,
 } from "../../api/executions";
-import { statusTone, statusLabel, triggerTone } from "./status";
+import { STATUS_LABELS, statusTone, triggerTone } from "./status";
 
 type DetailTab = "properties" | "logs" | "toolCalls";
 
@@ -52,17 +52,6 @@ const unwrapJson = (
   } catch {
     return { formatted: String(value), lang: "text" };
   }
-};
-
-const parseLogs = (logsJson: string | null): string[] | null => {
-  if (logsJson === null) return null;
-  try {
-    const parsed = JSON.parse(logsJson);
-    if (Array.isArray(parsed)) return parsed.map(String);
-  } catch {
-    return null;
-  }
-  return null;
 };
 
 export interface RunsDetailDrawerProps {
@@ -315,7 +304,7 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
               aria-hidden
               className={cn("size-2 rounded-full", tone.dot, tone.pulse && "animate-pulse")}
             />
-            <span className="text-sm">{statusLabel(execution.status)}</span>
+            <span className="text-sm">{STATUS_LABELS[execution.status]}</span>
           </span>
         </MetaCard>
         <MetaCard label="Duration">
@@ -434,7 +423,16 @@ function PendingInteractionBlock({ interaction }: { interaction: ExecutionIntera
 }
 
 function LogsTab({ logsJson }: { logsJson: string | null }) {
-  const lines = React.useMemo(() => parseLogs(logsJson), [logsJson]);
+  const lines = React.useMemo(() => {
+    if (logsJson === null) return null;
+    try {
+      const parsed = JSON.parse(logsJson);
+      if (Array.isArray(parsed)) return parsed.map(String);
+    } catch {
+      return null;
+    }
+    return null;
+  }, [logsJson]);
 
   if (!lines) {
     const fallback = unwrapJson(logsJson);

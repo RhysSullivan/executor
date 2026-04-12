@@ -58,7 +58,10 @@ export const RunsFilterCommand = React.forwardRef<HTMLInputElement, RunsFilterCo
       return () => window.removeEventListener("pointerdown", handlePointer);
     }, [open]);
 
-    const currentKey = React.useMemo(() => detectActiveKey(value), [value]);
+    const currentKey = React.useMemo(() => {
+      const match = KEY_PATTERN.exec(value);
+      return match ? match[1]! : null;
+    }, [value]);
 
     const suggestions = React.useMemo(() => {
       if (!currentKey) return [];
@@ -91,7 +94,12 @@ export const RunsFilterCommand = React.forwardRef<HTMLInputElement, RunsFilterCo
     };
 
     const handleSuggestionSelect = (suggestion: string) => {
-      const updated = replaceTrailingValue(value, suggestion);
+      const match = KEY_PATTERN.exec(value);
+      const updated = match
+        ? `${value.slice(0, match.index)}${match[1]!}:${suggestion}`
+        : value
+          ? `${value} ${suggestion}`
+          : suggestion;
       onValueChange(updated);
       inputRef.current?.focus();
     };
@@ -249,15 +257,3 @@ export const RunsFilterCommand = React.forwardRef<HTMLInputElement, RunsFilterCo
 
 const KEY_PATTERN = /(status|trigger|tool|code|duration_ms|after|before):([^\s]*)$/;
 
-const detectActiveKey = (input: string): string | null => {
-  const match = KEY_PATTERN.exec(input);
-  return match ? match[1]! : null;
-};
-
-const replaceTrailingValue = (input: string, value: string): string => {
-  const match = KEY_PATTERN.exec(input);
-  if (!match) return input ? `${input} ${value}` : value;
-  const key = match[1]!;
-  const before = input.slice(0, match.index);
-  return `${before}${key}:${value}`;
-};
