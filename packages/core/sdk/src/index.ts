@@ -1,5 +1,13 @@
 // IDs
-export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
+export {
+  ScopeId,
+  ToolId,
+  SecretId,
+  PolicyId,
+  ExecutionId,
+  ExecutionInteractionId,
+  ExecutionToolCallId,
+} from "./ids";
 
 // Errors
 export {
@@ -51,6 +59,37 @@ export { SecretRef, SetSecretInput, SecretStore, type SecretProvider } from "./s
 // Policies
 export { Policy, PolicyAction, PolicyCheckInput, PolicyEngine } from "./policies";
 
+// Executions
+export {
+  ExecutionStatus,
+  Execution,
+  ExecutionInteractionStatus,
+  ExecutionInteraction,
+  ExecutionToolCall,
+  ExecutionToolCallStatus,
+  ExecutionStore,
+  EXECUTION_STATUS_KEYS,
+  pickChartBucketMs,
+  buildExecutionListMeta,
+  matchToolPathPattern,
+  pickExecutionSorter,
+  type CreateExecutionInput,
+  type UpdateExecutionInput,
+  type CreateExecutionInteractionInput,
+  type UpdateExecutionInteractionInput,
+  type CreateExecutionToolCallInput,
+  type UpdateExecutionToolCallInput,
+  type ExecutionListItem,
+  type ExecutionListOptions,
+  type ExecutionListMeta,
+  type ExecutionChartBucket,
+  type ExecutionToolFacet,
+  type BuildExecutionListMetaInput,
+  type ExecutionSort,
+  type ExecutionSortField,
+  type ExecutionSortDirection,
+} from "./executions";
+
 // Scope
 export { Scope } from "./scope";
 
@@ -94,10 +133,14 @@ export {
   type RuntimeToolDefinition,
 } from "./runtime-tools";
 
+// Cursor
+export { encodeCursor, decodeCursor } from "./cursor";
+
 // In-memory implementations
 export { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
 export { makeInMemorySecretStore, makeInMemorySecretProvider } from "./in-memory/secret-store";
 export { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
+export { makeInMemoryExecutionStore } from "./in-memory/execution-store";
 
 // Testing
 export { makeTestConfig } from "./testing";

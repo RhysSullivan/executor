@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { HttpApiBuilder, HttpApiSwagger, HttpServerRequest } from "@effect/platform";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 
 import { ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
@@ -15,10 +15,19 @@ import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
 import { AutumnService } from "../services/autumn";
 import { createOrgExecutor } from "../services/executor";
+import { TelemetryLive } from "../services/telemetry";
 import { makeTrackExecutionUsage } from "./autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { withExecutionUsageTracking } from "./execution-usage";
 import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
+
+/**
+ * Shared ManagedRuntime backed by the OTel telemetry layer. Provides
+ * an Effect Tracer so `Effect.withSpan` calls inside the execution
+ * engine export spans to Axiom. When no AXIOM_TOKEN is set,
+ * TelemetryLive is Layer.empty and spans are no-ops.
+ */
+const telemetryRuntime = ManagedRuntime.make(TelemetryLive);
 
 const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
   Effect.gen(function* () {
@@ -50,7 +59,11 @@ const createProtectedApp = (organizationId: string, organizationName: string) =>
     const autumn = yield* AutumnService;
     const engine = withExecutionUsageTracking(
       organizationId,
-      createExecutionEngine({ executor, codeExecutor }),
+      createExecutionEngine({
+        executor,
+        codeExecutor,
+        runPromise: (effect) => telemetryRuntime.runPromise(effect),
+      }),
       makeTrackExecutionUsage(autumn),
     );
 
@@ -96,7 +109,10 @@ const handleProtectedRequestEffect = Effect.gen(function* () {
   Effect.provide(SharedServices),
   Effect.catchAll((err) => {
     if (isServerError(err)) {
-      console.error("[api] request failed:", err instanceof Error ? err.stack : err);
+      return Effect.logError("[api] request failed").pipe(
+        Effect.annotateLogs("error", err instanceof Error ? err.stack ?? err.message : String(err)),
+        Effect.map(() => toErrorServerResponse(err)),
+      );
     }
     return Effect.succeed(toErrorServerResponse(err));
   }),

@@ -12,8 +12,8 @@ import langTsx from "@shikijs/langs/tsx";
 import langJsx from "@shikijs/langs/jsx";
 import langJson from "@shikijs/langs/json";
 import langShellscript from "@shikijs/langs/shellscript";
-import githubDark from "@shikijs/themes/github-dark";
-import githubLight from "@shikijs/themes/github-light";
+import vitesseDark from "@shikijs/themes/vitesse-dark";
+import vitesseLight from "@shikijs/themes/vitesse-light";
 
 // ---------------------------------------------------------------------------
 // Lazily loaded languages — imported on first use
@@ -104,11 +104,11 @@ const LAZY_LANG_LOADERS: Partial<Record<SupportedLang, () => Promise<unknown>>> 
 
 const supportedSet = new Set<string>([...SUPPORTED_LANGS, ...Object.keys(LANG_ALIASES)]);
 
-export const SUPPORTED_THEMES = ["github-dark", "github-light"] as const;
+export const SUPPORTED_THEMES = ["vitesse-dark", "vitesse-light"] as const;
 export type SupportedTheme = (typeof SUPPORTED_THEMES)[number];
 
-export const DEFAULT_LIGHT_THEME: SupportedTheme = "github-light";
-export const DEFAULT_DARK_THEME: SupportedTheme = "github-dark";
+export const DEFAULT_LIGHT_THEME: SupportedTheme = "vitesse-light";
+export const DEFAULT_DARK_THEME: SupportedTheme = "vitesse-dark";
 
 export type ShikiThemeProp = SupportedTheme | { light: SupportedTheme; dark: SupportedTheme };
 
@@ -144,7 +144,7 @@ export function isSupportedLang(lang: string): boolean {
 // ---------------------------------------------------------------------------
 
 const highlighter: HighlighterCore = createHighlighterCoreSync({
-  themes: [githubDark, githubLight],
+  themes: [vitesseDark, vitesseLight],
   langs: [langTypescript, langJavascript, langTsx, langJsx, langJson, langShellscript],
   engine: createJavaScriptRegexEngine({ forgiving: true }),
 });

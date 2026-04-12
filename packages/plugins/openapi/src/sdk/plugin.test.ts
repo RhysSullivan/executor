@@ -13,6 +13,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 
 import {
   createExecutor,
+  makeInMemoryExecutionStore,
   makeInMemoryPolicyEngine,
   makeInMemorySecretStore,
   makeInMemorySourceRegistry,
@@ -181,6 +182,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
         sources: makeInMemorySourceRegistry(),
         secrets: makeInMemorySecretStore(),
         policies: makeInMemoryPolicyEngine(),
+        executions: makeInMemoryExecutionStore(),
       };
 
       const executor1 = yield* createExecutor({

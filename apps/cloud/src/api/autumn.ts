@@ -19,10 +19,11 @@ export const makeTrackExecutionUsage = (autumn: AutumnService["Type"]) => {
         }),
       )
       .pipe(
-        Effect.catchAll((err) => {
-          console.error("[billing] track failed:", err);
-          return Effect.void;
-        }),
+        Effect.catchAll((err) =>
+          Effect.logError("[billing] track failed").pipe(
+            Effect.annotateLogs("error", String(err)),
+          ),
+        ),
         Effect.runFork,
       );
   };
@@ -87,7 +88,10 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
   );
 
   if (statusCode >= 400) {
-    console.error("[autumn] upstream error:", statusCode, response);
+    yield* Effect.logWarning("[autumn] upstream error").pipe(
+      Effect.annotateLogs("statusCode", statusCode),
+      Effect.annotateLogs("response", JSON.stringify(response)),
+    );
     return yield* Effect.fail(
       new HttpResponseError({
         status: statusCode,
@@ -102,7 +106,10 @@ const handleAutumnRequestEffect = Effect.gen(function* () {
   Effect.provide(SharedServices),
   Effect.catchAll((err) => {
     if (isServerError(err)) {
-      console.error("[autumn] request failed:", err instanceof Error ? err.stack : err);
+      return Effect.logError("[autumn] request failed").pipe(
+        Effect.annotateLogs("error", err instanceof Error ? err.stack ?? err.message : String(err)),
+        Effect.map(() => toErrorServerResponse(err)),
+      );
     }
     return Effect.succeed(toErrorServerResponse(err));
   }),

@@ -12,6 +12,7 @@ import type {
 } from "./tools";
 import type { Source, SourceDetectionResult, SourceRegistry } from "./sources";
 import type { Policy, PolicyEngine } from "./policies";
+import type { ExecutionStore } from "./executions";
 import type { Scope } from "./scope";
 import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
 import type {
@@ -88,6 +89,7 @@ export type Executor<TPlugins extends readonly ExecutorPlugin<string, object>[] 
   };
 
   readonly close: () => Effect.Effect<void>;
+  readonly executions: ExecutionStoreService;
 } & PluginExtensions<TPlugins>;
 
 // ---------------------------------------------------------------------------
@@ -98,6 +100,7 @@ export type ToolRegistryService = Context.Tag.Service<typeof ToolRegistry>;
 export type SourceRegistryService = Context.Tag.Service<typeof SourceRegistry>;
 export type SecretStoreService = Context.Tag.Service<typeof SecretStore>;
 export type PolicyEngineService = Context.Tag.Service<typeof PolicyEngine>;
+export type ExecutionStoreService = Context.Tag.Service<typeof ExecutionStore>;
 
 export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> {
   readonly scope: Scope;
@@ -105,6 +108,7 @@ export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string,
   readonly sources: SourceRegistryService;
   readonly secrets: SecretStoreService;
   readonly policies: PolicyEngineService;
+  readonly executions: ExecutionStoreService;
   readonly plugins?: TPlugins;
 }
 
@@ -118,7 +122,9 @@ export const createExecutor = <
   config: ExecutorConfig<TPlugins>,
 ): Effect.Effect<Executor<TPlugins>, Error> =>
   Effect.gen(function* () {
-    const { scope, tools, sources, secrets, policies, plugins = [] } = config;
+    const { scope, tools, sources, secrets, policies, executions, plugins = [] } = config;
+
+    yield* executions.sweep();
 
     // Initialize all plugins
     const handles = new Map<string, PluginHandle<object>>();
@@ -204,6 +210,7 @@ export const createExecutor = <
             if (handle.close) yield* handle.close();
           }
         }),
+      executions,
     };
 
     return Object.assign(base, extensions) as Executor<TPlugins>;

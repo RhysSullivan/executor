@@ -105,7 +105,7 @@ const createLocalExecutorLayer = () => {
 
       const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
       const kv = makeSqliteKv(sql);
-      const config = makeKvConfig(kv, { cwd });
+      const config = makeKvConfig(kv, { cwd, sql });
       const scopedKv = makeScopedKv(kv, cwd);
       const configPath = join(cwd, "executor.jsonc");
       const fsLayer = NodeFileSystem.layer;

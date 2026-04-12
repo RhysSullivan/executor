@@ -306,6 +306,7 @@ const executeInDeno = (
     Effect.catchTag("DenoSpawnError", (e) =>
       Effect.succeed<ExecuteResult>({ result: null, error: e.message }),
     ),
+    Effect.withSpan("executor.runtime.deno"),
   );
 };
 

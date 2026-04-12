@@ -3,6 +3,7 @@ import { Effect, Fiber, Schema } from "effect";
 
 import {
   ElicitationResponse,
+  ExecutionId,
   Source,
   createExecutor,
   inMemoryToolsPlugin,
@@ -407,4 +408,250 @@ describe("pause/resume with multiple elicitations", () => {
       expect(resumed.result.result).toMatchObject({ ok: true });
     }
   }, 10000);
+});
+
+describe("execution history persistence", () => {
+  const makeHistoryExecutor = () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig({
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "api",
+            tools: [
+              tool({
+                name: "singleApproval",
+                description: "A tool that elicits once",
+                inputSchema: EmptyInput,
+                handler: (_args, ctx) =>
+                  Effect.gen(function* () {
+                    const r = yield* ctx.elicit(
+                      new FormElicitation({
+                        message: "Only approval",
+                        requestedSchema: {},
+                      }),
+                    );
+                    return { ok: true, response: r };
+                  }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
+
+      yield* config.sources.registerRuntime(
+        new Source({
+          id: "api",
+          name: "API",
+          kind: "in-memory",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
+
+      return yield* createExecutor(config);
+    });
+
+  it.effect("records completed executions with result and logs", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeSearchExecutor();
+      const engine = createExecutionEngine({ executor });
+
+      const result = yield* Effect.promise(() =>
+        engine.execute(
+          ['console.log("hello from run");', "return { ok: true, value: 42 };"].join("\n"),
+          { onElicitation: acceptAll },
+        ),
+      );
+
+      expect(result.error).toBeUndefined();
+
+      const listed = yield* executor.executions.list(executor.scope.id, { limit: 10 });
+      expect(listed.executions).toHaveLength(1);
+      expect(listed.executions[0]?.status).toBe("completed");
+      expect(JSON.parse(listed.executions[0]!.resultJson ?? "null")).toEqual({
+        ok: true,
+        value: 42,
+      });
+      expect(JSON.parse(listed.executions[0]!.logsJson ?? "[]")).toContain("[log] hello from run");
+    }),
+  );
+
+  it.effect("records waiting interactions and resolves them on resume", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeHistoryExecutor();
+      const engine = createExecutionEngine({ executor });
+
+      const paused = yield* Effect.promise(() =>
+        engine.executeWithPause("return await tools.api.singleApproval({});"),
+      );
+      expect(paused.status).toBe("paused");
+
+      if (paused.status !== "paused") {
+        return;
+      }
+
+      const waiting = yield* executor.executions.get(ExecutionId.make(paused.execution.id));
+      expect(waiting?.execution.status).toBe("waiting_for_interaction");
+      expect(waiting?.pendingInteraction?.status).toBe("pending");
+      expect(waiting?.pendingInteraction?.purpose).toBe("Only approval");
+
+      const resumed = yield* Effect.promise(() =>
+        engine.resume(paused.execution.id, { action: "accept" }),
+      );
+      expect(resumed?.status).toBe("completed");
+
+      const completed = yield* executor.executions.get(ExecutionId.make(paused.execution.id));
+      expect(completed?.execution.status).toBe("completed");
+      expect(completed?.pendingInteraction).toBeNull();
+      expect(JSON.parse(completed?.execution.resultJson ?? "null")).toMatchObject({ ok: true });
+    }),
+  );
+
+  it.effect("marks executions cancelled when a paused interaction is declined", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeHistoryExecutor();
+      const engine = createExecutionEngine({ executor });
+
+      const paused = yield* Effect.promise(() =>
+        engine.executeWithPause("return await tools.api.singleApproval({});"),
+      );
+      expect(paused.status).toBe("paused");
+
+      if (paused.status !== "paused") {
+        return;
+      }
+
+      const resumed = yield* Effect.promise(() =>
+        engine.resume(paused.execution.id, { action: "decline" }),
+      );
+      expect(resumed?.status).toBe("completed");
+      if (resumed?.status === "completed") {
+        expect(resumed.result.error).toContain("cancelled");
+      }
+
+      const cancelled = yield* executor.executions.get(ExecutionId.make(paused.execution.id));
+      expect(cancelled?.execution.status).toBe("cancelled");
+      expect(cancelled?.pendingInteraction).toBeNull();
+    }),
+  );
+
+  it.effect("records trigger kind and tool call count on persisted executions", () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig({
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "api",
+            tools: [
+              tool({
+                name: "ping",
+                description: "ping",
+                inputSchema: EmptyInput,
+                handler: () => Effect.succeed({ ok: true }),
+              }),
+              tool({
+                name: "pong",
+                description: "pong",
+                inputSchema: EmptyInput,
+                handler: () => Effect.succeed({ ok: true }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
+      yield* config.sources.registerRuntime(
+        new Source({
+          id: "api",
+          name: "API",
+          kind: "in-memory",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
+      const executor = yield* createExecutor(config);
+      const engine = createExecutionEngine({ executor });
+
+      yield* Effect.promise(() =>
+        engine.execute(
+          ["await tools.api.ping({});", "await tools.api.pong({});", "return 'done';"].join("\n"),
+          { onElicitation: acceptAll, trigger: { kind: "test" } },
+        ),
+      );
+
+      const listed = yield* executor.executions.list(executor.scope.id, { limit: 10 });
+      expect(listed.executions).toHaveLength(1);
+      const execution = listed.executions[0]!;
+      expect(execution.triggerKind).toBe("test");
+      expect(execution.toolCallCount).toBe(2);
+
+      const calls = yield* executor.executions.listToolCalls(execution.id);
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.toolPath).toBe("api.ping");
+      expect(calls[0]?.status).toBe("completed");
+      expect(calls[0]?.namespace).toBe("api");
+      expect(calls[1]?.toolPath).toBe("api.pong");
+    }),
+  );
+
+  it.effect("list meta exposes triggerCounts and toolFacets", () =>
+    Effect.gen(function* () {
+      const config = makeTestConfig({
+        plugins: [
+          inMemoryToolsPlugin({
+            namespace: "api",
+            tools: [
+              tool({
+                name: "ping",
+                description: "ping",
+                inputSchema: EmptyInput,
+                handler: () => Effect.succeed({ ok: true }),
+              }),
+            ],
+          }),
+        ] as const,
+      });
+      yield* config.sources.registerRuntime(
+        new Source({
+          id: "api",
+          name: "API",
+          kind: "in-memory",
+          runtime: true,
+          canRemove: false,
+          canRefresh: false,
+        }),
+      );
+      const executor = yield* createExecutor(config);
+      const engine = createExecutionEngine({ executor });
+
+      yield* Effect.promise(() =>
+        engine.execute("await tools.api.ping({}); return 1;", {
+          onElicitation: acceptAll,
+          trigger: { kind: "http" },
+        }),
+      );
+      yield* Effect.promise(() =>
+        engine.execute("return 1;", {
+          onElicitation: acceptAll,
+          trigger: { kind: "http" },
+        }),
+      );
+      yield* Effect.promise(() =>
+        engine.execute("return 1;", {
+          onElicitation: acceptAll,
+          trigger: { kind: "mcp" },
+        }),
+      );
+
+      const listed = yield* executor.executions.list(executor.scope.id, {
+        limit: 10,
+        includeMeta: true,
+      });
+      expect(listed.meta?.triggerCounts.http).toBe(2);
+      expect(listed.meta?.triggerCounts.mcp).toBe(1);
+      expect(listed.meta?.toolFacets).toHaveLength(1);
+      expect(listed.meta?.toolFacets[0]?.toolPath).toBe("api.ping");
+      expect(listed.meta?.toolFacets[0]?.count).toBe(1);
+    }),
+  );
 });

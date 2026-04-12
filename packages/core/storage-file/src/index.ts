@@ -23,13 +23,20 @@
 
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
+import type * as SqlClient from "@effect/sql/SqlClient";
 
-import { scopeKv, ScopeId, makeInMemorySourceRegistry } from "@executor/sdk";
+import {
+  scopeKv,
+  ScopeId,
+  makeInMemoryExecutionStore,
+  makeInMemorySourceRegistry,
+} from "@executor/sdk";
 import type { Kv, Scope, ExecutorConfig, ExecutorPlugin } from "@executor/sdk";
 
 import { makeKvToolRegistry } from "./tool-registry";
 import { makeKvSecretStore } from "./secret-store";
 import { makeKvPolicyEngine } from "./policy-engine";
+import { makeSqliteExecutionStore } from "./execution-store";
 
 /**
  * Derive a URL-safe scope ID from a folder path.
@@ -45,6 +52,7 @@ export { makeSqliteKv, makeInMemoryKv } from "./plugin-kv";
 export { makeKvToolRegistry } from "./tool-registry";
 export { makeKvSecretStore } from "./secret-store";
 export { makeKvPolicyEngine } from "./policy-engine";
+export { makeSqliteExecutionStore } from "./execution-store";
 export { migrate } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -56,6 +64,7 @@ export const makeKvConfig = <const TPlugins extends readonly ExecutorPlugin<stri
   options: {
     readonly cwd: string;
     readonly plugins?: TPlugins;
+    readonly sql?: SqlClient.SqlClient;
   },
 ): ExecutorConfig<TPlugins> => {
   const cwd = options.cwd;
@@ -75,6 +84,7 @@ export const makeKvConfig = <const TPlugins extends readonly ExecutorPlugin<stri
     sources: makeInMemorySourceRegistry(),
     secrets: makeKvSecretStore(scopeKv(kv, ns("secrets"))),
     policies: makeKvPolicyEngine(scopeKv(kv, ns("policies")), scopeKv(kv, ns("meta"))),
+    executions: options.sql ? makeSqliteExecutionStore(options.sql) : makeInMemoryExecutionStore(),
     plugins: options?.plugins,
   };
 };
