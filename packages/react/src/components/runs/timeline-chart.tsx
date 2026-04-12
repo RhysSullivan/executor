@@ -4,26 +4,12 @@ import * as React from "react";
 import { format } from "date-fns";
 import { Bar, BarChart, CartesianGrid, ReferenceArea, XAxis } from "recharts";
 
-// Recharts doesn't re-export its mouse-event shape from the entry point in
-// our version, so type the handler argument narrowly: we only read
-// `activeLabel`, which is a string when a bar is under the cursor.
 type RechartsMouseEvent = { readonly activeLabel?: string | number };
 import type { ExecutionChartBucket } from "@executor/sdk";
 
 import { cn } from "../../lib/utils";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "../chart";
 import { STATUS_LABELS, STATUS_TONES } from "./status";
-
-// ---------------------------------------------------------------------------
-// TimelineChart — stacked bars per execution status
-// ---------------------------------------------------------------------------
-//
-// Port of openstatus-data-table's TimelineChart. Changes from the upstream:
-//   1. No ChartContext/BYOS dependency — bucket data is passed in as a prop.
-//   2. Stack order reflects our status vocabulary (failed → running → …).
-//   3. Drag-to-zoom emits a { from, to } callback; caller decides whether
-//      to write that into URL state, a parent filter, etc.
-//   4. Bucket size is server-decided (`bucketMs`), we just label the axis.
 
 const TIMELINE_CONFIG: ChartConfig = {
   completed: { label: STATUS_LABELS.completed, color: STATUS_TONES.completed.chartFill },
@@ -37,8 +23,6 @@ const TIMELINE_CONFIG: ChartConfig = {
   pending: { label: STATUS_LABELS.pending, color: STATUS_TONES.pending.chartFill },
 };
 
-// Stack order matters visually — put the most "noisy" statuses at the
-// bottom, terminal success on top. Matches a Datadog/Axiom log viewer.
 const BAR_STACK_ORDER = [
   "failed",
   "cancelled",
@@ -101,8 +85,6 @@ export function TimelineChart({ data, bucketMs, className, onRangeSelect }: Time
   const [refAreaRight, setRefAreaRight] = React.useState<string | null>(null);
   const isSelectingRef = React.useRef(false);
 
-  // Recharts wants a string dataKey on the X axis (date instances confuse
-  // the tooltip/label plumbing). We attach the timestamp as an ISO string.
   const chartRows = React.useMemo(
     () =>
       data.map((bucket) => ({

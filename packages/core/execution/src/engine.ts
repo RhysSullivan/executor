@@ -23,10 +23,6 @@ import {
 import { ExecutionToolError } from "./errors";
 import { buildExecuteDescription } from "./description";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type ExecutionEngineConfig = {
   readonly executor: Executor;
   readonly codeExecutor?: CodeExecutor;
@@ -42,7 +38,6 @@ export type PausedExecution = {
   readonly elicitationContext: ElicitationContext;
 };
 
-/** Internal representation with Effect runtime state for pause/resume. */
 type InternalPausedExecution = PausedExecution & {
   readonly interactionId: ExecutionInteractionId;
   readonly response: Deferred.Deferred<typeof ElicitationResponse.Type>;
@@ -55,33 +50,17 @@ export type ResumeResponse = {
   readonly content?: Record<string, unknown>;
 };
 
-/**
- * Describes where a run came from. Recorded on the execution row so
- * /runs can facet by entry point (HTTP vs MCP-inline vs CLI, etc.).
- * Callers that don't supply a trigger get `triggerKind: null` and show
- * up as `"unknown"` in the trigger facet.
- */
+/** Entry point that triggered this execution. */
 export type ExecutionTrigger = {
   readonly kind: string;
   readonly meta?: Record<string, unknown>;
 };
 
-/**
- * Context threaded through `makeFullInvoker` so every sandbox
- * `tools.x.y` invocation can be persisted as an `ExecutionToolCall`
- * row. The `counter` ref is incremented per invoke so the engine can
- * write the final count into `executions.tool_call_count` at terminal
- * state.
- */
 type ToolCallRecordingContext = {
   readonly executionId: ExecutionId;
   readonly executionStore: ExecutionStoreType;
   readonly counter: Ref.Ref<number>;
 };
-
-// ---------------------------------------------------------------------------
-// Result formatting
-// ---------------------------------------------------------------------------
 
 const MAX_PREVIEW_CHARS = 30_000;
 
@@ -213,16 +192,6 @@ const readOptionalLimit = (value: unknown, toolName: string): number | Execution
   return Math.floor(value);
 };
 
-/**
- * Wrap a single sandbox `base.invoke` call with tool-call recording.
- * Writes a `running` row at start, finalizes with `completed` or
- * `failed` on end. Runs regardless of whether the inner Effect
- * succeeds or dies.
- *
- * Engine-internal tool branches (`search`, `describe.tool`,
- * `executor.sources.list`) are NOT recorded — they're plumbing, not
- * meaningful work.
- */
 const withToolCallRecording = (
   base: SandboxToolInvoker,
   recording: ToolCallRecordingContext,
@@ -409,10 +378,6 @@ const makeFullInvoker = (
     },
   };
 };
-
-// ---------------------------------------------------------------------------
-// Execution Engine
-// ---------------------------------------------------------------------------
 
 export type ExecutionEngine = {
   /**

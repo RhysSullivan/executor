@@ -12,14 +12,6 @@ import {
   DropdownMenuTrigger,
 } from "../dropdown-menu";
 
-// ---------------------------------------------------------------------------
-// KeyboardHelpButton — shortcut reference dropdown
-// ---------------------------------------------------------------------------
-//
-// Pattern borrowed from openstatus `socials-footer.tsx:90-142` — a dropdown
-// listing every global keyboard shortcut. Triggered either by clicking the
-// `Keyboard` icon button in the top bar, or pressing `?` (shift+/).
-
 const SHORTCUTS: ReadonlyArray<{
   readonly label: string;
   readonly key: string;

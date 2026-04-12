@@ -1,13 +1,5 @@
 import * as React from "react";
 
-// ---------------------------------------------------------------------------
-// LiveRow — "Live ● now" divider placed above the cutoff row
-// ---------------------------------------------------------------------------
-//
-// Rendered by RunsShell immediately above the row `useLiveMode` identifies
-// as the cutoff boundary. Mirrors openstatus-data-table's LiveRow but
-// trimmed to a single thin border + label.
-
 export function LiveRow() {
   return (
     <div

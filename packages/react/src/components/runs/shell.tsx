@@ -3,31 +3,6 @@ import * as React from "react";
 import { cn } from "../../lib/utils";
 import { LiveRow } from "./live-row";
 
-// ---------------------------------------------------------------------------
-// RunsShell — split-screen observability layout
-// ---------------------------------------------------------------------------
-//
-// Shape borrowed from openstatus-data-table's `DataTableInfinite` and trimmed
-// to what /runs actually needs:
-//   ┌────────────┬────────────────────────────────────────────┐
-//   │ filterRail │ topBar (toolbar + chartSlot)                │
-//   │            ├────────────────────────────────────────────┤
-//   │            │ columnHeader (_time | Raw Data)             │
-//   │            ├────────────────────────────────────────────┤
-//   │            │ body (scrollable, fetchNextPage on bottom)  │
-//   │            │                                             │
-//   │            │                                             │
-//   │            │                                             │
-//   │            └────────────────────────────────────────────┘
-//
-// No TanStack Table, no BYOS store, no column model — the body is a
-// vertical list rendered via `renderRow(row)`. Pagination is driven by an
-// onScroll hook, matching openstatus's approach. Live mode injects a
-// `<LiveRow>` divider above `liveMarkerBeforeRowId`.
-//
-// v1.3 aesthetic: no outer card/border radius around the list, no alternating
-// row background, dense mono typography.
-
 export interface RunsShellProps<T> {
   readonly filterRail: React.ReactNode;
   readonly topBar?: React.ReactNode;
@@ -37,11 +12,7 @@ export interface RunsShellProps<T> {
   readonly rows: readonly T[];
   readonly getRowId: (row: T) => string;
   readonly renderRow: (row: T) => React.ReactNode;
-  /**
-   * If set, render a `<LiveRow>` divider immediately before the row
-   * whose id equals this value. Used by live mode to mark the boundary
-   * between "new since you went live" and "already there" rows.
-   */
+  /** Row id before which to render a `<LiveRow>` divider (live mode cutoff). */
   readonly liveMarkerBeforeRowId?: string;
   readonly isLoading?: boolean;
   readonly isFetchingNextPage?: boolean;
@@ -122,11 +93,6 @@ export function RunsShell<T>({
         } as React.CSSProperties
       }
     >
-      {/* Left rail — plain flex child, no sticky/z-index. Appears at
-          lg+ (1024px) so tablet/phone viewports get the full width
-          for the runs list. The filter command dropdown in the top
-          bar is the fallback filter UX at smaller sizes. Collapsible
-          via the `b` hotkey. */}
       <aside
         className={cn(
           "flex h-screen w-full shrink-0 flex-col self-start",
@@ -139,11 +105,7 @@ export function RunsShell<T>({
         <div className="min-h-0 flex-1 overflow-y-auto">{filterRail}</div>
       </aside>
 
-      {/* Main pane. `min-w-0` prevents row content from forcing the
-          flex-row parent to grow horizontally and push the aside off. */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* Sticky top bar. `z-30` so the chart tooltip (inside topBar)
-            paints over the column header + row content below. */}
         <div
           ref={topBarRef}
           className={cn(
@@ -155,14 +117,12 @@ export function RunsShell<T>({
           {chartSlot}
         </div>
 
-        {/* Column header */}
         {columnHeader ? (
           <div className="sticky top-[var(--runs-top-bar-height)] z-10 border-border/60 border-b bg-background">
             {columnHeader}
           </div>
         ) : null}
 
-        {/* Scrollable body */}
         <div ref={bodyRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex h-48 items-center justify-center text-xs font-mono text-muted-foreground">

@@ -3,18 +3,6 @@ import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 
 import { cn } from "../../lib/utils";
 
-// ---------------------------------------------------------------------------
-// RunsColumnHeader — per-field column header row with sort affordances
-// ---------------------------------------------------------------------------
-//
-// Replaces the old `RunRowHeader` (which showed just `_time | Raw Data`).
-// Width cells must match `RunRow`'s field widths exactly so labels line up
-// with the values below. Only `_time` (createdAt) and `duration_ms` are
-// sortable — other columns are plain labels.
-//
-// Sort cycling: `none → desc → asc → none`. State lives in the URL via the
-// parent `runs.tsx` page.
-
 export type SortField = "createdAt" | "durationMs";
 export type SortDirection = "asc" | "desc";
 export type SortState = {
@@ -75,10 +63,6 @@ export function RunsColumnHeader({ sort, onSort, visibleFields }: RunsColumnHead
   );
 }
 
-/**
- * Sortable column header — clickable button with chevron indicator.
- * Inactive state uses the triple-arrow `ArrowUpDown` icon at 40% opacity.
- */
 function SortHeader({
   label,
   field,

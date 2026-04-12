@@ -5,30 +5,6 @@ import { cn } from "../../lib/utils";
 import { HoverCardTimestamp } from "./hover-card-timestamp";
 import { statusTone, triggerTone } from "./status";
 
-// ---------------------------------------------------------------------------
-// RunRow — v1.3 log-line aesthetic
-// ---------------------------------------------------------------------------
-//
-// Single row of the /runs list. Every run renders as a dense, monospace
-// key-value log line — muted labels, color-coded values, a single status
-// dot, no cells in a grid. v1.3 used a plain <button>; we do the same so
-// the entire row is one click target and keyboard-focusable.
-//
-// Layout (left to right):
-//   [dot] [timestamp]  status:<…>  via:<…>  tools:N  log:NE MW  duration_ms:<…>  code:"…"
-//
-// Responsive visibility (after Round 4 Phase 2b retightening):
-//   - `_time` / `status` are slim (150/120) below md, full (190/140) md+.
-//   - `duration_ms` hides below md (<768px) where the aside is also hidden.
-//   - `tools` hides below xl (<1280px).
-//   - `via` and `log` hide below 2xl (<1536px).
-//   - `status` abbreviates `waiting_for_interaction` → `waiting` so the
-//     slim column fits; the full label still shows in the drawer.
-//
-// The aside (filter rail) is hidden below lg (<1024px), giving the
-// row body the full viewport width on tablet/phone. The filter command
-// dropdown in the top bar is the fallback filter UX at those sizes.
-
 const formatTimestamp = (value: number | null): string => {
   if (value === null) return "—";
   const d = new Date(value);
@@ -49,21 +25,13 @@ const formatDurationMs = (execution: Execution): string | null => {
 const truncateCode = (code: string, max: number): string =>
   code.trim().replace(/\s+/g, " ").slice(0, max);
 
-/**
- * Row label for a status. `waiting_for_interaction` gets abbreviated to
- * `waiting` so the status column can fit in 140px — the full label
- * still appears in the drawer's Status meta card.
- */
+/** Abbreviates `waiting_for_interaction` to `waiting` for the row column. */
 const statusWord = (status: ExecutionStatus): string => {
   if (status === "waiting_for_interaction") return "waiting";
   return status.replaceAll("_", " ");
 };
 
-/**
- * Count `[error]` and `[warn]` lines in the serialized logsJson array.
- * Runtime format is case-sensitive `[level] line` — see
- * `packages/kernel/runtime-quickjs/src/index.ts:127-132`.
- */
+/** Count `[error]` and `[warn]` lines in the serialized logsJson array. */
 const parseLogCounts = (logsJson: string | null): { errors: number; warns: number } => {
   if (!logsJson) return { errors: 0, warns: 0 };
   try {
@@ -214,6 +182,3 @@ export function RunRow({ execution, isSelected, isPast, visibleFields, onSelect 
     </button>
   );
 }
-
-// `RunRowHeader` used to live here but has been replaced by the
-// per-field sortable `RunsColumnHeader` in `./column-header.tsx`.

@@ -22,26 +22,8 @@ export class Execution extends Schema.Class<Execution>("Execution")({
   logsJson: Schema.NullOr(Schema.String),
   startedAt: Schema.NullOr(Schema.Number),
   completedAt: Schema.NullOr(Schema.Number),
-  /**
-   * Label identifying which execution entry point started this run —
-   * `"mcp"`, `"http"`, `"cli"`, `"test"`, etc. Whether an `mcp` run
-   * actually elicited the user is tracked separately via the
-   * `hadElicitation` filter (derived from `execution_interactions`).
-   * Null for rows recorded before this field existed (migration 0003).
-   */
   triggerKind: Schema.NullOr(Schema.String),
-  /**
-   * Free-form caller metadata stringified as JSON (session id, user
-   * agent, mcp client name, etc.). Escape hatch for per-entry-point
-   * context without adding columns.
-   */
   triggerMetaJson: Schema.NullOr(Schema.String),
-  /**
-   * Number of `tools.*.*` invocations the sandbox made during this
-   * execution. Populated at terminal state from a Ref held by the
-   * engine's tool-invoker wrapper. Does not include internal
-   * engine calls like `search` / `describe.tool`.
-   */
   toolCallCount: Schema.Number,
   createdAt: Schema.Number,
   updatedAt: Schema.Number,
@@ -68,15 +50,6 @@ export class ExecutionInteraction extends Schema.Class<ExecutionInteraction>(
 export const ExecutionToolCallStatus = Schema.Literal("running", "completed", "failed");
 export type ExecutionToolCallStatus = typeof ExecutionToolCallStatus.Type;
 
-/**
- * One sandbox tool invocation recorded as part of an execution. Every
- * `tools.<namespace>.<tool>(args)` call made by user code gets a row
- * here, written at call start (status `running`) and finalized at
- * call end (status `completed` or `failed`).
- *
- * We store args + result as raw JSON strings for display in the
- * drawer timeline — no projection or indexing beyond `toolPath`.
- */
 export class ExecutionToolCall extends Schema.Class<ExecutionToolCall>("ExecutionToolCall")({
   id: ExecutionToolCallId,
   executionId: ExecutionId,
@@ -128,10 +101,6 @@ export type UpdateExecutionToolCallInput = Partial<
   Pick<ExecutionToolCall, "status" | "resultJson" | "errorText" | "completedAt" | "durationMs">
 >;
 
-/**
- * Supported sort field for the executions list. Kept narrow — only
- * numeric / ordinal fields where sort order has intuitive meaning.
- */
 export type ExecutionSortField = "createdAt" | "durationMs";
 export type ExecutionSortDirection = "asc" | "desc";
 export interface ExecutionSort {
@@ -144,45 +113,20 @@ export interface ExecutionListOptions {
   readonly cursor?: string;
   readonly statusFilter?: readonly ExecutionStatus[];
   readonly triggerFilter?: readonly string[];
-  /**
-   * Filter executions that made at least one tool call matching one
-   * of these patterns. Patterns support exact match (`github.listIssues`)
-   * and glob tail (`github.*` → prefix `github.`).
-   */
+  /** Glob patterns: exact match or trailing wildcard (`a.*`). */
   readonly toolPathFilter?: readonly string[];
   readonly timeRange?: {
     readonly from?: number;
     readonly to?: number;
   };
   readonly codeQuery?: string;
-  /**
-   * Filter by whether the execution recorded at least one
-   * {@link ExecutionInteraction}. `true` → only runs that elicited
-   * the user. `false` → only runs that didn't. Omitted → no filter.
-   *
-   * Used by the /runs "Interactions" facet to separate autonomous
-   * runs from ones that paused for user input, independent of the
-   * `triggerKind` (which just records *who started* the run).
-   */
+  /** Filter by whether the run recorded any interaction. */
   readonly hadElicitation?: boolean;
-  /**
-   * Live-mode floor: return only rows with `createdAt > after`. Used
-   * by the `/runs` UI's live mode to fetch rows newer than the most
-   * recent one we already have without duplicating the page window.
-   */
+  /** Return only rows created after this timestamp. */
   readonly after?: number;
-  /**
-   * Sort order for the page. Defaults to `{ field: "createdAt",
-   * direction: "desc" }` when omitted (newest runs first). Stores that
-   * implement this option should respect it for the page itself AND
-   * for the filtered superset used to compute `meta`.
-   */
+  /** Sort order. Defaults to createdAt desc. */
   readonly sort?: ExecutionSort;
-  /**
-   * When true, the store computes and returns {@link ExecutionListMeta}
-   * alongside the page. Typically requested only on the first page
-   * (cursor === undefined) since the metadata is stable across pagination.
-   */
+  /** When true, compute and return ExecutionListMeta. */
   readonly includeMeta?: boolean;
 }
 
@@ -209,11 +153,6 @@ export interface ExecutionToolFacet {
   readonly count: number;
 }
 
-/**
- * Metadata describing the full filtered result set, independent of the
- * current page. Used to drive status facets, counts, and the timeline
- * chart above the list.
- */
 export interface ExecutionListMeta {
   readonly totalRowCount: number;
   readonly filterRowCount: number;
@@ -224,12 +163,6 @@ export interface ExecutionListMeta {
   readonly triggerCounts: Readonly<Record<string, number>>;
   /** Top-N tool paths by invocation count across the filtered set. */
   readonly toolFacets: readonly ExecutionToolFacet[];
-  /**
-   * Count of runs in the filtered set split by whether they recorded
-   * any {@link ExecutionInteraction}. Used to populate the /runs
-   * "Interactions" facet — `withElicitation + withoutElicitation`
-   * should equal `filterRowCount`.
-   */
   readonly interactionCounts: {
     readonly withElicitation: number;
     readonly withoutElicitation: number;
@@ -245,10 +178,6 @@ export const EXECUTION_STATUS_KEYS = [
   "cancelled",
 ] as const satisfies readonly ExecutionStatus[];
 
-/**
- * Pick a bucket size in milliseconds from a time range span. Mirrors
- * openstatus-data-table's calculatePeriod, just expressed as duration.
- */
 export const pickChartBucketMs = (spanMs: number): number => {
   const MIN = 60_000;
   const HOUR = 60 * MIN;
@@ -279,30 +208,14 @@ export interface BuildExecutionListMetaInput {
   readonly filtered: readonly Execution[];
   readonly timeRange: ExecutionListOptions["timeRange"];
   readonly totalRowCount: number;
-  /**
-   * Count of tool invocations per `toolPath` across the filtered set.
-   * Used to populate `toolFacets`. Stores pass this in from a separate
-   * aggregation query; pass an empty map if the store has no tool-call
-   * data yet.
-   */
+  /** Tool path invocation counts for populating toolFacets. */
   readonly toolPathCounts?: ReadonlyMap<string, number>;
-  /**
-   * Set of execution IDs from the *filtered* set that have at least
-   * one recorded {@link ExecutionInteraction}. Used to compute
-   * `meta.interactionCounts`. Stores pass this in from a separate
-   * query against `execution_interactions`; defaults to empty if
-   * omitted (implying no elicitation was used).
-   */
+  /** Execution IDs with at least one interaction, for computing interactionCounts. */
   readonly executionIdsWithInteractions?: ReadonlySet<ExecutionId>;
 }
 
 const TRIGGER_KIND_UNKNOWN = "unknown";
 
-/**
- * Build a chart + counts from a flat, already-filtered list of
- * executions. Shared by every {@link ExecutionStore} implementation so
- * the chart math lives in one place.
- */
 export const buildExecutionListMeta = (input: BuildExecutionListMetaInput): ExecutionListMeta => {
   const { filtered, timeRange, totalRowCount, toolPathCounts, executionIdsWithInteractions } =
     input;
@@ -412,10 +325,6 @@ export const matchToolPathPattern = (toolPath: string, pattern: string): boolean
   return false;
 };
 
-// ---------------------------------------------------------------------------
-// Execution comparators — shared sort logic for all stores
-// ---------------------------------------------------------------------------
-
 const computeDuration = (execution: Execution): number | null => {
   if (execution.startedAt === null || execution.completedAt === null) return null;
   return Math.max(0, execution.completedAt - execution.startedAt);
@@ -478,24 +387,15 @@ export class ExecutionStore extends Context.Tag("@executor/sdk/ExecutionStore")<
       interactionId: ExecutionInteractionId,
       patch: UpdateExecutionInteractionInput,
     ) => Effect.Effect<ExecutionInteraction>;
-    /**
-     * Record the start of a tool call. Returns the created row so the
-     * engine can track the id for the matching `finishToolCall`.
-     */
+    /** Record the start of a tool call; returns the created row. */
     readonly recordToolCall: (
       input: CreateExecutionToolCallInput,
     ) => Effect.Effect<ExecutionToolCall>;
-    /**
-     * Finalize a tool call with its result/error and duration.
-     */
     readonly finishToolCall: (
       id: ExecutionToolCallId,
       patch: UpdateExecutionToolCallInput,
     ) => Effect.Effect<ExecutionToolCall>;
-    /**
-     * List every tool call recorded for an execution, in start-time
-     * order. Used by the detail drawer's tool timeline.
-     */
+    /** List tool calls for an execution, ordered by start time. */
     readonly listToolCalls: (
       executionId: ExecutionId,
     ) => Effect.Effect<readonly ExecutionToolCall[]>;

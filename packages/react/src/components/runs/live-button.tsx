@@ -3,14 +3,6 @@ import { CirclePause, CirclePlay } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../button";
 
-// ---------------------------------------------------------------------------
-// LiveButton — openstatus-style outline button with play/pause icon
-// ---------------------------------------------------------------------------
-//
-// Ported from `~/Developer/openstatus-data-table/src/components/data-table/
-// data-table-infinite/live-button.tsx`. When active, the border and text
-// become info-colored; the icon switches from Play to Pause.
-
 export interface LiveButtonProps {
   readonly active: boolean;
   readonly onClick: () => void;

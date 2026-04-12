@@ -6,15 +6,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "..
 import { Input } from "../input";
 import { STATUS_ORDER, STATUS_LABELS, TRIGGER_ORDER, statusTone, triggerTone } from "./status";
 
-// ---------------------------------------------------------------------------
-// FilterRail — left rail with page title, facets, time range, code query
-// ---------------------------------------------------------------------------
-//
-// Layout borrowed from openstatus `/infinite` `<DataTableFilterControls>` —
-// each facet group is a collapsible accordion section. v1.3 aesthetic:
-// compact mono labels, subtle dots, muted counts. Each facet row supports
-// hover-reveal `only` quick-filter that clears sibling selections.
-
 export interface RunsFilterRailProps {
   readonly selectedStatuses: readonly ExecutionStatus[];
   readonly onToggleStatus: (status: ExecutionStatus) => void;
@@ -99,8 +90,6 @@ export function RunsFilterRail({
     codeQuery.trim().length > 0 ||
     range !== "24h";
 
-  // Trigger keys in the current filter set, union'd with the canonical
-  // order so a filter that matches nothing still shows known kinds.
   const triggerKeys = React.useMemo(() => {
     const set = new Set<string>(TRIGGER_ORDER);
     if (meta?.triggerCounts) {
@@ -286,11 +275,6 @@ export function RunsFilterRail({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Compact accordion section wrapper — overrides the default accordion
-// styling (py-4, hover:underline) to match the rail's dense look.
-// ---------------------------------------------------------------------------
-
 function FacetSection({
   value,
   label,
@@ -309,10 +293,6 @@ function FacetSection({
     </AccordionItem>
   );
 }
-
-// ---------------------------------------------------------------------------
-// FacetRow — shared checkbox + dot + label + count + hover-reveal "only"
-// ---------------------------------------------------------------------------
 
 function FacetRow({
   checked,

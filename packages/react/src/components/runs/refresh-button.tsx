@@ -2,14 +2,6 @@ import { LoaderCircle, RefreshCcw } from "lucide-react";
 
 import { Button } from "../button";
 
-// ---------------------------------------------------------------------------
-// RefreshButton — icon-only outline variant matching openstatus /infinite
-// ---------------------------------------------------------------------------
-//
-// Ported from `~/Developer/openstatus-data-table/src/components/data-table/
-// data-table-infinite/refresh-button.tsx`. Swaps the `RefreshCcw` icon for a
-// spinning `LoaderCircle` while the query is refetching.
-
 export interface RefreshButtonProps {
   readonly onClick: () => void;
   readonly isLoading?: boolean;

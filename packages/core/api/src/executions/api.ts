@@ -2,10 +2,6 @@ import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
 import { Execution, ExecutionInteraction, ExecutionStatus, ExecutionToolCall } from "@executor/sdk";
 
-// ---------------------------------------------------------------------------
-// Schemas
-// ---------------------------------------------------------------------------
-
 const ExecuteRequest = Schema.Struct({
   code: Schema.String,
 });
@@ -64,17 +60,7 @@ const ListExecutionsParams = Schema.Struct({
   to: Schema.optional(Schema.NumberFromString),
   after: Schema.optional(Schema.NumberFromString),
   code: Schema.optional(Schema.String),
-  /**
-   * Sort expression in `"<field>,<direction>"` format.
-   * Supported fields: `createdAt` (default), `durationMs`.
-   * Directions: `asc`, `desc` (default for createdAt).
-   */
   sort: Schema.optional(Schema.String),
-  /**
-   * Filter by whether the run recorded at least one elicitation.
-   * `"true"` → elicited runs only, `"false"` → autonomous runs only,
-   * omitted → no filter.
-   */
   elicitation: Schema.optional(Schema.String),
 });
 
@@ -137,15 +123,7 @@ const ExecutionNotFoundError = Schema.TaggedStruct("ExecutionNotFoundError", {
   executionId: Schema.String,
 }).annotations(HttpApiSchema.annotations({ status: 404 }));
 
-// ---------------------------------------------------------------------------
-// Params
-// ---------------------------------------------------------------------------
-
 const executionIdParam = HttpApiSchema.param("executionId", Schema.String);
-
-// ---------------------------------------------------------------------------
-// Group
-// ---------------------------------------------------------------------------
 
 export class ExecutionsApi extends HttpApiGroup.make("executions")
   .add(

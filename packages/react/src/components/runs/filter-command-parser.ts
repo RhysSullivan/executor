@@ -1,28 +1,3 @@
-// ---------------------------------------------------------------------------
-// filter-command-parser — minimal `key:value` grammar for /runs
-// ---------------------------------------------------------------------------
-//
-// Token grammar:
-//
-//   tokens := token (" " token)*
-//   token  := key ":" value
-//   key    := "status" | "trigger" | "tool" | "code" | "duration_ms"
-//           | "after" | "before"
-//   value  := literal ("," literal)* | comparator literal
-//
-// Examples:
-//   status:failed
-//   status:failed,completed
-//   trigger:mcp
-//   tool:github.*
-//   code:axiom
-//   duration_ms:>5000
-//   after:1h       (relative — resolves to now - 1h)
-//   before:2026-04-11
-//
-// The parser is deliberately tiny: no quoting, no escapes, no boolean
-// grouping. It's a convenience surface, not a full query language.
-
 export interface RunsFilterTokens {
   readonly status: readonly string[];
   readonly trigger: readonly string[];
@@ -52,10 +27,6 @@ const RELATIVE_DURATIONS: Record<string, number> = {
   w: 7 * 24 * 60 * 60 * 1000,
 };
 
-/**
- * Parse a relative-time literal like `1h`, `15m`, `7d` into epoch-ms
- * difference from now. Returns null if the literal can't be parsed.
- */
 const parseRelativeMs = (literal: string): number | null => {
   const match = /^(\d+)([mhdw])$/.exec(literal);
   if (!match) return null;
@@ -65,10 +36,6 @@ const parseRelativeMs = (literal: string): number | null => {
   return Number(amount) * base;
 };
 
-/**
- * Parse an `after:` / `before:` value — either a relative duration
- * (`1h`) or an ISO-ish date (`2026-04-11`).
- */
 const parseTimestamp = (value: string): number | null => {
   const relative = parseRelativeMs(value);
   if (relative !== null) return Date.now() - relative;
@@ -154,20 +121,10 @@ export const parseFilterCommand = (input: string): RunsFilterTokens => {
   return result;
 };
 
-// ---------------------------------------------------------------------------
-// Known key lookup — drives the command palette's suggestion list
-// ---------------------------------------------------------------------------
-
 export type FilterCommandKey = {
   readonly key: "status" | "trigger" | "tool" | "code" | "duration_ms" | "after" | "before";
   readonly description: string;
   readonly example: string;
-  /**
-   * Quick value hints rendered as bracket chips inline on the focused
-   * palette entry (e.g. `status: [failed] [completed]`). Matches the
-   * openstatus /infinite palette pattern where hints appear next to
-   * the hovered row only.
-   */
   readonly hints?: readonly string[];
 };
 

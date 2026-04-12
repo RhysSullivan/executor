@@ -18,19 +18,6 @@ import {
 } from "../../api/executions";
 import { statusTone, statusLabel, triggerTone } from "./status";
 
-// ---------------------------------------------------------------------------
-// Detail drawer — v1.3 aesthetic, openstatus-triggered via URL state
-// ---------------------------------------------------------------------------
-//
-// Differences from v1.3:
-//   - Backed by TanStack Query's getExecution endpoint (not LoadableBlock).
-//   - Built on our existing Sheet primitive (Radix dialog slide-in) widened
-//     to sm:max-w-3xl.
-//   - `CodeBlock` replaces v1.3's DocumentPanel — same visual role, Shiki
-//     highlighting, copy-to-clipboard.
-// Same elsewhere: tabbed Properties / Logs, 2-col status+duration cards,
-// compact created/started row, per-line log coloring, Copy JSON button.
-
 type DetailTab = "properties" | "logs" | "toolCalls";
 
 const formatTimestamp = (value: number | null): string => {
@@ -52,22 +39,7 @@ const formatDuration = (execution: Execution): string => {
   return `${(ms / 60_000).toFixed(1)}m`;
 };
 
-/**
- * Bounded recursive JSON unwrap for display in the drawer.
- *
- * Context: the QuickJS runtime serializes tool results to JSON strings
- * before returning them to user code (see `packages/kernel/runtime-quickjs/
- * src/index.ts:202` — `context.newString(serialized)`). User code
- * receives strings, not objects. When user code does `return await
- * tools.x.y(...)` without parsing, `result.result` is a JSON string, and
- * the engine's `serializeJson` at `packages/core/execution/src/engine.ts:147`
- * wraps it a second time. A single `JSON.parse` would unwrap only one
- * layer, leaving us showing `"{\"success\":true,...}"` verbatim.
- *
- * We parse up to 4 levels deep, stopping as soon as a parse fails or
- * lands on a non-string. The final value is pretty-printed if it's
- * structured, or shown as plain text if it's a string literal.
- */
+/** Recursively parse up to 4 layers of JSON-in-JSON for display. */
 const unwrapJson = (
   raw: string | null,
 ): { readonly formatted: string | null; readonly lang: "json" | "text" } => {
@@ -104,8 +76,6 @@ const parseLogs = (logsJson: string | null): string[] | null => {
   return null;
 };
 
-// ---------------------------------------------------------------------------
-
 export interface RunsDetailDrawerProps {
   readonly executionId?: string;
   readonly onOpenChange: (open: boolean) => void;
@@ -133,9 +103,6 @@ export function RunsDetailDrawer({
     staleTime: 10_000,
   });
 
-  // Arrow keys step through rows while the drawer is open. Enabled gate
-  // means the global hotkey only fires when there's an open drawer and
-  // the corresponding neighbor exists.
   useHotkeys("ArrowUp", () => onPrev?.(), { enabled: open && !!prevRowId, preventDefault: true }, [
     open,
     prevRowId,
@@ -222,13 +189,11 @@ function DrawerBody({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Hidden titles for radix a11y */}
       <SheetHeader className="sr-only">
         <SheetTitle>Execution details</SheetTitle>
         <SheetDescription>{executionId ?? "No execution selected"}</SheetDescription>
       </SheetHeader>
 
-      {/* Visible header — mono id + prev/next + actions */}
       <div className="flex items-center justify-between border-border/60 border-b px-5 py-3">
         <div className="min-w-0 flex-1">
           <div className="truncate font-mono text-sm text-foreground">{executionId ?? "—"}</div>
@@ -290,7 +255,6 @@ function DrawerBody({
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-0 border-border/60 border-b px-5">
         <TabButton
           label="Properties"
@@ -309,7 +273,6 @@ function DrawerBody({
         <TabButton label="Logs" active={tab === "logs"} onClick={() => setTab("logs")} />
       </div>
 
-      {/* Content */}
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {query.isLoading ? (
           <p className="font-mono text-xs text-muted-foreground">Loading execution…</p>
@@ -348,10 +311,6 @@ function TabButton(props: { label: string; active: boolean; onClick: () => void 
   );
 }
 
-// ---------------------------------------------------------------------------
-// Properties tab
-// ---------------------------------------------------------------------------
-
 function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
   const { execution, pendingInteraction } = envelope;
   const tone = statusTone(execution.status);
@@ -360,7 +319,6 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
 
   return (
     <div className="space-y-4">
-      {/* Primary meta — v1.3 match: just Status + Duration */}
       <div className="grid grid-cols-2 gap-3">
         <MetaCard label="Status">
           <span className="flex items-center gap-2">
@@ -376,7 +334,6 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
         </MetaCard>
       </div>
 
-      {/* Compact secondary — plain muted text with HoverCardTimestamp */}
       <div className="grid grid-cols-2 gap-3 text-xs text-muted-foreground">
         <div className="flex items-baseline gap-1">
           <span className="text-muted-foreground/60">Created</span>
@@ -396,7 +353,6 @@ function PropertiesTab({ envelope }: { envelope: GetExecutionResponse }) {
         </div>
       </div>
 
-      {/* Tertiary — trigger + tools on a single muted mono line */}
       <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground/70">
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden className={cn("size-1.5 rounded-full", trigger.dot)} />
@@ -488,10 +444,6 @@ function PendingInteractionBlock({ interaction }: { interaction: ExecutionIntera
   );
 }
 
-// ---------------------------------------------------------------------------
-// Logs tab
-// ---------------------------------------------------------------------------
-
 function LogsTab({ logsJson }: { logsJson: string | null }) {
   const lines = React.useMemo(() => parseLogs(logsJson), [logsJson]);
 
@@ -542,15 +494,6 @@ function LogsTab({ logsJson }: { logsJson: string | null }) {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Tool calls tab
-// ---------------------------------------------------------------------------
-//
-// Chronological list of every `tools.x.y` call the run made. Each row is
-// a flame-graph-lite bar positioned by the call's offset from execution
-// start, widened by its duration. Click a row to expand args + result
-// into inline CodeBlocks.
 
 function ToolCallsTab({ execution }: { execution: Execution }) {
   const query = useQuery({
@@ -629,7 +572,6 @@ function ToolCallRow({
         onClick={() => setExpanded((prev) => !prev)}
         className="group flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-foreground/[0.03]"
       >
-        {/* Flame-graph-lite bar */}
         <div className="relative h-5 w-40 shrink-0 rounded-sm border border-border/40 bg-background">
           <div
             className={cn("absolute top-0 h-full rounded-sm", statusColor)}

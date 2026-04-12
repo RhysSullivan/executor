@@ -29,15 +29,6 @@ import { RunsFilterCommand } from "../components/runs/filter-command";
 import type { RunsFilterTokens } from "../components/runs/filter-command-parser";
 import { STATUS_ORDER } from "../components/runs/status";
 
-// ---------------------------------------------------------------------------
-// /runs — observability-style execution history
-// ---------------------------------------------------------------------------
-//
-// Layout from openstatus-data-table's /infinite example. Row aesthetic,
-// drawer, and status vocabulary from v1.3's execution-history plugin.
-// URL state is the single source of truth — TanStack Router search params
-// drive every filter, and the drawer open state is just `?executionId=`.
-
 export type RunsSearch = {
   readonly executionId?: string;
   readonly status?: string;
@@ -48,9 +39,7 @@ export type RunsSearch = {
   readonly to?: string;
   readonly code?: string;
   readonly live?: string;
-  /** Sort expression `"<field>,<direction>"` e.g. `"createdAt,desc"`. */
   readonly sort?: string;
-  /** `"true"` | `"false"` — elicitation filter. Absent → no filter. */
   readonly elicitation?: string;
 };
 
@@ -98,11 +87,6 @@ const parseSortSearch = (value: string | undefined): SortState => {
   return { field: field as SortField, direction };
 };
 
-/**
- * Cycle sort state for a given field: `none → desc → asc → none`.
- * If the clicked field is different from the currently active field,
- * start at `desc` for that field.
- */
 const cycleSort = (current: SortState, field: SortField): SortState => {
   if (current?.field !== field) return { field, direction: "desc" };
   if (current.direction === "desc") return { field, direction: "asc" };
@@ -147,7 +131,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [navigate],
   );
 
-  // Debounce code input → URL state
   React.useEffect(() => {
     const trimmed = codeInput.trim();
     const current = search.code ?? "";
@@ -159,7 +142,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     return () => window.clearTimeout(timeout);
   }, [codeInput, search.code, updateSearch]);
 
-  // Resolve time range — custom from/to takes precedence over preset
   const resolvedTimeRange = React.useMemo(() => {
     if (search.from || search.to) {
       return {
@@ -198,11 +180,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
       }),
     getNextPageParam: (page) => page.nextCursor,
     staleTime: 10_000,
-    // In live mode, re-poll the first page every 5s. React Query
-    // refetches all already-loaded pages on interval, so new rows
-    // naturally arrive at the top (order is newest-first). We don't
-    // need `fetchPreviousPage` + `after` because the list is already
-    // rebuilt from scratch on each tick.
     refetchInterval: live ? LIVE_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
   });
@@ -214,8 +191,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
 
   const liveMode = useLiveMode(rows, live);
 
-  // Compute prev/next row ids for drawer navigation. Used by both
-  // the header chevron buttons and the arrow-key hotkeys.
   const selectedIndex = React.useMemo(
     () => (search.executionId ? rows.findIndex((r) => r.id === search.executionId) : -1),
     [rows, search.executionId],
@@ -224,7 +199,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   const nextRowId =
     selectedIndex >= 0 && selectedIndex < rows.length - 1 ? rows[selectedIndex + 1]?.id : undefined;
 
-  // Meta is only returned on the first page request — pin it
   const meta = listQuery.data?.pages[0]?.meta;
 
   const totalsLine = meta
@@ -264,9 +238,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [selectedTools, updateSearch],
   );
 
-  // Tri-state: clicking a checked row clears to `null`, clicking the
-  // other row switches. Two separate toggles would allow "show neither"
-  // which is incoherent.
   const handleToggleElicitation = React.useCallback(
     (value: "true" | "false") => {
       updateSearch({
@@ -277,7 +248,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [selectedElicitation, updateSearch],
   );
 
-  // Sort handler — cycles none → desc → asc → none and updates URL.
   const handleSort = React.useCallback(
     (field: SortField) => {
       const next = cycleSort(sort, field);
@@ -289,8 +259,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [sort, updateSearch],
   );
 
-  // `only` quick-filter handlers — replace the facet's current selection
-  // with just the clicked value.
   const handleOnlyStatus = React.useCallback(
     (status: ExecutionStatus) => updateSearch({ status, executionId: undefined }),
     [updateSearch],
@@ -375,8 +343,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
   const [keyboardHelpOpen, setKeyboardHelpOpen] = React.useState(false);
   const [railCollapsed, setRailCollapsed] = React.useState(false);
 
-  // Row field visibility — persisted so users keep their preferences
-  // across reloads. The ViewOptionsButton in the top bar drives this.
   const [fieldVisibility, setFieldVisibility] = useLocalStorage<Record<RunFieldKey, boolean>>(
     "runs.fieldVisibility",
     DEFAULT_FIELD_VISIBILITY,
@@ -389,10 +355,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [setFieldVisibility],
   );
 
-  // Serialize the current URL filters into a single filter expression
-  // string. The inline palette's input stays in sync with this so that
-  // rail-driven filter changes show up in the input, and user edits
-  // apply back to the URL on Enter.
   const currentFilterExpression = React.useMemo(() => {
     const parts: string[] = [];
     if (selectedStatuses.length > 0) parts.push(`status:${selectedStatuses.join(",")}`);
@@ -402,17 +364,12 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     return parts.join(" ");
   }, [selectedStatuses, selectedTriggers, selectedTools, search.code]);
 
-  // Sync the palette input with external URL changes. If the user edits
-  // the input locally, `filterCommandValue` diverges until they submit
-  // or refocus. Re-sync on any URL change that's not their own recent
-  // apply.
   React.useEffect(() => {
     setFilterCommandValue(currentFilterExpression);
   }, [currentFilterExpression]);
 
   const handleApplyFilterCommand = React.useCallback(
     (tokens: RunsFilterTokens) => {
-      // Merge tokens into URL state. Missing sections clear their key.
       const statusValue = (tokens.status as ExecutionStatus[]).filter((s) =>
         STATUS_ORDER.includes(s),
       );
@@ -431,9 +388,6 @@ export function RunsPage({ search }: { search: RunsSearch }) {
     [updateSearch],
   );
 
-  // Keyboard shortcuts. `/` and `?` need preventDefault to suppress the
-  // browser find bar / help shortcut. Default behavior (skip inputs /
-  // textareas / contentEditable) is built into react-hotkeys-hook.
   useHotkeys("j", toggleLive, { enabled: !filterCommandOpen });
   useHotkeys("r", () => void listQuery.refetch(), { enabled: !filterCommandOpen });
   useHotkeys("/", () => filterCommandInputRef.current?.focus(), { preventDefault: true });

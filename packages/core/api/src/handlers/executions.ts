@@ -41,11 +41,6 @@ const parseSortParam = (value: string | undefined): ExecutionSort | undefined =>
   };
 };
 
-/**
- * Parse the `elicitation` URL param into a tri-state boolean used by
- * the `hadElicitation` filter. `"true"` → `true`, `"false"` → `false`,
- * anything else (including `undefined`) → `undefined` (no filter).
- */
 const parseElicitationParam = (value: string | undefined): boolean | undefined => {
   if (value === "true") return true;
   if (value === "false") return false;
@@ -71,9 +66,6 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
           ?.split(",")
           .map((value) => value.trim())
           .filter((value) => value.length > 0);
-        // Meta (chart + totals) is only computed on the first page so the
-        // client can pin it without refetching on scroll. Live mode
-        // refetches with ?after= and also skips meta — no chart rebucket.
         const includeMeta = urlParams.cursor === undefined && urlParams.after === undefined;
         const sort = parseSortParam(urlParams.sort);
         const hadElicitation = parseElicitationParam(urlParams.elicitation);
@@ -122,8 +114,6 @@ export const ExecutionsHandlers = HttpApiBuilder.group(ExecutorApi, "executions"
     .handle("listToolCalls", ({ path }) =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        // Confirm the execution actually exists so we return 404 for
-        // unknown ids rather than an empty success.
         const execution = yield* executor.executions.get(ExecutionId.make(path.executionId));
         if (!execution) {
           return yield* Effect.fail({

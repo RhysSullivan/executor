@@ -1,15 +1,5 @@
 import type { ExecutionStatus } from "@executor/sdk";
 
-// ---------------------------------------------------------------------------
-// Shared status vocabulary
-// ---------------------------------------------------------------------------
-//
-// Single source of truth for how every surface in the /runs page names and
-// colors execution statuses: log-line rows, filter rail checkboxes, chart
-// bars, and the detail drawer. v1.3 used inline `bg-*` Tailwind classes
-// with a small amount of animate-pulse for live-ish states; we keep that
-// but drive colors through our semantic CSS vars so light/dark inherit.
-
 export const STATUS_ORDER = [
   "running",
   "waiting_for_interaction",
@@ -53,8 +43,6 @@ export const STATUS_TONES: Record<ExecutionStatus, StatusTone> = {
     pulse: false,
   },
   running: {
-    // v1.3 used bg-blue-400 animate-pulse / text-blue-400 hard-coded.
-    // Hex literal for chart fill because recharts doesn't evaluate classes.
     dot: "bg-blue-400",
     text: "text-blue-400",
     chartFill: "#60a5fa",
@@ -82,16 +70,6 @@ export const STATUS_TONES: Record<ExecutionStatus, StatusTone> = {
 
 export const statusLabel = (status: ExecutionStatus): string => STATUS_LABELS[status];
 export const statusTone = (status: ExecutionStatus): StatusTone => STATUS_TONES[status];
-
-// ---------------------------------------------------------------------------
-// Trigger tones
-// ---------------------------------------------------------------------------
-//
-// A second palette, keyed on `triggerKind` ("mcp" | "http" | "cli" |
-// null), used by the row `via:` indicator, the filter rail Trigger
-// facet, and the drawer trigger chip. Whether an `mcp` run actually
-// elicited is tracked separately via the Interactions facet.
-// Unknown/custom kinds fall through to `UNKNOWN_TRIGGER_TONE`.
 
 export type TriggerTone = {
   readonly dot: string;

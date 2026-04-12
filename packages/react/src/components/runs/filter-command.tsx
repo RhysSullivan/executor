@@ -20,23 +20,6 @@ import {
   type RunsFilterTokens,
 } from "./filter-command-parser";
 
-// ---------------------------------------------------------------------------
-// RunsFilterCommand — inline cmdk palette (openstatus /infinite pattern)
-// ---------------------------------------------------------------------------
-//
-// Always-visible search input in the top bar. Focus (or `/` hotkey via the
-// forwarded ref) opens an absolutely-positioned dropdown below the input
-// with suggestions + grammar footer. Enter applies, Escape or blur closes.
-//
-// Ported shape from `~/Developer/openstatus-data-table/src/components/data-table/
-// data-table-filter-command/index.tsx:165-398`. We use a plain `div.relative`
-// as the positioning context and toggle the dropdown via a local `open`
-// state. No Radix Popover — openstatus keeps the dropdown inline in the
-// same DOM subtree so it participates in the form's blur behavior.
-//
-// `/` hotkey in `runs.tsx` grabs the forwarded ref and calls `.focus()`,
-// which triggers `onFocus → setOpen(true)`.
-
 export interface RunsFilterCommandProps {
   readonly meta?: ExecutionListMeta;
   readonly onApply: (tokens: RunsFilterTokens) => void;
@@ -56,16 +39,12 @@ export const RunsFilterCommand = React.forwardRef<HTMLInputElement, RunsFilterCo
     const containerRef = React.useRef<HTMLDivElement>(null);
     const inputRef = React.useRef<HTMLInputElement>(null);
 
-    // Forward the input ref so the parent can focus from a `/` hotkey.
     React.useImperativeHandle(forwardedRef, () => inputRef.current as HTMLInputElement, []);
 
-    // Notify parent when open state changes so it can guard conflicting
-    // hotkeys like `b` (rail toggle) while the palette is active.
     React.useEffect(() => {
       onOpenChange?.(open);
     }, [open, onOpenChange]);
 
-    // Close on click outside the container.
     React.useEffect(() => {
       if (!open) return;
       const handlePointer = (event: PointerEvent) => {
@@ -190,7 +169,6 @@ export const RunsFilterCommand = React.forwardRef<HTMLInputElement, RunsFilterCo
                     >
                       <span className="font-mono text-xs text-foreground">{entry.key}:</span>
                       <span className="text-[11px] text-muted-foreground">{entry.description}</span>
-                      {/* Focus-only bracket hints */}
                       {entry.hints && entry.hints.length > 0 ? (
                         <span className="ml-auto hidden gap-1 group-aria-selected:flex group-data-[selected=true]:flex">
                           {entry.hints.map((hint) => (
@@ -217,7 +195,6 @@ export const RunsFilterCommand = React.forwardRef<HTMLInputElement, RunsFilterCo
                 </CommandGroup>
               </CommandList>
 
-              {/* Grammar footer — openstatus /infinite style */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 bg-muted/20 px-3 py-2 font-mono text-[10px] text-muted-foreground/70">
                 <span className="flex items-center gap-1">
                   <span>Use</span>
@@ -270,25 +247,13 @@ export const RunsFilterCommand = React.forwardRef<HTMLInputElement, RunsFilterCo
   },
 );
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const KEY_PATTERN = /(status|trigger|tool|code|duration_ms|after|before):([^\s]*)$/;
 
-/**
- * Detect the key the user is currently typing a value for. Used to
- * tailor the suggestion list to the trailing `key:` fragment.
- */
 const detectActiveKey = (input: string): string | null => {
   const match = KEY_PATTERN.exec(input);
   return match ? match[1]! : null;
 };
 
-/**
- * Replace the in-progress trailing `key:partial` fragment with
- * `key:value`. If there's no trailing fragment, append.
- */
 const replaceTrailingValue = (input: string, value: string): string => {
   const match = KEY_PATTERN.exec(input);
   if (!match) return input ? `${input} ${value}` : value;

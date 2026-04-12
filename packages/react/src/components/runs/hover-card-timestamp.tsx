@@ -9,20 +9,6 @@ import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "../../lib/utils";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../hover-card";
 
-// ---------------------------------------------------------------------------
-// HoverCardTimestamp — ported from openstatus /infinite
-// ---------------------------------------------------------------------------
-//
-// Source: `~/Developer/openstatus-data-table/src/components/data-table/
-// data-table-infinite/hover-card-timestamp.tsx`. Hover reveals a 4-row
-// breakdown — raw epoch, UTC, local timezone, relative — each row click-
-// to-copy.
-//
-// Diffs from upstream:
-//   - Uses our `../hover-card` (shadcn primitive) instead of their path
-//   - Inlines a tiny copy helper instead of their `useCopyToClipboard`
-//     hook (only used in one place)
-
 type HoverCardContentProps = ComponentPropsWithoutRef<typeof HoverCardContent>;
 
 export interface HoverCardTimestampProps {
