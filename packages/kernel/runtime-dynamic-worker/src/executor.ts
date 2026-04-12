@@ -157,7 +157,7 @@ const runInDynamicWorker = (
       new DynamicWorkerExecutionError({
         message: cause instanceof Error ? cause.message : String(cause),
       }),
-  });
+  }).pipe(Effect.withSpan("executor.runtime.dynamic_worker"));
 
 // ---------------------------------------------------------------------------
 // Public API

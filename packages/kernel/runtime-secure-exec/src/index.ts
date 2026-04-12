@@ -1,5 +1,10 @@
-import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
-import * as Cause from "effect/Cause";
+import {
+  type CodeExecutor,
+  type ExecuteResult,
+  type SandboxToolInvoker,
+  formatUnknownMessage,
+  formatCauseMessage,
+} from "@executor/codemode-core";
 import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -10,40 +15,6 @@ export type SecureExecExecutorOptions = {
   timeoutMs?: number;
   memoryLimitMb?: number;
 };
-
-const formatUnknownMessage = (cause: unknown): string => {
-  if (cause instanceof Error) {
-    const message = cause.message.trim();
-    return message.length > 0 ? message : cause.name;
-  }
-
-  if (typeof cause === "string") {
-    return cause;
-  }
-
-  if (
-    typeof cause === "object" &&
-    cause !== null &&
-    "message" in cause &&
-    typeof cause.message === "string"
-  ) {
-    const message = cause.message.trim();
-    if (message.length > 0) return message;
-  }
-
-  if (typeof cause === "object" && cause !== null) {
-    try {
-      return JSON.stringify(cause);
-    } catch {
-      return String(cause);
-    }
-  }
-
-  return String(cause);
-};
-
-const formatCauseMessage = (cause: Cause.Cause<unknown>): string =>
-  formatUnknownMessage(Cause.squash(cause));
 
 class SecureExecExecutionError extends Data.TaggedError("SecureExecExecutionError")<{
   readonly operation: string;
@@ -443,6 +414,7 @@ const evaluateInSecureExec = (
         logs,
       }),
     ),
+    Effect.withSpan("executor.runtime.secure_exec"),
   );
 };
 
