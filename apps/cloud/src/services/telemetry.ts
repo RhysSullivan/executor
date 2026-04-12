@@ -27,7 +27,14 @@ const makeResourceLayer = () =>
 
 /**
  * Full telemetry layer — provides Effect Tracer backed by OTEL → Axiom.
- * All existing `Effect.withSpan` calls automatically become distributed traces.
+ * All `Effect.withSpan` calls (including the execution engine and kernel
+ * runtimes) automatically become distributed traces.
+ *
+ * Effect Metrics (counters, histograms) are collected by the engine but not
+ * exported yet — Cloudflare Workers lacks the Node.js APIs needed by
+ * PeriodicExportingMetricReader. Add metrics export when moving to a
+ * Node.js-compatible deployment or using a Worker-compatible exporter.
+ *
  * No-op when AXIOM_TOKEN is not set.
  */
 export const TelemetryLive: Layer.Layer<never> = server.AXIOM_TOKEN
