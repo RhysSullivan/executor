@@ -8,6 +8,7 @@ export {
   SecretNotFoundError,
   SecretResolutionError,
   PolicyDeniedError,
+  PolicyNotFoundError,
 } from "./errors";
 
 // Tools
@@ -49,7 +50,25 @@ export {
 export { SecretRef, SetSecretInput, SecretStore, type SecretProvider } from "./secrets";
 
 // Policies
-export { Policy, PolicyAction, PolicyCheckInput, PolicyEngine } from "./policies";
+export {
+  Policy,
+  PolicyEffect,
+  PolicyApprovalMode,
+  PolicyCheckInput,
+  CreatePolicyPayload,
+  UpdatePolicyPayload,
+  PolicyDecision,
+  PolicyEngine,
+  type CreatePolicyInput,
+} from "./policies";
+export {
+  matchesPolicyPattern,
+  policyLiteralCharCount,
+  policySpecificity,
+  comparePoliciesByPrecedence,
+  sortPoliciesByPrecedence,
+  evaluatePolicyDecision,
+} from "./policy-eval";
 
 // Scope
 export { Scope } from "./scope";

@@ -44,6 +44,7 @@ export {
   SourceDetectionResult,
   SecretRef,
   Policy,
+  PolicyDecision,
   Scope,
   FormElicitation,
   UrlElicitation,
@@ -55,5 +56,6 @@ export {
   SecretNotFoundError,
   SecretResolutionError,
   PolicyDeniedError,
+  PolicyNotFoundError,
   ElicitationDeclinedError,
 } from "./index";

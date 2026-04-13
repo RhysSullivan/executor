@@ -84,14 +84,17 @@ export const policies = pgTable(
   {
     id: text("id").notNull(),
     organizationId: text("organization_id").notNull(),
-    name: text("name").notNull(),
-    action: text("action").notNull(),
-    matchToolPattern: text("match_tool_pattern"),
-    matchSourceId: text("match_source_id"),
+    toolPattern: text("tool_pattern").notNull(),
+    effect: text("effect").notNull(),
+    approvalMode: text("approval_mode").notNull(),
     priority: integer("priority")
       .notNull()
       .$default(() => 0),
+    enabled: boolean("enabled")
+      .notNull()
+      .$default(() => true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.id, table.organizationId] })],
 );

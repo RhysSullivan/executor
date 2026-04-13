@@ -4,6 +4,7 @@ export {
   ToolsHandlers,
   SourcesHandlers,
   SecretsHandlers,
+  PoliciesHandlers,
   ScopeHandlers,
   ExecutionsHandlers,
 } from "./handlers";

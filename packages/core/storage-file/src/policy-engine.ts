@@ -4,8 +4,15 @@
 
 import { Effect, Schema } from "effect";
 
-import { Policy, PolicyId, ScopeId } from "@executor/sdk";
-import type { ScopedKv, PolicyCheckInput } from "@executor/sdk";
+import {
+  Policy,
+  PolicyId,
+  PolicyNotFoundError,
+  ScopeId,
+  evaluatePolicyDecision,
+  sortPoliciesByPrecedence,
+} from "@executor/sdk";
+import type { CreatePolicyInput, ScopedKv, PolicyCheckInput, UpdatePolicyPayload } from "@executor/sdk";
 
 // ---------------------------------------------------------------------------
 // Serialization — leverage Policy Schema.Class directly
@@ -33,19 +40,56 @@ export const makeKvPolicyEngine = (policiesKv: ScopedKv, metaKv: ScopedKv) => {
     list: (scopeId: ScopeId) =>
       Effect.gen(function* () {
         const entries = yield* policiesKv.list();
-        return entries.map((e) => decodePolicy(e.value)).filter((p) => p.scopeId === scopeId);
+        return sortPoliciesByPrecedence(
+          entries.map((e) => decodePolicy(e.value)).filter((p) => p.scopeId === scopeId),
+        );
       }),
 
-    check: (_input: PolicyCheckInput) => Effect.void,
+    get: (policyId: PolicyId) =>
+      Effect.gen(function* () {
+        const raw = yield* policiesKv.get(policyId);
+        if (!raw) {
+          return yield* Effect.fail(new PolicyNotFoundError({ policyId }));
+        }
+        return decodePolicy(raw);
+      }),
 
-    add: (policy: Omit<Policy, "id" | "createdAt">) =>
+    check: (input: PolicyCheckInput) =>
+      Effect.gen(function* () {
+        const policies = yield* policiesKv.list();
+        return evaluatePolicyDecision(
+          policies.map((entry) => decodePolicy(entry.value)),
+          input,
+        );
+      }),
+
+    add: (policy: CreatePolicyInput) =>
       Effect.gen(function* () {
         const counter = (yield* getCounter()) + 1;
         yield* setCounter(counter);
-        const id = PolicyId.make(`policy-${counter}`);
-        const full = new Policy({ ...policy, id, createdAt: new Date() });
+        const now = new Date();
+        const id = PolicyId.make(`policy-${Date.now()}-${counter}`);
+        const full = new Policy({ ...policy, id, createdAt: now, updatedAt: now });
         yield* policiesKv.set([{ key: id, value: encodePolicy(full) }]);
         return full;
+      }),
+
+    update: (policyId: PolicyId, patch: UpdatePolicyPayload) =>
+      Effect.gen(function* () {
+        const raw = yield* policiesKv.get(policyId);
+        if (!raw) {
+          return yield* Effect.fail(new PolicyNotFoundError({ policyId }));
+        }
+        const existing = decodePolicy(raw);
+        const next = new Policy({
+          ...existing,
+          ...Object.fromEntries(
+            Object.entries(patch).filter(([, value]) => value !== undefined),
+          ),
+          updatedAt: new Date(),
+        });
+        yield* policiesKv.set([{ key: policyId, value: encodePolicy(next) }]);
+        return next;
       }),
 
     remove: (policyId: PolicyId) =>

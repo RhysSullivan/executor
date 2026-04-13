@@ -34,3 +34,10 @@ export class PolicyDeniedError extends Schema.TaggedError<PolicyDeniedError>()(
     reason: Schema.String,
   },
 ) {}
+
+export class PolicyNotFoundError extends Schema.TaggedError<PolicyNotFoundError>()(
+  "PolicyNotFoundError",
+  {
+    policyId: PolicyId,
+  },
+) {}

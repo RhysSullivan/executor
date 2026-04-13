@@ -74,7 +74,7 @@ export const makeKvConfig = <const TPlugins extends readonly ExecutorPlugin<stri
     tools: makeKvToolRegistry(scopeKv(kv, ns("tools")), scopeKv(kv, ns("defs"))),
     sources: makeInMemorySourceRegistry(),
     secrets: makeKvSecretStore(scopeKv(kv, ns("secrets"))),
-    policies: makeKvPolicyEngine(scopeKv(kv, ns("policies")), scopeKv(kv, ns("meta"))),
+    policies: makeKvPolicyEngine(scopeKv(kv, ns("policies-v2")), scopeKv(kv, ns("meta-v2"))),
     plugins: options?.plugins,
   };
 };

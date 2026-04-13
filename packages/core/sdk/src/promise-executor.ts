@@ -29,6 +29,9 @@ import {
   type RuntimeToolHandler as EffectRuntimeToolHandler,
   type SourceManager as EffectSourceManager,
   type Policy,
+  type PolicyDecision,
+  type CreatePolicyPayload,
+  type UpdatePolicyPayload,
   type SecretRef,
   type SecretProvider as EffectSecretProvider,
   type SetSecretInput,
@@ -42,6 +45,7 @@ import {
   type SecretNotFoundError,
   type SecretResolutionError,
   type PolicyDeniedError,
+  type PolicyNotFoundError,
   type ElicitationDeclinedError,
   ToolListFilter,
   PolicyCheckInput,
@@ -366,12 +370,18 @@ const toEffectSecretStore = (s: SecretStore): CoreSecretStoreService => ({
 
 const toEffectPolicyEngine = (p: PolicyEngine): CorePolicyEngineService => ({
   list: (scopeId) => fromPromiseDying(() => p.list(scopeId)),
-  check: (input) =>
-    fromPromiseTagged<PolicyDeniedError, void>(
-      () => p.check({ scopeId: input.scopeId, toolId: input.toolId }),
-      ["PolicyDeniedError"],
+  get: (policyId) =>
+    fromPromiseTagged<PolicyNotFoundError, Policy>(
+      () => p.get(policyId),
+      ["PolicyNotFoundError"],
     ),
+  check: (input) => fromPromiseDying(() => p.check({ scopeId: input.scopeId, toolId: input.toolId })),
   add: (policy) => fromPromiseDying(() => p.add(policy)),
+  update: (policyId, patch) =>
+    fromPromiseTagged<PolicyNotFoundError, Policy>(
+      () => p.update(policyId, patch),
+      ["PolicyNotFoundError"],
+    ),
   remove: (policyId) => fromPromiseDying(() => p.remove(policyId)),
 });
 
@@ -427,7 +437,7 @@ export interface SecretStore extends Omit<
 }
 
 export interface PolicyEngine extends Omit<PromisifyService<CorePolicyEngineService>, "check"> {
-  readonly check: (input: { scopeId: string; toolId: string }) => Promise<void>;
+  readonly check: (input: { scopeId: string; toolId: string }) => Promise<PolicyDecision>;
 }
 
 const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
@@ -476,6 +486,7 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
   },
   policies: {
     list: (scopeId) => run(ctx.policies.list(ScopeId.make(scopeId))),
+    get: (policyId) => run(ctx.policies.get(PolicyId.make(policyId))),
     check: (input) =>
       run(
         ctx.policies.check(
@@ -486,6 +497,7 @@ const wrapPluginContext = (ctx: EffectPluginContext): PluginContext => ({
         ),
       ),
     add: (policy) => run(ctx.policies.add(policy)),
+    update: (policyId, patch) => run(ctx.policies.update(PolicyId.make(policyId), patch)),
     remove: (policyId) => run(ctx.policies.remove(PolicyId.make(policyId))),
   },
 });
@@ -546,7 +558,9 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   readonly sources: Pick<SourceRegistry, "list" | "remove" | "refresh" | "detect">;
   readonly policies: {
     readonly list: () => Promise<readonly Policy[]>;
-    readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Promise<Policy>;
+    readonly get: (policyId: string) => Promise<Policy>;
+    readonly add: (policy: CreatePolicyPayload) => Promise<Policy>;
+    readonly update: (policyId: string, patch: UpdatePolicyPayload) => Promise<Policy>;
     readonly remove: (policyId: string) => Promise<boolean>;
   };
   readonly secrets: {
@@ -663,7 +677,10 @@ export const createExecutor = async <const TPlugins extends readonly AnyPlugin[]
     },
     policies: {
       list: () => run(executor.policies.list()),
-      add: (policy: Omit<Policy, "id" | "createdAt">) => run(executor.policies.add(policy)),
+      get: (policyId: string) => run(executor.policies.get(policyId)),
+      add: (policy: CreatePolicyPayload) => run(executor.policies.add(policy)),
+      update: (policyId: string, patch: UpdatePolicyPayload) =>
+        run(executor.policies.update(policyId, patch)),
       remove: (policyId: string) => run(executor.policies.remove(policyId)),
     },
     secrets: {

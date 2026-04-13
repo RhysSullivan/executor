@@ -1,4 +1,4 @@
-import type { ScopeId, ToolId, SecretId } from "@executor/sdk";
+import type { ScopeId, ToolId, SecretId, PolicyId } from "@executor/sdk";
 import { Atom } from "@effect-atom/atom-react";
 
 import { ExecutorApiClient } from "./client";
@@ -50,6 +50,18 @@ export const secretsAtom = (scopeId: ScopeId) =>
     timeToLive: "30 seconds",
   });
 
+export const policiesAtom = (scopeId: ScopeId) =>
+  ExecutorApiClient.query("policies", "list", {
+    path: { scopeId },
+    timeToLive: "15 seconds",
+  });
+
+export const policyAtom = (scopeId: ScopeId, policyId: PolicyId) =>
+  ExecutorApiClient.query("policies", "get", {
+    path: { scopeId, policyId },
+    timeToLive: "15 seconds",
+  });
+
 export const secretStatusAtom = (scopeId: ScopeId, secretId: SecretId) =>
   ExecutorApiClient.query("secrets", "status", {
     path: { scopeId, secretId },
@@ -65,6 +77,12 @@ export const setSecret = ExecutorApiClient.mutation("secrets", "set");
 export const resolveSecret = ExecutorApiClient.mutation("secrets", "resolve");
 
 export const removeSecret = ExecutorApiClient.mutation("secrets", "remove");
+
+export const createPolicy = ExecutorApiClient.mutation("policies", "create");
+
+export const updatePolicy = ExecutorApiClient.mutation("policies", "update");
+
+export const removePolicy = ExecutorApiClient.mutation("policies", "remove");
 
 export const removeSource = ExecutorApiClient.mutation("sources", "remove");
 

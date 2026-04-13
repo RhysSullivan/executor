@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
@@ -22,7 +22,13 @@ const sourcePlugins = [
 
 // ── NavItem ──────────────────────────────────────────────────────────────
 
-function NavItem(props: { to: string; label: string; active: boolean; onNavigate?: () => void }) {
+function NavItem(props: {
+  to: string;
+  label: string;
+  active: boolean;
+  onNavigate?: () => void;
+  icon?: ReactNode;
+}) {
   return (
     <Link
       to={props.to}
@@ -34,8 +40,30 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
           : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
       ].join(" ")}
     >
+      {props.icon}
       {props.label}
     </Link>
+  );
+}
+
+function PoliciesIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0">
+      <path
+        d="M8 2l4.5 1.5V7c0 3-1.9 5.7-4.5 7-2.6-1.3-4.5-4-4.5-7V3.5L8 2z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.25 8.1l1.1 1.1 2.4-2.55"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
@@ -151,6 +179,7 @@ function UserFooter() {
 function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
+  const isPolicies = props.pathname === "/policies";
   const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
   const isOrg = props.pathname === "/org";
 
@@ -167,6 +196,13 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
         <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
+        <NavItem
+          to="/policies"
+          label="Policies"
+          active={isPolicies}
+          onNavigate={props.onNavigate}
+          icon={<PoliciesIcon />}
+        />
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
