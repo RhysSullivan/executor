@@ -42,7 +42,10 @@ export const getGlobalConfigPaths = (agent: AgentKey, env: PlatformEnv): string[
 
   switch (agent) {
     case "opencode":
-      return [join(xdgConfig, "opencode", "opencode.json")];
+      return [
+        join(xdgConfig, "opencode", "opencode.json"),
+        join(xdgConfig, "opencode", "opencode.jsonc"),
+      ];
 
     case "claude-code":
       return [join(home, ".claude.json")];
