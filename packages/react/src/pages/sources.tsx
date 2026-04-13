@@ -20,6 +20,7 @@ import {
   CardStackEntryDescription,
   CardStackEntryActions,
 } from "../components/card-stack";
+import { SourceFavicon } from "../components/source-favicon";
 
 const KIND_TO_PLUGIN_KEY: Record<string, string> = {
   openapi: "openapi",
@@ -267,6 +268,7 @@ function SourceGrid(props: {
     id: string;
     name: string;
     kind: string;
+    url?: string;
     runtime?: boolean;
   }[];
 }) {
@@ -278,15 +280,7 @@ function SourceGrid(props: {
           <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>
             <Link to="/sources/$namespace" params={{ namespace: s.id }}>
               <CardStackEntryMedia>
-                <svg viewBox="0 0 16 16" className="size-3.5" fill="none">
-                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
-                  <path
-                    d="M8 5v6M5 8h6"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <SourceFavicon url={s.url} size={32} />
               </CardStackEntryMedia>
               <CardStackEntryContent>
                 <CardStackEntryTitle>{s.name}</CardStackEntryTitle>
