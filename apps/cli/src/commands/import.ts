@@ -1,13 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { Command, Options, Args } from "@effect/cli";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import { BunFileSystem } from "@effect/platform-bun";
 import {
   findAndReadAgentConfig,
   detectInstalledAgents,
 } from "@executor/plugin-mcp/agent-import";
 import type { AgentKey, NormalizedServer } from "@executor/plugin-mcp/agent-import";
+import { addSourceToConfig } from "@executor/config";
+import type { SourceConfig } from "@executor/config";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -110,6 +113,93 @@ const printLocalDryRun = (filePath: string, servers: NormalizedServer[]) => {
 };
 
 // ---------------------------------------------------------------------------
+// Offline write — direct executor.jsonc update, no server required
+// ---------------------------------------------------------------------------
+
+const resolveConfigPath = (): string =>
+  join(process.env.EXECUTOR_SCOPE_DIR ?? process.cwd(), "executor.jsonc");
+
+const normalizedServerToSourceConfig = (server: NormalizedServer): SourceConfig => {
+  if (server.config.transport === "stdio") {
+    return {
+      kind: "mcp",
+      transport: "stdio",
+      name: server.name,
+      command: server.config.command,
+      args: server.config.args ? [...server.config.args] : undefined,
+      env: server.config.env,
+      cwd: server.config.cwd,
+      namespace: server.suggestedNamespace,
+    };
+  }
+  return {
+    kind: "mcp",
+    transport: "remote",
+    name: server.name,
+    endpoint: server.config.endpoint,
+    remoteTransport: server.config.remoteTransport,
+    headers: server.config.headers,
+    namespace: server.suggestedNamespace,
+  };
+};
+
+const writeServersToConfigFile = (servers: NormalizedServer[]) =>
+  Effect.gen(function* () {
+    const configPath = resolveConfigPath();
+    let written = 0;
+    for (const server of servers) {
+      const source = normalizedServerToSourceConfig(server);
+      yield* addSourceToConfig(configPath, source).pipe(Effect.provide(BunFileSystem.layer));
+      written++;
+    }
+    return { written, configPath };
+  });
+
+// Try server; if unreachable fall back to writing executor.jsonc directly
+const importServersWithFallback = (
+  servers: NormalizedServer[],
+  filePath: string,
+  agentKey: string | undefined,
+  baseUrl: string,
+) =>
+  Effect.gen(function* () {
+    const content = readFileSync(filePath, "utf-8");
+    const filename = filePath.split(/[\\/]/).pop() ?? filePath;
+
+    // Try server path
+    const serverResult = yield* Effect.tryPromise({
+      try: () => getScopeId(baseUrl),
+      catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
+    }).pipe(
+      Effect.flatMap((scopeId) =>
+        Effect.tryPromise({
+          try: () =>
+            apiPost<ImportResult>(`${baseUrl}/api/scopes/${scopeId}/mcp/import`, {
+              content,
+              filename,
+              agentHint: agentKey,
+              dryRun: false,
+            }),
+          catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
+        }),
+      ),
+      Effect.map((r) => ({ ok: true as const, result: r })),
+      Effect.catchAll(() => Effect.succeed({ ok: false as const })),
+    );
+
+    if (serverResult.ok) {
+      printResult(filename, serverResult.result);
+      return;
+    }
+
+    // Server not reachable — write to executor.jsonc offline
+    const { written, configPath } = yield* writeServersToConfigFile(servers);
+    console.log(`\n${filename}:`);
+    console.log(`  ${written} server(s) written to ${configPath}`);
+    console.log(`  (server offline — will load on next start)`);
+  });
+
+// ---------------------------------------------------------------------------
 // Import a single file via API
 // ---------------------------------------------------------------------------
 
@@ -192,9 +282,7 @@ export const importCommand = Command.make(
           return;
         }
 
-        const content = readFileSync(resolved.filePath, "utf-8");
-        const filename = resolved.filePath.split(/[\\/]/).pop() ?? resolved.filePath;
-        yield* importFile(content, filename, agentKey, baseUrl, false);
+        yield* importServersWithFallback(resolved.servers, resolved.filePath, agentKey, baseUrl);
         return;
       }
 
@@ -225,9 +313,11 @@ export const importCommand = Command.make(
       console.log("\nImporting all...");
       for (const d of detectedLocally) {
         if (!existsSync(d.filePath)) continue;
-        const content = readFileSync(d.filePath, "utf-8");
-        const filename = d.filePath.split(/[\\/]/).pop() ?? d.filePath;
-        yield* importFile(content, filename, d.agent, baseUrl, false);
+        const agentServers = yield* Effect.tryPromise({
+          try: () => findAndReadAgentConfig(d.agent),
+          catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
+        });
+        yield* importServersWithFallback(agentServers.servers, d.filePath, d.agent, baseUrl);
       }
     }),
 ).pipe(
