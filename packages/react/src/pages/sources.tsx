@@ -280,7 +280,7 @@ function SourceGrid(props: {
           <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>
             <Link to="/sources/$namespace" params={{ namespace: s.id }}>
               <CardStackEntryMedia>
-                <SourceFavicon url={s.url} size={16} />
+                <SourceFavicon url={s.url} size={20} />
               </CardStackEntryMedia>
               <CardStackEntryContent>
                 <CardStackEntryTitle>{s.name}</CardStackEntryTitle>
