@@ -31,6 +31,7 @@
     "@executor/plugin-mcp",
     "@executor/plugin-onepassword",
     "@executor/plugin-openapi",
-    "@executor/plugin-workos-vault"
+    "@executor/plugin-workos-vault",
+    "@executor/example-promise-sdk"
   ]
 }
