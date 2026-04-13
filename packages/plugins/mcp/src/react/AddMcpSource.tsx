@@ -28,6 +28,7 @@ import { HeadersList } from "@executor/react/plugins/headers-list";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
   displayNameFromUrl,
+  slugifyNamespace,
   SourceIdentityFields,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
@@ -486,7 +487,7 @@ export default function AddMcpSource(props: {
         payload: {
           transport: "remote" as const,
           name: remoteIdentity.name.trim() || probe.serverName || probe.name,
-          namespace: remoteIdentity.namespace.trim() || undefined,
+          namespace: slugifyNamespace(remoteIdentity.namespace) || undefined,
           endpoint: state.url.trim(),
           auth,
           ...(Object.keys(headers).length > 0 ? { headers } : {}),
@@ -548,7 +549,7 @@ export default function AddMcpSource(props: {
         payload: {
           transport: "stdio" as const,
           name: stdioIdentity.name.trim() || cmd,
-          namespace: stdioIdentity.namespace.trim() || undefined,
+          namespace: slugifyNamespace(stdioIdentity.namespace) || undefined,
           command: cmd,
           args: parseStdioArgs(stdioArgs),
           env: parseStdioEnv(stdioEnv),

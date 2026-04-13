@@ -6,6 +6,7 @@ import { HeadersList } from "@executor/react/plugins/headers-list";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
   displayNameFromUrl,
+  slugifyNamespace,
   SourceIdentityFields,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
@@ -70,7 +71,7 @@ export default function AddGraphqlSource(props: {
         payload: {
           endpoint: endpoint.trim(),
           name: identity.name.trim() || undefined,
-          namespace: identity.namespace.trim() || undefined,
+          namespace: slugifyNamespace(identity.namespace) || undefined,
           ...(Object.keys(headerMap).length > 0 ? { headers: headerMap } : {}),
         },
       });

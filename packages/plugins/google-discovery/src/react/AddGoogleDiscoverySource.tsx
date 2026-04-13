@@ -14,6 +14,7 @@ import {
 } from "@executor/react/components/card-stack";
 import {
   SourceIdentityFields,
+  slugifyNamespace,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
 import {
@@ -614,7 +615,7 @@ export default function AddGoogleDiscoverySource(props: {
         payload: {
           name: identity.name.trim() || probe.name,
           discoveryUrl: discoveryUrl.trim(),
-          namespace: identity.namespace.trim() || undefined,
+          namespace: slugifyNamespace(identity.namespace) || undefined,
           auth:
             authKind === "oauth2"
               ? (oauthAuth ?? { kind: "none" as const })

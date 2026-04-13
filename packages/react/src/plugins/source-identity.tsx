@@ -7,23 +7,8 @@ import {
   CardStackEntryField,
 } from "../components/card-stack";
 import { Input } from "../components/input";
-
-// ---------------------------------------------------------------------------
-// Slug helper
-// ---------------------------------------------------------------------------
-
-/**
- * Normalizes a display name into a valid namespace identifier: lowercase
- * snake_case, only `[a-z0-9_]`, no leading/trailing underscores. Produces
- * strings that are safe to use as TypeScript/tool-name prefixes.
- */
-export function slugifyNamespace(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
+import { normalizeNamespaceInput, slugifyNamespace } from "./namespace";
+export { normalizeNamespaceInput, slugifyNamespace } from "./namespace";
 
 /**
  * Derives a display-name candidate from a URL by extracting its apex domain
@@ -86,7 +71,7 @@ export function useSourceIdentity(options?: UseSourceIdentityOptions): SourceIde
   }, []);
 
   const setNamespace = useCallback((next: string) => {
-    setNamespaceOverride(slugifyNamespace(next));
+    setNamespaceOverride(normalizeNamespaceInput(next));
   }, []);
 
   const reset = useCallback(() => {

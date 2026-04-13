@@ -9,6 +9,7 @@ import {
   type HeaderState,
 } from "@executor/react/plugins/secret-header-auth";
 import {
+  slugifyNamespace,
   SourceIdentityFields,
   useSourceIdentity,
 } from "@executor/react/plugins/source-identity";
@@ -226,7 +227,7 @@ export default function AddOpenApiSource(props: {
         payload: {
           spec: specUrl,
           name: identity.name.trim() || undefined,
-          namespace: identity.namespace.trim() || undefined,
+          namespace: slugifyNamespace(identity.namespace) || undefined,
           baseUrl: baseUrl.trim() || undefined,
           ...(hasHeaders ? { headers: allHeaders } : {}),
         },
