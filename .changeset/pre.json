@@ -31,5 +31,7 @@
     "@executor/plugin-workos-vault": "0.0.1-beta.0",
     "@executor/react": "1.4.3-beta.0"
   },
-  "changesets": []
+  "changesets": [
+    "executor-1.4.6-beta"
+  ]
 }
