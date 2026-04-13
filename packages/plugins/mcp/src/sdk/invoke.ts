@@ -278,7 +278,16 @@ export const makeMcpInvoker = (opts: {
           });
         }
 
-        const { binding, sourceData } = entry;
+        const sourceData = yield* opts.bindingStore.getSourceConfig(entry.namespace);
+        if (!sourceData) {
+          return yield* new ToolInvocationError({
+            toolId,
+            message: `No MCP source config found for namespace "${entry.namespace}"`,
+            cause: undefined,
+          });
+        }
+
+        const { binding } = entry;
         const cacheKey = connectionCacheKey(sourceData);
 
         // Build the connector and register it for the cache lookup

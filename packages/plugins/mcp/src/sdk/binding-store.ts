@@ -8,6 +8,7 @@ import { makeInMemoryScopedKv, scopeKv, type Kv, type ToolId, type ScopedKv } fr
 import { McpToolBinding } from "./types";
 import type { McpStoredSourceData } from "./types";
 import { McpOAuthSession } from "./oauth";
+import { McpStoredSourceSchema } from "./stored-source";
 
 // ---------------------------------------------------------------------------
 // OAuth session TTL — pending sessions are cleaned up after this many ms
@@ -31,20 +32,22 @@ const decodeOAuthSession = Schema.decodeUnknownSync(Schema.parseJson(StoredOAuth
 // Stored source — combines meta + config into one entry
 // ---------------------------------------------------------------------------
 
-export interface McpStoredSource {
-  readonly namespace: string;
-  readonly name: string;
-  readonly config: McpStoredSourceData;
-}
+export type McpStoredSource = McpStoredSourceSchema;
+
+const encodeSource = Schema.encodeSync(Schema.parseJson(McpStoredSourceSchema));
+const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(McpStoredSourceSchema));
 
 // ---------------------------------------------------------------------------
 // Stored binding schema
+//
+// Note: old rows also carried a `sourceData` field inlining the full source
+// config on every binding. Effect Schema strips unknown fields on decode, so
+// those legacy rows still load; the next write drops the extra field.
 // ---------------------------------------------------------------------------
 
 const StoredBindingEntry = Schema.Struct({
   namespace: Schema.String,
   binding: McpToolBinding,
-  sourceData: Schema.Unknown,
 });
 
 const encodeBindingEntry = Schema.encodeSync(Schema.parseJson(StoredBindingEntry));
@@ -57,14 +60,13 @@ const decodeBindingEntry = Schema.decodeUnknownSync(Schema.parseJson(StoredBindi
 export interface McpBindingStore {
   readonly get: (toolId: ToolId) => Effect.Effect<{
     binding: McpToolBinding;
-    sourceData: McpStoredSourceData;
+    namespace: string;
   } | null>;
 
   readonly put: (
     toolId: ToolId,
     namespace: string,
     binding: McpToolBinding,
-    sourceData: McpStoredSourceData,
   ) => Effect.Effect<void>;
 
   readonly remove: (toolId: ToolId) => Effect.Effect<void>;
@@ -105,12 +107,12 @@ const makeStore = (
       const entry = decodeBindingEntry(raw);
       return {
         binding: entry.binding as McpToolBinding,
-        sourceData: entry.sourceData as McpStoredSourceData,
+        namespace: entry.namespace,
       };
     }),
 
-  put: (toolId, namespace, binding, sourceData) =>
-    bindings.set([{ key: toolId, value: encodeBindingEntry({ namespace, binding, sourceData }) }]),
+  put: (toolId, namespace, binding) =>
+    bindings.set([{ key: toolId, value: encodeBindingEntry({ namespace, binding }) }]),
 
   remove: (toolId) => bindings.delete([toolId]).pipe(Effect.asVoid),
 
@@ -139,31 +141,28 @@ const makeStore = (
 
   // ---- Sources (meta + config combined) ----
 
-  putSource: (source) => sources.set([{ key: source.namespace, value: JSON.stringify(source) }]),
+  putSource: (source) => sources.set([{ key: source.namespace, value: encodeSource(source) }]),
 
   removeSource: (namespace) => sources.delete([namespace]).pipe(Effect.asVoid),
 
   listSources: () =>
     Effect.gen(function* () {
       const entries = yield* sources.list();
-      return entries.map((e) => JSON.parse(e.value) as McpStoredSource);
+      return entries.map((e) => decodeSource(e.value));
     }),
 
   getSource: (namespace) =>
     Effect.gen(function* () {
       const raw = yield* sources.get(namespace);
       if (!raw) return null;
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      return JSON.parse(raw) as McpStoredSource;
+      return decodeSource(raw);
     }),
 
   getSourceConfig: (namespace) =>
     Effect.gen(function* () {
       const raw = yield* sources.get(namespace);
       if (!raw) return null;
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      const source = JSON.parse(raw) as McpStoredSource;
-      return source.config;
+      return decodeSource(raw).config;
     }),
 
   // ---- Pending OAuth sessions (short-lived, between startOAuth and completeOAuth) ----

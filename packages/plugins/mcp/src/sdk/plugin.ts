@@ -452,7 +452,6 @@ export const mcpPlugin = (options?: {
                     ToolId.make(joinToolPath(sourceId, e.toolId)),
                     sourceId,
                     toBinding(e),
-                    sd,
                   ),
                 { discard: true },
               );
@@ -540,7 +539,6 @@ export const mcpPlugin = (options?: {
                   ToolId.make(joinToolPath(namespace, e.toolId)),
                   namespace,
                   toBinding(e),
-                  sd,
                 ),
               { discard: true },
             );
@@ -597,7 +595,6 @@ export const mcpPlugin = (options?: {
                   ToolId.make(joinToolPath(namespace, e.toolId)),
                   namespace,
                   toBinding(e),
-                  sd,
                 ),
               { discard: true },
             );
@@ -703,10 +700,13 @@ export const mcpPlugin = (options?: {
 
         const updateSource = (namespace: string, input: McpUpdateSourceInput) =>
           Effect.gen(function* () {
-            const existingConfig = yield* bindingStore.getSourceConfig(namespace);
-            if (!existingConfig || existingConfig.transport !== "remote") return;
+            const existing = yield* bindingStore.getSource(namespace);
+            if (!existing || existing.config.transport !== "remote") return;
 
-            const remote = existingConfig as Extract<McpStoredSourceData, { transport: "remote" }>;
+            const remote = existing.config as Extract<
+              McpStoredSourceData,
+              { transport: "remote" }
+            >;
             const updatedConfig: McpStoredSourceData = {
               ...remote,
               ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
@@ -715,22 +715,11 @@ export const mcpPlugin = (options?: {
               ...(input.queryParams !== undefined ? { queryParams: input.queryParams } : {}),
             };
 
-            const sources = yield* bindingStore.listSources();
-            const existingMeta = sources.find((s) => s.namespace === namespace);
-
             yield* bindingStore.putSource({
               namespace,
-              name: existingMeta?.name ?? namespace,
+              name: existing.name,
               config: updatedConfig,
             });
-
-            const toolIds = yield* bindingStore.listByNamespace(namespace);
-            for (const toolId of toolIds) {
-              const entry = yield* bindingStore.get(toolId);
-              if (entry) {
-                yield* bindingStore.put(toolId, namespace, entry.binding, updatedConfig);
-              }
-            }
           });
 
         const getSource = (namespace: string) => bindingStore.getSource(namespace);
