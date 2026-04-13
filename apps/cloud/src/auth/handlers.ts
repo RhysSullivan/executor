@@ -1,4 +1,4 @@
-import { HttpApi, HttpApiBuilder, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { HttpApi, HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
 import { setCookie, deleteCookie } from "@tanstack/react-start/server";
 
@@ -15,26 +15,6 @@ const COOKIE_OPTIONS = {
   maxAge: 60 * 60 * 24 * 7,
   secure: true,
 };
-
-const parseCookies = (cookieHeader: string | undefined | null): Record<string, string> => {
-  if (!cookieHeader) return {};
-  const out: Record<string, string> = {};
-  for (const part of cookieHeader.split(";")) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    const k = trimmed.slice(0, eq);
-    const v = trimmed.slice(eq + 1);
-    if (k && !(k in out)) out[k] = v;
-  }
-  return out;
-};
-
-const getRequestCookies = Effect.gen(function* () {
-  const req = yield* HttpServerRequest.HttpServerRequest;
-  return parseCookies(req.headers.cookie);
-});
 
 // ---------------------------------------------------------------------------
 // Single non-protected API surface — public (login/callback) + session
@@ -184,16 +164,12 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
       .handle("switchOrganization", ({ payload }) =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;
-          const cookies = yield* getRequestCookies;
+          const session = yield* SessionContext;
 
-          const currentSealed = cookies["wos-session"];
-          if (!currentSealed) {
-            // Middleware already validated the session, so this should be
-            // unreachable in practice.
-            return;
-          }
-
-          const refreshed = yield* workos.refreshSession(currentSealed, payload.organizationId);
+          const refreshed = yield* workos.refreshSession(
+            session.sealedSession,
+            payload.organizationId,
+          );
           if (refreshed) {
             setCookie("wos-session", refreshed, COOKIE_OPTIONS);
           }
@@ -204,19 +180,15 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           const workos = yield* WorkOSAuth;
           const users = yield* UserStoreService;
           const session = yield* SessionContext;
-          const cookies = yield* getRequestCookies;
 
           const name = payload.name.trim();
           const org = yield* workos.createOrganization(name);
           yield* workos.createMembership(org.id, session.accountId, "admin");
           yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
 
-          const currentSealed = cookies["wos-session"];
-          if (currentSealed) {
-            const refreshed = yield* workos.refreshSession(currentSealed, org.id);
-            if (refreshed) {
-              setCookie("wos-session", refreshed, COOKIE_OPTIONS);
-            }
+          const refreshed = yield* workos.refreshSession(session.sealedSession, org.id);
+          if (refreshed) {
+            setCookie("wos-session", refreshed, COOKIE_OPTIONS);
           }
 
           return { id: org.id, name: org.name };

@@ -29,6 +29,7 @@ export const SessionAuthLive = Layer.effect(
             name: `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() || null,
             avatarUrl: result.avatarUrl ?? null,
             organizationId: result.organizationId ?? null,
+            sealedSession: result.refreshedSession ?? Redacted.value(sealedSession),
             refreshedSession: result.refreshedSession ?? null,
           };
         }),

@@ -19,6 +19,7 @@ export type Session = {
   readonly avatarUrl: string | null;
   /** May be null if the user hasn't joined an organization yet. */
   readonly organizationId: string | null;
+  readonly sealedSession: string;
   readonly refreshedSession: string | null;
 };
 
