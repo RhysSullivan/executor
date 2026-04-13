@@ -20,6 +20,29 @@ const AuthMeResponse = Schema.Struct({
   organization: Schema.NullOr(AuthOrganization),
 });
 
+const AuthOrganizationSummary = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+});
+
+const AuthOrganizationsResponse = Schema.Struct({
+  organizations: Schema.Array(AuthOrganizationSummary),
+  activeOrganizationId: Schema.NullOr(Schema.String),
+});
+
+const SwitchOrganizationBody = Schema.Struct({
+  organizationId: Schema.String,
+});
+
+const CreateOrganizationBody = Schema.Struct({
+  name: Schema.String,
+});
+
+const CreateOrganizationResponse = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+});
+
 const AuthCallbackSearch = Schema.Struct({
   code: Schema.String,
 });
@@ -28,6 +51,7 @@ export const AUTH_PATHS = {
   login: "/api/auth/login",
   logout: "/api/auth/logout",
   callback: "/api/auth/callback",
+  switchOrganization: "/api/auth/switch-organization",
 } as const;
 
 /** Public auth endpoints — no authentication required */
@@ -44,4 +68,21 @@ export class CloudAuthPublicApi extends HttpApiGroup.make("cloudAuthPublic")
 export class CloudAuthApi extends HttpApiGroup.make("cloudAuth")
   .add(HttpApiEndpoint.get("me")`/auth/me`.addSuccess(AuthMeResponse).addError(UserStoreError))
   .add(HttpApiEndpoint.post("logout")`/auth/logout`)
+  .add(
+    HttpApiEndpoint.get("organizations")`/auth/organizations`
+      .addSuccess(AuthOrganizationsResponse)
+      .addError(WorkOSError),
+  )
+  .add(
+    HttpApiEndpoint.post("switchOrganization")`/auth/switch-organization`
+      .setPayload(SwitchOrganizationBody)
+      .addError(WorkOSError),
+  )
+  .add(
+    HttpApiEndpoint.post("createOrganization")`/auth/create-organization`
+      .setPayload(CreateOrganizationBody)
+      .addSuccess(CreateOrganizationResponse)
+      .addError(UserStoreError)
+      .addError(WorkOSError),
+  )
   .middleware(SessionAuth) {}

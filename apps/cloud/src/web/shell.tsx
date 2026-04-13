@@ -1,9 +1,31 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomValue, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
 import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@executor/react/components/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@executor/react/components/dropdown-menu";
+import { Input } from "@executor/react/components/input";
+import { Label } from "@executor/react/components/label";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { CommandPalette } from "@executor/react/components/command-palette";
 import { openApiSourcePlugin } from "@executor/plugin-openapi/react";
@@ -11,7 +33,13 @@ import { mcpSourcePlugin } from "@executor/plugin-mcp/react";
 import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/react";
 import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 import { AUTH_PATHS } from "../auth/api";
-import { useAuth } from "./auth";
+import {
+  authAtom,
+  createOrganization,
+  organizationsAtom,
+  switchOrganization,
+  useAuth,
+} from "./auth";
 
 const sourcePlugins = [
   openApiSourcePlugin,
@@ -91,57 +119,277 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 
 // ── UserFooter ──────────────────────────────────────────────────────────
 
+function initialsFor(name: string | null, email: string) {
+  if (name) {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase();
+  }
+  return email[0]!.toUpperCase();
+}
+
+function Avatar(props: { url: string | null; name: string | null; email: string; size?: "sm" | "md" }) {
+  const size = props.size === "md" ? "size-8" : "size-7";
+  const text = props.size === "md" ? "text-sm" : "text-xs";
+  if (props.url) {
+    return <img src={props.url} alt="" className={`${size} shrink-0 rounded-full`} />;
+  }
+  return (
+    <div
+      className={`flex ${size} shrink-0 items-center justify-center rounded-full bg-primary/10 ${text} font-semibold text-primary`}
+    >
+      {initialsFor(props.name, props.email)}
+    </div>
+  );
+}
+
+function OrganizationSwitcherItems(props: { activeOrganizationId: string | null }) {
+  const organizations = useAtomValue(organizationsAtom);
+  const doSwitchOrganization = useAtomSet(switchOrganization, { mode: "promiseExit" });
+
+  const handleSwitch = async (organizationId: string) => {
+    if (organizationId === props.activeOrganizationId) return;
+    const exit = await doSwitchOrganization({ payload: { organizationId } });
+    if (exit._tag === "Success") window.location.reload();
+  };
+
+  return Result.match(organizations, {
+    onInitial: () => <DropdownMenuItem disabled>Loading…</DropdownMenuItem>,
+    onFailure: () => <DropdownMenuItem disabled>Failed to load organizations</DropdownMenuItem>,
+    onSuccess: ({ value }) =>
+      value.organizations.length === 0 ? (
+        <DropdownMenuItem disabled>No organizations</DropdownMenuItem>
+      ) : (
+        <>
+          {value.organizations.map((organization) => {
+            const isActive = organization.id === props.activeOrganizationId;
+            return (
+              <DropdownMenuItem
+                key={organization.id}
+                disabled={isActive}
+                onClick={() => handleSwitch(organization.id)}
+                className="text-xs"
+              >
+                <span className="min-w-0 flex-1 truncate">{organization.name}</span>
+                {isActive && <CheckIcon />}
+              </DropdownMenuItem>
+            );
+          })}
+        </>
+      ),
+  });
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className="ml-auto size-3 text-muted-foreground">
+      <path
+        d="M3.5 8.5L6.5 11.5L12.5 5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function UserFooter() {
   const auth = useAuth();
+  const doCreateOrganization = useAtomSet(createOrganization, { mode: "promiseExit" });
+  const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false);
+  const [organizationName, setOrganizationName] = useState("");
+  const [createOrganizationError, setCreateOrganizationError] = useState<string | null>(null);
+  const [creatingOrganization, setCreatingOrganization] = useState(false);
   if (auth.status !== "authenticated") return null;
 
-  const initials = auth.user.name
-    ? auth.user.name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase()
-    : auth.user.email[0]!.toUpperCase();
+  const suggestedOrganizationName =
+    auth.user.name?.trim() !== "" && auth.user.name != null
+      ? `${auth.user.name}'s Organization`
+      : "New Organization";
+
+  const openCreateOrganization = () => {
+    setOrganizationName(suggestedOrganizationName);
+    setCreateOrganizationError(null);
+    setCreateOrganizationOpen(true);
+  };
+
+  const handleCreateOrganization = async () => {
+    const name = organizationName.trim();
+    if (!name) {
+      setCreateOrganizationError("Organization name is required.");
+      return;
+    }
+
+    setCreatingOrganization(true);
+    setCreateOrganizationError(null);
+    const exit = await doCreateOrganization({ payload: { name } });
+    if (exit._tag === "Success") {
+      window.location.reload();
+    } else {
+      setCreateOrganizationError("Failed to create organization.");
+    }
+
+    setCreatingOrganization(false);
+  };
 
   return (
     <div className="shrink-0 border-t border-sidebar-border px-3 py-2.5">
-      <div className="flex items-center gap-2.5">
-        {auth.user.avatarUrl ? (
-          <img src={auth.user.avatarUrl} alt="" className="size-7 shrink-0 rounded-full" />
-        ) : (
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-            {initials}
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">
-            {auth.user.name ?? auth.user.email}
-          </p>
-          {auth.organization && (
-            <p className="truncate text-xs text-muted-foreground">{auth.organization.name}</p>
-          )}
-        </div>
-        <form action={AUTH_PATHS.logout} method="post">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            type="submit"
-            className="shrink-0 text-muted-foreground hover:bg-sidebar-active hover:text-foreground"
-            title="Sign out"
-          >
-            <svg viewBox="0 0 16 16" fill="none" className="size-3.5">
-              <path
-                d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6M10.5 11.5L14 8l-3.5-3.5M14 8H6"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+      <Dialog
+        open={createOrganizationOpen}
+        onOpenChange={(open) => {
+          setCreateOrganizationOpen(open);
+          if (!open) {
+            setOrganizationName(suggestedOrganizationName);
+            setCreateOrganizationError(null);
+            setCreatingOrganization(false);
+          }
+        }}
+      >
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              className="flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-1 py-1 text-left hover:bg-sidebar-active/60"
+            >
+              <Avatar
+                url={auth.user.avatarUrl}
+                name={auth.user.name}
+                email={auth.user.email}
               />
-            </svg>
-          </Button>
-        </form>
-      </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium text-foreground">
+                  {auth.user.name ?? auth.user.email}
+                </p>
+                {auth.organization && (
+                  <p className="truncate text-xs text-muted-foreground">{auth.organization.name}</p>
+                )}
+              </div>
+              <svg
+                viewBox="0 0 16 16"
+                fill="none"
+                className="size-3.5 shrink-0 text-muted-foreground"
+              >
+                <path
+                  d="M4 6l4 4 4-4"
+                  stroke="currentColor"
+                  strokeWidth="1.3"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top" className="w-64">
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Organization
+            </DropdownMenuLabel>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="text-xs">
+                <span className="min-w-0 flex-1 truncate">
+                  {auth.organization?.name ?? "No organization"}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-56">
+                <OrganizationSwitcherItems activeOrganizationId={auth.organization?.id ?? null} />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-xs"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    openCreateOrganization();
+                  }}
+                >
+                  Create organization
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+              Signed in as
+            </DropdownMenuLabel>
+            <DropdownMenuItem disabled className="gap-2 text-xs opacity-100">
+              <Avatar url={auth.user.avatarUrl} name={auth.user.name} email={auth.user.email} />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">
+                  {auth.user.name ?? auth.user.email}
+                </p>
+                {auth.user.name && (
+                  <p className="truncate text-muted-foreground">{auth.user.email}</p>
+                )}
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-xs text-destructive focus:text-destructive"
+              onClick={async () => {
+                await fetch(AUTH_PATHS.logout, { method: "POST" });
+                window.location.href = "/";
+              }}
+            >
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl">Create organization</DialogTitle>
+            <DialogDescription className="text-sm leading-relaxed">
+              Add another organization under your current account and switch into it immediately.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-3">
+            <div className="grid gap-1.5">
+              <Label
+                htmlFor="organization-name"
+                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
+              >
+                Organization name
+              </Label>
+              <Input
+                id="organization-name"
+                value={organizationName}
+                placeholder="Northwind Labs"
+                autoFocus
+                onChange={(event) => {
+                  setOrganizationName((event.target as HTMLInputElement).value);
+                  if (createOrganizationError) setCreateOrganizationError(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void handleCreateOrganization();
+                }}
+                className="h-9 text-sm"
+              />
+            </div>
+
+            {createOrganizationError && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+                <p className="text-sm text-destructive">{createOrganizationError}</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" disabled={creatingOrganization}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              size="sm"
+              onClick={() => void handleCreateOrganization()}
+              disabled={!organizationName.trim() || creatingOrganization}
+            >
+              {creatingOrganization ? "Creating…" : "Create organization"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
