@@ -9,7 +9,7 @@ import * as path from "node:path";
 
 const APP_NAME = "executor";
 
-const xdgDataHome = (): string => {
+export const xdgDataHome = (): string => {
   if (process.env.XDG_DATA_HOME?.trim()) return process.env.XDG_DATA_HOME.trim();
   if (process.platform === "win32") {
     return process.env.LOCALAPPDATA || process.env.APPDATA || path.join(process.env.USERPROFILE || "~", "AppData", "Local");
