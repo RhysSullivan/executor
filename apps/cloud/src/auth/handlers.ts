@@ -133,12 +133,10 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           };
         }),
       )
-      .handleRaw("logout", () =>
-        Effect.gen(function* () {
-          deleteCookie("wos-session", { path: "/" });
-          return HttpServerResponse.redirect("/", { status: 302 });
-        }),
-      )
+      .handleRaw("logout", () => {
+        deleteCookie("wos-session", { path: "/" });
+        return Effect.succeed(HttpServerResponse.redirect("/", { status: 302 }));
+      })
       .handle("organizations", () =>
         Effect.gen(function* () {
           const workos = yield* WorkOSAuth;

@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { sourcesAtom } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
@@ -34,7 +34,6 @@ import { googleDiscoverySourcePlugin } from "@executor/plugin-google-discovery/r
 import { graphqlSourcePlugin } from "@executor/plugin-graphql/react";
 import { AUTH_PATHS } from "../auth/api";
 import {
-  authAtom,
   createOrganization,
   organizationsAtom,
   switchOrganization,
