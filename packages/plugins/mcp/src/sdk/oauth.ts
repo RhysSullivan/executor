@@ -11,32 +11,37 @@ import type {
   OAuthClientInformationMixed,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { McpOAuthError } from "./errors";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type JsonObject = { readonly [key: string]: unknown };
+const JsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+type JsonObject = typeof JsonObject.Type;
 
 /** Discovery + client state persisted between start and exchange */
-export interface McpOAuthDiscoveryState {
-  readonly resourceMetadataUrl: string | null;
-  readonly authorizationServerUrl: string | null;
-  readonly resourceMetadata: JsonObject | null;
-  readonly authorizationServerMetadata: JsonObject | null;
-  readonly clientInformation: JsonObject | null;
-}
+export const McpOAuthDiscoveryState = Schema.Struct({
+  resourceMetadataUrl: Schema.NullOr(Schema.String),
+  authorizationServerUrl: Schema.NullOr(Schema.String),
+  resourceMetadata: Schema.NullOr(JsonObject),
+  authorizationServerMetadata: Schema.NullOr(JsonObject),
+  clientInformation: Schema.NullOr(JsonObject),
+});
+export type McpOAuthDiscoveryState = typeof McpOAuthDiscoveryState.Type;
+
+/** Pending OAuth session persisted between startOAuth and completeOAuth */
+export const McpOAuthSession = Schema.Struct({
+  ...McpOAuthDiscoveryState.fields,
+  endpoint: Schema.String,
+  redirectUrl: Schema.String,
+  codeVerifier: Schema.String,
+});
+export type McpOAuthSession = typeof McpOAuthSession.Type;
 
 export interface McpOAuthStartResult extends McpOAuthDiscoveryState {
   readonly authorizationUrl: string;
-  readonly codeVerifier: string;
-}
-
-export interface McpOAuthSession extends McpOAuthDiscoveryState {
-  readonly endpoint: string;
-  readonly redirectUrl: string;
   readonly codeVerifier: string;
 }
 

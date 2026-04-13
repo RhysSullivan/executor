@@ -7,7 +7,7 @@ import { makeInMemoryScopedKv, scopeKv, type Kv, type ToolId, type ScopedKv } fr
 
 import { McpToolBinding } from "./types";
 import type { McpStoredSourceData } from "./types";
-import type { McpOAuthSession } from "./oauth";
+import { McpOAuthSession } from "./oauth";
 
 // ---------------------------------------------------------------------------
 // OAuth session TTL — pending sessions are cleaned up after this many ms
@@ -15,10 +15,17 @@ import type { McpOAuthSession } from "./oauth";
 
 export const MCP_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
 
-interface StoredOAuthSession {
-  readonly session: McpOAuthSession;
-  readonly expiresAt: number;
-}
+// ---------------------------------------------------------------------------
+// Stored OAuth session — session payload + expiry, serialized via Schema
+// ---------------------------------------------------------------------------
+
+const StoredOAuthSession = Schema.Struct({
+  session: McpOAuthSession,
+  expiresAt: Schema.Number,
+});
+
+const encodeOAuthSession = Schema.encodeSync(Schema.parseJson(StoredOAuthSession));
+const decodeOAuthSession = Schema.decodeUnknownSync(Schema.parseJson(StoredOAuthSession));
 
 // ---------------------------------------------------------------------------
 // Stored source — combines meta + config into one entry
@@ -165,10 +172,10 @@ const makeStore = (
     oauthSessions.set([
       {
         key: sessionId,
-        value: JSON.stringify({
+        value: encodeOAuthSession({
           session,
           expiresAt: Date.now() + MCP_OAUTH_SESSION_TTL_MS,
-        } satisfies StoredOAuthSession),
+        }),
       },
     ]),
 
@@ -176,8 +183,7 @@ const makeStore = (
     Effect.gen(function* () {
       const raw = yield* oauthSessions.get(sessionId);
       if (!raw) return null;
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      const entry = JSON.parse(raw) as StoredOAuthSession;
+      const entry = decodeOAuthSession(raw);
       if (entry.expiresAt < Date.now()) {
         yield* oauthSessions.delete([sessionId]);
         return null;

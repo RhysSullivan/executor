@@ -3,8 +3,8 @@ import { makeInMemoryScopedKv, scopeKv, type Kv, type ScopedKv, type ToolId } fr
 
 import {
   GoogleDiscoveryMethodBinding,
+  GoogleDiscoveryOAuthSession,
   GoogleDiscoveryStoredSourceData,
-  type GoogleDiscoveryOAuthSession,
 } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -13,10 +13,17 @@ import {
 
 export const GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
 
-interface StoredOAuthSession {
-  readonly session: GoogleDiscoveryOAuthSession;
-  readonly expiresAt: number;
-}
+// ---------------------------------------------------------------------------
+// Stored OAuth session — session payload + expiry, serialized via Schema
+// ---------------------------------------------------------------------------
+
+const StoredOAuthSession = Schema.Struct({
+  session: GoogleDiscoveryOAuthSession,
+  expiresAt: Schema.Number,
+});
+
+const encodeOAuthSession = Schema.encodeSync(Schema.parseJson(StoredOAuthSession));
+const decodeOAuthSession = Schema.decodeUnknownSync(Schema.parseJson(StoredOAuthSession));
 
 const StoredBindingEntry = Schema.Struct({
   namespace: Schema.String,
@@ -143,10 +150,10 @@ const makeStore = (
     oauthSessions.set([
       {
         key: sessionId,
-        value: JSON.stringify({
+        value: encodeOAuthSession({
           session,
           expiresAt: Date.now() + GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS,
-        } satisfies StoredOAuthSession),
+        }),
       },
     ]),
 
@@ -154,8 +161,7 @@ const makeStore = (
     Effect.gen(function* () {
       const raw = yield* oauthSessions.get(sessionId);
       if (!raw) return null;
-      // @effect-diagnostics-next-line preferSchemaOverJson:off
-      const entry = JSON.parse(raw) as StoredOAuthSession;
+      const entry = decodeOAuthSession(raw);
       if (entry.expiresAt < Date.now()) {
         yield* oauthSessions.delete([sessionId]);
         return null;

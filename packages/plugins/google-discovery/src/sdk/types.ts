@@ -104,12 +104,14 @@ export interface GoogleDiscoverySourceMeta {
   readonly name: string;
 }
 
-export interface GoogleDiscoveryOAuthSession {
-  readonly discoveryUrl: string;
-  readonly name: string;
-  readonly clientId: string;
-  readonly clientSecretSecretId: string | null;
-  readonly redirectUrl: string;
-  readonly scopes: readonly string[];
-  readonly codeVerifier: string;
-}
+/** Pending OAuth session persisted between startOAuth and completeOAuth */
+export const GoogleDiscoveryOAuthSession = Schema.Struct({
+  discoveryUrl: Schema.String,
+  name: Schema.String,
+  clientId: Schema.String,
+  clientSecretSecretId: Schema.NullOr(Schema.String),
+  redirectUrl: Schema.String,
+  scopes: Schema.Array(Schema.String),
+  codeVerifier: Schema.String,
+});
+export type GoogleDiscoveryOAuthSession = typeof GoogleDiscoveryOAuthSession.Type;
