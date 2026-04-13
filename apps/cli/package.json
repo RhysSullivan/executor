@@ -23,6 +23,7 @@
     "@effect/platform": "catalog:",
     "@effect/platform-bun": "catalog:",
     "@executor/api": "workspace:*",
+    "@executor/config": "workspace:*",
     "@executor/plugin-mcp": "workspace:*",
     "@executor/local": "workspace:*",
     "@executor/runtime-quickjs": "workspace:*",

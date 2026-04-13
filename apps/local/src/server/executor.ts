@@ -17,7 +17,9 @@ import {
   mcpPlugin,
   makeKvBindingStore,
   withConfigFile as withMcpConfigFile,
+  type McpSourceConfig,
 } from "@executor/plugin-mcp";
+import { loadConfig } from "@executor/config";
 import {
   googleDiscoveryPlugin,
   makeKvBindingStore as makeKvGoogleDiscoveryBindingStore,
@@ -49,6 +51,7 @@ const createLocalPlugins = (
   scopedKv: ReturnType<typeof makeScopedKv>,
   configPath: string,
   fsLayer: typeof NodeFileSystem.layer,
+  mcpBindingStore?: ReturnType<typeof makeKvBindingStore>,
 ) =>
   [
     openApiPlugin({
@@ -59,7 +62,11 @@ const createLocalPlugins = (
       ),
     }),
     mcpPlugin({
-      bindingStore: withMcpConfigFile(makeKvBindingStore(scopedKv, "mcp"), configPath, fsLayer),
+      bindingStore: withMcpConfigFile(
+        mcpBindingStore ?? makeKvBindingStore(scopedKv, "mcp"),
+        configPath,
+        fsLayer,
+      ),
     }),
     googleDiscoveryPlugin({
       bindingStore: makeKvGoogleDiscoveryBindingStore(scopedKv, "google-discovery"),
@@ -110,10 +117,58 @@ const createLocalExecutorLayer = () => {
       const configPath = join(cwd, "executor.jsonc");
       const fsLayer = NodeFileSystem.layer;
 
-      return yield* createExecutor({
+      // Keep raw binding store reference so we can check what's already registered
+      const rawBindingStore = makeKvBindingStore(scopedKv, "mcp");
+      const executor = yield* createExecutor({
         ...config,
-        plugins: createLocalPlugins(scopedKv, configPath, fsLayer),
+        plugins: createLocalPlugins(scopedKv, configPath, fsLayer, rawBindingStore),
       });
+
+      // Sync executor.jsonc → KV for MCP sources written offline (not yet in KV)
+      const fileConfig = yield* loadConfig(configPath).pipe(
+        Effect.provide(fsLayer),
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+      const mcpSources = (fileConfig?.sources ?? []).filter((s) => s.kind === "mcp");
+      if (mcpSources.length > 0) {
+        const existingSources = yield* rawBindingStore.listSources();
+        const existingNamespaces = new Set(existingSources.map((s) => s.namespace));
+        for (const source of mcpSources) {
+          const ns = source.namespace ?? source.name;
+          if (existingNamespaces.has(ns)) continue;
+          // Strip config-file-only fields (kind, auth) — auth in file format uses
+          // public secret refs, not secretIds; agent-imported sources have no auth anyway
+          const mcpConfig: McpSourceConfig =
+            source.transport === "stdio"
+              ? {
+                  transport: "stdio",
+                  name: source.name,
+                  command: source.command,
+                  args: source.args ? [...source.args] : undefined,
+                  env: source.env,
+                  cwd: source.cwd,
+                  namespace: source.namespace,
+                }
+              : {
+                  transport: "remote",
+                  name: source.name,
+                  endpoint: source.endpoint,
+                  remoteTransport: source.remoteTransport,
+                  queryParams: source.queryParams,
+                  headers: source.headers,
+                  namespace: source.namespace,
+                };
+          yield* executor.mcp.addSource(mcpConfig).pipe(
+            Effect.catchAll((e) =>
+              Effect.sync(() =>
+                console.warn(`[startup] MCP source "${source.name}": ${e.message}`),
+              ),
+            ),
+          );
+        }
+      }
+
+      return executor;
     }),
   ).pipe(Layer.provide(SqliteClient.layer({ filename: dbPath })));
 };
