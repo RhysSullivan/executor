@@ -119,7 +119,7 @@ function InlineCreateSecret(props: {
         />
       </div>
       {error && <p className="text-[11px] text-destructive">{error}</p>}
-      <div className="flex gap-1.5 pt-0.5">
+      <div className="flex justify-end gap-1.5 pt-0.5">
         <Button variant="outline" size="xs" onClick={props.onCancel}>
           Cancel
         </Button>
@@ -128,7 +128,7 @@ function InlineCreateSecret(props: {
           onClick={handleSave}
           disabled={!secretId.trim() || !secretValue.trim() || saving}
         >
-          {saving ? "Saving…" : "Create & use"}
+          {saving ? "Saving…" : "Create and use"}
         </Button>
       </div>
     </div>
