@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 
 import { ScopeId, SecretId, makeInMemoryScopedKv } from "@executor/sdk";
 
@@ -149,8 +149,7 @@ describe("WorkOS Vault secret store", () => {
         purpose: "GitHub API auth",
       });
 
-      expect(ref.provider._tag).toBe("Some");
-      expect(ref.provider.value).toBe(WORKOS_VAULT_PROVIDER_KEY);
+      expect(Option.getOrUndefined(ref.provider)).toBe(WORKOS_VAULT_PROVIDER_KEY);
       expect(yield* store.resolve(SecretId.make("github-token"), ScopeId.make("org_123"))).toBe(
         "ghp_secret",
       );

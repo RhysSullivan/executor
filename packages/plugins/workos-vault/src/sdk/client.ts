@@ -27,7 +27,20 @@ export class WorkOSVaultClientInstantiationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
-type WorkOSVaultSdk = Pick<WorkOS, "vault">["vault"];
+export interface WorkOSVaultSdk {
+  readonly createObject: (options: {
+    readonly name: string;
+    readonly value: string;
+    readonly context: Record<string, string>;
+  }) => Promise<WorkOSVaultObjectMetadata>;
+  readonly readObjectByName: (name: string) => Promise<WorkOSVaultObject>;
+  readonly updateObject: (options: {
+    readonly id: string;
+    readonly value: string;
+    readonly versionCheck?: string;
+  }) => Promise<WorkOSVaultObject>;
+  readonly deleteObject: (options: { readonly id: string }) => Promise<void>;
+}
 
 export interface WorkOSVaultCredentials {
   readonly apiKey: string;
@@ -60,7 +73,7 @@ export interface WorkOSVaultClient {
 export const makeWorkOSVaultClient = (
   workos: Pick<WorkOS, "vault">,
 ): WorkOSVaultClient => {
-  const client = workos.vault;
+  const client: WorkOSVaultSdk = workos.vault;
 
   const use = <A>(
     operation: string,
