@@ -2,7 +2,11 @@ import * as React from "react";
 
 import { cn } from "../lib/utils";
 
-function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+function Textarea({
+  className,
+  maxRows,
+  ...props
+}: React.ComponentProps<"textarea"> & { maxRows?: number }) {
   return (
     // oxlint-disable-next-line react/forbid-elements
     <textarea
@@ -12,6 +16,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
         className,
       )}
       {...props}
+      style={{ maxHeight: maxRows ? `${maxRows * 1.5}rem` : undefined }}
     />
   );
 }
