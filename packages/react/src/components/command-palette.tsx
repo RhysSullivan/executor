@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
-import { PlusIcon } from "lucide-react";
+import { HistoryIcon, PlusIcon } from "lucide-react";
 import { SourceFavicon } from "./source-favicon";
 import { sourcesAtom } from "../api/atoms";
 import { useScope } from "../hooks/use-scope";
@@ -116,6 +116,11 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
     [close, navigate],
   );
 
+  const goToRuns = useCallback(() => {
+    close();
+    void navigate({ to: "/runs" });
+  }, [close, navigate]);
+
   const goToPreset = useCallback(
     (pluginKey: string, presetId: string, presetUrl?: string) => {
       close();
@@ -152,21 +157,32 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
           </CommandGroup>
         )}
 
-        {connectedSources.length > 0 && sourcePlugins.length > 0 && <CommandSeparator />}
+        {(connectedSources.length > 0 || sourcePlugins.length > 0) && <CommandSeparator />}
+
+        <CommandGroup heading="Navigate">
+          <CommandItem key="runs" value="runs execution history" onSelect={goToRuns}>
+            <HistoryIcon />
+            <span className="flex-1 truncate">Runs</span>
+            <CommandShortcut>history</CommandShortcut>
+          </CommandItem>
+        </CommandGroup>
 
         {sourcePlugins.length > 0 && (
-          <CommandGroup heading="Add source">
-            {sourcePlugins.map((plugin) => (
-              <CommandItem
-                key={`add-${plugin.key}`}
-                value={`add ${plugin.label} ${plugin.key}`}
-                onSelect={() => goToAdd(plugin.key)}
-              >
-                <PlusIcon />
-                <span className="flex-1 truncate">Add {plugin.label}</span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Add source">
+              {sourcePlugins.map((plugin) => (
+                <CommandItem
+                  key={`add-${plugin.key}`}
+                  value={`add ${plugin.label} ${plugin.key}`}
+                  onSelect={() => goToAdd(plugin.key)}
+                >
+                  <PlusIcon />
+                  <span className="flex-1 truncate">Add {plugin.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
         )}
 
         {presetEntries.length > 0 && <CommandSeparator />}

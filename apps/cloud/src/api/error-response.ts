@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Data, Effect } from "effect";
 import { HttpServerResponse } from "@effect/platform";
 
 export class HttpResponseError extends Data.TaggedError("HttpResponseError")<{
@@ -24,7 +24,10 @@ export const toErrorResponse = (error: unknown): Response => {
 };
 
 export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {
-  console.error("[api] toErrorServerResponse error:", error instanceof Error ? error.stack : error);
+  Effect.logError("[api] toErrorServerResponse error").pipe(
+    Effect.annotateLogs("error", error instanceof Error ? error.stack ?? error.message : String(error)),
+    Effect.runFork,
+  );
   const mapped = toHttpResponseError(error);
   return HttpServerResponse.unsafeJson(
     { error: mapped.message, code: mapped.code },

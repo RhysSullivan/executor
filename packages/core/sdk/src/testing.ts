@@ -6,6 +6,7 @@ import type { ExecutorPlugin } from "./plugin";
 import { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
 import { makeInMemorySecretStore } from "./in-memory/secret-store";
 import { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
+import { makeInMemoryExecutionStore } from "./in-memory/execution-store";
 import { makeInMemorySourceRegistry } from "./sources";
 
 // ---------------------------------------------------------------------------
@@ -31,6 +32,7 @@ export const makeTestConfig = <
     sources: makeInMemorySourceRegistry(),
     secrets: makeInMemorySecretStore(),
     policies: makeInMemoryPolicyEngine(),
+    executions: makeInMemoryExecutionStore(),
     plugins: options?.plugins,
   };
 };

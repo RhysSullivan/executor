@@ -194,7 +194,10 @@ const callCommand = Command.make(
       yield* ensureServer(baseUrl);
 
       const client = yield* makeApiClient(baseUrl);
-      const result = yield* client.executions.execute({ payload: { code: resolvedCode } });
+      const result = yield* client.executions.execute({
+        payload: { code: resolvedCode },
+        headers: { "x-executor-trigger": "cli" },
+      });
 
       if (result.status === "completed") {
         if (result.isError) {
