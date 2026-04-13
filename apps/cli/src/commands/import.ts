@@ -3,6 +3,11 @@ import { resolve } from "node:path";
 import { Command, Options, Args } from "@effect/cli";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import {
+  findAndReadAgentConfig,
+  detectInstalledAgents,
+} from "@executor/plugin-mcp/agent-import";
+import type { AgentKey, NormalizedServer } from "@executor/plugin-mcp/agent-import";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -25,12 +30,6 @@ const baseUrlOption = Options.text("base-url").pipe(Options.withDefault("http://
 // ---------------------------------------------------------------------------
 // API helpers (raw fetch — avoids typed client dep for new endpoints)
 // ---------------------------------------------------------------------------
-
-interface DetectedAgent {
-  agent: string;
-  filePath: string;
-  serverCount: number;
-}
 
 interface ImportedServer {
   namespace: string;
@@ -95,6 +94,17 @@ const printDryRun = (filename: string, servers: NormalizedServerPreview[]) => {
   console.log(`\n${filename} — ${servers.length} server(s) found (dry run, not imported):`);
   for (const s of servers) {
     const detail = s.config.transport === "stdio" ? s.config.command : s.config.endpoint;
+    console.log(`  ${s.name.padEnd(24)} [${s.config.transport}]  ${detail ?? ""}`);
+  }
+};
+
+const printLocalDryRun = (filePath: string, servers: NormalizedServer[]) => {
+  const filename = filePath.split(/[\\/]/).pop() ?? filePath;
+  console.log(`\n${filename} — ${servers.length} server(s) found (dry run, not imported):`);
+  console.log(`  ${filePath}`);
+  for (const s of servers) {
+    const detail =
+      s.config.transport === "stdio" ? s.config.command : s.config.endpoint;
     console.log(`  ${s.name.padEnd(24)} [${s.config.transport}]  ${detail ?? ""}`);
   }
 };
@@ -170,68 +180,40 @@ export const importCommand = Command.make(
 
       // ---- agent name provided ----
       if (agentKey) {
-        // Ask the server to detect the agent's config path
-        const scopeId = yield* Effect.tryPromise({
-          try: () => getScopeId(baseUrl),
-          catch: (e) =>
-            new Error(
-              `Cannot reach executor at ${baseUrl}: ${e instanceof Error ? e.message : String(e)}`,
-            ),
-        });
-
-        const detected = yield* Effect.tryPromise({
-          try: () =>
-            apiGet<{ agents: DetectedAgent[] }>(
-              `${baseUrl}/api/scopes/${scopeId}/mcp/detect-agents`,
-            ),
+        const resolved = yield* Effect.tryPromise({
+          try: () => findAndReadAgentConfig(agentKey as AgentKey),
           catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
         });
 
-        const match = detected.agents.find((a) => a.agent === agentKey);
-        if (!match) {
-          console.error(`No config found for agent: ${agentKey}`);
-          process.exitCode = 1;
+        console.log(`Found: ${resolved.filePath}  (${resolved.servers.length} servers)`);
+
+        if (dryRun) {
+          printLocalDryRun(resolved.filePath, resolved.servers);
           return;
         }
 
-        console.log(`Found: ${match.filePath}  (${match.serverCount} servers)`);
-        if (!existsSync(match.filePath)) {
-          console.error(`Config file not accessible from this machine: ${match.filePath}`);
-          process.exitCode = 1;
-          return;
-        }
-
-        const content = readFileSync(match.filePath, "utf-8");
-        const filename = match.filePath.split(/[\\/]/).pop() ?? match.filePath;
-        yield* importFile(content, filename, agentKey, baseUrl, dryRun);
+        const content = readFileSync(resolved.filePath, "utf-8");
+        const filename = resolved.filePath.split(/[\\/]/).pop() ?? resolved.filePath;
+        yield* importFile(content, filename, agentKey, baseUrl, false);
         return;
       }
 
       // ---- auto-detect all agents ----
       console.log("Scanning for agent configs...\n");
 
-      const scopeId = yield* Effect.tryPromise({
-        try: () => getScopeId(baseUrl),
-        catch: (e) =>
-          new Error(
-            `Cannot reach executor at ${baseUrl}: ${e instanceof Error ? e.message : String(e)}`,
-          ),
-      });
-
-      const detected = yield* Effect.tryPromise({
-        try: () =>
-          apiGet<{ agents: DetectedAgent[] }>(`${baseUrl}/api/scopes/${scopeId}/mcp/detect-agents`),
+      const detectedLocally = yield* Effect.tryPromise({
+        try: () => detectInstalledAgents(),
         catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
       });
 
-      if (detected.agents.length === 0) {
+      if (detectedLocally.length === 0) {
         console.log("No agent configs found.");
         return;
       }
 
       console.log("Found:");
-      for (let i = 0; i < detected.agents.length; i++) {
-        const d = detected.agents[i]!;
+      for (let i = 0; i < detectedLocally.length; i++) {
+        const d = detectedLocally[i]!;
         console.log(`  [${i + 1}] ${d.agent.padEnd(16)} ${d.filePath}  (${d.serverCount} servers)`);
       }
 
@@ -241,7 +223,7 @@ export const importCommand = Command.make(
       }
 
       console.log("\nImporting all...");
-      for (const d of detected.agents) {
+      for (const d of detectedLocally) {
         if (!existsSync(d.filePath)) continue;
         const content = readFileSync(d.filePath, "utf-8");
         const filename = d.filePath.split(/[\\/]/).pop() ?? d.filePath;
