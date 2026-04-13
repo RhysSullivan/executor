@@ -275,7 +275,6 @@ export const openApiPlugin = (options?: {
                 toolId: ToolId.make(`${namespace}.${def.toolPath}`),
                 namespace,
                 binding: toBinding(def),
-                config: invocationConfig,
               })),
             );
 
@@ -291,6 +290,7 @@ export const openApiPlugin = (options?: {
                 namespace: config.namespace,
                 headers: config.headers,
               },
+              invocationConfig,
             });
 
             return { sourceId: namespace, toolCount: registrations.length };
@@ -345,11 +345,11 @@ export const openApiPlugin = (options?: {
 
             updateSource: (namespace: string, input: OpenApiUpdateSourceInput) =>
               Effect.gen(function* () {
-                const existingSource = yield* operationStore.getSourceConfig(namespace);
-                if (!existingSource) return;
+                const existing = yield* operationStore.getSource(namespace);
+                if (!existing) return;
 
                 const updatedConfig = {
-                  ...existingSource,
+                  ...existing.config,
                   ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
                   ...(input.headers !== undefined
                     ? { headers: input.headers as Record<string, HeaderValueValue> }
@@ -357,32 +357,15 @@ export const openApiPlugin = (options?: {
                 };
 
                 const newInvocationConfig = new InvocationConfig({
-                  baseUrl: updatedConfig.baseUrl ?? resolveBaseUrl([]),
+                  baseUrl: updatedConfig.baseUrl ?? existing.invocationConfig.baseUrl,
                   headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
                 });
 
-                const toolIds = yield* operationStore.listByNamespace(namespace);
-                for (const toolId of toolIds) {
-                  const entry = yield* operationStore.get(toolId);
-                  if (entry) {
-                    yield* operationStore.put([
-                      {
-                        toolId,
-                        namespace,
-                        binding: entry.binding,
-                        config: newInvocationConfig,
-                      },
-                    ]);
-                  }
-                }
-
-                const sources = yield* operationStore.listSources();
-                const existingMeta = sources.find((s) => s.namespace === namespace);
-
                 yield* operationStore.putSource({
                   namespace,
-                  name: existingMeta?.name ?? namespace,
+                  name: existing.name,
                   config: updatedConfig,
+                  invocationConfig: newInvocationConfig,
                 });
               }),
           },

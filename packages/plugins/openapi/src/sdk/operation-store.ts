@@ -18,19 +18,20 @@ export interface StoredSource {
   readonly namespace: string;
   readonly name: string;
   readonly config: SourceConfig;
+  /** Pre-resolved runtime invocation config (baseUrl resolved from servers, headers). */
+  readonly invocationConfig: InvocationConfig;
 }
 
 export interface StoredOperation {
   readonly toolId: ToolId;
   readonly namespace: string;
   readonly binding: OperationBinding;
-  readonly config: InvocationConfig;
 }
 
 export interface OpenApiOperationStore {
   readonly get: (
     toolId: ToolId,
-  ) => Effect.Effect<{ binding: OperationBinding; config: InvocationConfig } | null>;
+  ) => Effect.Effect<{ binding: OperationBinding; namespace: string } | null>;
 
   readonly put: (entries: readonly StoredOperation[]) => Effect.Effect<void>;
 

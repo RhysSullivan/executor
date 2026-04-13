@@ -6,7 +6,7 @@ import { Effect, Schema } from "effect";
 import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
 import type { GraphqlOperationStore, StoredSource } from "./operation-store";
-import { OperationBinding, InvocationConfig } from "./types";
+import { OperationBinding } from "./types";
 import { StoredSourceSchema } from "./stored-source";
 
 // ---------------------------------------------------------------------------
@@ -16,7 +16,6 @@ import { StoredSourceSchema } from "./stored-source";
 class StoredEntry extends Schema.Class<StoredEntry>("StoredEntry")({
   namespace: Schema.String,
   binding: OperationBinding,
-  config: InvocationConfig,
 }) {}
 
 const encodeEntry = Schema.encodeSync(Schema.parseJson(StoredEntry));
@@ -35,12 +34,12 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): GraphqlOperationStore
       const raw = yield* bindings.get(toolId);
       if (!raw) return null;
       const entry = decodeEntry(raw);
-      return { binding: entry.binding, config: entry.config };
+      return { binding: entry.binding, namespace: entry.namespace };
     }),
 
-  put: (toolId, namespace, binding, config) =>
+  put: (toolId, namespace, binding) =>
     bindings.set([
-      { key: toolId, value: encodeEntry(new StoredEntry({ namespace, binding, config })) },
+      { key: toolId, value: encodeEntry(new StoredEntry({ namespace, binding })) },
     ]),
 
   remove: (toolId) => bindings.delete([toolId]).pipe(Effect.asVoid),

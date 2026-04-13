@@ -292,7 +292,17 @@ export const makeOpenApiInvoker = (opts: {
         });
       }
 
-      const { binding, config } = entry;
+      const source = yield* opts.operationStore.getSource(entry.namespace);
+      if (!source) {
+        return yield* new ToolInvocationError({
+          toolId,
+          message: `No source found for namespace "${entry.namespace}"`,
+          cause: undefined,
+        });
+      }
+
+      const { binding } = entry;
+      const { invocationConfig: config } = source;
       const baseUrl = config.baseUrl;
 
       // Resolve secret-backed headers

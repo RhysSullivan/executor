@@ -170,7 +170,17 @@ export const makeGraphqlInvoker = (opts: {
         });
       }
 
-      const { binding, config } = entry;
+      const source = yield* opts.operationStore.getSource(entry.namespace);
+      if (!source) {
+        return yield* new ToolInvocationError({
+          toolId,
+          message: `No source found for namespace "${entry.namespace}"`,
+          cause: undefined,
+        });
+      }
+
+      const { binding } = entry;
+      const { invocationConfig: config } = source;
 
       // Resolve secret-backed headers
       const resolvedHeaders = yield* resolveHeaders(config.headers, opts.secrets, opts.scopeId);

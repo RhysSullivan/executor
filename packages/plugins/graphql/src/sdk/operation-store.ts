@@ -18,18 +18,19 @@ export interface StoredSource {
   readonly namespace: string;
   readonly name: string;
   readonly config: SourceConfig;
+  /** Pre-resolved runtime invocation config (endpoint, headers). */
+  readonly invocationConfig: InvocationConfig;
 }
 
 export interface GraphqlOperationStore {
   readonly get: (
     toolId: ToolId,
-  ) => Effect.Effect<{ binding: OperationBinding; config: InvocationConfig } | null>;
+  ) => Effect.Effect<{ binding: OperationBinding; namespace: string } | null>;
 
   readonly put: (
     toolId: ToolId,
     namespace: string,
     binding: OperationBinding,
-    config: InvocationConfig,
   ) => Effect.Effect<void>;
 
   readonly remove: (toolId: ToolId) => Effect.Effect<void>;

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { HeaderValue } from "./types";
+import { HeaderValue, InvocationConfig } from "./types";
 
 // ---------------------------------------------------------------------------
 // Stored source — the shape persisted by the operation store and exposed
@@ -16,6 +16,7 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>("Graphq
     namespace: Schema.optional(Schema.String),
     headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValue })),
   }),
+  invocationConfig: InvocationConfig,
 }) {}
 
 export type StoredSourceSchemaType = typeof StoredSourceSchema.Type;
