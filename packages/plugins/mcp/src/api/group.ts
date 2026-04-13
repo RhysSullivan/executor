@@ -150,6 +150,44 @@ const CompleteOAuthResponse = Schema.Struct({
 });
 
 // ---------------------------------------------------------------------------
+// Import from agent config
+// ---------------------------------------------------------------------------
+
+const ImportFromAgentPayload = Schema.Struct({
+  content: Schema.String,
+  filename: Schema.optionalWith(Schema.String, { default: () => "mcp.json" }),
+  agentHint: Schema.optional(Schema.String),
+  dryRun: Schema.optionalWith(Schema.Boolean, { default: () => false }),
+});
+
+const ImportedServer = Schema.Struct({
+  namespace: Schema.String,
+  name: Schema.String,
+  toolCount: Schema.Number,
+});
+
+const SkippedServer = Schema.Struct({
+  name: Schema.String,
+  reason: Schema.String,
+});
+
+const ImportFromAgentResponse = Schema.Struct({
+  imported: Schema.Array(ImportedServer),
+  skipped: Schema.Array(SkippedServer),
+  dryRunParsed: Schema.optional(Schema.Array(Schema.Unknown)),
+});
+
+const DetectedAgentInfo = Schema.Struct({
+  agent: Schema.String,
+  filePath: Schema.String,
+  serverCount: Schema.Number,
+});
+
+const DetectAgentsResponse = Schema.Struct({
+  agents: Schema.Array(DetectedAgentInfo),
+});
+
+// ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
 
@@ -233,6 +271,19 @@ export class McpGroup extends HttpApiGroup.make("mcp")
     HttpApiEndpoint.patch("updateSource")`/scopes/${scopeIdParam}/mcp/sources/${namespaceParam}`
       .setPayload(UpdateSourcePayload)
       .addSuccess(UpdateSourceResponse)
+      .addError(McpApiError)
+      .addError(McpInternalError),
+  )
+  .add(
+    HttpApiEndpoint.post("importFromAgent")`/scopes/${scopeIdParam}/mcp/import`
+      .setPayload(ImportFromAgentPayload)
+      .addSuccess(ImportFromAgentResponse)
+      .addError(McpApiError)
+      .addError(McpInternalError),
+  )
+  .add(
+    HttpApiEndpoint.get("detectAgents")`/scopes/${scopeIdParam}/mcp/detect-agents`
+      .addSuccess(DetectAgentsResponse)
       .addError(McpApiError)
       .addError(McpInternalError),
   ) {}

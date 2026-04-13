@@ -20,7 +20,8 @@
     "./promise": "./src/promise.ts",
     "./api": "./src/api/index.ts",
     "./react": "./src/react/index.ts",
-    "./presets": "./src/sdk/presets.ts"
+    "./presets": "./src/sdk/presets.ts",
+    "./agent-import": "./src/sdk/agent-import/index.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -52,7 +53,9 @@
     "@executor/config": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "smol-toml": "^1.6.1",
+    "yaml": "^2.7.1"
   },
   "devDependencies": {
     "@effect-atom/atom-react": "^0.5.0",

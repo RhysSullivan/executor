@@ -1,0 +1,262 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { Command, Options, Args } from "@effect/cli";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+const agentArg = Args.text({ name: "agent" }).pipe(Args.optional);
+
+const fileOption = Options.text("file").pipe(
+  Options.withDescription("Path to a config file to import"),
+  Options.optional,
+);
+
+const dryRunOption = Options.boolean("dry-run").pipe(
+  Options.withDescription("Preview servers without importing"),
+  Options.withDefault(false),
+);
+
+const baseUrlOption = Options.text("base-url").pipe(Options.withDefault("http://localhost:4788"));
+
+// ---------------------------------------------------------------------------
+// API helpers (raw fetch — avoids typed client dep for new endpoints)
+// ---------------------------------------------------------------------------
+
+interface DetectedAgent {
+  agent: string;
+  filePath: string;
+  serverCount: number;
+}
+
+interface ImportedServer {
+  namespace: string;
+  name: string;
+  toolCount: number;
+}
+
+interface SkippedServer {
+  name: string;
+  reason: string;
+}
+
+interface ImportResult {
+  imported: ImportedServer[];
+  skipped: SkippedServer[];
+  dryRunParsed?: unknown[];
+}
+
+interface NormalizedServerPreview {
+  name: string;
+  suggestedNamespace: string;
+  config: { transport: string; command?: string; endpoint?: string };
+}
+
+const apiGet = async <T>(url: string): Promise<T> => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<T>;
+};
+
+const apiPost = async <T>(url: string, body: unknown): Promise<T> => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json() as Promise<T>;
+};
+
+const getScopeId = async (baseUrl: string): Promise<string> => {
+  const data = await apiGet<{ id?: string }>(`${baseUrl}/api/scope`);
+  return data.id ?? "default";
+};
+
+// ---------------------------------------------------------------------------
+// Print helpers
+// ---------------------------------------------------------------------------
+
+const printResult = (filename: string, result: ImportResult) => {
+  console.log(`\n${filename}:`);
+  for (const s of result.imported) {
+    console.log(`  ✓ ${s.name.padEnd(24)} →  ${s.namespace}  (${s.toolCount} tools)`);
+  }
+  for (const s of result.skipped) {
+    console.log(`  ✗ ${s.name.padEnd(24)} skipped: ${s.reason}`);
+  }
+  console.log(`  ${result.imported.length} imported, ${result.skipped.length} skipped`);
+};
+
+const printDryRun = (filename: string, servers: NormalizedServerPreview[]) => {
+  console.log(`\n${filename} — ${servers.length} server(s) found (dry run, not imported):`);
+  for (const s of servers) {
+    const detail = s.config.transport === "stdio" ? s.config.command : s.config.endpoint;
+    console.log(`  ${s.name.padEnd(24)} [${s.config.transport}]  ${detail ?? ""}`);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Import a single file via API
+// ---------------------------------------------------------------------------
+
+const importFile = (
+  content: string,
+  filename: string,
+  agentHint: string | undefined,
+  baseUrl: string,
+  dryRun: boolean,
+) =>
+  Effect.gen(function* () {
+    const scopeId = yield* Effect.tryPromise({
+      try: () => getScopeId(baseUrl),
+      catch: (e) =>
+        new Error(
+          `Cannot reach executor at ${baseUrl}: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+    });
+
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        apiPost<ImportResult>(`${baseUrl}/api/scopes/${scopeId}/mcp/import`, {
+          content,
+          filename,
+          agentHint,
+          dryRun,
+        }),
+      catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
+    });
+
+    if (dryRun && result.dryRunParsed) {
+      printDryRun(filename, result.dryRunParsed as NormalizedServerPreview[]);
+    } else {
+      printResult(filename, result);
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// Command
+// ---------------------------------------------------------------------------
+
+export const importCommand = Command.make(
+  "import",
+  {
+    agent: agentArg,
+    file: fileOption,
+    dryRun: dryRunOption,
+    baseUrl: baseUrlOption,
+  },
+  ({ agent, file, dryRun, baseUrl }) =>
+    Effect.gen(function* () {
+      const agentKey = Option.getOrUndefined(agent);
+      const filePath = Option.getOrUndefined(file);
+
+      // ---- --file path provided ----
+      if (filePath) {
+        const abs = resolve(filePath);
+        if (!existsSync(abs)) {
+          console.error(`File not found: ${abs}`);
+          process.exitCode = 1;
+          return;
+        }
+        const content = readFileSync(abs, "utf-8");
+        const filename = abs.split(/[\\/]/).pop() ?? filePath;
+        yield* importFile(content, filename, agentKey, baseUrl, dryRun);
+        return;
+      }
+
+      // ---- agent name provided ----
+      if (agentKey) {
+        // Ask the server to detect the agent's config path
+        const scopeId = yield* Effect.tryPromise({
+          try: () => getScopeId(baseUrl),
+          catch: (e) =>
+            new Error(
+              `Cannot reach executor at ${baseUrl}: ${e instanceof Error ? e.message : String(e)}`,
+            ),
+        });
+
+        const detected = yield* Effect.tryPromise({
+          try: () =>
+            apiGet<{ agents: DetectedAgent[] }>(
+              `${baseUrl}/api/scopes/${scopeId}/mcp/detect-agents`,
+            ),
+          catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
+        });
+
+        const match = detected.agents.find((a) => a.agent === agentKey);
+        if (!match) {
+          console.error(`No config found for agent: ${agentKey}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        console.log(`Found: ${match.filePath}  (${match.serverCount} servers)`);
+        if (!existsSync(match.filePath)) {
+          console.error(`Config file not accessible from this machine: ${match.filePath}`);
+          process.exitCode = 1;
+          return;
+        }
+
+        const content = readFileSync(match.filePath, "utf-8");
+        const filename = match.filePath.split(/[\\/]/).pop() ?? match.filePath;
+        yield* importFile(content, filename, agentKey, baseUrl, dryRun);
+        return;
+      }
+
+      // ---- auto-detect all agents ----
+      console.log("Scanning for agent configs...\n");
+
+      const scopeId = yield* Effect.tryPromise({
+        try: () => getScopeId(baseUrl),
+        catch: (e) =>
+          new Error(
+            `Cannot reach executor at ${baseUrl}: ${e instanceof Error ? e.message : String(e)}`,
+          ),
+      });
+
+      const detected = yield* Effect.tryPromise({
+        try: () =>
+          apiGet<{ agents: DetectedAgent[] }>(`${baseUrl}/api/scopes/${scopeId}/mcp/detect-agents`),
+        catch: (e) => new Error(e instanceof Error ? e.message : String(e)),
+      });
+
+      if (detected.agents.length === 0) {
+        console.log("No agent configs found.");
+        return;
+      }
+
+      console.log("Found:");
+      for (let i = 0; i < detected.agents.length; i++) {
+        const d = detected.agents[i]!;
+        console.log(`  [${i + 1}] ${d.agent.padEnd(16)} ${d.filePath}  (${d.serverCount} servers)`);
+      }
+
+      if (dryRun) {
+        console.log("\n(dry run — use without --dry-run to import)");
+        return;
+      }
+
+      console.log("\nImporting all...");
+      for (const d of detected.agents) {
+        if (!existsSync(d.filePath)) continue;
+        const content = readFileSync(d.filePath, "utf-8");
+        const filename = d.filePath.split(/[\\/]/).pop() ?? d.filePath;
+        yield* importFile(content, filename, d.agent, baseUrl, false);
+      }
+    }),
+).pipe(
+  Command.withDescription(
+    "Import MCP servers from an AI agent config file.\n" +
+      "Agents: opencode, claude-code, claude-desktop, amp, cursor, vscode, cline, cline-cli,\n" +
+      "        zed, goose, codex, gemini-cli, copilot, antigravity, mcporter\n\n" +
+      "Examples:\n" +
+      "  executor import opencode\n" +
+      "  executor import cursor --dry-run\n" +
+      "  executor import --file ./opencode.json\n" +
+      "  executor import  (auto-detect all)",
+  ),
+);

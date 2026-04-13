@@ -41,6 +41,7 @@ import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor/api";
 import { startServer, runMcpStdioServer, getExecutor } from "@executor/local";
+import { importCommand } from "./commands/import";
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 import embeddedWebUI from "./embedded-web-ui.gen";
@@ -283,7 +284,13 @@ const mcpCommand = Command.make("mcp", { scope }, ({ scope }) =>
 // ---------------------------------------------------------------------------
 
 const root = Command.make("executor").pipe(
-  Command.withSubcommands([callCommand, resumeCommand, webCommand, mcpCommand] as const),
+  Command.withSubcommands([
+    callCommand,
+    resumeCommand,
+    webCommand,
+    mcpCommand,
+    importCommand,
+  ] as const),
   Command.withDescription("Executor local CLI"),
 );
 

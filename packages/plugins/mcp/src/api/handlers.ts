@@ -3,6 +3,7 @@ import { Cause, Context, Effect } from "effect";
 
 import { addGroup } from "@executor/api";
 import type { McpPluginExtension, McpSourceConfig, McpUpdateSourceInput } from "../sdk/plugin";
+import { parseAgentConfigContent, detectInstalledAgents, type AgentKey } from "../sdk/agent-import";
 import {
   McpConnectionError,
   McpInvocationError,
@@ -277,6 +278,85 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
             ),
           );
         return yield* HttpServerResponse.html(popupDocument(result));
+      }).pipe(sanitizeMcpFailure),
+    )
+    .handle("importFromAgent", ({ payload }) =>
+      Effect.gen(function* () {
+        const servers = yield* Effect.tryPromise({
+          try: () =>
+            parseAgentConfigContent(
+              payload.content,
+              payload.filename,
+              payload.agentHint as AgentKey | undefined,
+            ),
+          catch: (e) =>
+            new McpApiError({
+              message: e instanceof Error ? e.message : String(e),
+            }),
+        });
+
+        if (payload.dryRun) {
+          return { imported: [], skipped: [], dryRunParsed: servers as unknown[] };
+        }
+
+        const ext = yield* McpExtensionService;
+        const imported: { namespace: string; name: string; toolCount: number }[] = [];
+        const skipped: { name: string; reason: string }[] = [];
+
+        for (const server of servers) {
+          const config: McpSourceConfig =
+            server.config.transport === "stdio"
+              ? {
+                  transport: "stdio",
+                  name: server.name,
+                  command: server.config.command,
+                  args: server.config.args,
+                  env: server.config.env,
+                  namespace: server.suggestedNamespace,
+                }
+              : {
+                  transport: "remote",
+                  name: server.name,
+                  endpoint: server.config.endpoint,
+                  headers: server.config.headers,
+                  remoteTransport: server.config.remoteTransport,
+                  namespace: server.suggestedNamespace,
+                };
+
+          const result = yield* ext.addSource(config).pipe(
+            Effect.map((r) => ({ ok: true as const, ...r })),
+            Effect.catchAll((e) =>
+              Effect.succeed({
+                ok: false as const,
+                reason: e instanceof Error ? e.message : String(e),
+              }),
+            ),
+          );
+
+          if (result.ok) {
+            imported.push({
+              namespace: result.namespace,
+              name: server.name,
+              toolCount: result.toolCount,
+            });
+          } else {
+            skipped.push({ name: server.name, reason: result.reason });
+          }
+        }
+
+        return { imported, skipped };
+      }).pipe(sanitizeMcpFailure),
+    )
+    .handle("detectAgents", () =>
+      Effect.gen(function* () {
+        const agents = yield* Effect.tryPromise({
+          try: () => detectInstalledAgents(),
+          catch: (e) =>
+            new McpInternalError({
+              message: e instanceof Error ? e.message : String(e),
+            }),
+        });
+        return { agents };
       }).pipe(sanitizeMcpFailure),
     ),
 );
