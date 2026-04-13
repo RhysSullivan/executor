@@ -729,7 +729,7 @@ export default function AddMcpSource(props: {
               {remoteAuthMode === "oauth2" && (
                 <>
                   {!tokens && state.step === "probed" && (
-                    <Button onClick={handleOAuth} className="w-full bg-white" variant="outline">
+                    <Button onClick={handleOAuth}  variant="outline">
                       Sign in
                     </Button>
                   )}
