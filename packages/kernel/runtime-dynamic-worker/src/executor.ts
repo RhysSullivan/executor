@@ -57,6 +57,30 @@ export type DynamicWorkerExecutorOptions = {
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const ENTRY_MODULE = "executor.js";
 
+const formatUnknownError = (cause: unknown): string => {
+  if (cause instanceof Error) {
+    return cause.message;
+  }
+
+  if (typeof cause === "string") {
+    return cause;
+  }
+
+  if (typeof cause === "object" && cause !== null) {
+    if ("message" in cause && typeof cause.message === "string" && cause.message.length > 0) {
+      return cause.message;
+    }
+
+    try {
+      return JSON.stringify(cause);
+    } catch {
+      return String(cause);
+    }
+  }
+
+  return String(cause);
+};
+
 // ---------------------------------------------------------------------------
 // ToolDispatcher — bridges RPC calls back to SandboxToolInvoker
 // ---------------------------------------------------------------------------
@@ -83,12 +107,7 @@ export class ToolDispatcher extends RpcTarget {
         Effect.catchAll((cause) =>
           Effect.succeed(
             JSON.stringify({
-              error:
-                cause instanceof Error
-                  ? cause.message
-                  : typeof cause === "object" && cause !== null && "message" in cause
-                    ? String((cause as { message: unknown }).message)
-                    : String(cause),
+              error: formatUnknownError(cause),
             }),
           ),
         ),
@@ -155,7 +174,7 @@ const runInDynamicWorker = (
     try: () => evaluate(options, code, toolInvoker),
     catch: (cause) =>
       new DynamicWorkerExecutionError({
-        message: cause instanceof Error ? cause.message : String(cause),
+        message: formatUnknownError(cause),
       }),
   });
 

@@ -43,6 +43,7 @@ describe("buildExecutorModule", () => {
   it("catches errors and returns them", () => {
     const module = buildExecutorModule("async () => 42", 5000);
     expect(module).toContain("catch (err)");
-    expect(module).toContain("error: err.message");
+    expect(module).toContain("const __formatError = (err) =>");
+    expect(module).toContain("error: __formatError(err)");
   });
 });

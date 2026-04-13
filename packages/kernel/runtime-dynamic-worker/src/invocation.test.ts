@@ -44,6 +44,24 @@ describe("ToolDispatcher", () => {
     expect(JSON.parse(result)).toEqual({ error: "tool broke" });
   });
 
+  it("serializes object-shaped tool errors", async () => {
+    const dispatcher = new ToolDispatcher({
+      invoke: () =>
+        Effect.fail({
+          code: "forbidden",
+          detail: "missing team access",
+        }),
+    });
+
+    const result = await dispatcher.call("broken.tool", "{}");
+    expect(JSON.parse(result)).toEqual({
+      error: JSON.stringify({
+        code: "forbidden",
+        detail: "missing team access",
+      }),
+    });
+  });
+
   it("handles undefined args", async () => {
     const invoker = makeInvoker(({ args }) => args);
     const dispatcher = new ToolDispatcher(invoker);
@@ -119,6 +137,21 @@ describe("makeDynamicWorkerExecutor", () => {
     );
 
     expect(result.error).toBe("boom");
+    expect(result.result).toBeNull();
+  });
+
+  it("serializes thrown objects instead of returning [object Object]", async () => {
+    const executor = makeDynamicWorkerExecutor({ loader });
+    const invoker = makeInvoker(() => null);
+
+    const result = await Effect.runPromise(
+      executor.execute(
+        'async () => { throw { code: "bad_request", detail: "team missing" }; }',
+        invoker,
+      ),
+    );
+
+    expect(result.error).toBe('{"code":"bad_request","detail":"team missing"}');
     expect(result.result).toBeNull();
   });
 
