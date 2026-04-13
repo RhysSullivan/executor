@@ -64,6 +64,22 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     featured: true,
   },
   {
+    id: "exa",
+    name: "Exa",
+    summary: "Web search, similar links, content retrieval, and answers.",
+    url: "https://raw.githubusercontent.com/exa-labs/openapi-spec/refs/heads/master/exa-openapi-spec.yaml",
+    icon: "https://exa.ai/images/favicon-32x32.png",
+    featured: true,
+  },
+  {
+    id: "exa-websets",
+    name: "Exa Websets",
+    summary: "Websets, enrichments, webhooks, and monitors.",
+    url: "https://raw.githubusercontent.com/exa-labs/openapi-spec/refs/heads/master/exa-websets-spec.yaml",
+    icon: "https://exa.ai/images/favicon-32x32.png",
+    featured: true,
+  },
+  {
     id: "axiom",
     name: "Axiom",
     summary: "Log ingestion, querying, datasets, and monitors.",
