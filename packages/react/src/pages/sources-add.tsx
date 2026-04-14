@@ -1,8 +1,8 @@
 import { Suspense } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
 import type { SourcePlugin } from "../plugins/source-plugin";
 import { useAtomRefresh } from "@effect-atom/atom-react";
 import { sourcesAtom } from "../api/atoms";
+import { RouteLink, useRoutes, useAppNavigate } from "../api/routes-context";
 import { useScope } from "../hooks/use-scope";
 
 // ---------------------------------------------------------------------------
@@ -19,7 +19,8 @@ export function SourcesAddPage(props: {
   const { pluginKey, url, preset, namespace, sourcePlugins } = props;
   const scopeId = useScope();
   const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
+  const routes = useRoutes();
 
   const plugin = sourcePlugins.find((p) => p.key === pluginKey);
 
@@ -34,12 +35,12 @@ export function SourcesAddPage(props: {
             <p className="text-xs text-muted-foreground mb-5">
               This source plugin is not registered.
             </p>
-            <Link
-              to="/"
+            <RouteLink
+              route={routes.home}
               className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Back to sources
-            </Link>
+            </RouteLink>
           </div>
         </div>
       </div>
@@ -58,10 +59,10 @@ export function SourcesAddPage(props: {
             initialNamespace={namespace}
             onComplete={() => {
               refreshSources();
-              void navigate({ to: "/" });
+              navigate(routes.home);
             }}
             onCancel={() => {
-              void navigate({ to: "/" });
+              navigate(routes.home);
             }}
           />
         </Suspense>

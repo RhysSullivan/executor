@@ -12,6 +12,7 @@ const AuthUser = Schema.Struct({
 
 const AuthOrganization = Schema.Struct({
   id: Schema.String,
+  slug: Schema.String,
   name: Schema.String,
 });
 
@@ -22,6 +23,7 @@ const AuthMeResponse = Schema.Struct({
 
 const AuthOrganizationSummary = Schema.Struct({
   id: Schema.String,
+  slug: Schema.String,
   name: Schema.String,
 });
 
@@ -40,6 +42,7 @@ const CreateOrganizationBody = Schema.Struct({
 
 const CreateOrganizationResponse = Schema.Struct({
   id: Schema.String,
+  slug: Schema.String,
   name: Schema.String,
 });
 

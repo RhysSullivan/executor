@@ -1,6 +1,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import { useRoutes, useAppNavigate } from "../api/routes-context";
 import {
   sourceToolsAtom,
   sourcesAtom,
@@ -28,7 +28,8 @@ export function SourceDetailPage(props: {
   const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
   const doRemove = useAtomSet(removeSource, { mode: "promise" });
   const doRefresh = useAtomSet(refreshSource, { mode: "promise" });
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
+  const routes = useRoutes();
 
   // HMR: refresh source tools when the backend is hot-reloaded
   useEffect(() => {
@@ -82,7 +83,7 @@ export function SourceDetailPage(props: {
         path: { scopeId, sourceId: namespace },
       });
       refreshSources();
-      void navigate({ to: "/" });
+      navigate(routes.home);
     } catch {
       setDeleting(false);
       setConfirmDelete(false);

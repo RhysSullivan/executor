@@ -11,7 +11,7 @@
 // We do NOT mirror invitations or user profile data — those stay in WorkOS
 // and are queried via API when needed.
 
-import { pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 /** Login identity. The `id` is the WorkOS user ID. */
 export const accounts = pgTable("accounts", {
@@ -19,12 +19,25 @@ export const accounts = pgTable("accounts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** Organization (billing entity, scoping root). The `id` is the WorkOS organization ID. */
-export const organizations = pgTable("organizations", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * Organization (billing entity, scoping root). The `id` is the WorkOS
+ * organization ID; the `slug` is a URL-safe identifier used for routing
+ * (e.g. `/acme/secrets`). Slugs are generated from `name` at upsert time
+ * and disambiguated with a short hash of the org id, so they are stable
+ * across renames.
+ */
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    slugIdx: uniqueIndex("organizations_slug_idx").on(t.slug),
+  }),
+);
 
 /**
  * Account ↔ organization link. Lets us answer "which workspaces does this

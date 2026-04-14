@@ -21,12 +21,14 @@ export const OnboardingPage = () => {
 
   const form = useCreateOrganizationForm({
     defaultName: suggestedName,
-    // On success: the server set a new cookie with the new org; refetch /me
-    // so AuthGate routes into Shell.
-    // On failure: the server may have cleared the cookie because the current
-    // session was too stale to attach the new org. Refetch /me regardless so
-    // AuthGate can route to LoginPage if that's the case.
-    onSuccess: () => refreshAuth(),
+    // On success: the server set a new cookie with the new org. Hard-
+    // navigate to the new org's scoped URL so we land directly on the
+    // `/${slug}/` route rather than bouncing through `/` and an extra
+    // AuthGate cycle.
+    // On failure: the server may have cleared the cookie because the
+    // current session was too stale to attach the new org. Refetch /me
+    // so AuthGate can route to LoginPage if that's the case.
+    onSuccess: (org) => window.location.assign(`/${org.slug}/`),
     onFailure: () => refreshAuth(),
   });
 

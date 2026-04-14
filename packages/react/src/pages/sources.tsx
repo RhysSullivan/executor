@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
 import { Result, useAtomValue, useAtomSet } from "@effect-atom/atom-react";
 import { sourcesAtom, detectSource } from "../api/atoms";
+import { RouteLink, useRoutes, useAppNavigate } from "../api/routes-context";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin, SourcePreset } from "../plugins/source-plugin";
 import { McpInstallCard } from "../components/mcp-install-card";
@@ -42,7 +42,8 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
   const scopeId = useScope();
   const sources = useAtomValue(sourcesAtom(scopeId));
   const doDetect = useAtomSet(detectSource, { mode: "promise" });
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
+  const routes = useRoutes();
 
   const handleDetect = useCallback(async () => {
     const trimmed = url.trim();
@@ -61,11 +62,9 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
       }
       const pluginKey = KIND_TO_PLUGIN_KEY[results[0].kind];
       if (pluginKey) {
-        void navigate({
-          to: "/sources/add/$pluginKey",
-          params: { pluginKey },
-          search: { url: trimmed, namespace: results[0].namespace },
-        });
+        navigate(
+          routes.sourcesAdd(pluginKey, { url: trimmed, namespace: results[0].namespace }),
+        );
       } else {
         setError(`Detected source type "${results[0].kind}" but no plugin is available for it.`);
       }
@@ -74,7 +73,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
     } finally {
       setDetecting(false);
     }
-  }, [url, doDetect, navigate, scopeId]);
+  }, [url, doDetect, navigate, routes, scopeId]);
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -123,14 +122,13 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                   <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     Or add manually:{" "}
                     {sourcePlugins.map((p) => (
-                      <Link
+                      <RouteLink
                         key={p.key}
-                        to="/sources/add/$pluginKey"
-                        params={{ pluginKey: p.key }}
+                        route={routes.sourcesAdd(p.key)}
                         className="rounded-md border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
                       >
                         {p.label}
-                      </Link>
+                      </RouteLink>
                     ))}
                   </div>
                 </CardStackEntryField>
@@ -197,6 +195,7 @@ type PresetEntry = {
 };
 
 function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
+  const routes = useRoutes();
   const allPresets = useMemo(() => {
     const entries: PresetEntry[] = [];
     for (const plugin of props.plugins) {
@@ -227,7 +226,7 @@ function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
                 asChild
                 searchText={`${preset.name} ${preset.summary ?? ""} ${pluginLabel}`}
               >
-                <Link to="/sources/add/$pluginKey" params={{ pluginKey }} search={search}>
+                <RouteLink route={routes.sourcesAdd(pluginKey, search)}>
                   <CardStackEntryMedia>
                     {preset.icon ? (
                       <img
@@ -249,7 +248,7 @@ function PresetGrid(props: { plugins: readonly SourcePlugin[] }) {
                   <CardStackEntryActions>
                     <Badge variant="secondary">{pluginLabel}</Badge>
                   </CardStackEntryActions>
-                </Link>
+                </RouteLink>
               </CardStackEntry>
             );
           })}
@@ -272,13 +271,14 @@ function SourceGrid(props: {
     runtime?: boolean;
   }[];
 }) {
+  const routes = useRoutes();
   return (
     <CardStack searchable>
       <CardStackHeader>Connected</CardStackHeader>
       <CardStackContent>
         {props.sources.map((s) => (
           <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>
-            <Link to="/sources/$namespace" params={{ namespace: s.id }}>
+            <RouteLink route={routes.sourceDetail(s.id)}>
               <CardStackEntryMedia>
                 <SourceFavicon url={s.url} size={32} />
               </CardStackEntryMedia>
@@ -290,7 +290,7 @@ function SourceGrid(props: {
                 {s.runtime && <Badge className="bg-muted text-muted-foreground">built-in</Badge>}
                 <Badge variant="secondary">{s.kind}</Badge>
               </CardStackEntryActions>
-            </Link>
+            </RouteLink>
           </CardStackEntry>
         ))}
       </CardStackContent>

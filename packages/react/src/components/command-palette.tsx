@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, Result } from "@effect-atom/atom-react";
 import { PlusIcon } from "lucide-react";
 import { SourceFavicon } from "./source-favicon";
 import { sourcesAtom } from "../api/atoms";
+import { useRoutes, useAppNavigate } from "../api/routes-context";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
 import {
@@ -29,7 +29,8 @@ import {
 export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }) {
   const { sourcePlugins } = props;
   const [open, setOpen] = useState(false);
-  const navigate = useNavigate();
+  const navigate = useAppNavigate();
+  const routes = useRoutes();
   const scopeId = useScope();
   const sourcesResult = useAtomValue(sourcesAtom(scopeId));
 
@@ -100,20 +101,17 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
   const goToSource = useCallback(
     (id: string) => {
       close();
-      void navigate({ to: "/sources/$namespace", params: { namespace: id } });
+      navigate(routes.sourceDetail(id));
     },
-    [close, navigate],
+    [close, navigate, routes],
   );
 
   const goToAdd = useCallback(
     (pluginKey: string) => {
       close();
-      void navigate({
-        to: "/sources/add/$pluginKey",
-        params: { pluginKey },
-      });
+      navigate(routes.sourcesAdd(pluginKey));
     },
-    [close, navigate],
+    [close, navigate, routes],
   );
 
   const goToPreset = useCallback(
@@ -121,13 +119,9 @@ export function CommandPalette(props: { sourcePlugins: readonly SourcePlugin[] }
       close();
       const search: Record<string, string> = { preset: presetId };
       if (presetUrl) search.url = presetUrl;
-      void navigate({
-        to: "/sources/add/$pluginKey",
-        params: { pluginKey },
-        search,
-      });
+      navigate(routes.sourcesAdd(pluginKey, search));
     },
-    [close, navigate],
+    [close, navigate, routes],
   );
 
   return (

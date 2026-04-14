@@ -10,6 +10,7 @@
 import { eq } from "drizzle-orm";
 
 import { accounts, organizations } from "./schema";
+import { makeOrganizationSlug } from "./slug";
 import type { DrizzleDb } from "@executor/storage-postgres";
 
 export type Account = typeof accounts.$inferSelect;
@@ -31,9 +32,14 @@ export const makeUserStore = (db: DrizzleDb) => ({
   // --- Organizations ---
 
   upsertOrganization: async (org: { id: string; name: string }) => {
+    const slug = makeOrganizationSlug(org);
+    // We intentionally do NOT update `slug` on conflict — it is derived
+    // from (id, name) but must remain stable for bookmarked URLs even if
+    // the org is renamed. New orgs get a fresh slug on insert; existing
+    // orgs keep whatever slug they already had.
     const [result] = await db
       .insert(organizations)
-      .values(org)
+      .values({ ...org, slug })
       .onConflictDoUpdate({
         target: organizations.id,
         set: { name: org.name },
@@ -44,6 +50,11 @@ export const makeUserStore = (db: DrizzleDb) => ({
 
   getOrganization: async (id: string) => {
     const rows = await db.select().from(organizations).where(eq(organizations.id, id));
+    return rows[0] ?? null;
+  },
+
+  getOrganizationBySlug: async (slug: string) => {
+    const rows = await db.select().from(organizations).where(eq(organizations.slug, slug));
     return rows[0] ?? null;
   },
 });

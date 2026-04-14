@@ -1,7 +1,8 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { sourcesAtom } from "@executor/react/api/atoms";
+import { RoutesProvider, type AppRoutes } from "@executor/react/api/routes-context";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import {
@@ -45,27 +46,78 @@ const sourcePlugins = [
 ];
 
 // ── NavItem ──────────────────────────────────────────────────────────────
+//
+// The cloud sidebar only links to the top-level `/$org/*` routes. TanStack's
+// Link is typed against the generated route tree, so rather than trying to
+// thread a generic `to` through we bind directly here. The caller passes a
+// `kind` discriminator and we render the matching Link.
 
-function NavItem(props: { to: string; label: string; active: boolean; onNavigate?: () => void }) {
-  return (
-    <Link
-      to={props.to}
-      onClick={props.onNavigate}
-      className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-        props.active
-          ? "bg-sidebar-active text-foreground font-medium"
-          : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
-      ].join(" ")}
-    >
-      {props.label}
-    </Link>
-  );
+type NavItemKind = "home" | "secrets" | "settings" | "billing";
+
+type NavItemProps = {
+  kind: NavItemKind;
+  params: { org: string };
+  label: string;
+  active: boolean;
+  onNavigate?: () => void;
+};
+
+function NavItem(props: NavItemProps) {
+  const className = [
+    "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+    props.active
+      ? "bg-sidebar-active text-foreground font-medium"
+      : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
+  ].join(" ");
+
+  const label = props.label;
+
+  switch (props.kind) {
+    case "home":
+      return (
+        <Link to="/$org" params={props.params} onClick={props.onNavigate} className={className}>
+          {label}
+        </Link>
+      );
+    case "secrets":
+      return (
+        <Link
+          to="/$org/secrets"
+          params={props.params}
+          onClick={props.onNavigate}
+          className={className}
+        >
+          {label}
+        </Link>
+      );
+    case "settings":
+      return (
+        <Link
+          to="/$org/settings"
+          params={props.params}
+          onClick={props.onNavigate}
+          className={className}
+        >
+          {label}
+        </Link>
+      );
+    case "billing":
+      return (
+        <Link
+          to="/$org/billing"
+          params={props.params}
+          onClick={props.onNavigate}
+          className={className}
+        >
+          {label}
+        </Link>
+      );
+  }
 }
 
 // ── SourceList ───────────────────────────────────────────────────────────
 
-function SourceList(props: { pathname: string; onNavigate?: () => void }) {
+function SourceList(props: { pathname: string; orgSlug: string; onNavigate?: () => void }) {
   const scopeId = useScope();
   const sources = useAtomValue(sourcesAtom(scopeId));
 
@@ -84,14 +136,14 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
       ) : (
         <div className="flex flex-col gap-px">
           {value.map((s) => {
-            const detailPath = `/sources/${s.id}`;
+            const detailPath = `/${props.orgSlug}/sources/${s.id}`;
             const active =
               props.pathname === detailPath || props.pathname.startsWith(`${detailPath}/`);
             return (
               <Link
                 key={s.id}
-                to="/sources/$namespace"
-                params={{ namespace: s.id }}
+                to="/$org/sources/$namespace"
+                params={{ org: props.orgSlug, namespace: s.id }}
                 onClick={props.onNavigate}
                 className={[
                   "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
@@ -146,10 +198,14 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
   const organizations = useAtomValue(organizationsAtom);
   const doSwitchOrganization = useAtomSet(switchOrganization, { mode: "promiseExit" });
 
-  const handleSwitch = async (organizationId: string) => {
+  const handleSwitch = async (organizationId: string, slug: string) => {
     if (organizationId === props.activeOrganizationId) return;
     const exit = await doSwitchOrganization({ payload: { organizationId } });
-    if (exit._tag === "Success") window.location.reload();
+    // Hard-navigate to the new org's scoped URL. A plain reload would
+    // keep us on the current `/:oldSlug/...` path and immediately trip
+    // the slug-mismatch reconcile in the $org layout, causing a second
+    // round-trip; jumping straight to the new slug is one hop.
+    if (exit._tag === "Success") window.location.assign(`/${slug}/`);
   };
 
   return Result.match(organizations, {
@@ -166,7 +222,7 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
               <DropdownMenuItem
                 key={organization.id}
                 disabled={isActive}
-                onClick={() => handleSwitch(organization.id)}
+                onClick={() => handleSwitch(organization.id, organization.slug)}
                 className="text-xs"
               >
                 <span className="min-w-0 flex-1 truncate">{organization.name}</span>
@@ -206,7 +262,7 @@ function UserFooter() {
 
   const form = useCreateOrganizationForm({
     defaultName: suggestedOrganizationName,
-    onSuccess: () => window.location.reload(),
+    onSuccess: (org) => window.location.assign(`/${org.slug}/`),
   });
 
   if (auth.status !== "authenticated") return null;
@@ -351,33 +407,69 @@ function UserFooter() {
 
 // ── SidebarContent ───────────────────────────────────────────────────────
 
-function SidebarContent(props: { pathname: string; onNavigate?: () => void; showBrand?: boolean }) {
-  const isHome = props.pathname === "/";
-  const isSecrets = props.pathname === "/secrets";
-  const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
-  const isOrg = props.pathname === "/org";
+function SidebarContent(props: {
+  pathname: string;
+  orgSlug: string;
+  onNavigate?: () => void;
+  showBrand?: boolean;
+}) {
+  const base = `/${props.orgSlug}`;
+  const isHome = props.pathname === base || props.pathname === `${base}/`;
+  const isSecrets = props.pathname === `${base}/secrets`;
+  const isBilling =
+    props.pathname === `${base}/billing` || props.pathname.startsWith(`${base}/billing/`);
+  const isSettings = props.pathname === `${base}/settings`;
+  const params = { org: props.orgSlug };
 
   return (
     <>
       {props.showBrand !== false && (
         <div className="flex h-12 shrink-0 items-center border-b border-sidebar-border px-4">
-          <Link to="/" className="flex items-center gap-1.5">
+          <Link to="/$org" params={params} className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
         </div>
       )}
 
       <nav className="flex flex-1 flex-col overflow-y-auto p-2">
-        <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
-        <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
-        <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
-        <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
+        <NavItem
+          kind="home"
+          params={params}
+          label="Sources"
+          active={isHome}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          kind="secrets"
+          params={params}
+          label="Secrets"
+          active={isSecrets}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          kind="settings"
+          params={params}
+          label="Organization"
+          active={isSettings}
+          onNavigate={props.onNavigate}
+        />
+        <NavItem
+          kind="billing"
+          params={params}
+          label="Billing"
+          active={isBilling}
+          onNavigate={props.onNavigate}
+        />
 
         <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
           <span>Sources</span>
         </div>
 
-        <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
+        <SourceList
+          pathname={props.pathname}
+          orgSlug={props.orgSlug}
+          onNavigate={props.onNavigate}
+        />
       </nav>
 
       <UserFooter />
@@ -390,6 +482,27 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
 export function Shell() {
   const location = useLocation();
   const pathname = location.pathname;
+  const auth = useAuth();
+  // AuthGate only mounts Shell once we have an authenticated user with an
+  // active org, so the slug is guaranteed present. We fall back to an empty
+  // string to keep types happy — if it's missing we render nothing below.
+  const orgSlug =
+    auth.status === "authenticated" && auth.organization ? auth.organization.slug : "";
+  const cloudRoutes = useMemo<AppRoutes>(
+    () => ({
+      home: { to: "/$org", params: { org: orgSlug } },
+      sourceDetail: (sourceId) => ({
+        to: "/$org/sources/$namespace",
+        params: { org: orgSlug, namespace: sourceId },
+      }),
+      sourcesAdd: (pluginKey, search) => ({
+        to: "/$org/sources/add/$pluginKey",
+        params: { org: orgSlug, pluginKey },
+        search,
+      }),
+    }),
+    [orgSlug],
+  );
   const lastPathname = useRef(pathname);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   if (lastPathname.current !== pathname) {
@@ -408,11 +521,12 @@ export function Shell() {
   }, [mobileSidebarOpen]);
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <CommandPalette sourcePlugins={sourcePlugins} />
+    <RoutesProvider value={cloudRoutes}>
+      <div className="flex h-screen overflow-hidden">
+        <CommandPalette sourcePlugins={sourcePlugins} />
       {/* Desktop sidebar */}
       <aside className="hidden w-52 shrink-0 border-r border-sidebar-border bg-sidebar md:flex md:flex-col lg:w-56">
-        <SidebarContent pathname={pathname} />
+        <SidebarContent pathname={pathname} orgSlug={orgSlug} />
       </aside>
 
       {/* Mobile sidebar overlay */}
@@ -427,7 +541,7 @@ export function Shell() {
           />
           <div className="relative flex h-full w-[84vw] max-w-xs flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
             <div className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
-              <Link to="/" className="flex items-center gap-1.5">
+              <Link to="/$org" params={{ org: orgSlug }} className="flex items-center gap-1.5">
                 <span className="font-display text-base tracking-tight text-foreground">
                   executor
                 </span>
@@ -452,6 +566,7 @@ export function Shell() {
             </div>
             <SidebarContent
               pathname={pathname}
+              orgSlug={orgSlug}
               onNavigate={() => setMobileSidebarOpen(false)}
               showBrand={false}
             />
@@ -480,14 +595,15 @@ export function Shell() {
               />
             </svg>
           </Button>
-          <Link to="/" className="flex items-center gap-1.5">
+          <Link to="/$org" params={{ org: orgSlug }} className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
           </Link>
           <div className="w-8 shrink-0" />
         </div>
 
         <Outlet />
-      </main>
-    </div>
+        </main>
+      </div>
+    </RoutesProvider>
   );
 }

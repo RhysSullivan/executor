@@ -5,7 +5,7 @@ import { Badge } from "@executor/react/components/badge";
 
 type Plan = NonNullable<ReturnType<typeof useListPlans>["data"]>[number];
 
-export const Route = createFileRoute("/billing")({
+export const Route = createFileRoute("/$org/billing")({
   component: BillingPage,
 });
 
@@ -16,6 +16,7 @@ const PLAN_TAGLINES: Record<string, string> = {
 };
 
 function BillingPage() {
+  const { org } = Route.useParams();
   const { data: customer, openCustomerPortal, isLoading: customerLoading } = useCustomer();
   const { data: plans, isLoading: plansLoading } = useListPlans();
 
@@ -101,7 +102,8 @@ function BillingPage() {
               </Button>
             )}
             <Link
-              to="/billing/plans"
+              to="/$org/billing/plans"
+              params={{ org }}
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Manage

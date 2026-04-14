@@ -6,6 +6,7 @@ import { AUTH_PATHS, CloudAuthApi, CloudAuthPublicApi } from "./api";
 import { SessionContext } from "./middleware";
 import { UserStoreService } from "./context";
 import { authorizeOrganization } from "./authorize-organization";
+import { resolveOrganization } from "./resolve-organization";
 import { WorkOSError } from "./errors";
 import { WorkOSAuth } from "./workos";
 import { server } from "../env";
@@ -62,6 +63,7 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           // memberships at all, leave the session org-less — the frontend
           // AuthGate will render the onboarding flow. We never auto-create
           // organizations on login.
+          let activeOrgId = result.organizationId ?? null;
           if (!result.organizationId && sealedSession) {
             const memberships = yield* workos.listUserMemberships(result.user.id);
             const existing = memberships.data[0];
@@ -70,7 +72,10 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
                 sealedSession,
                 existing.organizationId,
               );
-              if (refreshed) sealedSession = refreshed;
+              if (refreshed) {
+                sealedSession = refreshed;
+                activeOrgId = existing.organizationId;
+              }
             }
           }
 
@@ -79,7 +84,17 @@ export const CloudAuthPublicHandlers = HttpApiBuilder.group(
           }
 
           setCookie("wos-session", sealedSession, COOKIE_OPTIONS);
-          return HttpServerResponse.redirect("/", { status: 302 });
+          // Land the user directly on their active org's scoped URL. If we
+          // can't resolve a slug (no active org yet), fall back to root —
+          // the frontend AuthGate will render the onboarding flow from
+          // there and redirect out once an org exists.
+          const target = activeOrgId
+            ? yield* resolveOrganization(activeOrgId).pipe(
+                Effect.map((org) => `/${org.slug}/`),
+                Effect.orElseSucceed(() => "/"),
+              )
+            : "/";
+          return HttpServerResponse.redirect(target, { status: 302 });
         }),
       ),
 );
@@ -107,7 +122,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
               name: session.name,
               avatarUrl: session.avatarUrl,
             },
-            organization: org ? { id: org.id, name: org.name } : null,
+            organization: org ? { id: org.id, slug: org.slug, name: org.name } : null,
           };
         }),
       )
@@ -123,8 +138,8 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           const memberships = yield* workos.listUserMemberships(session.accountId);
           const organizations = yield* Effect.all(
             memberships.data.map((m) =>
-              workos.getOrganization(m.organizationId).pipe(
-                Effect.map((org) => ({ id: org.id, name: org.name })),
+              resolveOrganization(m.organizationId).pipe(
+                Effect.map((org) => ({ id: org.id, slug: org.slug, name: org.name })),
                 Effect.orElseSucceed(() => null),
               ),
             ),
@@ -160,7 +175,9 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           const name = payload.name.trim();
           const org = yield* workos.createOrganization(name);
           yield* workos.createMembership(org.id, session.accountId, "admin");
-          yield* users.use((s) => s.upsertOrganization({ id: org.id, name: org.name }));
+          const stored = yield* users.use((s) =>
+            s.upsertOrganization({ id: org.id, name: org.name }),
+          );
 
           // Try to attach the new org to the current session. This can fail
           // (or silently return a session still scoped to the old org) when
@@ -189,7 +206,7 @@ export const CloudSessionAuthHandlers = HttpApiBuilder.group(
           }
 
           setCookie("wos-session", refreshed, COOKIE_OPTIONS);
-          return { id: org.id, name: org.name };
+          return { id: stored.id, slug: stored.slug, name: stored.name };
         }),
       ),
 );

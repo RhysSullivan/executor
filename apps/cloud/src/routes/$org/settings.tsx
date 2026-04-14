@@ -45,10 +45,10 @@ import {
   getDomainVerificationLink,
   deleteDomain,
   updateOrgName,
-} from "../web/org-atoms";
-import { authAtom, useAuth } from "../web/auth";
+} from "../../web/org-atoms";
+import { authAtom, useAuth } from "../../web/auth";
 
-export const Route = createFileRoute("/org")({
+export const Route = createFileRoute("/$org/settings")({
   component: OrgPage,
 });
 
@@ -103,6 +103,7 @@ function formatLastActive(lastActiveAt: string | null): string {
 }
 
 function OrgPage() {
+  const { org } = Route.useParams();
   const auth = useAuth();
   const orgName =
     auth.status === "authenticated" ? (auth.organization?.name ?? "Organization") : "Organization";
@@ -250,7 +251,7 @@ function OrgPage() {
               <p className="text-sm text-muted-foreground">
                 Domain verification is available on the Professional plan.
               </p>
-              <Link to="/billing/plans">
+              <Link to="/$org/billing/plans" params={{ org }}>
                 <Button size="sm" variant="outline">
                   Upgrade
                 </Button>
@@ -697,4 +698,3 @@ function InviteDialog(props: {
     </Dialog>
   );
 }
-

@@ -12,7 +12,7 @@ const sourcePlugins = [
   graphqlSourcePlugin,
 ];
 
-export const Route = createFileRoute("/sources/$namespace")({
+export const Route = createFileRoute("/$org/sources/$namespace")({
   component: () => {
     const { namespace } = Route.useParams();
     return <SourceDetailPage namespace={namespace} sourcePlugins={sourcePlugins} />;

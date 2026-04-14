@@ -17,6 +17,7 @@ type AuthUser = {
 
 type AuthOrganization = {
   id: string;
+  slug: string;
   name: string;
 };
 

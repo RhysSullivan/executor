@@ -110,8 +110,8 @@ describe("DbService", () => {
             const db = yield* DbService;
             return yield* Effect.promise(() => makeUserStore(db).getOrganization(orgId));
           }).pipe(Effect.provide(DbService.Live)),
-        ) as Effect.Effect<{ id: string; name: string } | null, never, never>;
-      }) as Effect.Effect<{ id: string; name: string } | null, never, never>,
+        ) as Effect.Effect<{ id: string; slug: string; name: string } | null, never, never>;
+      }) as Effect.Effect<{ id: string; slug: string; name: string } | null, never, never>,
     );
 
     expect(result?.id).toBe(orgId);
