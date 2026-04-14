@@ -18,14 +18,36 @@ import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/
 import { normalizeCode } from "./normalize";
 import { buildExecutorModule } from "./module-template";
 
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
 export class DynamicWorkerExecutionError extends Data.TaggedError("DynamicWorkerExecutionError")<{
   readonly message: string;
 }> {}
 
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
 export type DynamicWorkerExecutorOptions = {
   readonly loader: WorkerLoader;
+  /**
+   * Timeout in milliseconds for code execution. Defaults to 5 minutes.
+   */
   readonly timeoutMs?: number;
+  /**
+   * Controls outbound network access from sandboxed code.
+   * - `null` (default): `fetch()` and `connect()` throw — fully isolated.
+   * - `undefined`: inherits parent Worker's network access.
+   * - A `Fetcher`: all outbound requests route through this handler.
+   */
   readonly globalOutbound?: Fetcher | null;
+  /**
+   * Additional modules to make available in the sandbox.
+   * Keys are module specifiers, values are module source code.
+   * The key `"executor.js"` is reserved.
+   */
   readonly modules?: Record<string, string>;
 };
 
@@ -51,6 +73,10 @@ type WorkerRpcFailure = {
 };
 
 type WorkerRpcResponse = WorkerRpcSuccess | WorkerRpcFailure;
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const ENTRY_MODULE = "executor.js";
@@ -181,6 +207,15 @@ const encodeWorkerRpcResponse = (response: WorkerRpcResponse): string => JSON.st
 export const decodeWorkerRpcResponse = (raw: string): WorkerRpcResponse =>
   JSON.parse(raw) as WorkerRpcResponse;
 
+// ---------------------------------------------------------------------------
+// ToolDispatcher — bridges RPC calls back to SandboxToolInvoker
+// ---------------------------------------------------------------------------
+
+/**
+ * An `RpcTarget` passed to the dynamic Worker so that sandboxed code can
+ * invoke tools on the host. The dynamic worker calls
+ * `__dispatcher.call(path, argsJson)` over Workers RPC.
+ */
 export class ToolDispatcher extends RpcTarget {
   readonly #invoker: SandboxToolInvoker;
 
@@ -212,6 +247,10 @@ export class ToolDispatcher extends RpcTarget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Evaluate
+// ---------------------------------------------------------------------------
 
 const evaluate = async (
   options: DynamicWorkerExecutorOptions,
@@ -255,6 +294,10 @@ const evaluate = async (
   };
 };
 
+// ---------------------------------------------------------------------------
+// Effect wrapper
+// ---------------------------------------------------------------------------
+
 const runInDynamicWorker = (
   options: DynamicWorkerExecutorOptions,
   code: string,
@@ -267,6 +310,10 @@ const runInDynamicWorker = (
         message: renderTransportMessage(serializeWorkerErrorValue(cause)),
       }),
   });
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 export const makeDynamicWorkerExecutor = (options: DynamicWorkerExecutorOptions): CodeExecutor => ({
   execute: (code: string, toolInvoker: SandboxToolInvoker) =>
