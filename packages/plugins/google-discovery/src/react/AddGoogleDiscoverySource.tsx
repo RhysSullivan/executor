@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtomSet, useAtomValue, useAtomRefresh, Result } from "@effect-atom/atom-react";
 
+import {
+  openOAuthPopup,
+  type OAuthPopupResult,
+} from "@executor/plugin-oauth2/react";
+
 import { secretsAtom, setSecret } from "@executor/react/api/atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { SecretPicker, type SecretPickerSecret } from "@executor/react/plugins/secret-picker";
@@ -373,69 +378,10 @@ type OAuthAuth = {
   scopes: string[];
 };
 
-type OAuthPopupResult =
-  | ({
-      type: "executor:oauth-result";
-      ok: true;
-      sessionId: string;
-    } & OAuthAuth)
-  | {
-      type: "executor:oauth-result";
-      ok: false;
-      sessionId: null;
-      error: string;
-    };
+type GoogleOAuthPopupResult = OAuthPopupResult<OAuthAuth>;
 
 const OAUTH_RESULT_CHANNEL = "executor:google-discovery-oauth-result";
-
-const isOAuthPopupResult = (value: unknown): value is OAuthPopupResult =>
-  typeof value === "object" &&
-  value !== null &&
-  (value as { type?: unknown }).type === "executor:oauth-result";
-
-function openOAuthPopup(
-  url: string,
-  onResult: (data: OAuthPopupResult) => void,
-  onOpenFailed?: () => void,
-): () => void {
-  const w = 640;
-  const h = 760;
-  const left = window.screenX + (window.outerWidth - w) / 2;
-  const top = window.screenY + (window.outerHeight - h) / 2;
-
-  let settled = false;
-  const channel =
-    typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(OAUTH_RESULT_CHANNEL) : null;
-  const settle = () => {
-    if (settled) return;
-    settled = true;
-    window.removeEventListener("message", onMessage);
-    channel?.close();
-  };
-
-  const handleResult = (data: unknown) => {
-    if (!isOAuthPopupResult(data) || settled) return;
-    settle();
-    onResult(data);
-  };
-
-  const onMessage = (event: MessageEvent) => {
-    if (event.origin === window.location.origin) handleResult(event.data);
-  };
-  window.addEventListener("message", onMessage);
-  if (channel) channel.onmessage = (event) => handleResult(event.data);
-
-  const popup = window.open(
-    url,
-    "google-discovery-oauth",
-    `width=${w},height=${h},left=${left},top=${top},popup=1`,
-  );
-  if (!popup && !settled) {
-    settle();
-    queueMicrotask(() => onOpenFailed?.());
-  }
-  return settle;
-}
+const OAUTH_POPUP_NAME = "google-discovery-oauth";
 
 export default function AddGoogleDiscoverySource(props: {
   readonly onComplete: () => void;
@@ -565,9 +511,11 @@ export default function AddGoogleDiscoverySource(props: {
         },
       });
 
-      oauthCleanup.current = openOAuthPopup(
-        response.authorizationUrl,
-        (result) => {
+      oauthCleanup.current = openOAuthPopup<OAuthAuth>({
+        url: response.authorizationUrl,
+        popupName: OAUTH_POPUP_NAME,
+        channelName: OAUTH_RESULT_CHANNEL,
+        onResult: (result: GoogleOAuthPopupResult) => {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           if (result.ok) {
@@ -587,12 +535,12 @@ export default function AddGoogleDiscoverySource(props: {
             setError(result.error);
           }
         },
-        () => {
+        onOpenFailed: () => {
           oauthCleanup.current = null;
           setStartingOAuth(false);
           setError("OAuth popup was blocked");
         },
-      );
+      });
     } catch (e) {
       setStartingOAuth(false);
       setError(e instanceof Error ? e.message : "Failed to start OAuth");

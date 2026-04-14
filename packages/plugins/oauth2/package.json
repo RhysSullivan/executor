@@ -16,7 +16,9 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./http": "./src/http.ts",
+    "./react": "./src/react.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -25,6 +27,18 @@
         "import": {
           "types": "./dist/index.d.ts",
           "default": "./dist/index.js"
+        }
+      },
+      "./http": {
+        "import": {
+          "types": "./dist/http.d.ts",
+          "default": "./dist/http.js"
+        }
+      },
+      "./react": {
+        "import": {
+          "types": "./dist/react.d.ts",
+          "default": "./dist/react.js"
         }
       }
     }
