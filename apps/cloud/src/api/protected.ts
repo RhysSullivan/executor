@@ -11,6 +11,7 @@ import { GoogleDiscoveryExtensionService } from "@executor/plugin-google-discove
 import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
 
 import { authorizeOrganization } from "../auth/authorize-organization";
+import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { createOrgExecutor } from "../services/executor";
@@ -18,6 +19,20 @@ import { makeTrackExecutionUsage } from "./autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { withExecutionUsageTracking } from "./execution-usage";
 import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
+
+// ---------------------------------------------------------------------------
+// Org resolution for protected requests.
+//
+// The URL is the source of truth for which org a request targets. The
+// `x-executor-org-slug` header is set by `apiRequestMiddleware` (start.ts)
+// when it peels `/api/o/:slug/` off the incoming path. We resolve the slug
+// to an orgId and then verify live membership against WorkOS — the session
+// cookie is used for *user identity only*, no longer for org selection.
+//
+// If the header is absent (legacy calls that haven't been rewritten) we
+// fall back to the session-cookie organizationId so existing flows keep
+// working while clients migrate.
+// ---------------------------------------------------------------------------
 
 const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
   Effect.gen(function* () {
@@ -32,8 +47,17 @@ const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
     );
     const workos = yield* WorkOSAuth;
     const session = yield* workos.authenticateRequest(webRequest);
-    if (!session || !session.organizationId) return null;
+    if (!session) return null;
 
+    const slug = request.headers["x-executor-org-slug"] ?? null;
+    if (slug) {
+      const users = yield* UserStoreService;
+      const stored = yield* users.use((s) => s.getOrganizationBySlug(slug));
+      if (!stored) return null;
+      return yield* authorizeOrganization(session.userId, stored.id);
+    }
+
+    if (!session.organizationId) return null;
     return yield* authorizeOrganization(session.userId, session.organizationId);
   });
 

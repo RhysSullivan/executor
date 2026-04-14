@@ -65,16 +65,47 @@ const mcpRequestMiddleware = createMiddleware({ type: "request" }).server(
 
 // ---------------------------------------------------------------------------
 // API middleware — routes /api/* to the Effect HTTP layer
+//
+// `/api/o/:orgSlug/*` is the org-scoped namespace for the protected API
+// (tools, sources, secrets, executions). We peel the slug off the front of
+// the path and stash it on an internal `x-executor-org-slug` header, then
+// forward the inner path to the Effect router. `lookupOrgForRequest` reads
+// the header when authorizing — falling back to the session cookie when no
+// header is present (auth endpoints, Autumn, OrgApi).
+//
+// We deliberately use `/o/` (not `/org/`) to avoid colliding with the
+// existing OrgApi mount at `/api/org/*`.
 // ---------------------------------------------------------------------------
+
+const ORG_SCOPED_PATH = /^\/o\/([^/]+)(\/.*)?$/;
 
 const apiRequestMiddleware = createMiddleware({ type: "request" }).server(
   ({ pathname, request, next }) => {
-    if (pathname === "/api" || pathname.startsWith("/api/")) {
-      const url = new URL(request.url);
-      url.pathname = url.pathname.replace(/^\/api/, "");
-      return handleApiRequest(new Request(url, request));
+    if (pathname !== "/api" && !pathname.startsWith("/api/")) return next();
+
+    const url = new URL(request.url);
+    let innerPath = url.pathname.replace(/^\/api/, "") || "/";
+
+    const headers = new Headers(request.headers);
+    const scoped = innerPath.match(ORG_SCOPED_PATH);
+    if (scoped) {
+      const [, orgSlug, rest] = scoped;
+      headers.set("x-executor-org-slug", orgSlug);
+      innerPath = rest ?? "/";
     }
-    return next();
+
+    url.pathname = innerPath;
+    return handleApiRequest(
+      new Request(url, {
+        method: request.method,
+        headers,
+        body: request.body,
+        redirect: request.redirect,
+        // Cloudflare Workers requires `duplex: "half"` when forwarding a
+        // streaming body; tolerate runtimes that don't know the option.
+        ...(request.body ? { duplex: "half" } : {}),
+      } as RequestInit),
+    );
   },
 );
 
