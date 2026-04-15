@@ -516,6 +516,8 @@
         "@executor/sdk": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "effect": "catalog:",
+        "smol-toml": "^1.6.1",
+        "yaml": "^2.7.1",
       },
       "devDependencies": {
         "@effect-atom/atom-react": "^0.5.0",
