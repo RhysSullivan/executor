@@ -4,259 +4,340 @@ import { Effect } from "effect";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as SqlClient from "@effect/sql/SqlClient";
 
-import { ScopeId, ToolId, SecretId, makeInMemorySecretProvider, scopeKv } from "@executor/sdk";
-import type { Kv } from "@executor/sdk";
-import { migrate } from "./schema";
-import { makeSqliteKv } from "./plugin-kv";
-import { makeKvToolRegistry } from "./tool-registry";
-import { makeKvSecretStore } from "./secret-store";
-import { makeKvPolicyEngine } from "./policy-engine";
+import type { DBAdapter, DBSchema } from "@executor/storage-core";
+import { makeSqliteAdapter } from "./index";
 
 // ---------------------------------------------------------------------------
-// Test layer: in-memory SQLite + migrated KV
+// Test schema — exercises string, number, boolean, date, and json columns
 // ---------------------------------------------------------------------------
 
+const testSchema: DBSchema = {
+  source: {
+    modelName: "source",
+    fields: {
+      name: { type: "string", required: true },
+      priority: { type: "number" },
+      enabled: { type: "boolean" },
+      createdAt: { type: "date" },
+      metadata: { type: "json" },
+    },
+  },
+  tag: {
+    modelName: "tag",
+    fields: {
+      label: { type: "string", required: true },
+    },
+  },
+};
+
+// In-memory sqlite layer — no files to clean up between runs.
 const TestSqlLayer = SqliteClient.layer({ filename: ":memory:" });
 
-const withKv = <A, E>(fn: (kv: Kv) => Effect.Effect<A, E>) =>
+const withAdapter = <A, E>(
+  fn: (adapter: DBAdapter) => Effect.Effect<A, E>,
+): Effect.Effect<A, E | Error> =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    yield* migrate.pipe(Effect.catchAll((e) => Effect.die(e)));
-    const kv = makeSqliteKv(sql);
-    return yield* fn(kv);
-  }).pipe(Effect.provide(TestSqlLayer));
+    const adapter = yield* makeSqliteAdapter({ sql, schema: testSchema });
+    return yield* fn(adapter);
+  }).pipe(Effect.provide(TestSqlLayer)) as Effect.Effect<A, E | Error>;
 
 // ---------------------------------------------------------------------------
-// Tool registry
+// CRUD
 // ---------------------------------------------------------------------------
 
-describe("KvToolRegistry", () => {
-  it.effect("register and list tools", () =>
-    withKv((kv) =>
+describe("makeSqliteAdapter", () => {
+  it.effect("create + findOne round-trips a row with coerced columns", () =>
+    withAdapter((adapter) =>
       Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.register([
-          {
-            id: ToolId.make("t1"),
-            pluginKey: "test",
-            sourceId: "src-a",
-            name: "tool-one",
-            description: "First tool",
+        const created = yield* adapter.create<{
+          id: string;
+          name: string;
+          priority: number;
+          enabled: boolean;
+          createdAt: Date;
+          metadata: Record<string, unknown>;
+        }>({
+          model: "source",
+          data: {
+            name: "github",
+            priority: 10,
+            enabled: true,
+            createdAt: new Date("2026-04-15T00:00:00.000Z"),
+            metadata: { slug: "gh", tags: ["a", "b"] },
           },
-          {
-            id: ToolId.make("t2"),
-            pluginKey: "test",
-            sourceId: "src-b",
-            name: "tool-two",
+        });
+
+        expect(created.id).toBeDefined();
+        expect(created.name).toBe("github");
+        expect(created.enabled).toBe(true);
+        expect(created.metadata).toEqual({ slug: "gh", tags: ["a", "b"] });
+
+        const found = yield* adapter.findOne<{
+          id: string;
+          name: string;
+          enabled: boolean;
+          createdAt: Date;
+          metadata: Record<string, unknown>;
+        }>({
+          model: "source",
+          where: [{ field: "name", value: "github" }],
+        });
+
+        expect(found).not.toBeNull();
+        expect(found!.id).toBe(created.id);
+        expect(found!.enabled).toBe(true);
+        expect(found!.createdAt instanceof Date).toBe(true);
+        expect(found!.createdAt.toISOString()).toBe(
+          "2026-04-15T00:00:00.000Z",
+        );
+        expect(found!.metadata).toEqual({ slug: "gh", tags: ["a", "b"] });
+      }),
+    ),
+  );
+
+  it.effect("forceAllowId preserves caller-supplied id", () =>
+    withAdapter((adapter) =>
+      Effect.gen(function* () {
+        yield* adapter.create({
+          model: "tag",
+          forceAllowId: true,
+          data: { id: "tag-fixed-1", label: "red" } as unknown as {
+            label: string;
           },
-        ]);
-
-        const all = yield* reg.list();
-        expect(all).toHaveLength(2);
-
-        const filtered = yield* reg.list({ sourceId: "src-a" });
-        expect(filtered).toHaveLength(1);
-        expect(filtered[0]!.name).toBe("tool-one");
+        });
+        const found = yield* adapter.findOne<{ id: string; label: string }>({
+          model: "tag",
+          where: [{ field: "id", value: "tag-fixed-1" }],
+        });
+        expect(found).not.toBeNull();
+        expect(found!.id).toBe("tag-fixed-1");
+        expect(found!.label).toBe("red");
       }),
     ),
   );
 
-  it.effect("shared definitions are reused in TypeScript previews", () =>
-    withKv((kv) =>
+  it.effect("update mutates fields and returns the new row", () =>
+    withAdapter((adapter) =>
       Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.registerDefinitions({
-          Address: { type: "object", properties: { city: { type: "string" } } },
+        const row = yield* adapter.create<{
+          id: string;
+          name: string;
+          priority: number;
+        }>({
+          model: "source",
+          data: { name: "gitlab", priority: 1 },
         });
 
-        yield* reg.register([
+        const updated = yield* adapter.update<{
+          id: string;
+          name: string;
+          priority: number;
+        }>({
+          model: "source",
+          where: [{ field: "id", value: row.id }],
+          update: { priority: 99 },
+        });
+        expect(updated).not.toBeNull();
+        expect(updated!.priority).toBe(99);
+      }),
+    ),
+  );
+
+  it.effect("delete + count reflect removals", () =>
+    withAdapter((adapter) =>
+      Effect.gen(function* () {
+        yield* adapter.createMany({
+          model: "tag",
+          data: [{ label: "a" }, { label: "b" }, { label: "c" }],
+        });
+        expect(yield* adapter.count({ model: "tag" })).toBe(3);
+
+        yield* adapter.delete({
+          model: "tag",
+          where: [{ field: "label", value: "b" }],
+        });
+        expect(yield* adapter.count({ model: "tag" })).toBe(2);
+
+        const removed = yield* adapter.deleteMany({
+          model: "tag",
+          where: [
+            { field: "label", value: "a" },
+            { field: "label", value: "c", connector: "OR" },
+          ],
+        });
+        expect(removed).toBe(2);
+        expect(yield* adapter.count({ model: "tag" })).toBe(0);
+      }),
+    ),
+  );
+
+  it.effect("createMany bulk-inserts rows in order", () =>
+    withAdapter((adapter) =>
+      Effect.gen(function* () {
+        const rows = yield* adapter.createMany<{ id: string; label: string }>({
+          model: "tag",
+          data: [{ label: "one" }, { label: "two" }, { label: "three" }],
+        });
+        expect(rows).toHaveLength(3);
+        expect(rows.map((r) => r.label)).toEqual(["one", "two", "three"]);
+
+        const all = yield* adapter.findMany<{ label: string }>({
+          model: "tag",
+        });
+        expect(all).toHaveLength(3);
+      }),
+    ),
+  );
+
+  it.effect("findMany supports sort + limit + offset", () =>
+    withAdapter((adapter) =>
+      Effect.gen(function* () {
+        yield* adapter.createMany({
+          model: "source",
+          data: [
+            { name: "a", priority: 3 },
+            { name: "b", priority: 1 },
+            { name: "c", priority: 2 },
+          ],
+        });
+        const asc = yield* adapter.findMany<{ name: string; priority: number }>(
           {
-            id: ToolId.make("with-ref"),
-            pluginKey: "test",
-            sourceId: "test-src",
-            name: "with-ref",
-            inputSchema: {
-              type: "object",
-              properties: { addr: { $ref: "#/$defs/Address" } },
-            },
+            model: "source",
+            sortBy: { field: "priority", direction: "asc" },
           },
+        );
+        expect(asc.map((r) => r.name)).toEqual(["b", "c", "a"]);
+
+        const firstDesc = yield* adapter.findMany<{ name: string }>({
+          model: "source",
+          sortBy: { field: "priority", direction: "desc" },
+          limit: 1,
+        });
+        expect(firstDesc.map((r) => r.name)).toEqual(["a"]);
+
+        const offset1 = yield* adapter.findMany<{ name: string }>({
+          model: "source",
+          sortBy: { field: "priority", direction: "asc" },
+          offset: 1,
+        });
+        expect(offset1.map((r) => r.name)).toEqual(["c", "a"]);
+      }),
+    ),
+  );
+
+  it.effect("where operators: contains, starts_with, ends_with, gte", () =>
+    withAdapter((adapter) =>
+      Effect.gen(function* () {
+        yield* adapter.createMany({
+          model: "source",
+          data: [
+            { name: "github-main", priority: 1 },
+            { name: "github-edge", priority: 5 },
+            { name: "gitlab", priority: 10 },
+          ],
+        });
+
+        const contains = yield* adapter.findMany<{ name: string }>({
+          model: "source",
+          where: [{ field: "name", value: "git", operator: "contains" }],
+        });
+        expect(contains).toHaveLength(3);
+
+        const starts = yield* adapter.findMany<{ name: string }>({
+          model: "source",
+          where: [{ field: "name", value: "github", operator: "starts_with" }],
+        });
+        expect(starts).toHaveLength(2);
+
+        const ends = yield* adapter.findMany<{ name: string }>({
+          model: "source",
+          where: [{ field: "name", value: "lab", operator: "ends_with" }],
+        });
+        expect(ends).toHaveLength(1);
+        expect(ends[0]!.name).toBe("gitlab");
+
+        const highPriority = yield* adapter.findMany<{ name: string }>({
+          model: "source",
+          where: [{ field: "priority", value: 5, operator: "gte" }],
+        });
+        expect(highPriority.map((r) => r.name).sort()).toEqual([
+          "github-edge",
+          "gitlab",
         ]);
+      }),
+    ),
+  );
 
-        const schema = yield* reg.schema(ToolId.make("with-ref"));
-        expect(schema.inputTypeScript).toBe("{ addr?: Address }");
-        expect(schema.typeScriptDefinitions).toEqual({
-          Address: "{ city?: string }",
+  it.effect("where operator: in / not_in", () =>
+    withAdapter((adapter) =>
+      Effect.gen(function* () {
+        yield* adapter.createMany({
+          model: "tag",
+          data: [{ label: "a" }, { label: "b" }, { label: "c" }],
         });
-      }),
-    ),
-  );
-
-  it.effect("unregister tools", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.register([
-          { id: ToolId.make("del-me"), pluginKey: "test", sourceId: "test-src", name: "delete-me" },
-        ]);
-        expect(yield* reg.list()).toHaveLength(1);
-
-        yield* reg.unregister([ToolId.make("del-me")]);
-        expect(yield* reg.list()).toHaveLength(0);
-      }),
-    ),
-  );
-
-  it.effect("query filter", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg.register([
-          {
-            id: ToolId.make("a"),
-            pluginKey: "test",
-            sourceId: "test-src",
-            name: "create-user",
-            description: "Creates a user",
-          },
-          { id: ToolId.make("b"), pluginKey: "test", sourceId: "test-src", name: "delete-user" },
-        ]);
-
-        const results = yield* reg.list({ query: "creates" });
-        expect(results).toHaveLength(1);
-        expect(results[0]!.name).toBe("create-user");
-      }),
-    ),
-  );
-
-  it.effect("runtime tools are listed but not persisted", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const reg1 = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        yield* reg1.registerRuntime([
-          {
-            id: ToolId.make("executor.test.runtime"),
-            pluginKey: "test",
-            sourceId: "executor.test",
-            name: "runtime",
-            description: "Runtime-only tool",
-          },
-        ]);
-
-        const listed = yield* reg1.list();
-        expect(listed.map((tool) => tool.id)).toContain("executor.test.runtime");
-
-        const reg2 = makeKvToolRegistry(scopeKv(kv, "tools"), scopeKv(kv, "defs"));
-        const relisted = yield* reg2.list();
-        expect(relisted.map((tool) => tool.id)).not.toContain("executor.test.runtime");
-      }),
-    ),
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Secret store
-// ---------------------------------------------------------------------------
-
-describe("KvSecretStore", () => {
-  it.effect("set and resolve secrets", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const store = makeKvSecretStore(scopeKv(kv, "secrets"));
-        yield* store.addProvider(makeInMemorySecretProvider());
-        yield* store.set({
-          scopeId: ScopeId.make("s1"),
-          id: SecretId.make("api-key"),
-          name: "API Key",
-          value: "sk-12345",
-          purpose: "auth",
+        const some = yield* adapter.findMany<{ label: string }>({
+          model: "tag",
+          where: [{ field: "label", value: ["a", "c"], operator: "in" }],
         });
+        expect(some.map((r) => r.label).sort()).toEqual(["a", "c"]);
 
-        const resolved = yield* store.resolve(SecretId.make("api-key"), ScopeId.make("s1"));
-        expect(resolved).toBe("sk-12345");
+        const none = yield* adapter.findMany<{ label: string }>({
+          model: "tag",
+          where: [{ field: "label", value: ["a", "c"], operator: "not_in" }],
+        });
+        expect(none.map((r) => r.label)).toEqual(["b"]);
       }),
     ),
   );
 
-  it.effect("list and remove", () =>
-    withKv((kv) =>
+  it.effect("insensitive string comparison", () =>
+    withAdapter((adapter) =>
       Effect.gen(function* () {
-        const store = makeKvSecretStore(scopeKv(kv, "secrets"));
-        yield* store.addProvider(makeInMemorySecretProvider());
-        yield* store.set({
-          scopeId: ScopeId.make("s1"),
-          id: SecretId.make("rm-me"),
-          name: "Removable",
-          value: "val",
+        yield* adapter.create({ model: "tag", data: { label: "RED" } });
+        const hit = yield* adapter.findOne<{ label: string }>({
+          model: "tag",
+          where: [{ field: "label", value: "red", mode: "insensitive" }],
         });
-
-        const listed = yield* store.list(ScopeId.make("s1"));
-        expect(listed).toHaveLength(1);
-
-        yield* store.remove(SecretId.make("rm-me"));
-        expect(yield* store.list(ScopeId.make("s1"))).toHaveLength(0);
+        expect(hit).not.toBeNull();
+        expect(hit!.label).toBe("RED");
       }),
     ),
   );
 
-  it.effect("status check", () =>
-    withKv((kv) =>
+  it.effect("transaction rolls back on failure", () =>
+    withAdapter((adapter) =>
       Effect.gen(function* () {
-        const store = makeKvSecretStore(scopeKv(kv, "secrets"));
-        yield* store.addProvider(makeInMemorySecretProvider());
-        const missing = yield* store.status(SecretId.make("no-exist"), ScopeId.make("s1"));
-        expect(missing).toBe("missing");
+        const before = yield* adapter.count({ model: "tag" });
 
-        yield* store.set({
-          scopeId: ScopeId.make("s1"),
-          id: SecretId.make("exists"),
-          name: "Exists",
-          value: "v",
-        });
-        const resolved = yield* store.status(SecretId.make("exists"), ScopeId.make("s1"));
-        expect(resolved).toBe("resolved");
-      }),
-    ),
-  );
-});
+        const result = yield* adapter
+          .transaction((trx) =>
+            Effect.gen(function* () {
+              yield* trx.create({ model: "tag", data: { label: "tx1" } });
+              yield* trx.create({ model: "tag", data: { label: "tx2" } });
+              return yield* Effect.fail(new Error("boom"));
+            }),
+          )
+          .pipe(Effect.either);
 
-// ---------------------------------------------------------------------------
-// Policy engine
-// ---------------------------------------------------------------------------
+        expect(result._tag).toBe("Left");
 
-describe("KvPolicyEngine", () => {
-  it.effect("add and list policies", () =>
-    withKv((kv) =>
-      Effect.gen(function* () {
-        const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
-        const policy = yield* engine.add({
-          scopeId: ScopeId.make("s1"),
-          name: "allow-t1",
-          action: "allow" as const,
-          match: { toolPattern: "t1" },
-          priority: 0,
-        });
-
-        expect(policy.id).toBeDefined();
-        const listed = yield* engine.list(ScopeId.make("s1"));
-        expect(listed).toHaveLength(1);
+        const after = yield* adapter.count({ model: "tag" });
+        expect(after).toBe(before);
       }),
     ),
   );
 
-  it.effect("remove policies", () =>
-    withKv((kv) =>
+  it.effect("transaction commits on success", () =>
+    withAdapter((adapter) =>
       Effect.gen(function* () {
-        const engine = makeKvPolicyEngine(scopeKv(kv, "policies"), scopeKv(kv, "meta"));
-        const policy = yield* engine.add({
-          scopeId: ScopeId.make("s1"),
-          name: "allow-t1",
-          action: "allow" as const,
-          match: { toolPattern: "t1" },
-          priority: 0,
-        });
-
-        expect(yield* engine.remove(policy.id)).toBe(true);
-        expect(yield* engine.list(ScopeId.make("s1"))).toHaveLength(0);
+        yield* adapter.transaction((trx) =>
+          Effect.gen(function* () {
+            yield* trx.create({ model: "tag", data: { label: "ok1" } });
+            yield* trx.create({ model: "tag", data: { label: "ok2" } });
+          }),
+        );
+        expect(yield* adapter.count({ model: "tag" })).toBe(2);
       }),
     ),
   );

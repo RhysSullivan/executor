@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@effect/sql": "catalog:",
-    "@executor/sdk": "workspace:*",
+    "@executor/storage-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

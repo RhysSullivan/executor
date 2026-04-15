@@ -304,12 +304,12 @@
       "version": "1.4.3",
       "dependencies": {
         "@effect/sql": "catalog:",
-        "@executor/sdk": "workspace:*",
+        "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@effect/experimental": "catalog:",
-        "@effect/sql-sqlite-node": "catalog:",
+        "@effect/sql-sqlite-bun": "catalog:",
         "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "typescript": "catalog:",
@@ -333,17 +333,12 @@
       "dependencies": {
         "@effect/sql": "catalog:",
         "@effect/sql-pg": "^0.28.0",
-        "@executor/sdk": "workspace:*",
-        "drizzle-orm": "catalog:",
+        "@executor/storage-core": "workspace:*",
         "effect": "catalog:",
-        "pg": "^8.16.0",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
-        "@electric-sql/pglite": "^0.4.3",
         "@types/node": "^25.6.0",
-        "@types/pg": "^8.15.4",
-        "drizzle-kit": "^0.31.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -1036,8 +1031,6 @@
     "@effect/sql-pg": ["@effect/sql-pg@0.28.0", "", { "dependencies": { "@opentelemetry/semantic-conventions": "^1.25.1", "postgres": "^3.4.4" }, "peerDependencies": { "@effect/experimental": "^0.38.0", "@effect/platform": "^0.74.0", "@effect/sql": "^0.27.0", "effect": "^3.12.5" } }, "sha512-+u60z3evFGqsdUv25My0LAzvM4d8Ao9k4qARYhMsTBY4WsyqsrtXNqkbco7hag3us3LbdwU1ivjieKOzQN0ELg=="],
 
     "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@0.52.0", "", { "peerDependencies": { "@effect/experimental": "^0.60.0", "@effect/platform": "^0.96.0", "@effect/sql": "^0.51.0", "effect": "^3.21.0" } }, "sha512-iqQ7SvSNxq0HLjKW5IQ29FsCTzOD1CuX1wuBEuPLLgPCvuEykEHLn4zDrs2qJ+O3CBEUm4kiCy29tmfHE7uAdw=="],
-
-    "@effect/sql-sqlite-node": ["@effect/sql-sqlite-node@0.52.0", "", { "dependencies": { "better-sqlite3": "^12.6.2" }, "peerDependencies": { "@effect/experimental": "^0.60.0", "@effect/platform": "^0.96.0", "@effect/sql": "^0.51.0", "effect": "^3.21.0" } }, "sha512-yijDbly4MwxAPebvd2ZBI62qDpGdXKL96drMzflXDnjEh2JiVr/xVyy1VB0JsVxqw8IJ9TUIgOvAJWQ88oVMXA=="],
 
     "@effect/typeclass": ["@effect/typeclass@0.38.0", "", { "peerDependencies": { "effect": "^3.19.0" } }, "sha512-lMUcJTRtG8KXhXoczapZDxbLK5os7M6rn0zkvOgncJW++A0UyelZfMVMKdT5R+fgpZcsAU/1diaqw3uqLJwGxA=="],
 
