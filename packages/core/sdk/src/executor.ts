@@ -33,7 +33,7 @@ import {
   ToolInvocationError,
   ToolNotFoundError,
 } from "./errors";
-import { ToolId } from "./ids";
+import { SecretId, ToolId } from "./ids";
 import type {
   AnyPlugin,
   Elicit,
@@ -432,23 +432,40 @@ export const createExecutor = <
     const extensions: Record<string, object> = {};
 
     // ------------------------------------------------------------------
-    // Secrets facade — every secret is routed through exactly one
-    // provider, recorded in the core `secret` table at set-time. Get
-    // looks up the routing row, then calls the pinned provider. No
-    // walking. If a secret id isn't in the table, it doesn't exist as
-    // far as the executor is concerned — even if some provider would
-    // happen to return a value for it.
+    // Secrets facade — fast path is the core `secret` routing table
+    // (explicit set()s, keychain entries, etc). Fallback is a walk
+    // across providers that implement `list()`, because those are the
+    // providers that own their own inventories (1password, file-secrets,
+    // workos-vault, env) and enumerate-without-register. Providers
+    // without a list() implementation (keychain) never hit the fallback
+    // walk because their secrets must be registered through set() to
+    // be known at all.
     // ------------------------------------------------------------------
     const secretsGet = (id: string): Effect.Effect<string | null, Error> =>
       Effect.gen(function* () {
+        // Fast path: routing table
         const row = yield* core.findOne({
           model: "secret",
           where: [{ field: "id", value: id }],
         });
-        if (!row) return null;
-        const provider = secretProviders.get(row.provider);
-        if (!provider) return null;
-        return yield* provider.get(id);
+        if (row) {
+          const provider = secretProviders.get(row.provider);
+          if (!provider) return null;
+          return yield* provider.get(id);
+        }
+
+        // Fallback: ask enumerating providers in registration order.
+        // First non-null wins. Providers that throw are treated as
+        // "don't have it" and skipped so one flaky provider doesn't
+        // block resolution via others.
+        for (const provider of secretProviders.values()) {
+          if (!provider.list) continue;
+          const value = yield* provider
+            .get(id)
+            .pipe(Effect.catchAll(() => Effect.succeed(null)));
+          if (value !== null) return value;
+        }
+        return null;
       });
 
     const secretsSet = (
@@ -524,13 +541,32 @@ export const createExecutor = <
         });
       });
 
+    // List is a union of two sources of truth:
+    //
+    //   1. Core `secret` rows — secrets explicitly registered via
+    //      executor.secrets.set(...). These carry their pinned provider
+    //      and are authoritative for routing (get() uses them).
+    //   2. Each provider's own `list()` — for read-only or
+    //      already-populated providers (1password, file-secrets,
+    //      workos-vault, env), the provider enumerates what's actually
+    //      in its backend. These show up in the list even if the user
+    //      never called set() through the executor.
+    //
+    // Dedupe by secret id; core rows win over provider-enumerated ones
+    // so that routing information in the core table is authoritative.
+    // Providers without a list() method (e.g. keychain) contribute
+    // only via the core table path.
     const secretsList = (): Effect.Effect<readonly SecretRef[], Error> =>
       Effect.gen(function* () {
+        const byId = new Map<string, SecretRef>();
+
+        // Core routing rows first
         const rows = yield* core.findMany({ model: "secret" });
-        return rows.map(
-          (row) =>
+        for (const row of rows) {
+          byId.set(
+            row.id,
             new SecretRef({
-              id: ToolId.make(row.id) as unknown as SecretRef["id"],
+              id: SecretId.make(row.id),
               scopeId: scope.id,
               name: row.name,
               provider: row.provider,
@@ -539,16 +575,45 @@ export const createExecutor = <
                   ? row.created_at
                   : new Date(row.created_at as string),
             }),
-        );
+          );
+        }
+
+        // Then every provider that can enumerate itself. If a provider
+        // fails to list (unlocked vault, network error), swallow the
+        // failure and continue — one flaky provider shouldn't block
+        // the whole list.
+        for (const [providerKey, provider] of secretProviders.entries()) {
+          if (!provider.list) continue;
+          const entries = yield* provider
+            .list()
+            .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+          for (const entry of entries) {
+            if (byId.has(entry.id)) continue; // core row wins
+            byId.set(
+              entry.id,
+              new SecretRef({
+                id: SecretId.make(entry.id),
+                scopeId: scope.id,
+                name: entry.name,
+                provider: providerKey,
+                createdAt: new Date(),
+              }),
+            );
+          }
+        }
+
+        return Array.from(byId.values());
       });
 
+    // Same union shape as secretsList but projected to the leaner
+    // SecretListEntry shape that plugins get via ctx.secrets.list().
     const secretsListForCtx = () =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany({ model: "secret" });
-        return rows.map((row) => ({
-          id: row.id,
-          name: row.name,
-          provider: row.provider,
+        const list = yield* secretsList();
+        return list.map((ref) => ({
+          id: ref.id as unknown as string,
+          name: ref.name,
+          provider: ref.provider,
         }));
       });
 
@@ -1058,7 +1123,12 @@ export const createExecutor = <
     const sourceDefinitions = (sourceId: string) =>
       loadDefinitionsForSource(sourceId);
 
-    // Fast-path existence check — registry table only, no provider call.
+    // Fast-path existence check. Hits the core `secret` routing row
+    // first (no provider call). If no routing row, walks enumerating
+    // providers and checks their lists for a matching id — same
+    // fallback strategy as secretsGet. Still avoids provider.get()
+    // so no keychain permission prompts / 1password value IPC fires
+    // just to ask "does this exist?"
     const secretsStatus = (
       id: string,
     ): Effect.Effect<"resolved" | "missing", Error> =>
@@ -1067,7 +1137,16 @@ export const createExecutor = <
           model: "secret",
           where: [{ field: "id", value: id }],
         });
-        return row ? "resolved" : "missing";
+        if (row) return "resolved";
+
+        for (const provider of secretProviders.values()) {
+          if (!provider.list) continue;
+          const entries = yield* provider
+            .list()
+            .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+          if (entries.some((e) => e.id === id)) return "resolved";
+        }
+        return "missing";
       });
 
     const close = () =>
