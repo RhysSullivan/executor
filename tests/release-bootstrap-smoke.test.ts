@@ -247,13 +247,15 @@ describe("release bootstrap smoke", () => {
         expect(secondRun.exitCode, secondCombinedOutput).toBe(0);
         expect(secondCombinedOutput).not.toContain("downloading release asset");
       } finally {
-        webProcess.kill("SIGTERM");
+        webProcess.kill();
         await Promise.race([
           new Promise((resolveClose) => webProcess.once("close", () => resolveClose(undefined))),
           new Promise((resolveClose) => setTimeout(resolveClose, 5_000)),
         ]);
         if (webProcess.exitCode === null) {
-          webProcess.kill("SIGKILL");
+          // SIGKILL is not available on Windows; kill() with no argument
+          // forcefully terminates the process on all platforms.
+          webProcess.kill();
         }
       }
     } finally {

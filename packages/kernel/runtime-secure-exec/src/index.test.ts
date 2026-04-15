@@ -1,4 +1,5 @@
-import { describe, expect, it } from "@effect/vitest";
+import { expect, it } from "@effect/vitest";
+import { describe } from "vitest";
 import { assertInclude } from "@effect/vitest/utils";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -36,7 +37,8 @@ const makeTestInvoker = (
 
 const executor = makeSecureExecExecutor({ timeoutMs: 5_000 });
 
-describe("secure-exec executor", () => {
+// secure-exec-v8 does not ship a Windows binary — skip on win32
+describe.skipIf(process.platform === "win32")("secure-exec executor", () => {
   it.effect("runs plain code", () =>
     Effect.gen(function* () {
       const result = yield* executor.execute("return 1 + 2", makeTestInvoker({}));

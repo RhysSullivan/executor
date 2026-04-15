@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { join } from "node:path";
 
 import { xdgDataHome } from "./index";
 
@@ -41,7 +42,7 @@ describe("xdgDataHome", () => {
     vi.stubEnv("XDG_DATA_HOME", "   ");
     vi.stubEnv("HOME", "/home/user");
     stubPlatform("linux");
-    expect(xdgDataHome()).toBe("/home/user/.local/share");
+    expect(xdgDataHome()).toBe(join("/home/user", ".local", "share"));
   });
 
   test("trims whitespace around XDG_DATA_HOME", () => {
@@ -55,11 +56,11 @@ describe("xdgDataHome", () => {
 
     test("falls back to $HOME/.local/share", () => {
       vi.stubEnv("HOME", "/home/user");
-      expect(xdgDataHome()).toBe("/home/user/.local/share");
+      expect(xdgDataHome()).toBe(join("/home/user", ".local", "share"));
     });
 
     test("defaults to ~/.local/share when HOME is unset", () => {
-      expect(xdgDataHome()).toBe("~/.local/share");
+      expect(xdgDataHome()).toBe(join("~", ".local", "share"));
     });
   });
 
@@ -85,7 +86,9 @@ describe("xdgDataHome", () => {
       // runtime platform, so on a POSIX test runner we can't assert the
       // exact separator — just that all three segments are present.
       const result = xdgDataHome();
-      expect(result).toContain("C:\\Users\\user");
+      expect(result).toContain("C:");
+      expect(result).toContain("Users");
+      expect(result).toContain("user");
       expect(result).toContain("AppData");
       expect(result).toContain("Local");
     });
