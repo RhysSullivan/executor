@@ -1,17 +1,25 @@
 // ---------------------------------------------------------------------------
 // scope-chain-prototype — scenarios
 //
-// These tests are the design. Each one names a case from the design thread:
-// Gmail-at-workspace, shared Slack bot, BYO OAuth client, headless agent,
-// refresh-in-place, shadowing, etc. If any of these feel wrong, the shape
-// of the primitive is wrong — not the test.
+// Effect + @effect/vitest. Uses the real SDK's ScopeId / SecretId / error
+// types so the prototype is exercising the same primitives the production
+// SecretStore uses.
+//
+// Each test names a case from the design thread: Gmail-at-workspace,
+// shared Slack bot, BYO OAuth client, headless agent, refresh-in-place,
+// shadowing. If any of these feel wrong, the primitive is wrong.
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "@effect/vitest";
+import { Effect, Exit } from "effect";
+
+import { ScopeId, SecretId } from "../ids";
+import { SecretNotFoundError, SecretResolutionError } from "../errors";
 
 import {
   completeOAuth,
   makeChainSecretStore,
+  makeChainSource,
   makeChainSourceRegistry,
   org,
   pickAuthLayer,
@@ -19,7 +27,7 @@ import {
   refreshInPlace,
   user,
   workspace,
-  type ChainSource,
+  type Layer,
   type ScopeChain,
 } from "./index";
 
@@ -32,120 +40,152 @@ const ENGINEERING = workspace("ws_engineering", "Engineering");
 const ALICE = user("user_alice", "Alice");
 const BOB = user("user_bob", "Bob");
 
-// A caller's chain: narrowest → widest
-const chainFor = (...layers: ReadonlyArray<typeof PLATFORM>): ScopeChain => layers;
+const chainFor = (...layers: readonly Layer[]): ScopeChain => layers;
 
-const gmailAtMarketing: ChainSource = {
+const K = SecretId.make("k");
+const OPENAI_KEY = SecretId.make("openai:key");
+const GOOGLE_CLIENT_ID = SecretId.make("google:client_id");
+const GOOGLE_CLIENT_SECRET = SecretId.make("google:client_secret");
+const GMAIL_ACCESS = SecretId.make("gmail:access");
+const SLACK_ACCESS = SecretId.make("slack:access");
+
+const gmailAtMarketing = makeChainSource({
   id: "gmail",
   name: "Gmail",
   kind: "google",
   installedAt: MARKETING.id,
   authScope: { type: "kind", kind: "user" },
-};
+});
 
-const slackBotAtMarketing: ChainSource = {
+const slackBotAtMarketing = makeChainSource({
   id: "slack",
   name: "Slack",
   kind: "slack",
   installedAt: MARKETING.id,
   authScope: { type: "inherit" },
-};
+});
 
 // ---------- Resolve cascade ------------------------------------------------
 
 describe("resolve cascades narrowest → widest", () => {
-  it("returns the narrowest match", () => {
-    const secrets = makeChainSecretStore();
-    secrets.set("k", ACME.id, "org-value");
-    secrets.set("k", MARKETING.id, "workspace-value");
-    secrets.set("k", ALICE.id, "alice-value");
+  it.effect("returns the narrowest match", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      yield* secrets.set({ name: K, scopeId: ACME.id, value: "org-value" });
+      yield* secrets.set({ name: K, scopeId: MARKETING.id, value: "ws-value" });
+      yield* secrets.set({ name: K, scopeId: ALICE.id, value: "alice-value" });
 
-    const chain = chainFor(ALICE, MARKETING, ACME, PLATFORM);
-    const r = secrets.resolve("k", chain);
-    expect(r?.value).toBe("alice-value");
-    expect(r?.resolvedAt.id).toBe(ALICE.id);
-  });
+      const chain = chainFor(ALICE, MARKETING, ACME, PLATFORM);
+      const r = yield* secrets.resolve(K, chain);
+      expect(r.value).toBe("alice-value");
+      expect(r.resolvedAt.id).toBe(ALICE.id);
+    }),
+  );
 
-  it("falls through to wider layers when narrower has no value", () => {
-    const secrets = makeChainSecretStore();
-    secrets.set("k", ACME.id, "org-value");
+  it.effect("falls through to wider layers when narrower has no value", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      yield* secrets.set({ name: K, scopeId: ACME.id, value: "org-value" });
 
-    const chain = chainFor(ALICE, MARKETING, ACME);
-    expect(secrets.resolve("k", chain)?.value).toBe("org-value");
-    expect(secrets.resolve("k", chain)?.resolvedAt.id).toBe(ACME.id);
-  });
+      const chain = chainFor(ALICE, MARKETING, ACME);
+      const r = yield* secrets.resolve(K, chain);
+      expect(r.value).toBe("org-value");
+      expect(r.resolvedAt.id).toBe(ACME.id);
+    }),
+  );
 
-  it("returns null when no layer has the secret (clean miss)", () => {
-    const secrets = makeChainSecretStore();
-    const chain = chainFor(ALICE, MARKETING, ACME);
-    expect(secrets.resolve("k", chain)).toBeNull();
-    expect(secrets.status("k", chain)).toBe("missing");
-  });
+  it.effect("fails with SecretNotFoundError when no layer has it (clean miss)", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const chain = chainFor(ALICE, MARKETING, ACME);
 
-  it("same chain resolves differently for different users", () => {
-    const secrets = makeChainSecretStore();
-    secrets.set("k", ALICE.id, "alice");
-    secrets.set("k", BOB.id, "bob");
+      expect(yield* secrets.status(K, chain)).toBe("missing");
 
-    expect(secrets.resolve("k", chainFor(ALICE, MARKETING))?.value).toBe("alice");
-    expect(secrets.resolve("k", chainFor(BOB, MARKETING))?.value).toBe("bob");
-  });
+      const exit = yield* Effect.exit(secrets.resolve(K, chain));
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        const err = exit.cause._tag === "Fail" ? exit.cause.error : null;
+        expect(err).toBeInstanceOf(SecretNotFoundError);
+      }
+    }),
+  );
+
+  it.effect("same name resolves differently for different users", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      yield* secrets.set({ name: K, scopeId: ALICE.id, value: "alice" });
+      yield* secrets.set({ name: K, scopeId: BOB.id, value: "bob" });
+
+      expect((yield* secrets.resolve(K, chainFor(ALICE, MARKETING))).value).toBe("alice");
+      expect((yield* secrets.resolve(K, chainFor(BOB, MARKETING))).value).toBe("bob");
+    }),
+  );
 });
 
 // ---------- Source merge ---------------------------------------------------
 
 describe("source list merges with shadow-dedup", () => {
-  it("exposes sources from every layer in the chain", () => {
-    const sources = makeChainSourceRegistry();
-    sources.install(slackBotAtMarketing);
-    sources.install({
-      id: "stripe",
-      name: "Stripe",
-      kind: "openapi",
-      installedAt: ACME.id,
-      authScope: { type: "inherit" },
-    });
+  it.effect("exposes sources from every layer in the chain", () =>
+    Effect.gen(function* () {
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(slackBotAtMarketing);
+      yield* sources.install(
+        makeChainSource({
+          id: "stripe",
+          name: "Stripe",
+          kind: "openapi",
+          installedAt: ACME.id,
+          authScope: { type: "inherit" },
+        }),
+      );
 
-    const chain = chainFor(ALICE, MARKETING, ACME);
-    const ids = sources.list(chain).map((s) => s.id);
-    expect(ids).toEqual(expect.arrayContaining(["slack", "stripe"]));
-    expect(ids).toHaveLength(2);
-  });
+      const chain = chainFor(ALICE, MARKETING, ACME);
+      const list = yield* sources.list(chain);
+      const ids = list.map((s) => s.id);
+      expect(ids).toEqual(expect.arrayContaining(["slack", "stripe"]));
+      expect(ids).toHaveLength(2);
+    }),
+  );
 
-  it("narrower layer shadows wider layer for same source id", () => {
-    const sources = makeChainSourceRegistry();
-    // Org-wide GitHub
-    sources.install({
-      id: "github",
-      name: "GitHub (org)",
-      kind: "openapi",
-      installedAt: ACME.id,
-      authScope: { type: "inherit" },
-    });
-    // Alice's personal GitHub override — same id, different layer
-    sources.install({
-      id: "github",
-      name: "GitHub (alice)",
-      kind: "openapi",
-      installedAt: ALICE.id,
-      authScope: { type: "inherit" },
-    });
+  it.effect("narrower layer shadows wider layer for same source id", () =>
+    Effect.gen(function* () {
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(
+        makeChainSource({
+          id: "github",
+          name: "GitHub (org)",
+          kind: "openapi",
+          installedAt: ACME.id,
+          authScope: { type: "inherit" },
+        }),
+      );
+      yield* sources.install(
+        makeChainSource({
+          id: "github",
+          name: "GitHub (alice)",
+          kind: "openapi",
+          installedAt: ALICE.id,
+          authScope: { type: "inherit" },
+        }),
+      );
 
-    const aliceChain = chainFor(ALICE, ACME);
-    const bobChain = chainFor(BOB, ACME);
+      const aliceChain = chainFor(ALICE, ACME);
+      const bobChain = chainFor(BOB, ACME);
 
-    expect(sources.get("github", aliceChain)?.name).toBe("GitHub (alice)");
-    expect(sources.get("github", bobChain)?.name).toBe("GitHub (org)");
-  });
+      expect((yield* sources.get("github", aliceChain))?.name).toBe("GitHub (alice)");
+      expect((yield* sources.get("github", bobChain))?.name).toBe("GitHub (org)");
+    }),
+  );
 
-  it("hides sources installed at layers not in the chain", () => {
-    const sources = makeChainSourceRegistry();
-    sources.install(gmailAtMarketing); // installed at MARKETING
+  it.effect("hides sources installed at layers not in the chain", () =>
+    Effect.gen(function* () {
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(gmailAtMarketing);
 
-    // Engineering workspace never sees Marketing's source
-    const engChain = chainFor(ALICE, ENGINEERING, ACME);
-    expect(sources.list(engChain)).toHaveLength(0);
-  });
+      const engChain = chainFor(ALICE, ENGINEERING, ACME);
+      expect(yield* sources.list(engChain)).toHaveLength(0);
+    }),
+  );
 });
 
 // ---------- pickAuthLayer --------------------------------------------------
@@ -153,239 +193,320 @@ describe("source list merges with shadow-dedup", () => {
 describe("pickAuthLayer", () => {
   it("inherit → source's own layer", () => {
     const chain = chainFor(ALICE, MARKETING, ACME);
-    const layer = pickAuthLayer(slackBotAtMarketing, chain);
-    expect(layer?.id).toBe(MARKETING.id);
+    expect(pickAuthLayer(slackBotAtMarketing, chain)?.id).toBe(MARKETING.id);
   });
 
   it("kind=user → narrowest user-kind layer in the chain", () => {
     const chain = chainFor(ALICE, MARKETING, ACME);
-    const layer = pickAuthLayer(gmailAtMarketing, chain);
-    expect(layer?.id).toBe(ALICE.id);
+    expect(pickAuthLayer(gmailAtMarketing, chain)?.id).toBe(ALICE.id);
   });
 
-  it("kind=user with no user layer in chain → null (clean failure)", () => {
+  it("kind=user with no user layer → null (clean failure)", () => {
     const agentChain = chainFor(MARKETING, ACME, PLATFORM);
     expect(pickAuthLayer(gmailAtMarketing, agentChain)).toBeNull();
   });
 
   it("pinned → the named scope if in chain, else null", () => {
-    const pinned: ChainSource = {
+    const pinned = makeChainSource({
       ...gmailAtMarketing,
+      installedAt: gmailAtMarketing.installedAt,
       authScope: { type: "pinned", scopeId: ACME.id },
-    };
+    });
     expect(pickAuthLayer(pinned, chainFor(ALICE, MARKETING, ACME))?.id).toBe(ACME.id);
     expect(pickAuthLayer(pinned, chainFor(ALICE, MARKETING))).toBeNull();
   });
 });
 
-// ---------- The flagship scenario: Gmail at workspace ---------------------
+// ---------- Flagship: Gmail at workspace ----------------------------------
 
 describe("Gmail at workspace, authScope user", () => {
-  it("Alice OAuths and her token lands at her user layer", () => {
-    const secrets = makeChainSecretStore();
-    const sources = makeChainSourceRegistry();
-    sources.install(gmailAtMarketing);
+  it.effect("Alice OAuths and her token lands at her user layer", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(gmailAtMarketing);
 
-    const aliceChain = chainFor(ALICE, MARKETING, ACME);
+      const aliceChain = chainFor(ALICE, MARKETING, ACME);
 
-    // Before: source visible, but no token for Alice
-    expect(sources.list(aliceChain).map((s) => s.id)).toContain("gmail");
-    expect(secrets.status("gmail:access", aliceChain)).toBe("missing");
+      // Source visible, no token yet
+      const list = yield* sources.list(aliceChain);
+      expect(list.map((s) => s.id)).toContain("gmail");
+      expect(yield* secrets.status(GMAIL_ACCESS, aliceChain)).toBe("missing");
 
-    // Alice completes OAuth
-    const landedAt = completeOAuth(secrets, gmailAtMarketing, aliceChain, {
-      access: "alice-access-token",
-      refresh: "alice-refresh-token",
-    });
+      // Alice completes OAuth
+      const landed = yield* completeOAuth(
+        secrets,
+        gmailAtMarketing,
+        aliceChain,
+        { access: "alice-access-token", refresh: "alice-refresh-token" },
+      );
 
-    // Token lands at ALICE, not MARKETING
-    expect(landedAt?.id).toBe(ALICE.id);
-    expect(secrets.status("gmail:access", aliceChain)).toBe("resolved");
+      // Lands at ALICE, not MARKETING
+      expect(landed.id).toBe(ALICE.id);
+      expect(yield* secrets.status(GMAIL_ACCESS, aliceChain)).toBe("resolved");
 
-    // And secretly: the token is actually stored at user:alice
-    expect(secrets.listAtLayer(ALICE.id)).toContain("gmail:access");
-    expect(secrets.listAtLayer(MARKETING.id)).not.toContain("gmail:access");
-  });
+      // Physically stored at user:alice, not the workspace
+      const aliceSecrets = yield* secrets.listAtLayer(ALICE.id);
+      const wsSecrets = yield* secrets.listAtLayer(MARKETING.id);
+      expect(aliceSecrets).toContain(GMAIL_ACCESS);
+      expect(wsSecrets).not.toContain(GMAIL_ACCESS);
+    }),
+  );
 
-  it("Bob sees the same source but no token until he signs in himself", () => {
-    const secrets = makeChainSecretStore();
-    const sources = makeChainSourceRegistry();
-    sources.install(gmailAtMarketing);
+  it.effect("Bob sees the same source but no token until he signs in", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(gmailAtMarketing);
 
-    const aliceChain = chainFor(ALICE, MARKETING, ACME);
-    const bobChain = chainFor(BOB, MARKETING, ACME);
+      const aliceChain = chainFor(ALICE, MARKETING, ACME);
+      const bobChain = chainFor(BOB, MARKETING, ACME);
 
-    // Alice signs in
-    completeOAuth(secrets, gmailAtMarketing, aliceChain, { access: "alice-tok" });
+      yield* completeOAuth(secrets, gmailAtMarketing, aliceChain, {
+        access: "alice-tok",
+      });
 
-    // Alice resolves, Bob does not
-    expect(secrets.resolve("gmail:access", aliceChain)?.value).toBe("alice-tok");
-    expect(secrets.resolve("gmail:access", bobChain)).toBeNull();
-    expect(secrets.status("gmail:access", bobChain)).toBe("missing");
+      // Alice resolves; Bob is missing
+      expect((yield* secrets.resolve(GMAIL_ACCESS, aliceChain)).value).toBe("alice-tok");
+      expect(yield* secrets.status(GMAIL_ACCESS, bobChain)).toBe("missing");
 
-    // Bob signs in with his own account
-    completeOAuth(secrets, gmailAtMarketing, bobChain, { access: "bob-tok" });
+      // Bob signs in with his own account
+      yield* completeOAuth(secrets, gmailAtMarketing, bobChain, {
+        access: "bob-tok",
+      });
 
-    // Each resolves to their own token. No leakage.
-    expect(secrets.resolve("gmail:access", aliceChain)?.value).toBe("alice-tok");
-    expect(secrets.resolve("gmail:access", bobChain)?.value).toBe("bob-tok");
-  });
+      // Each resolves to their own token. No leakage.
+      expect((yield* secrets.resolve(GMAIL_ACCESS, aliceChain)).value).toBe("alice-tok");
+      expect((yield* secrets.resolve(GMAIL_ACCESS, bobChain)).value).toBe("bob-tok");
+    }),
+  );
 });
 
 // ---------- Shared workspace OAuth (Slack bot) ----------------------------
 
 describe("Slack bot at workspace, authScope inherit", () => {
-  it("one person OAuths, everyone in the workspace resolves the same token", () => {
-    const secrets = makeChainSecretStore();
-    const sources = makeChainSourceRegistry();
-    sources.install(slackBotAtMarketing);
+  it.effect("one person OAuths, everyone in the workspace resolves the same token", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(slackBotAtMarketing);
 
-    const aliceChain = chainFor(ALICE, MARKETING, ACME);
-    const bobChain = chainFor(BOB, MARKETING, ACME);
+      const aliceChain = chainFor(ALICE, MARKETING, ACME);
+      const bobChain = chainFor(BOB, MARKETING, ACME);
 
-    // Alice (an admin) completes OAuth for the shared bot
-    const landedAt = completeOAuth(secrets, slackBotAtMarketing, aliceChain, {
-      access: "xoxb-shared",
-    });
-    expect(landedAt?.id).toBe(MARKETING.id);
+      const landed = yield* completeOAuth(
+        secrets,
+        slackBotAtMarketing,
+        aliceChain,
+        { access: "xoxb-shared" },
+      );
+      expect(landed.id).toBe(MARKETING.id);
 
-    // Both Alice and Bob resolve the same token from the workspace layer
-    expect(secrets.resolve("slack:access", aliceChain)?.value).toBe("xoxb-shared");
-    expect(secrets.resolve("slack:access", bobChain)?.value).toBe("xoxb-shared");
-    expect(secrets.resolve("slack:access", aliceChain)?.resolvedAt.id).toBe(MARKETING.id);
-  });
+      expect((yield* secrets.resolve(SLACK_ACCESS, aliceChain)).value).toBe("xoxb-shared");
+      expect((yield* secrets.resolve(SLACK_ACCESS, bobChain)).value).toBe("xoxb-shared");
+      expect((yield* secrets.resolve(SLACK_ACCESS, aliceChain)).resolvedAt.id).toBe(
+        MARKETING.id,
+      );
+    }),
+  );
 });
 
-// ---------- BYO OAuth client credentials (shadowing a platform default) --
+// ---------- BYO OAuth client credentials ----------------------------------
 
 describe("BYO OAuth app: org override shadows platform default", () => {
-  it("client_id/client_secret resolve from platform until org overrides", () => {
-    const secrets = makeChainSecretStore();
-    // Platform-provided default
-    secrets.set("google:client_id", PLATFORM.id, "platform-client-id");
-    secrets.set("google:client_secret", PLATFORM.id, "platform-client-secret");
+  it.effect("client_id/client_secret resolve from platform until org overrides", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      yield* secrets.set({
+        name: GOOGLE_CLIENT_ID,
+        scopeId: PLATFORM.id,
+        value: "platform-client-id",
+      });
+      yield* secrets.set({
+        name: GOOGLE_CLIENT_SECRET,
+        scopeId: PLATFORM.id,
+        value: "platform-client-secret",
+      });
 
-    const chain = chainFor(ALICE, MARKETING, ACME, PLATFORM);
+      const chain = chainFor(ALICE, MARKETING, ACME, PLATFORM);
 
-    expect(secrets.resolve("google:client_id", chain)?.value).toBe("platform-client-id");
-    expect(secrets.resolve("google:client_id", chain)?.resolvedAt.id).toBe(PLATFORM.id);
+      const beforeId = yield* secrets.resolve(GOOGLE_CLIENT_ID, chain);
+      expect(beforeId.value).toBe("platform-client-id");
+      expect(beforeId.resolvedAt.id).toBe(PLATFORM.id);
 
-    // Acme wants to use their own OAuth app — write at org, same name
-    secrets.set("google:client_id", ACME.id, "acme-client-id");
-    secrets.set("google:client_secret", ACME.id, "acme-client-secret");
+      // Acme writes its own at org scope — same name, different layer
+      yield* secrets.set({
+        name: GOOGLE_CLIENT_ID,
+        scopeId: ACME.id,
+        value: "acme-client-id",
+      });
+      yield* secrets.set({
+        name: GOOGLE_CLIENT_SECRET,
+        scopeId: ACME.id,
+        value: "acme-client-secret",
+      });
 
-    // Same call site, different result. No handler code needs to change.
-    expect(secrets.resolve("google:client_id", chain)?.value).toBe("acme-client-id");
-    expect(secrets.resolve("google:client_id", chain)?.resolvedAt.id).toBe(ACME.id);
+      // Same call site, different result. No handler code changes.
+      const afterId = yield* secrets.resolve(GOOGLE_CLIENT_ID, chain);
+      expect(afterId.value).toBe("acme-client-id");
+      expect(afterId.resolvedAt.id).toBe(ACME.id);
 
-    // Another org without the override still sees the platform default
-    const OTHER_ORG = org("org_other", "Other Inc");
-    const otherChain = chainFor(ALICE, OTHER_ORG, PLATFORM);
-    expect(secrets.resolve("google:client_id", otherChain)?.value).toBe("platform-client-id");
-  });
+      // Another org still sees the platform default
+      const OTHER = org("org_other", "Other Inc");
+      const otherChain = chainFor(ALICE, OTHER, PLATFORM);
+      expect((yield* secrets.resolve(GOOGLE_CLIENT_ID, otherChain)).value).toBe(
+        "platform-client-id",
+      );
+    }),
+  );
 });
 
-// ---------- Agent / non-interactive execution ------------------------------
+// ---------- Headless agent -------------------------------------------------
 
 describe("headless agent without a user layer", () => {
-  it("per-user source cleanly fails to resolve — no silent leakage", () => {
-    const secrets = makeChainSecretStore();
-    const sources = makeChainSourceRegistry();
-    sources.install(gmailAtMarketing);
+  it.effect("per-user source cleanly fails — no silent leakage", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(gmailAtMarketing);
 
-    // Alice has signed in in another session
-    completeOAuth(
-      secrets,
-      gmailAtMarketing,
-      chainFor(ALICE, MARKETING, ACME),
-      { access: "alice-tok" },
-    );
+      // Alice has signed in in another session
+      yield* completeOAuth(
+        secrets,
+        gmailAtMarketing,
+        chainFor(ALICE, MARKETING, ACME),
+        { access: "alice-tok" },
+      );
 
-    // An unattended agent runs with no user layer in its chain
-    const agentChain = chainFor(MARKETING, ACME, PLATFORM);
+      // Unattended agent — no user layer
+      const agentChain = chainFor(MARKETING, ACME, PLATFORM);
 
-    // The source is visible (installed at the workspace)...
-    expect(sources.get("gmail", agentChain)?.id).toBe("gmail");
-    // ...but the token does NOT leak from Alice's user layer
-    expect(secrets.resolve("gmail:access", agentChain)).toBeNull();
-    // OAuth can't complete either — pickAuthLayer returns null
-    expect(pickAuthLayer(gmailAtMarketing, agentChain)).toBeNull();
-  });
+      // Source is visible (installed at workspace)...
+      expect((yield* sources.get("gmail", agentChain))?.id).toBe("gmail");
 
-  it("an agent run as Alice (delegated) does resolve her token", () => {
-    const secrets = makeChainSecretStore();
-    const sources = makeChainSourceRegistry();
-    sources.install(gmailAtMarketing);
+      // ...but resolve fails cleanly
+      expect(yield* secrets.status(GMAIL_ACCESS, agentChain)).toBe("missing");
+      const exit = yield* Effect.exit(secrets.resolve(GMAIL_ACCESS, agentChain));
+      expect(Exit.isFailure(exit)).toBe(true);
 
-    const aliceChain = chainFor(ALICE, MARKETING, ACME);
-    completeOAuth(secrets, gmailAtMarketing, aliceChain, { access: "alice-tok" });
+      // And OAuth itself can't complete — no matching layer for authScope
+      const oauthExit = yield* Effect.exit(
+        completeOAuth(secrets, gmailAtMarketing, agentChain, { access: "nope" }),
+      );
+      expect(Exit.isFailure(oauthExit)).toBe(true);
+      if (Exit.isFailure(oauthExit) && oauthExit.cause._tag === "Fail") {
+        expect(oauthExit.cause.error).toBeInstanceOf(SecretResolutionError);
+      }
+    }),
+  );
 
-    // Agent invoked "as Alice" — her user layer is explicitly in the chain
-    const delegatedAgentChain = chainFor(ALICE, MARKETING, ACME);
-    expect(secrets.resolve("gmail:access", delegatedAgentChain)?.value).toBe("alice-tok");
-  });
+  it.effect("agent run as Alice (delegated) resolves her token", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(gmailAtMarketing);
+
+      const aliceChain = chainFor(ALICE, MARKETING, ACME);
+      yield* completeOAuth(secrets, gmailAtMarketing, aliceChain, {
+        access: "alice-tok",
+      });
+
+      // Agent invoked "as Alice" — her user layer is in the chain
+      const delegated = chainFor(ALICE, MARKETING, ACME);
+      expect((yield* secrets.resolve(GMAIL_ACCESS, delegated)).value).toBe("alice-tok");
+    }),
+  );
 });
 
 // ---------- Refresh in place ----------------------------------------------
 
 describe("refresh-in-place writes back at resolvedAt", () => {
-  it("refresh rewrites the token at the layer it was read from", () => {
-    const secrets = makeChainSecretStore();
-    const sources = makeChainSourceRegistry();
-    sources.install(gmailAtMarketing);
+  it.effect("refresh rewrites at the layer the token was read from", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(gmailAtMarketing);
 
-    const aliceChain = chainFor(ALICE, MARKETING, ACME);
-    completeOAuth(secrets, gmailAtMarketing, aliceChain, {
-      access: "stale-token",
-      refresh: "r1",
-    });
+      const aliceChain = chainFor(ALICE, MARKETING, ACME);
+      yield* completeOAuth(secrets, gmailAtMarketing, aliceChain, {
+        access: "stale-token",
+        refresh: "r1",
+      });
 
-    const after = refreshInPlace(secrets, gmailAtMarketing, aliceChain, () => "fresh-token");
+      const after = yield* refreshInPlace(
+        secrets,
+        gmailAtMarketing,
+        aliceChain,
+        () => "fresh-token",
+      );
 
-    expect(after?.value).toBe("fresh-token");
-    expect(after?.resolvedAt.id).toBe(ALICE.id);
-    // The new value is at Alice, not promoted to the workspace
-    expect(secrets.listAtLayer(ALICE.id)).toContain("gmail:access");
-    expect(secrets.listAtLayer(MARKETING.id)).not.toContain("gmail:access");
-  });
+      expect(after.value).toBe("fresh-token");
+      expect(after.resolvedAt.id).toBe(ALICE.id);
 
-  it("refresh of a shared workspace token stays at the workspace", () => {
-    const secrets = makeChainSecretStore();
-    const sources = makeChainSourceRegistry();
-    sources.install(slackBotAtMarketing);
+      // Not promoted up to the workspace
+      const aliceSecrets = yield* secrets.listAtLayer(ALICE.id);
+      const wsSecrets = yield* secrets.listAtLayer(MARKETING.id);
+      expect(aliceSecrets).toContain(GMAIL_ACCESS);
+      expect(wsSecrets).not.toContain(GMAIL_ACCESS);
+    }),
+  );
 
-    const aliceChain = chainFor(ALICE, MARKETING, ACME);
-    completeOAuth(secrets, slackBotAtMarketing, aliceChain, { access: "stale" });
+  it.effect("refresh of a shared workspace token stays at the workspace", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const sources = makeChainSourceRegistry();
+      yield* sources.install(slackBotAtMarketing);
 
-    // Bob's session triggers the refresh...
-    const bobChain = chainFor(BOB, MARKETING, ACME);
-    const after = refreshInPlace(secrets, slackBotAtMarketing, bobChain, () => "fresh");
+      const aliceChain = chainFor(ALICE, MARKETING, ACME);
+      yield* completeOAuth(secrets, slackBotAtMarketing, aliceChain, {
+        access: "stale",
+      });
 
-    // ...and it still lands at the workspace, not Bob's user layer
-    expect(after?.resolvedAt.id).toBe(MARKETING.id);
-    expect(secrets.listAtLayer(MARKETING.id)).toContain("slack:access");
-    expect(secrets.listAtLayer(BOB.id)).not.toContain("slack:access");
-  });
+      // Bob's session triggers the refresh
+      const bobChain = chainFor(BOB, MARKETING, ACME);
+      const after = yield* refreshInPlace(
+        secrets,
+        slackBotAtMarketing,
+        bobChain,
+        () => "fresh",
+      );
+
+      // Still lands at workspace, not Bob
+      expect(after.resolvedAt.id).toBe(MARKETING.id);
+      const wsSecrets = yield* secrets.listAtLayer(MARKETING.id);
+      const bobSecrets = yield* secrets.listAtLayer(BOB.id);
+      expect(wsSecrets).toContain(SLACK_ACCESS);
+      expect(bobSecrets).not.toContain(SLACK_ACCESS);
+    }),
+  );
 });
 
-// ---------- User-composed chain (prepended personal layer) ----------------
+// ---------- User-composed chain -------------------------------------------
 
 describe("user-composed chain: personal account prepended", () => {
-  it("Alice's personal secrets shadow workspace secrets when she opts in", () => {
-    const secrets = makeChainSecretStore();
-    const ALICE_PERSONAL = user("user_alice_personal", "Alice (personal)");
+  it.effect("Alice's personal secrets shadow workspace secrets when opted in", () =>
+    Effect.gen(function* () {
+      const secrets = makeChainSecretStore();
+      const ALICE_PERSONAL = user("user_alice_personal", "Alice (personal)");
 
-    // Workspace has a shared OpenAI key
-    secrets.set("openai:key", MARKETING.id, "sk-team");
-    // Alice also has her own
-    secrets.set("openai:key", ALICE_PERSONAL.id, "sk-alice");
+      yield* secrets.set({
+        name: OPENAI_KEY,
+        scopeId: MARKETING.id,
+        value: "sk-team",
+      });
+      yield* secrets.set({
+        name: OPENAI_KEY,
+        scopeId: ALICE_PERSONAL.id,
+        value: "sk-alice",
+      });
 
-    // Default chain: no personal layer → resolves to team key
-    const defaultChain = chainFor(ALICE, MARKETING, ACME);
-    expect(secrets.resolve("openai:key", defaultChain)?.value).toBe("sk-team");
+      // Default chain: no personal layer → team key
+      const defaultChain = chainFor(ALICE, MARKETING, ACME);
+      expect((yield* secrets.resolve(OPENAI_KEY, defaultChain)).value).toBe("sk-team");
 
-    // Alice prepends her personal layer — explicit opt-in
-    const composedChain = chainFor(ALICE_PERSONAL, ALICE, MARKETING, ACME);
-    expect(secrets.resolve("openai:key", composedChain)?.value).toBe("sk-alice");
-  });
+      // Alice prepends her personal layer — explicit opt-in
+      const composed = chainFor(ALICE_PERSONAL, ALICE, MARKETING, ACME);
+      expect((yield* secrets.resolve(OPENAI_KEY, composed)).value).toBe("sk-alice");
+    }),
+  );
 });
