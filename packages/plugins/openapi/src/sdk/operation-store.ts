@@ -1,7 +1,12 @@
 import type { Effect } from "effect";
 import type { ToolId } from "@executor/sdk";
 
-import type { OperationBinding, InvocationConfig, HeaderValue } from "./types";
+import type {
+  OperationBinding,
+  InvocationConfig,
+  HeaderValue,
+  OpenApiOAuthSession,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Operation store — plugin's own storage for invocation data
@@ -12,6 +17,8 @@ export interface SourceConfig {
   readonly baseUrl?: string;
   readonly namespace?: string;
   readonly headers?: Record<string, HeaderValue>;
+  /** OAuth2 auth descriptor — present only when the source was onboarded via an OAuth flow. */
+  readonly oauth2?: import("./types").OAuth2Auth;
 }
 
 export interface StoredSource {
@@ -50,4 +57,17 @@ export interface OpenApiOperationStore {
   readonly getSource: (namespace: string) => Effect.Effect<StoredSource | null>;
 
   readonly getSourceConfig: (namespace: string) => Effect.Effect<SourceConfig | null>;
+
+  // ---- OAuth session storage (pending start→complete exchanges) ----
+
+  readonly putOAuthSession: (
+    sessionId: string,
+    session: OpenApiOAuthSession,
+  ) => Effect.Effect<void>;
+
+  readonly getOAuthSession: (
+    sessionId: string,
+  ) => Effect.Effect<OpenApiOAuthSession | null>;
+
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void>;
 }

@@ -1,6 +1,16 @@
+import { randomUUID } from "node:crypto";
+
 import { Effect, Option, Schema } from "effect";
 import { FetchHttpClient, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
+
+import {
+  buildAuthorizationUrl,
+  createPkceCodeVerifier,
+  exchangeAuthorizationCode,
+  storeOAuthTokens,
+  type OAuth2TokenResponse,
+} from "@executor/plugin-oauth2";
 
 import {
   Source,
@@ -8,12 +18,14 @@ import {
   definePlugin,
   registerRuntimeTools,
   runtimeTool,
+  SecretId,
   type ExecutorPlugin,
   type PluginContext,
   ToolId,
   type ToolRegistration,
 } from "@executor/sdk";
 
+import { OpenApiOAuthError } from "./errors";
 import { parse } from "./parse";
 import { extract } from "./extract";
 import { compileToolDefinitions, type ToolDefinition } from "./definitions";
@@ -25,6 +37,8 @@ import { previewSpec, SpecPreview } from "./preview";
 import {
   HeaderValue as HeaderValueSchema,
   InvocationConfig,
+  OAuth2Auth,
+  OpenApiOAuthSession,
   OperationBinding,
   type HeaderValue as HeaderValueValue,
 } from "./types";
@@ -43,6 +57,8 @@ export interface OpenApiSpecConfig {
   readonly namespace?: string;
   /** Headers applied to every request. Values can reference secrets. */
   readonly headers?: Record<string, HeaderValue>;
+  /** OAuth2 auth descriptor (as returned from completeOAuth). */
+  readonly oauth2?: OAuth2Auth;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,6 +69,41 @@ export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 onboarding inputs / outputs
+// ---------------------------------------------------------------------------
+
+export interface OpenApiStartOAuthInput {
+  /** Display name used for stored token secret labels. */
+  readonly displayName: string;
+  /** Which security scheme in `components.securitySchemes` this flow belongs to. */
+  readonly securitySchemeName: string;
+  readonly flow: "authorizationCode";
+  /** Authorization endpoint from the spec flow. */
+  readonly authorizationUrl: string;
+  /** Token endpoint from the spec flow. */
+  readonly tokenUrl: string;
+  /** Public redirect URL the user-agent will return to. */
+  readonly redirectUrl: string;
+  readonly clientIdSecretId: string;
+  readonly clientSecretSecretId?: string | null;
+  /** Scopes the user requested (subset of the flow's declared scopes). */
+  readonly scopes: readonly string[];
+}
+
+export interface OpenApiStartOAuthResponse {
+  readonly sessionId: string;
+  readonly authorizationUrl: string;
+  readonly scopes: readonly string[];
+}
+
+export interface OpenApiCompleteOAuthInput {
+  /** sessionId passed via the OAuth `state` param. */
+  readonly state: string;
+  readonly code?: string;
+  readonly error?: string;
 }
 
 export interface OpenApiPluginExtension {
@@ -75,6 +126,16 @@ export interface OpenApiPluginExtension {
     namespace: string,
     input: OpenApiUpdateSourceInput,
   ) => Effect.Effect<void>;
+
+  /** Begin an OAuth2 authorization-code flow; returns the authorization URL + sessionId. */
+  readonly startOAuth: (
+    input: OpenApiStartOAuthInput,
+  ) => Effect.Effect<OpenApiStartOAuthResponse, OpenApiOAuthError>;
+
+  /** Exchange a code for tokens; returns the auth descriptor to pass to addSpec. */
+  readonly completeOAuth: (
+    input: OpenApiCompleteOAuthInput,
+  ) => Effect.Effect<OAuth2Auth, OpenApiOAuthError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,9 +323,11 @@ export const openApiPlugin = (options?: {
             }
 
             const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
+            const oauth2 = config.oauth2 ?? null;
             const invocationConfig = new InvocationConfig({
               baseUrl,
               headers: config.headers ?? {},
+              oauth2: oauth2 ? Option.some(oauth2) : Option.none(),
             });
 
             const definitions = compileToolDefinitions(result.operations);
@@ -290,6 +353,7 @@ export const openApiPlugin = (options?: {
                 baseUrl: config.baseUrl,
                 namespace: config.namespace,
                 headers: config.headers,
+                oauth2: oauth2 ?? undefined,
               },
               invocationConfig,
             });
@@ -326,6 +390,22 @@ export const openApiPlugin = (options?: {
           ],
         });
 
+        const storeSecretFromTokens = (args: {
+          readonly idPrefix: string;
+          readonly name: string;
+          readonly value: string;
+          readonly purpose: string;
+        }) =>
+          ctx.secrets
+            .set({
+              id: SecretId.make(`${args.idPrefix}_${randomUUID().slice(0, 8)}`),
+              scopeId: ctx.scope.id,
+              name: args.name,
+              value: args.value,
+              purpose: args.purpose,
+            })
+            .pipe(Effect.map((ref) => ({ id: ref.id as string })));
+
         return {
           extension: {
             previewSpec: (specText: string) => previewSpec(specText),
@@ -360,6 +440,7 @@ export const openApiPlugin = (options?: {
                 const newInvocationConfig = new InvocationConfig({
                   baseUrl: updatedConfig.baseUrl ?? existing.invocationConfig.baseUrl,
                   headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
+                  oauth2: existing.invocationConfig.oauth2,
                 });
 
                 yield* operationStore.putSource({
@@ -367,6 +448,135 @@ export const openApiPlugin = (options?: {
                   name: input.name?.trim() || existing.name,
                   config: updatedConfig,
                   invocationConfig: newInvocationConfig,
+                });
+              }),
+
+            startOAuth: (input: OpenApiStartOAuthInput) =>
+              Effect.gen(function* () {
+                const sessionId = randomUUID();
+                const codeVerifier = createPkceCodeVerifier();
+                const scopesArray = [...input.scopes];
+
+                yield* operationStore.putOAuthSession(
+                  sessionId,
+                  new OpenApiOAuthSession({
+                    displayName: input.displayName,
+                    securitySchemeName: input.securitySchemeName,
+                    flow: input.flow,
+                    tokenUrl: input.tokenUrl,
+                    redirectUrl: input.redirectUrl,
+                    clientIdSecretId: input.clientIdSecretId,
+                    clientSecretSecretId: input.clientSecretSecretId ?? null,
+                    scopes: scopesArray,
+                    codeVerifier,
+                  }),
+                );
+
+                const clientId = yield* ctx.secrets
+                  .resolve(SecretId.make(input.clientIdSecretId), ctx.scope.id)
+                  .pipe(
+                    Effect.mapError(
+                      (error) => new OpenApiOAuthError({ message: error.message }),
+                    ),
+                  );
+
+                const authorizationUrl = buildAuthorizationUrl({
+                  authorizationUrl: input.authorizationUrl,
+                  clientId,
+                  redirectUrl: input.redirectUrl,
+                  scopes: scopesArray,
+                  state: sessionId,
+                  codeVerifier,
+                });
+
+                return {
+                  sessionId,
+                  authorizationUrl,
+                  scopes: scopesArray,
+                };
+              }),
+
+            completeOAuth: (input: OpenApiCompleteOAuthInput) =>
+              Effect.gen(function* () {
+                const session = yield* operationStore.getOAuthSession(input.state);
+                if (!session) {
+                  return yield* new OpenApiOAuthError({
+                    message: "OAuth session not found or has expired",
+                  });
+                }
+                yield* operationStore.deleteOAuthSession(input.state);
+
+                if (input.error) {
+                  return yield* new OpenApiOAuthError({ message: input.error });
+                }
+                if (!input.code) {
+                  return yield* new OpenApiOAuthError({
+                    message: "OAuth callback did not include an authorization code",
+                  });
+                }
+
+                const clientId = yield* ctx.secrets
+                  .resolve(SecretId.make(session.clientIdSecretId), ctx.scope.id)
+                  .pipe(
+                    Effect.mapError(
+                      (error) => new OpenApiOAuthError({ message: error.message }),
+                    ),
+                  );
+
+                const clientSecret = session.clientSecretSecretId
+                  ? yield* ctx.secrets
+                      .resolve(SecretId.make(session.clientSecretSecretId), ctx.scope.id)
+                      .pipe(
+                        Effect.mapError(
+                          (error) =>
+                            new OpenApiOAuthError({ message: error.message }),
+                        ),
+                      )
+                  : null;
+
+                const tokenResponse: OAuth2TokenResponse = yield* exchangeAuthorizationCode(
+                  {
+                    tokenUrl: session.tokenUrl,
+                    clientId,
+                    clientSecret,
+                    redirectUrl: session.redirectUrl,
+                    codeVerifier: session.codeVerifier,
+                    code: input.code,
+                  },
+                ).pipe(
+                  Effect.mapError(
+                    (error) => new OpenApiOAuthError({ message: error.message }),
+                  ),
+                );
+
+                const slug = session.displayName.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+
+                const stored = yield* storeOAuthTokens({
+                  tokens: tokenResponse,
+                  slug: `${slug}_openapi`,
+                  displayName: session.displayName,
+                  accessTokenPurpose: "openapi_oauth_access_token",
+                  refreshTokenPurpose: "openapi_oauth_refresh_token",
+                  createSecret: storeSecretFromTokens,
+                }).pipe(
+                  Effect.mapError(
+                    (error) => new OpenApiOAuthError({ message: error.message }),
+                  ),
+                );
+
+                return new OAuth2Auth({
+                  kind: "oauth2",
+                  securitySchemeName: session.securitySchemeName,
+                  flow: session.flow,
+                  tokenUrl: session.tokenUrl,
+                  clientIdSecretId: session.clientIdSecretId,
+                  clientSecretSecretId: session.clientSecretSecretId,
+                  accessTokenSecretId: stored.accessTokenSecretId,
+                  refreshTokenSecretId: stored.refreshTokenSecretId,
+                  tokenType: stored.tokenType,
+                  expiresAt: stored.expiresAt,
+                  scope: stored.scope,
+                  scopes: [...session.scopes],
                 });
               }),
           },

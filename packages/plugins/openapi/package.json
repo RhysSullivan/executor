@@ -51,6 +51,7 @@
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@executor/config": "workspace:*",
+    "@executor/plugin-oauth2": "workspace:*",
     "@executor/sdk": "workspace:*",
     "effect": "catalog:",
     "openapi-types": "^12.1.3",

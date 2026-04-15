@@ -4,11 +4,11 @@
 // Uses two KV namespaces — one for bindings, one for sources (meta + config).
 // ---------------------------------------------------------------------------
 
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { scopeKv, makeInMemoryScopedKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
 import type { OpenApiOperationStore, StoredOperation, StoredSource } from "./operation-store";
-import { InvocationConfig, OperationBinding } from "./types";
+import { InvocationConfig, OpenApiOAuthSession, OperationBinding } from "./types";
 import { StoredSourceSchema } from "./stored-source";
 
 // ---------------------------------------------------------------------------
@@ -38,11 +38,18 @@ const decodeLegacyEntry = Schema.decodeUnknownSync(Schema.parseJson(LegacyStored
 const encodeSource = Schema.encodeSync(Schema.parseJson(StoredSourceSchema));
 const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(StoredSourceSchema));
 
+const encodeOAuthSession = Schema.encodeSync(Schema.parseJson(OpenApiOAuthSession));
+const decodeOAuthSession = Schema.decodeUnknownSync(Schema.parseJson(OpenApiOAuthSession));
+
 // ---------------------------------------------------------------------------
 // Implementation
 // ---------------------------------------------------------------------------
 
-const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore => {
+const makeStore = (
+  bindings: ScopedKv,
+  sources: ScopedKv,
+  oauthSessions: ScopedKv,
+): OpenApiOperationStore => {
   const withKvTransaction = <A, E>(
     kv: ScopedKv,
     effect: Effect.Effect<A, E, never>,
@@ -75,6 +82,7 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore
         new InvocationConfig({
           baseUrl: source.config.baseUrl ?? "",
           headers: source.config.headers ?? {},
+          oauth2: Option.none(),
         });
       return { ...source, invocationConfig };
     });
@@ -163,6 +171,19 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore
         const source = decodeSource(raw) as StoredSource;
         return source.config;
       }),
+
+    putOAuthSession: (sessionId, session) =>
+      oauthSessions.set([{ key: sessionId, value: encodeOAuthSession(session) }]),
+
+    getOAuthSession: (sessionId) =>
+      Effect.gen(function* () {
+        const raw = yield* oauthSessions.get(sessionId);
+        if (!raw) return null;
+        return decodeOAuthSession(raw);
+      }),
+
+    deleteOAuthSession: (sessionId) =>
+      oauthSessions.delete([sessionId]).pipe(Effect.asVoid),
   };
 };
 
@@ -171,7 +192,11 @@ const makeStore = (bindings: ScopedKv, sources: ScopedKv): OpenApiOperationStore
 // ---------------------------------------------------------------------------
 
 export const makeKvOperationStore = (kv: Kv, namespace: string): OpenApiOperationStore =>
-  makeStore(scopeKv(kv, `${namespace}.bindings`), scopeKv(kv, `${namespace}.sources`));
+  makeStore(
+    scopeKv(kv, `${namespace}.bindings`),
+    scopeKv(kv, `${namespace}.sources`),
+    scopeKv(kv, `${namespace}.oauth-sessions`),
+  );
 
 export const makeInMemoryOperationStore = (): OpenApiOperationStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv());
+  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv(), makeInMemoryScopedKv());

@@ -1,9 +1,24 @@
-import { HttpApiBuilder } from "@effect/platform";
+import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Context, Effect } from "effect";
 
+import { runOAuthCallback } from "@executor/plugin-oauth2/http";
+
 import { addGroup } from "@executor/api";
-import type { OpenApiPluginExtension, HeaderValue, OpenApiUpdateSourceInput } from "../sdk/plugin";
+import { OpenApiOAuthError } from "../sdk/errors";
+import type {
+  OpenApiPluginExtension,
+  HeaderValue,
+  OpenApiUpdateSourceInput,
+} from "../sdk/plugin";
+import { OAuth2Auth } from "../sdk/types";
 import { OpenApiGroup } from "./group";
+
+const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
+
+const toPopupErrorMessage = (error: unknown): string => {
+  if (error instanceof OpenApiOAuthError) return error.message;
+  return "Authentication failed";
+};
 
 // ---------------------------------------------------------------------------
 // Service tag — the server provides the OpenAPI extension
@@ -41,6 +56,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           baseUrl: payload.baseUrl,
           namespace: payload.namespace,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
+          oauth2: payload.oauth2,
         });
         return {
           toolCount: result.toolCount,
@@ -63,6 +79,49 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           headers: payload.headers as Record<string, HeaderValue> | undefined,
         } as OpenApiUpdateSourceInput);
         return { updated: true };
+      }).pipe(Effect.orDie),
+    )
+    .handle("startOAuth", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* OpenApiExtensionService;
+        return yield* ext.startOAuth({
+          displayName: payload.displayName,
+          securitySchemeName: payload.securitySchemeName,
+          flow: payload.flow,
+          authorizationUrl: payload.authorizationUrl,
+          tokenUrl: payload.tokenUrl,
+          redirectUrl: payload.redirectUrl,
+          clientIdSecretId: payload.clientIdSecretId,
+          clientSecretSecretId: payload.clientSecretSecretId ?? null,
+          scopes: [...payload.scopes],
+        });
+      }),
+    )
+    .handle("completeOAuth", ({ payload }) =>
+      Effect.gen(function* () {
+        const ext = yield* OpenApiExtensionService;
+        return yield* ext.completeOAuth({
+          state: payload.state,
+          code: payload.code,
+          error: payload.error,
+        });
+      }),
+    )
+    .handle("oauthCallback", ({ urlParams }) =>
+      Effect.gen(function* () {
+        const ext = yield* OpenApiExtensionService;
+        const html = yield* runOAuthCallback<OAuth2Auth, OpenApiOAuthError, never>({
+          complete: ({ state, code, error }) =>
+            ext.completeOAuth({
+              state,
+              code: code ?? undefined,
+              error: error ?? undefined,
+            }),
+          urlParams,
+          toErrorMessage: toPopupErrorMessage,
+          channelName: OPENAPI_OAUTH_CHANNEL,
+        });
+        return yield* HttpServerResponse.html(html);
       }).pipe(Effect.orDie),
     ),
 );

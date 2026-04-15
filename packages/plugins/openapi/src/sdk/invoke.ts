@@ -1,6 +1,8 @@
 import { Effect, Layer, Option } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
 
+import { withRefreshedAccessToken } from "@executor/plugin-oauth2";
+
 import {
   type ToolId,
   type ToolInvoker,
@@ -17,6 +19,7 @@ import {
   type OperationBinding,
   InvocationConfig,
   InvocationResult,
+  OAuth2Auth,
   type OperationParameter,
 } from "./types";
 
@@ -266,12 +269,99 @@ export const annotationsForOperation = (
   };
 };
 
+type SecretsIO = {
+  readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
+  readonly set: (input: {
+    readonly id: SecretId;
+    readonly scopeId: ScopeId;
+    readonly name: string;
+    readonly value: string;
+    readonly purpose?: string;
+  }) => Effect.Effect<unknown, unknown>;
+};
+
+/**
+ * Resolve an OAuth2 auth descriptor to a current access-token string,
+ * refreshing via the token endpoint first if it's within the skew window.
+ * Persists refreshed tokens + expiry back to the source config in place.
+ */
+const resolveOAuthAccessToken = (input: {
+  readonly toolId: ToolId;
+  readonly source: {
+    readonly namespace: string;
+    readonly name: string;
+  };
+  readonly auth: OAuth2Auth;
+  readonly secrets: SecretsIO;
+  readonly scopeId: ScopeId;
+  readonly operationStore: OpenApiOperationStore;
+}): Effect.Effect<string, ToolInvocationError> =>
+  withRefreshedAccessToken({
+    auth: {
+      clientIdSecretId: input.auth.clientIdSecretId,
+      clientSecretSecretId: input.auth.clientSecretSecretId,
+      accessTokenSecretId: input.auth.accessTokenSecretId,
+      refreshTokenSecretId: input.auth.refreshTokenSecretId,
+      tokenType: input.auth.tokenType,
+      expiresAt: input.auth.expiresAt,
+      scopes: input.auth.scopes,
+    },
+    tokenUrl: input.auth.tokenUrl,
+    secrets: {
+      resolve: (id) => input.secrets.resolve(id as SecretId, input.scopeId),
+      setValue: ({ secretId, value, name, purpose }) =>
+        input.secrets
+          .set({
+            id: secretId as SecretId,
+            scopeId: input.scopeId,
+            name,
+            value,
+            purpose,
+          })
+          .pipe(Effect.asVoid),
+    },
+    displayName: input.source.name,
+    accessTokenPurpose: "openapi_oauth_access_token",
+    refreshTokenPurpose: "openapi_oauth_refresh_token",
+    persistAuth: (snapshot) =>
+      Effect.gen(function* () {
+        const existing = yield* input.operationStore.getSource(input.source.namespace);
+        if (!existing) return;
+        const updatedOAuth = new OAuth2Auth({
+          ...input.auth,
+          tokenType: snapshot.tokenType,
+          expiresAt: snapshot.expiresAt,
+          scope: snapshot.scope ?? input.auth.scope,
+        });
+        yield* input.operationStore.putSource({
+          namespace: existing.namespace,
+          name: existing.name,
+          config: {
+            ...existing.config,
+            oauth2: updatedOAuth,
+          },
+          invocationConfig: new InvocationConfig({
+            baseUrl: existing.invocationConfig.baseUrl,
+            headers: existing.invocationConfig.headers,
+            oauth2: Option.some(updatedOAuth),
+          }),
+        });
+      }),
+  }).pipe(
+    Effect.mapError(
+      (error) =>
+        new ToolInvocationError({
+          toolId: input.toolId,
+          message: error.message,
+          cause: error,
+        }),
+    ),
+  );
+
 export const makeOpenApiInvoker = (opts: {
   readonly operationStore: OpenApiOperationStore;
   readonly httpClientLayer: Layer.Layer<HttpClient.HttpClient>;
-  readonly secrets: {
-    readonly resolve: (secretId: SecretId, scopeId: ScopeId) => Effect.Effect<string, unknown>;
-  };
+  readonly secrets: SecretsIO;
   readonly scopeId: ScopeId;
 }): ToolInvoker => ({
   resolveAnnotations: (toolId: ToolId) =>
@@ -307,6 +397,22 @@ export const makeOpenApiInvoker = (opts: {
 
       // Resolve secret-backed headers
       const resolvedHeaders = yield* resolveHeaders(config.headers, opts.secrets, opts.scopeId);
+
+      // If the source has OAuth2 auth, resolve/refresh the access token
+      // and inject Authorization: Bearer <token>. A spec-declared header
+      // named "Authorization" in config.headers is overwritten.
+      if (Option.isSome(config.oauth2)) {
+        const auth = config.oauth2.value;
+        const accessToken = yield* resolveOAuthAccessToken({
+          toolId,
+          source: { namespace: source.namespace, name: source.name },
+          auth,
+          secrets: opts.secrets,
+          scopeId: opts.scopeId,
+          operationStore: opts.operationStore,
+        });
+        resolvedHeaders["Authorization"] = `${auth.tokenType || "Bearer"} ${accessToken}`;
+      }
 
       const clientWithBaseUrl = baseUrl
         ? Layer.effect(

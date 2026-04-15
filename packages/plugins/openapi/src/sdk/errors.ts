@@ -20,3 +20,10 @@ export class OpenApiInvocationError extends Data.TaggedError("OpenApiInvocationE
   readonly statusCode: Option.Option<number>;
   readonly cause?: unknown;
 }> {}
+
+export class OpenApiOAuthError extends Schema.TaggedError<OpenApiOAuthError>()(
+  "OpenApiOAuthError",
+  {
+    message: Schema.String,
+  },
+) {}

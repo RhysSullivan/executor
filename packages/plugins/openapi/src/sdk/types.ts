@@ -105,12 +105,65 @@ export const HeaderValue = Schema.Union(
 );
 export type HeaderValue = typeof HeaderValue.Type;
 
+// ---------------------------------------------------------------------------
+// OAuth2 auth — applied as Authorization: Bearer <token> at invocation time.
+// Tokens are stored as secrets; the bearer value is resolved (and refreshed)
+// on every request via withRefreshedAccessToken.
+// ---------------------------------------------------------------------------
+
+export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
+  kind: Schema.Literal("oauth2"),
+  /** Key into `components.securitySchemes` this auth came from. */
+  securitySchemeName: Schema.String,
+  /** Which flow produced this auth. Only authorizationCode is supported end-to-end today. */
+  flow: Schema.Literal("authorizationCode"),
+  /** Token endpoint (from the flow) — used for refresh. */
+  tokenUrl: Schema.String,
+  clientIdSecretId: Schema.String,
+  clientSecretSecretId: Schema.NullOr(Schema.String),
+  accessTokenSecretId: Schema.String,
+  refreshTokenSecretId: Schema.NullOr(Schema.String),
+  tokenType: Schema.String,
+  /** Epoch ms when the access token expires; null if the server did not declare an expiry. */
+  expiresAt: Schema.NullOr(Schema.Number),
+  /** Scope string as returned by the token endpoint. */
+  scope: Schema.NullOr(Schema.String),
+  /** Scopes this auth was granted (for display + refresh). */
+  scopes: Schema.Array(Schema.String),
+}) {}
+
 export class InvocationConfig extends Schema.Class<InvocationConfig>("InvocationConfig")({
   baseUrl: Schema.String,
   /** Headers applied to every request. Values can reference secrets. */
   headers: Schema.optionalWith(Schema.Record({ key: Schema.String, value: HeaderValue }), {
     default: () => ({}),
   }),
+  /**
+   * Optional OAuth2 auth — if set, the invoker resolves/refreshes the
+   * access token and injects `Authorization: Bearer <token>` on every
+   * request. Coexists with `headers` but wins for the Authorization header.
+   */
+  oauth2: Schema.optionalWith(OAuth2Auth, { as: "Option" }),
+}) {}
+
+// ---------------------------------------------------------------------------
+// Pending OAuth session — persisted between startOAuth and completeOAuth
+// ---------------------------------------------------------------------------
+
+export class OpenApiOAuthSession extends Schema.Class<OpenApiOAuthSession>(
+  "OpenApiOAuthSession",
+)({
+  /** Display name used for the stored token secret labels. */
+  displayName: Schema.String,
+  securitySchemeName: Schema.String,
+  /** For now only authorizationCode is supported end-to-end; clientCredentials is follow-up work. */
+  flow: Schema.Literal("authorizationCode"),
+  tokenUrl: Schema.String,
+  redirectUrl: Schema.String,
+  clientIdSecretId: Schema.String,
+  clientSecretSecretId: Schema.NullOr(Schema.String),
+  scopes: Schema.Array(Schema.String),
+  codeVerifier: Schema.String,
 }) {}
 
 export class InvocationResult extends Schema.Class<InvocationResult>("InvocationResult")({
