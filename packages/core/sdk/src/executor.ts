@@ -398,15 +398,23 @@ export const createExecutor = <
     const extensions: Record<string, object> = {};
 
     // ------------------------------------------------------------------
-    // Secrets facade — walks providers in registration order.
+    // Secrets facade — every secret is routed through exactly one
+    // provider, recorded in the core `secret` table at set-time. Get
+    // looks up the routing row, then calls the pinned provider. No
+    // walking. If a secret id isn't in the table, it doesn't exist as
+    // far as the executor is concerned — even if some provider would
+    // happen to return a value for it.
     // ------------------------------------------------------------------
     const secretsGet = (id: string): Effect.Effect<string | null, Error> =>
       Effect.gen(function* () {
-        for (const provider of secretProviders.values()) {
-          const value = yield* provider.get(id);
-          if (value !== null) return value;
-        }
-        return null;
+        const row = yield* core.findOne({
+          model: "secret",
+          where: [{ field: "id", value: id }],
+        });
+        if (!row) return null;
+        const provider = secretProviders.get(row.provider);
+        if (!provider) return null;
+        return yield* provider.get(id);
       });
 
     const secretsSet = (
