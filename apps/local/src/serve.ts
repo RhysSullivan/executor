@@ -76,6 +76,8 @@ export interface StartServerOptions {
   clientDir?: string;
   /** Embedded web UI map from compiled binary (path → bunfs path). Overrides clientDir. */
   embeddedWebUI?: Record<string, string> | null;
+  hostname?: string;
+  disableHostCheck?: boolean;
 }
 
 export interface ServerInstance {
@@ -85,6 +87,7 @@ export interface ServerInstance {
 
 export async function startServer(opts: StartServerOptions = {}): Promise<ServerInstance> {
   const port = opts.port ?? parseInt(process.env.PORT ?? "4788", 10);
+  const hostname = opts.hostname ?? "127.0.0.1";
   const clientDir = opts.clientDir ?? resolve(import.meta.dirname, "../dist");
 
   const handlers = await getServerHandlers();
@@ -105,13 +108,13 @@ export async function startServer(opts: StartServerOptions = {}): Promise<Server
 
   const server = Bun.serve({
     port,
-    hostname: "127.0.0.1",
+    hostname,
     // Disable Bun's default 10s idle timeout. MCP elicitation and pause/resume
     // can idle longer during human approval; `0` disables the socket timeout.
     idleTimeout: 0,
     routes: { ...staticRoutes },
     async fetch(req) {
-      if (!isAllowedHost(req)) {
+      if (!opts.disableHostCheck && !isAllowedHost(req)) {
         return new Response("Forbidden", { status: 403 });
       }
 

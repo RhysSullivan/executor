@@ -111,11 +111,11 @@ const makeApiClient = (baseUrl: string) =>
 // Foreground session
 // ---------------------------------------------------------------------------
 
-const runForegroundSession = (input: { port: number }) =>
+const runForegroundSession = (input: { port: number; hostname: string; noCors: boolean }) =>
   Effect.gen(function* () {
-    const server = yield* Effect.promise(() => startServer({ port: input.port, embeddedWebUI }));
+    const server = yield* Effect.promise(() => startServer({ port: input.port, hostname: input.hostname, disableHostCheck: input.noCors, embeddedWebUI }));
 
-    const baseUrl = `http://localhost:${server.port}`;
+    const baseUrl = `http://${input.hostname}:${server.port}`;
     console.log(`Executor is ready.`);
     console.log(`Web:     ${baseUrl}`);
     console.log(`MCP:     ${baseUrl}/mcp`);
@@ -262,12 +262,14 @@ const webCommand = Command.make(
   "web",
   {
     port: Options.integer("port").pipe(Options.withDefault(DEFAULT_PORT)),
+    hostname: Options.text("hostname").pipe(Options.withDefault("127.0.0.1")),
+    noCors: Options.boolean("no-cors").pipe(Options.withDefault(false)),
     scope,
   },
-  ({ port, scope }) =>
+  ({ port, scope, hostname, noCors }) =>
     Effect.gen(function* () {
       applyScope(scope);
-      yield* runForegroundSession({ port });
+      yield* runForegroundSession({ port, hostname, noCors });
     }),
 ).pipe(Command.withDescription("Start a foreground web session"));
 
