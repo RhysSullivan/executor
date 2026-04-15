@@ -12,6 +12,7 @@ import type {
   ToolAnnotations,
   ToolRow,
 } from "./core-schema";
+import type { SourceDetectionResult } from "./types";
 import type {
   ElicitationDeclinedError,
   ElicitationHandler,
@@ -263,6 +264,17 @@ export interface PluginSpec<
   readonly refreshSource?: (
     input: SourceLifecycleInput<TStore>,
   ) => Effect.Effect<void, Error>;
+
+  /** URL autodetection hook. When the user pastes a URL in the
+   *  onboarding UI, `executor.sources.detect(url)` fans out to every
+   *  plugin's `detect`. Return a `SourceDetectionResult` if you
+   *  recognize the URL, `null` otherwise. Implementations should be
+   *  defensive — swallow fetch errors and return null rather than
+   *  throwing. First high-confidence match wins. */
+  readonly detect?: (input: {
+    readonly ctx: PluginCtx<TStore>;
+    readonly url: string;
+  }) => Effect.Effect<SourceDetectionResult | null, Error>;
 
   /** Secret providers contributed by this plugin. Either a static
    *  array or a function of ctx (for providers that need per-instance

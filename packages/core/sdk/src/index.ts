@@ -37,7 +37,13 @@ export {
 } from "./errors";
 
 // Public projections
-export type { Source, Tool, ToolListFilter } from "./types";
+export {
+  ToolSchema,
+  SourceDetectionResult,
+  type Source,
+  type Tool,
+  type ToolListFilter,
+} from "./types";
 
 // Core schema
 export {

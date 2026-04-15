@@ -49,7 +49,14 @@ import {
   SetSecretInput,
   type SecretProvider,
 } from "./secrets";
-import type { Source, Tool, ToolListFilter } from "./types";
+import {
+  ToolSchema,
+  type Source,
+  type SourceDetectionResult,
+  type Tool,
+  type ToolListFilter,
+} from "./types";
+import { buildToolTypeScriptPreview } from "./schema-types";
 
 // ---------------------------------------------------------------------------
 // InvokeOptions — passed to `executor.tools.invoke(id, args, options)`.
@@ -90,15 +97,17 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     readonly list: (
       filter?: ToolListFilter,
     ) => Effect.Effect<readonly Tool[], Error>;
-    /** Fetch a tool's input/output schemas with any `$ref: "#/$defs/X"`
-     *  pointers backed by attached `$defs` from the tool's source. */
+    /** Fetch a tool's full schema view: JSON schemas with `$defs`
+     *  attached from the core `definition` table, plus TypeScript
+     *  preview strings rendered from them. Returns `null` for unknown
+     *  tool ids. */
     readonly schema: (
       toolId: string,
-    ) => Effect.Effect<
-      {
-        readonly inputSchema: unknown;
-        readonly outputSchema: unknown;
-      } | null,
+    ) => Effect.Effect<ToolSchema | null, Error>;
+    /** Every `$defs` entry across every source, grouped by source id.
+     *  Used for bulk schema export and downstream TypeScript rendering. */
+    readonly definitions: () => Effect.Effect<
+      Record<string, Record<string, unknown>>,
       Error
     >;
     readonly invoke: (
@@ -122,10 +131,27 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
       sourceId: string,
     ) => Effect.Effect<void, SourceRemovalNotAllowedError | Error>;
     readonly refresh: (sourceId: string) => Effect.Effect<void, Error>;
+    /** URL autodetection — fans out to every plugin's `detect` hook
+     *  (if declared), returns every high/medium/low-confidence match.
+     *  UI picks a winner from the list. */
+    readonly detect: (
+      url: string,
+    ) => Effect.Effect<readonly SourceDetectionResult[], Error>;
+    /** All `$defs` registered for a single source, keyed by def name. */
+    readonly definitions: (
+      sourceId: string,
+    ) => Effect.Effect<Record<string, unknown>, Error>;
   };
 
   readonly secrets: {
     readonly get: (id: string) => Effect.Effect<string | null, Error>;
+    /** Fast-path existence check — hits the core `secret` routing table
+     *  only, never calls the provider. Use this for UI state ("secret
+     *  missing, prompt to add") to avoid keychain permission prompts
+     *  or 1password IPC roundtrips on a pre-flight check. */
+    readonly status: (
+      id: string,
+    ) => Effect.Effect<"resolved" | "missing", Error>;
     readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, Error>;
     readonly remove: (id: string) => Effect.Effect<void, Error>;
     readonly list: () => Effect.Effect<readonly SecretRef[], Error>;
@@ -179,17 +205,22 @@ const rowToSource = (row: SourceRow): Source => ({
   kind: row.kind,
   name: row.name,
   url: row.url ?? undefined,
+  pluginId: row.plugin_id,
   canRemove: Boolean(row.can_remove),
   canRefresh: Boolean(row.can_refresh),
   canEdit: Boolean(row.can_edit),
   runtime: false,
 });
 
-const staticDeclToSource = (decl: StaticSourceDecl): Source => ({
+const staticDeclToSource = (
+  decl: StaticSourceDecl,
+  pluginId: string,
+): Source => ({
   id: decl.id,
   kind: decl.kind,
   name: decl.name,
   url: decl.url,
+  pluginId,
   canRemove: decl.canRemove ?? false,
   canRefresh: decl.canRefresh ?? false,
   canEdit: decl.canEdit ?? false,
@@ -212,6 +243,7 @@ const rowToTool = (
 ): Tool => ({
   id: row.id,
   sourceId: row.source_id,
+  pluginId: row.plugin_id,
   name: row.name,
   description: row.description,
   inputSchema: decodeJsonColumn(row.input_schema),
@@ -222,9 +254,11 @@ const rowToTool = (
 const staticDeclToTool = (
   source: StaticSourceDecl,
   tool: StaticToolDecl,
+  pluginId: string,
 ): Tool => ({
   id: `${source.id}.${tool.name}`,
   sourceId: source.id,
+  pluginId,
   name: tool.name,
   description: tool.description,
   inputSchema: tool.inputSchema,
@@ -665,8 +699,8 @@ export const createExecutor = <
       Effect.gen(function* () {
         const dynamic = yield* core.findMany({ model: "source" });
         const staticList: Source[] = [];
-        for (const { source } of staticSources.values()) {
-          staticList.push(staticDeclToSource(source));
+        for (const { source, pluginId } of staticSources.values()) {
+          staticList.push(staticDeclToSource(source, pluginId));
         }
         return [...staticList, ...dynamic.map(rowToSource)];
       });
@@ -717,7 +751,7 @@ export const createExecutor = <
         const out: Tool[] = [];
         // Static tools — annotations from the declaration, not a resolver.
         for (const entry of staticTools.values()) {
-          out.push(staticDeclToTool(entry.source, entry.tool));
+          out.push(staticDeclToTool(entry.source, entry.tool, entry.pluginId));
         }
         for (const row of dynamic) {
           out.push(rowToTool(row, annotations.get(row.id)));
@@ -739,30 +773,104 @@ export const createExecutor = <
         return { ...(schema as Record<string, unknown>), $defs: defs };
       });
 
+    // Load all definitions for a single source as a plain map.
+    const loadDefinitionsForSource = (sourceId: string) =>
+      Effect.gen(function* () {
+        const defRows = yield* core.findMany({
+          model: "definition",
+          where: [{ field: "source_id", value: sourceId }],
+        });
+        const out: Record<string, unknown> = {};
+        for (const row of defRows) out[row.name] = row.schema;
+        return out;
+      });
+
+    // Render the ToolSchema view for a tool — wraps the raw JSON schemas
+    // with attached `$defs` and runs them through the TypeScript preview
+    // helpers so the UI gets ready-to-display code samples.
+    const buildToolSchemaView = (
+      toolId: string,
+      sourceId: string | undefined,
+      rawInput: unknown,
+      rawOutput: unknown,
+    ) =>
+      Effect.gen(function* () {
+        const defs: Record<string, unknown> = sourceId
+          ? yield* loadDefinitionsForSource(sourceId)
+          : {};
+
+        const attachDefs = (schema: unknown): unknown => {
+          if (schema == null || typeof schema !== "object") return schema;
+          if (Object.keys(defs).length === 0) return schema;
+          return { ...(schema as Record<string, unknown>), $defs: defs };
+        };
+
+        const inputSchema = attachDefs(rawInput);
+        const outputSchema = attachDefs(rawOutput);
+
+        // TypeScript preview rendering — pure, synchronous. Uses the
+        // helpers we already ship. The helpers walk the schema's refs,
+        // collect only the defs actually reached, and render the subset
+        // as named TS types so the preview is minimal per tool.
+        const defsMap = new Map<string, unknown>(Object.entries(defs));
+        const preview = buildToolTypeScriptPreview({
+          inputSchema,
+          outputSchema,
+          defs: defsMap,
+        });
+
+        return new ToolSchema({
+          id: ToolId.make(toolId),
+          inputSchema,
+          outputSchema,
+          inputTypeScript: preview.inputTypeScript ?? undefined,
+          outputTypeScript: preview.outputTypeScript ?? undefined,
+          typeScriptDefinitions: preview.typeScriptDefinitions ?? undefined,
+        });
+      });
+
     const toolSchema = (toolId: string) =>
       Effect.gen(function* () {
-        // Static pool first.
+        // Static pool first — static tools have no source in the DB so
+        // no `$defs` attach; just wrap the declared schemas.
         const staticEntry = staticTools.get(toolId);
         if (staticEntry) {
-          return {
-            inputSchema: staticEntry.tool.inputSchema,
-            outputSchema: staticEntry.tool.outputSchema,
-          };
+          return yield* buildToolSchemaView(
+            toolId,
+            undefined,
+            staticEntry.tool.inputSchema,
+            staticEntry.tool.outputSchema,
+          );
         }
         const row = yield* core.findOne({
           model: "tool",
           where: [{ field: "id", value: toolId }],
         });
         if (!row) return null;
-        const inputSchema = yield* attachDefsFor(
+        return yield* buildToolSchemaView(
+          toolId,
           row.source_id,
           decodeJsonColumn(row.input_schema),
-        );
-        const outputSchema = yield* attachDefsFor(
-          row.source_id,
           decodeJsonColumn(row.output_schema),
         );
-        return { inputSchema, outputSchema };
+      });
+
+    // Bulk definitions accessor — every source's $defs, grouped by
+    // source id. One query against the definition table, plus an
+    // in-memory group-by.
+    const toolsDefinitions = () =>
+      Effect.gen(function* () {
+        const rows = yield* core.findMany({ model: "definition" });
+        const out: Record<string, Record<string, unknown>> = {};
+        for (const row of rows) {
+          let bucket = out[row.source_id];
+          if (!bucket) {
+            bucket = {};
+            out[row.source_id] = bucket;
+          }
+          bucket[row.name] = row.schema;
+        }
+        return out;
       });
 
     const buildElicit = (toolId: string, args: unknown, options: InvokeOptions | undefined): Elicit => {
@@ -942,6 +1050,39 @@ export const createExecutor = <
         }
       });
 
+    // URL autodetection — fan out across every plugin that declared a
+    // `detect` hook. Collect all non-null results. Plugin-level detect
+    // implementations should swallow fetch errors and return null, so
+    // one flaky plugin doesn't block the whole dispatch.
+    const detectSource = (url: string) =>
+      Effect.gen(function* () {
+        const results: SourceDetectionResult[] = [];
+        for (const runtime of runtimes.values()) {
+          if (!runtime.plugin.detect) continue;
+          const result = yield* runtime.plugin
+            .detect({ ctx: runtime.ctx, url })
+            .pipe(Effect.catchAll(() => Effect.succeed(null)));
+          if (result) results.push(result);
+        }
+        return results;
+      });
+
+    // Per-source definitions accessor — one query, one mapping pass.
+    const sourceDefinitions = (sourceId: string) =>
+      loadDefinitionsForSource(sourceId);
+
+    // Fast-path existence check — registry table only, no provider call.
+    const secretsStatus = (
+      id: string,
+    ): Effect.Effect<"resolved" | "missing", Error> =>
+      Effect.gen(function* () {
+        const row = yield* core.findOne({
+          model: "secret",
+          where: [{ field: "id", value: id }],
+        });
+        return row ? "resolved" : "missing";
+      });
+
     const close = () =>
       Effect.gen(function* () {
         for (const runtime of runtimes.values()) {
@@ -956,15 +1097,19 @@ export const createExecutor = <
       tools: {
         list: listTools,
         schema: toolSchema,
+        definitions: toolsDefinitions,
         invoke: invokeTool,
       },
       sources: {
         list: listSources,
         remove: removeSource,
         refresh: refreshSource,
+        detect: detectSource,
+        definitions: sourceDefinitions,
       },
       secrets: {
         get: secretsGet,
+        status: secretsStatus,
         set: secretsSet,
         remove: secretsRemove,
         list: secretsList,
