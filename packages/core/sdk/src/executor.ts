@@ -670,18 +670,21 @@ export const createExecutor = <
                     );
                   }
                 }
-                yield* adapter.transaction(() =>
-                  writeSourceInput(core, plugin.id, input),
-                );
+                // Don't wrap in adapter.transaction here. Callers who
+                // need atomicity (e.g. openapi's addSpec) already wrap
+                // their whole operation in ctx.transaction, and a
+                // nested sql.begin inside sql.begin deadlocks on
+                // postgres.js when the connection pool is small.
+                // A single writeSourceInput call is one create + one
+                // createMany — atomic at the statement level regardless.
+                yield* writeSourceInput(core, plugin.id, input);
               }),
             unregister: (sourceId: string) =>
-              adapter.transaction(() => deleteSourceById(core, sourceId)),
+              deleteSourceById(core, sourceId),
           },
           definitions: {
             register: (input: DefinitionsInput) =>
-              adapter.transaction(() =>
-                writeDefinitions(core, plugin.id, input),
-              ),
+              writeDefinitions(core, plugin.id, input),
           },
         },
         secrets: {
@@ -690,8 +693,25 @@ export const createExecutor = <
           set: secretsSet,
           remove: secretsRemove,
         },
-        transaction: <A, E>(effect: Effect.Effect<A, E>) =>
-          adapter.transaction(() => effect),
+        // TODO: ctx.transaction is currently a pass-through — it runs
+        // the effect without opening an actual BEGIN/COMMIT boundary.
+        // The reason: `adapter.transaction(() => effect)` opens a
+        // sql.begin on one connection, but any subsequent adapter
+        // calls inside `effect` route through the ROOT adapter (not
+        // a tx-bound one), which pulls separate connections from the
+        // pool. With postgres.js `max: 1` this deadlocks (the outer
+        // tx holds the connection, the inner writes wait for one to
+        // free). With max > 1 the inner writes just happen outside
+        // the transaction — non-atomic.
+        //
+        // Until we thread the active tx client through the adapter
+        // context (via FiberRef / Layer substitution), skipping the
+        // outer sql.begin is strictly better than holding a connection
+        // for nothing. Writes inside ctx.transaction are currently
+        // atomic only at the individual-statement level — a
+        // multi-statement effect may leave partially-written state on
+        // failure. openapi's addSpec can recover via unregister + retry.
+        transaction: <A, E>(effect: Effect.Effect<A, E>) => effect,
       };
 
       // Build extension FIRST so it's available as `self` when resolving
@@ -1072,17 +1092,14 @@ export const createExecutor = <
           return yield* new SourceRemovalNotAllowedError({ sourceId });
         }
         const runtime = runtimes.get(sourceRow.plugin_id);
-        yield* adapter.transaction(() =>
-          Effect.gen(function* () {
-            if (runtime?.plugin.removeSource) {
-              yield* runtime.plugin.removeSource({
-                ctx: runtime.ctx,
-                sourceId,
-              });
-            }
-            yield* deleteSourceById(core, sourceId);
-          }),
-        );
+        // Same pass-through rationale as ctx.transaction above.
+        if (runtime?.plugin.removeSource) {
+          yield* runtime.plugin.removeSource({
+            ctx: runtime.ctx,
+            sourceId,
+          });
+        }
+        yield* deleteSourceById(core, sourceId);
       });
 
     const refreshSource = (sourceId: string) =>
