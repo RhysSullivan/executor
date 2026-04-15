@@ -1,5 +1,5 @@
 {
-  "name": "@executor/storage-sql",
+  "name": "@executor/storage-memory",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -12,15 +12,10 @@
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
-    "@effect/sql": "catalog:",
     "@executor/storage-core": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/sql-sqlite-bun": "catalog:",
-    "@effect/vitest": "catalog:",
-    "@types/bun": "^1.1.0",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+    "typescript": "catalog:"
   }
 }

@@ -16,10 +16,8 @@
     "effect": "catalog:"
   },
   "devDependencies": {
-    "@effect/sql": "catalog:",
-    "@effect/sql-sqlite-node": "catalog:",
     "@effect/vitest": "catalog:",
-    "@executor/storage-sql": "workspace:*",
+    "@executor/storage-memory": "workspace:*",
     "@types/bun": "^1.1.0",
     "typescript": "catalog:",
     "vitest": "catalog:"

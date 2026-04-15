@@ -272,10 +272,8 @@
         "effect": "catalog:",
       },
       "devDependencies": {
-        "@effect/sql": "catalog:",
-        "@effect/sql-sqlite-node": "catalog:",
         "@effect/vitest": "catalog:",
-        "@executor/storage-sql": "workspace:*",
+        "@executor/storage-memory": "workspace:*",
         "@types/bun": "^1.1.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -310,6 +308,17 @@
         "vitest": "catalog:",
       },
     },
+    "packages/core/storage-memory": {
+      "name": "@executor/storage-memory",
+      "version": "0.0.0",
+      "dependencies": {
+        "@executor/storage-core": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "typescript": "catalog:",
+      },
+    },
     "packages/core/storage-postgres": {
       "name": "@executor/storage-postgres",
       "version": "1.4.1",
@@ -327,22 +336,6 @@
         "@types/node": "^25.6.0",
         "@types/pg": "^8.15.4",
         "drizzle-kit": "^0.31.0",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
-    "packages/core/storage-sql": {
-      "name": "@executor/storage-sql",
-      "version": "0.0.0",
-      "dependencies": {
-        "@effect/sql": "catalog:",
-        "@executor/storage-core": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/sql-sqlite-bun": "catalog:",
-        "@effect/vitest": "catalog:",
-        "@types/bun": "^1.1.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -1216,9 +1209,9 @@
 
     "@executor/storage-file": ["@executor/storage-file@workspace:packages/core/storage-file"],
 
-    "@executor/storage-postgres": ["@executor/storage-postgres@workspace:packages/core/storage-postgres"],
+    "@executor/storage-memory": ["@executor/storage-memory@workspace:packages/core/storage-memory"],
 
-    "@executor/storage-sql": ["@executor/storage-sql@workspace:packages/core/storage-sql"],
+    "@executor/storage-postgres": ["@executor/storage-postgres@workspace:packages/core/storage-postgres"],
 
     "@floating-ui/core": ["@floating-ui/core@1.7.5", "", { "dependencies": { "@floating-ui/utils": "^0.2.11" } }, "sha512-1Ih4WTWyw0+lKyFMcBHGbb5U5FtuHJuujoyyr5zTaWS5EYMeT6Jb2AuDeftsCsEuchO+mM2ij5+q9crhydzLhQ=="],
 
