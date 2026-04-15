@@ -88,6 +88,17 @@ export type DBAdapter = {
     forceAllowId?: boolean | undefined;
   }) => Effect.Effect<R, Error>;
 
+  /**
+   * Insert multiple rows in one call. Backends that don't have native
+   * bulk insert support fall back to sequential creates inside a single
+   * transaction. Returns the inserted rows in input order.
+   */
+  createMany: <T extends Record<string, unknown>, R = T>(data: {
+    model: string;
+    data: ReadonlyArray<Omit<T, "id">>;
+    forceAllowId?: boolean | undefined;
+  }) => Effect.Effect<readonly R[], Error>;
+
   findOne: <T>(data: {
     model: string;
     where: Where[];

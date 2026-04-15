@@ -11,6 +11,8 @@ export {
   type InferDBFieldsOutput,
 } from "./schema";
 
+export { typedAdapter, type TypedAdapter } from "./typed";
+
 export {
   whereOperators,
   type WhereOperator,

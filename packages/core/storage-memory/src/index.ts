@@ -157,6 +157,25 @@ export const makeInMemoryAdapter = (
         return row as unknown as R;
       }),
 
+    createMany: <T extends Record<string, unknown>, R = T>(data: {
+      model: string;
+      data: ReadonlyArray<Omit<T, "id">>;
+      forceAllowId?: boolean | undefined;
+    }) =>
+      Effect.sync(() => {
+        const bucket = getModel(data.model);
+        const out: Record<string, unknown>[] = [];
+        for (const input of data.data) {
+          const row = { ...input } as Record<string, unknown>;
+          if (!("id" in row)) {
+            row.id = idGen();
+          }
+          bucket.set(row.id as string, row);
+          out.push(row);
+        }
+        return out as unknown as R[];
+      }),
+
     findOne: <T>(data: {
       model: string;
       where: Where[];
