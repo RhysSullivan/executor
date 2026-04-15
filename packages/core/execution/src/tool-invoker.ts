@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type {
   Executor,
   ToolId,
-  ToolMetadata,
+  Tool,
   ToolSchema,
   InvokeOptions,
   Source,
@@ -30,10 +30,20 @@ export const makeExecutorToolInvoker = (
           ),
         ),
       );
-      if (result.error !== null && result.error !== undefined) {
-        return yield* Effect.fail(result.error);
+      const r = result as { readonly error?: unknown; readonly data?: unknown } | unknown;
+      if (
+        r !== null &&
+        typeof r === "object" &&
+        "error" in r &&
+        (r as { error?: unknown }).error !== null &&
+        (r as { error?: unknown }).error !== undefined
+      ) {
+        return yield* Effect.fail((r as { error: unknown }).error);
       }
-      return result.data;
+      if (r !== null && typeof r === "object" && "data" in r) {
+        return (r as { data: unknown }).data;
+      }
+      return r;
     }),
 });
 
@@ -55,7 +65,7 @@ export type ExecutorSourceListItem = {
   readonly toolCount: number;
 };
 
-type SearchableTool = Pick<ToolMetadata, "id" | "sourceId" | "name" | "description">;
+type SearchableTool = Pick<Tool, "id" | "sourceId" | "name" | "description">;
 
 type PreparedField = {
   readonly raw: string;
@@ -247,10 +257,10 @@ export const searchTools = (
       return [];
     }
 
-    const all = yield* executor.tools.list();
+    const all = yield* executor.tools.list().pipe(Effect.orDie);
     return all
-      .filter((tool: ToolMetadata) => matchesNamespace(tool, options?.namespace))
-      .map((tool: ToolMetadata) => scoreToolMatch(tool, query))
+      .filter((tool: Tool) => matchesNamespace(tool, options?.namespace))
+      .map((tool: Tool) => scoreToolMatch(tool, query))
       .filter((tool): tool is ToolDiscoveryResult => tool !== null)
       .sort((left, right) => right.score - left.score || left.path.localeCompare(right.path))
       .slice(0, limit);
@@ -264,7 +274,7 @@ export const listExecutorSources = (
   Effect.gen(function* () {
     const normalizedQuery = normalizeSearchText(options?.query ?? "");
     const limit = options?.limit ?? 200;
-    const sources = yield* executor.sources.list();
+    const sources = yield* executor.sources.list().pipe(Effect.orDie);
 
     const filtered =
       normalizedQuery.length === 0
@@ -278,6 +288,7 @@ export const listExecutorSources = (
       filtered,
       (source: Source) =>
         executor.tools.list({ sourceId: source.id }).pipe(
+          Effect.orDie,
           Effect.map(
             (tools) =>
               ({
@@ -315,7 +326,9 @@ export const describeTool = (
   unknown
 > =>
   Effect.gen(function* () {
-    const metadata = (yield* executor.tools.list()).find((t: ToolMetadata) => t.id === path);
+    const metadata = (yield* executor.tools.list().pipe(Effect.orDie)).find(
+      (t: Tool) => t.id === path,
+    );
 
     const base = {
       path,
@@ -323,7 +336,10 @@ export const describeTool = (
       description: metadata?.description,
     };
 
-    const schema: ToolSchema = yield* executor.tools.schema(path);
+    const schema: ToolSchema | null = yield* executor.tools.schema(path);
+    if (schema === null) {
+      return base;
+    }
     return {
       ...base,
       inputTypeScript: schema.inputTypeScript,

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Executor, ToolMetadata, Source } from "@executor/sdk";
+import type { Executor, Tool, Source } from "@executor/sdk";
 
 /**
  * Builds a tool description dynamically.
@@ -10,8 +10,8 @@ import type { Executor, ToolMetadata, Source } from "@executor/sdk";
  */
 export const buildExecuteDescription = (executor: Executor): Effect.Effect<string> =>
   Effect.gen(function* () {
-    const sources: readonly Source[] = yield* executor.sources.list();
-    const tools: readonly ToolMetadata[] = yield* executor.tools.list();
+    const sources: readonly Source[] = yield* executor.sources.list().pipe(Effect.orDie);
+    const tools: readonly Tool[] = yield* executor.tools.list().pipe(Effect.orDie);
 
     const namespaces = new Set<string>();
     for (const tool of tools) namespaces.add(tool.sourceId);

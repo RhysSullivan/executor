@@ -48,12 +48,7 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         const executor = yield* ExecutorService;
         const value = yield* executor.secrets.get(path.secretId).pipe(Effect.orDie);
         if (value === null) {
-          return yield* Effect.fail(
-            new (yield* Effect.sync(() => {
-              // fallback — should not happen, see import above
-              throw new Error("unreachable");
-            }))(),
-          );
+          return yield* Effect.fail(new SecretNotFoundError({ secretId: path.secretId }));
         }
         return { secretId: path.secretId, value };
       }),
