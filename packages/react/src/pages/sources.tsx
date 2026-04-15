@@ -287,7 +287,9 @@ function SourceGrid(props: {
                 <CardStackEntryDescription>{s.id}</CardStackEntryDescription>
               </CardStackEntryContent>
               <CardStackEntryActions>
-                {s.runtime && <Badge className="bg-muted text-muted-foreground">built-in</Badge>}
+                {s.runtime && s.kind !== "built-in" && (
+                  <Badge className="bg-muted text-muted-foreground">built-in</Badge>
+                )}
                 <Badge variant="secondary">{s.kind}</Badge>
               </CardStackEntryActions>
             </Link>
