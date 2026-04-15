@@ -164,7 +164,7 @@ export const collectSchemas = (
             ` (reserved by core or another plugin)`,
         );
       }
-      merged[modelKey] = model;
+      merged[modelKey] = model as DBSchema[string];
     }
   }
   return merged;
@@ -529,9 +529,15 @@ export const createExecutor = <
         );
       }
 
-      const storageDeps: StorageDeps = {
+      // `typedAdapter(adapter)` is a zero-cost cast at the type level —
+      // the runtime value IS the adapter, but the type is whatever the
+      // plugin's schema declares. Plugins never import `typedAdapter` or
+      // `DBAdapter` themselves; they just destructure `{ adapter }` in
+      // their storage factory and get a store typed to their own schema.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const storageDeps: StorageDeps<any> = {
         scope,
-        adapter,
+        adapter: typedAdapter(adapter) as never,
         blobs: scopeBlobStore(blobs, plugin.id),
       };
       const storage = plugin.storage(storageDeps);

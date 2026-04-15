@@ -1,5 +1,9 @@
 import type { Effect } from "effect";
-import type { DBAdapter, DBSchema } from "@executor/storage-core";
+import type {
+  DBAdapter,
+  DBSchema,
+  TypedAdapter,
+} from "@executor/storage-core";
 
 import type { ScopedBlobStore } from "./blob";
 import type {
@@ -18,17 +22,31 @@ import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
 // ---------------------------------------------------------------------------
-// StorageDeps — raw backing passed to a plugin's `storage` factory. The
-// only place a plugin ever sees a raw adapter. `PluginCtx` does not
-// carry the adapter; plugins read/write their own enrichment via
-// `ctx.storage` and core metadata via `ctx.core.sources.register`.
+// StorageDeps — backing passed to a plugin's `storage` factory. The only
+// place a plugin ever sees storage; `PluginCtx` does not carry it. The
+// `adapter` field is a `TypedAdapter<TSchema>` view narrowed by the
+// plugin's own declared `schema` — plugins never import or construct
+// a typed adapter themselves, the executor infers TSchema from the
+// `schema` field on their spec and hands back a typed view.
+//
+// Plugins with no schema (secret-provider-only plugins, etc.) get a
+// bare `DBAdapter` they can ignore.
 // ---------------------------------------------------------------------------
 
-export interface StorageDeps {
+export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
   readonly scope: Scope;
-  readonly adapter: DBAdapter;
+  readonly adapter: TSchema extends DBSchema ? TypedAdapter<TSchema> : DBAdapter;
   readonly blobs: ScopedBlobStore;
 }
+
+// ---------------------------------------------------------------------------
+// defineSchema — sugar around `as const satisfies DBSchema`. Preserves
+// literal types via the `const` type parameter modifier so plugins can
+// just write `const mySchema = defineSchema({ ... })` without annotation
+// ceremony.
+// ---------------------------------------------------------------------------
+
+export const defineSchema = <const S extends DBSchema>(schema: S): S => schema;
 
 // ---------------------------------------------------------------------------
 // Elicit — suspends the fiber, calls the invoke-time elicitation
@@ -173,15 +191,19 @@ export interface PluginSpec<
   TId extends string = string,
   TExtension extends object = Record<string, never>,
   TStore = unknown,
+  TSchema extends DBSchema | undefined = DBSchema | undefined,
 > {
   readonly id: TId;
   /** Plugin-declared schema. Merged with coreSchema and other plugins'
-   *  schemas at executor startup via `collectSchemas`. */
-  readonly schema?: DBSchema;
-  /** Build the plugin's typed store from raw backing. `deps.blobs` is
-   *  already scoped to this plugin id so there's no key collision
-   *  possible across plugins. */
-  readonly storage: (deps: StorageDeps) => TStore;
+   *  schemas at executor startup via `collectSchemas`. The type flows
+   *  into the `storage` factory's `deps.adapter` as a `TypedAdapter<TSchema>`
+   *  so plugins get narrowed model names + typed rows for free. */
+  readonly schema?: TSchema;
+  /** Build the plugin's typed store from backing. `deps.adapter` is
+   *  already narrowed to this plugin's schema; `deps.blobs` is already
+   *  scoped to the plugin id so key collisions across plugins are
+   *  structurally impossible. */
+  readonly storage: (deps: StorageDeps<TSchema>) => TStore;
 
   /** Build the plugin's extension API. The returned object becomes
    *  `executor[plugin.id]` and is also the `self` passed to
@@ -258,7 +280,8 @@ export interface Plugin<
   TId extends string = string,
   TExtension extends object = Record<string, never>,
   TStore = unknown,
-> extends PluginSpec<TId, TExtension, TStore> {}
+  TSchema extends DBSchema | undefined = DBSchema | undefined,
+> extends PluginSpec<TId, TExtension, TStore, TSchema> {}
 
 // ---------------------------------------------------------------------------
 // definePlugin — factory-returning-spec. Options from the author factory
@@ -271,27 +294,31 @@ export type ConfiguredPlugin<
   TExtension extends object,
   TStore,
   TOptions extends object,
+  TSchema extends DBSchema | undefined,
 > = (
   options?: TOptions & {
-    readonly storage?: (deps: StorageDeps) => TStore;
+    readonly storage?: (deps: StorageDeps<TSchema>) => TStore;
   },
-) => Plugin<TId, TExtension, TStore>;
+) => Plugin<TId, TExtension, TStore, TSchema>;
 
 // eslint-disable-next-line @typescript-eslint/ban-types
 export function definePlugin<
   TId extends string,
   TExtension extends object,
   TStore,
+  TSchema extends DBSchema | undefined = undefined,
   TOptions extends object = {},
 >(
-  authorFactory: (options?: TOptions) => PluginSpec<TId, TExtension, TStore>,
-): ConfiguredPlugin<TId, TExtension, TStore, TOptions> {
+  authorFactory: (
+    options?: TOptions,
+  ) => PluginSpec<TId, TExtension, TStore, TSchema>,
+): ConfiguredPlugin<TId, TExtension, TStore, TOptions, TSchema> {
   return (options) => {
     const {
       storage: storageOverride,
       ...rest
     }: {
-      storage?: (deps: StorageDeps) => TStore;
+      storage?: (deps: StorageDeps<TSchema>) => TStore;
       [key: string]: unknown;
     } = options ?? {};
 
@@ -312,12 +339,14 @@ export function definePlugin<
 // ---------------------------------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type AnyPlugin = Plugin<string, any, any>;
+export type AnyPlugin = Plugin<string, any, any, any>;
 
 export type PluginExtensions<TPlugins extends readonly AnyPlugin[]> = {
   readonly [P in TPlugins[number] as P["id"]]: P extends Plugin<
     string,
     infer TExt,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    any,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     any
   >

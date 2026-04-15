@@ -6,7 +6,7 @@ import {
   ElicitationResponse,
   FormElicitation,
 } from "./elicitation";
-import { definePlugin } from "./plugin";
+import { defineSchema, definePlugin } from "./plugin";
 import { SetSecretInput } from "./secrets";
 import { makeTestConfig } from "./testing";
 import type { SecretProvider } from "./secrets";
@@ -18,24 +18,28 @@ import { SecretId } from "./ids";
 // handler. Exercises everything createExecutor has to wire up.
 // ---------------------------------------------------------------------------
 
-interface TestStore {
-  readonly writeThing: (id: string, value: string) => Effect.Effect<void, Error>;
-  readonly readThing: (id: string) => Effect.Effect<string | null, Error>;
-}
+// Plugin-declared schema. `defineSchema` preserves literal types via
+// `const` inference — no `as const satisfies DBSchema` ceremony.
+const testSchema = defineSchema({
+  test_thing: {
+    modelName: "test_thing",
+    fields: {
+      id: { type: "string", required: true },
+      value: { type: "string", required: true },
+    },
+  },
+});
 
 const testPlugin = definePlugin(() => ({
   id: "test" as const,
-  schema: {
-    test_thing: {
-      modelName: "test_thing",
-      fields: {
-        id: { type: "string", required: true },
-        value: { type: "string", required: true },
-      },
-    },
-  },
-  storage: ({ adapter }): TestStore => ({
-    writeThing: (id, value) =>
+  schema: testSchema,
+
+  // `adapter` is typed against testSchema automatically — no imports of
+  // DBAdapter, no typedAdapter wrapping. `model: "test_thing"` is
+  // narrowed to the schema's model names, and row data shape comes
+  // from the schema's field definitions.
+  storage: ({ adapter }) => ({
+    writeThing: (id: string, value: string) =>
       adapter
         .create({
           model: "test_thing",
@@ -43,9 +47,9 @@ const testPlugin = definePlugin(() => ({
           forceAllowId: true,
         })
         .pipe(Effect.asVoid),
-    readThing: (id) =>
+    readThing: (id: string) =>
       adapter
-        .findOne<{ id: string; value: string }>({
+        .findOne({
           model: "test_thing",
           where: [{ field: "id", value: id }],
         })

@@ -97,6 +97,7 @@ export {
   type SecretListEntry,
   type Elicit,
   definePlugin,
+  defineSchema,
 } from "./plugin";
 
 // Executor
