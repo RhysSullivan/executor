@@ -15,6 +15,10 @@ export {
   SecurityScheme,
   AuthStrategy,
   HeaderPreset,
+  OAuth2Preset,
+  OAuth2Flows,
+  OAuth2AuthorizationCodeFlow,
+  OAuth2ClientCredentialsFlow,
   PreviewOperation,
   SpecPreview,
 } from "./preview";
