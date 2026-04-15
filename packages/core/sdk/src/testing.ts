@@ -1,7 +1,8 @@
-import { makeInMemoryAdapter } from "@executor/storage-memory";
+import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 
 import { makeInMemoryBlobStore } from "./blob";
 import type { ExecutorConfig } from "./executor";
+import { collectSchemas } from "./executor";
 import { ScopeId } from "./ids";
 import type { AnyPlugin } from "./plugin";
 import { Scope } from "./scope";
@@ -24,9 +25,11 @@ export const makeTestConfig = <
     createdAt: new Date(),
   });
 
+  const schema = collectSchemas(options?.plugins ?? []);
+
   return {
     scope,
-    adapter: makeInMemoryAdapter(),
+    adapter: makeMemoryAdapter({ schema }),
     blobs: makeInMemoryBlobStore(),
     plugins: options?.plugins,
   };

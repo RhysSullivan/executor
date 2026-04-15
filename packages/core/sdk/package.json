@@ -44,7 +44,6 @@
   },
   "dependencies": {
     "@executor/storage-core": "workspace:*",
-    "@executor/storage-memory": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

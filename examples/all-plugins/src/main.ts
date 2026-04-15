@@ -24,10 +24,11 @@ import {
   Scope,
   ScopeId,
   SetSecretInput,
+  collectSchemas,
   createExecutor,
   makeInMemoryBlobStore,
 } from "@executor/sdk";
-import { makeInMemoryAdapter } from "@executor/storage-memory";
+import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
@@ -52,38 +53,40 @@ const scope = new Scope({
   createdAt: new Date(),
 });
 
+const plugins = [
+  // Secret providers — three of them contributed by three plugins.
+  // The executor auto-registers each one at startup via the new
+  // `plugin.secretProviders` field.
+  keychainPlugin(),
+  fileSecretsPlugin(),
+  onepasswordPlugin(),
+
+  // Source plugins — these declare their own schemas (tables) and
+  // register tools dynamically when the user adds a spec / connects
+  // to a server / runs discovery.
+  graphqlPlugin(),
+  googleDiscoveryPlugin(),
+  mcpPlugin({ dangerouslyAllowStdioMCP: false }),
+  openApiPlugin(),
+
+  // workos-vault is a cloud-hosted secret provider. It would contribute
+  // a "workos-vault" provider if credentials were available. We skip it
+  // here because it needs a real WorkOS API key; uncomment and supply
+  // credentials to wire it in.
+  //
+  // workosVaultPlugin({
+  //   credentials: {
+  //     apiKey: process.env.WORKOS_API_KEY!,
+  //     clientId: process.env.WORKOS_CLIENT_ID!,
+  //   },
+  // }),
+] as const;
+
 const config = {
   scope,
-  adapter: makeInMemoryAdapter(),
+  adapter: makeMemoryAdapter({ schema: collectSchemas(plugins) }),
   blobs: makeInMemoryBlobStore(),
-  plugins: [
-    // Secret providers — three of them contributed by three plugins.
-    // The executor auto-registers each one at startup via the new
-    // `plugin.secretProviders` field.
-    keychainPlugin(),
-    fileSecretsPlugin(),
-    onepasswordPlugin(),
-
-    // Source plugins — these declare their own schemas (tables) and
-    // register tools dynamically when the user adds a spec / connects
-    // to a server / runs discovery.
-    graphqlPlugin(),
-    googleDiscoveryPlugin(),
-    mcpPlugin({ dangerouslyAllowStdioMCP: false }),
-    openApiPlugin(),
-
-    // workos-vault is a cloud-hosted secret provider. It would contribute
-    // a "workos-vault" provider if credentials were available. We skip it
-    // here because it needs a real WorkOS API key; uncomment and supply
-    // credentials to wire it in.
-    //
-    // workosVaultPlugin({
-    //   credentials: {
-    //     apiKey: process.env.WORKOS_API_KEY!,
-    //     clientId: process.env.WORKOS_CLIENT_ID!,
-    //   },
-    // }),
-  ] as const,
+  plugins,
 };
 
 // Silence the unused-import warning for workos-vault (kept in scope as
