@@ -2,6 +2,7 @@ import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { createExecutor, makeTestConfig } from "@executor/sdk";
+
 import { graphqlPlugin } from "./plugin";
 import type { IntrospectionResult } from "./introspect";
 
@@ -74,127 +75,171 @@ const introspectionResult: IntrospectionResult = {
   },
 };
 
+const introspectionJson = JSON.stringify({ data: introspectionResult });
+
 describe("graphqlPlugin", () => {
-  it("registers tools from introspection JSON", async () => {
-    const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
-      ),
-    );
+  it.effect("registers tools from introspection JSON", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
 
-    const result = await Effect.runPromise(
-      executor.graphql.addSource({
+      const result = yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
-        introspectionJson: JSON.stringify({ data: introspectionResult }),
+        introspectionJson,
         namespace: "test_api",
-      }),
-    );
+      });
+      expect(result.toolCount).toBe(2);
 
-    expect(result.toolCount).toBe(2);
+      const tools = yield* executor.tools.list();
+      const ids = tools.map((t) => t.id);
+      expect(ids).toContain("test_api.query.hello");
+      expect(ids).toContain("test_api.mutation.setGreeting");
+      // static control tool also present
+      expect(ids).toContain("graphql.control.addSource");
 
-    const tools = await Effect.runPromise(executor.tools.list());
-    // +1 for the runtime "addSource" tool
-    const graphqlTools = tools.filter((t) => t.pluginKey === "graphql");
-    expect(graphqlTools).toHaveLength(3);
+      const queryTool = tools.find((t) => t.id === "test_api.query.hello");
+      expect(queryTool?.description).toBe("Say hello");
 
-    const queryTool = graphqlTools.find((t) => t.name === "query.hello");
-    expect(queryTool).toBeDefined();
-    expect(queryTool!.description).toBe("Say hello");
+      const mutationTool = tools.find(
+        (t) => t.id === "test_api.mutation.setGreeting",
+      );
+      expect(mutationTool?.description).toBe("Set greeting message");
+    }),
+  );
 
-    const mutationTool = graphqlTools.find((t) => t.name === "mutation.setGreeting");
-    expect(mutationTool).toBeDefined();
-    expect(mutationTool!.description).toBe("Set greeting message");
+  it.effect("removes a source and its tools", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
 
-    await Effect.runPromise(executor.close());
-  });
-
-  it("removes a source and its tools", async () => {
-    const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
-      ),
-    );
-
-    await Effect.runPromise(
-      executor.graphql.addSource({
+      yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
-        introspectionJson: JSON.stringify({ data: introspectionResult }),
+        introspectionJson,
         namespace: "removable",
-      }),
-    );
+      });
 
-    let tools = await Effect.runPromise(executor.tools.list());
-    expect(tools.filter((t) => t.pluginKey === "graphql")).toHaveLength(3);
+      let tools = yield* executor.tools.list();
+      expect(
+        tools.filter((t) => t.sourceId === "removable").length,
+      ).toBe(2);
 
-    await Effect.runPromise(executor.graphql.removeSource("removable"));
+      yield* executor.graphql.removeSource("removable");
 
-    tools = await Effect.runPromise(executor.tools.list());
-    // Runtime addSource tool remains
-    expect(tools.filter((t) => t.pluginKey === "graphql")).toHaveLength(1);
+      tools = yield* executor.tools.list();
+      expect(
+        tools.filter((t) => t.sourceId === "removable").length,
+      ).toBe(0);
 
-    await Effect.runPromise(executor.close());
-  });
+      const source = yield* executor.graphql.getSource("removable");
+      expect(source).toBeNull();
+    }),
+  );
 
-  it("lists sources", async () => {
-    const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
-      ),
-    );
+  it.effect("lists sources with the static control source", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
 
-    await Effect.runPromise(
-      executor.graphql.addSource({
+      yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
-        introspectionJson: JSON.stringify({ data: introspectionResult }),
+        introspectionJson,
         namespace: "my_gql",
-      }),
-    );
+      });
 
-    const sources = await Effect.runPromise(executor.sources.list());
-    // 1 user source + 1 built-in runtime source
-    const gqlSources = sources.filter((s) => s.kind === "graphql");
-    expect(gqlSources).toHaveLength(1);
-    const userSource = gqlSources.find((s) => s.id === "my_gql");
-    expect(userSource).toBeDefined();
-    expect(userSource!.canRemove).toBe(true);
-    const builtIn = sources.find((s) => s.id === "built-in");
-    expect(builtIn).toBeDefined();
-    expect(builtIn!.runtime).toBe(true);
+      const sources = yield* executor.sources.list();
+      const dynamic = sources.find((s) => s.id === "my_gql");
+      expect(dynamic).toBeDefined();
+      expect(dynamic!.kind).toBe("graphql");
+      expect(dynamic!.canRemove).toBe(true);
+      expect(dynamic!.canEdit).toBe(true);
+      expect(dynamic!.runtime).toBe(false);
 
-    await Effect.runPromise(executor.close());
-  });
+      const control = sources.find((s) => s.id === "graphql.control");
+      expect(control).toBeDefined();
+      expect(control!.runtime).toBe(true);
+    }),
+  );
 
-  it("mutations require approval", async () => {
-    const executor = await Effect.runPromise(
-      createExecutor(
-        makeTestConfig({
-          plugins: [graphqlPlugin()],
-        }),
-      ),
-    );
+  it.effect("mutations require approval via resolveAnnotations", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
 
-    await Effect.runPromise(
-      executor.graphql.addSource({
+      yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
-        introspectionJson: JSON.stringify({ data: introspectionResult }),
+        introspectionJson,
         namespace: "approval_test",
-      }),
-    );
+      });
 
-    const tools = await Effect.runPromise(executor.tools.list());
-    const mutationTool = tools.find((t) => t.name === "mutation.setGreeting");
-    expect(mutationTool).toBeDefined();
+      const tools = yield* executor.tools.list();
+      const mutationTool = tools.find(
+        (t) => t.id === "approval_test.mutation.setGreeting",
+      );
+      expect(mutationTool).toBeDefined();
+      expect(mutationTool!.annotations?.requiresApproval).toBe(true);
+      expect(mutationTool!.annotations?.approvalDescription).toBe(
+        "mutation setGreeting",
+      );
 
-    // Verify the mutation requires approval via annotations
-    const schema = await Effect.runPromise(executor.tools.schema(mutationTool!.id));
-    expect(schema).toBeDefined();
+      const queryTool = tools.find(
+        (t) => t.id === "approval_test.query.hello",
+      );
+      expect(queryTool).toBeDefined();
+      expect(queryTool!.annotations?.requiresApproval).toBeFalsy();
+    }),
+  );
 
-    await Effect.runPromise(executor.close());
-  });
+  it.effect("updateSource patches endpoint/headers without re-registering", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      yield* executor.graphql.addSource({
+        endpoint: "http://localhost:4000/graphql",
+        introspectionJson,
+        namespace: "patched",
+      });
+
+      yield* executor.graphql.updateSource("patched", {
+        endpoint: "http://localhost:5000/graphql",
+        headers: { "x-custom": "abc" },
+      });
+
+      const source = yield* executor.graphql.getSource("patched");
+      expect(source?.endpoint).toBe("http://localhost:5000/graphql");
+      expect(source?.headers).toEqual({ "x-custom": "abc" });
+
+      // Tools still present (no re-register happened, but they were
+      // already there from addSource and haven't been removed).
+      const tools = yield* executor.tools.list();
+      expect(
+        tools.filter((t) => t.sourceId === "patched").length,
+      ).toBe(2);
+    }),
+  );
+
+  it.effect("static graphql.control.addSource delegates to extension", () =>
+    Effect.gen(function* () {
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [graphqlPlugin()] as const }),
+      );
+
+      const result = yield* executor.tools.invoke("graphql.control.addSource", {
+        endpoint: "http://localhost:4000/graphql",
+        introspectionJson,
+        namespace: "via_static",
+      });
+      expect(result).toEqual({ toolCount: 2 });
+
+      const tools = yield* executor.tools.list();
+      expect(
+        tools.filter((t) => t.sourceId === "via_static").length,
+      ).toBe(2);
+    }),
+  );
 });

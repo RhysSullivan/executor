@@ -1,18 +1,11 @@
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option } from "effect";
 import { FetchHttpClient, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import {
-  Source,
-  SourceDetectionResult,
   definePlugin,
-  registerRuntimeTools,
-  runtimeTool,
-  type ExecutorPlugin,
-  type PluginContext,
-  ToolId,
-  type SecretId,
-  type ToolRegistration,
+  type ToolAnnotations,
+  type ToolRow,
 } from "@executor/sdk";
 
 import {
@@ -21,16 +14,20 @@ import {
   type IntrospectionResult,
   type IntrospectionType,
   type IntrospectionField,
+  type IntrospectionTypeRef,
 } from "./introspect";
 import { extract } from "./extract";
 import { GraphqlExtractionError } from "./errors";
-import { makeGraphqlInvoker } from "./invoke";
-import type { GraphqlOperationStore, StoredSource } from "./operation-store";
-import { makeInMemoryOperationStore } from "./kv-operation-store";
+import { invokeWithLayer, resolveHeaders } from "./invoke";
+import {
+  graphqlSchema,
+  makeDefaultGraphqlStore,
+  type GraphqlStore,
+  type StoredGraphqlSource,
+  type StoredOperation,
+} from "./store";
 import {
   ExtractedField,
-  HeaderValue as HeaderValueSchema,
-  InvocationConfig,
   OperationBinding,
   type HeaderValue as HeaderValueValue,
   type GraphqlOperationKind,
@@ -72,35 +69,25 @@ export interface GraphqlPluginExtension {
   ) => Effect.Effect<{ readonly toolCount: number }, Error>;
 
   /** Remove all tools from a previously added GraphQL source by namespace */
-  readonly removeSource: (namespace: string) => Effect.Effect<void>;
+  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
 
   /** Fetch the full stored source by namespace (or null if missing) */
-  readonly getSource: (namespace: string) => Effect.Effect<StoredSource | null>;
+  readonly getSource: (
+    namespace: string,
+  ) => Effect.Effect<StoredGraphqlSource | null, Error>;
 
-  /** Update config (endpoint, headers) for an existing GraphQL source */
+  /** Update config (endpoint, headers) for an existing GraphQL source.
+   *  Does NOT re-introspect or re-register tools — just patches the
+   *  stored endpoint/headers used at invoke time. */
   readonly updateSource: (
     namespace: string,
     input: GraphqlUpdateSourceInput,
-  ) => Effect.Effect<void>;
+  ) => Effect.Effect<void, Error>;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const AddSourceInputSchema = Schema.Struct({
-  endpoint: Schema.String,
-  name: Schema.optional(Schema.String),
-  introspectionJson: Schema.optional(Schema.String),
-  namespace: Schema.optional(Schema.String),
-  headers: Schema.optional(Schema.Record({ key: Schema.String, value: HeaderValueSchema })),
-});
-type AddSourceInput = typeof AddSourceInputSchema.Type;
-
-const AddSourceOutputSchema = Schema.Struct({
-  sourceId: Schema.String,
-  toolCount: Schema.Number,
-});
 
 /** Derive a namespace from an endpoint URL */
 const namespaceFromEndpoint = (endpoint: string): string => {
@@ -111,29 +98,6 @@ const namespaceFromEndpoint = (endpoint: string): string => {
     return "graphql";
   }
 };
-
-const buildOperationStringForField = (
-  kind: GraphqlOperationKind,
-  field: IntrospectionField,
-  types: ReadonlyMap<string, IntrospectionType>,
-): string => {
-  const opType = kind === "query" ? "query" : "mutation";
-
-  const varDefs = field.args.map((arg) => {
-    const typeName = formatTypeRef(arg.type);
-    return `$${arg.name}: ${typeName}`;
-  });
-
-  const argPasses = field.args.map((arg) => `${arg.name}: $${arg.name}`);
-  const selectionSet = buildSelectionSet(field.type, types, 0, new Set());
-
-  const varDefsStr = varDefs.length > 0 ? `(${varDefs.join(", ")})` : "";
-  const argPassStr = argPasses.length > 0 ? `(${argPasses.join(", ")})` : "";
-
-  return `${opType}${varDefsStr} { ${field.name}${argPassStr}${selectionSet ? ` ${selectionSet}` : ""} }`;
-};
-
-import type { IntrospectionTypeRef } from "./introspect";
 
 const formatTypeRef = (ref: IntrospectionTypeRef): string => {
   switch (ref.kind) {
@@ -184,292 +148,313 @@ const buildSelectionSet = (
   return subFields.length > 0 ? `{ ${subFields.join(" ")} }` : "";
 };
 
-const toRegistration = (field: ExtractedField, namespace: string): ToolRegistration => {
-  const prefix = field.kind === "mutation" ? "mutation" : "query";
-  const toolPath = `${prefix}.${field.fieldName}`;
-  const description = Option.getOrElse(
-    field.description,
-    () => `GraphQL ${field.kind}: ${field.fieldName} -> ${field.returnTypeName}`,
-  );
+const buildOperationStringForField = (
+  kind: GraphqlOperationKind,
+  field: IntrospectionField,
+  types: ReadonlyMap<string, IntrospectionType>,
+): string => {
+  const opType = kind === "query" ? "query" : "mutation";
 
-  return {
-    id: ToolId.make(`${namespace}.${toolPath}`),
-    pluginKey: "graphql",
-    sourceId: namespace,
-    name: toolPath,
-    description,
-    inputSchema: Option.getOrUndefined(field.inputSchema),
-    outputSchema: undefined,
-  };
+  const varDefs = field.args.map((arg) => {
+    const typeName = formatTypeRef(arg.type);
+    return `$${arg.name}: ${typeName}`;
+  });
+
+  const argPasses = field.args.map((arg) => `${arg.name}: $${arg.name}`);
+  const selectionSet = buildSelectionSet(field.type, types, 0, new Set());
+
+  const varDefsStr = varDefs.length > 0 ? `(${varDefs.join(", ")})` : "";
+  const argPassStr = argPasses.length > 0 ? `(${argPasses.join(", ")})` : "";
+
+  return `${opType}${varDefsStr} { ${field.name}${argPassStr}${selectionSet ? ` ${selectionSet}` : ""} }`;
+};
+
+interface PreparedOperation {
+  readonly toolPath: string;
+  readonly description: string;
+  readonly inputSchema: unknown;
+  readonly binding: OperationBinding;
+}
+
+const prepareOperations = (
+  fields: readonly ExtractedField[],
+  introspection: IntrospectionResult,
+): readonly PreparedOperation[] => {
+  const typeMap = new Map<string, IntrospectionType>();
+  for (const t of introspection.__schema.types) {
+    typeMap.set(t.name, t);
+  }
+
+  const fieldMap = new Map<
+    string,
+    { kind: GraphqlOperationKind; field: IntrospectionField }
+  >();
+  const schema = introspection.__schema;
+  for (const rootKind of ["query", "mutation"] as const) {
+    const typeName =
+      rootKind === "query" ? schema.queryType?.name : schema.mutationType?.name;
+    if (!typeName) continue;
+    const rootType = typeMap.get(typeName);
+    if (!rootType?.fields) continue;
+    for (const f of rootType.fields) {
+      if (!f.name.startsWith("__")) {
+        fieldMap.set(`${rootKind}.${f.name}`, { kind: rootKind, field: f });
+      }
+    }
+  }
+
+  return fields.map((extracted) => {
+    const prefix = extracted.kind === "mutation" ? "mutation" : "query";
+    const toolPath = `${prefix}.${extracted.fieldName}`;
+    const description = Option.getOrElse(
+      extracted.description,
+      () =>
+        `GraphQL ${extracted.kind}: ${extracted.fieldName} -> ${extracted.returnTypeName}`,
+    );
+
+    const key = `${extracted.kind}.${extracted.fieldName}`;
+    const entry = fieldMap.get(key);
+    const operationString = entry
+      ? buildOperationStringForField(entry.kind, entry.field, typeMap)
+      : `${extracted.kind} { ${extracted.fieldName} }`;
+
+    const binding = new OperationBinding({
+      kind: extracted.kind,
+      fieldName: extracted.fieldName,
+      operationString,
+      variableNames: extracted.arguments.map((a) => a.name),
+    });
+
+    return {
+      toolPath,
+      description,
+      inputSchema: Option.getOrUndefined(extracted.inputSchema),
+      binding,
+    };
+  });
+};
+
+const annotationsFor = (binding: OperationBinding): ToolAnnotations => {
+  if (binding.kind === "mutation") {
+    return {
+      requiresApproval: true,
+      approvalDescription: `mutation ${binding.fieldName}`,
+    };
+  }
+  return {};
 };
 
 // ---------------------------------------------------------------------------
 // Plugin factory
 // ---------------------------------------------------------------------------
 
-export const graphqlPlugin = (options?: {
+export interface GraphqlPluginOptions {
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
-  readonly operationStore?: GraphqlOperationStore;
-}): ExecutorPlugin<"graphql", GraphqlPluginExtension> => {
-  const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
-  const operationStore = options?.operationStore ?? makeInMemoryOperationStore();
+}
 
-  return definePlugin({
-    key: "graphql",
-    init: (ctx: PluginContext) =>
-      Effect.gen(function* () {
-        yield* ctx.tools.registerInvoker(
-          "graphql",
-          makeGraphqlInvoker({
-            operationStore,
-            httpClientLayer,
-            secrets: ctx.secrets,
-            scopeId: ctx.scope.id,
-          }),
-        );
+export const graphqlPlugin = definePlugin(
+  (options?: GraphqlPluginOptions) => {
+    const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
 
-        yield* ctx.sources.addManager({
-          kind: "graphql",
+    return {
+      id: "graphql" as const,
+      schema: graphqlSchema,
+      storage: ({ adapter, blobs }): GraphqlStore =>
+        makeDefaultGraphqlStore(adapter, blobs),
 
-          list: () =>
-            operationStore.listSources().pipe(
-              Effect.map((metas) =>
-                metas.map(
-                  (s) =>
-                    new Source({
-                      id: s.namespace,
-                      name: s.name,
-                      kind: "graphql",
-                      url: s.config.endpoint,
-                      runtime: false,
-                      canRemove: true,
-                      canRefresh: false,
-                      canEdit: true,
+      extension: (ctx): GraphqlPluginExtension => {
+        const resolveConfigHeaders = (
+          headers: Record<string, HeaderValue> | undefined,
+        ) =>
+          Effect.gen(function* () {
+            if (!headers) return undefined;
+            const resolved = yield* resolveHeaders(headers, ctx.secrets);
+            return Object.keys(resolved).length > 0 ? resolved : undefined;
+          });
+
+        const addSourceInternal = (config: GraphqlSourceConfig) =>
+          ctx.transaction(
+            Effect.gen(function* () {
+              let introspectionResult: IntrospectionResult;
+              if (config.introspectionJson) {
+                introspectionResult = yield* parseIntrospectionJson(
+                  config.introspectionJson,
+                );
+              } else {
+                const resolved = yield* resolveConfigHeaders(config.headers);
+                introspectionResult = yield* introspect(
+                  config.endpoint,
+                  resolved,
+                ).pipe(Effect.provide(httpClientLayer));
+              }
+
+              const { result, definitions } = yield* extract(
+                introspectionResult,
+              );
+              const namespace =
+                config.namespace ?? namespaceFromEndpoint(config.endpoint);
+              const prepared = prepareOperations(
+                result.fields,
+                introspectionResult,
+              );
+
+              const displayName = config.name?.trim() || namespace;
+
+              // Persist the source + per-operation bindings first so any
+              // subsequent core-source register collision rolls back both.
+              const storedSource: StoredGraphqlSource = {
+                namespace,
+                name: displayName,
+                endpoint: config.endpoint,
+                headers: config.headers ?? {},
+              };
+
+              const storedOps: StoredOperation[] = prepared.map((p) => ({
+                toolId: `${namespace}.${p.toolPath}`,
+                sourceId: namespace,
+                binding: p.binding,
+              }));
+
+              yield* ctx.storage.upsertSource(storedSource, storedOps);
+
+              yield* ctx.core.sources.register({
+                id: namespace,
+                kind: "graphql",
+                name: displayName,
+                url: config.endpoint,
+                canRemove: true,
+                canRefresh: false,
+                canEdit: true,
+                tools: prepared.map((p) => ({
+                  name: p.toolPath,
+                  description: p.description,
+                  inputSchema: p.inputSchema,
+                })),
+              });
+
+              if (Object.keys(definitions).length > 0) {
+                yield* ctx.core.definitions.register({
+                  sourceId: namespace,
+                  definitions,
+                });
+              }
+
+              return { toolCount: prepared.length };
+            }),
+          );
+
+        return {
+          addSource: (config) =>
+            addSourceInternal(config).pipe(
+              Effect.mapError((err) =>
+                err instanceof Error
+                  ? err
+                  : new GraphqlExtractionError({
+                      message: String(err),
                     }),
-                ),
               ),
             ),
 
-          remove: (sourceId: string) =>
-            Effect.gen(function* () {
-              yield* operationStore.removeByNamespace(sourceId);
-              yield* operationStore.removeSource(sourceId);
-              yield* ctx.tools.unregisterBySource(sourceId);
-            }),
-
-          detect: (url: string) =>
-            Effect.gen(function* () {
-              const trimmed = url.trim();
-              if (!trimmed) return null;
-              const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
-              if (parsed._tag === "None") return null;
-
-              const ok = yield* introspect(trimmed).pipe(
-                Effect.provide(httpClientLayer),
-                Effect.map(() => true),
-                Effect.catchAll(() => Effect.succeed(false)),
-              );
-
-              if (!ok) return null;
-
-              const name = namespaceFromEndpoint(trimmed);
-              return new SourceDetectionResult({
-                kind: "graphql",
-                confidence: "high",
-                endpoint: trimmed,
-                name,
-                namespace: name,
-              });
-            }),
-        });
-
-        const addSourceInternal = (config: GraphqlSourceConfig) =>
-          Effect.gen(function* () {
-            // Get introspection result — either by querying the endpoint or parsing provided JSON
-            let introspectionResult: IntrospectionResult;
-            if (config.introspectionJson) {
-              introspectionResult = yield* parseIntrospectionJson(config.introspectionJson);
-            } else {
-              // Resolve all headers (including secret refs) for introspection
-              const resolvedHeaders: Record<string, string> = {};
-              if (config.headers) {
-                for (const [name, value] of Object.entries(config.headers)) {
-                  if (typeof value === "string") {
-                    resolvedHeaders[name] = value;
-                  } else {
-                    const secret = yield* ctx.secrets
-                      .resolve(value.secretId as SecretId, ctx.scope.id)
-                      .pipe(Effect.catchAll(() => Effect.succeed("")));
-                    if (secret) {
-                      resolvedHeaders[name] = value.prefix ? `${value.prefix}${secret}` : secret;
-                    }
-                  }
-                }
-              }
-
-              introspectionResult = yield* introspect(
-                config.endpoint,
-                Object.keys(resolvedHeaders).length > 0 ? resolvedHeaders : undefined,
-              ).pipe(Effect.provide(httpClientLayer));
-            }
-
-            const { result, definitions } = yield* extract(introspectionResult);
-            const namespace = config.namespace ?? namespaceFromEndpoint(config.endpoint);
-
-            // Register shared JSON Schema definitions ($ref targets)
-            if (Object.keys(definitions).length > 0) {
-              yield* ctx.tools.registerDefinitions(definitions);
-            }
-
-            const invocationConfig = new InvocationConfig({
-              endpoint: config.endpoint,
-              headers: config.headers ?? {},
-            });
-
-            // Build type map for operation string generation
-            const typeMap = new Map<string, IntrospectionType>();
-            for (const t of introspectionResult.__schema.types) {
-              typeMap.set(t.name, t);
-            }
-
-            // Build field map for operation strings
-            const fieldMap = new Map<
-              string,
-              { kind: GraphqlOperationKind; field: IntrospectionField }
-            >();
-            const schema = introspectionResult.__schema;
-
-            for (const rootKind of ["query", "mutation"] as const) {
-              const typeName =
-                rootKind === "query" ? schema.queryType?.name : schema.mutationType?.name;
-              if (!typeName) continue;
-              const rootType = typeMap.get(typeName);
-              if (!rootType?.fields) continue;
-              for (const f of rootType.fields) {
-                if (!f.name.startsWith("__")) {
-                  fieldMap.set(`${rootKind}.${f.name}`, { kind: rootKind, field: f });
-                }
-              }
-            }
-
-            const registrations: ToolRegistration[] = [];
-
-            yield* Effect.forEach(
-              result.fields,
-              (extractedField) => {
-                const reg = toRegistration(extractedField, namespace);
-                registrations.push(reg);
-
-                const key = `${extractedField.kind}.${extractedField.fieldName}`;
-                const entry = fieldMap.get(key);
-
-                const operationString = entry
-                  ? buildOperationStringForField(entry.kind, entry.field, typeMap)
-                  : `${extractedField.kind} { ${extractedField.fieldName} }`;
-
-                const binding = new OperationBinding({
-                  kind: extractedField.kind,
-                  fieldName: extractedField.fieldName,
-                  operationString,
-                  variableNames: extractedField.arguments.map((a) => a.name),
-                });
-
-                return operationStore.put(reg.id, namespace, binding);
-              },
-              { discard: true },
-            );
-
-            yield* ctx.tools.register(registrations);
-
-            yield* operationStore.putSource({
-              namespace,
-              name: config.name?.trim() || namespace,
-              config: {
-                endpoint: config.endpoint,
-                introspectionJson: config.introspectionJson,
-                namespace: config.namespace,
-                headers: config.headers,
-              },
-              invocationConfig,
-            });
-
-            return { sourceId: namespace, toolCount: registrations.length };
-          });
-
-        const runtimeTools = yield* registerRuntimeTools({
-          registry: ctx.tools,
-          sources: ctx.sources,
-          pluginKey: "graphql",
-          source: {
-            id: "built-in",
-            name: "Built In",
-            kind: "built-in",
-          },
-          tools: [
-            runtimeTool({
-              id: "graphql.addSource",
-              name: "graphql.addSource",
-              description: "Add a GraphQL endpoint and register its operations as tools",
-              inputSchema: AddSourceInputSchema,
-              outputSchema: AddSourceOutputSchema,
-              handler: (input: AddSourceInput) => addSourceInternal(input),
-            }),
-          ],
-        });
-
-        return {
-          extension: {
-            addSource: (config: GraphqlSourceConfig) =>
-              addSourceInternal(config).pipe(
-                Effect.map(({ toolCount }) => ({ toolCount })),
-                Effect.mapError(
-                  (err) =>
-                    new GraphqlExtractionError({
-                      message: err instanceof Error ? err.message : String(err),
-                    }),
-                ),
-              ),
-
-            removeSource: (namespace: string) =>
+          removeSource: (namespace) =>
+            ctx.transaction(
               Effect.gen(function* () {
-                const toolIds = yield* operationStore.removeByNamespace(namespace);
-                if (toolIds.length > 0) {
-                  yield* ctx.tools.unregister(toolIds);
-                }
-                yield* operationStore.removeSource(namespace);
+                yield* ctx.storage.removeSource(namespace);
+                yield* ctx.core.sources.unregister(namespace);
               }),
+            ),
 
-            getSource: (namespace: string) => operationStore.getSource(namespace),
+          getSource: (namespace) => ctx.storage.getSource(namespace),
 
-            updateSource: (namespace: string, input: GraphqlUpdateSourceInput) =>
-              Effect.gen(function* () {
-                const existing = yield* operationStore.getSource(namespace);
-                if (!existing) return;
-
-                const updatedConfig = {
-                  ...existing.config,
-                  ...(input.endpoint !== undefined ? { endpoint: input.endpoint } : {}),
-                  ...(input.headers !== undefined
-                    ? { headers: input.headers as Record<string, HeaderValueValue> }
-                    : {}),
-                };
-
-                const newInvocationConfig = new InvocationConfig({
-                  endpoint: updatedConfig.endpoint,
-                  headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
-                });
-
-                yield* operationStore.putSource({
-                  namespace,
-                  name: input.name?.trim() || existing.name,
-                  config: updatedConfig,
-                  invocationConfig: newInvocationConfig,
-                });
-              }),
-          },
-
-          close: () => runtimeTools.close(),
+          updateSource: (namespace, input) =>
+            ctx.storage.updateSourceMeta(namespace, {
+              name: input.name?.trim() || undefined,
+              endpoint: input.endpoint,
+              headers: input.headers,
+            }),
         };
-      }),
-  });
-};
+      },
+
+      staticSources: (self) => [
+        {
+          id: "graphql.control",
+          kind: "control",
+          name: "GraphQL",
+          tools: [
+            {
+              name: "addSource",
+              description:
+                "Add a GraphQL endpoint and register its operations as tools",
+              inputSchema: {
+                type: "object",
+                properties: {
+                  endpoint: { type: "string" },
+                  name: { type: "string" },
+                  introspectionJson: { type: "string" },
+                  namespace: { type: "string" },
+                  headers: { type: "object" },
+                },
+                required: ["endpoint"],
+              },
+              outputSchema: {
+                type: "object",
+                properties: {
+                  toolCount: { type: "number" },
+                },
+                required: ["toolCount"],
+              },
+              handler: ({ args }) =>
+                self.addSource(args as GraphqlSourceConfig),
+            },
+          ],
+        },
+      ],
+
+      invokeTool: ({ ctx, toolRow, args }) =>
+        Effect.gen(function* () {
+          const op = yield* ctx.storage.getOperationByToolId(toolRow.id);
+          if (!op) {
+            return yield* Effect.fail(
+              new Error(`No GraphQL operation found for tool "${toolRow.id}"`),
+            );
+          }
+          const source = yield* ctx.storage.getSource(op.sourceId);
+          if (!source) {
+            return yield* Effect.fail(
+              new Error(`No GraphQL source found for "${op.sourceId}"`),
+            );
+          }
+
+          const resolvedHeaders = yield* resolveHeaders(
+            source.headers,
+            ctx.secrets,
+          );
+
+          const result = yield* invokeWithLayer(
+            op.binding,
+            (args ?? {}) as Record<string, unknown>,
+            source.endpoint,
+            resolvedHeaders,
+            httpClientLayer,
+          );
+
+          return result;
+        }),
+
+      resolveAnnotations: ({ ctx, sourceId, toolRows }) =>
+        Effect.gen(function* () {
+          const ops = yield* ctx.storage.listOperationsBySource(sourceId);
+          const byId = new Map<string, OperationBinding>();
+          for (const op of ops) byId.set(op.toolId, op.binding);
+
+          const out: Record<string, ToolAnnotations> = {};
+          for (const row of toolRows as readonly ToolRow[]) {
+            const binding = byId.get(row.id);
+            if (binding) out[row.id] = annotationsFor(binding);
+          }
+          return out;
+        }),
+
+      removeSource: ({ ctx, sourceId }) => ctx.storage.removeSource(sourceId),
+    };
+  },
+);
