@@ -149,7 +149,7 @@ export function SourceDetailPage(props: { namespace: string }) {
           <h2 className="truncate text-sm font-semibold text-foreground">
             {sourceData?.name ?? namespace}
           </h2>
-          {sourceData?.runtime && (
+          {sourceData?.runtime && sourceData?.kind !== "built-in" && (
             <Badge className="bg-muted text-muted-foreground">built-in</Badge>
           )}
           <Badge variant="secondary">{sourceData?.kind ?? "source"}</Badge>

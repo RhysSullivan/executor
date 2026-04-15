@@ -434,7 +434,9 @@ function SourceGrid(props: {
                       <SummaryComponent sourceId={s.id} />
                     </Suspense>
                   )}
-                  {s.runtime && <Badge className="bg-muted text-muted-foreground">built-in</Badge>}
+                  {s.runtime && s.kind !== "built-in" && (
+                    <Badge className="bg-muted text-muted-foreground">built-in</Badge>
+                  )}
                   <Badge variant="secondary">{s.kind}</Badge>
                 </CardStackEntryActions>
               </Link>
