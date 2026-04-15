@@ -4,30 +4,22 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./schema": "./src/schema.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsgo --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
     "@effect/sql": "catalog:",
     "@effect/sql-pg": "^0.28.0",
-    "@executor/sdk": "workspace:*",
-    "drizzle-orm": "catalog:",
-    "effect": "catalog:",
-    "pg": "^8.16.0"
+    "@executor/storage-core": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@electric-sql/pglite": "^0.4.3",
     "@types/node": "^25.6.0",
-    "@types/pg": "^8.15.4",
-    "drizzle-kit": "^0.31.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
