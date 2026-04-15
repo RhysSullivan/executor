@@ -14,15 +14,20 @@
 import { env } from "cloudflare:workers";
 import { Context, Effect, Layer } from "effect";
 import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import * as sharedSchema from "@executor/storage-postgres/schema";
+import type { PgDatabase } from "drizzle-orm/pg-core";
+import postgres, { type Sql } from "postgres";
 import * as cloudSchema from "./schema";
-import type { DrizzleDb } from "@executor/storage-postgres";
 import { server } from "../env";
 
-const schema = { ...sharedSchema, ...cloudSchema };
+const schema = { ...cloudSchema };
 
-export type { DrizzleDb };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DrizzleDb = PgDatabase<any, any, any>;
+
+export type DbServiceShape = {
+  readonly sql: Sql;
+  readonly db: DrizzleDb;
+};
 
 const resolveConnectionString = () => {
   // In local dev prefer an explicit DATABASE_URL (direct connection to
@@ -34,7 +39,7 @@ const resolveConnectionString = () => {
   return env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
 };
 
-const makeSql = () =>
+const makeSql = (): Sql =>
   postgres(resolveConnectionString(), {
     max: 1,
     idle_timeout: 0,
@@ -43,11 +48,14 @@ const makeSql = () =>
     onnotice: () => undefined,
   });
 
-export class DbService extends Context.Tag("@executor/cloud/DbService")<DbService, DrizzleDb>() {
+export class DbService extends Context.Tag("@executor/cloud/DbService")<
+  DbService,
+  DbServiceShape
+>() {
   static Live = Layer.scoped(
     this,
     Effect.acquireRelease(
-      Effect.sync(() => {
+      Effect.sync((): DbServiceShape => {
         const sql = makeSql();
         return { sql, db: drizzle(sql, { schema }) as DrizzleDb };
       }),
@@ -57,6 +65,6 @@ export class DbService extends Context.Tag("@executor/cloud/DbService")<DbServic
         Effect.sync(() => {
           sql.end({ timeout: 0 }).catch(() => undefined);
         }),
-    ).pipe(Effect.map(({ db }) => db)),
+    ),
   );
 }

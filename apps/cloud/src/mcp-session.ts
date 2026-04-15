@@ -12,8 +12,7 @@ import postgres from "postgres";
 import { createExecutorMcpServer } from "@executor/host-mcp";
 import { createExecutionEngine } from "@executor/execution";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
-import type { DrizzleDb } from "@executor/storage-postgres";
-import * as sharedSchema from "@executor/storage-postgres/schema";
+import type { DrizzleDb, DbServiceShape } from "./services/db";
 
 import { makeTrackExecutionUsage } from "./api/autumn";
 import { withExecutionUsageTracking } from "./api/execution-usage";
@@ -55,7 +54,9 @@ const jsonRpcError = (status: number, code: number, message: string) =>
     headers: { "content-type": "application/json" },
   });
 
-const combinedSchema = { ...sharedSchema, ...cloudSchema };
+const combinedSchema = { ...cloudSchema };
+
+type DbHandle = DbServiceShape & { end: () => Promise<void> };
 
 /**
  * Create a long-lived DB connection for the DO lifetime.
@@ -66,7 +67,7 @@ const combinedSchema = { ...sharedSchema, ...cloudSchema };
  * only one request runs at a time. The connection is closed when the DO
  * cleans up (timeout or eviction).
  */
-const makeLongLivedDb = (): { db: DrizzleDb; end: () => Promise<void> } => {
+const makeLongLivedDb = (): DbHandle => {
   const connectionString = env.HYPERDRIVE?.connectionString ?? server.DATABASE_URL;
   const sql = postgres(connectionString, {
     max: 1,
@@ -76,6 +77,7 @@ const makeLongLivedDb = (): { db: DrizzleDb; end: () => Promise<void> } => {
     onnotice: () => undefined,
   });
   return {
+    sql,
     db: drizzle(sql, { schema: combinedSchema }) as DrizzleDb,
     end: () => sql.end({ timeout: 0 }).catch(() => undefined),
   };
@@ -90,7 +92,7 @@ export class McpSessionDO extends DurableObject {
   private transport: WorkerTransport | null = null;
   private initialized = false;
   private lastActivityMs = 0;
-  private dbHandle: { db: DrizzleDb; end: () => Promise<void> } | null = null;
+  private dbHandle: DbHandle | null = null;
 
   private makeStorage() {
     return {
@@ -109,7 +111,8 @@ export class McpSessionDO extends DurableObject {
     // Create a long-lived DB connection for the DO's lifetime
     this.dbHandle = makeLongLivedDb();
 
-    const DbLive = Layer.succeed(DbService, this.dbHandle.db);
+    const { sql, db } = this.dbHandle;
+    const DbLive = Layer.succeed(DbService, { sql, db });
     const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
     const Services = Layer.mergeAll(
       DbLive,

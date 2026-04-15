@@ -35,7 +35,7 @@ describe("DbService", () => {
   it("executes a trivial query end-to-end", async () => {
     const result = await program(
       Effect.gen(function* () {
-        const db = yield* DbService;
+        const { db } = yield* DbService;
         const rows = yield* Effect.promise(() => db.execute("select 1 as one"));
         return rows;
       }),
@@ -49,7 +49,7 @@ describe("DbService", () => {
     const id = `user_${crypto.randomUUID()}`;
     const account = await program(
       Effect.gen(function* () {
-        const db = yield* DbService;
+        const { db } = yield* DbService;
         const store = makeUserStore(db);
         return yield* Effect.promise(() => store.ensureAccount(id));
       }),
@@ -66,14 +66,14 @@ describe("DbService", () => {
 
     await program(
       Effect.gen(function* () {
-        const db = yield* DbService;
+        const { db } = yield* DbService;
         yield* Effect.promise(() => makeUserStore(db).ensureAccount(idA));
       }),
     );
 
     const fetched = await program(
       Effect.gen(function* () {
-        const db = yield* DbService;
+        const { db } = yield* DbService;
         const store = makeUserStore(db);
         yield* Effect.promise(() => store.ensureAccount(idB));
         return yield* Effect.promise(() => store.getAccount(idA));
@@ -91,7 +91,7 @@ describe("DbService", () => {
     const outer = Layer.provide(
       Layer.effectDiscard(
         Effect.gen(function* () {
-          const db = yield* DbService;
+          const { db } = yield* DbService;
           yield* Effect.promise(() =>
             makeUserStore(db).upsertOrganization({ id: orgId, name: "Acme" }),
           );
@@ -107,7 +107,7 @@ describe("DbService", () => {
         // Inner "handler" scope — fresh DbService.
         return yield* Effect.scoped(
           Effect.gen(function* () {
-            const db = yield* DbService;
+            const { db } = yield* DbService;
             return yield* Effect.promise(() => makeUserStore(db).getOrganization(orgId));
           }).pipe(Effect.provide(DbService.Live)),
         ) as Effect.Effect<{ id: string; name: string } | null, never, never>;

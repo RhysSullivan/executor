@@ -35,7 +35,7 @@
     "@executor/react": "workspace:*",
     "@executor/runtime-dynamic-worker": "workspace:*",
     "@executor/sdk": "workspace:*",
-    "@executor/storage-postgres": "workspace:*",
+    "@executor/storage-core": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/exporter-logs-otlp-http": "^0.214.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",

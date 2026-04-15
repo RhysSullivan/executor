@@ -10,7 +10,7 @@
 import { eq } from "drizzle-orm";
 
 import { accounts, organizations } from "./schema";
-import type { DrizzleDb } from "@executor/storage-postgres";
+import type { DrizzleDb } from "./db";
 
 export type Account = typeof accounts.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;

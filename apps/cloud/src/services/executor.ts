@@ -1,23 +1,48 @@
 // ---------------------------------------------------------------------------
-// Cloud executor — stateless, per-request, with Vault-backed secrets
+// Cloud executor — stateless, per-request, new SDK shape
 // ---------------------------------------------------------------------------
+//
+// Each invocation of `createOrgExecutor` runs inside a request-scoped
+// Effect and yields a fresh executor bound to the current DbService's
+// per-request postgres.js client. Cloudflare Workers + Hyperdrive demand
+// fresh connections per request, so "build once" means "once per request"
+// here.
 
 import { Effect } from "effect";
 
-import { ScopeId, createExecutor, makeInMemorySourceRegistry, scopeKv } from "@executor/sdk";
-import { makePgKv, makePgPolicyEngine, makePgToolRegistry } from "@executor/storage-postgres";
-import { openApiPlugin, makeKvOperationStore } from "@executor/plugin-openapi";
-import { mcpPlugin, makeKvBindingStore } from "@executor/plugin-mcp";
 import {
-  graphqlPlugin,
-  makeKvOperationStore as makeKvGraphqlOperationStore,
-} from "@executor/plugin-graphql";
-import {
-  makeConfiguredWorkOSVaultSecretStore,
-  workosVaultPlugin,
-} from "@executor/plugin-workos-vault";
+  Scope,
+  ScopeId,
+  collectSchemas,
+  createExecutor,
+} from "@executor/sdk";
+import { openApiPlugin } from "@executor/plugin-openapi";
+import { mcpPlugin } from "@executor/plugin-mcp";
+import { graphqlPlugin } from "@executor/plugin-graphql";
+import { workosVaultPlugin } from "@executor/plugin-workos-vault";
+
 import { DbService } from "./db";
+import { makePgAdapter } from "./pg-adapter";
+import { makePgBlobStore } from "./pg-blob-store";
 import { server } from "../env";
+
+// ---------------------------------------------------------------------------
+// Plugin list — one place, used for both the factory and type inference.
+// No stdio MCP in cloud; no keychain/file-secrets/1password/google-discovery.
+// ---------------------------------------------------------------------------
+
+const createOrgPlugins = () =>
+  [
+    openApiPlugin(),
+    mcpPlugin({ dangerouslyAllowStdioMCP: false }),
+    graphqlPlugin(),
+    workosVaultPlugin({
+      credentials: {
+        apiKey: server.WORKOS_API_KEY,
+        clientId: server.WORKOS_CLIENT_ID,
+      },
+    }),
+  ] as const;
 
 // ---------------------------------------------------------------------------
 // Create a fresh executor for an organization (stateless, per-request)
@@ -28,38 +53,18 @@ export const createOrgExecutor = (
   organizationName: string,
 ) =>
   Effect.gen(function* () {
-    const db = yield* DbService;
-    const kv = makePgKv(db, organizationId);
-    const secrets = yield* makeConfiguredWorkOSVaultSecretStore({
-      credentials: {
-        apiKey: server.WORKOS_API_KEY,
-        clientId: server.WORKOS_CLIENT_ID,
-      },
-      metadataStore: scopeKv(kv, "secrets"),
-      scopeId: organizationId,
-    }).pipe(Effect.orDie);
+    const { sql } = yield* DbService;
 
-    return yield* createExecutor({
-      scope: {
-        id: ScopeId.make(organizationId),
-        name: organizationName,
-        createdAt: new Date(),
-      },
-      tools: makePgToolRegistry(db, organizationId),
-      sources: makeInMemorySourceRegistry(),
-      secrets,
-      policies: makePgPolicyEngine(db, organizationId),
-      plugins: [
-        openApiPlugin({
-          operationStore: makeKvOperationStore(kv, "openapi"),
-        }),
-        mcpPlugin({
-          bindingStore: makeKvBindingStore(kv, "mcp"),
-        }),
-        graphqlPlugin({
-          operationStore: makeKvGraphqlOperationStore(kv, "graphql"),
-        }),
-        workosVaultPlugin(),
-      ] as const,
+    const plugins = createOrgPlugins();
+    const schema = collectSchemas(plugins);
+    const adapter = yield* makePgAdapter({ sql, schema });
+    const blobs = yield* makePgBlobStore(sql);
+
+    const scope = new Scope({
+      id: ScopeId.make(organizationId),
+      name: organizationName,
+      createdAt: new Date(),
     });
+
+    return yield* createExecutor({ scope, adapter, blobs, plugins });
   });
