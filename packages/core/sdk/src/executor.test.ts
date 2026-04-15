@@ -59,7 +59,7 @@ const testPlugin = definePlugin(() => ({
         Effect.gen(function* () {
           yield* ctx.storage.writeThing(id, value);
           yield* ctx.core.sources.register({
-            id: `test.${id}`,
+            id,
             kind: "test",
             name: id,
             canRemove: true,
@@ -87,14 +87,15 @@ const testPlugin = definePlugin(() => ({
   ],
   invokeTool: ({ ctx, toolRow, args }) =>
     Effect.gen(function* () {
-      // toolRow.id = "test.<id>.<name>"
-      const [, thingId, methodName] = toolRow.id.split(".");
-      if (methodName === "read") {
-        return yield* ctx.storage.readThing(thingId!);
+      // toolRow.source_id = the thing id (we registered the source with
+      // that id). toolRow.name = "read" | "write". No string splitting.
+      const thingId = toolRow.source_id;
+      if (toolRow.name === "read") {
+        return yield* ctx.storage.readThing(thingId);
       }
-      if (methodName === "write") {
+      if (toolRow.name === "write") {
         const { value } = args as { value: string };
-        yield* ctx.storage.writeThing(thingId!, value);
+        yield* ctx.storage.writeThing(thingId, value);
         return { ok: true };
       }
       return yield* Effect.fail(new Error(`unknown tool ${toolRow.id}`));
@@ -173,8 +174,8 @@ describe("createExecutor", () => {
       const tools = yield* executor.tools.list();
       const ids = tools.map((t) => t.id);
       expect(ids).toContain("test.control.echo");
-      expect(ids).toContain("test.thing1.read");
-      expect(ids).toContain("test.thing1.write");
+      expect(ids).toContain("thing1.read");
+      expect(ids).toContain("thing1.write");
     }),
   );
 
@@ -197,7 +198,7 @@ describe("createExecutor", () => {
       );
       yield* executor.test.addThing("thing1", "hello");
 
-      const result = yield* executor.tools.invoke("test.thing1.read", {});
+      const result = yield* executor.tools.invoke("thing1.read", {});
       expect(result).toBe("hello");
     }),
   );
@@ -212,7 +213,7 @@ describe("createExecutor", () => {
       // requiresApproval: true → declined → ElicitationDeclinedError
       const declined = yield* executor.tools
         .invoke(
-          "test.thing1.write",
+          "thing1.write",
           { value: "updated" },
           {
             onElicitation: () =>
@@ -226,7 +227,7 @@ describe("createExecutor", () => {
 
       // auto-accept → succeeds
       const accepted = yield* executor.tools.invoke(
-        "test.thing1.write",
+        "thing1.write",
         { value: "updated" },
         { onElicitation: "accept-all" },
       );
@@ -247,7 +248,7 @@ describe("createExecutor", () => {
       expect(control!.runtime).toBe(true);
       expect(control!.canRemove).toBe(false);
 
-      const dynamic = sources.find((s) => s.id === "test.thing1");
+      const dynamic = sources.find((s) => s.id === "thing1");
       expect(dynamic).toBeDefined();
       expect(dynamic!.runtime).toBe(false);
       expect(dynamic!.canRemove).toBe(true);
