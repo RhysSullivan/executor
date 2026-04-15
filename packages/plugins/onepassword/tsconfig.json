@@ -5,10 +5,11 @@
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "lib": ["ES2022"],
-    "types": ["node"],
+    "lib": ["ES2022", "DOM"],
+    "types": ["bun-types", "node"],
     "noUnusedLocals": true,
     "noImplicitOverride": true,
+    "jsx": "react-jsx",
     "plugins": [
       {
         "name": "@effect/language-service",
@@ -18,5 +19,5 @@
       }
     ]
   },
-  "include": ["src/api/**/*.ts", "src/sdk/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
