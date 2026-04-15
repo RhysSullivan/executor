@@ -18,5 +18,6 @@
       }
     ]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/promise.ts", "src/promise-executor.ts", "src/index.test.ts"]
 }

@@ -1,36 +1,33 @@
-import { ScopeId } from "./ids";
-import type { Scope } from "./scope";
-import type { ExecutorConfig } from "./executor";
-import type { ExecutorPlugin } from "./plugin";
+import { makeInMemoryAdapter } from "@executor/storage-memory";
 
-import { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
-import { makeInMemorySecretStore } from "./in-memory/secret-store";
-import { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
-import { makeInMemorySourceRegistry } from "./sources";
+import { makeInMemoryBlobStore } from "./blob";
+import type { ExecutorConfig } from "./executor";
+import { ScopeId } from "./ids";
+import type { AnyPlugin } from "./plugin";
+import { Scope } from "./scope";
 
 // ---------------------------------------------------------------------------
-// makeTestConfig — one-liner to build a test ExecutorConfig
+// makeTestConfig — build an ExecutorConfig backed by in-memory adapter +
+// blob store. For unit tests, plugin authors validating their plugin,
+// REPL experimentation. No persistence.
 // ---------------------------------------------------------------------------
 
 export const makeTestConfig = <
-  const TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
+  const TPlugins extends readonly AnyPlugin[] = [],
 >(options?: {
-  readonly cwd?: string;
+  readonly scopeName?: string;
   readonly plugins?: TPlugins;
 }): ExecutorConfig<TPlugins> => {
-  const cwd = options?.cwd ?? "/test";
-  const scope: Scope = {
+  const scope = new Scope({
     id: ScopeId.make("test-scope"),
-    name: cwd,
+    name: options?.scopeName ?? "test",
     createdAt: new Date(),
-  };
+  });
 
   return {
     scope,
-    tools: makeInMemoryToolRegistry(),
-    sources: makeInMemorySourceRegistry(),
-    secrets: makeInMemorySecretStore(),
-    policies: makeInMemoryPolicyEngine(),
+    adapter: makeInMemoryAdapter(),
+    blobs: makeInMemoryBlobStore(),
     plugins: options?.plugins,
   };
 };

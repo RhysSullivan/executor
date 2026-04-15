@@ -1,37 +1,64 @@
-// IDs
+// ---------------------------------------------------------------------------
+// @executor/sdk — public surface
+// ---------------------------------------------------------------------------
+
+// Storage adapter interface types (re-exported from @executor/storage-core
+// so plugin authors can write adapters against a single public surface
+// without depending on storage-core directly).
+export type {
+  DBAdapter,
+  DBSchema,
+  DBFieldAttribute,
+  DBFieldType,
+  TypedAdapter,
+  Where,
+  WhereOperator,
+} from "@executor/storage-core";
+
+export { typedAdapter } from "@executor/storage-core";
+
+// IDs (branded)
 export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
 
-// Errors
+// Scope
+export { Scope } from "./scope";
+
+// Errors (tagged)
 export {
   ToolNotFoundError,
   ToolInvocationError,
+  NoHandlerError,
+  SourceNotFoundError,
+  SourceRemovalNotAllowedError,
+  PluginNotLoadedError,
   SecretNotFoundError,
   SecretResolutionError,
-  PolicyDeniedError,
+  type ExecutorError,
 } from "./errors";
 
-// Tools
-export {
-  ToolMetadata,
-  ToolSchema,
-  ToolInvocationResult,
-  ToolRegistry,
-  ToolRegistration,
-  ToolAnnotations,
-  ToolListFilter,
-  type ToolInvoker,
-  type RuntimeToolHandler,
-  type InvokeOptions,
-} from "./tools";
+// Public projections
+export type { Source, Tool, ToolListFilter } from "./types";
 
-// Sources
+// Core schema
 export {
-  Source,
-  SourceDetectionResult,
-  SourceRegistry,
-  makeInMemorySourceRegistry,
-  type SourceManager,
-} from "./sources";
+  coreSchema,
+  type CoreSchema,
+  type SourceInput,
+  type SourceInputTool,
+  type SourceRow,
+  type ToolRow,
+  type DefinitionRow,
+  type SecretRow,
+  type DefinitionsInput,
+  type ToolAnnotations,
+} from "./core-schema";
+
+// Secrets
+export {
+  SecretRef,
+  SetSecretInput,
+  type SecretProvider,
+} from "./secrets";
 
 // Elicitation
 export {
@@ -45,39 +72,54 @@ export {
   type ElicitationContext,
 } from "./elicitation";
 
-// Secrets
-export { SecretRef, SetSecretInput, SecretStore, type SecretProvider } from "./secrets";
-
-// Policies
-export { Policy, PolicyAction, PolicyCheckInput, PolicyEngine } from "./policies";
-
-// Scope
-export { Scope } from "./scope";
-
-// Plugin
+// Blob store
 export {
-  definePlugin,
-  type ExecutorPlugin,
-  type PluginContext,
-  type PluginHandle,
+  type BlobStore,
+  type ScopedBlobStore,
+  scopeBlobStore,
+  makeInMemoryBlobStore,
+} from "./blob";
+
+// Plugin definition
+export {
+  type Plugin,
+  type PluginSpec,
+  type PluginCtx,
   type PluginExtensions,
+  type ConfiguredPlugin,
+  type AnyPlugin,
+  type StorageDeps,
+  type StaticSourceDecl,
+  type StaticToolDecl,
+  type StaticToolHandlerInput,
+  type InvokeToolInput,
+  type SourceLifecycleInput,
+  type SecretListEntry,
+  type Elicit,
+  definePlugin,
 } from "./plugin";
 
 // Executor
-export { createExecutor, type Executor, type ExecutorConfig } from "./executor";
-
-// Built-in plugins
 export {
-  inMemoryToolsPlugin,
-  tool,
-  type MemoryToolDefinition,
-  type MemoryToolContext,
-  type MemoryToolSdkAccess,
-  type InMemoryToolsPluginExtension,
-} from "./plugins/in-memory-tools";
+  type Executor,
+  type ExecutorConfig,
+  type InvokeOptions,
+  createExecutor,
+  collectSchemas,
+} from "./executor";
 
-// Schema ref utilities
-export { hoistDefinitions, collectRefs, reattachDefs, normalizeRefs } from "./schema-refs";
+// Test helper
+export { makeTestConfig } from "./testing";
+
+// JSON schema $ref helpers (used by openapi for $defs handling)
+export {
+  hoistDefinitions,
+  collectRefs,
+  reattachDefs,
+  normalizeRefs,
+} from "./schema-refs";
+
+// TypeScript preview generation from JSON schemas
 export {
   schemaToTypeScriptPreview,
   schemaToTypeScriptPreviewWithDefs,
@@ -85,20 +127,3 @@ export {
   type TypeScriptRenderOptions,
   type TypeScriptSchemaPreview,
 } from "./schema-types";
-
-// Runtime tools
-export {
-  registerRuntimeTools,
-  runtimeTool,
-  type RuntimeSourceDefinition,
-  type RuntimeToolDefinition,
-} from "./runtime-tools";
-
-// In-memory implementations
-export { makeInMemoryToolRegistry } from "./in-memory/tool-registry";
-export { makeInMemorySecretStore, makeInMemorySecretProvider } from "./in-memory/secret-store";
-export { makeInMemoryPolicyEngine } from "./in-memory/policy-engine";
-
-// Testing
-export { makeTestConfig } from "./testing";
-export { type Kv, type KvEntry, type ScopedKv, scopeKv, makeInMemoryScopedKv } from "./plugin-kv";

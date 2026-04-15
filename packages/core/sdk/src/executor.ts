@@ -1,209 +1,876 @@
-import { Context, Effect } from "effect";
-
-import type { ToolId, SecretId, PolicyId } from "./ids";
-import type { SecretProvider, SecretRef, SecretStore, SetSecretInput } from "./secrets";
-import type {
-  ToolMetadata,
-  ToolSchema,
-  ToolInvocationResult,
-  ToolRegistry,
-  ToolListFilter,
-  InvokeOptions,
-} from "./tools";
-import type { Source, SourceDetectionResult, SourceRegistry } from "./sources";
-import type { Policy, PolicyEngine } from "./policies";
-import type { Scope } from "./scope";
-import type { ExecutorPlugin, PluginExtensions, PluginHandle } from "./plugin";
-import type {
-  ToolNotFoundError,
-  ToolInvocationError,
-  SecretNotFoundError,
-  SecretResolutionError,
-  PolicyDeniedError,
-} from "./errors";
+import { Effect } from "effect";
 import {
-  FormElicitation,
+  typedAdapter,
+  type DBAdapter,
+  type DBSchema,
+  type TypedAdapter,
+} from "@executor/storage-core";
+
+import {
+  scopeBlobStore,
+  type BlobStore,
+} from "./blob";
+import {
+  coreSchema,
+  type CoreSchema,
+  type DefinitionsInput,
+  type SourceInput,
+  type SourceRow,
+  type ToolAnnotations,
+  type ToolRow,
+} from "./core-schema";
+import {
   ElicitationDeclinedError,
   ElicitationResponse,
+  FormElicitation,
   type ElicitationHandler,
+  type ElicitationRequest,
 } from "./elicitation";
-
-const resolveElicitationHandler = (options: InvokeOptions): ElicitationHandler =>
-  options.onElicitation === "accept-all"
-    ? () => Effect.succeed(new ElicitationResponse({ action: "accept" }))
-    : options.onElicitation;
+import {
+  NoHandlerError,
+  PluginNotLoadedError,
+  SourceRemovalNotAllowedError,
+  ToolInvocationError,
+  ToolNotFoundError,
+} from "./errors";
+import { ToolId } from "./ids";
+import type {
+  AnyPlugin,
+  Elicit,
+  PluginCtx,
+  PluginExtensions,
+  StaticSourceDecl,
+  StaticToolDecl,
+  StorageDeps,
+} from "./plugin";
+import type { Scope } from "./scope";
+import {
+  SecretRef,
+  SetSecretInput,
+  type SecretProvider,
+} from "./secrets";
+import type { Source, Tool, ToolListFilter } from "./types";
 
 // ---------------------------------------------------------------------------
-// Executor — the main public API, expands with plugins
+// InvokeOptions — passed to `executor.tools.invoke(id, args, options)`.
+// The `onElicitation` handler is threaded into the `elicit` function
+// exposed on plugin ctx / InvokeToolInput. Tools that never elicit
+// simply don't call it.
+//
+// The "accept-all" sentinel is convenient for tests and CLI automation —
+// every elicitation request gets auto-accepted with an empty content
+// payload. For real interactive hosts, pass a real handler.
 // ---------------------------------------------------------------------------
 
-export type Executor<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> = {
+export interface InvokeOptions {
+  readonly onElicitation?: ElicitationHandler | "accept-all";
+}
+
+const acceptAllHandler: ElicitationHandler = () =>
+  Effect.succeed(new ElicitationResponse({ action: "accept" }));
+
+const resolveElicitationHandler = (
+  options: InvokeOptions | undefined,
+): ElicitationHandler => {
+  const handler = options?.onElicitation;
+  if (!handler || handler === "accept-all") return acceptAllHandler;
+  return handler;
+};
+
+// ---------------------------------------------------------------------------
+// Executor — public surface. Every list/invoke/schema call is a direct
+// core-table query (for dynamic rows) unioned with the in-memory static
+// pool. No ToolRegistry, no SourceRegistry, no SecretStore services.
+// ---------------------------------------------------------------------------
+
+export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
   readonly scope: Scope;
 
   readonly tools: {
-    readonly list: (filter?: ToolListFilter) => Effect.Effect<readonly ToolMetadata[]>;
-    readonly schema: (toolId: string) => Effect.Effect<ToolSchema, ToolNotFoundError>;
-    /** Shared schema definitions across all tools */
-    readonly definitions: () => Effect.Effect<Record<string, unknown>>;
+    readonly list: (
+      filter?: ToolListFilter,
+    ) => Effect.Effect<readonly Tool[], Error>;
+    /** Fetch a tool's input/output schemas with any `$ref: "#/$defs/X"`
+     *  pointers backed by attached `$defs` from the tool's source. */
+    readonly schema: (
+      toolId: string,
+    ) => Effect.Effect<
+      {
+        readonly inputSchema: unknown;
+        readonly outputSchema: unknown;
+      } | null,
+      Error
+    >;
     readonly invoke: (
       toolId: string,
       args: unknown,
-      options: InvokeOptions,
+      options?: InvokeOptions,
     ) => Effect.Effect<
-      ToolInvocationResult,
-      ToolNotFoundError | ToolInvocationError | PolicyDeniedError | ElicitationDeclinedError
+      unknown,
+      | ToolNotFoundError
+      | PluginNotLoadedError
+      | NoHandlerError
+      | ToolInvocationError
+      | ElicitationDeclinedError
+      | Error
     >;
   };
 
   readonly sources: {
-    readonly list: () => Effect.Effect<readonly Source[]>;
-    readonly remove: (sourceId: string) => Effect.Effect<void>;
-    readonly refresh: (sourceId: string) => Effect.Effect<void>;
-    readonly detect: (url: string) => Effect.Effect<readonly SourceDetectionResult[]>;
-  };
-
-  readonly policies: {
-    readonly list: () => Effect.Effect<readonly Policy[]>;
-    readonly add: (policy: Omit<Policy, "id" | "createdAt">) => Effect.Effect<Policy>;
-    readonly remove: (policyId: string) => Effect.Effect<boolean>;
+    readonly list: () => Effect.Effect<readonly Source[], Error>;
+    readonly remove: (
+      sourceId: string,
+    ) => Effect.Effect<void, SourceRemovalNotAllowedError | Error>;
+    readonly refresh: (sourceId: string) => Effect.Effect<void, Error>;
   };
 
   readonly secrets: {
-    readonly list: () => Effect.Effect<readonly SecretRef[]>;
-    /** Resolve a secret value by id */
-    readonly resolve: (
-      secretId: SecretId,
-    ) => Effect.Effect<string, SecretNotFoundError | SecretResolutionError>;
-    /** Check if a secret can be resolved */
-    readonly status: (secretId: SecretId) => Effect.Effect<"resolved" | "missing">;
-    /** Store a secret value (creates ref + writes to provider) */
-    readonly set: (
-      input: Omit<SetSecretInput, "scopeId">,
-    ) => Effect.Effect<SecretRef, SecretResolutionError>;
-    readonly remove: (secretId: SecretId) => Effect.Effect<boolean, SecretNotFoundError>;
-    /** Register a secret provider */
-    readonly addProvider: (provider: SecretProvider) => Effect.Effect<void>;
-    /** List registered provider keys */
+    readonly get: (id: string) => Effect.Effect<string | null, Error>;
+    readonly set: (input: SetSecretInput) => Effect.Effect<SecretRef, Error>;
+    readonly remove: (id: string) => Effect.Effect<void, Error>;
+    readonly list: () => Effect.Effect<readonly SecretRef[], Error>;
     readonly providers: () => Effect.Effect<readonly string[]>;
   };
 
-  readonly close: () => Effect.Effect<void>;
+  readonly close: () => Effect.Effect<void, Error>;
 } & PluginExtensions<TPlugins>;
 
-// ---------------------------------------------------------------------------
-// Resolved services — what we need to build an Executor
-// ---------------------------------------------------------------------------
-
-export type ToolRegistryService = Context.Tag.Service<typeof ToolRegistry>;
-export type SourceRegistryService = Context.Tag.Service<typeof SourceRegistry>;
-export type SecretStoreService = Context.Tag.Service<typeof SecretStore>;
-export type PolicyEngineService = Context.Tag.Service<typeof PolicyEngine>;
-
-export interface ExecutorConfig<TPlugins extends readonly ExecutorPlugin<string, object>[] = []> {
+export interface ExecutorConfig<
+  TPlugins extends readonly AnyPlugin[] = [],
+> {
   readonly scope: Scope;
-  readonly tools: ToolRegistryService;
-  readonly sources: SourceRegistryService;
-  readonly secrets: SecretStoreService;
-  readonly policies: PolicyEngineService;
+  readonly adapter: DBAdapter;
+  readonly blobs: BlobStore;
   readonly plugins?: TPlugins;
 }
 
 // ---------------------------------------------------------------------------
-// createExecutor — builds an Executor, initializes plugins
+// collectSchemas — merge coreSchema with every plugin's declared schema.
+// Hosts call this and pass the result to the migration runner (or to
+// the adapter factory for backends that auto-migrate from a schema
+// manifest) before constructing the executor.
 // ---------------------------------------------------------------------------
 
+export const collectSchemas = (
+  plugins: readonly AnyPlugin[],
+): DBSchema => {
+  const merged: Record<string, DBSchema[string]> = { ...coreSchema };
+  for (const plugin of plugins) {
+    if (!plugin.schema) continue;
+    for (const [modelKey, model] of Object.entries(plugin.schema)) {
+      if (merged[modelKey]) {
+        throw new Error(
+          `Duplicate model "${modelKey}" contributed by plugin "${plugin.id}"` +
+            ` (reserved by core or another plugin)`,
+        );
+      }
+      merged[modelKey] = model;
+    }
+  }
+  return merged;
+};
+
+// ---------------------------------------------------------------------------
+// Row → public projection conversions
+// ---------------------------------------------------------------------------
+
+const rowToSource = (row: SourceRow): Source => ({
+  id: row.id,
+  kind: row.kind,
+  name: row.name,
+  url: row.url ?? undefined,
+  canRemove: Boolean(row.can_remove),
+  canRefresh: Boolean(row.can_refresh),
+  canEdit: Boolean(row.can_edit),
+  runtime: false,
+});
+
+const staticDeclToSource = (decl: StaticSourceDecl): Source => ({
+  id: decl.id,
+  kind: decl.kind,
+  name: decl.name,
+  url: decl.url,
+  canRemove: decl.canRemove ?? false,
+  canRefresh: decl.canRefresh ?? false,
+  canEdit: decl.canEdit ?? false,
+  runtime: true,
+});
+
+const decodeJsonColumn = (value: unknown): unknown => {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
+
+const rowToTool = (row: ToolRow): Tool => ({
+  id: row.id,
+  sourceId: row.source_id,
+  name: row.name,
+  description: row.description,
+  inputSchema: decodeJsonColumn(row.input_schema),
+  outputSchema: decodeJsonColumn(row.output_schema),
+  annotations: decodeJsonColumn(row.annotations) as
+    | ToolAnnotations
+    | undefined,
+});
+
+const staticDeclToTool = (
+  source: StaticSourceDecl,
+  tool: StaticToolDecl,
+): Tool => ({
+  id: `${source.id}.${tool.name}`,
+  sourceId: source.id,
+  name: tool.name,
+  description: tool.description,
+  inputSchema: tool.inputSchema,
+  outputSchema: tool.outputSchema,
+  annotations: tool.annotations,
+});
+
+// ---------------------------------------------------------------------------
+// Dynamic-row writers — used by ctx.core.sources.register. Static sources
+// never touch these functions.
+// ---------------------------------------------------------------------------
+
+const writeSourceInput = (
+  core: TypedAdapter<CoreSchema>,
+  pluginId: string,
+  input: SourceInput,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    const now = new Date();
+    yield* core.create({
+      model: "source",
+      data: {
+        id: input.id,
+        plugin_id: pluginId,
+        kind: input.kind,
+        name: input.name,
+        url: input.url ?? undefined,
+        can_remove: input.canRemove ?? true,
+        can_refresh: input.canRefresh ?? false,
+        can_edit: input.canEdit ?? false,
+        created_at: now,
+        updated_at: now,
+      },
+      forceAllowId: true,
+    });
+
+    if (input.tools.length > 0) {
+      yield* core.createMany({
+        model: "tool",
+        data: input.tools.map((tool) => ({
+          id: `${input.id}.${tool.name}`,
+          source_id: input.id,
+          plugin_id: pluginId,
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.inputSchema ?? undefined,
+          output_schema: tool.outputSchema ?? undefined,
+          annotations: tool.annotations ?? undefined,
+          created_at: now,
+          updated_at: now,
+        })),
+        forceAllowId: true,
+      });
+    }
+  });
+
+const deleteSourceById = (
+  core: TypedAdapter<CoreSchema>,
+  sourceId: string,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    yield* core.deleteMany({
+      model: "tool",
+      where: [{ field: "source_id", value: sourceId }],
+    });
+    yield* core.deleteMany({
+      model: "definition",
+      where: [{ field: "source_id", value: sourceId }],
+    });
+    yield* core.delete({
+      model: "source",
+      where: [{ field: "id", value: sourceId }],
+    });
+  });
+
+const writeDefinitions = (
+  core: TypedAdapter<CoreSchema>,
+  pluginId: string,
+  input: DefinitionsInput,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    yield* core.deleteMany({
+      model: "definition",
+      where: [{ field: "source_id", value: input.sourceId }],
+    });
+    const entries = Object.entries(input.definitions);
+    if (entries.length === 0) return;
+    const now = new Date();
+    yield* core.createMany({
+      model: "definition",
+      data: entries.map(([name, schema]) => ({
+        id: `${input.sourceId}.${name}`,
+        source_id: input.sourceId,
+        plugin_id: pluginId,
+        name,
+        schema: schema as Record<string, unknown>,
+        created_at: now,
+      })),
+      forceAllowId: true,
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// Filtering — shared between dynamic (DB) and static (in-memory) pools
+// so `tools.list({ query, sourceId })` matches across both.
+// ---------------------------------------------------------------------------
+
+const toolMatchesFilter = (tool: Tool, filter: ToolListFilter): boolean => {
+  if (filter.sourceId && tool.sourceId !== filter.sourceId) return false;
+  if (filter.query) {
+    const q = filter.query.toLowerCase();
+    const hay = `${tool.name} ${tool.description}`.toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+};
+
+// ---------------------------------------------------------------------------
+// createExecutor
+// ---------------------------------------------------------------------------
+
+interface StaticTools {
+  readonly source: StaticSourceDecl;
+  readonly tool: StaticToolDecl;
+  readonly pluginId: string;
+  readonly ctx: PluginCtx<unknown>;
+}
+
+interface StaticSources {
+  readonly source: StaticSourceDecl;
+  readonly pluginId: string;
+}
+
+interface PluginRuntime {
+  readonly plugin: AnyPlugin;
+  readonly storage: unknown;
+  readonly ctx: PluginCtx<unknown>;
+}
+
 export const createExecutor = <
-  const TPlugins extends readonly ExecutorPlugin<string, object>[] = [],
+  const TPlugins extends readonly AnyPlugin[] = [],
 >(
   config: ExecutorConfig<TPlugins>,
 ): Effect.Effect<Executor<TPlugins>, Error> =>
   Effect.gen(function* () {
-    const { scope, tools, sources, secrets, policies, plugins = [] } = config;
+    const {
+      scope,
+      adapter,
+      blobs,
+      plugins = [] as unknown as TPlugins,
+    } = config;
 
-    // Initialize all plugins
-    const handles = new Map<string, PluginHandle<object>>();
+    const core = typedAdapter<CoreSchema>(adapter);
+
+    // Populated once, never mutated after startup.
+    const staticTools = new Map<string, StaticTools>();
+    const staticSources = new Map<string, StaticSources>();
+
+    // Per-plugin runtime state.
+    const runtimes = new Map<string, PluginRuntime>();
+    // Secret providers keyed by `provider.key`.
+    const secretProviders = new Map<string, SecretProvider>();
     const extensions: Record<string, object> = {};
 
-    for (const plugin of plugins) {
-      const handle = yield* plugin.init({
-        scope,
-        tools,
-        sources,
-        secrets,
-        policies,
+    // ------------------------------------------------------------------
+    // Secrets facade — walks providers in registration order.
+    // ------------------------------------------------------------------
+    const secretsGet = (id: string): Effect.Effect<string | null, Error> =>
+      Effect.gen(function* () {
+        for (const provider of secretProviders.values()) {
+          const value = yield* provider.get(id);
+          if (value !== null) return value;
+        }
+        return null;
       });
-      handles.set(plugin.key, handle);
-      extensions[plugin.key] = handle.extension;
+
+    const secretsSet = (
+      input: SetSecretInput,
+    ): Effect.Effect<SecretRef, Error> =>
+      Effect.gen(function* () {
+        // Pick provider: explicit or first-writable.
+        let target: SecretProvider | undefined;
+        if (input.provider) {
+          target = secretProviders.get(input.provider);
+          if (!target) {
+            return yield* Effect.fail(
+              new Error(`Unknown secret provider: ${input.provider}`),
+            );
+          }
+        } else {
+          for (const provider of secretProviders.values()) {
+            if (provider.writable && provider.set) {
+              target = provider;
+              break;
+            }
+          }
+          if (!target) {
+            return yield* Effect.fail(
+              new Error("No writable secret providers registered"),
+            );
+          }
+        }
+        if (!target.writable || !target.set) {
+          return yield* Effect.fail(
+            new Error(`Secret provider "${target.key}" is read-only`),
+          );
+        }
+
+        yield* target.set(input.id, input.value);
+
+        // Upsert metadata row in the core `secret` table.
+        const now = new Date();
+        yield* core.delete({
+          model: "secret",
+          where: [{ field: "id", value: input.id }],
+        });
+        yield* core.create({
+          model: "secret",
+          data: {
+            id: input.id,
+            name: input.name,
+            provider: target.key,
+            created_at: now,
+          },
+          forceAllowId: true,
+        });
+
+        return new SecretRef({
+          id: input.id,
+          scopeId: scope.id,
+          name: input.name,
+          provider: target.key,
+          createdAt: now,
+        });
+      });
+
+    const secretsRemove = (id: string): Effect.Effect<void, Error> =>
+      Effect.gen(function* () {
+        for (const provider of secretProviders.values()) {
+          if (provider.writable && provider.delete) {
+            yield* provider.delete(id);
+          }
+        }
+        yield* core.delete({
+          model: "secret",
+          where: [{ field: "id", value: id }],
+        });
+      });
+
+    const secretsList = (): Effect.Effect<readonly SecretRef[], Error> =>
+      Effect.gen(function* () {
+        const rows = yield* core.findMany({ model: "secret" });
+        return rows.map(
+          (row) =>
+            new SecretRef({
+              id: ToolId.make(row.id) as unknown as SecretRef["id"],
+              scopeId: scope.id,
+              name: row.name,
+              provider: row.provider,
+              createdAt:
+                row.created_at instanceof Date
+                  ? row.created_at
+                  : new Date(row.created_at as string),
+            }),
+        );
+      });
+
+    const secretsListForCtx = () =>
+      Effect.gen(function* () {
+        const rows = yield* core.findMany({ model: "secret" });
+        return rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          provider: row.provider,
+        }));
+      });
+
+    // ------------------------------------------------------------------
+    // Plugin wiring — build ctx, run extension, populate static pools,
+    // register secret providers. No adapter reads here.
+    // ------------------------------------------------------------------
+    for (const plugin of plugins) {
+      if (runtimes.has(plugin.id)) {
+        return yield* Effect.fail(
+          new Error(`Duplicate plugin id: ${plugin.id}`),
+        );
+      }
+
+      const storageDeps: StorageDeps = {
+        scope,
+        adapter,
+        blobs: scopeBlobStore(blobs, plugin.id),
+      };
+      const storage = plugin.storage(storageDeps);
+
+      const ctx: PluginCtx<unknown> = {
+        scope,
+        storage,
+        core: {
+          sources: {
+            register: (input: SourceInput) =>
+              adapter.transaction(() =>
+                writeSourceInput(core, plugin.id, input),
+              ),
+            unregister: (sourceId: string) =>
+              adapter.transaction(() => deleteSourceById(core, sourceId)),
+          },
+          definitions: {
+            register: (input: DefinitionsInput) =>
+              adapter.transaction(() =>
+                writeDefinitions(core, plugin.id, input),
+              ),
+          },
+        },
+        secrets: {
+          get: secretsGet,
+          list: secretsListForCtx,
+        },
+        transaction: <A, E>(effect: Effect.Effect<A, E>) =>
+          adapter.transaction(() => effect),
+      };
+
+      // Build extension FIRST so it's available as `self` when resolving
+      // staticSources. Field ordering in the plugin spec matters — TS
+      // infers TExtension from `extension`'s return type, then NoInfer
+      // locks `self` to that inferred type on `staticSources`.
+      const extension: object = plugin.extension
+        ? plugin.extension(ctx)
+        : {};
+      if (plugin.extension) {
+        extensions[plugin.id] = extension;
+      }
+
+      // Resolve static declarations to the in-memory pools. NO DB WRITES.
+      const decls = plugin.staticSources
+        ? plugin.staticSources(extension)
+        : [];
+      for (const source of decls) {
+        if (staticSources.has(source.id)) {
+          return yield* Effect.fail(
+            new Error(
+              `Duplicate static source id: ${source.id} (plugin ${plugin.id})`,
+            ),
+          );
+        }
+        staticSources.set(source.id, { source, pluginId: plugin.id });
+
+        for (const tool of source.tools) {
+          const fqid = `${source.id}.${tool.name}`;
+          if (staticTools.has(fqid)) {
+            return yield* Effect.fail(
+              new Error(
+                `Duplicate static tool id: ${fqid} (plugin ${plugin.id})`,
+              ),
+            );
+          }
+          staticTools.set(fqid, {
+            source,
+            tool,
+            pluginId: plugin.id,
+            ctx,
+          });
+        }
+      }
+
+      runtimes.set(plugin.id, { plugin, storage, ctx });
+
+      if (plugin.secretProviders) {
+        const providers =
+          typeof plugin.secretProviders === "function"
+            ? plugin.secretProviders(ctx)
+            : plugin.secretProviders;
+        for (const provider of providers) {
+          if (secretProviders.has(provider.key)) {
+            return yield* Effect.fail(
+              new Error(
+                `Duplicate secret provider key: ${provider.key} (from plugin ${plugin.id})`,
+              ),
+            );
+          }
+          secretProviders.set(provider.key, provider);
+        }
+      }
     }
+
+    // ------------------------------------------------------------------
+    // Executor surface
+    // ------------------------------------------------------------------
+    const listSources = () =>
+      Effect.gen(function* () {
+        const dynamic = yield* core.findMany({ model: "source" });
+        const staticList: Source[] = [];
+        for (const { source } of staticSources.values()) {
+          staticList.push(staticDeclToSource(source));
+        }
+        return [...staticList, ...dynamic.map(rowToSource)];
+      });
+
+    const listTools = (filter?: ToolListFilter) =>
+      Effect.gen(function* () {
+        const dynamic = yield* core.findMany({ model: "tool" });
+        const out: Tool[] = [];
+        for (const entry of staticTools.values()) {
+          out.push(staticDeclToTool(entry.source, entry.tool));
+        }
+        for (const row of dynamic) out.push(rowToTool(row));
+        if (!filter) return out;
+        return out.filter((t) => toolMatchesFilter(t, filter));
+      });
+
+    const attachDefsFor = (sourceId: string, schema: unknown) =>
+      Effect.gen(function* () {
+        if (schema == null || typeof schema !== "object") return schema;
+        const defRows = yield* core.findMany({
+          model: "definition",
+          where: [{ field: "source_id", value: sourceId }],
+        });
+        if (defRows.length === 0) return schema;
+        const defs: Record<string, unknown> = {};
+        for (const row of defRows) defs[row.name] = row.schema;
+        return { ...(schema as Record<string, unknown>), $defs: defs };
+      });
+
+    const toolSchema = (toolId: string) =>
+      Effect.gen(function* () {
+        // Static pool first.
+        const staticEntry = staticTools.get(toolId);
+        if (staticEntry) {
+          return {
+            inputSchema: staticEntry.tool.inputSchema,
+            outputSchema: staticEntry.tool.outputSchema,
+          };
+        }
+        const row = yield* core.findOne({
+          model: "tool",
+          where: [{ field: "id", value: toolId }],
+        });
+        if (!row) return null;
+        const inputSchema = yield* attachDefsFor(
+          row.source_id,
+          decodeJsonColumn(row.input_schema),
+        );
+        const outputSchema = yield* attachDefsFor(
+          row.source_id,
+          decodeJsonColumn(row.output_schema),
+        );
+        return { inputSchema, outputSchema };
+      });
+
+    const buildElicit = (toolId: string, args: unknown, options: InvokeOptions | undefined): Elicit => {
+      const handler = resolveElicitationHandler(options);
+      return (request: ElicitationRequest) =>
+        Effect.gen(function* () {
+          const tid = ToolId.make(toolId);
+          const response: ElicitationResponse = yield* handler({
+            toolId: tid,
+            args,
+            request,
+          });
+          if (response.action !== "accept") {
+            return yield* new ElicitationDeclinedError({
+              toolId: tid,
+              action: response.action,
+            });
+          }
+          return response;
+        });
+    };
+
+    const enforceApproval = (
+      annotations: ToolAnnotations | undefined,
+      toolId: string,
+      args: unknown,
+      options: InvokeOptions | undefined,
+    ) =>
+      Effect.gen(function* () {
+        if (!annotations?.requiresApproval) return;
+        const handler = resolveElicitationHandler(options);
+        const tid = ToolId.make(toolId);
+        const request = new FormElicitation({
+          message: annotations.approvalDescription ?? `Approve ${toolId}?`,
+          requestedSchema: {},
+        });
+        const response = yield* handler({ toolId: tid, args, request });
+        if (response.action !== "accept") {
+          return yield* new ElicitationDeclinedError({
+            toolId: tid,
+            action: response.action,
+          });
+        }
+      });
+
+    const invokeTool = (
+      toolId: string,
+      args: unknown,
+      options?: InvokeOptions,
+    ) =>
+      Effect.gen(function* () {
+        const wrapInvocationError = <A, E>(
+          effect: Effect.Effect<A, E>,
+        ): Effect.Effect<A, ToolInvocationError> =>
+          effect.pipe(
+            Effect.mapError(
+              (cause) =>
+                new ToolInvocationError({
+                  toolId: ToolId.make(toolId),
+                  message:
+                    cause instanceof Error ? cause.message : String(cause),
+                  cause,
+                }),
+            ),
+          );
+
+        // Static path — O(1) map lookup, no DB hit.
+        const staticEntry = staticTools.get(toolId);
+        if (staticEntry) {
+          yield* enforceApproval(
+            staticEntry.tool.annotations,
+            toolId,
+            args,
+            options,
+          );
+          return yield* wrapInvocationError(
+            staticEntry.tool.handler({
+              ctx: staticEntry.ctx,
+              args,
+              elicit: buildElicit(toolId, args, options),
+            }),
+          );
+        }
+
+        // Dynamic path — DB lookup + delegate to owning plugin.
+        const row = yield* core.findOne({
+          model: "tool",
+          where: [{ field: "id", value: toolId }],
+        });
+        if (!row) {
+          return yield* new ToolNotFoundError({
+            toolId: ToolId.make(toolId),
+          });
+        }
+        const runtime = runtimes.get(row.plugin_id);
+        if (!runtime) {
+          return yield* new PluginNotLoadedError({
+            pluginId: row.plugin_id,
+            toolId: ToolId.make(toolId),
+          });
+        }
+        if (!runtime.plugin.invokeTool) {
+          return yield* new NoHandlerError({
+            toolId: ToolId.make(toolId),
+            pluginId: row.plugin_id,
+          });
+        }
+
+        const annotations = decodeJsonColumn(row.annotations) as
+          | ToolAnnotations
+          | undefined;
+        yield* enforceApproval(annotations, toolId, args, options);
+
+        return yield* wrapInvocationError(
+          runtime.plugin.invokeTool({
+            ctx: runtime.ctx,
+            toolRow: row,
+            args,
+            elicit: buildElicit(toolId, args, options),
+          }),
+        );
+      });
+
+    const removeSource = (sourceId: string) =>
+      Effect.gen(function* () {
+        // Block removal of static sources structurally.
+        if (staticSources.has(sourceId)) {
+          return yield* new SourceRemovalNotAllowedError({ sourceId });
+        }
+        const sourceRow = yield* core.findOne({
+          model: "source",
+          where: [{ field: "id", value: sourceId }],
+        });
+        if (!sourceRow) return;
+        if (!sourceRow.can_remove) {
+          return yield* new SourceRemovalNotAllowedError({ sourceId });
+        }
+        const runtime = runtimes.get(sourceRow.plugin_id);
+        yield* adapter.transaction(() =>
+          Effect.gen(function* () {
+            if (runtime?.plugin.removeSource) {
+              yield* runtime.plugin.removeSource({
+                ctx: runtime.ctx,
+                sourceId,
+              });
+            }
+            yield* deleteSourceById(core, sourceId);
+          }),
+        );
+      });
+
+    const refreshSource = (sourceId: string) =>
+      Effect.gen(function* () {
+        if (staticSources.has(sourceId)) return;
+        const sourceRow = yield* core.findOne({
+          model: "source",
+          where: [{ field: "id", value: sourceId }],
+        });
+        if (!sourceRow) return;
+        const runtime = runtimes.get(sourceRow.plugin_id);
+        if (runtime?.plugin.refreshSource) {
+          yield* runtime.plugin.refreshSource({
+            ctx: runtime.ctx,
+            sourceId,
+          });
+        }
+      });
+
+    const close = () =>
+      Effect.gen(function* () {
+        for (const runtime of runtimes.values()) {
+          if (runtime.plugin.close) {
+            yield* runtime.plugin.close();
+          }
+        }
+      });
 
     const base = {
       scope,
-
       tools: {
-        list: (filter?: ToolListFilter) => tools.list(filter),
-        schema: (toolId: string) => tools.schema(toolId as ToolId),
-        definitions: () => tools.definitions(),
-        invoke: (toolId: string, args: unknown, options: InvokeOptions) => {
-          const tid = toolId as ToolId;
-          return Effect.gen(function* () {
-            yield* policies.check({ scopeId: scope.id, toolId: tid });
-
-            // Dynamically resolve annotations from the plugin
-            const annotations = yield* tools.resolveAnnotations(tid);
-            if (annotations?.requiresApproval) {
-              const handler = resolveElicitationHandler(options);
-              const response = yield* handler({
-                toolId: tid,
-                args,
-                request: new FormElicitation({
-                  message: annotations.approvalDescription ?? `Approve ${toolId}?`,
-                  requestedSchema: {},
-                }),
-              });
-              if (response.action !== "accept") {
-                return yield* new ElicitationDeclinedError({
-                  toolId: tid,
-                  action: response.action,
-                });
-              }
-            }
-
-            return yield* tools.invoke(tid, args, options);
-          });
-        },
+        list: listTools,
+        schema: toolSchema,
+        invoke: invokeTool,
       },
-
       sources: {
-        list: () => sources.list(),
-        remove: (sourceId: string) => sources.remove(sourceId),
-        refresh: (sourceId: string) => sources.refresh(sourceId),
-        detect: (url: string) => sources.detect(url),
+        list: listSources,
+        remove: removeSource,
+        refresh: refreshSource,
       },
-
-      policies: {
-        list: () => policies.list(scope.id),
-        add: (policy: Omit<Policy, "id" | "createdAt">) =>
-          policies.add({ ...policy, scopeId: scope.id }),
-        remove: (policyId: string) => policies.remove(policyId as PolicyId),
-      },
-
       secrets: {
-        list: () => secrets.list(scope.id),
-        resolve: (secretId: SecretId) => secrets.resolve(secretId, scope.id),
-        status: (secretId: SecretId) => secrets.status(secretId, scope.id),
-        set: (input: Omit<SetSecretInput, "scopeId">) =>
-          secrets.set({ ...input, scopeId: scope.id }),
-        remove: (secretId: SecretId) => secrets.remove(secretId),
-        addProvider: (provider: SecretProvider) => secrets.addProvider(provider),
-        providers: () => secrets.providers(),
+        get: secretsGet,
+        set: secretsSet,
+        remove: secretsRemove,
+        list: secretsList,
+        providers: () =>
+          Effect.sync(
+            () => Array.from(secretProviders.keys()) as readonly string[],
+          ),
       },
-
-      close: () =>
-        Effect.gen(function* () {
-          for (const handle of handles.values()) {
-            if (handle.close) yield* handle.close();
-          }
-        }),
+      close,
     };
 
     return Object.assign(base, extensions) as Executor<TPlugins>;
