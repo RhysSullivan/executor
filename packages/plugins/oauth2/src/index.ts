@@ -366,3 +366,18 @@ export const shouldRefreshToken = (input: {
   const skew = input.skewMs ?? OAUTH2_REFRESH_SKEW_MS;
   return input.expiresAt <= now + skew;
 };
+
+// ---------------------------------------------------------------------------
+// Re-exports from sibling modules
+// ---------------------------------------------------------------------------
+
+export {
+  type OAuth2AuthRefs,
+  type OAuth2SecretsIO,
+  type RefreshedAuthSnapshot,
+  type StoreOAuthTokensInput,
+  type StoredOAuthTokens,
+  type WithRefreshedAccessTokenInput,
+  storeOAuthTokens,
+  withRefreshedAccessToken,
+} from "./refresh";

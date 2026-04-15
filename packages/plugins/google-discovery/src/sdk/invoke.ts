@@ -1,7 +1,9 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 
-import { shouldRefreshToken } from "@executor/plugin-oauth2";
+import { withRefreshedAccessToken } from "@executor/plugin-oauth2";
+
+import { GOOGLE_TOKEN_URL } from "./oauth";
 
 import {
   type ScopeId,
@@ -19,7 +21,6 @@ import {
   GoogleDiscoveryStoredSourceData,
   type GoogleDiscoveryParameter,
 } from "./types";
-import { refreshAccessToken } from "./oauth";
 
 const SAFE_METHODS = new Set(["get", "head", "options"]);
 
@@ -91,68 +92,57 @@ const resolveOAuthAccessToken = (input: {
     }
 
     const auth = input.source.auth;
-    const needsRefresh =
-      auth.refreshTokenSecretId !== null &&
-      shouldRefreshToken({ expiresAt: auth.expiresAt });
+    const scopeId = input.scopeId;
 
-    if (!needsRefresh) {
-      return yield* input.secrets.resolve(auth.accessTokenSecretId as SecretId, input.scopeId).pipe(
-        Effect.mapError(
-          () =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: "Failed to resolve Google OAuth access token",
-              cause: undefined,
-            }),
-        ),
-      );
-    }
-
-    const refreshToken = yield* input.secrets
-      .resolve(auth.refreshTokenSecretId as SecretId, input.scopeId)
-      .pipe(
-        Effect.mapError(
-          () =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: "Failed to resolve Google OAuth refresh token",
-              cause: undefined,
-            }),
-        ),
-      );
-
-    const clientSecret =
-      auth.clientSecretSecretId === null
-        ? null
-        : yield* input.secrets.resolve(auth.clientSecretSecretId as SecretId, input.scopeId).pipe(
-            Effect.mapError(
-              () =>
-                new ToolInvocationError({
-                  toolId: "" as ToolId,
-                  message: "Failed to resolve Google OAuth client secret",
-                  cause: undefined,
-                }),
-            ),
-          );
-
-    const clientId = yield* input.secrets
-      .resolve(auth.clientIdSecretId as SecretId, input.scopeId)
-      .pipe(
-        Effect.mapError(
-          () =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: "Failed to resolve Google OAuth client ID",
-              cause: undefined,
-            }),
-        ),
-      );
-
-    const refreshed = yield* refreshAccessToken({
-      clientId,
-      clientSecret,
-      refreshToken,
-      scopes: auth.scopes,
+    return yield* withRefreshedAccessToken({
+      auth: {
+        clientIdSecretId: auth.clientIdSecretId,
+        clientSecretSecretId: auth.clientSecretSecretId,
+        accessTokenSecretId: auth.accessTokenSecretId,
+        refreshTokenSecretId: auth.refreshTokenSecretId,
+        tokenType: auth.tokenType,
+        expiresAt: auth.expiresAt,
+        scopes: auth.scopes,
+      },
+      tokenUrl: GOOGLE_TOKEN_URL,
+      secrets: {
+        resolve: (id) => input.secrets.resolve(id as SecretId, scopeId),
+        setValue: ({ secretId, value, name, purpose }) =>
+          input.secrets
+            .set({
+              id: secretId as SecretId,
+              scopeId,
+              name,
+              value,
+              purpose,
+            })
+            .pipe(Effect.asVoid),
+      },
+      displayName: input.source.name,
+      accessTokenPurpose: "google_oauth_access_token",
+      refreshTokenPurpose: "google_oauth_refresh_token",
+      persistAuth: (snapshot) =>
+        Effect.gen(function* () {
+          const updatedSource = new GoogleDiscoveryStoredSourceData({
+            ...input.source,
+            auth: {
+              kind: "oauth2",
+              clientIdSecretId: auth.clientIdSecretId,
+              clientSecretSecretId: auth.clientSecretSecretId,
+              accessTokenSecretId: auth.accessTokenSecretId,
+              refreshTokenSecretId: auth.refreshTokenSecretId,
+              tokenType: snapshot.tokenType,
+              expiresAt: snapshot.expiresAt,
+              scope: snapshot.scope ?? auth.scope,
+              scopes: auth.scopes,
+            },
+          });
+          yield* input.bindingStore.putSource({
+            namespace: input.sourceId,
+            name: input.source.name,
+            config: updatedSource,
+          });
+        }),
     }).pipe(
       Effect.mapError(
         (error) =>
@@ -163,73 +153,6 @@ const resolveOAuthAccessToken = (input: {
           }),
       ),
     );
-
-    yield* input.secrets
-      .set({
-        id: auth.accessTokenSecretId as SecretId,
-        scopeId: input.scopeId,
-        name: `${input.source.name} Access Token`,
-        value: refreshed.access_token,
-        purpose: "google_oauth_access_token",
-      })
-      .pipe(
-        Effect.mapError(
-          () =>
-            new ToolInvocationError({
-              toolId: "" as ToolId,
-              message: "Failed to persist refreshed Google OAuth access token",
-              cause: undefined,
-            }),
-        ),
-      );
-
-    let refreshTokenSecretId = auth.refreshTokenSecretId;
-    if (refreshed.refresh_token && auth.refreshTokenSecretId) {
-      yield* input.secrets
-        .set({
-          id: auth.refreshTokenSecretId as SecretId,
-          scopeId: input.scopeId,
-          name: `${input.source.name} Refresh Token`,
-          value: refreshed.refresh_token,
-          purpose: "google_oauth_refresh_token",
-        })
-        .pipe(
-          Effect.mapError(
-            () =>
-              new ToolInvocationError({
-                toolId: "" as ToolId,
-                message: "Failed to persist refreshed Google OAuth refresh token",
-                cause: undefined,
-              }),
-          ),
-        );
-      refreshTokenSecretId = auth.refreshTokenSecretId;
-    }
-
-    const updatedSource = new GoogleDiscoveryStoredSourceData({
-      ...input.source,
-      auth: {
-        kind: "oauth2",
-        clientIdSecretId: auth.clientIdSecretId,
-        clientSecretSecretId: auth.clientSecretSecretId,
-        accessTokenSecretId: auth.accessTokenSecretId,
-        refreshTokenSecretId,
-        tokenType: refreshed.token_type ?? auth.tokenType,
-        expiresAt:
-          typeof refreshed.expires_in === "number"
-            ? Date.now() + refreshed.expires_in * 1000
-            : auth.expiresAt,
-        scope: refreshed.scope ?? auth.scope,
-        scopes: auth.scopes,
-      },
-    });
-    yield* input.bindingStore.putSource({
-      namespace: input.sourceId,
-      name: input.source.name,
-      config: updatedSource,
-    });
-
-    return refreshed.access_token;
   });
 
 export const annotationsForOperation = (
