@@ -5,6 +5,7 @@ import type { ScopedBlobStore } from "./blob";
 import type {
   DefinitionsInput,
   SourceInput,
+  ToolAnnotations,
   ToolRow,
 } from "./core-schema";
 import type {
@@ -111,8 +112,10 @@ export interface StaticToolDecl<TStore = unknown> {
   readonly inputSchema?: unknown;
   readonly outputSchema?: unknown;
   /** Default-policy annotations — `requiresApproval`, `approvalDescription`,
-   *  `mayElicit`. Enforced by the executor before the handler runs. */
-  readonly annotations?: import("./core-schema").ToolAnnotations;
+   *  `mayElicit`. Enforced by the executor before the handler runs.
+   *  Inline because static tools have no plugin storage to resolve from;
+   *  the plugin author literally writes this at definition time. */
+  readonly annotations?: ToolAnnotations;
   readonly handler: (
     input: StaticToolHandlerInput<TStore>,
   ) => Effect.Effect<unknown, Error>;
@@ -194,6 +197,29 @@ export interface PluginSpec<
   readonly invokeTool?: (
     input: InvokeToolInput<TStore>,
   ) => Effect.Effect<unknown, Error>;
+
+  /** Bulk resolve annotations (requiresApproval, approvalDescription,
+   *  mayElicit) for a set of tool rows under a single source. Called
+   *  by the executor:
+   *    - at invoke time with a single-element `toolRows` array, to
+   *      enforce approval on the about-to-run tool
+   *    - at list time with every dynamic tool row under each source,
+   *      grouped by source_id, to populate `Tool.annotations` for UI
+   *
+   *  The expected implementation for most plugins is: read plugin
+   *  storage once for the given source/rows, derive annotations from
+   *  the same data that was used to build the tool (HTTP method +
+   *  path for openapi, introspection kind for graphql, etc.), return
+   *  a map keyed by tool id.
+   *
+   *  Omit if the plugin has no annotations to contribute — executor
+   *  treats tools from that plugin as auto-approved with no
+   *  elicitation. */
+  readonly resolveAnnotations?: (input: {
+    readonly ctx: PluginCtx<TStore>;
+    readonly sourceId: string;
+    readonly toolRows: readonly ToolRow[];
+  }) => Effect.Effect<Record<string, ToolAnnotations>, Error>;
 
   /** Called when `executor.sources.remove(id)` targets a source owned
    *  by this plugin. Plugin-side cleanup only; the executor deletes

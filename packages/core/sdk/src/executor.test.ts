@@ -64,19 +64,8 @@ const testPlugin = definePlugin(() => ({
             name: id,
             canRemove: true,
             tools: [
-              {
-                name: "read",
-                description: "read the thing",
-                annotations: { requiresApproval: false },
-              },
-              {
-                name: "write",
-                description: "overwrite the thing",
-                annotations: {
-                  requiresApproval: true,
-                  approvalDescription: `Overwrite ${id}`,
-                },
-              },
+              { name: "read", description: "read the thing" },
+              { name: "write", description: "overwrite the thing" },
             ],
           });
         }),
@@ -109,6 +98,24 @@ const testPlugin = definePlugin(() => ({
         return { ok: true };
       }
       return yield* Effect.fail(new Error(`unknown tool ${toolRow.id}`));
+    }),
+
+  // Derived annotations: `write` gates on approval, `read` doesn't.
+  // Purely computed from the tool's name — no data persisted on the row.
+  resolveAnnotations: ({ toolRows }) =>
+    Effect.sync(() => {
+      const out: Record<string, { requiresApproval: boolean; approvalDescription?: string }> = {};
+      for (const row of toolRows) {
+        if (row.name === "write") {
+          out[row.id] = {
+            requiresApproval: true,
+            approvalDescription: `Overwrite ${row.source_id}`,
+          };
+        } else {
+          out[row.id] = { requiresApproval: false };
+        }
+      }
+      return out;
     }),
 }));
 

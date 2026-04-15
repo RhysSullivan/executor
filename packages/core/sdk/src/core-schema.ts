@@ -53,17 +53,13 @@ export const coreSchema = {
       description: { type: "string", required: true },
       input_schema: { type: "json", required: false },
       output_schema: { type: "json", required: false },
-      // Tool annotations — default approval / elicitation metadata the
-      // executor consults before invocation. Stored as JSON so plugins
-      // can add new fields without a schema migration.
-      //
-      //   { requiresApproval?, approvalDescription?, mayElicit? }
-      //
-      // OpenAPI derives `requiresApproval` from the HTTP method (GET /
-      // HEAD / OPTIONS auto-approved, everything else gated) — this is
-      // the "default policies" story: a field on the row, not a
-      // pluggable policy engine.
-      annotations: { type: "json", required: false },
+      // NOTE: tool annotations (requiresApproval, approvalDescription,
+      // mayElicit) are NOT stored on this row. They're derived at read
+      // time from plugin-owned data via `plugin.resolveAnnotations`,
+      // because the source of truth already lives in each plugin's own
+      // storage (openapi's OperationBinding, etc.) and duplicating it
+      // here would just mean bulk-rewriting rows every time the
+      // derivation logic changes.
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
     },
@@ -121,16 +117,18 @@ export type SecretRow = InferDBFieldsOutput<CoreSchema["secret"]["fields"]> &
   Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
-// Tool annotations — the shape stored in `tool.annotations`. Every field
-// is optional; if nothing is set the executor treats the tool as
-// auto-approved with no elicitation.
+// Tool annotations — default-policy metadata the executor consults
+// before invocation. Returned by `plugin.resolveAnnotations` (dynamic
+// tools) or declared inline on `StaticToolDecl` (static tools). Never
+// stored on `tool` rows — every field here is derived at read time
+// from plugin-owned data.
 //
-// OpenAPI fills this in based on HTTP method:
+// OpenAPI derives from HTTP method:
 //   - GET / HEAD / OPTIONS → {} (auto-approved)
 //   - POST / PUT / PATCH / DELETE → { requiresApproval: true,
 //                                     approvalDescription: "DELETE /users/:id" }
 //
-// MCP fills it from the server's tool declaration (mcp has its own
+// MCP derives from the server's tool declaration (mcp has its own
 // may-elicit and approval signals).
 // ---------------------------------------------------------------------------
 
@@ -149,6 +147,9 @@ export interface ToolAnnotations {
 // ---------------------------------------------------------------------------
 // SourceInput — what a plugin passes to `ctx.core.sources.register(...)`.
 // Writes both the source row and all its tool rows in one transaction.
+// Annotations are NOT part of this input — they're computed from
+// plugin-owned data via `plugin.resolveAnnotations` when the executor
+// needs them.
 // ---------------------------------------------------------------------------
 
 export interface SourceInputTool {
@@ -156,7 +157,6 @@ export interface SourceInputTool {
   readonly description: string;
   readonly inputSchema?: unknown;
   readonly outputSchema?: unknown;
-  readonly annotations?: ToolAnnotations;
 }
 
 export interface SourceInput {

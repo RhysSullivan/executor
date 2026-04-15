@@ -206,16 +206,17 @@ const decodeJsonColumn = (value: unknown): unknown => {
   }
 };
 
-const rowToTool = (row: ToolRow): Tool => ({
+const rowToTool = (
+  row: ToolRow,
+  annotations?: ToolAnnotations,
+): Tool => ({
   id: row.id,
   sourceId: row.source_id,
   name: row.name,
   description: row.description,
   inputSchema: decodeJsonColumn(row.input_schema),
   outputSchema: decodeJsonColumn(row.output_schema),
-  annotations: decodeJsonColumn(row.annotations) as
-    | ToolAnnotations
-    | undefined,
+  annotations,
 });
 
 const staticDeclToTool = (
@@ -271,7 +272,6 @@ const writeSourceInput = (
           description: tool.description,
           input_schema: tool.inputSchema ?? undefined,
           output_schema: tool.outputSchema ?? undefined,
-          annotations: tool.annotations ?? undefined,
           created_at: now,
           updated_at: now,
         })),
@@ -622,14 +622,57 @@ export const createExecutor = <
         return [...staticList, ...dynamic.map(rowToSource)];
       });
 
+    // Bulk-resolve annotations across a set of dynamic tool rows by
+    // grouping them under their owning plugin's resolveAnnotations
+    // callback. One plugin call per (plugin_id, source_id) pair, not
+    // per row. Plugins without a resolver simply contribute no
+    // annotations for their rows.
+    const resolveAnnotationsFor = (rows: readonly ToolRow[]) =>
+      Effect.gen(function* () {
+        const result = new Map<string, ToolAnnotations>();
+        if (rows.length === 0) return result;
+
+        // Group by (plugin_id, source_id)
+        const groups = new Map<string, ToolRow[]>();
+        for (const row of rows) {
+          const key = `${row.plugin_id}\u0000${row.source_id}`;
+          const bucket = groups.get(key);
+          if (bucket) bucket.push(row);
+          else groups.set(key, [row]);
+        }
+
+        for (const [key, groupRows] of groups) {
+          const [pluginId, sourceId] = key.split("\u0000") as [
+            string,
+            string,
+          ];
+          const runtime = runtimes.get(pluginId);
+          if (!runtime?.plugin.resolveAnnotations) continue;
+          const map = yield* runtime.plugin.resolveAnnotations({
+            ctx: runtime.ctx,
+            sourceId,
+            toolRows: groupRows,
+          });
+          for (const [toolId, annotations] of Object.entries(map)) {
+            result.set(toolId, annotations);
+          }
+        }
+        return result;
+      });
+
     const listTools = (filter?: ToolListFilter) =>
       Effect.gen(function* () {
         const dynamic = yield* core.findMany({ model: "tool" });
+        const annotations = yield* resolveAnnotationsFor(dynamic);
+
         const out: Tool[] = [];
+        // Static tools — annotations from the declaration, not a resolver.
         for (const entry of staticTools.values()) {
           out.push(staticDeclToTool(entry.source, entry.tool));
         }
-        for (const row of dynamic) out.push(rowToTool(row));
+        for (const row of dynamic) {
+          out.push(rowToTool(row, annotations.get(row.id)));
+        }
         if (!filter) return out;
         return out.filter((t) => toolMatchesFilter(t, filter));
       });
@@ -779,9 +822,20 @@ export const createExecutor = <
           });
         }
 
-        const annotations = decodeJsonColumn(row.annotations) as
-          | ToolAnnotations
-          | undefined;
+        // Ask the plugin to derive annotations for this one row, if it
+        // has a resolver. Cheap because the plugin typically already
+        // needs to load its enrichment data to invoke the tool —
+        // implementations should structure their resolver + invokeTool
+        // around a single storage read.
+        let annotations: ToolAnnotations | undefined;
+        if (runtime.plugin.resolveAnnotations) {
+          const map = yield* runtime.plugin.resolveAnnotations({
+            ctx: runtime.ctx,
+            sourceId: row.source_id,
+            toolRows: [row],
+          });
+          annotations = map[toolId];
+        }
         yield* enforceApproval(annotations, toolId, args, options);
 
         return yield* wrapInvocationError(
