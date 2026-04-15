@@ -66,7 +66,6 @@ function AddSecretDialog(props: {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
-  const [purpose, setPurpose] = useState("");
   const [provider, setProvider] = useState(initialProvider);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +78,6 @@ function AddSecretDialog(props: {
     setId("");
     setName("");
     setValue("");
-    setPurpose("");
     setProvider(initialProvider);
     setError(null);
     setSaving(false);
@@ -96,7 +94,6 @@ function AddSecretDialog(props: {
           id: SecretId.make(id.trim()),
           name: name.trim(),
           value: value.trim(),
-          purpose: purpose.trim() || undefined,
           provider: provider === "auto" ? undefined : provider,
         },
       });
@@ -176,27 +173,7 @@ function AddSecretDialog(props: {
             />
           </div>
 
-          <div
-            className={props.storageOptions.length > 1 ? "grid grid-cols-2 gap-3" : "grid gap-3"}
-          >
-            <div className="grid gap-1.5">
-              <Label
-                htmlFor="secret-purpose"
-                className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
-              >
-                Purpose{" "}
-                <span className="normal-case tracking-normal font-normal text-muted-foreground">
-                  (opt.)
-                </span>
-              </Label>
-              <Input
-                id="secret-purpose"
-                placeholder="GitHub API auth"
-                value={purpose}
-                onChange={(e) => setPurpose((e.target as HTMLInputElement).value)}
-                className="text-sm h-9"
-              />
-            </div>
+          <div className="grid gap-3">
             {props.storageOptions.length > 1 && (
               <div className="grid gap-1.5">
                 <Label
@@ -253,7 +230,7 @@ function AddSecretDialog(props: {
 
 function SecretRow(props: {
   showProvider: boolean;
-  secret: { id: string; name: string; purpose?: string; provider?: string };
+  secret: { id: string; name: string; provider?: string };
   onRemove: () => void;
 }) {
   const { secret, showProvider } = props;
@@ -264,11 +241,6 @@ function SecretRow(props: {
         <CardStackEntryTitle className="flex items-center gap-2">
           <span className="truncate">{secret.name}</span>
         </CardStackEntryTitle>
-        {secret.purpose && (
-          <CardStackEntryDescription>
-            <div className="flex gap-2 flex-col text-xs">{secret.purpose}</div>
-          </CardStackEntryDescription>
-        )}
       </CardStackEntryContent>
       <CardStackEntryActions>
         {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
@@ -420,7 +392,6 @@ export function SecretsPage(props: {
                       secret={{
                         id: s.id,
                         name: s.name,
-                        purpose: s.purpose,
                         provider: s.provider ? String(s.provider) : undefined,
                       }}
                       onRemove={() => handleRemove(s.id)}

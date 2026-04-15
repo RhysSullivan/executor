@@ -66,7 +66,7 @@ export function SourceDetailPage(props: {
     return tools.value.map((t) => ({
       id: t.id,
       name: t.name,
-      pluginKey: t.pluginKey,
+      pluginKey: t.pluginId,
       description: t.description,
     }));
   }, [tools]);

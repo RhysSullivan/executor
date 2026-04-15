@@ -87,9 +87,8 @@ function InlineCreateSecret(props: {
         path: { scopeId },
         payload: {
           id: SecretId.make(secretId.trim()),
-          name: secretName.trim() || secretId.trim(),
+          name: `${secretName.trim() || secretId.trim()} (Auth header: ${props.headerName})`,
           value: secretValue.trim(),
-          purpose: `Auth header: ${props.headerName}`,
         },
       });
       refreshSecrets();

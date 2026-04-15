@@ -760,19 +760,6 @@ export const createExecutor = <
         return out.filter((t) => toolMatchesFilter(t, filter));
       });
 
-    const attachDefsFor = (sourceId: string, schema: unknown) =>
-      Effect.gen(function* () {
-        if (schema == null || typeof schema !== "object") return schema;
-        const defRows = yield* core.findMany({
-          model: "definition",
-          where: [{ field: "source_id", value: sourceId }],
-        });
-        if (defRows.length === 0) return schema;
-        const defs: Record<string, unknown> = {};
-        for (const row of defRows) defs[row.name] = row.schema;
-        return { ...(schema as Record<string, unknown>), $defs: defs };
-      });
-
     // Load all definitions for a single source as a plain map.
     const loadDefinitionsForSource = (sourceId: string) =>
       Effect.gen(function* () {
