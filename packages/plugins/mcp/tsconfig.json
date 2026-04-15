@@ -19,5 +19,6 @@
       }
     ]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/promise.ts", "src/api/**", "src/react/**"]
 }

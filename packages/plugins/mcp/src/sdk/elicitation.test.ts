@@ -180,8 +180,7 @@ describe("MCP elicitation (end-to-end)", () => {
 
       const result = yield* executor.tools.invoke(gatedEcho!.id, { value: "hello" }, options);
 
-      expect(result.error).toBeNull();
-      expect(result.data).toEqual({
+      expect(result).toMatchObject({
         content: [{ type: "text", text: "approved:hello" }],
       });
       // At least one elicitation should be the MCP server's form
@@ -197,28 +196,18 @@ describe("MCP elicitation (end-to-end)", () => {
       const tools = yield* executor.tools.list();
       const gatedEcho = tools.find((t) => t.name === "gated_echo")!;
 
-      // The executor first elicits for tool approval (requiresApproval),
-      // then the MCP server elicits during tool execution.
-      // We accept the first (approval) and decline the second (MCP form).
-      let callCount = 0;
+      // MCP tools have requiresApproval: false — only the MCP server's
+      // mid-invocation elicitation reaches the handler, and we decline it.
       const result = yield* executor.tools.invoke(
         gatedEcho.id,
         { value: "nope" },
         {
-          onElicitation: () => {
-            callCount++;
-            if (callCount === 1) {
-              // Accept executor's tool approval prompt
-              return Effect.succeed(new ElicitationResponse({ action: "accept" }));
-            }
-            // Decline the MCP server's form elicitation
-            return Effect.succeed(new ElicitationResponse({ action: "decline" }));
-          },
+          onElicitation: () =>
+            Effect.succeed(new ElicitationResponse({ action: "decline" })),
         },
       );
 
-      expect(result.error).toBeNull();
-      expect(result.data).toEqual({
+      expect(result).toMatchObject({
         content: [{ type: "text", text: "denied:nope" }],
       });
     }),
@@ -237,8 +226,7 @@ describe("MCP elicitation (end-to-end)", () => {
         { onElicitation: "accept-all" },
       );
 
-      expect(result.error).toBeNull();
-      expect(result.data).toEqual({
+      expect(result).toMatchObject({
         content: [{ type: "text", text: "plain" }],
       });
     }),

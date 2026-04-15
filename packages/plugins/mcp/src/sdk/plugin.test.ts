@@ -4,8 +4,11 @@ import { Effect } from "effect";
 import { createExecutor, makeTestConfig } from "@executor/sdk";
 
 import { mcpPlugin } from "./plugin";
-import { makeInMemoryBindingStore } from "./binding-store";
-import { extractManifestFromListToolsResult, deriveMcpNamespace, joinToolPath } from "./manifest";
+import {
+  extractManifestFromListToolsResult,
+  deriveMcpNamespace,
+  joinToolPath,
+} from "./manifest";
 
 // ---------------------------------------------------------------------------
 // Manifest extraction
@@ -90,7 +93,9 @@ describe("deriveMcpNamespace", () => {
 
   it.effect("derives from command", () =>
     Effect.sync(() => {
-      expect(deriveMcpNamespace({ command: "/usr/local/bin/my-mcp-server" })).toBe("my_mcp_server");
+      expect(deriveMcpNamespace({ command: "/usr/local/bin/my-mcp-server" })).toBe(
+        "my_mcp_server",
+      );
     }),
   );
 
@@ -128,7 +133,7 @@ describe("mcpPlugin", () => {
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({
-          plugins: [mcpPlugin({ bindingStore: makeInMemoryBindingStore() })] as const,
+          plugins: [mcpPlugin()] as const,
         }),
       );
 
@@ -144,7 +149,9 @@ describe("mcpPlugin", () => {
 
   it.effect("sources list is initially empty", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [mcpPlugin()] as const }),
+      );
       const sources = yield* executor.sources.list();
       expect(sources).toHaveLength(0);
     }),
@@ -152,7 +159,9 @@ describe("mcpPlugin", () => {
 
   it.effect("tools list is initially empty", () =>
     Effect.gen(function* () {
-      const executor = yield* createExecutor(makeTestConfig({ plugins: [mcpPlugin()] as const }));
+      const executor = yield* createExecutor(
+        makeTestConfig({ plugins: [mcpPlugin()] as const }),
+      );
       const tools = yield* executor.tools.list();
       expect(tools).toHaveLength(0);
     }),

@@ -1,4 +1,22 @@
-export { mcpPlugin, type McpPluginExtension } from "./plugin";
+export {
+  mcpPlugin,
+  type McpPluginExtension,
+  type McpPluginOptions,
+  type McpSourceConfig,
+  type McpRemoteSourceConfig,
+  type McpStdioSourceConfig,
+  type McpOAuthStartInput,
+  type McpOAuthStartResponse,
+  type McpOAuthCompleteInput,
+  type McpOAuthCompleteResponse,
+  type McpProbeResult,
+  type McpUpdateSourceInput,
+} from "./plugin";
 
-export { makeKvBindingStore, type McpBindingStore, type McpStoredSource } from "./binding-store";
-export { withConfigFile } from "./config-file-store";
+export {
+  makeMcpStore,
+  mcpSchema,
+  type McpBindingStore,
+  type McpSchema,
+  type McpStoredSource,
+} from "./binding-store";

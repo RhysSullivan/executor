@@ -1,212 +1,279 @@
 // ---------------------------------------------------------------------------
-// McpBindingStore — plugin's own storage for tool bindings + source data
+// MCP plugin storage — three tables (mcp_source, mcp_binding,
+// mcp_oauth_session) using the new declared-schema pattern.
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
-import { makeInMemoryScopedKv, scopeKv, type Kv, type ToolId, type ScopedKv } from "@executor/sdk";
 
-import { McpToolBinding } from "./types";
-import type { McpStoredSourceData } from "./types";
+import { typedAdapter, type DBAdapter, type DBSchema } from "@executor/sdk";
+
+import { McpToolBinding, McpStoredSourceData } from "./types";
 import { McpOAuthSession } from "./oauth";
-import { McpStoredSourceSchema } from "./stored-source";
 
 // ---------------------------------------------------------------------------
-// OAuth session TTL — pending sessions are cleaned up after this many ms
+// Schema
+// ---------------------------------------------------------------------------
+
+export const mcpSchema = {
+  mcp_source: {
+    modelName: "mcp_source",
+    fields: {
+      id: { type: "string", required: true },
+      name: { type: "string", required: true },
+      config: { type: "json", required: true },
+      created_at: { type: "date", required: true },
+    },
+  },
+  mcp_binding: {
+    modelName: "mcp_binding",
+    fields: {
+      id: { type: "string", required: true },
+      source_id: { type: "string", required: true, index: true },
+      binding: { type: "json", required: true },
+      created_at: { type: "date", required: true },
+    },
+  },
+  mcp_oauth_session: {
+    modelName: "mcp_oauth_session",
+    fields: {
+      id: { type: "string", required: true },
+      session: { type: "json", required: true },
+      expires_at: { type: "number", required: true },
+      created_at: { type: "date", required: true },
+    },
+  },
+} as const satisfies DBSchema;
+
+export type McpSchema = typeof mcpSchema;
+
+// ---------------------------------------------------------------------------
+// OAuth session TTL
 // ---------------------------------------------------------------------------
 
 export const MCP_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// Stored OAuth session — session payload + expiry, serialized via Schema
+// Serialization helpers — JSON columns round-trip through the adapter as
+// either plain objects or serialized strings depending on the backend.
+// Use Schema.parseJson so the memory adapter's string round-trip and the
+// SQL adapter's JSONB both decode correctly.
 // ---------------------------------------------------------------------------
 
-const StoredOAuthSession = Schema.Struct({
-  session: McpOAuthSession,
-  expiresAt: Schema.Number,
-});
+const decodeSourceData = Schema.decodeUnknownSync(McpStoredSourceData);
+const encodeSourceData = Schema.encodeSync(McpStoredSourceData);
 
-const encodeOAuthSession = Schema.encodeSync(Schema.parseJson(StoredOAuthSession));
-const decodeOAuthSession = Schema.decodeUnknownSync(Schema.parseJson(StoredOAuthSession));
+const decodeBinding = Schema.decodeUnknownSync(McpToolBinding);
+const encodeBinding = Schema.encodeSync(McpToolBinding);
+
+const decodeSession = Schema.decodeUnknownSync(McpOAuthSession);
+const encodeSession = Schema.encodeSync(McpOAuthSession);
+
+const coerceJson = (value: unknown): unknown => {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+};
 
 // ---------------------------------------------------------------------------
-// Stored source — combines meta + config into one entry
+// Stored source (decoded) — what callers see
 // ---------------------------------------------------------------------------
 
-export type McpStoredSource = McpStoredSourceSchema;
-
-const encodeSource = Schema.encodeSync(Schema.parseJson(McpStoredSourceSchema));
-const decodeSource = Schema.decodeUnknownSync(Schema.parseJson(McpStoredSourceSchema));
-
-// ---------------------------------------------------------------------------
-// Stored binding schema
-//
-// Note: old rows also carried a `sourceData` field inlining the full source
-// config on every binding. Effect Schema strips unknown fields on decode, so
-// those legacy rows still load; the next write drops the extra field.
-// ---------------------------------------------------------------------------
-
-const StoredBindingEntry = Schema.Struct({
-  namespace: Schema.String,
-  binding: McpToolBinding,
-});
-
-const encodeBindingEntry = Schema.encodeSync(Schema.parseJson(StoredBindingEntry));
-const decodeBindingEntry = Schema.decodeUnknownSync(Schema.parseJson(StoredBindingEntry));
+export interface McpStoredSource {
+  readonly namespace: string;
+  readonly name: string;
+  readonly config: McpStoredSourceData;
+}
 
 // ---------------------------------------------------------------------------
 // Store interface
 // ---------------------------------------------------------------------------
 
 export interface McpBindingStore {
-  readonly get: (toolId: ToolId) => Effect.Effect<{
-    binding: McpToolBinding;
-    namespace: string;
-  } | null>;
+  readonly getBinding: (
+    toolId: string,
+  ) => Effect.Effect<
+    { readonly binding: McpToolBinding; readonly namespace: string } | null,
+    Error
+  >;
 
-  readonly put: (
-    toolId: ToolId,
+  readonly putBindings: (
     namespace: string,
-    binding: McpToolBinding,
-  ) => Effect.Effect<void>;
+    entries: ReadonlyArray<{ readonly toolId: string; readonly binding: McpToolBinding }>,
+  ) => Effect.Effect<void, Error>;
 
-  readonly remove: (toolId: ToolId) => Effect.Effect<void>;
+  readonly removeBindingsByNamespace: (namespace: string) => Effect.Effect<void, Error>;
 
-  readonly listByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
-
-  readonly removeByNamespace: (namespace: string) => Effect.Effect<readonly ToolId[]>;
-
-  readonly putSource: (source: McpStoredSource) => Effect.Effect<void>;
-  readonly removeSource: (namespace: string) => Effect.Effect<void>;
-  readonly listSources: () => Effect.Effect<readonly McpStoredSource[]>;
-  readonly getSource: (namespace: string) => Effect.Effect<McpStoredSource | null>;
-  readonly getSourceConfig: (namespace: string) => Effect.Effect<McpStoredSourceData | null>;
+  readonly listSources: () => Effect.Effect<readonly McpStoredSource[], Error>;
+  readonly getSource: (namespace: string) => Effect.Effect<McpStoredSource | null, Error>;
+  readonly getSourceConfig: (
+    namespace: string,
+  ) => Effect.Effect<McpStoredSourceData | null, Error>;
+  readonly putSource: (source: McpStoredSource) => Effect.Effect<void, Error>;
+  readonly removeSource: (namespace: string) => Effect.Effect<void, Error>;
 
   readonly putOAuthSession: (
     sessionId: string,
     session: McpOAuthSession,
-  ) => Effect.Effect<void>;
-  readonly getOAuthSession: (sessionId: string) => Effect.Effect<McpOAuthSession | null>;
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void>;
+  ) => Effect.Effect<void, Error>;
+  readonly getOAuthSession: (
+    sessionId: string,
+  ) => Effect.Effect<McpOAuthSession | null, Error>;
+  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, Error>;
 }
 
 // ---------------------------------------------------------------------------
-// Implementation — two KV namespaces: bindings + sources
+// Factory
 // ---------------------------------------------------------------------------
 
-const makeStore = (
-  bindings: ScopedKv,
-  sources: ScopedKv,
-  oauthSessions: ScopedKv,
-): McpBindingStore => ({
-  // ---- Bindings ----
+export const makeMcpStore = (adapter: DBAdapter): McpBindingStore => {
+  const db = typedAdapter<McpSchema>(adapter);
 
-  get: (toolId) =>
-    Effect.gen(function* () {
-      const raw = yield* bindings.get(toolId);
-      if (!raw) return null;
-      const entry = decodeBindingEntry(raw);
-      return {
-        binding: entry.binding as McpToolBinding,
-        namespace: entry.namespace,
-      };
-    }),
+  return {
+    getBinding: (toolId) =>
+      Effect.gen(function* () {
+        const row = yield* db.findOne({
+          model: "mcp_binding",
+          where: [{ field: "id", value: toolId }],
+        });
+        if (!row) return null;
+        const binding = decodeBinding(coerceJson(row.binding));
+        return { binding, namespace: row.source_id };
+      }),
 
-  put: (toolId, namespace, binding) =>
-    bindings.set([{ key: toolId, value: encodeBindingEntry({ namespace, binding }) }]),
+    putBindings: (namespace, entries) =>
+      Effect.gen(function* () {
+        if (entries.length === 0) return;
+        const now = new Date();
+        yield* db.createMany({
+          model: "mcp_binding",
+          data: entries.map((e) => ({
+            id: e.toolId,
+            source_id: namespace,
+            binding: encodeBinding(e.binding),
+            created_at: now,
+          })),
+          forceAllowId: true,
+        });
+      }),
 
-  remove: (toolId) => bindings.delete([toolId]).pipe(Effect.asVoid),
+    removeBindingsByNamespace: (namespace) =>
+      db
+        .deleteMany({
+          model: "mcp_binding",
+          where: [{ field: "source_id", value: namespace }],
+        })
+        .pipe(Effect.asVoid),
 
-  listByNamespace: (namespace) =>
-    Effect.gen(function* () {
-      const entries = yield* bindings.list();
-      const ids: ToolId[] = [];
-      for (const e of entries) {
-        const entry = decodeBindingEntry(e.value);
-        if (entry.namespace === namespace) ids.push(e.key as ToolId);
-      }
-      return ids;
-    }),
+    listSources: () =>
+      Effect.gen(function* () {
+        const rows = yield* db.findMany({ model: "mcp_source" });
+        return rows.map((row) => ({
+          namespace: row.id,
+          name: row.name,
+          config: decodeSourceData(coerceJson(row.config)),
+        }));
+      }),
 
-  removeByNamespace: (namespace) =>
-    Effect.gen(function* () {
-      const entries = yield* bindings.list();
-      const ids: ToolId[] = [];
-      for (const e of entries) {
-        const entry = decodeBindingEntry(e.value);
-        if (entry.namespace === namespace) ids.push(e.key as ToolId);
-      }
-      if (ids.length > 0) yield* bindings.delete(ids);
-      return ids;
-    }),
+    getSource: (namespace) =>
+      Effect.gen(function* () {
+        const row = yield* db.findOne({
+          model: "mcp_source",
+          where: [{ field: "id", value: namespace }],
+        });
+        if (!row) return null;
+        return {
+          namespace: row.id,
+          name: row.name,
+          config: decodeSourceData(coerceJson(row.config)),
+        };
+      }),
 
-  // ---- Sources (meta + config combined) ----
+    getSourceConfig: (namespace) =>
+      Effect.gen(function* () {
+        const row = yield* db.findOne({
+          model: "mcp_source",
+          where: [{ field: "id", value: namespace }],
+        });
+        if (!row) return null;
+        return decodeSourceData(coerceJson(row.config));
+      }),
 
-  putSource: (source) => sources.set([{ key: source.namespace, value: encodeSource(source) }]),
+    putSource: (source) =>
+      Effect.gen(function* () {
+        const now = new Date();
+        yield* db.delete({
+          model: "mcp_source",
+          where: [{ field: "id", value: source.namespace }],
+        });
+        yield* db.create({
+          model: "mcp_source",
+          data: {
+            id: source.namespace,
+            name: source.name,
+            config: encodeSourceData(source.config),
+            created_at: now,
+          },
+          forceAllowId: true,
+        });
+      }),
 
-  removeSource: (namespace) => sources.delete([namespace]).pipe(Effect.asVoid),
+    removeSource: (namespace) =>
+      Effect.gen(function* () {
+        yield* db.deleteMany({
+          model: "mcp_binding",
+          where: [{ field: "source_id", value: namespace }],
+        });
+        yield* db.delete({
+          model: "mcp_source",
+          where: [{ field: "id", value: namespace }],
+        });
+      }),
 
-  listSources: () =>
-    Effect.gen(function* () {
-      const entries = yield* sources.list();
-      return entries.map((e) => decodeSource(e.value));
-    }),
+    putOAuthSession: (sessionId, session) =>
+      Effect.gen(function* () {
+        const now = new Date();
+        yield* db.delete({
+          model: "mcp_oauth_session",
+          where: [{ field: "id", value: sessionId }],
+        });
+        yield* db.create({
+          model: "mcp_oauth_session",
+          data: {
+            id: sessionId,
+            session: encodeSession(session),
+            expires_at: Date.now() + MCP_OAUTH_SESSION_TTL_MS,
+            created_at: now,
+          },
+          forceAllowId: true,
+        });
+      }),
 
-  getSource: (namespace) =>
-    Effect.gen(function* () {
-      const raw = yield* sources.get(namespace);
-      if (!raw) return null;
-      return decodeSource(raw);
-    }),
+    getOAuthSession: (sessionId) =>
+      Effect.gen(function* () {
+        const row = yield* db.findOne({
+          model: "mcp_oauth_session",
+          where: [{ field: "id", value: sessionId }],
+        });
+        if (!row) return null;
+        if (row.expires_at < Date.now()) {
+          yield* db.delete({
+            model: "mcp_oauth_session",
+            where: [{ field: "id", value: sessionId }],
+          });
+          return null;
+        }
+        return decodeSession(coerceJson(row.session));
+      }),
 
-  getSourceConfig: (namespace) =>
-    Effect.gen(function* () {
-      const raw = yield* sources.get(namespace);
-      if (!raw) return null;
-      return decodeSource(raw).config;
-    }),
-
-  // ---- Pending OAuth sessions (short-lived, between startOAuth and completeOAuth) ----
-
-  putOAuthSession: (sessionId, session) =>
-    oauthSessions.set([
-      {
-        key: sessionId,
-        value: encodeOAuthSession({
-          session,
-          expiresAt: Date.now() + MCP_OAUTH_SESSION_TTL_MS,
-        }),
-      },
-    ]),
-
-  getOAuthSession: (sessionId) =>
-    Effect.gen(function* () {
-      const raw = yield* oauthSessions.get(sessionId);
-      if (!raw) return null;
-      const entry = decodeOAuthSession(raw);
-      if (entry.expiresAt < Date.now()) {
-        yield* oauthSessions.delete([sessionId]);
-        return null;
-      }
-      return entry.session;
-    }),
-
-  deleteOAuthSession: (sessionId) => oauthSessions.delete([sessionId]).pipe(Effect.asVoid),
-});
-
-// ---------------------------------------------------------------------------
-// Factory from global Kv — two scoped sub-namespaces
-// ---------------------------------------------------------------------------
-
-export const makeKvBindingStore = (kv: Kv, namespace: string): McpBindingStore =>
-  makeStore(
-    scopeKv(kv, `${namespace}.bindings`),
-    scopeKv(kv, `${namespace}.sources`),
-    scopeKv(kv, `${namespace}.oauth-sessions`),
-  );
-
-// ---------------------------------------------------------------------------
-// In-memory convenience
-// ---------------------------------------------------------------------------
-
-export const makeInMemoryBindingStore = (): McpBindingStore =>
-  makeStore(makeInMemoryScopedKv(), makeInMemoryScopedKv(), makeInMemoryScopedKv());
+    deleteOAuthSession: (sessionId) =>
+      db
+        .delete({
+          model: "mcp_oauth_session",
+          where: [{ field: "id", value: sessionId }],
+        })
+        .pipe(Effect.asVoid),
+  };
+};
