@@ -60,7 +60,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         });
         return {
           toolCount: result.toolCount,
-          namespace: payload.namespace ?? "api",
+          namespace: result.sourceId,
         };
       }).pipe(Effect.orDie),
     )

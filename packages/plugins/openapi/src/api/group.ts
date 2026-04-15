@@ -8,7 +8,7 @@ import {
   OpenApiOAuthError,
 } from "../sdk/errors";
 import { SpecPreview } from "../sdk/preview";
-import { StoredSourceSchema } from "../sdk/stored-source";
+import { StoredSourceSchema } from "../sdk/store";
 import { OAuth2Auth } from "../sdk/types";
 
 // ---------------------------------------------------------------------------

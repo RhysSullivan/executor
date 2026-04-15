@@ -7,6 +7,7 @@ import { storeOAuthTokens } from "@executor/plugin-oauth2";
 import {
   definePlugin,
   SetSecretInput,
+  SourceDetectionResult,
   type PluginCtx,
   type ToolAnnotations,
 } from "@executor/sdk";
@@ -120,7 +121,7 @@ export interface GoogleDiscoveryPluginExtension {
   >;
   readonly completeOAuth: (
     input: GoogleDiscoveryOAuthCompleteInput,
-  ) => Effect.Effect<GoogleDiscoveryOAuthAuthResult, GoogleDiscoveryOAuthError | Error>;
+  ) => Effect.Effect<GoogleDiscoveryOAuthAuthResult, GoogleDiscoveryOAuthError>;
   readonly getSource: (
     namespace: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSource | null, Error>;
@@ -495,6 +496,46 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
     Effect.gen(function* () {
       yield* (ctx as PluginCtx<GoogleDiscoveryStore>).storage.removeBindingsBySource(sourceId);
       yield* (ctx as PluginCtx<GoogleDiscoveryStore>).storage.removeSource(sourceId);
+    }),
+
+  detect: ({ url }) =>
+    Effect.gen(function* () {
+      const trimmed = url.trim();
+      if (!trimmed) return null;
+      const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(Effect.option);
+      if (parsed._tag === "None") return null;
+
+      const isGoogleUrl = trimmed.includes("googleapis.com");
+      const isDiscoveryPath =
+        trimmed.includes("/discovery/") || trimmed.includes("$discovery");
+      if (!isGoogleUrl && !isDiscoveryPath) return null;
+
+      const discoveryText = yield* fetchDiscoveryDocument(trimmed).pipe(
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+      if (!discoveryText) return null;
+
+      const manifest = yield* extractGoogleDiscoveryManifest(discoveryText).pipe(
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+      if (!manifest) return null;
+
+      const name = Option.getOrElse(
+        manifest.title,
+        () => `${manifest.service} ${manifest.version}`,
+      );
+
+      return new SourceDetectionResult({
+        kind: "googleDiscovery",
+        confidence: "high",
+        endpoint: trimmed,
+        name,
+        namespace: deriveNamespace({
+          name,
+          service: manifest.service,
+          version: manifest.version,
+        }),
+      });
     }),
 
   refreshSource: ({ ctx, sourceId }) =>

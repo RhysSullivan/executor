@@ -16,6 +16,7 @@ import {
 import {
   SecretId,
   SetSecretInput,
+  SourceDetectionResult,
   definePlugin,
   type ToolAnnotations,
   type ToolRow,
@@ -482,7 +483,7 @@ export const openApiPlugin = definePlugin(
 
       staticSources: (self) => [
         {
-          id: "openapi.control",
+          id: "openapi",
           kind: "control",
           name: "OpenAPI",
           tools: [
@@ -634,6 +635,35 @@ export const openApiPlugin = definePlugin(
         }),
 
       removeSource: ({ ctx, sourceId }) => ctx.storage.removeSource(sourceId),
+
+      detect: ({ url }) =>
+        Effect.gen(function* () {
+          const trimmed = url.trim();
+          if (!trimmed) return null;
+          const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
+            Effect.option,
+          );
+          if (parsed._tag === "None") return null;
+          const doc = yield* parse(trimmed).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          );
+          if (!doc) return null;
+          const result = yield* extract(doc).pipe(
+            Effect.catchAll(() => Effect.succeed(null)),
+          );
+          if (!result) return null;
+          const namespace = Option.getOrElse(result.title, () => "api")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_");
+          const name = Option.getOrElse(result.title, () => namespace);
+          return new SourceDetectionResult({
+            kind: "openapi",
+            confidence: "high",
+            endpoint: trimmed,
+            name,
+            namespace,
+          });
+        }),
     };
   },
 );

@@ -204,8 +204,8 @@ describe("Real specs: Cloudflare API", { timeout: 60_000 }, () => {
       const remaining = yield* executor.tools.list();
       const ids = remaining.map((t) => t.id).sort();
       expect(ids).toEqual([
-        "openapi.control.addSource",
-        "openapi.control.previewSpec",
+        "openapi.addSource",
+        "openapi.previewSpec",
       ]);
     }),
   );

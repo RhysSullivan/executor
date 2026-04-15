@@ -1,5 +1,6 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
+import { ToolId } from "@executor/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
@@ -9,7 +10,7 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
     .handle("list", () =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        const sources = yield* executor.sources.list();
+        const sources = yield* executor.sources.list().pipe(Effect.orDie);
         return sources.map((s) => ({
           id: s.id,
           name: s.name,
@@ -25,35 +26,37 @@ export const SourcesHandlers = HttpApiBuilder.group(ExecutorApi, "sources", (han
     .handle("remove", ({ path }) =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        yield* executor.sources.remove(path.sourceId);
+        yield* executor.sources.remove(path.sourceId).pipe(Effect.orDie);
         return { removed: true };
       }),
     )
     .handle("refresh", ({ path }) =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        yield* executor.sources.refresh(path.sourceId);
+        yield* executor.sources.refresh(path.sourceId).pipe(Effect.orDie);
         return { refreshed: true };
       }),
     )
     .handle("tools", ({ path }) =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        const tools = yield* executor.tools.list({ sourceId: path.sourceId });
+        const tools = yield* executor.tools
+          .list({ sourceId: path.sourceId })
+          .pipe(Effect.orDie);
         return tools.map((t) => ({
-          id: t.id,
-          pluginKey: t.pluginKey,
+          id: ToolId.make(t.id),
+          pluginId: t.pluginId,
           sourceId: t.sourceId,
           name: t.name,
           description: t.description,
-          mayElicit: t.mayElicit,
+          mayElicit: t.annotations?.mayElicit,
         }));
       }),
     )
     .handle("detect", ({ payload }) =>
       Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        const results = yield* executor.sources.detect(payload.url);
+        const results = yield* executor.sources.detect(payload.url).pipe(Effect.orDie);
         return results.map((r) => ({
           kind: r.kind,
           confidence: r.confidence,

@@ -22,7 +22,7 @@ import {
 import { FieldLabel } from "@executor/react/components/field";
 import { Input } from "@executor/react/components/input";
 import { Badge } from "@executor/react/components/badge";
-import type { StoredSourceSchemaType } from "../sdk/stored-source";
+import type { StoredSourceSchemaType } from "../sdk/store";
 
 // ---------------------------------------------------------------------------
 // Edit form

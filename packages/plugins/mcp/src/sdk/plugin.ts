@@ -7,6 +7,7 @@ import {
   definePlugin,
   SecretId,
   SetSecretInput,
+  SourceDetectionResult,
   type PluginCtx,
 } from "@executor/sdk";
 
@@ -749,6 +750,62 @@ export const mcpPlugin = definePlugin(
             elicit,
           });
         }),
+
+      detect: ({ url }) =>
+        Effect.gen(function* () {
+          const trimmed = url.trim();
+          if (!trimmed) return null;
+
+          const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
+            Effect.option,
+          );
+          if (parsed._tag === "None") return null;
+
+          const name = parsed.value.hostname || "mcp";
+          const namespace = deriveMcpNamespace({ endpoint: trimmed });
+
+          const connector = createMcpConnector({
+            transport: "remote",
+            endpoint: trimmed,
+          });
+
+          const connected = yield* discoverTools(connector).pipe(
+            Effect.map(() => true),
+            Effect.catchAll(() => Effect.succeed(false)),
+          );
+
+          if (connected) {
+            return new SourceDetectionResult({
+              kind: "mcp",
+              confidence: "high",
+              endpoint: trimmed,
+              name,
+              namespace,
+            });
+          }
+
+          // Probe for OAuth — still means it's an MCP server
+          const hasOAuth = yield* startMcpOAuthAuthorization({
+            endpoint: trimmed,
+            redirectUrl: "http://127.0.0.1/executor/discovery/oauth/probe",
+            state: "probe",
+          }).pipe(
+            Effect.map(() => true),
+            Effect.catchAll(() => Effect.succeed(false)),
+          );
+
+          if (hasOAuth) {
+            return new SourceDetectionResult({
+              kind: "mcp",
+              confidence: "high",
+              endpoint: trimmed,
+              name,
+              namespace,
+            });
+          }
+
+          return null;
+        }).pipe(Effect.catchAll(() => Effect.succeed(null))),
 
       // MCP tools never require approval at the tool level — elicitation is
       // handled mid-invocation by the server via the elicit capability.

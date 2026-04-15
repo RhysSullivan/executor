@@ -34,7 +34,7 @@ const SourceRefreshResponse = Schema.Struct({
 
 const ToolMetadataResponse = Schema.Struct({
   id: ToolId,
-  pluginKey: Schema.String,
+  pluginId: Schema.String,
   sourceId: Schema.String,
   name: Schema.String,
   description: Schema.optional(Schema.String),

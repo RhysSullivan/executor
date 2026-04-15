@@ -287,21 +287,6 @@
         "vitest": "catalog:",
       },
     },
-    "packages/core/sdk-greenfield": {
-      "name": "@executor/sdk-greenfield",
-      "version": "0.0.0",
-      "dependencies": {
-        "@executor/storage-core": "workspace:*",
-        "effect": "catalog:",
-      },
-      "devDependencies": {
-        "@effect/vitest": "catalog:",
-        "@executor/storage-memory": "workspace:*",
-        "@types/bun": "^1.1.0",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
     "packages/core/storage-core": {
       "name": "@executor/storage-core",
       "version": "0.0.0",
@@ -1227,8 +1212,6 @@
     "@executor/runtime-secure-exec": ["@executor/runtime-secure-exec@workspace:packages/kernel/runtime-secure-exec"],
 
     "@executor/sdk": ["@executor/sdk@workspace:packages/core/sdk"],
-
-    "@executor/sdk-greenfield": ["@executor/sdk-greenfield@workspace:packages/core/sdk-greenfield"],
 
     "@executor/storage-core": ["@executor/storage-core@workspace:packages/core/storage-core"],
 
@@ -2161,8 +2144,6 @@
     "@turbo/windows-arm64": ["@turbo/windows-arm64@2.9.6", "", { "os": "win32", "cpu": "arm64" }, "sha512-1XUUyWW0W6FTSqGEhU8RHVqb2wP1SPkr7hIvBlMEwH9jr+sJQK5kqeosLJ/QaUv4ecSAd1ZhIrLoW7qslAzT4A=="],
 
     "@tybys/wasm-util": ["@tybys/wasm-util@0.10.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg=="],
-
-    "@types/bun": ["@types/bun@1.3.12", "", { "dependencies": { "bun-types": "1.3.12" } }, "sha512-DBv81elK+/VSwXHDlnH3Qduw+KxkTIWi7TXkAeh24zpi5l0B2kUg9Ga3tb4nJaPcOFswflgi/yAvMVBPrxMB+A=="],
 
     "@types/cacheable-request": ["@types/cacheable-request@6.0.3", "", { "dependencies": { "@types/http-cache-semantics": "*", "@types/keyv": "^3.1.4", "@types/node": "*", "@types/responselike": "^1.0.0" } }, "sha512-IQ3EbTzGxIigb1I3qPZc1rWJnH0BmSKv5QYTalEwweFvyBDLSAe24zP0le/hyi7ecGfZVlIVAg4BZqb8WBwKqw=="],
 

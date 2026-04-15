@@ -96,7 +96,7 @@ describe("graphqlPlugin", () => {
       expect(ids).toContain("test_api.query.hello");
       expect(ids).toContain("test_api.mutation.setGreeting");
       // static control tool also present
-      expect(ids).toContain("graphql.control.addSource");
+      expect(ids).toContain("graphql.addSource");
 
       const queryTool = tools.find((t) => t.id === "test_api.query.hello");
       expect(queryTool?.description).toBe("Say hello");
@@ -157,7 +157,7 @@ describe("graphqlPlugin", () => {
       expect(dynamic!.canEdit).toBe(true);
       expect(dynamic!.runtime).toBe(false);
 
-      const control = sources.find((s) => s.id === "graphql.control");
+      const control = sources.find((s) => s.id === "graphql");
       expect(control).toBeDefined();
       expect(control!.runtime).toBe(true);
     }),
@@ -223,13 +223,13 @@ describe("graphqlPlugin", () => {
     }),
   );
 
-  it.effect("static graphql.control.addSource delegates to extension", () =>
+  it.effect("static graphql.addSource delegates to extension", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(
         makeTestConfig({ plugins: [graphqlPlugin()] as const }),
       );
 
-      const result = yield* executor.tools.invoke("graphql.control.addSource", {
+      const result = yield* executor.tools.invoke("graphql.addSource", {
         endpoint: "http://localhost:4000/graphql",
         introspectionJson,
         namespace: "via_static",

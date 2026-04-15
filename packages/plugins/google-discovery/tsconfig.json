@@ -17,5 +17,6 @@
       }
     ]
   },
-  "include": ["src/sdk/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/promise.ts", "src/sdk/presets.ts"]
 }

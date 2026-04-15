@@ -3,7 +3,16 @@ import { Schema } from "effect";
 import { ScopeId } from "@executor/sdk";
 
 import { GraphqlIntrospectionError, GraphqlExtractionError } from "../sdk/errors";
-import { StoredSourceSchema } from "../sdk/stored-source";
+import { HeaderValue } from "../sdk/types";
+
+// StoredGraphqlSource shape as an HTTP response schema. Kept local to the
+// api layer because the sdk-side `StoredGraphqlSource` is a plain interface.
+const StoredSourceSchema = Schema.Struct({
+  namespace: Schema.String,
+  name: Schema.String,
+  endpoint: Schema.String,
+  headers: Schema.Record({ key: Schema.String, value: HeaderValue }),
+});
 
 // ---------------------------------------------------------------------------
 // Params

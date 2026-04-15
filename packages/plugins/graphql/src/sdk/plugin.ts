@@ -4,6 +4,7 @@ import type { Layer } from "effect";
 
 import {
   definePlugin,
+  SourceDetectionResult,
   type ToolAnnotations,
   type ToolRow,
 } from "@executor/sdk";
@@ -375,7 +376,7 @@ export const graphqlPlugin = definePlugin(
 
       staticSources: (self) => [
         {
-          id: "graphql.control",
+          id: "graphql",
           kind: "control",
           name: "GraphQL",
           tools: [
@@ -454,6 +455,33 @@ export const graphqlPlugin = definePlugin(
         }),
 
       removeSource: ({ ctx, sourceId }) => ctx.storage.removeSource(sourceId),
+
+      detect: ({ url }) =>
+        Effect.gen(function* () {
+          const trimmed = url.trim();
+          if (!trimmed) return null;
+          const parsed = yield* Effect.try(() => new URL(trimmed)).pipe(
+            Effect.option,
+          );
+          if (parsed._tag === "None") return null;
+
+          const ok = yield* introspect(trimmed).pipe(
+            Effect.provide(httpClientLayer),
+            Effect.map(() => true),
+            Effect.catchAll(() => Effect.succeed(false)),
+          );
+
+          if (!ok) return null;
+
+          const name = namespaceFromEndpoint(trimmed);
+          return new SourceDetectionResult({
+            kind: "graphql",
+            confidence: "high",
+            endpoint: trimmed,
+            name,
+            namespace: name,
+          });
+        }),
     };
   },
 );

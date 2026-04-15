@@ -22,7 +22,7 @@ import {
 import { FieldLabel } from "@executor/react/components/field";
 import { Input } from "@executor/react/components/input";
 import { Badge } from "@executor/react/components/badge";
-import type { StoredSourceSchemaType } from "../sdk/stored-source";
+import type { StoredGraphqlSource } from "../sdk/store";
 
 // ---------------------------------------------------------------------------
 // Edit form
@@ -30,7 +30,7 @@ import type { StoredSourceSchemaType } from "../sdk/stored-source";
 
 function EditForm(props: {
   sourceId: string;
-  initial: StoredSourceSchemaType;
+  initial: StoredGraphqlSource;
   onSave: () => void;
 }) {
   const scopeId = useScope();
@@ -42,9 +42,9 @@ function EditForm(props: {
     fallbackName: props.initial.name,
     fallbackNamespace: props.initial.namespace,
   });
-  const [endpoint, setEndpoint] = useState(props.initial.config.endpoint);
+  const [endpoint, setEndpoint] = useState(props.initial.endpoint);
   const [headers, setHeaders] = useState<HeaderState[]>(() =>
-    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) =>
+    Object.entries(props.initial.headers ?? {}).map(([name, value]) =>
       headerValueToState(name, value),
     ),
   );

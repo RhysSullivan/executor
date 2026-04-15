@@ -19,10 +19,8 @@
       }
     ]
   },
-  "include": ["src/sdk/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": [
-    "src/api/**",
-    "src/react/**",
     "src/promise.ts",
     "src/sdk/presets.ts",
     "src/sdk/config-file-store.ts"

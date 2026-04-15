@@ -17,8 +17,7 @@ const SecretRefResponse = Schema.Struct({
   id: SecretId,
   scopeId: ScopeId,
   name: Schema.String,
-  provider: Schema.optional(Schema.String),
-  purpose: Schema.optional(Schema.String),
+  provider: Schema.String,
   createdAt: Schema.Number,
 });
 
@@ -36,7 +35,6 @@ const SetSecretPayload = Schema.Struct({
   id: SecretId,
   name: Schema.String,
   value: Schema.String,
-  purpose: Schema.optional(Schema.String),
   provider: Schema.optional(Schema.String),
 });
 

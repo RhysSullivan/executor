@@ -166,12 +166,12 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const tools = yield* executor.tools.list();
       const ids = tools.map((t) => t.id);
-      expect(ids).toContain("openapi.control.previewSpec");
-      expect(ids).toContain("openapi.control.addSource");
+      expect(ids).toContain("openapi.previewSpec");
+      expect(ids).toContain("openapi.addSource");
     }),
   );
 
-  it.effect("lists openapi.control as a static runtime source", () =>
+  it.effect("lists openapi as a static runtime source", () =>
     Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
       const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
@@ -186,7 +186,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       const sources = yield* executor.sources.list();
-      const control = sources.find((s) => s.id === "openapi.control");
+      const control = sources.find((s) => s.id === "openapi");
       expect(control).toBeDefined();
       expect(control!.runtime).toBe(true);
       expect(control!.canRemove).toBe(false);
@@ -208,7 +208,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       const result = (yield* executor.tools.invoke(
-        "openapi.control.previewSpec",
+        "openapi.previewSpec",
         { spec: specJson },
         autoApprove,
       )) as { operationCount: number };
@@ -232,7 +232,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       );
 
       const result = (yield* executor.tools.invoke(
-        "openapi.control.addSource",
+        "openapi.addSource",
         { spec: specJson, namespace: "runtime" },
         autoApprove,
       )) as { sourceId: string; toolCount: number };
@@ -437,8 +437,8 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       const remaining = yield* executor.tools.list();
       const ids = remaining.map((t) => t.id).sort();
       expect(ids).toEqual([
-        "openapi.control.addSource",
-        "openapi.control.previewSpec",
+        "openapi.addSource",
+        "openapi.previewSpec",
       ]);
     }),
   );
