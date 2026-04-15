@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { Effect, Option } from "effect";
 
+import { storeOAuthTokens } from "@executor/plugin-oauth2";
+
 import {
   Source,
   SourceDetectionResult,
@@ -535,32 +537,29 @@ export const googleDiscoveryPlugin = (options?: {
                 code: input.code,
               });
 
-              const accessTokenRef = yield* storeSecret(ctx, {
-                idPrefix: `${normalizeSlug(session.name)}_google_access_token`,
-                name: `${session.name} Access Token`,
-                value: tokenResponse.access_token,
-                purpose: "google_oauth_access_token",
-              });
-              const refreshTokenRef = tokenResponse.refresh_token
-                ? yield* storeSecret(ctx, {
-                    idPrefix: `${normalizeSlug(session.name)}_google_refresh_token`,
-                    name: `${session.name} Refresh Token`,
-                    value: tokenResponse.refresh_token,
-                    purpose: "google_oauth_refresh_token",
-                  })
-                : null;
+              const stored = yield* storeOAuthTokens({
+                tokens: tokenResponse,
+                slug: `${normalizeSlug(session.name)}_google`,
+                displayName: session.name,
+                accessTokenPurpose: "google_oauth_access_token",
+                refreshTokenPurpose: "google_oauth_refresh_token",
+                createSecret: (args) =>
+                  storeSecret(ctx, args).pipe(Effect.map((ref) => ({ id: ref.id as string }))),
+              }).pipe(
+                Effect.mapError(
+                  (error) => new GoogleDiscoveryOAuthError({ message: error.message }),
+                ),
+              );
+
               return {
                 kind: "oauth2" as const,
                 clientIdSecretId: session.clientIdSecretId,
                 clientSecretSecretId: session.clientSecretSecretId,
-                accessTokenSecretId: accessTokenRef.id,
-                refreshTokenSecretId: refreshTokenRef?.id ?? null,
-                tokenType: tokenResponse.token_type ?? "Bearer",
-                expiresAt:
-                  typeof tokenResponse.expires_in === "number"
-                    ? Date.now() + tokenResponse.expires_in * 1000
-                    : null,
-                scope: tokenResponse.scope ?? null,
+                accessTokenSecretId: stored.accessTokenSecretId,
+                refreshTokenSecretId: stored.refreshTokenSecretId,
+                tokenType: stored.tokenType,
+                expiresAt: stored.expiresAt,
+                scope: stored.scope,
                 scopes: [...session.scopes],
               };
             }),

@@ -15,14 +15,13 @@ import {
   buildAuthorizationUrl,
   createPkceCodeVerifier as sharedCreatePkceCodeVerifier,
   exchangeAuthorizationCode as sharedExchangeAuthorizationCode,
-  refreshAccessToken as sharedRefreshAccessToken,
   type OAuth2TokenResponse,
 } from "@executor/plugin-oauth2";
 
 import { GoogleDiscoveryOAuthError } from "./errors";
 
 const GOOGLE_AUTHORIZATION_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
   access_type: "offline",
@@ -74,18 +73,3 @@ export const exchangeAuthorizationCode = (input: {
     }),
   );
 
-export const refreshAccessToken = (input: {
-  readonly clientId: string;
-  readonly clientSecret?: string | null;
-  readonly refreshToken: string;
-  readonly scopes?: readonly string[];
-}): Effect.Effect<OAuth2TokenResponse, GoogleDiscoveryOAuthError> =>
-  wrapError(
-    sharedRefreshAccessToken({
-      tokenUrl: GOOGLE_TOKEN_URL,
-      clientId: input.clientId,
-      clientSecret: input.clientSecret,
-      refreshToken: input.refreshToken,
-      scopes: input.scopes,
-    }),
-  );
