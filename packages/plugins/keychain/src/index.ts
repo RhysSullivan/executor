@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 
-import { definePlugin, type SecretId, type ExecutorPlugin } from "@executor/sdk";
+import { definePlugin, type PluginCtx } from "@executor/sdk";
 
 import { displayName, isSupportedPlatform, resolveServiceName } from "./keyring";
 import { getPassword } from "./keyring";
@@ -35,39 +35,43 @@ export interface KeychainExtension {
   readonly isSupported: boolean;
 
   /** Check if a secret exists in the system keychain */
-  readonly has: (secretId: SecretId) => Effect.Effect<boolean>;
+  readonly has: (id: string) => Effect.Effect<boolean>;
 }
 
 // ---------------------------------------------------------------------------
 // Plugin definition
 // ---------------------------------------------------------------------------
 
-const PLUGIN_KEY = "keychain";
+// Scope the keychain service name to the current executor scope so each
+// folder / workspace gets its own set of keychain entries. Computed
+// identically in `extension` and `secretProviders` — both receive ctx and
+// both are called once per createExecutor, so the derivation stays pure.
+const scopedServiceName = (
+  ctx: PluginCtx<unknown>,
+  options: KeychainPluginConfig | undefined,
+): string =>
+  `${resolveServiceName(options?.serviceName)}/${ctx.scope.id}`;
 
-export const keychainPlugin = (
-  config?: KeychainPluginConfig,
-): ExecutorPlugin<typeof PLUGIN_KEY, KeychainExtension> =>
-  definePlugin({
-    key: PLUGIN_KEY,
-    init: (ctx) =>
-      Effect.gen(function* () {
-        // Scope the service name to the current scope so each folder gets its own keychain entries
-        const baseServiceName = resolveServiceName(config?.serviceName);
-        const serviceName = `${baseServiceName}/${ctx.scope.id}`;
+export const keychainPlugin = definePlugin(
+  (options?: KeychainPluginConfig) => ({
+    id: "keychain" as const,
+    storage: () => ({}),
 
-        yield* ctx.secrets.addProvider(makeKeychainProvider(serviceName));
+    extension: (ctx): KeychainExtension => {
+      const serviceName = scopedServiceName(ctx, options);
+      return {
+        displayName: displayName(),
+        isSupported: isSupportedPlatform(),
+        has: (id) =>
+          getPassword(serviceName, id).pipe(
+            Effect.map((v) => v !== null),
+            Effect.orElseSucceed(() => false),
+          ),
+      };
+    },
 
-        const extension: KeychainExtension = {
-          displayName: displayName(),
-          isSupported: isSupportedPlatform(),
-
-          has: (secretId) =>
-            getPassword(serviceName, secretId).pipe(
-              Effect.map((v) => v !== null),
-              Effect.orElseSucceed(() => false),
-            ),
-        };
-
-        return { extension };
-      }),
-  });
+    secretProviders: (ctx) => [
+      makeKeychainProvider(scopedServiceName(ctx, options)),
+    ],
+  }),
+);

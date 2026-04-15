@@ -1,6 +1,11 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
-import { createExecutor, makeTestConfig, SecretId } from "@executor/sdk";
+import {
+  SecretId,
+  SetSecretInput,
+  createExecutor,
+  makeTestConfig,
+} from "@executor/sdk";
 import { keychainPlugin } from "./index";
 
 describe("keychain plugin", () => {
@@ -34,22 +39,24 @@ describe("keychain plugin", () => {
 
       try {
         // Store through SDK, pinned to keychain provider
-        yield* executor.secrets.set({
-          id: testId,
-          name: "Test Secret",
-          value: "keychain-test-value",
-          provider: "keychain",
-        });
+        yield* executor.secrets.set(
+          new SetSecretInput({
+            id: testId,
+            name: "Test Secret",
+            value: "keychain-test-value",
+            provider: "keychain",
+          }),
+        );
 
         // Plugin can check if it exists in the keychain
         const exists = yield* executor.keychain.has(testId);
         expect(exists).toBe(true);
 
-        // SDK resolves through provider chain
-        const resolved = yield* executor.secrets.resolve(testId);
+        // SDK routes through the core secret table → pinned provider
+        const resolved = yield* executor.secrets.get(testId);
         expect(resolved).toBe("keychain-test-value");
       } finally {
-        yield* executor.secrets.remove(testId).pipe(Effect.orElseSucceed(() => false));
+        yield* executor.secrets.remove(testId).pipe(Effect.orElseSucceed(() => undefined));
       }
     }),
   );
@@ -62,7 +69,7 @@ describe("keychain plugin", () => {
         }),
       );
 
-      const exists = yield* executor.keychain.has(SecretId.make("nonexistent-secret"));
+      const exists = yield* executor.keychain.has("nonexistent-secret");
       expect(exists).toBe(false);
     }),
   );
