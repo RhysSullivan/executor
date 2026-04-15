@@ -55,6 +55,10 @@ export function SourceDetailPage(props: { namespace: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  useEffect(() => {
+    setConfirmDelete(false);
+  }, [namespace]);
+
   const sourceData = AsyncResult.isSuccess(source) ? source.value : null;
   const canRefresh = sourceData ? (sourceData.canRefresh ?? true) : false;
   const canRemove = sourceData ? (sourceData.canRemove ?? true) : false;
@@ -161,13 +165,13 @@ export function SourceDetailPage(props: { namespace: string }) {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {editPlugin?.signIn && !editing && (
+          {editPlugin?.signIn && !editing && !confirmDelete && (
             <Suspense fallback={null}>
               <editPlugin.signIn sourceId={namespace} />
             </Suspense>
           )}
 
-          {canEdit && editPlugin && !editing && (
+          {canEdit && editPlugin && !editing && !confirmDelete && (
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               Edit
             </Button>
@@ -194,7 +198,6 @@ export function SourceDetailPage(props: { namespace: string }) {
             !editing &&
             (confirmDelete ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-destructive">Confirm?</span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -209,7 +212,7 @@ export function SourceDetailPage(props: { namespace: string }) {
                   onClick={() => void handleDelete()}
                   disabled={deleting}
                 >
-                  {deleting ? "Deleting..." : "Delete"}
+                  {deleting ? "Deleting..." : "Confirm Delete"}
                 </Button>
               </div>
             ) : (
