@@ -25,15 +25,23 @@ jobs:
         run: bun run --filter=executor build:preview
 
       - name: Upload preview binaries to R2
-        # Uses Bun.s3 against the R2 S3-compatible endpoint. Avoids aws-cli
-        # endpoint-validation quirks on ubuntu-latest and handles multipart
-        # uploads for tarballs larger than the Cloudflare API gateway limit.
+        # curl --aws-sigv4 handles large uploads directly against R2's S3
+        # endpoint. Simpler than aws-cli (endpoint validation quirks) or
+        # Bun.s3 (ConnectionRefused on ubuntu-latest for reasons unclear).
         env:
-          S3_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          S3_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          S3_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          S3_BUCKET: executor-previews
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: bun run apps/cli/scripts/upload-preview.ts
+        run: |
+          for tarball in apps/cli/dist/previews/*.tar.gz; do
+            name=$(basename "$tarball")
+            echo "Uploading $name → r2://executor-previews/$SHA/$name"
+            curl --fail-with-body --silent --show-error \
+              -X PUT "$R2_ENDPOINT/executor-previews/$SHA/$name" \
+              --upload-file "$tarball" \
+              --aws-sigv4 "aws:amz:auto:s3" \
+              --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY"
+          done
 
       - run: npx pkg-pr-new publish --compact './apps/cli/dist/executor' './packages/core/sdk' './packages/plugins/*'
