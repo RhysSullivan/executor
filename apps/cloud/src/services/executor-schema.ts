@@ -1,4 +1,3 @@
-import { relations } from "drizzle-orm";
 import { pgTable, text, boolean, timestamp, integer, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {

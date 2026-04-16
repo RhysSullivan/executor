@@ -1,4 +1,3 @@
-import type { ExecutorDialect } from "@executor/sdk";
 import { generateDrizzleSchema } from "./drizzle.js";
 import type { SchemaGenerator } from "./types.js";
 

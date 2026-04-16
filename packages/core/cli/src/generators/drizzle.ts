@@ -350,7 +350,7 @@ function generateImport({
   dialect: Dialect;
   schema: DBSchema;
 }) {
-  const rootImports: string[] = ["relations"];
+  const rootImports: string[] = [];
   const coreImports: string[] = [];
 
   let hasBigint = false;
@@ -427,6 +427,10 @@ function generateImport({
   if (hasReferences || dialect === "mysql") {
     // mysql might need varchar for FK fields
   }
+
+  // `relations` is only imported when the schema has any references that
+  // produce relation blocks (see relationsString generation).
+  if (hasReferences) rootImports.push("relations");
 
   const filteredCore = coreImports
     .map((x) => x.trim())
