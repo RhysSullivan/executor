@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { Effect } from "effect";
-import { createExecutor, makeTestConfig, type ToolMetadata } from "@executor/sdk";
+import { createExecutor, makeTestConfig, type Tool } from "@executor/sdk";
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { graphqlPlugin } from "@executor/plugin-graphql";
 import { googleDiscoveryPlugin } from "@executor/plugin-google-discovery";
@@ -32,9 +32,9 @@ function inferPolicy(method: string, toolName: string): "read" | "write" | "dest
   return "write";
 }
 
-function formatTools(tools: readonly ToolMetadata[]) {
+function formatTools(tools: readonly Tool[]) {
   return tools.map((t) => {
-    const method = inferMethod(t.name, t.pluginKey);
+    const method = inferMethod(t.name, t.pluginId);
     return {
       name: t.name,
       desc: t.description?.slice(0, 80) || t.name,
