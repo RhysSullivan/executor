@@ -308,9 +308,7 @@
         "effect": "catalog:",
       },
       "devDependencies": {
-        "@effect/vitest": "catalog:",
         "typescript": "catalog:",
-        "vitest": "catalog:",
       },
     },
     "packages/core/storage-file": {

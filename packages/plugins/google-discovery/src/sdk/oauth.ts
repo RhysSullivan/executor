@@ -29,7 +29,7 @@ const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
   prompt: "consent",
 } as const;
 
-export type { OAuth2TokenResponse as OAuth2TokenResponse };
+export type { OAuth2TokenResponse };
 
 export const createPkceCodeVerifier = sharedCreatePkceCodeVerifier;
 

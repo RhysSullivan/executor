@@ -4,9 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "bun run src/main.ts",
-    "typecheck": "tsgo --noEmit",
-    "typecheck:slow": "tsc --noEmit"
+    "start": "bun run src/main.ts"
   },
   "dependencies": {
     "@executor/plugin-graphql": "workspace:*",

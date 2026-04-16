@@ -2,10 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { createExecutor } from "./executor";
-import {
-  ElicitationResponse,
-  FormElicitation,
-} from "./elicitation";
+import { ElicitationResponse } from "./elicitation";
 import { defineSchema, definePlugin } from "./plugin";
 import { SetSecretInput } from "./secrets";
 import { makeTestConfig } from "./testing";
