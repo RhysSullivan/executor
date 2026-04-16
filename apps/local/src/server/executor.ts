@@ -8,7 +8,12 @@ import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import embeddedMigrations from "./embedded-migrations.gen";
-import { moveAsidePreScopeDb } from "./db-upgrade";
+import {
+  importLegacySecrets,
+  moveAsidePreScopeDb,
+  readLegacySecrets,
+  type LegacySecret,
+} from "./db-upgrade";
 
 import {
   Scope,
@@ -52,22 +57,31 @@ const resolveMigrationsFolder = (): string => {
 
 const MIGRATIONS_FOLDER = resolveMigrationsFolder();
 
-const resolveDbPath = (): string => {
+interface ResolvedDb {
+  readonly path: string;
+  readonly legacySecrets: readonly LegacySecret[];
+}
+
+const resolveDbPath = (): ResolvedDb => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
   fs.mkdirSync(dataDir, { recursive: true });
   const dbPath = `${dataDir}/data.db`;
   // DBs written by pre-scope-refactor versions of the CLI have a schema
-  // that the current drizzle migration can't be applied on top of. Move
-  // them aside so migrations create a fresh DB; users keep the backup
-  // if they need to recover anything.
+  // the current drizzle migration can't be applied on top of. Before we
+  // move it aside, pull the `secret` routing rows so non-enumerating
+  // providers (keychain) stay reachable after the fresh DB is created.
+  const legacySecrets = readLegacySecrets(dbPath);
   const backup = moveAsidePreScopeDb(dbPath);
   if (backup) {
     console.warn(
       `[executor] Pre-scope database detected; moved to ${backup}. ` +
-        `Sources and tool catalogs will need to be re-added.`,
+        `Sources and tool catalogs will need to be re-added` +
+        (legacySecrets.length > 0
+          ? ` (${legacySecrets.length} secret routing row(s) preserved).`
+          : "."),
     );
   }
-  return dbPath;
+  return { path: dbPath, legacySecrets };
 };
 
 // Hash suffix disambiguates same-basename folders so two projects with
@@ -99,7 +113,7 @@ class LocalExecutorTag extends Context.Tag("@executor/local/Executor")<
 export type LocalExecutor = Context.Tag.Service<typeof LocalExecutorTag>;
 
 const createLocalExecutorLayer = () => {
-  const dbPath = resolveDbPath();
+  const { path: dbPath, legacySecrets } = resolveDbPath();
 
   return Layer.scoped(
     LocalExecutorTag,
@@ -114,6 +128,14 @@ const createLocalExecutorLayer = () => {
       migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 
       const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
+      const scopeId = makeScopeId(cwd);
+      // Reinstate pre-scope secret routing rows once migrations have
+      // created the new `secret` table. INSERT OR IGNORE makes this
+      // safe across reboots and on fresh installs (no-op when there's
+      // nothing to import).
+      if (legacySecrets.length > 0) {
+        importLegacySecrets(sqlite, scopeId, legacySecrets);
+      }
       const configPath = resolveConfigPath(cwd);
       const configFile = makeFileConfigSink({
         path: configPath,
@@ -126,7 +148,7 @@ const createLocalExecutorLayer = () => {
       const blobs = makeSqliteBlobStore({ db });
 
       const scope = new Scope({
-        id: ScopeId.make(makeScopeId(cwd)),
+        id: ScopeId.make(scopeId),
         name: cwd,
         createdAt: new Date(),
       });

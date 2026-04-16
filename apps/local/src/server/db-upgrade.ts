@@ -52,3 +52,55 @@ export const moveAsidePreScopeDb = (dbPath: string): string | null => {
   }
   return backup;
 };
+
+// ---------------------------------------------------------------------------
+// Legacy secret routing — the `secret` table in the pre-scope DB has rows
+// mapping secret id → provider. The secret *values* live in the provider
+// backends (keychain, 1password, file-secrets) and survive the move-aside
+// untouched. But without the routing row, non-enumerating providers
+// (keychain) become unreachable: `secretsGet`'s fallback loop only asks
+// providers that expose `list()`. We copy those routing rows forward into
+// the new DB so post-upgrade resolution keeps working seamlessly.
+// ---------------------------------------------------------------------------
+
+export interface LegacySecret {
+  readonly id: string;
+  readonly name: string;
+  readonly provider: string;
+  readonly createdAt: number;
+}
+
+export const readLegacySecrets = (dbPath: string): readonly LegacySecret[] => {
+  if (!fs.existsSync(dbPath)) return [];
+  const db = new Database(dbPath, { readonly: true });
+  try {
+    const tableExists = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='secret'")
+      .get();
+    if (!tableExists) return [];
+    return db
+      .prepare("SELECT id, name, provider, created_at as createdAt FROM secret")
+      .all() as LegacySecret[];
+  } finally {
+    db.close();
+  }
+};
+
+/**
+ * Insert legacy routing rows into the new (scoped) `secret` table,
+ * stamping the current scope id. Idempotent — uses INSERT OR IGNORE so
+ * a row that the user already re-registered takes precedence.
+ */
+export const importLegacySecrets = (
+  db: Database,
+  scopeId: string,
+  secrets: readonly LegacySecret[],
+): void => {
+  if (secrets.length === 0) return;
+  const stmt = db.prepare(
+    "INSERT OR IGNORE INTO secret (scope_id, id, name, provider, created_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  for (const s of secrets) {
+    stmt.run(scopeId, s.id, s.name, s.provider, s.createdAt);
+  }
+};
