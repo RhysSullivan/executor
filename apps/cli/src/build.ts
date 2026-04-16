@@ -394,15 +394,40 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
 // there's no release, so we upload per-PR tarballs to R2 (keyed by commit
 // SHA) and have a dedicated postinstall download from there.
 //
-// Requires two env vars at build time:
-//   EXECUTOR_PREVIEW_CDN_URL — e.g. https://pub-XYZ.r2.dev (no trailing /)
-//   EXECUTOR_PREVIEW_SHA     — commit SHA used as the R2 key prefix
+// CI splits this in two:
+//   1. A matrix job per platform runs `buildPreviewTarballs` to produce
+//      dist/previews/<platform>.tar.gz, which it uploads to R2.
+//   2. A single publish job runs `buildPreviewWrapperPackage` with an
+//      explicit list of platforms and hands the wrapper to pkg.pr.new.
 //
-// CI is responsible for also uploading dist/previews/<platform>.tar.gz
-// (produced here) to `<bucket>/<sha>/<platform>.tar.gz`.
+// Both paths require EXECUTOR_PREVIEW_CDN_URL and EXECUTOR_PREVIEW_SHA so
+// the postinstall URL embeds the right commit.
 // ---------------------------------------------------------------------------
 
-const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
+const buildPreviewTarballs = async (binaries: Record<string, string>) => {
+  const previewDir = join(distDir, "previews");
+  await mkdir(previewDir, { recursive: true });
+  for (const platformPkg of Object.keys(binaries)) {
+    const srcBinDir = join(distDir, platformPkg, "bin");
+    const tarPath = join(previewDir, `${platformPkg}.tar.gz`);
+    await $`tar -czf ${tarPath} .`.cwd(srcBinDir).quiet();
+    console.log(`Preview tarball: ${tarPath}`);
+  }
+};
+
+const resolveTargetsFromEnv = (env: string | undefined): Target[] => {
+  if (!env) throw new Error("EXECUTOR_PREVIEW_TARGETS must be set (comma-separated package names)");
+  const names = env.split(",").map((s) => s.trim()).filter(Boolean);
+  const resolved = names.map((name) => {
+    const match = ALL_TARGETS.find((t) => targetPackageName(t) === name);
+    if (!match) throw new Error(`Unknown preview target: ${name}`);
+    return match;
+  });
+  if (resolved.length === 0) throw new Error("EXECUTOR_PREVIEW_TARGETS resolved to an empty list");
+  return resolved;
+};
+
+const buildPreviewWrapperPackage = async (targets: Target[]) => {
   const meta = await readMetadata();
   const cdnUrl = process.env.EXECUTOR_PREVIEW_CDN_URL?.replace(/\/+$/, "");
   const sha = process.env.EXECUTOR_PREVIEW_SHA;
@@ -419,17 +444,6 @@ const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
   await writeFile(join(binDir, "executor"), NODE_SHIM);
   await chmod(join(binDir, "executor"), 0o755);
 
-  const previewDir = join(distDir, "previews");
-  await mkdir(previewDir, { recursive: true });
-
-  // Tar each built platform's bin/ into dist/previews/<platform>.tar.gz
-  // so CI can push them to R2 with one `wrangler r2 object put` per file.
-  for (const platformPkg of Object.keys(binaries)) {
-    const srcBinDir = join(distDir, platformPkg, "bin");
-    const tarPath = join(previewDir, `${platformPkg}.tar.gz`);
-    await $`tar -czf ${tarPath} .`.cwd(srcBinDir).quiet();
-  }
-
   const postinstall = PREVIEW_POSTINSTALL_SCRIPT.replaceAll(
     "__CDN_BASE_URL__",
     `${cdnUrl}/${sha}`,
@@ -439,11 +453,8 @@ const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
   // Restrict os/cpu to platforms we actually built this run so npm refuses
   // the install on anything else — a clear error beats a cryptic 404 from
   // postinstall on an unbuilt platform.
-  const builtTargets = Object.keys(binaries)
-    .map((name) => ALL_TARGETS.find((t) => targetPackageName(t) === name))
-    .filter((t): t is Target => t !== undefined);
-  const osList = Array.from(new Set(builtTargets.map((t) => t.os)));
-  const cpuList = Array.from(new Set(builtTargets.map((t) => t.arch)));
+  const osList = Array.from(new Set(targets.map((t) => t.os)));
+  const cpuList = Array.from(new Set(targets.map((t) => t.arch)));
 
   await writeFile(
     join(wrapperDir, "package.json"),
@@ -476,8 +487,7 @@ const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
 
   console.log(`\nPreview wrapper: ${wrapperDir}`);
   console.log(`  ${meta.name}@${meta.version} — CDN ${cdnUrl}/${sha}`);
-  console.log(`  preview tarballs: ${previewDir}`);
-  console.log(`  built platforms: ${Object.keys(binaries).join(", ")}`);
+  console.log(`  targets: ${targets.map(targetPackageName).join(", ")}`);
 };
 
 // ---------------------------------------------------------------------------
@@ -853,9 +863,23 @@ if (command === "binary") {
   const binaries = await buildBinaries(targets, mode);
   await buildWrapperPackage(binaries);
 } else if (command === "preview") {
+  // End-to-end preview build for local testing: binary for the current
+  // platform + tarball + wrapper, all in one step.
   const targets = ALL_TARGETS.filter(isCurrentPlatform);
   const binaries = await buildBinaries(targets, mode);
-  await buildPreviewWrapperPackage(binaries);
+  await buildPreviewTarballs(binaries);
+  await buildPreviewWrapperPackage(targets);
+} else if (command === "preview-tarball") {
+  // CI matrix job: build the current runner's binary + tarball only.
+  // The wrapper is built separately once all matrix entries have uploaded.
+  const targets = ALL_TARGETS.filter(isCurrentPlatform);
+  const binaries = await buildBinaries(targets, mode);
+  await buildPreviewTarballs(binaries);
+} else if (command === "preview-wrapper") {
+  // CI publish job: build just the npm wrapper, with os/cpu restricted to
+  // the platforms listed in EXECUTOR_PREVIEW_TARGETS (comma-separated).
+  const targets = resolveTargetsFromEnv(process.env.EXECUTOR_PREVIEW_TARGETS);
+  await buildPreviewWrapperPackage(targets);
 } else if (command === "release-assets") {
   await createReleaseAssets();
 } else if (command === "publish") {
@@ -865,6 +889,8 @@ if (command === "binary") {
   console.log(`Usage:
   bun run build.ts binary [--single] [--mode production|development]
   bun run build.ts preview [--mode production|development]
+  bun run build.ts preview-tarball [--mode production|development]
+  bun run build.ts preview-wrapper
   bun run build.ts release-assets
   bun run build.ts publish [channel]`);
   process.exit(1);
