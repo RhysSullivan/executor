@@ -44,6 +44,23 @@ const formatDescription = (namespaces: readonly string[], sources: readonly Sour
     "- For tools that return large collections (e.g. `getStates`, `getAll`), filter results in code rather than calling per-item tools.",
     "- Do not use `fetch` — all API calls go through `tools.*`.",
     "- If execution pauses for interaction, resume it with the returned `resumePayload`.",
+    "",
+    "## Generative UI",
+    "",
+    "When it would be helpful to show an interactive UI, write a React component named `App` with JSX in the `code` parameter. It renders in an iframe alongside the conversation.",
+    "",
+    "**No imports** — everything is already in scope:",
+    "- React: `useState`, `useEffect`, `useRef`, `useCallback`, `useMemo`",
+    "- Data fetching: `useQuery(fn)` → `{ data, error, isLoading, refetch }`, `useMutation(fn)` → `{ mutate, data, error, isPending }`",
+    "- Tools: `tools.<namespace>.<tool>(args)` — call any configured API tool (never use raw `fetch`)",
+    "- Components (shadcn/ui): Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, Button, Input, Textarea, Label, Select, SelectTrigger, SelectValue, SelectContent, SelectItem, Checkbox, Switch, Slider, Toggle, Tabs, TabsList, TabsTrigger, TabsContent, Table, TableHeader, TableBody, TableRow, TableHead, TableCell, Badge, Avatar, AvatarFallback, Alert, AlertTitle, AlertDescription, Dialog, Sheet, Popover, Tooltip, Separator, ScrollArea, Skeleton, Progress, Accordion, AccordionItem, AccordionTrigger, AccordionContent, DropdownMenu + sub-components",
+    "- Charts (Recharts): BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend, ChartContainer, ChartTooltip, ChartTooltipContent",
+    "- Icons (Lucide): Plus, Minus, Check, X, Search, Loader2, AlertCircle, ExternalLink, Copy, Trash2, Edit, Settings, User, Globe, Star, TrendingUp, Activity, Database, Shield, Package, and more",
+    "- Utility: `cn()` for className merging, `run(code)` escape hatch for multi-step tool composition",
+    "- Use Tailwind classes for styling. The UI must look good in both light and dark mode — the user's system theme is applied automatically.",
+    "- Always use `dark:` variants when applying custom colors: e.g. `bg-white dark:bg-gray-900`, `text-gray-900 dark:text-gray-100`. Or prefer theme variables that adapt automatically: `bg-background`, `text-foreground`, `bg-card`, `text-card-foreground`, `bg-muted`, `text-muted-foreground`, `bg-primary`, `text-primary-foreground`, `bg-secondary`, `text-secondary-foreground`, `bg-accent`, `text-accent-foreground`, `bg-destructive`, `border-border`, `ring-ring`.",
+    "- Never use hardcoded colors without a `dark:` counterpart — e.g. `bg-gray-50` alone will look wrong in dark mode.",
+    "- The UI container defaults to `maxHeight: 800` (pixels). Override by declaring `const config = { maxHeight: 400 }` for small widgets or `const config = { maxHeight: 1000 }` for large lists/tables.",
   ];
 
   if (namespaces.length > 0) {

@@ -1,4 +1,5 @@
 import "./globals.css";
+import "@tailwindcss/browser";
 
 import React, {
   useState,
@@ -46,23 +47,6 @@ function compileJsx(code: string): string {
 }
 
 /**
- * Find the component to render from the evaluated module.
- * Priority: explicit `App` export → last function defined → any function.
- */
-function findComponent(
-  exports: Record<string, unknown>,
-): React.ComponentType | null {
-  // If there's an `App` key, use it
-  if (typeof exports.App === "function") return exports.App as React.ComponentType;
-
-  // Otherwise use the last function value
-  const fns = Object.values(exports).filter(
-    (v) => typeof v === "function",
-  ) as React.ComponentType[];
-  return fns.length > 0 ? fns[fns.length - 1]! : null;
-}
-
-/**
  * Evaluate compiled JS in a scoped context providing React, hooks,
  * components, tools proxy, useQuery/useMutation, and Lucide icons.
  */
@@ -70,7 +54,7 @@ function evaluateComponent(
   compiled: string,
   tools: Record<string, unknown>,
   run: (code: string) => Promise<unknown>,
-): React.ComponentType | null {
+): { component: React.ComponentType } | { error: string } {
   // Build the scope object that the model's code can access
   const scope: Record<string, unknown> = {
     // React core
@@ -99,31 +83,35 @@ function evaluateComponent(
   const scopeKeys = Object.keys(scope);
   const scopeValues = scopeKeys.map((k) => scope[k]);
 
-  // Wrap in a function body that captures all named functions/consts
-  // and returns them as an exports object
+  // Execute the compiled code and look for a component + optional config.
+  // We check well-known names (App, Component, Main) via typeof,
+  // which safely returns "undefined" for undeclared variables.
   const wrappedCode = `
     "use strict";
-    const __exports = {};
-    ${compiled
-      .replace(
-        /^(function\s+)(\w+)/gm,
-        "$1$2; __exports.$2 = $2; function $2",
-      )
-      .replace(
-        /^(const|let|var)\s+(\w+)\s*=/gm,
-        "$1 $2 = __exports.$2 =",
-      )}
-    return __exports;
+    ${compiled}
+    var __comp = null;
+    if (typeof App === "function") __comp = App;
+    else if (typeof Component === "function") __comp = Component;
+    else if (typeof Main === "function") __comp = Main;
+    var __cfg = typeof config === "object" && config !== null ? config : {};
+    return { component: __comp, config: __cfg };
   `;
 
   try {
     // eslint-disable-next-line no-new-func
     const factory = new Function(...scopeKeys, wrappedCode);
-    const exports = factory(...scopeValues) as Record<string, unknown>;
-    return findComponent(exports);
+    const result = factory(...scopeValues) as {
+      component: React.ComponentType | null;
+      config: Record<string, unknown>;
+    };
+    if (!result.component) {
+      return { error: "No component found. Export a function named App." };
+    }
+    return { component: result.component, config: result.config };
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     console.error("[executor-shell] Failed to evaluate component:", err);
-    return null;
+    return { error: `Evaluation error: ${msg}` };
   }
 }
 
@@ -133,6 +121,7 @@ function evaluateComponent(
 
 function ShellApp() {
   const [component, setComponent] = useState<React.ComponentType | null>(null);
+  const [componentConfig, setComponentConfig] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [hostContext, setHostContext] = useState<McpUiHostContext | undefined>();
   const toolsRef = useRef<Record<string, unknown>>({});
@@ -146,41 +135,80 @@ function ShellApp() {
       toolsRef.current = createToolsProxy(app);
       runRef.current = createRunFn(app);
 
-      app.ontoolresult = (result: CallToolResult) => {
-        const structured = result.structuredContent as
-          | { code?: string }
-          | undefined;
-        const code = structured?.code;
-
-        if (!code || typeof code !== "string") {
-          // Not a generative UI result — show the text
-          const text = result.content?.find((c) => c.type === "text")?.text;
-          setError(text ?? "No UI code received");
-          setComponent(null);
-          return;
-        }
-
+      /** Compile and render a JSX code string as a React component */
+      const renderCode = (code: string) => {
         try {
           const compiled = compileJsx(code);
-          const Component = evaluateComponent(
+          const evalResult = evaluateComponent(
             compiled,
             toolsRef.current,
             runRef.current,
           );
 
-          if (!Component) {
-            setError("No React component found in code");
+          if ("error" in evalResult) {
+            setError(evalResult.error);
             setComponent(null);
             return;
           }
 
-          setComponent(() => Component);
+          setComponent(() => evalResult.component);
+          setComponentConfig(evalResult.config);
           setError(null);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           setError(`Compilation error: ${msg}`);
           setComponent(null);
         }
+      };
+
+      // Handle tool input — fires on init (including page reload) with
+      // the tool arguments. For generative UI the arguments contain { code }.
+      app.ontoolinput = (params: { arguments?: Record<string, unknown> }) => {
+        const code = params.arguments?.code;
+        if (code && typeof code === "string") {
+          renderCode(code);
+        }
+      };
+
+      app.ontoolresult = (result: CallToolResult) => {
+        const structured = result.structuredContent as
+          | Record<string, unknown>
+          | undefined;
+        const code = structured?.code;
+
+        if (code && typeof code === "string") {
+          renderCode(code);
+          return;
+        }
+
+        // Not a generative UI result — render a data view
+        const DataView = () => {
+          const text = result.content?.find((c) => c.type === "text")?.text;
+          const isError = (result as { isError?: boolean }).isError;
+          const data = structured as Record<string, unknown> | undefined;
+
+          return (
+            <Components.Card>
+              <Components.CardContent className="pt-4">
+                {isError ? (
+                  <Components.Alert variant="destructive">
+                    <Components.AlertCircle className="h-4 w-4" />
+                    <Components.AlertTitle>Error</Components.AlertTitle>
+                    <Components.AlertDescription className="font-mono text-xs whitespace-pre-wrap">
+                      {text ?? "Unknown error"}
+                    </Components.AlertDescription>
+                  </Components.Alert>
+                ) : (
+                  <pre className="text-xs font-mono whitespace-pre-wrap overflow-auto max-h-[80vh]">
+                    {data ? JSON.stringify(data, null, 2) : text ?? "(no result)"}
+                  </pre>
+                )}
+              </Components.CardContent>
+            </Components.Card>
+          );
+        };
+        setComponent(() => DataView);
+        setError(null);
       };
 
       app.onerror = (err) => {
@@ -252,12 +280,16 @@ function ShellApp() {
   }
 
   const Component = component;
+  const maxHeight = typeof componentConfig.maxHeight === "number"
+    ? componentConfig.maxHeight
+    : 800;
 
   return (
     <Components.TooltipProvider>
       <div
-        className="min-h-full p-4"
+        className="p-4 overflow-y-auto"
         style={{
+          maxHeight,
           paddingTop: hostContext?.safeAreaInsets?.top,
           paddingRight: hostContext?.safeAreaInsets?.right,
           paddingBottom: hostContext?.safeAreaInsets?.bottom,

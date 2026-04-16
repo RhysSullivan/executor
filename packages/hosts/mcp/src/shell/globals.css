@@ -3,7 +3,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @source "./**/*.{ts,tsx}";
-@source "../../../../packages/react/src/components/**/*.{ts,tsx}";
+@source "../../../../react/src/components/**/*.{ts,tsx}";
 
 @theme inline {
   --font-sans: ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -137,7 +137,6 @@
   body,
   #root {
     min-height: 100%;
-    height: 100%;
     margin: 0;
     padding: 0;
   }

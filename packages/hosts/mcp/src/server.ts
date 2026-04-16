@@ -8,11 +8,11 @@ import type {
 import { Validator } from "@cfworker/json-schema";
 import { z } from "zod/v4";
 
-import type {
+import {
   ElicitationResponse,
-  ElicitationHandler,
-  ElicitationContext,
-  ElicitationRequest,
+  type ElicitationHandler,
+  type ElicitationContext,
+  type ElicitationRequest,
 } from "@executor/sdk";
 import {
   createExecutionEngine,
@@ -163,12 +163,18 @@ const toMcpPausedResult = (formatted: ReturnType<typeof formatPausedExecution>):
  * Detect whether code contains JSX (React component code) that should be
  * routed to the generative UI shell instead of executed in the kernel.
  *
- * Heuristic: presence of JSX elements (capitalized tags like <Card>, <App>)
- * or self-closing JSX tags. This is reliable because data-processing code
- * doesn't contain angle brackets followed by uppercase identifiers.
+ * Checks for:
+ * - Capitalized JSX tags: <Card>, <App>, <Button />
+ * - className= attribute (JSX-specific, not used in plain JS)
+ * - onClick/onChange/onSubmit handlers (JSX event syntax)
+ * - JSX fragment syntax: <> or </>
  */
 const isReactCode = (code: string): boolean =>
-  /<[A-Z]\w*[\s/>]/.test(code) || /<\/[A-Z]/.test(code);
+  /<[A-Z]\w*[\s/>]/.test(code) ||
+  /<\/[A-Z]/.test(code) ||
+  /\bclassName\s*=/.test(code) ||
+  /\bon[A-Z]\w*\s*=\s*\{/.test(code) ||
+  /<>|<\/>/.test(code);
 
 const SHELL_RESOURCE_URI = "ui://executor/shell.html";
 
@@ -259,15 +265,19 @@ export const createExecutorMcpServer = async (
 
   // --- tools ---
 
-  const executeTool = server.registerTool(
+  const executeTool = registerAppTool(
+    server,
     "execute",
     {
       description,
       inputSchema: { code: z.string().trim().min(1) },
+      _meta: {
+        ui: { resourceUri: SHELL_RESOURCE_URI },
+      },
     },
-    async ({ code }) => {
-      // Check if this client supports MCP Apps and the code is React
-      if (clientSupportsApps && isReactCode(code)) {
+    async ({ code }: { code: string }) => {
+      // If code contains JSX, route to UI shell
+      if (isReactCode(code)) {
         return {
           content: [{ type: "text", text: "Rendered interactive UI component." }],
           structuredContent: { code },
@@ -313,6 +323,18 @@ export const createExecutorMcpServer = async (
   );
 
   // --- execute-action: app-only tool for iframe → kernel calls ---
+  // Auto-approve elicitations for UI-initiated actions — the user already
+  // consented by interacting with the component (clicking a button, etc.).
+
+  const autoApproveHandler: ElicitationHandler = () =>
+    Effect.succeed(new ElicitationResponse({ action: "accept" }));
+
+  const executeCodeAutoApprove = async (code: string): Promise<McpToolResult> => {
+    const result = await engine.execute(code, {
+      onElicitation: autoApproveHandler,
+    });
+    return toMcpResult(formatExecuteResult(result));
+  };
 
   const executeActionTool = registerAppTool(
     server,
@@ -327,7 +349,7 @@ export const createExecutorMcpServer = async (
         },
       },
     },
-    async ({ code }: { code: string }) => executeCode(code),
+    async ({ code }: { code: string }) => executeCodeAutoApprove(code),
   );
 
   // --- ui:// resource for the generative UI shell ---
@@ -363,16 +385,16 @@ export const createExecutorMcpServer = async (
       | undefined;
     const uiCap = getUiCapability(capabilities ?? null);
     clientSupportsApps = Boolean(uiCap?.mimeTypes?.includes(RESOURCE_MIME_TYPE));
+    console.log("[executor] syncToolAvailability:", {
+      clientSupportsApps,
+      uiCap,
+      RESOURCE_MIME_TYPE,
+      capabilities: JSON.stringify(capabilities),
+    });
 
     if (clientSupportsApps) {
-      // Add UI metadata to the execute tool so the host renders the shell
-      executeTool.update({
-        _meta: { ui: { resourceUri: SHELL_RESOURCE_URI } },
-      });
       executeActionTool.enable();
     } else {
-      // Remove UI metadata — client doesn't support apps
-      executeTool.update({ _meta: undefined });
       executeActionTool.disable();
     }
   };

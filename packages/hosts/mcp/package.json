@@ -24,6 +24,7 @@
     "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@tailwindcss/browser": "^4.2.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "catalog:",
     "@vitejs/plugin-react": "^6.0.1",

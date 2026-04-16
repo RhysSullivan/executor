@@ -21,18 +21,27 @@ export function createToolsProxy(app: App): Record<string, unknown> {
         const serializedArgs = args.length > 0 ? JSON.stringify(args[0]) : "{}";
         const code = `return await tools.${toolPath}(${serializedArgs})`;
 
+        console.log("[executor-proxy] calling:", code);
+
         return app
           .callServerTool({
             name: "execute-action",
             arguments: { code },
           })
           .then((r) => {
+            console.log("[executor-proxy] raw result:", JSON.stringify({
+              isError: r.isError,
+              structuredContent: r.structuredContent,
+              text: r.content?.find((c) => c.type === "text")?.text,
+            }));
             if (r.isError) {
               const msg =
                 r.content?.find((c) => c.type === "text")?.text ?? "Tool call failed";
               throw new Error(msg);
             }
-            return r.structuredContent ?? parseTextContent(r);
+            const unwrapped = unwrapResult(r.structuredContent as Record<string, unknown>) ?? parseTextContent(r);
+            console.log("[executor-proxy] unwrapped:", JSON.stringify(unwrapped));
+            return unwrapped;
           });
       },
     });
@@ -62,8 +71,25 @@ export function createRunFn(app: App): (code: string) => Promise<unknown> {
             r.content?.find((c) => c.type === "text")?.text ?? "Execution failed";
           throw new Error(msg);
         }
-        return r.structuredContent ?? parseTextContent(r);
+        return unwrapResult(r.structuredContent as Record<string, unknown>) ?? parseTextContent(r);
       });
+}
+
+/**
+ * Unwrap execution result. The kernel wraps results as
+ * `{ status: "completed", result: <actual>, logs: [...] }`.
+ * Return just the inner result value.
+ */
+function unwrapResult(structured: Record<string, unknown> | undefined | null): unknown {
+  if (
+    structured &&
+    typeof structured === "object" &&
+    "status" in structured &&
+    "result" in structured
+  ) {
+    return structured.result;
+  }
+  return structured;
 }
 
 function parseTextContent(r: { content?: Array<{ type: string; text?: string }> }): unknown {
