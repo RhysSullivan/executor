@@ -15,6 +15,10 @@ export default defineConfig({
   test: {
     include: ["src/**/*.node.test.ts"],
     globalSetup: ["./scripts/test-globalsetup.ts"],
+    // PGlite is a single in-process WASM instance — running multiple
+    // test files in parallel against the same socket leaks connections
+    // and triggers ECONNRESET. Serialize file execution instead.
+    fileParallelism: false,
     env: {
       DATABASE_URL: "postgresql://postgres:postgres@127.0.0.1:5434/postgres",
       WORKOS_API_KEY: "test_api_key",

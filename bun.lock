@@ -248,6 +248,7 @@
         "@types/node": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
+        "vitest": "^4.1.4",
       },
     },
     "packages/core/config": {
