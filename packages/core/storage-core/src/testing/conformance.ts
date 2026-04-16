@@ -24,7 +24,6 @@ import type { DBSchema } from "../schema";
 
 export const conformanceSchema: DBSchema = {
   source: {
-    modelName: "source",
     fields: {
       name: { type: "string", required: true },
       priority: { type: "number" },
@@ -34,7 +33,6 @@ export const conformanceSchema: DBSchema = {
     },
   },
   tag: {
-    modelName: "tag",
     fields: {
       label: { type: "string", required: true },
     },
@@ -44,7 +42,6 @@ export const conformanceSchema: DBSchema = {
   // end-to-end (compile.ts relations → drizzle query builder → nested
   // decode).
   source_tag: {
-    modelName: "source_tag",
     fields: {
       sourceId: {
         type: "string",

@@ -17,7 +17,6 @@ import type {
 
 export const coreSchema = {
   source: {
-    modelName: "source",
     fields: {
       id: { type: "string", required: true },
       plugin_id: { type: "string", required: true, index: true },
@@ -44,7 +43,6 @@ export const coreSchema = {
     },
   },
   tool: {
-    modelName: "tool",
     fields: {
       id: { type: "string", required: true },
       source_id: { type: "string", required: true, index: true },
@@ -70,7 +68,6 @@ export const coreSchema = {
   // `${source_id}.${name}` so cleanup on source removal is a single
   // deleteMany by source_id.
   definition: {
-    modelName: "definition",
     fields: {
       id: { type: "string", required: true },
       source_id: { type: "string", required: true, index: true },
@@ -85,7 +82,6 @@ export const coreSchema = {
   // the secret provider (keychain, 1password, file, etc.) and are
   // resolved on demand via `ctx.secrets.get(id)`.
   secret: {
-    modelName: "secret",
     fields: {
       id: { type: "string", required: true },
       name: { type: "string", required: true },

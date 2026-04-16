@@ -26,7 +26,6 @@ const MAX_WRITE_ATTEMPTS = 3;
 
 export const workosVaultSchema = defineSchema({
   workos_vault_metadata: {
-    modelName: "workos_vault_metadata",
     fields: {
       id: { type: "string", required: true },
       name: { type: "string", required: true },

@@ -1,0 +1,32 @@
+{
+  "name": "@executor/cli",
+  "version": "0.0.1",
+  "description": "CLI for the executor SDK — schema generation, migrations",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "executor": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "dev": "node --import jiti/register src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@executor/sdk": "workspace:*",
+    "@executor/storage-core": "workspace:*",
+    "commander": "^12.1.0",
+    "jiti": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:"
+  }
+}

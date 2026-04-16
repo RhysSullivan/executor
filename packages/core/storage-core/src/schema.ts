@@ -164,13 +164,11 @@ export type DBFieldAttribute<T extends DBFieldType = DBFieldType> = {
 export type DBSchema = Record<
   string,
   {
-    /** Physical table name. */
-    modelName: string;
     /** Column definitions. */
     fields: Record<string, DBFieldAttribute>;
     /** Skip this table when generating migrations. @default false */
-    disableMigrations?: boolean | undefined;
-    /** Migration ordering hint. */
-    order?: number | undefined;
+    disableMigration?: boolean | undefined;
+    /** Physical table name override. Defaults to the object key. */
+    modelName?: string | undefined;
   }
 >;

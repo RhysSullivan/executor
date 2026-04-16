@@ -16,7 +16,6 @@ import { McpOAuthSession } from "./oauth";
 
 export const mcpSchema = defineSchema({
   mcp_source: {
-    modelName: "mcp_source",
     fields: {
       id: { type: "string", required: true },
       name: { type: "string", required: true },
@@ -25,7 +24,6 @@ export const mcpSchema = defineSchema({
     },
   },
   mcp_binding: {
-    modelName: "mcp_binding",
     fields: {
       id: { type: "string", required: true },
       source_id: { type: "string", required: true, index: true },
@@ -34,7 +32,6 @@ export const mcpSchema = defineSchema({
     },
   },
   mcp_oauth_session: {
-    modelName: "mcp_oauth_session",
     fields: {
       id: { type: "string", required: true },
       session: { type: "json", required: true },

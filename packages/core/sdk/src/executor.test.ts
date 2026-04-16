@@ -19,7 +19,6 @@ import { SecretId } from "./ids";
 // `const` inference — no `as const satisfies DBSchema` ceremony.
 const testSchema = defineSchema({
   test_thing: {
-    modelName: "test_thing",
     fields: {
       id: { type: "string", required: true },
       value: { type: "string", required: true },

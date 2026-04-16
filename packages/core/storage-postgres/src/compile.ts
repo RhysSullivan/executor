@@ -80,7 +80,7 @@ export const dbSchemaToPgCompiled = (schema: DBSchema): CompiledPgSchema => {
       if (physical === "id") continue;
       cols[physical] = buildColumn(physical, attr);
     }
-    tables[modelKey] = pgTable(def.modelName, cols);
+    tables[modelKey] = pgTable(def.modelName ?? modelKey, cols);
   }
 
   // See storage-file/compile.ts for the shape; this mirrors it for pg.

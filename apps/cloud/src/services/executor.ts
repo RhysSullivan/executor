@@ -29,8 +29,13 @@ import { DbService } from "./db";
 import { server } from "../env";
 
 // ---------------------------------------------------------------------------
-// Plugin list — one place, used for both the factory and type inference.
-// No stdio MCP in cloud; no keychain/file-secrets/1password/google-discovery.
+// Plugin list — one place, used for both the runtime and the CLI config
+// (executor.config.ts). No stdio MCP in cloud; no keychain/file-secrets/
+// 1password/google-discovery.
+//
+// NOTE: the CLI config (executor.config.ts) imports these same plugins with
+// stub credentials because it only reads `plugin.schema`. Here we pass
+// real credentials from the env.
 // ---------------------------------------------------------------------------
 
 const createOrgPlugins = () =>

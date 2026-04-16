@@ -90,7 +90,7 @@ export const dbSchemaToSqliteCompiled = (
       if (physical === "id") continue;
       cols[physical] = buildColumn(physical, attr);
     }
-    tables[modelKey] = sqliteTable(def.modelName, cols);
+    tables[modelKey] = sqliteTable(def.modelName ?? modelKey, cols);
   }
 
   // Derive relations from `references` on each field. A field with
@@ -182,8 +182,9 @@ const sqliteTypeFor = (attr: DBFieldAttribute): string => {
 
 export const buildCreateTableStatements = (schema: DBSchema): string[] => {
   const stmts: string[] = [];
-  for (const def of Object.values(schema)) {
-    if (def.disableMigrations) continue;
+  for (const [modelKey, def] of Object.entries(schema)) {
+    if (def.disableMigration) continue;
+    const tableName = def.modelName ?? modelKey;
     const cols: string[] = [`"id" TEXT PRIMARY KEY NOT NULL`];
     for (const [fieldName, attr] of Object.entries(def.fields)) {
       if (fieldName === "id") continue;
@@ -198,13 +199,13 @@ export const buildCreateTableStatements = (schema: DBSchema): string[] => {
       cols.push(parts.join(" "));
     }
     stmts.push(
-      `CREATE TABLE IF NOT EXISTS "${def.modelName}" (${cols.join(", ")})`,
+      `CREATE TABLE IF NOT EXISTS "${tableName}" (${cols.join(", ")})`,
     );
     for (const [fieldName, attr] of Object.entries(def.fields)) {
       if (!attr.index) continue;
       const physical = attr.fieldName ?? fieldName;
       stmts.push(
-        `CREATE INDEX IF NOT EXISTS "idx_${def.modelName}_${physical}" ON "${def.modelName}" ("${physical}")`,
+        `CREATE INDEX IF NOT EXISTS "idx_${tableName}_${physical}" ON "${tableName}" ("${physical}")`,
       );
     }
   }

@@ -19,7 +19,6 @@ import {
 
 export const openapiSchema = defineSchema({
   openapi_source: {
-    modelName: "openapi_source",
     fields: {
       id: { type: "string", required: true },
       name: { type: "string", required: true },
@@ -31,7 +30,6 @@ export const openapiSchema = defineSchema({
     },
   },
   openapi_operation: {
-    modelName: "openapi_operation",
     fields: {
       id: { type: "string", required: true },
       source_id: { type: "string", required: true, index: true },
@@ -39,7 +37,6 @@ export const openapiSchema = defineSchema({
     },
   },
   openapi_oauth_session: {
-    modelName: "openapi_oauth_session",
     fields: {
       id: { type: "string", required: true },
       session: { type: "json", required: true },

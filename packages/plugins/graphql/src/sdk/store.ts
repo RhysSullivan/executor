@@ -12,7 +12,6 @@ import { OperationBinding, type HeaderValue } from "./types";
 
 export const graphqlSchema = defineSchema({
   graphql_source: {
-    modelName: "graphql_source",
     fields: {
       id: { type: "string", required: true },
       name: { type: "string", required: true },
@@ -21,7 +20,6 @@ export const graphqlSchema = defineSchema({
     },
   },
   graphql_operation: {
-    modelName: "graphql_operation",
     fields: {
       id: { type: "string", required: true },
       source_id: { type: "string", required: true, index: true },

@@ -34,7 +34,6 @@ export const GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
 
 export const googleDiscoverySchema = defineSchema({
   google_discovery_source: {
-    modelName: "google_discovery_source",
     fields: {
       id: { type: "string", required: true },
       name: { type: "string", required: true },
@@ -44,7 +43,6 @@ export const googleDiscoverySchema = defineSchema({
     },
   },
   google_discovery_binding: {
-    modelName: "google_discovery_binding",
     fields: {
       id: { type: "string", required: true },
       source_id: { type: "string", required: true, index: true },
@@ -53,7 +51,6 @@ export const googleDiscoverySchema = defineSchema({
     },
   },
   google_discovery_oauth_session: {
-    modelName: "google_discovery_oauth_session",
     fields: {
       id: { type: "string", required: true },
       session: { type: "json", required: true },

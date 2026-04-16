@@ -115,6 +115,13 @@ export {
   collectSchemas,
 } from "./executor";
 
+// CLI config
+export {
+  defineExecutorConfig,
+  type ExecutorCliConfig,
+  type ExecutorDialect,
+} from "./config";
+
 // Test helper
 export { makeTestConfig } from "./testing";
 

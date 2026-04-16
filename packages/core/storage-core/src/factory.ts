@@ -150,7 +150,7 @@ export const createAdapter = (
   // We deliberately *don't* support plural or physical-name inputs — our
   // plugins always pass the logical key — so getModelName is identity.
   const getModelName = (model: string): string =>
-    getModelDefSync(model).modelName;
+    getModelDefSync(model).modelName ?? model;
 
   // Field name (logical → physical). Honors mapKeysTransformInput override.
   const getPhysicalField = (model: string, logical: string): string => {
