@@ -284,25 +284,24 @@ export const listExecutorSources = (
             return tokenizeSearchText(normalizedQuery).every((token) => haystack.includes(token));
           });
 
-    const withCounts = yield* Effect.forEach(
-      filtered,
+    // Single query for all tools, then count per source in memory.
+    const allTools = yield* executor.tools.list().pipe(Effect.orDie);
+    const toolCountBySource = new Map<string, number>();
+    for (const tool of allTools) {
+      toolCountBySource.set(tool.sourceId, (toolCountBySource.get(tool.sourceId) ?? 0) + 1);
+    }
+
+    const withCounts = filtered.map(
       (source: Source) =>
-        executor.tools.list({ sourceId: source.id }).pipe(
-          Effect.orDie,
-          Effect.map(
-            (tools) =>
-              ({
-                id: source.id,
-                name: source.name,
-                kind: source.kind,
-                runtime: source.runtime,
-                canRemove: source.canRemove,
-                canRefresh: source.canRefresh,
-                toolCount: tools.length,
-              }) satisfies ExecutorSourceListItem,
-          ),
-        ),
-      { concurrency: "unbounded" },
+        ({
+          id: source.id,
+          name: source.name,
+          kind: source.kind,
+          runtime: source.runtime,
+          canRemove: source.canRemove,
+          canRefresh: source.canRefresh,
+          toolCount: toolCountBySource.get(source.id) ?? 0,
+        }) satisfies ExecutorSourceListItem,
     );
 
     return withCounts
@@ -326,22 +325,22 @@ export const describeTool = (
   unknown
 > =>
   Effect.gen(function* () {
-    const metadata = (yield* executor.tools.list().pipe(Effect.orDie)).find(
-      (t: Tool) => t.id === path,
-    );
-
-    const base = {
-      path,
-      name: metadata?.name ?? path,
-      description: metadata?.description,
-    };
-
+    // Single tools.schema() call — it already fetches the tool row
+    // internally. No need to also call tools.list() just for name/description.
     const schema: ToolSchema | null = yield* executor.tools.schema(path);
+
+    // tools.schema() returns null if the tool doesn't exist. Fall back to
+    // a minimal stub so callers can still render something.
     if (schema === null) {
-      return base;
+      return { path, name: path };
     }
+
+    // The schema's id is the tool path; name/description come from the
+    // tool row which tools.schema() already loaded.
     return {
-      ...base,
+      path,
+      name: schema.name ?? path,
+      description: schema.description,
       inputTypeScript: schema.inputTypeScript,
       outputTypeScript: schema.outputTypeScript,
       typeScriptDefinitions: schema.typeScriptDefinitions,

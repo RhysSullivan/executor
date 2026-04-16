@@ -73,7 +73,7 @@
     "@vitejs/plugin-react": "catalog:",
     "concurrently": "^9.2.1",
     "@executor/cli": "workspace:*",
-    "drizzle-kit": "^0.31.10",
+    "drizzle-kit": "catalog:",
     "portless": "^0.10.1",
     "typescript": "catalog:",
     "vite": "catalog:",

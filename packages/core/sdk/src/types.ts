@@ -56,6 +56,8 @@ export interface Tool {
 
 export class ToolSchema extends Schema.Class<ToolSchema>("ToolSchema")({
   id: ToolId,
+  name: Schema.optional(Schema.String),
+  description: Schema.optional(Schema.String),
   inputSchema: Schema.optional(Schema.Unknown),
   outputSchema: Schema.optional(Schema.Unknown),
   inputTypeScript: Schema.optional(Schema.String),

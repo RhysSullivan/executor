@@ -1,26 +1,23 @@
 // ---------------------------------------------------------------------------
 // @executor/storage-file
 //
-// SQLite-backed DBAdapter for the executor storage-core interface. Thin
-// wrapper around @executor/storage-drizzle: compiles the DBSchema into
-// drizzle tables (via `./compile`), runs zero-config CREATE TABLE
-// statements against a bun:sqlite Database, and delegates all queries to
+// SQLite-backed DBAdapter + BlobStore for the executor runtime. Thin
+// wrapper around @executor/storage-drizzle — delegates all queries to
 // the shared drizzle adapter.
 //
-// Usage:
+// Callers construct the drizzle db with the generated schema and run
+// migrations before creating the adapter:
 //
 //   import { Database } from "bun:sqlite"
+//   import { drizzle } from "drizzle-orm/bun-sqlite"
+//   import { migrate } from "drizzle-orm/bun-sqlite/migrator"
+//   import * as schema from "./executor-schema"
 //   import { makeSqliteAdapter } from "@executor/storage-file"
 //
-//   const database = new Database("data.db")
-//   const adapter = yield* makeSqliteAdapter({ database, schema })
+//   const db = drizzle(new Database("data.db"), { schema })
+//   migrate(db, { migrationsFolder: "./drizzle" })
+//   const adapter = makeSqliteAdapter({ db, schema: pluginSchema })
 // ---------------------------------------------------------------------------
 
 export { makeSqliteAdapter, type MakeSqliteAdapterOptions } from "./adapter";
-export {
-  dbSchemaToSqliteTables,
-  dbSchemaToSqliteCompiled,
-  buildCreateTableStatements,
-  type CompiledSqliteSchema,
-} from "./compile";
-export { makeSqliteBlobStore } from "./blob-store";
+export { makeSqliteBlobStore, blobTable } from "./blob-store";

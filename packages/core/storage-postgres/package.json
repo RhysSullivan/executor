@@ -16,12 +16,12 @@
     "@executor/storage-core": "workspace:*",
     "@executor/storage-drizzle": "workspace:*",
     "drizzle-orm": "catalog:",
-    "effect": "catalog:",
-    "postgres": "^3.4.9"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "^25.6.0",
+    "postgres": "^3.4.9",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

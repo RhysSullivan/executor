@@ -16,6 +16,13 @@ CREATE TABLE "organizations" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "blob" (
+	"namespace" text NOT NULL,
+	"key" text NOT NULL,
+	"value" text NOT NULL,
+	CONSTRAINT "blob_namespace_key_pk" PRIMARY KEY("namespace","key")
+);
+--> statement-breakpoint
 CREATE TABLE "definition" (
 	"id" text PRIMARY KEY NOT NULL,
 	"source_id" text NOT NULL,

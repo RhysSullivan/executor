@@ -16,9 +16,21 @@
 
 ### 3. apps/cloud wired up
 - `executor.config.ts` defines plugins with stub credentials (only used for schema shape)
-- `db:schema` script runs the CLI to regenerate `executor-schema.ts`
 - `drizzle.config.ts` points at both `schema.ts` (cloud tables) and `executor-schema.ts` (executor tables)
-- Fresh `drizzle/0000_initial.sql` with all 16 tables (3 cloud + 4 core + 9 plugin), 9 indexes, 2 FKs
+- Fresh `drizzle/0000_initial.sql` with all tables (cloud + core + plugin + blob), indexes, FKs
+
+### 4. apps/local wired up
+- `executor.config.ts` defines plugins + dialect sqlite
+- `drizzle.config.ts` for drizzle-kit generate/push
+- Generated `executor-schema.ts` with all sqlite tables + blob table
+- `drizzle/0000_*.sql` initial migration
+- At startup: `migrate(db, { migrationsFolder })` from `drizzle-orm/bun-sqlite/migrator` applies pending migrations before constructing the adapter
+
+### 5. Adapter DDL removed
+- `makeSqliteAdapter` and `makePostgresAdapter` no longer run DDL — they return `DBAdapter` directly (not `Effect.Effect<DBAdapter>`)
+- `makeSqliteBlobStore` and `makePostgresBlobStore` no longer run DDL — they return `BlobStore` directly
+- `buildCreateTableStatements` deleted from `storage-file/compile.ts`
+- Blob table included in both local and cloud generated schemas — managed by drizzle-kit alongside all other tables
 
 ## Migration path — what's next
 
@@ -27,13 +39,12 @@
 The `@executor/config` package already maintains `executor.jsonc` as a source of truth for source configurations. The `config-store.ts` decorator intercepts `putSource`/`removeSource` on each plugin and mirrors to this file. So for existing users, `executor.jsonc` already has everything.
 
 ### Local app migration
-1. Delete (or rename) old `~/.executor/data.db` — it's the old single-`kv`-table SQLite
-2. New `makeSqliteAdapter` creates typed tables via `CREATE TABLE IF NOT EXISTS` on startup
-3. Add a **sync-from-config step** after executor creation:
+1. On first run, `migrate()` creates all tables from the initial migration
+2. Add a **sync-from-config step** after executor creation:
    - `loadConfig(configPath)` reads `executor.jsonc`
    - For each source, call the plugin's add method (`executor.openapi.addSpec()`, `executor.mcp.addSource()`, etc.)
    - This re-fetches specs, re-parses tools, populates typed tables
-4. Secrets survive untouched — they live in keychain/1password/file-secrets, not in the DB. The `secret` routing table gets re-populated when sources are added.
+3. Secrets survive untouched — they live in keychain/1password/file-secrets, not in the DB. The `secret` routing table gets re-populated when sources are added.
 
 ### What won't survive (acceptable losses)
 - Tool invocation history / blobs (old KV format)
@@ -43,11 +54,6 @@ The `@executor/config` package already maintains `executor.jsonc` as a source of
 ### Cloud migration
 - Only ~2 users, just drop old tables and re-add manually
 - Or write a one-off SQL migration
-
-### Open question: sync frequency
-- **Every startup** (idempotent upsert): simpler, but re-fetches OpenAPI specs on boot (slow with many sources)
-- **One-time migration** (detect old DB, convert, mark done): cleaner for production
-- Leaning toward one-time with a version marker in the DB
 
 ## Key files
 
@@ -61,5 +67,8 @@ The `@executor/config` package already maintains `executor.jsonc` as a source of
 | `packages/core/config/src/load.ts` | Config loading |
 | `apps/cloud/executor.config.ts` | Cloud config for CLI |
 | `apps/cloud/src/services/executor-schema.ts` | Generated drizzle schema |
-| `apps/cloud/drizzle/0000_initial.sql` | Fresh migration |
-| `apps/local/src/server/executor.ts` | Local executor bootstrap (needs sync-from-config added) |
+| `apps/cloud/drizzle/0000_*.sql` | Fresh migration |
+| `apps/local/executor.config.ts` | Local config for CLI |
+| `apps/local/src/server/executor-schema.ts` | Generated drizzle schema |
+| `apps/local/drizzle/0000_*.sql` | Fresh migration |
+| `apps/local/src/server/executor.ts` | Local executor bootstrap with `migrate()` |

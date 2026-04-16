@@ -2,10 +2,8 @@
 // Postgres adapter conformance test
 // ---------------------------------------------------------------------------
 //
-// Gated on TEST_POSTGRES_URL. When unset (the default for local `vitest
-// run`) the suite registers a single skipped test and exits — so contribs
-// without Docker/Postgres still get a green local run. CI is expected to
-// set TEST_POSTGRES_URL against a throw-away database.
+// Gated on TEST_POSTGRES_URL. When unset the suite registers a single
+// skipped test and exits.
 //
 // Example:
 //   TEST_POSTGRES_URL=postgres://user:pass@localhost:5432/executor_test \
@@ -14,6 +12,16 @@
 import { describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { relations } from "drizzle-orm";
+import {
+  pgTable,
+  text,
+  doublePrecision,
+  boolean,
+  timestamp,
+  jsonb,
+} from "drizzle-orm/pg-core";
 
 import type { DBAdapter } from "@executor/storage-core";
 import {
@@ -40,12 +48,54 @@ if (!url) {
     onnotice: () => undefined,
   });
 
-  // TEST-ONLY DDL. The storage-postgres package no longer ships a runtime
-  // migrator; production consumers run drizzle-kit. The conformance suite
-  // needs a deterministic empty schema before each run, so we issue raw
-  // CREATE TABLE IF NOT EXISTS statements for the two `conformanceSchema`
-  // models here. Keep these in sync with
-  // storage-core/src/testing/conformance.ts.
+  // Drizzle table definitions matching conformanceSchema
+  const source = pgTable("source", {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    priority: doublePrecision("priority"),
+    enabled: boolean("enabled"),
+    createdAt: timestamp("createdAt"),
+    metadata: jsonb("metadata"),
+  });
+
+  const tag = pgTable("tag", {
+    id: text("id").primaryKey(),
+    label: text("label"),
+  });
+
+  const source_tag = pgTable("source_tag", {
+    id: text("id").primaryKey(),
+    sourceId: text("sourceId").references(() => source.id, { onDelete: "cascade" }),
+    note: text("note"),
+  });
+
+  const with_defaults = pgTable("with_defaults", {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    nickname: text("nickname"),
+    touchedAt: timestamp("touchedAt"),
+  });
+
+  const sourceRelations = relations(source, ({ many }) => ({
+    source_tag: many(source_tag),
+  }));
+
+  const sourceTagRelations = relations(source_tag, ({ one }) => ({
+    source: one(source, {
+      fields: [source_tag.sourceId],
+      references: [source.id],
+    }),
+  }));
+
+  const conformanceTables = {
+    source,
+    tag,
+    source_tag,
+    with_defaults,
+    sourceRelations,
+    sourceTagRelations,
+  };
+
   const createConformanceTables = Effect.tryPromise({
     try: async () => {
       await sql.unsafe(
@@ -86,8 +136,6 @@ if (!url) {
       ),
   });
 
-  // Every test starts from an empty schema. We DROP + recreate explicitly;
-  // the adapter itself no longer issues DDL on construction.
   const resetTables = Effect.gen(function* () {
     yield* Effect.tryPromise({
       try: () =>
@@ -107,8 +155,10 @@ if (!url) {
   ): Effect.Effect<A, E | Error> =>
     Effect.gen(function* () {
       yield* resetTables;
-      const adapter = yield* makePostgresAdapter({
-        sql,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const db = drizzle(sql, { schema: conformanceTables as any });
+      const adapter = makePostgresAdapter({
+        db,
         schema: conformanceSchema,
       });
       return yield* fn(adapter);

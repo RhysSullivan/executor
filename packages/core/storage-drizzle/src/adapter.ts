@@ -1,12 +1,11 @@
 // ---------------------------------------------------------------------------
-// drizzleAdapter — builds a DBAdapter from a drizzle db + tables map.
+// drizzleAdapter — builds a DBAdapter from a drizzle db instance.
 //
 // Vendored from better-auth (packages/drizzle-adapter/src/drizzle-adapter.ts)
 // under MIT. Adapted for executor:
 //   - Promise/async → Effect.Effect<T, Error>
-//   - Explicit `tables` map (keyed by logical model) instead of reading
-//     db._.fullSchema — our backend packages always pre-compile tables
-//   - No schema introspection, no `db.query.*` relation loader, no joins
+//   - Tables read from `db._.fullSchema` (drizzle schema introspection)
+//   - Relational queries via `db.query[model]` for join resolution
 //   - Filter/compile logic matches our CleanedWhere shape directly
 //   - Piped through `createAdapter` so schema-driven transforms, id
 //     generation, encode/decode all happen in storage-core
@@ -57,19 +56,13 @@ export type DrizzleDB = any;
 type AnyTable = any;
 
 export interface DrizzleAdapterOptions {
-  readonly db: DrizzleDB;
-  /** Pre-compiled drizzle tables, keyed by logical model name. */
-  readonly tables: Record<string, AnyTable>;
   /**
-   * Optional compiled `relations()` exports keyed by `${modelKey}Relations`.
-   * When present, the adapter routes `findOne`/`findMany` with `join` through
-   * drizzle's `db.query[model].findFirst({ with: … })` relational query
-   * builder. Required if any plugin calls `findOne`/`findMany` with a
-   * `join` option — build them with `dbSchemaToSqliteCompiled` /
-   * `dbSchemaToPgCompiled`.
+   * A drizzle database instance constructed with `{ schema }` so that
+   * `db._.fullSchema` and `db.query[model]` are populated. The adapter
+   * reads table references from `db._.fullSchema` — no separate compile
+   * step is needed.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly relations?: Record<string, any> | undefined;
+  readonly db: DrizzleDB;
   readonly schema: DBSchema;
   readonly provider: DrizzleProvider;
   readonly adapterId?: string;
@@ -215,8 +208,7 @@ const compileWhere = (
 //
 // Ported from upstream better-auth drizzle-adapter. Given a resolved
 // `JoinConfig`, produce the `with: { … }` shape drizzle's query builder
-// expects. The relation key matches the logical model name of the
-// target — our `compile.ts` emits relations keyed that way.
+// expects. The relation key matches the logical model name of the target.
 // ---------------------------------------------------------------------------
 
 const buildIncludes = (
@@ -298,13 +290,15 @@ const withReturning = (
 // ---------------------------------------------------------------------------
 
 export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
-  const { db, tables, provider } = options;
+  const { db, provider } = options;
+  const fullSchema: Record<string, AnyTable> = db._.fullSchema ?? {};
 
   const getTable = (model: string): AnyTable => {
-    const t = tables[model];
+    const t = fullSchema[model];
     if (!t)
       throw new Error(
-        `[storage-drizzle] unknown model "${model}" (no drizzle table compiled)`,
+        `[storage-drizzle] unknown model "${model}" — not found in db._.fullSchema. ` +
+          `Make sure the table is exported from the generated schema and passed to drizzle().`,
       );
     return t;
   };

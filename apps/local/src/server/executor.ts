@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs";
@@ -16,6 +17,7 @@ import {
   makeSqliteAdapter,
   makeSqliteBlobStore,
 } from "@executor/storage-file";
+import * as executorSchema from "./executor-schema";
 
 import { openApiPlugin } from "@executor/plugin-openapi";
 import { mcpPlugin } from "@executor/plugin-mcp";
@@ -24,6 +26,8 @@ import { graphqlPlugin } from "@executor/plugin-graphql";
 import { keychainPlugin } from "@executor/plugin-keychain";
 import { fileSecretsPlugin } from "@executor/plugin-file-secrets";
 import { onepasswordPlugin } from "@executor/plugin-onepassword";
+
+const MIGRATIONS_FOLDER = join(import.meta.dirname, "../../drizzle");
 
 const resolveDbPath = (): string => {
   const dataDir = process.env.EXECUTOR_DATA_DIR ?? join(homedir(), ".executor");
@@ -69,12 +73,15 @@ const createLocalExecutorLayer = () => {
         Effect.sync(() => new Database(dbPath)),
         (conn) => Effect.sync(() => conn.close()),
       );
-      const db = drizzle(sqlite);
+      sqlite.exec("PRAGMA journal_mode = WAL");
+
+      const db = drizzle(sqlite, { schema: executorSchema });
+      migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
 
       const plugins = createLocalPlugins();
       const schema = collectSchemas(plugins);
-      const adapter = yield* makeSqliteAdapter({ db, schema });
-      const blobs = yield* makeSqliteBlobStore({ db });
+      const adapter = makeSqliteAdapter({ db, schema });
+      const blobs = makeSqliteBlobStore({ db });
 
       const cwd = process.env.EXECUTOR_SCOPE_DIR || process.cwd();
       const scope = new Scope({

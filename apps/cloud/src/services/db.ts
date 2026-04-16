@@ -17,9 +17,10 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import postgres, { type Sql } from "postgres";
 import * as cloudSchema from "./schema";
+import * as executorSchema from "./executor-schema";
 import { server } from "../env";
 
-const schema = { ...cloudSchema };
+const schema = { ...cloudSchema, ...executorSchema };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DrizzleDb = PgDatabase<any, any, any>;

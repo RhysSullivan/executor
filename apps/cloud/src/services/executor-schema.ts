@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm";
-import { pgTable, text, boolean, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, timestamp, integer, jsonb, index, primaryKey } from "drizzle-orm/pg-core";
 
 export const source = pgTable("source", {
   id: text('id').primaryKey(),
@@ -120,4 +120,12 @@ export const workos_vault_metadata = pgTable("workos_vault_metadata", {
   purpose: text('purpose'),
   created_at: timestamp('created_at').notNull()
 });
+
+export const blob = pgTable("blob", {
+  namespace: text('namespace').notNull(),
+  key: text('key').notNull(),
+  value: text('value').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.namespace, table.key] }),
+]);
 

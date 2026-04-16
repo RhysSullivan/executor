@@ -908,15 +908,17 @@ export const createExecutor = <
     // Render the ToolSchema view for a tool — wraps the raw JSON schemas
     // with attached `$defs` and runs them through the TypeScript preview
     // helpers so the UI gets ready-to-display code samples.
-    const buildToolSchemaView = (
-      toolId: string,
-      sourceId: string | undefined,
-      rawInput: unknown,
-      rawOutput: unknown,
-    ) =>
+    const buildToolSchemaView = (opts: {
+      toolId: string;
+      name?: string;
+      description?: string;
+      sourceId: string | undefined;
+      rawInput: unknown;
+      rawOutput: unknown;
+    }) =>
       Effect.gen(function* () {
-        const defs: Record<string, unknown> = sourceId
-          ? yield* loadDefinitionsForSource(sourceId)
+        const defs: Record<string, unknown> = opts.sourceId
+          ? yield* loadDefinitionsForSource(opts.sourceId)
           : {};
 
         const attachDefs = (schema: unknown): unknown => {
@@ -925,13 +927,9 @@ export const createExecutor = <
           return { ...(schema as Record<string, unknown>), $defs: defs };
         };
 
-        const inputSchema = attachDefs(rawInput);
-        const outputSchema = attachDefs(rawOutput);
+        const inputSchema = attachDefs(opts.rawInput);
+        const outputSchema = attachDefs(opts.rawOutput);
 
-        // TypeScript preview rendering — pure, synchronous. Uses the
-        // helpers we already ship. The helpers walk the schema's refs,
-        // collect only the defs actually reached, and render the subset
-        // as named TS types so the preview is minimal per tool.
         const defsMap = new Map<string, unknown>(Object.entries(defs));
         const preview = buildToolTypeScriptPreview({
           inputSchema,
@@ -940,7 +938,9 @@ export const createExecutor = <
         });
 
         return new ToolSchema({
-          id: ToolId.make(toolId),
+          id: ToolId.make(opts.toolId),
+          name: opts.name,
+          description: opts.description,
           inputSchema,
           outputSchema,
           inputTypeScript: preview.inputTypeScript ?? undefined,
@@ -955,24 +955,28 @@ export const createExecutor = <
         // no `$defs` attach; just wrap the declared schemas.
         const staticEntry = staticTools.get(toolId);
         if (staticEntry) {
-          return yield* buildToolSchemaView(
+          return yield* buildToolSchemaView({
             toolId,
-            undefined,
-            staticEntry.tool.inputSchema,
-            staticEntry.tool.outputSchema,
-          );
+            name: staticEntry.tool.name,
+            description: staticEntry.tool.description,
+            sourceId: undefined,
+            rawInput: staticEntry.tool.inputSchema,
+            rawOutput: staticEntry.tool.outputSchema,
+          });
         }
         const row = yield* core.findOne({
           model: "tool",
           where: [{ field: "id", value: toolId }],
         });
         if (!row) return null;
-        return yield* buildToolSchemaView(
+        return yield* buildToolSchemaView({
           toolId,
-          row.source_id,
-          decodeJsonColumn(row.input_schema),
-          decodeJsonColumn(row.output_schema),
-        );
+          name: row.name,
+          description: row.description,
+          sourceId: row.source_id,
+          rawInput: decodeJsonColumn(row.input_schema),
+          rawOutput: decodeJsonColumn(row.output_schema),
+        });
       });
 
     // Bulk definitions accessor — every source's $defs, grouped by

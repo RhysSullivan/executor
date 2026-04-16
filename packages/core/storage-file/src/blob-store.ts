@@ -3,6 +3,9 @@
 // drizzle sqlite database the adapter uses. Keeps plugin-owned opaque
 // blobs (onepassword config, workos-vault metadata, etc.) persistent
 // across restarts without needing a second storage seam.
+//
+// DDL is NOT run here — the `blob` table is expected to exist before this
+// runs. Consumers materialize schema via drizzle-kit migrations.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
@@ -11,7 +14,7 @@ import { primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import type { BlobStore } from "@executor/sdk";
 
-const blobTable = sqliteTable(
+export const blobTable = sqliteTable(
   "blob",
   {
     namespace: text("namespace").notNull(),
@@ -22,8 +25,6 @@ const blobTable = sqliteTable(
 );
 
 // Structural type covering drizzle-orm/bun-sqlite and drizzle-orm/better-sqlite3.
-// Both expose the same sync query surface; we don't need tighter typing here
-// because the blob store only uses select/insert/delete/run.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DrizzleSqliteDB = any;
 
@@ -40,85 +41,67 @@ const wrapErr =
 
 export const makeSqliteBlobStore = (
   options: MakeSqliteBlobStoreOptions,
-): Effect.Effect<BlobStore, Error> =>
-  Effect.gen(function* () {
-    const { db } = options;
-
-    yield* Effect.try({
+): BlobStore => ({
+  get: (namespace, key) =>
+    Effect.try({
       try: () =>
-        db.run(
-          drizzleSql`CREATE TABLE IF NOT EXISTS "blob" (
-            "namespace" TEXT NOT NULL,
-            "key" TEXT NOT NULL,
-            "value" TEXT NOT NULL,
-            PRIMARY KEY ("namespace", "key")
-          )`,
-        ),
-      catch: wrapErr("DDL"),
-    });
+        options.db
+          .select({ value: blobTable.value })
+          .from(blobTable)
+          .where(
+            and(
+              eq(blobTable.namespace, namespace),
+              eq(blobTable.key, key),
+            ),
+          )
+          .limit(1)
+          .all() as ReadonlyArray<{ value: string }>,
+      catch: wrapErr("get"),
+    }).pipe(Effect.map((rows) => rows[0]?.value ?? null)),
 
-    return {
-      get: (namespace, key) =>
-        Effect.try({
-          try: () =>
-            db
-              .select({ value: blobTable.value })
-              .from(blobTable)
-              .where(
-                and(
-                  eq(blobTable.namespace, namespace),
-                  eq(blobTable.key, key),
-                ),
-              )
-              .limit(1)
-              .all() as ReadonlyArray<{ value: string }>,
-          catch: wrapErr("get"),
-        }).pipe(Effect.map((rows) => rows[0]?.value ?? null)),
+  put: (namespace, key, value) =>
+    Effect.try({
+      try: () =>
+        options.db
+          .insert(blobTable)
+          .values({ namespace, key, value })
+          .onConflictDoUpdate({
+            target: [blobTable.namespace, blobTable.key],
+            set: { value },
+          })
+          .run(),
+      catch: wrapErr("put"),
+    }).pipe(Effect.asVoid),
 
-      put: (namespace, key, value) =>
-        Effect.try({
-          try: () =>
-            db
-              .insert(blobTable)
-              .values({ namespace, key, value })
-              .onConflictDoUpdate({
-                target: [blobTable.namespace, blobTable.key],
-                set: { value },
-              })
-              .run(),
-          catch: wrapErr("put"),
-        }).pipe(Effect.asVoid),
+  delete: (namespace, key) =>
+    Effect.try({
+      try: () =>
+        options.db
+          .delete(blobTable)
+          .where(
+            and(
+              eq(blobTable.namespace, namespace),
+              eq(blobTable.key, key),
+            ),
+          )
+          .run(),
+      catch: wrapErr("delete"),
+    }).pipe(Effect.asVoid),
 
-      delete: (namespace, key) =>
-        Effect.try({
-          try: () =>
-            db
-              .delete(blobTable)
-              .where(
-                and(
-                  eq(blobTable.namespace, namespace),
-                  eq(blobTable.key, key),
-                ),
-              )
-              .run(),
-          catch: wrapErr("delete"),
-        }).pipe(Effect.asVoid),
-
-      has: (namespace, key) =>
-        Effect.try({
-          try: () =>
-            db
-              .select({ one: drizzleSql<number>`1`.as("one") })
-              .from(blobTable)
-              .where(
-                and(
-                  eq(blobTable.namespace, namespace),
-                  eq(blobTable.key, key),
-                ),
-              )
-              .limit(1)
-              .all() as ReadonlyArray<{ one: number }>,
-          catch: wrapErr("has"),
-        }).pipe(Effect.map((rows) => rows.length > 0)),
-    };
-  });
+  has: (namespace, key) =>
+    Effect.try({
+      try: () =>
+        options.db
+          .select({ one: drizzleSql<number>`1`.as("one") })
+          .from(blobTable)
+          .where(
+            and(
+              eq(blobTable.namespace, namespace),
+              eq(blobTable.key, key),
+            ),
+          )
+          .limit(1)
+          .all() as ReadonlyArray<{ one: number }>,
+      catch: wrapErr("has"),
+    }).pipe(Effect.map((rows) => rows.length > 0)),
+});

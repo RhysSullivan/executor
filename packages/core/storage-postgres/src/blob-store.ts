@@ -6,8 +6,7 @@
 //
 // DDL is NOT run here — the `blob` table is expected to exist before this
 // runs. Consumers materialize schema via drizzle-kit (or equivalent)
-// out-of-band; Cloudflare Workers request paths stay free of schema
-// round-trips.
+// out-of-band.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
@@ -17,7 +16,7 @@ import { pgTable, primaryKey, text } from "drizzle-orm/pg-core";
 
 import type { BlobStore } from "@executor/sdk";
 
-const blobTable = pgTable(
+export const blobTable = pgTable(
   "blob",
   {
     namespace: text("namespace").notNull(),
@@ -27,8 +26,6 @@ const blobTable = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.namespace, t.key] }) }),
 );
 
-// Structural type covering `drizzle-orm/postgres-js`'s PgDatabase across
-// whichever schema bag the caller constructed it with.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DrizzlePgDB = PgDatabase<any, any, any>;
 
@@ -45,67 +42,66 @@ const wrapErr =
 
 export const makePostgresBlobStore = (
   options: MakePostgresBlobStoreOptions,
-): Effect.Effect<BlobStore, Error> =>
-  Effect.succeed({
-    get: (namespace, key) =>
-      Effect.tryPromise({
-        try: async () => {
-          const rows = await options.db
-            .select({ value: blobTable.value })
-            .from(blobTable)
-            .where(
-              and(
-                eq(blobTable.namespace, namespace),
-                eq(blobTable.key, key),
-              ),
-            )
-            .limit(1);
-          return rows[0]?.value ?? null;
-        },
-        catch: wrapErr("get"),
-      }),
-    put: (namespace, key, value) =>
-      Effect.tryPromise({
-        try: async () => {
-          await options.db
-            .insert(blobTable)
-            .values({ namespace, key, value })
-            .onConflictDoUpdate({
-              target: [blobTable.namespace, blobTable.key],
-              set: { value },
-            });
-        },
-        catch: wrapErr("put"),
-      }),
-    delete: (namespace, key) =>
-      Effect.tryPromise({
-        try: async () => {
-          await options.db
-            .delete(blobTable)
-            .where(
-              and(
-                eq(blobTable.namespace, namespace),
-                eq(blobTable.key, key),
-              ),
-            );
-        },
-        catch: wrapErr("delete"),
-      }),
-    has: (namespace, key) =>
-      Effect.tryPromise({
-        try: async () => {
-          const rows = await options.db
-            .select({ key: blobTable.key })
-            .from(blobTable)
-            .where(
-              and(
-                eq(blobTable.namespace, namespace),
-                eq(blobTable.key, key),
-              ),
-            )
-            .limit(1);
-          return rows.length > 0;
-        },
-        catch: wrapErr("has"),
-      }),
-  });
+): BlobStore => ({
+  get: (namespace, key) =>
+    Effect.tryPromise({
+      try: async () => {
+        const rows = await options.db
+          .select({ value: blobTable.value })
+          .from(blobTable)
+          .where(
+            and(
+              eq(blobTable.namespace, namespace),
+              eq(blobTable.key, key),
+            ),
+          )
+          .limit(1);
+        return rows[0]?.value ?? null;
+      },
+      catch: wrapErr("get"),
+    }),
+  put: (namespace, key, value) =>
+    Effect.tryPromise({
+      try: async () => {
+        await options.db
+          .insert(blobTable)
+          .values({ namespace, key, value })
+          .onConflictDoUpdate({
+            target: [blobTable.namespace, blobTable.key],
+            set: { value },
+          });
+      },
+      catch: wrapErr("put"),
+    }),
+  delete: (namespace, key) =>
+    Effect.tryPromise({
+      try: async () => {
+        await options.db
+          .delete(blobTable)
+          .where(
+            and(
+              eq(blobTable.namespace, namespace),
+              eq(blobTable.key, key),
+            ),
+          );
+      },
+      catch: wrapErr("delete"),
+    }),
+  has: (namespace, key) =>
+    Effect.tryPromise({
+      try: async () => {
+        const rows = await options.db
+          .select({ key: blobTable.key })
+          .from(blobTable)
+          .where(
+            and(
+              eq(blobTable.namespace, namespace),
+              eq(blobTable.key, key),
+            ),
+          )
+          .limit(1);
+        return rows.length > 0;
+      },
+      catch: wrapErr("has"),
+    }),
+});
