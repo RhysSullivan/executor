@@ -387,38 +387,57 @@ const buildWrapperPackage = async (binaries: Record<string, string>) => {
 };
 
 // ---------------------------------------------------------------------------
-// Preview wrapper — a self-contained npm package for pkg.pr.new previews.
+// Preview wrapper — a slim npm package for pkg.pr.new previews that fetches
+// the platform binary from our R2 bucket at install time.
 //
-// Differs from the release wrapper in two ways:
-//   1. The platform binary is baked into `bin/runtime/` directly, so the
-//      package works without a GitHub Release to download from.
-//   2. No postinstall script — the NODE_SHIM already prefers an existing
-//      `runtime/` binary over invoking the installer.
+// The release wrapper points postinstall at GitHub Releases. For previews
+// there's no release, so we upload per-PR tarballs to R2 (keyed by commit
+// SHA) and have a dedicated postinstall download from there.
 //
-// The package declares `os`/`cpu` matching the built binary, so npm will
-// refuse to install it on an incompatible platform instead of silently
-// shipping a broken binary.
+// Requires two env vars at build time:
+//   EXECUTOR_PREVIEW_CDN_URL — e.g. https://pub-XYZ.r2.dev (no trailing /)
+//   EXECUTOR_PREVIEW_SHA     — commit SHA used as the R2 key prefix
+//
+// CI is responsible for also uploading dist/previews/<platform>.tar.gz
+// (produced here) to `<bucket>/<sha>/<platform>.tar.gz`.
 // ---------------------------------------------------------------------------
 
 const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
   const meta = await readMetadata();
+  const cdnUrl = process.env.EXECUTOR_PREVIEW_CDN_URL?.replace(/\/+$/, "");
+  const sha = process.env.EXECUTOR_PREVIEW_SHA;
+  if (!cdnUrl || !sha) {
+    throw new Error(
+      "preview build requires EXECUTOR_PREVIEW_CDN_URL and EXECUTOR_PREVIEW_SHA to be set",
+    );
+  }
+
   const wrapperDir = join(distDir, meta.name);
   const binDir = join(wrapperDir, "bin");
-  const runtimeDir = join(binDir, "runtime");
-  await mkdir(runtimeDir, { recursive: true });
+  await mkdir(binDir, { recursive: true });
 
   await writeFile(join(binDir, "executor"), NODE_SHIM);
   await chmod(join(binDir, "executor"), 0o755);
 
-  const [only] = ALL_TARGETS.filter(isCurrentPlatform);
-  if (!only) {
-    throw new Error(
-      `No target matches current platform ${process.platform}-${process.arch} (non-musl)`,
-    );
+  const previewDir = join(distDir, "previews");
+  await mkdir(previewDir, { recursive: true });
+
+  // Tar each built platform's bin/ into dist/previews/<platform>.tar.gz
+  // so CI can push them to R2 with one `wrangler r2 object put` per file.
+  for (const platformPkg of Object.keys(binaries)) {
+    const srcBinDir = join(distDir, platformPkg, "bin");
+    const tarPath = join(previewDir, `${platformPkg}.tar.gz`);
+    await $`tar -czf ${tarPath} .`.cwd(srcBinDir).quiet();
   }
-  const platformPkg = targetPackageName(only);
-  const srcBinDir = join(distDir, platformPkg, "bin");
-  await cp(srcBinDir, runtimeDir, { recursive: true });
+
+  const postinstall = PREVIEW_POSTINSTALL_SCRIPT.replaceAll(
+    "__CDN_BASE_URL__",
+    `${cdnUrl}/${sha}`,
+  );
+  await writeFile(join(wrapperDir, "postinstall.cjs"), postinstall);
+
+  const osList = Array.from(new Set(ALL_TARGETS.filter((t) => !t.abi).map((t) => t.os)));
+  const cpuList = Array.from(new Set(ALL_TARGETS.filter((t) => !t.abi).map((t) => t.arch)));
 
   await writeFile(
     join(wrapperDir, "package.json"),
@@ -433,9 +452,10 @@ const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
         repository: meta.repository,
         license: meta.license,
         bin: { executor: "bin/executor" },
-        files: ["bin", "README.md"],
-        os: [only.os],
-        cpu: [only.arch],
+        files: ["bin", "postinstall.cjs", "README.md"],
+        scripts: { postinstall: "node ./postinstall.cjs" },
+        os: osList,
+        cpu: cpuList,
         engines: { node: ">=20" },
       },
       null,
@@ -449,11 +469,9 @@ const buildPreviewWrapperPackage = async (binaries: Record<string, string>) => {
   }
 
   console.log(`\nPreview wrapper: ${wrapperDir}`);
-  console.log(`  ${meta.name}@${meta.version} (${platformPkg}, bundled)`);
-  // Suppress the unused-value hint for `binaries` — we keep the parameter
-  // for parity with buildWrapperPackage even though the preview path only
-  // ever has one entry.
-  void binaries;
+  console.log(`  ${meta.name}@${meta.version} — CDN ${cdnUrl}/${sha}`);
+  console.log(`  preview tarballs: ${previewDir}`);
+  console.log(`  built platforms: ${Object.keys(binaries).join(", ")}`);
 };
 
 // ---------------------------------------------------------------------------
@@ -716,6 +734,89 @@ const extract = () => {
     console.log("executor: installed " + assetBase + " from GitHub Releases");
   } catch (error) {
     console.error("executor postinstall failed:", error && error.message ? error.message : error);
+    process.exit(1);
+  }
+})();
+`;
+
+// ---------------------------------------------------------------------------
+// Preview postinstall — download per-PR tarballs from our R2 CDN instead of
+// GitHub Releases. The __CDN_BASE_URL__ placeholder is replaced at build time
+// with `${cdnBase}/${sha}` so each preview fetches its own commit's binary.
+// ---------------------------------------------------------------------------
+
+const PREVIEW_POSTINSTALL_SCRIPT = `#!/usr/bin/env node
+const childProcess = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
+
+const CDN_BASE = "__CDN_BASE_URL__";
+const packageDir = path.dirname(fs.realpathSync(__filename));
+const binDir = path.join(packageDir, "bin");
+const runtimeDir = path.join(binDir, "runtime");
+
+const platformMap = { darwin: "darwin", linux: "linux", win32: "windows" };
+const platform = platformMap[os.platform()] || os.platform();
+const arch = os.arch() === "arm64" ? "arm64" : "x64";
+const binary = platform === "windows" ? "executor.exe" : "executor";
+const cachedBinary = path.join(runtimeDir, binary);
+
+const isMusl = (() => {
+  if (platform !== "linux") return false;
+  try { if (fs.existsSync("/etc/alpine-release")) return true; } catch {}
+  try {
+    const r = childProcess.spawnSync("ldd", ["--version"], { encoding: "utf8" });
+    if (((r.stdout || "") + (r.stderr || "")).toLowerCase().includes("musl")) return true;
+  } catch {}
+  return false;
+})();
+
+const assetBase = (() => {
+  const base = "executor-" + platform + "-" + arch;
+  return platform === "linux" && isMusl ? base + "-musl" : base;
+})();
+const archiveName = assetBase + ".tar.gz";
+const downloadUrl = CDN_BASE + "/" + archiveName;
+const archivePath = path.join(packageDir, archiveName);
+
+const run = (command, args) => {
+  const result = childProcess.spawnSync(command, args, { stdio: "inherit" });
+  if (result.error) throw result.error;
+  if (typeof result.status === "number" && result.status !== 0) {
+    throw new Error(command + " exited with code " + result.status);
+  }
+};
+
+const download = async () => {
+  const response = await fetch(downloadUrl, { redirect: "follow" });
+  if (!response.ok) {
+    throw new Error(
+      "Failed to download " + downloadUrl + " (status " + response.status + "). " +
+      "This preview build may not cover your platform (" + assetBase + ")."
+    );
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  fs.writeFileSync(archivePath, Buffer.from(arrayBuffer));
+};
+
+(async () => {
+  try {
+    await download();
+
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.rmSync(runtimeDir, { recursive: true, force: true });
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    run("tar", ["-xzf", archivePath, "-C", runtimeDir]);
+
+    if (!fs.existsSync(cachedBinary)) {
+      throw new Error("Expected extracted binary at " + cachedBinary);
+    }
+    if (platform !== "windows") fs.chmodSync(cachedBinary, 0o755);
+    fs.rmSync(archivePath, { force: true });
+    console.log("executor: installed preview " + assetBase + " from " + CDN_BASE);
+  } catch (error) {
+    console.error("executor preview postinstall failed:", error && error.message ? error.message : error);
     process.exit(1);
   }
 })();

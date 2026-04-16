@@ -19,6 +19,21 @@ jobs:
       - run: bun run build:packages
 
       - name: Build executor preview wrapper (linux-x64 binary)
+        env:
+          EXECUTOR_PREVIEW_CDN_URL: ${{ vars.EXECUTOR_PREVIEW_CDN_URL }}
+          EXECUTOR_PREVIEW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: bun run --filter=executor build:preview
+
+      - name: Upload preview binaries to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          for tarball in apps/cli/dist/previews/*.tar.gz; do
+            name=$(basename "$tarball")
+            echo "Uploading $name → r2://executor-previews/$SHA/$name"
+            bunx wrangler r2 object put "executor-previews/$SHA/$name" --file "$tarball" --remote
+          done
 
       - run: npx pkg-pr-new publish --compact './apps/cli/dist/executor' './packages/core/sdk' './packages/plugins/*'
