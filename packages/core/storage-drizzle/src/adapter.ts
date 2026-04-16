@@ -129,10 +129,22 @@ const buildCond = (
     case "in":
       if (!Array.isArray(w.value))
         throw new Error("Value must be an array for `in`");
+      if (isInsensitive) {
+        const values = w.value as readonly string[];
+        if (values.length === 0) return sql`1 = 0`;
+        const lowered = values.map((v) => v.toLowerCase());
+        return sql`LOWER(${col}) IN ${lowered}`;
+      }
       return inArray(col, w.value as unknown[]);
     case "not_in":
       if (!Array.isArray(w.value))
         throw new Error("Value must be an array for `not_in`");
+      if (isInsensitive) {
+        const values = w.value as readonly string[];
+        if (values.length === 0) return sql`1 = 1`;
+        const lowered = values.map((v) => v.toLowerCase());
+        return sql`LOWER(${col}) NOT IN ${lowered}`;
+      }
       return notInArray(col, w.value as unknown[]);
     case "contains":
       if (isInsensitive && typeof w.value === "string") {

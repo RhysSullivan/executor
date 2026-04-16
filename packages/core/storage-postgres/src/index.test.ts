@@ -71,6 +71,14 @@ if (!url) {
           "note" TEXT
         )`,
       );
+      await sql.unsafe(
+        `CREATE TABLE IF NOT EXISTS "with_defaults" (
+          "id" TEXT PRIMARY KEY,
+          "name" TEXT,
+          "nickname" TEXT,
+          "touchedAt" TIMESTAMPTZ
+        )`,
+      );
     },
     catch: (cause) =>
       new Error(
@@ -83,7 +91,7 @@ if (!url) {
   const resetTables = Effect.gen(function* () {
     yield* Effect.tryPromise({
       try: () =>
-        sql`DROP TABLE IF EXISTS "source", "tag", "source_tag", "blob" CASCADE`.then(
+        sql`DROP TABLE IF EXISTS "source", "tag", "source_tag", "with_defaults", "blob" CASCADE`.then(
           () => undefined,
         ),
       catch: (cause) =>

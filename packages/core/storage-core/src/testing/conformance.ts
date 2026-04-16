@@ -54,6 +54,25 @@ export const conformanceSchema: DBSchema = {
       note: { type: "string" },
     },
   },
+  // Defaults / onUpdate conformance table. Exercises the factory's
+  // withApplyDefault helper: `nickname` is optional with a defaultValue,
+  // `touchedAt` has an onUpdate hook. Regression coverage for two bugs
+  // we hit porting better-auth's factory:
+  //   (1) create: an explicit `null` for an optional field must be
+  //       preserved, not overwritten by defaultValue
+  //   (2) update: an explicit caller value must win over onUpdate
+  with_defaults: {
+    modelName: "with_defaults",
+    fields: {
+      name: { type: "string", required: true },
+      nickname: { type: "string", required: false, defaultValue: "anon" },
+      touchedAt: {
+        type: "date",
+        required: false,
+        onUpdate: () => new Date("2099-01-01T00:00:00.000Z"),
+      },
+    },
+  },
 };
 
 export type WithAdapter = <A, E>(
@@ -395,6 +414,121 @@ export const runAdapterConformance = (
           });
           expect(hit).not.toBeNull();
           expect(hit!.label).toBe("RED");
+        }),
+      ),
+    );
+
+    it.effect("where operator: in / not_in honors insensitive mode", () =>
+      // Regression: drizzle adapter collapsed insensitive in/not_in to
+      // sensitive SQL, so a query with mixed-case values silently missed
+      // rows. Fix emits LOWER(col) IN (lower(v1), lower(v2)).
+      withAdapter((adapter) =>
+        Effect.gen(function* () {
+          yield* adapter.createMany({
+            model: "tag",
+            data: [{ label: "RED" }, { label: "Green" }, { label: "blue" }],
+          });
+
+          const hitIn = yield* adapter.findMany<{ label: string }>({
+            model: "tag",
+            where: [
+              {
+                field: "label",
+                value: ["red", "GREEN"],
+                operator: "in",
+                mode: "insensitive",
+              },
+            ],
+          });
+          expect(hitIn.map((r) => r.label).sort()).toEqual(["Green", "RED"]);
+
+          const hitNotIn = yield* adapter.findMany<{ label: string }>({
+            model: "tag",
+            where: [
+              {
+                field: "label",
+                value: ["red", "GREEN"],
+                operator: "not_in",
+                mode: "insensitive",
+              },
+            ],
+          });
+          expect(hitNotIn.map((r) => r.label)).toEqual(["blue"]);
+        }),
+      ),
+    );
+
+    it.effect("create preserves explicit null over defaultValue on optional fields", () =>
+      // Regression: the vendored withApplyDefault overwrote an explicit
+      // `null` with `defaultValue` even for optional fields. Upstream only
+      // applies the default when `value === undefined` OR the field is
+      // required AND the caller passed null.
+      withAdapter((adapter) =>
+        Effect.gen(function* () {
+          const row = yield* adapter.create<{
+            id: string;
+            name: string;
+            nickname: string | null;
+          }>({
+            model: "with_defaults",
+            data: { name: "explicit-null", nickname: null },
+          });
+          expect(row.nickname).toBeNull();
+
+          const defaulted = yield* adapter.create<{
+            id: string;
+            name: string;
+            nickname: string | null;
+          }>({
+            model: "with_defaults",
+            data: { name: "omitted", nickname: undefined } as unknown as {
+              name: string;
+              nickname: string | null;
+            },
+          });
+          expect(defaulted.nickname).toBe("anon");
+        }),
+      ),
+    );
+
+    it.effect("update preserves explicit value over onUpdate hook", () =>
+      // Regression: vendored withApplyDefault unconditionally ran
+      // `field.onUpdate()` on update, clobbering any explicit caller
+      // value. Upstream only runs onUpdate when the caller didn't pass
+      // the field (value === undefined).
+      withAdapter((adapter) =>
+        Effect.gen(function* () {
+          const row = yield* adapter.create<{ id: string; name: string }>({
+            model: "with_defaults",
+            data: { name: "caller-wins" },
+          });
+          const explicitDate = new Date("2024-06-15T12:00:00.000Z");
+          const updated = yield* adapter.update<{
+            id: string;
+            touchedAt: Date;
+          }>({
+            model: "with_defaults",
+            where: [{ field: "id", value: row.id }],
+            update: { touchedAt: explicitDate },
+          });
+          expect(updated).not.toBeNull();
+          expect(updated!.touchedAt.toISOString()).toBe(
+            explicitDate.toISOString(),
+          );
+          // Sanity: omitting touchedAt should trigger onUpdate.
+          const hookDriven = yield* adapter.update<{
+            id: string;
+            name: string;
+            touchedAt: Date;
+          }>({
+            model: "with_defaults",
+            where: [{ field: "id", value: row.id }],
+            update: { name: "rename" },
+          });
+          expect(hookDriven).not.toBeNull();
+          expect(hookDriven!.touchedAt.toISOString()).toBe(
+            "2099-01-01T00:00:00.000Z",
+          );
         }),
       ),
     );

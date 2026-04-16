@@ -58,15 +58,24 @@ const withApplyDefault = (
   action: "create" | "update",
 ): unknown => {
   if (action === "update") {
-    if (field.onUpdate) return field.onUpdate();
+    // Only apply onUpdate when the caller DID NOT supply a value. An explicit
+    // `updatedAt: someDate` in the update payload should win over the
+    // plugin's onUpdate hook — matches upstream.
+    if (value === undefined && field.onUpdate !== undefined) {
+      return field.onUpdate();
+    }
     return value;
   }
-  if (value === undefined || value === null) {
-    if (field.defaultValue !== undefined) {
-      return typeof field.defaultValue === "function"
-        ? (field.defaultValue as () => DBPrimitive)()
-        : field.defaultValue;
-    }
+  // Create: apply defaultValue only when the caller omitted the field, OR
+  // when they passed null for a required field (upstream convention —
+  // explicit null on an optional/nullable field is preserved). Without the
+  // `required` gate we'd silently overwrite legitimate null writes.
+  const triggerDefault =
+    value === undefined || (field.required === true && value === null);
+  if (triggerDefault && field.defaultValue !== undefined) {
+    return typeof field.defaultValue === "function"
+      ? (field.defaultValue as () => DBPrimitive)()
+      : field.defaultValue;
   }
   return value;
 };
