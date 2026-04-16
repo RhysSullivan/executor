@@ -1,100 +1,111 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Fiber, Schema } from "effect";
+import { Effect, Fiber } from "effect";
 
 import {
   ElicitationResponse,
-  Source,
+  FormElicitation,
   createExecutor,
-  inMemoryToolsPlugin,
+  definePlugin,
   makeTestConfig,
-  tool,
 } from "@executor/sdk";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
 
-const EmptyInput = Schema.Struct({});
-const RepoInput = Schema.Struct({
-  owner: Schema.String,
-  repo: Schema.String,
-});
-const ContactInput = Schema.Struct({
-  email: Schema.String,
-});
+const RepoInputSchema = {
+  type: "object",
+  properties: {
+    owner: { type: "string" },
+    repo: { type: "string" },
+  },
+  required: ["owner", "repo"],
+  additionalProperties: false,
+} as const;
 
-import { FormElicitation } from "@executor/sdk";
+const ContactInputSchema = {
+  type: "object",
+  properties: {
+    email: { type: "string" },
+  },
+  required: ["email"],
+  additionalProperties: false,
+} as const;
+
+const EmptyInputSchema = {
+  type: "object",
+  properties: {},
+  additionalProperties: false,
+} as const;
 
 const acceptAll = () => Effect.succeed(new ElicitationResponse({ action: "accept" }));
 
+// ---------------------------------------------------------------------------
+// Test plugins — each one declares a namespace as a static source with N
+// tools. Handlers return static data; the suite only cares about discovery
+// + elicitation flow, not real invocation semantics.
+// ---------------------------------------------------------------------------
+
+const githubPlugin = definePlugin(() => ({
+  id: "github-test" as const,
+  storage: () => ({}),
+  staticSources: () => [
+    {
+      id: "github",
+      kind: "in-memory",
+      name: "GitHub",
+      tools: [
+        {
+          name: "listRepositoryIssues",
+          description: "List issues for a repository",
+          inputSchema: RepoInputSchema,
+          handler: () => Effect.succeed([]),
+        },
+        {
+          name: "getRepositoryDetails",
+          description: "Get repository details including the default branch",
+          inputSchema: RepoInputSchema,
+          handler: () => Effect.succeed({ defaultBranch: "main" }),
+        },
+        {
+          name: "searchDocs",
+          description: "Search GitHub API documentation",
+          inputSchema: EmptyInputSchema,
+          handler: () => Effect.succeed([]),
+        },
+      ],
+    },
+  ],
+}));
+
+const crmPlugin = definePlugin(() => ({
+  id: "crm-test" as const,
+  storage: () => ({}),
+  staticSources: () => [
+    {
+      id: "crm",
+      kind: "in-memory",
+      name: "CRM",
+      tools: [
+        {
+          name: "createContact",
+          description: "Create a CRM contact record",
+          inputSchema: ContactInputSchema,
+          handler: () => Effect.succeed({ id: "contact_1" }),
+        },
+        {
+          name: "listContacts",
+          description: "List CRM contacts",
+          inputSchema: EmptyInputSchema,
+          handler: () => Effect.succeed([]),
+        },
+      ],
+    },
+  ],
+}));
+
 const makeSearchExecutor = () =>
-  Effect.gen(function* () {
-    const config = makeTestConfig({
-      plugins: [
-        inMemoryToolsPlugin({
-          namespace: "github",
-          tools: [
-            tool({
-              name: "listRepositoryIssues",
-              description: "List issues for a repository",
-              inputSchema: RepoInput,
-              handler: () => [],
-            }),
-            tool({
-              name: "getRepositoryDetails",
-              description: "Get repository details including the default branch",
-              inputSchema: RepoInput,
-              handler: () => ({ defaultBranch: "main" }),
-            }),
-            tool({
-              name: "searchDocs",
-              description: "Search GitHub API documentation",
-              inputSchema: EmptyInput,
-              handler: () => [],
-            }),
-          ],
-        }),
-        inMemoryToolsPlugin({
-          namespace: "crm",
-          tools: [
-            tool({
-              name: "createContact",
-              description: "Create a CRM contact record",
-              inputSchema: ContactInput,
-              handler: () => ({ id: "contact_1" }),
-            }),
-            tool({
-              name: "listContacts",
-              description: "List CRM contacts",
-              inputSchema: EmptyInput,
-              handler: () => [],
-            }),
-          ],
-        }),
-      ] as const,
-    });
-
-    yield* config.sources.registerRuntime(
-      new Source({
-        id: "github",
-        name: "GitHub",
-        kind: "in-memory",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }),
-    );
-    yield* config.sources.registerRuntime(
-      new Source({
-        id: "crm",
-        name: "CRM",
-        kind: "in-memory",
-        runtime: true,
-        canRemove: false,
-        canRefresh: false,
-      }),
-    );
-
-    return yield* createExecutor(config);
-  });
+  createExecutor(
+    makeTestConfig({ plugins: [githubPlugin(), crmPlugin()] as const }),
+  );
 
 describe("tool discovery", () => {
   it.effect("ranks matches using ids, namespaces, camelCase names, and descriptions", () =>
@@ -181,21 +192,13 @@ describe("tool discovery", () => {
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
 
-      const withoutSchemas = yield* describeTool(executor, "github.listRepositoryIssues");
-      expect(withoutSchemas).toEqual({
-        path: "github.listRepositoryIssues",
-        name: "listRepositoryIssues",
-        description: "List issues for a repository",
-        inputTypeScript: "{ owner: string; repo: string }",
-        outputTypeScript: undefined,
-        typeScriptDefinitions: undefined,
-      });
-
-      const withSchemas = yield* describeTool(executor, "github.listRepositoryIssues");
-      expect(withSchemas.path).toBe("github.listRepositoryIssues");
-      expect(withSchemas.inputTypeScript).toBe("{ owner: string; repo: string }");
-      expect(withSchemas.typeScriptDefinitions).toBeUndefined();
-      expect(withSchemas.outputTypeScript).toBeUndefined();
+      const described = yield* describeTool(executor, "github.listRepositoryIssues");
+      expect(described.path).toBe("github.listRepositoryIssues");
+      expect(described.name).toBe("listRepositoryIssues");
+      expect(described.description).toBe("List issues for a repository");
+      expect(described.inputTypeScript).toBe("{ owner: string; repo: string }");
+      expect(described.outputTypeScript).toBeUndefined();
+      expect(described.typeScriptDefinitions).toBeUndefined();
     }),
   );
 
@@ -264,69 +267,60 @@ describe("tool discovery", () => {
 // pause/resume — multiple elicitations in a single execution
 // ---------------------------------------------------------------------------
 
+const apiPlugin = definePlugin(() => ({
+  id: "api-test" as const,
+  storage: () => ({}),
+  staticSources: () => [
+    {
+      id: "api",
+      kind: "in-memory",
+      name: "API",
+      tools: [
+        {
+          name: "multiApproval",
+          description: "A tool that elicits twice",
+          inputSchema: EmptyInputSchema,
+          handler: ({ elicit }) =>
+            Effect.gen(function* () {
+              const r1 = yield* elicit(
+                new FormElicitation({
+                  message: "First approval",
+                  requestedSchema: {},
+                }),
+              );
+              const r2 = yield* elicit(
+                new FormElicitation({
+                  message: "Second approval",
+                  requestedSchema: {},
+                }),
+              );
+              return { first: r1, second: r2 };
+            }),
+        },
+        {
+          name: "singleApproval",
+          description:
+            "A tool that elicits exactly once and then returns a value. Mirrors the shape of a typical `gmail.users.labels.create` style operation: one approval, one side effect, one success response.",
+          inputSchema: EmptyInputSchema,
+          handler: ({ elicit }) =>
+            Effect.gen(function* () {
+              const r = yield* elicit(
+                new FormElicitation({
+                  message: "Only approval",
+                  requestedSchema: {},
+                }),
+              );
+              return { ok: true, response: r };
+            }),
+        },
+      ],
+    },
+  ],
+}));
+
 describe("pause/resume with multiple elicitations", () => {
   const makeElicitingExecutor = () =>
-    Effect.gen(function* () {
-      const config = makeTestConfig({
-        plugins: [
-          inMemoryToolsPlugin({
-            namespace: "api",
-            tools: [
-              tool({
-                name: "multiApproval",
-                description: "A tool that elicits twice",
-                inputSchema: EmptyInput,
-                handler: (_args, ctx) =>
-                  Effect.gen(function* () {
-                    const r1 = yield* ctx.elicit(
-                      new FormElicitation({
-                        message: "First approval",
-                        requestedSchema: {},
-                      }),
-                    );
-                    const r2 = yield* ctx.elicit(
-                      new FormElicitation({
-                        message: "Second approval",
-                        requestedSchema: {},
-                      }),
-                    );
-                    return { first: r1, second: r2 };
-                  }),
-              }),
-              tool({
-                name: "singleApproval",
-                description:
-                  "A tool that elicits exactly once and then returns a value. Mirrors the shape of a typical `gmail.users.labels.create` style operation: one approval, one side effect, one success response.",
-                inputSchema: EmptyInput,
-                handler: (_args, ctx) =>
-                  Effect.gen(function* () {
-                    const r = yield* ctx.elicit(
-                      new FormElicitation({
-                        message: "Only approval",
-                        requestedSchema: {},
-                      }),
-                    );
-                    return { ok: true, response: r };
-                  }),
-              }),
-            ],
-          }),
-        ] as const,
-      });
-
-      yield* config.sources.registerRuntime(
-        new Source({
-          id: "api",
-          name: "API",
-          kind: "in-memory",
-          runtime: true,
-          canRemove: false,
-          canRefresh: false,
-        }),
-      );
-
-      return yield* createExecutor(config);
-    });
+    createExecutor(makeTestConfig({ plugins: [apiPlugin()] as const }));
 
   it.effect(
     "resume does not hang when execution hits a second elicitation",
@@ -337,7 +331,6 @@ describe("pause/resume with multiple elicitations", () => {
 
         const code = "return await tools.api.multiApproval({});";
 
-        // First executeWithPause — should pause on first elicitation
         const outcome1 = yield* Effect.promise(() => engine.executeWithPause(code));
         expect(outcome1.status).toBe("paused");
         const paused1 = outcome1 as Extract<typeof outcome1, { status: "paused" }>;
