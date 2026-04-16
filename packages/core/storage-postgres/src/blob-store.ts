@@ -3,12 +3,38 @@
 // same postgres database as the adapter. Keeps plugin-owned opaque blobs
 // (onepassword config, workos-vault metadata, etc.) persistent across
 // restarts / Worker invocations without needing a second storage seam.
+//
+// DDL is NOT run here — the `blob` table is expected to exist before this
+// runs. Consumers materialize schema via drizzle-kit (or equivalent)
+// out-of-band; Cloudflare Workers request paths stay free of schema
+// round-trips.
 // ---------------------------------------------------------------------------
 
 import { Effect } from "effect";
-import type { Sql } from "postgres";
+import { and, eq } from "drizzle-orm";
+import type { PgDatabase } from "drizzle-orm/pg-core";
+import { pgTable, primaryKey, text } from "drizzle-orm/pg-core";
 
 import type { BlobStore } from "@executor/sdk";
+
+const blobTable = pgTable(
+  "blob",
+  {
+    namespace: text("namespace").notNull(),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.namespace, t.key] }) }),
+);
+
+// Structural type covering `drizzle-orm/postgres-js`'s PgDatabase across
+// whichever schema bag the caller constructed it with.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type DrizzlePgDB = PgDatabase<any, any, any>;
+
+export interface MakePostgresBlobStoreOptions {
+  readonly db: DrizzlePgDB;
+}
 
 const wrapErr =
   (op: string) =>
@@ -17,59 +43,69 @@ const wrapErr =
     return new Error(`[storage-postgres] blob ${op}: ${msg}`);
   };
 
-// DDL is NOT run here — the `blob` table is expected to exist before
-// this runs. Consumers materialize schema via drizzle-kit (or equivalent)
-// out-of-band; Cloudflare Workers request paths stay free of schema
-// round-trips.
 export const makePostgresBlobStore = (
-  sql: Sql,
+  options: MakePostgresBlobStoreOptions,
 ): Effect.Effect<BlobStore, Error> =>
-  Effect.gen(function* () {
-    return {
-      get: (namespace, key) =>
-        Effect.tryPromise({
-          try: async () => {
-            const rows = (await sql.unsafe(
-              `SELECT "value" FROM "blob" WHERE "namespace" = $1 AND "key" = $2 LIMIT 1`,
-              [namespace, key],
-            )) as unknown as ReadonlyArray<{ value: string }>;
-            return rows[0]?.value ?? null;
-          },
-          catch: wrapErr("get"),
-        }),
-      put: (namespace, key, value) =>
-        Effect.tryPromise({
-          try: async () => {
-            await sql.unsafe(
-              `INSERT INTO "blob" ("namespace", "key", "value")
-               VALUES ($1, $2, $3)
-               ON CONFLICT ("namespace", "key")
-               DO UPDATE SET "value" = EXCLUDED."value"`,
-              [namespace, key, value],
+  Effect.succeed({
+    get: (namespace, key) =>
+      Effect.tryPromise({
+        try: async () => {
+          const rows = await options.db
+            .select({ value: blobTable.value })
+            .from(blobTable)
+            .where(
+              and(
+                eq(blobTable.namespace, namespace),
+                eq(blobTable.key, key),
+              ),
+            )
+            .limit(1);
+          return rows[0]?.value ?? null;
+        },
+        catch: wrapErr("get"),
+      }),
+    put: (namespace, key, value) =>
+      Effect.tryPromise({
+        try: async () => {
+          await options.db
+            .insert(blobTable)
+            .values({ namespace, key, value })
+            .onConflictDoUpdate({
+              target: [blobTable.namespace, blobTable.key],
+              set: { value },
+            });
+        },
+        catch: wrapErr("put"),
+      }),
+    delete: (namespace, key) =>
+      Effect.tryPromise({
+        try: async () => {
+          await options.db
+            .delete(blobTable)
+            .where(
+              and(
+                eq(blobTable.namespace, namespace),
+                eq(blobTable.key, key),
+              ),
             );
-          },
-          catch: wrapErr("put"),
-        }),
-      delete: (namespace, key) =>
-        Effect.tryPromise({
-          try: async () => {
-            await sql.unsafe(
-              `DELETE FROM "blob" WHERE "namespace" = $1 AND "key" = $2`,
-              [namespace, key],
-            );
-          },
-          catch: wrapErr("delete"),
-        }),
-      has: (namespace, key) =>
-        Effect.tryPromise({
-          try: async () => {
-            const rows = (await sql.unsafe(
-              `SELECT 1 AS "one" FROM "blob" WHERE "namespace" = $1 AND "key" = $2 LIMIT 1`,
-              [namespace, key],
-            )) as unknown as ReadonlyArray<unknown>;
-            return rows.length > 0;
-          },
-          catch: wrapErr("has"),
-        }),
-    };
+        },
+        catch: wrapErr("delete"),
+      }),
+    has: (namespace, key) =>
+      Effect.tryPromise({
+        try: async () => {
+          const rows = await options.db
+            .select({ key: blobTable.key })
+            .from(blobTable)
+            .where(
+              and(
+                eq(blobTable.namespace, namespace),
+                eq(blobTable.key, key),
+              ),
+            )
+            .limit(1);
+          return rows.length > 0;
+        },
+        catch: wrapErr("has"),
+      }),
   });

@@ -55,12 +55,12 @@ export const createOrgExecutor = (
   organizationName: string,
 ) =>
   Effect.gen(function* () {
-    const { sql } = yield* DbService;
+    const { sql, db } = yield* DbService;
 
     const plugins = createOrgPlugins();
     const schema = collectSchemas(plugins);
     const adapter = yield* makePostgresAdapter({ sql, schema });
-    const blobs = yield* makePostgresBlobStore(sql);
+    const blobs = yield* makePostgresBlobStore({ db });
 
     const scope = new Scope({
       id: ScopeId.make(organizationId),
