@@ -14,6 +14,7 @@ export const graphqlSchema = defineSchema({
   graphql_source: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       endpoint: { type: "string", required: true },
       headers: { type: "json", required: false },
@@ -22,6 +23,7 @@ export const graphqlSchema = defineSchema({
   graphql_operation: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       source_id: { type: "string", required: true, index: true },
       binding: { type: "json", required: true },
     },

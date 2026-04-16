@@ -756,10 +756,30 @@ describe("createExecutor", () => {
 // invariant at the cheapest possible level (in-memory adapter).
 // ---------------------------------------------------------------------------
 
+// Per-executor memory provider — mirrors production where each org's
+// `workos-vault` plugin instance has its own client scoped to that org.
+// A module-level shared provider would leak across scopes on its own,
+// independent of the core.secret routing table isolation we're testing.
+const makeScopedMemoryProvider = (): SecretProvider => {
+  const store = new Map<string, string>();
+  return {
+    key: "scoped-memory",
+    writable: true,
+    get: (id) => Effect.sync(() => store.get(id) ?? null),
+    set: (id, value) =>
+      Effect.sync(() => {
+        store.set(id, value);
+      }),
+    delete: (id) => Effect.sync(() => store.delete(id)),
+    list: () =>
+      Effect.sync(() => Array.from(store.keys()).map((id) => ({ id, name: id }))),
+  };
+};
+
 const tenantPlugin = definePlugin(() => ({
   id: "tenant" as const,
   storage: () => ({}),
-  secretProviders: [memoryProvider],
+  secretProviders: () => [makeScopedMemoryProvider()],
   staticSources: () => [
     {
       id: "tenant.ctl",

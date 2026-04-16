@@ -28,6 +28,7 @@ export const workosVaultSchema = defineSchema({
   workos_vault_metadata: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       purpose: { type: "string", required: false },
       created_at: { type: "date", required: true },

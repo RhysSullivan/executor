@@ -2,7 +2,7 @@
 // via vitest.node.config.ts — workerd's dev-mode compile stack crashes
 // on the full cloud module graph (MCP SDK + all plugin handlers).
 //
-// Every plugin is the real one. `createOrgExecutor` is mirrored inline
+// Every plugin is the real one. `createScopedExecutor` is mirrored inline
 // here instead of imported so the `workos-vault` plugin gets an
 // in-memory fake `WorkOSVaultClient` (the real client would try to
 // reach the WorkOS API with test creds). Everything else — core
@@ -45,6 +45,7 @@ import { mcpPlugin } from "@executor/plugin-mcp";
 import { graphqlPlugin } from "@executor/plugin-graphql";
 import {
   workosVaultPlugin,
+  WorkOSVaultClientError,
   type WorkOSVaultClient,
   type WorkOSVaultObject,
   type WorkOSVaultObjectMetadata,
@@ -86,9 +87,12 @@ const makeFakeVaultClient = (): WorkOSVaultClient => {
     return metadata;
   };
 
+  const notFound = (name: string) =>
+    Object.assign(new Error(`not found: ${name}`), { status: 404 });
+
   const read = (name: string): WorkOSVaultObject => {
     const obj = byName.get(name);
-    if (!obj) throw new Error(`not found: ${name}`);
+    if (!obj) throw notFound(name);
     return obj;
   };
 
@@ -104,7 +108,7 @@ const makeFakeVaultClient = (): WorkOSVaultClient => {
         return updated;
       }
     }
-    throw new Error(`not found: ${opts.id}`);
+    throw notFound(opts.id);
   };
 
   const remove = (opts: { id: string }) => {
@@ -125,15 +129,35 @@ const makeFakeVaultClient = (): WorkOSVaultClient => {
           }),
         catch: (cause) => new Error(String(cause)) as never,
       }) as never,
-    createObject: (opts) => Effect.sync(() => create(opts)),
-    readObjectByName: (name) => Effect.sync(() => read(name)),
-    updateObject: (opts) => Effect.sync(() => update(opts)),
-    deleteObject: (opts) => Effect.sync(() => remove(opts)),
+    // The real client wraps SDK rejections in WorkOSVaultClientError so
+    // provider-side `isStatusError` checks can introspect `cause.status`.
+    // Mirror that here so our 404s flow through the same unwrap path.
+    createObject: (opts) =>
+      Effect.try({
+        try: () => create(opts),
+        catch: (cause) => new WorkOSVaultClientError({ cause, operation: "create_object" }),
+      }),
+    readObjectByName: (name) =>
+      Effect.try({
+        try: () => read(name),
+        catch: (cause) =>
+          new WorkOSVaultClientError({ cause, operation: "read_object_by_name" }),
+      }),
+    updateObject: (opts) =>
+      Effect.try({
+        try: () => update(opts),
+        catch: (cause) => new WorkOSVaultClientError({ cause, operation: "update_object" }),
+      }),
+    deleteObject: (opts) =>
+      Effect.try({
+        try: () => remove(opts),
+        catch: (cause) => new WorkOSVaultClientError({ cause, operation: "delete_object" }),
+      }),
   };
 };
 
 // ---------------------------------------------------------------------------
-// Executor factory — mirrors apps/cloud/services/executor#createOrgExecutor
+// Executor factory — mirrors apps/cloud/services/executor#createScopedExecutor
 // but with a fake vault client.
 // ---------------------------------------------------------------------------
 

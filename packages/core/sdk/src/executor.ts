@@ -58,6 +58,7 @@ import {
   type ToolListFilter,
 } from "./types";
 import { buildToolTypeScriptPreview } from "./schema-types";
+import { scopeAdapter } from "./scoped-adapter";
 
 // ---------------------------------------------------------------------------
 // InvokeOptions — passed to `executor.tools.invoke(id, args, options)`.
@@ -470,11 +471,19 @@ export const createExecutor = <
       plugins = [] as unknown as TPlugins,
     } = config;
 
-    // Router wraps the root adapter so every read/write inside the SDK
-    // (core + plugin storage) resolves its target via the FiberRef.
-    // `ctx.transaction` flips the FiberRef to the tx handle for the
-    // duration of its callback.
-    const adapter = buildAdapterRouter(rootAdapter);
+    // Scope-wrap the root adapter so every read on a tenant-scoped table
+    // filters by the current scope stack and every write stamps the
+    // write target. Today the stack has one element; the adapter's
+    // `ScopeContext` shape already accepts an ordered list so layering
+    // (org → workspace → user) can land later without changing plugin
+    // code. Only tables whose schema declares `scope_id` are scoped.
+    const schema = collectSchemas(plugins);
+    const scopedRoot = scopeAdapter(
+      rootAdapter,
+      { read: [scope.id], write: scope.id },
+      schema,
+    );
+    const adapter = buildAdapterRouter(scopedRoot);
     const core = typedAdapter<CoreSchema>(adapter);
 
     // Populated once, never mutated after startup.

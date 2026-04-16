@@ -2,7 +2,7 @@
 // Cloud executor — stateless, per-request, new SDK shape
 // ---------------------------------------------------------------------------
 //
-// Each invocation of `createOrgExecutor` runs inside a request-scoped
+// Each invocation of `createScopedExecutor` runs inside a request-scoped
 // Effect and yields a fresh executor bound to the current DbService's
 // per-request postgres.js client. Cloudflare Workers + Hyperdrive demand
 // fresh connections per request, so "build once" means "once per request"
@@ -52,12 +52,17 @@ const createOrgPlugins = () =>
   ] as const;
 
 // ---------------------------------------------------------------------------
-// Create a fresh executor for an organization (stateless, per-request)
+// Create a fresh executor for a scope (stateless, per-request).
+//
+// Today "scope" is the WorkOS organization — orgs are the only scope
+// level the cloud app exposes. When workspace / user scopes land, this
+// function grows to accept a `ScopeStack` instead of a single scope id,
+// and nothing downstream (executor, plugins, storage) has to change.
 // ---------------------------------------------------------------------------
 
-export const createOrgExecutor = (
-  organizationId: string,
-  organizationName: string,
+export const createScopedExecutor = (
+  scopeId: string,
+  scopeName: string,
 ) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
@@ -68,8 +73,8 @@ export const createOrgExecutor = (
     const blobs = makePostgresBlobStore({ db });
 
     const scope = new Scope({
-      id: ScopeId.make(organizationId),
-      name: organizationName,
+      id: ScopeId.make(scopeId),
+      name: scopeName,
       createdAt: new Date(),
     });
 

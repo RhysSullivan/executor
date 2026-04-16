@@ -36,6 +36,7 @@ export const googleDiscoverySchema = defineSchema({
   google_discovery_source: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       config: { type: "json", required: true },
       created_at: { type: "date", required: true },
@@ -45,6 +46,7 @@ export const googleDiscoverySchema = defineSchema({
   google_discovery_binding: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       source_id: { type: "string", required: true, index: true },
       binding: { type: "json", required: true },
       created_at: { type: "date", required: true },
@@ -53,6 +55,7 @@ export const googleDiscoverySchema = defineSchema({
   google_discovery_oauth_session: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       session: { type: "json", required: true },
       expires_at: { type: "date", required: true },
     },

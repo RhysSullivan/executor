@@ -19,6 +19,7 @@ export const coreSchema = {
   source: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       plugin_id: { type: "string", required: true, index: true },
       kind: { type: "string", required: true },
       name: { type: "string", required: true },
@@ -45,6 +46,7 @@ export const coreSchema = {
   tool: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       source_id: { type: "string", required: true, index: true },
       plugin_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
@@ -70,6 +72,7 @@ export const coreSchema = {
   definition: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       source_id: { type: "string", required: true, index: true },
       plugin_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
@@ -84,6 +87,7 @@ export const coreSchema = {
   secret: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       provider: { type: "string", required: true, index: true },
       created_at: { type: "date", required: true },

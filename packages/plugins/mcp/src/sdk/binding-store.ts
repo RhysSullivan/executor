@@ -18,6 +18,7 @@ export const mcpSchema = defineSchema({
   mcp_source: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       config: { type: "json", required: true },
       created_at: { type: "date", required: true },
@@ -26,6 +27,7 @@ export const mcpSchema = defineSchema({
   mcp_binding: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       source_id: { type: "string", required: true, index: true },
       binding: { type: "json", required: true },
       created_at: { type: "date", required: true },
@@ -34,6 +36,7 @@ export const mcpSchema = defineSchema({
   mcp_oauth_session: {
     fields: {
       id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
       session: { type: "json", required: true },
       expires_at: { type: "number", required: true },
       created_at: { type: "date", required: true },

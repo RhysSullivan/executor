@@ -8,6 +8,13 @@
       "when": 1776324351260,
       "tag": "0000_quiet_namora",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1776364919843,
+      "tag": "0001_skinny_jetstream",
+      "breakpoints": true
     }
   ]
 }

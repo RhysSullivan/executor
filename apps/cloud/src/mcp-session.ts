@@ -21,7 +21,7 @@ import { resolveOrganization } from "./auth/resolve-organization";
 import { WorkOSAuth } from "./auth/workos";
 import { server } from "./env";
 import { AutumnService } from "./services/autumn";
-import { createOrgExecutor } from "./services/executor";
+import { createScopedExecutor } from "./services/executor";
 import { DbService } from "./services/db";
 import * as cloudSchema from "./services/schema";
 
@@ -126,7 +126,7 @@ export class McpSessionDO extends DurableObject {
       if (!org)
         return yield* new OrganizationNotFoundError({ organizationId: token.organizationId });
 
-      const executor = yield* createOrgExecutor(org.id, org.name);
+      const executor = yield* createScopedExecutor(org.id, org.name);
       const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
       const autumn = yield* AutumnService;
       const engine = withExecutionUsageTracking(
