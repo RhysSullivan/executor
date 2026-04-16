@@ -7,6 +7,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "build:shell": "vite build --config vite.config.shell.ts",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -16,13 +17,28 @@
     "@cfworker/json-schema": "^4.1.1",
     "@executor/execution": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@modelcontextprotocol/ext-apps": "^1.6.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
     "effect": "catalog:",
+    "sucrase": "^3.35.1",
     "zod": "^4.3.0"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
     "@types/node": "catalog:",
+    "@vitejs/plugin-react": "^6.0.1",
     "bun-types": "catalog:",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.8.0",
+    "radix-ui": "^1.4.3",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.2",
+    "vite": "^8.0.8",
+    "vite-plugin-singlefile": "^2.3.2",
     "vitest": "catalog:"
   }
 }
