@@ -9,6 +9,7 @@ export default defineConfig({
   ],
   test: {
     include: ["src/**/*.test.ts"],
+    exclude: ["src/**/*.node.test.ts", "**/node_modules/**"],
     globalSetup: ["./scripts/test-globalsetup.ts"],
     // postgres.js's Cloudflare polyfill leaves a couple of `.then()` chains
     // on `writer.ready` uncaught when the socket tears down before the

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { createExecutor } from "./executor";
+import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
+
+import { makeInMemoryBlobStore } from "./blob";
+import { collectSchemas, createExecutor } from "./executor";
 import {
   ElicitationResponse,
   FormElicitation,
@@ -11,7 +14,8 @@ import { defineSchema, definePlugin } from "./plugin";
 import { SetSecretInput } from "./secrets";
 import { makeTestConfig } from "./testing";
 import type { SecretProvider } from "./secrets";
-import { SecretId } from "./ids";
+import { ScopeId, SecretId } from "./ids";
+import { Scope } from "./scope";
 
 // ---------------------------------------------------------------------------
 // Tiny test plugin — declares a static source with two control tools, a
@@ -740,6 +744,143 @@ describe("createExecutor", () => {
 
       const after = yield* executor.secrets.get("DB_PASSWORD");
       expect(after).toBe("correct-horse-battery-staple");
+    }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Tenant isolation — two executors with different scopes sharing the same
+// adapter / blob store. Every SDK surface that reads rows must filter by
+// the calling scope; the adapter has no scope concept, so the guarantee
+// has to live in the executor / core-table layer. These tests pin the
+// invariant at the cheapest possible level (in-memory adapter).
+// ---------------------------------------------------------------------------
+
+const tenantPlugin = definePlugin(() => ({
+  id: "tenant" as const,
+  storage: () => ({}),
+  secretProviders: [memoryProvider],
+  staticSources: () => [
+    {
+      id: "tenant.ctl",
+      kind: "control" as const,
+      name: "Tenant Ctl",
+      tools: [
+        {
+          name: "noop",
+          description: "noop",
+          inputSchema: { type: "object", additionalProperties: false },
+          handler: () => Effect.succeed(null),
+        },
+      ],
+    },
+  ],
+  extension: (ctx) => ({
+    addSource: (id: string) =>
+      ctx.transaction(
+        Effect.gen(function* () {
+          yield* ctx.core.sources.register({
+            id,
+            kind: "tenant",
+            name: id,
+            canRemove: true,
+            tools: [{ name: "t", description: "t" }],
+          });
+        }),
+      ),
+  }),
+}));
+
+const makeSharedTenantExecutors = () =>
+  Effect.gen(function* () {
+    const plugins = [tenantPlugin()] as const;
+    const schema = collectSchemas(plugins);
+    const adapter = makeMemoryAdapter({ schema });
+    const blobs = makeInMemoryBlobStore();
+
+    const makeOne = (id: string) =>
+      createExecutor({
+        scope: new Scope({
+          id: ScopeId.make(id),
+          name: id,
+          createdAt: new Date(),
+        }),
+        adapter,
+        blobs,
+        plugins,
+      });
+
+    const execA = yield* makeOne("scope-a");
+    const execB = yield* makeOne("scope-b");
+    return { execA, execB };
+  });
+
+describe("tenant isolation (SDK)", () => {
+  it.effect("sources.list does not leak across scopes", () =>
+    Effect.gen(function* () {
+      const { execA, execB } = yield* makeSharedTenantExecutors();
+      yield* execA.tenant.addSource("a-source");
+
+      const bSources = yield* execB.sources.list();
+      expect(bSources.map((s) => s.id)).not.toContain("a-source");
+    }),
+  );
+
+  it.effect("tools.list does not leak across scopes", () =>
+    Effect.gen(function* () {
+      const { execA, execB } = yield* makeSharedTenantExecutors();
+      yield* execA.tenant.addSource("a-source");
+
+      const bTools = yield* execB.tools.list();
+      expect(bTools.map((t) => t.sourceId)).not.toContain("a-source");
+    }),
+  );
+
+  it.effect("secrets.list does not leak across scopes", () =>
+    Effect.gen(function* () {
+      const { execA, execB } = yield* makeSharedTenantExecutors();
+      yield* execA.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("shared-id"),
+          name: "A only",
+          value: "a-value",
+        }),
+      );
+
+      const bSecrets = yield* execB.secrets.list();
+      expect(bSecrets.map((s) => s.id)).not.toContain("shared-id");
+    }),
+  );
+
+  it.effect("secrets.status for another scope's id returns missing", () =>
+    Effect.gen(function* () {
+      const { execA, execB } = yield* makeSharedTenantExecutors();
+      yield* execA.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("shared-id"),
+          name: "A only",
+          value: "a-value",
+        }),
+      );
+
+      const status = yield* execB.secrets.status("shared-id");
+      expect(status).toBe("missing");
+    }),
+  );
+
+  it.effect("secrets.get cannot read another scope's value", () =>
+    Effect.gen(function* () {
+      const { execA, execB } = yield* makeSharedTenantExecutors();
+      yield* execA.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("shared-id"),
+          name: "A only",
+          value: "a-value",
+        }),
+      );
+
+      const value = yield* execB.secrets.get("shared-id");
+      expect(value).toBeNull();
     }),
   );
 });

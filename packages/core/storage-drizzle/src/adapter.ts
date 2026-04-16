@@ -489,12 +489,23 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
           : never) => Effect.Effect<R, E>,
       ) =>
         Effect.gen(function* () {
+          // drizzle exposes `run` on sqlite drivers and `execute` on pg/mysql
+          // drivers. Pick whichever the current db has; both accept `sql.raw`.
+          // Bind `this` because the methods read internal state off the db.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const dbAny = db as any;
+          const runner: ((s: unknown) => unknown) | undefined = dbAny.run
+            ? dbAny.run.bind(dbAny)
+            : dbAny.execute
+              ? dbAny.execute.bind(dbAny)
+              : undefined;
           const runStmt = (stmt: string) =>
             Effect.try({
               try: () => {
-                const res = (db.run as (s: unknown) => unknown)(sql.raw(stmt));
-                // Some drivers return a promise — resolve it.
+                if (!runner) {
+                  throw new Error("drizzle db has neither run() nor execute()");
+                }
+                const res = runner(sql.raw(stmt));
                 if (res && typeof (res as { then?: unknown }).then === "function") {
                   return res as Promise<unknown>;
                 }

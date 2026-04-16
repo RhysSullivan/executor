@@ -15,8 +15,9 @@
     "deploy": "op run --env-file=.env.production -- bun run build && op run --env-file=.env.production -- wrangler deploy",
     "cf-typegen": "wrangler types",
     "typecheck": "tsgo --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.node.config.ts",
     "test:watch": "vitest",
+    "test:node": "vitest run --config vitest.node.config.ts",
     "typecheck:slow": "tsc --noEmit"
   },
   "dependencies": {
