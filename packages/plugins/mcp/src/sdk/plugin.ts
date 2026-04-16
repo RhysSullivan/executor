@@ -495,11 +495,20 @@ export const mcpPlugin = definePlugin(
             const ci = yield* resolveConnectorInput(sd, ctx, allowStdio);
 
             const connector = createMcpConnector(ci);
-            const manifest = yield* discoverTools(connector).pipe(
+            // Try discovery. If it fails (auth, network, bad spec), we still
+            // want the source to land in the catalog so users see it in
+            // their list and can retry via refresh. The error still
+            // propagates to the caller so boot-time sync logs the reason.
+            const discovery = yield* discoverTools(connector).pipe(
               Effect.mapError((err) =>
                 mcpDiscoveryError(`MCP discovery failed: ${err.message}`),
               ),
+              Effect.either,
             );
+            const manifest =
+              discovery._tag === "Right"
+                ? discovery.right
+                : { server: undefined, tools: [] as const };
 
             const sourceName = manifest.server?.name ?? config.name ?? namespace;
 
@@ -547,6 +556,9 @@ export const mcpPlugin = definePlugin(
               );
             }
 
+            if (discovery._tag === "Left") {
+              return yield* Effect.fail(discovery.left);
+            }
             return { toolCount: manifest.tools.length, namespace };
           });
 
