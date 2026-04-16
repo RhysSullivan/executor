@@ -36,7 +36,7 @@ const formatDescription = (namespaces: readonly string[], sources: readonly Sour
     "",
     "- `tools.search()` returns ranked matches, best-first. Use short intent phrases like `github issues`, `repo details`, or `create calendar event`.",
     '- When you already know the namespace, narrow with `tools.search({ namespace: "github", query: "issues" })`.',
-    "- Use `tools.executor.sources.list()` to inspect configured sources and their tool counts. Returns `[{ id, toolCount, ... }]`.",
+    "- Use `tools.executor.sources.list()` to inspect configured sources and their tool counts. Returns `{ sources: [{ id, toolCount, ... }], totalSources }`.",
     "- Always use the namespace prefix when calling tools: `tools.<namespace>.<tool>(args)`. Example: `tools.home_assistant_rest_api.states.getState(...)` — not `tools.states.getState(...)`.",
     "- The `tools` object is a lazy proxy — `Object.keys(tools)` won't work. Use `tools.search()` or `tools.executor.sources.list()` instead.",
     '- Pass an object to system tools, e.g. `tools.search({ query: "..." })`, `tools.executor.sources.list()`, and `tools.describe.tool({ path })`.',

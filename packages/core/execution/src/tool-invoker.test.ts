@@ -170,12 +170,13 @@ describe("tool discovery", () => {
         }),
       );
       expect(listed.error).toBeUndefined();
-      expect(listed.result).toEqual(
-        expect.arrayContaining([
+      expect(listed.result).toEqual({
+        sources: expect.arrayContaining([
           expect.objectContaining({ id: "github", toolCount: 3 }),
           expect.objectContaining({ id: "crm", toolCount: 2 }),
         ]),
-      );
+        totalSources: 2,
+      });
 
       const searched = yield* Effect.promise(() =>
         createExecutionEngine({ executor }).execute(

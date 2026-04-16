@@ -65,6 +65,11 @@ export type ExecutorSourceListItem = {
   readonly toolCount: number;
 };
 
+export type ExecutorSourceListResult = {
+  readonly sources: readonly ExecutorSourceListItem[];
+  readonly totalSources: number;
+};
+
 type SearchableTool = Pick<Tool, "id" | "sourceId" | "name" | "description">;
 
 type PreparedField = {
@@ -270,7 +275,7 @@ export const searchTools = (
 export const listExecutorSources = (
   executor: Executor,
   options?: { readonly query?: string; readonly limit?: number },
-): Effect.Effect<ReadonlyArray<ExecutorSourceListItem>> =>
+): Effect.Effect<ExecutorSourceListResult> =>
   Effect.gen(function* () {
     const normalizedQuery = normalizeSearchText(options?.query ?? "");
     const limit = options?.limit ?? 200;
@@ -304,9 +309,10 @@ export const listExecutorSources = (
         }) satisfies ExecutorSourceListItem,
     );
 
-    return withCounts
+    const sortedWithCounts = withCounts
       .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
       .slice(0, limit);
+    return { sources: sortedWithCounts, totalSources: withCounts.length };
   });
 
 /** What `tools.describe.tool()` calls inside the sandbox. */
