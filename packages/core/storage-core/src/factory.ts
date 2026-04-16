@@ -681,7 +681,7 @@ export const createAdapter = (
         const res = yield* inner.findMany<Record<string, unknown>>({
           model: getModelName(data.model),
           where,
-          limit: data.limit ?? 100,
+          limit: data.limit,
           select: data.select,
           sortBy,
           offset: data.offset,

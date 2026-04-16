@@ -229,7 +229,7 @@ export interface CustomAdapter {
   findMany: <T>(data: {
     model: string;
     where?: CleanedWhere[] | undefined;
-    limit: number;
+    limit?: number | undefined;
     select?: string[] | undefined;
     sortBy?: { field: string; direction: "asc" | "desc" } | undefined;
     offset?: number | undefined;

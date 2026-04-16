@@ -340,9 +340,9 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
           const opts: Record<string, any> = {
             where: clause,
             with: includes,
-            limit: limit ?? 100,
-            offset: offset ?? 0,
           };
+          if (limit !== undefined) opts.limit = limit;
+          if (offset !== undefined) opts.offset = offset;
           if (sortBy) {
             const col = table[sortBy.field];
             const fn = sortBy.direction === "desc" ? desc : asc;
@@ -360,7 +360,12 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
           const fn = sortBy.direction === "desc" ? desc : asc;
           q = q.orderBy(fn(col));
         }
+        // SQLite's SQL grammar requires LIMIT whenever OFFSET is present.
+        // Emit a max-int ceiling for the offset-only case on sqlite; postgres
+        // accepts offset-only natively.
         if (limit !== undefined) q = q.limit(limit);
+        else if (offset !== undefined && provider === "sqlite")
+          q = q.limit(Number.MAX_SAFE_INTEGER);
         if (offset !== undefined) q = q.offset(offset);
         const rows = (yield* runPromise("findMany select", () =>
           Promise.resolve(q),
