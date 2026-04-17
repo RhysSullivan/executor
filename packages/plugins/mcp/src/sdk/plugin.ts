@@ -26,7 +26,6 @@ import {
 import { discoverTools } from "./discover";
 import {
   McpConnectionError,
-  McpInvocationError,
   McpOAuthError,
   McpToolDiscoveryError,
 } from "./errors";
@@ -954,7 +953,6 @@ export type McpExtensionFailure =
   | McpOAuthError
   | McpConnectionError
   | McpToolDiscoveryError
-  | McpInvocationError
   | StorageFailure;
 
 export interface McpPluginExtension {

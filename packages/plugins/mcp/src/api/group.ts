@@ -5,7 +5,6 @@ import { InternalError } from "@executor/api";
 
 import {
   McpConnectionError,
-  McpInvocationError,
   McpOAuthError,
   McpToolDiscoveryError,
 } from "../sdk/errors";
@@ -219,10 +218,12 @@ export class McpGroup extends HttpApiGroup.make("mcp")
   )
   // Errors declared once at the group level — every endpoint inherits.
   // Plugin domain errors carry their own HttpApiSchema status (4xx);
-  // `InternalError` is the shared opaque 500 for anything storage-side
-  // captured to telemetry by the SDK boundary.
+  // `InternalError` is the shared opaque 500 translated at the HTTP
+  // edge by `withStorageCapture`. We only list errors an MCP *group*
+  // endpoint can surface: `McpInvocationError` is thrown inside
+  // `invokeTool` which is reached via the core `tools.invoke`
+  // endpoint, not any MCP-group endpoint, so it doesn't belong here.
   .addError(InternalError)
   .addError(McpOAuthError)
   .addError(McpConnectionError)
-  .addError(McpToolDiscoveryError)
-  .addError(McpInvocationError) {}
+  .addError(McpToolDiscoveryError) {}
