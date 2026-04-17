@@ -41,6 +41,7 @@ import * as Cause from "effect/Cause";
 
 import { ExecutorApi } from "@executor/api";
 import { startServer, runMcpStdioServer, getExecutor } from "@executor/local";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
 // Embedded web UI — baked into compiled binaries via `with { type: "file" }`
 import embeddedWebUI from "./embedded-web-ui.gen";
@@ -154,7 +155,9 @@ const runForegroundSession = (input: {
 const runStdioMcpSession = () =>
   Effect.gen(function* () {
     const executor = yield* Effect.promise(() => getExecutor());
-    yield* Effect.promise(() => runMcpStdioServer({ executor }));
+    yield* Effect.promise(() =>
+      runMcpStdioServer({ executor, codeExecutor: makeQuickJsExecutor() }),
+    );
   });
 
 // ---------------------------------------------------------------------------
