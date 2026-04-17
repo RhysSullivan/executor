@@ -519,17 +519,20 @@ export const createExecutor = <
           return yield* provider.get(id);
         }
 
-        // Fallback: ask enumerating providers in registration order.
-        // First non-null wins. Providers that throw are treated as
-        // "don't have it" and skipped so one flaky provider doesn't
+        // Fallback: ask every enumerating provider in parallel. First
+        // non-null in registration order wins. Providers that throw
+        // are treated as "don't have it" so one flaky provider can't
         // block resolution via others.
-        for (const provider of secretProviders.values()) {
-          if (!provider.list) continue;
-          const value = yield* provider
-            .get(id)
-            .pipe(Effect.catchAll(() => Effect.succeed(null)));
-          if (value !== null) return value;
-        }
+        const candidates = [...secretProviders.values()].filter(
+          (p) => p.list,
+        );
+        const values = yield* Effect.all(
+          candidates.map((p) =>
+            p.get(id).pipe(Effect.catchAll(() => Effect.succeed(null))),
+          ),
+          { concurrency: "unbounded" },
+        );
+        for (const value of values) if (value !== null) return value;
         return null;
       });
 
@@ -595,11 +598,17 @@ export const createExecutor = <
 
     const secretsRemove = (id: string): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
-        for (const provider of secretProviders.values()) {
-          if (provider.writable && provider.delete) {
-            yield* provider.delete(id);
-          }
-        }
+        // Providers don't coordinate on which of them own the id — they
+        // each get asked. Most calls are no-ops; fan them out so one
+        // slow provider doesn't serialize the rest.
+        const deleters = [...secretProviders.values()].filter(
+          (p): p is typeof p & { delete: NonNullable<typeof p.delete> } =>
+            !!(p.writable && p.delete),
+        );
+        yield* Effect.all(
+          deleters.map((p) => p.delete(id)),
+          { concurrency: "unbounded" },
+        );
         yield* core.delete({
           model: "secret",
           where: [{ field: "id", value: id }],
@@ -643,15 +652,26 @@ export const createExecutor = <
           );
         }
 
-        // Then every provider that can enumerate itself. If a provider
-        // fails to list (unlocked vault, network error), swallow the
-        // failure and continue — one flaky provider shouldn't block
-        // the whole list.
-        for (const [providerKey, provider] of secretProviders.entries()) {
-          if (!provider.list) continue;
-          const entries = yield* provider
-            .list()
-            .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+        // Then every provider that can enumerate itself, in parallel.
+        // If a provider fails to list (unlocked vault, network error),
+        // swallow the failure so one flaky provider can't block the
+        // whole list. Merge in registration order afterwards so the
+        // "first provider wins" precedence stays deterministic.
+        const listers = [...secretProviders.entries()].filter(
+          ([, p]) => p.list,
+        );
+        const lists = yield* Effect.all(
+          listers.map(([key, p]) =>
+            p
+              .list!()
+              .pipe(
+                Effect.catchAll(() => Effect.succeed([] as const)),
+                Effect.map((entries) => ({ key, entries })),
+              ),
+          ),
+          { concurrency: "unbounded" },
+        );
+        for (const { key, entries } of lists) {
           for (const entry of entries) {
             if (byId.has(entry.id)) continue; // core row wins
             byId.set(
@@ -660,7 +680,7 @@ export const createExecutor = <
                 id: SecretId.make(entry.id),
                 scopeId: scope.id,
                 name: entry.name,
-                provider: providerKey,
+                provider: key,
                 createdAt: new Date(),
               }),
             );
