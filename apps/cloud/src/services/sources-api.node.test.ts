@@ -5,6 +5,8 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { ScopeId } from "@executor/sdk";
 
@@ -23,6 +25,18 @@ const MINIMAL_OPENAPI_SPEC = JSON.stringify({
     },
   },
 });
+
+// The Cloudflare OpenAPI spec is the biggest real spec we care about:
+// 16MB, 2700+ operations, thousands of shared schemas. Exercising
+// addSpec end-to-end on it through the real postgres adapter is the
+// load-bearing check that any adapter regression (per-row `createMany`,
+// accidental N+1 reads, transaction snapshots that copy too much) will
+// show up as a test failure instead of a prod incident.
+const CLOUDFLARE_SPEC_PATH = resolve(
+  __dirname,
+  "../../../../packages/plugins/openapi/fixtures/cloudflare.json",
+);
+const CLOUDFLARE_SPEC = readFileSync(CLOUDFLARE_SPEC_PATH, "utf-8");
 
 describe("sources api (HTTP)", () => {
   it.effect("addSpec → sources.list includes the new namespace", () =>
@@ -146,5 +160,45 @@ describe("sources api (HTTP)", () => {
       expect(fetched?.name).toBe("Renamed API");
       expect(fetched?.config.baseUrl).toBe("https://override.example.com");
     }),
+  );
+
+  it.effect(
+    "addSpec persists the full Cloudflare spec through the real adapter",
+    () =>
+      Effect.gen(function* () {
+        const org = `org_${crypto.randomUUID()}`;
+        const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+
+        const result = yield* asOrg(org, (client) =>
+          client.openapi.addSpec({
+            path: { scopeId: ScopeId.make(org) },
+            payload: { spec: CLOUDFLARE_SPEC, namespace },
+          }),
+        );
+        expect(result.namespace).toBe(namespace);
+        expect(result.toolCount).toBeGreaterThan(1000);
+
+        const sources = yield* asOrg(org, (client) =>
+          client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+        );
+        expect(sources.map((s) => s.id)).toContain(namespace);
+
+        // removeSpec on the same size must also land cleanly — catches
+        // symmetrical regressions on the delete side (e.g. deleteMany
+        // fanning out to per-row deletes).
+        yield* asOrg(org, (client) =>
+          client.sources.remove({
+            path: { scopeId: ScopeId.make(org), sourceId: namespace },
+          }),
+        );
+        const after = yield* asOrg(org, (client) =>
+          client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
+        );
+        expect(after.map((s) => s.id)).not.toContain(namespace);
+      }),
+    // 60s is generous for a correct O(1) write path on local PGlite;
+    // a per-row regression would take minutes and hit this ceiling
+    // long before the suite would tolerate it.
+    { timeout: 60_000 },
   );
 });
