@@ -38,7 +38,12 @@ const PUBLISHED_SCOPE = "@executor-js";
  * directory under `packages/plugins/` does not accidentally ship to npm.
  */
 const PUBLIC_PACKAGE_DIRS = [
+  "packages/core/storage-core",
+  "packages/kernel/core",
+  "packages/kernel/runtime-quickjs",
   "packages/core/sdk",
+  "packages/core/execution",
+  "packages/core/cli",
   "packages/plugins/file-secrets",
   "packages/plugins/google-discovery",
   "packages/plugins/graphql",
@@ -267,13 +272,13 @@ const applyPublishConfig = async (pkgDir: string): Promise<() => Promise<void>> 
 
 const publishPackage = async (
   pkgDir: string,
-  channel: Channel,
   dryRun: boolean,
   publishable: ReadonlySet<string>,
   publishableVersions: ReadonlyMap<string, string>,
 ) => {
   const { name: internalName, version } = await readPackageMeta(pkgDir);
   const publishedName = internalName.replace(`${INTERNAL_SCOPE}/`, `${PUBLISHED_SCOPE}/`);
+  const channel = resolveChannel(version);
 
   if (!existsSync(join(pkgDir, "dist"))) {
     throw new Error(`Missing dist/ in ${pkgDir}. Did you run 'bun run build:packages'?`);
@@ -326,12 +331,10 @@ const publishPackage = async (
 const main = async () => {
   const { dryRun } = parseArgs(process.argv.slice(2));
 
-  // Use the sdk package version as the source of truth for the channel. All
-  // published packages version together (they're not in the changeset ignore
-  // list), so they share a release channel.
-  const sdkMeta = await readPackageMeta(join(repoRoot, "packages/core/sdk"));
-  const channel = resolveChannel(sdkMeta.version);
-  console.log(`Publishing ${PUBLISHED_SCOPE} packages (${channel})${dryRun ? " [dry-run]" : ""}`);
+  // Each package's own version determines its dist-tag (pre-release versions
+  // with `-` publish to `beta`, everything else to `latest`). Packages are
+  // only skipped when their current version is already on npm.
+  console.log(`Publishing ${PUBLISHED_SCOPE} packages${dryRun ? " [dry-run]" : ""}`);
 
   await $`bun run build:packages`.cwd(repoRoot);
 
@@ -351,7 +354,7 @@ const main = async () => {
   }
 
   for (const relDir of PUBLIC_PACKAGE_DIRS) {
-    await publishPackage(join(repoRoot, relDir), channel, dryRun, publishable, publishableVersions);
+    await publishPackage(join(repoRoot, relDir), dryRun, publishable, publishableVersions);
   }
 };
 

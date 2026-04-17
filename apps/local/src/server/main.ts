@@ -10,6 +10,7 @@ import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { addGroup } from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   OpenApiGroup,
   OpenApiHandlers,
@@ -78,7 +79,7 @@ const closeServerHandlers = async (handlers: ServerHandlers): Promise<void> => {
 
 export const createServerHandlers = async (): Promise<ServerHandlers> => {
   const executor = await getExecutor();
-  const engine = createExecutionEngine({ executor });
+  const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
 
   const pluginExtensions = Layer.mergeAll(
     Layer.succeed(OpenApiExtensionService, executor.openapi),

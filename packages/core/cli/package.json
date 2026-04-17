@@ -2,7 +2,16 @@
   "name": "@executor/cli",
   "version": "0.0.1",
   "description": "CLI for the executor SDK — schema generation, migrations",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/core/cli",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/core/cli"
+  },
   "type": "module",
   "bin": {
     "executor": "./dist/index.js"
@@ -13,19 +22,31 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        }
+      }
+    }
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "dev": "node --import jiti/register src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@executor/sdk": "workspace:*",
-    "@executor/storage-core": "workspace:*",
     "commander": "^12.1.0",
+    "effect": "catalog:",
     "jiti": "^2.6.1"
   },
   "devDependencies": {
+    "@executor/sdk": "workspace:*",
+    "@executor/storage-core": "workspace:*",
     "@types/node": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",

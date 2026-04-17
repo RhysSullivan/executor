@@ -38,6 +38,7 @@
     "@executor/plugin-workos-vault": "workspace:*",
     "@executor/react": "workspace:*",
     "@executor/runtime-dynamic-worker": "workspace:*",
+    "@executor/runtime-quickjs": "workspace:*",
     "@executor/sdk": "workspace:*",
     "@executor/storage-core": "workspace:*",
     "@executor/storage-postgres": "workspace:*",

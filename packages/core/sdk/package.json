@@ -17,6 +17,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./core": "./src/index.ts",
     "./promise": "./src/promise.ts"
   },
   "publishConfig": {

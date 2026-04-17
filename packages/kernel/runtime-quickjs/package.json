@@ -1,12 +1,36 @@
 {
   "name": "@executor/runtime-quickjs",
-  "version": "1.4.3",
-  "private": true,
+  "version": "0.0.1",
+  "homepage": "https://github.com/RhysSullivan/executor/tree/main/packages/kernel/runtime-quickjs",
+  "bugs": {
+    "url": "https://github.com/RhysSullivan/executor/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RhysSullivan/executor.git",
+    "directory": "packages/kernel/runtime-quickjs"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": {
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        }
+      }
+    }
+  },
   "scripts": {
+    "build": "tsup && (tsc --declaration --emitDeclarationOnly --outDir dist --rootDir src || true)",
     "typecheck": "tsgo --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -21,6 +45,8 @@
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "bun-types": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
     "vitest": "catalog:"
   }
 }

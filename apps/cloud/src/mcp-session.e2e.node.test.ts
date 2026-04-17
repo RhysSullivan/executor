@@ -23,6 +23,7 @@ import type { ClientCapabilities } from "@modelcontextprotocol/sdk/types.js";
 
 import { createExecutorMcpServer } from "@executor/host-mcp";
 import { createExecutionEngine } from "@executor/execution";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   ElicitationResponse,
   FormElicitation,
@@ -134,7 +135,7 @@ const openSession = (
   Effect.acquireRelease(
     Effect.gen(function* () {
       const executor = yield* buildScopedExecutor(orgId, `Org ${orgId}`, options);
-      const engine = createExecutionEngine({ executor });
+      const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
       const mcpServer = yield* Effect.promise(() => createExecutorMcpServer({ engine }));
       const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
       const client = new Client(

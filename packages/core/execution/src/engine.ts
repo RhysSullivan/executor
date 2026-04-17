@@ -8,7 +8,6 @@ import type {
   ElicitationContext,
 } from "@executor/sdk";
 import type { CodeExecutor, ExecuteResult, SandboxToolInvoker } from "@executor/codemode-core";
-import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 
 import {
   makeExecutorToolInvoker,
@@ -25,7 +24,7 @@ import { buildExecuteDescription } from "./description";
 
 export type ExecutionEngineConfig = {
   readonly executor: Executor;
-  readonly codeExecutor?: CodeExecutor;
+  readonly codeExecutor: CodeExecutor;
 };
 
 export type ExecutionResult =
@@ -292,8 +291,7 @@ const runEffect = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, never>);
 
 export const createExecutionEngine = (config: ExecutionEngineConfig): ExecutionEngine => {
-  const { executor } = config;
-  const codeExecutor = config.codeExecutor ?? makeQuickJsExecutor();
+  const { executor, codeExecutor } = config;
   const pausedExecutions = new Map<string, InternalPausedExecution>();
   let nextId = 0;
 

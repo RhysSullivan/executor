@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { createJiti } from "jiti";
-import type { ExecutorCliConfig } from "@executor/sdk";
+import type { ExecutorCliConfig } from "@executor/sdk/core";
 
 const defaultPaths = [
   "executor.config.ts",

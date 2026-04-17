@@ -8,8 +8,11 @@ import {
   definePlugin,
   makeTestConfig,
 } from "@executor/sdk";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import { createExecutionEngine } from "./engine";
 import { describeTool, searchTools } from "./tool-invoker";
+
+const codeExecutor = makeQuickJsExecutor();
 
 const RepoInputSchema = {
   type: "object",
@@ -148,7 +151,7 @@ describe("tool discovery", () => {
       expect(crmOnly.map((match) => match.path)).toEqual(["crm.listContacts"]);
 
       const sandboxResult = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute(
+        createExecutionEngine({ executor, codeExecutor }).execute(
           'return await tools.search({ namespace: "crm", query: "create contact", limit: 5 });',
           { onElicitation: acceptAll },
         ),
@@ -165,7 +168,7 @@ describe("tool discovery", () => {
       const executor = yield* makeSearchExecutor();
 
       const listed = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute("return await tools.executor.sources.list();", {
+        createExecutionEngine({ executor, codeExecutor }).execute("return await tools.executor.sources.list();", {
           onElicitation: acceptAll,
         }),
       );
@@ -178,7 +181,7 @@ describe("tool discovery", () => {
       );
 
       const searched = yield* Effect.promise(() =>
-        createExecutionEngine({ executor }).execute(
+        createExecutionEngine({ executor, codeExecutor }).execute(
           'return await tools.search({ query: "list contacts", namespace: "crm", limit: 5 });',
           { onElicitation: acceptAll },
         ),
@@ -205,7 +208,7 @@ describe("tool discovery", () => {
   it.effect("rejects malformed discover calls inside the sandbox", () =>
     Effect.gen(function* () {
       const executor = yield* makeSearchExecutor();
-      const engine = createExecutionEngine({ executor });
+      const engine = createExecutionEngine({ executor, codeExecutor });
 
       const invalid = yield* Effect.promise(() =>
         engine.execute(
@@ -327,7 +330,7 @@ describe("pause/resume with multiple elicitations", () => {
     () =>
       Effect.gen(function* () {
         const executor = yield* makeElicitingExecutor();
-        const engine = createExecutionEngine({ executor });
+        const engine = createExecutionEngine({ executor, codeExecutor });
 
         const code = "return await tools.api.multiApproval({});";
 
@@ -361,7 +364,7 @@ describe("pause/resume with multiple elicitations", () => {
   // sandbox fiber.
   it("resume returns across separate runPromise boundaries for a single-elicit tool (HTTP-like)", async () => {
     const executor = await Effect.runPromise(makeElicitingExecutor());
-    const engine = createExecutionEngine({ executor });
+    const engine = createExecutionEngine({ executor, codeExecutor });
 
     const code = "return await tools.api.singleApproval({});";
 

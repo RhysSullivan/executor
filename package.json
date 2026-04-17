@@ -33,7 +33,7 @@
     "dev:cli": "bun run apps/cli/src/main.ts",
     "test": "turbo run test",
     "test:release:bootstrap": "vitest run tests/release-bootstrap-smoke.test.ts",
-    "build:packages": "bun run --filter='@executor/sdk' build && bun run --filter='@executor/plugin-*' build",
+    "build:packages": "bun run --filter='@executor/storage-core' build && bun run --filter='@executor/codemode-core' build && bun run --filter='@executor/runtime-quickjs' build && bun run --filter='@executor/sdk' build && bun run --filter='@executor/execution' build && bun run --filter='@executor/cli' build && bun run --filter='@executor/plugin-*' build",
     "typecheck": "turbo run typecheck",
     "typecheck:slow": "turbo run typecheck:slow",
     "ci": "bun run lint && bun run typecheck && bun run test",

@@ -61,6 +61,7 @@
         "@executor/plugin-workos-vault": "workspace:*",
         "@executor/react": "workspace:*",
         "@executor/runtime-dynamic-worker": "workspace:*",
+        "@executor/runtime-quickjs": "workspace:*",
         "@executor/sdk": "workspace:*",
         "@executor/storage-core": "workspace:*",
         "@executor/storage-postgres": "workspace:*",
@@ -139,6 +140,7 @@
         "@executor/plugin-onepassword": "workspace:*",
         "@executor/plugin-openapi": "workspace:*",
         "@executor/react": "workspace:*",
+        "@executor/runtime-quickjs": "workspace:*",
         "@executor/sdk": "workspace:*",
         "@executor/storage-file": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.12.1",
@@ -242,12 +244,13 @@
         "executor": "./dist/index.js",
       },
       "dependencies": {
-        "@executor/sdk": "workspace:*",
-        "@executor/storage-core": "workspace:*",
         "commander": "^12.1.0",
+        "effect": "catalog:",
         "jiti": "^2.6.1",
       },
       "devDependencies": {
+        "@executor/sdk": "workspace:*",
+        "@executor/storage-core": "workspace:*",
         "@types/node": "catalog:",
         "tsup": "catalog:",
         "typescript": "catalog:",
@@ -284,17 +287,19 @@
     },
     "packages/core/execution": {
       "name": "@executor/execution",
-      "version": "1.4.3",
+      "version": "0.0.1",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
-        "@executor/runtime-quickjs": "workspace:*",
         "@executor/sdk": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
         "@effect/vitest": "catalog:",
+        "@executor/runtime-quickjs": "workspace:*",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
         "vitest": "catalog:",
       },
     },
@@ -315,16 +320,25 @@
     },
     "packages/core/storage-core": {
       "name": "@executor/storage-core",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "dependencies": {
-        "@effect/vitest": "catalog:",
         "@standard-schema/spec": "^1.0.0",
         "effect": "catalog:",
-        "vitest": "catalog:",
       },
       "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "tsup": "catalog:",
         "typescript": "catalog:",
+        "vitest": "catalog:",
       },
+      "peerDependencies": {
+        "@effect/vitest": "catalog:",
+        "vitest": "catalog:",
+      },
+      "optionalPeers": [
+        "@effect/vitest",
+        "vitest",
+      ],
     },
     "packages/core/storage-drizzle": {
       "name": "@executor/storage-drizzle",
@@ -397,7 +411,7 @@
     },
     "packages/kernel/core": {
       "name": "@executor/codemode-core",
-      "version": "1.4.3",
+      "version": "0.0.1",
       "dependencies": {
         "@babel/parser": "^7.29.2",
         "@standard-schema/spec": "^1.0.0",
@@ -408,6 +422,8 @@
       "devDependencies": {
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
         "vitest": "catalog:",
       },
     },
@@ -455,7 +471,7 @@
     },
     "packages/kernel/runtime-quickjs": {
       "name": "@executor/runtime-quickjs",
-      "version": "1.4.3",
+      "version": "0.0.1",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
         "effect": "catalog:",
@@ -465,6 +481,8 @@
         "@effect/vitest": "catalog:",
         "@types/node": "catalog:",
         "bun-types": "catalog:",
+        "tsup": "catalog:",
+        "typescript": "catalog:",
         "vitest": "catalog:",
       },
     },

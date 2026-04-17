@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Command } from "commander";
-import { collectSchemas } from "@executor/sdk";
+import { collectSchemas } from "@executor/sdk/core";
 import { getConfig } from "../utils/get-config.js";
 import { generateDrizzleSchema } from "../generators/drizzle.js";
 

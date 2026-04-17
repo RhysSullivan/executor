@@ -31,6 +31,7 @@ import {
   ExecutorService,
 } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
+import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   Scope,
   ScopeId,
@@ -215,7 +216,7 @@ const TestApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
 const buildAppForScope = (scopeId: string, scopeName: string) =>
   Effect.gen(function* () {
     const executor = yield* createTestScopedExecutor(scopeId, scopeName);
-    const engine = createExecutionEngine({ executor });
+    const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
     const services = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
       Layer.succeed(ExecutionEngineService, engine),
