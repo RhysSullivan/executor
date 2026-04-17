@@ -26,6 +26,11 @@ export interface HeadersListProps {
   readonly singleHeader?: boolean;
   /** Text shown in the empty state. */
   readonly emptyLabel?: ReactNode;
+  /**
+   * Display name of the source that owns these headers (e.g. "Axiom"). Used
+   * to derive unique default secret labels/IDs like `axiom-authorization`.
+   */
+  readonly sourceName?: string;
 }
 
 export function HeadersList({
@@ -35,6 +40,7 @@ export function HeadersList({
   presets = defaultHeaderAuthPresets,
   singleHeader = false,
   emptyLabel = "No headers",
+  sourceName,
 }: HeadersListProps) {
   const [picking, setPicking] = useState(false);
   const canAddMore = !singleHeader || headers.length === 0;
@@ -100,6 +106,7 @@ export function HeadersList({
                 onSelectSecret={(secretId) => updateHeader(index, { secretId })}
                 onRemove={singleHeader ? undefined : () => removeHeader(index)}
                 existingSecrets={existingSecrets}
+                sourceName={sourceName}
               />
             ))}
             {canAddMore && <AddHeaderRow onClick={() => setPicking(true)} />}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
@@ -39,6 +39,7 @@ import {
 } from "@executor/react/components/native-select";
 import { Textarea } from "@executor/react/components/textarea";
 import { Checkbox } from "@executor/react/components/checkbox";
+import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { RadioGroup, RadioGroupItem } from "@executor/react/components/radio-group";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
@@ -223,26 +224,6 @@ export default function AddOpenApiSource(props: {
     for (const [name, v] of Object.entries(vars)) out[name] = v.default;
     return out;
   };
-
-  // Derive a favicon URL from the spec URL (if the user entered one — raw
-  // JSON/YAML content will fail URL parsing and yield null). Uses Google's
-  // favicon service so we don't depend on the domain serving /favicon.ico.
-  const faviconUrl = useMemo(() => {
-    try {
-      const trimmed = specUrl.trim();
-      if (!trimmed) return null;
-      const u = new URL(trimmed);
-      if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-      return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=64`;
-    } catch {
-      return null;
-    }
-  }, [specUrl]);
-
-  const [faviconFailed, setFaviconFailed] = useState(false);
-  useEffect(() => {
-    setFaviconFailed(false);
-  }, [faviconUrl]);
 
   const allHeaders: Record<string, HeaderValue> = {};
   for (const ch of customHeaders) {
@@ -542,14 +523,7 @@ export default function AddOpenApiSource(props: {
         <CardStack>
           <CardStackContent className="border-t-0">
             <CardStackEntry>
-              {faviconUrl && !faviconFailed && (
-                <img
-                  src={faviconUrl}
-                  alt=""
-                  className="size-4 shrink-0 object-contain"
-                  onError={() => setFaviconFailed(true)}
-                />
-              )}
+              {resolvedBaseUrl && <SourceFavicon url={resolvedBaseUrl} size={16} />}
               <CardStackEntryContent>
                 <CardStackEntryTitle>
                   {Option.getOrElse(preview.title, () => "API")}
@@ -806,6 +780,7 @@ export default function AddOpenApiSource(props: {
                 headers={customHeaders}
                 onHeadersChange={handleHeadersChange}
                 existingSecrets={secretList}
+                sourceName={identity.name}
               />
             )}
 

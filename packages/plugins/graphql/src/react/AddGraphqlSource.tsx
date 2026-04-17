@@ -132,6 +132,7 @@ export default function AddGraphqlSource(props: {
           headers={headers}
           onHeadersChange={setHeaders}
           existingSecrets={secretList}
+          sourceName={identity.name}
         />
       </section>
 

@@ -758,6 +758,7 @@ export default function AddMcpSource(props: {
                   onHeadersChange={setRemoteAuthHeaders}
                   existingSecrets={secretList}
                   singleHeader
+                  sourceName={remoteIdentity.name}
                 />
               )}
 

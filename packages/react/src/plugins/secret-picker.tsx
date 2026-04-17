@@ -1,4 +1,5 @@
 import { useState, type ChangeEvent, type FocusEvent } from "react";
+import { PlusIcon } from "lucide-react";
 
 import { Input } from "../components/input";
 import {
@@ -7,6 +8,7 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
+  CommandSeparator,
 } from "../components/command";
 import { Popover, PopoverAnchor, PopoverContent } from "../components/popover";
 
@@ -33,8 +35,10 @@ export function SecretPicker(props: {
   readonly onSelect: (secretId: string) => void;
   readonly secrets: readonly SecretPickerSecret[];
   readonly placeholder?: string;
+  /** When provided, renders a "+ New secret" row at the bottom of the dropdown. */
+  readonly onCreateNew?: () => void;
 }) {
-  const { value, onSelect, secrets, placeholder = "Search secrets…" } = props;
+  const { value, onSelect, secrets, placeholder = "Search secrets…", onCreateNew } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
@@ -122,6 +126,25 @@ export function SecretPicker(props: {
                   </CommandGroup>
                 );
               })}
+              {onCreateNew && (
+                <>
+                  {secrets.length > 0 && <CommandSeparator />}
+                  <CommandGroup>
+                    <CommandItem
+                      value="__create_new__"
+                      onSelect={() => {
+                        onCreateNew();
+                        setOpen(false);
+                        setQuery("");
+                      }}
+                      className="text-muted-foreground data-[selected=true]:text-foreground"
+                    >
+                      <PlusIcon aria-hidden className="size-3.5" />
+                      <span>New secret</span>
+                    </CommandItem>
+                  </CommandGroup>
+                </>
+              )}
             </CommandList>
           </Command>
         </PopoverContent>

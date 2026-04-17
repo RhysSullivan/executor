@@ -123,6 +123,7 @@ function EditForm(props: {
           headers={headers}
           onHeadersChange={handleHeadersChange}
           existingSecrets={secretList}
+          sourceName={identity.name}
         />
       </section>
 

@@ -359,9 +359,15 @@ export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (input: st
   );
 
   const rawSecurity = (doc.security ?? []) as Array<Record<string, unknown>>;
-  const authStrategies = rawSecurity.map(
+  const declaredStrategies = rawSecurity.map(
     (entry) => new AuthStrategy({ schemes: Object.keys(entry) }),
   );
+  // Fall back to one strategy per scheme when the spec only declares schemes
+  // under components (e.g. Sentry) so the user still sees auth options.
+  const authStrategies =
+    declaredStrategies.length > 0
+      ? declaredStrategies
+      : securitySchemes.map((scheme) => new AuthStrategy({ schemes: [scheme.name] }));
 
   return new SpecPreview({
     title: result.title,
