@@ -1,8 +1,9 @@
 import * as Sentry from "@sentry/cloudflare";
 import handler from "@tanstack/react-start/server-entry";
-import { instrument, type ResolveConfigFn } from "@microlabs/otel-cf-workers";
+import { instrument, type TraceConfig } from "@microlabs/otel-cf-workers";
 
 import { McpSessionDO as McpSessionDOBase } from "./mcp-session";
+import { server } from "./env";
 
 // ---------------------------------------------------------------------------
 // OTEL config for the main fetch handler — `otel-cf-workers` owns the global
@@ -14,28 +15,27 @@ import { McpSessionDO as McpSessionDOBase } from "./mcp-session";
 // DOMException "Illegal invocation".
 // ---------------------------------------------------------------------------
 
-type OtelEnv = {
-  AXIOM_TOKEN?: string;
-  AXIOM_DATASET?: string;
-};
-
-const resolveOtelConfig: ResolveConfigFn<OtelEnv> = (env) => ({
+const otelConfig: TraceConfig = {
   service: { name: "executor-cloud", version: "1.0.0" },
   exporter: {
     url: "https://api.axiom.co/v1/traces",
     headers: {
-      Authorization: `Bearer ${env.AXIOM_TOKEN ?? ""}`,
-      "X-Axiom-Dataset": env.AXIOM_DATASET ?? "executor-cloud",
+      Authorization: `Bearer ${server.AXIOM_TOKEN}`,
+      "X-Axiom-Dataset": server.AXIOM_DATASET,
     },
   },
-});
+};
 
 // otel-cf-workers owns the global TracerProvider. Sentry's OTEL compat shim
 // registers a ProxyTracerProvider of its own, which prevents otel-cf-workers
 // from finding its WorkerTracer and breaks the whole request path with
 // "global tracer is not of type WorkerTracer".
-const sentryOptions = (env: Env) => ({
-  dsn: (env as unknown as { SENTRY_DSN?: string }).SENTRY_DSN,
+//
+// The `_env` parameter is unused — `server` from `./env` already gives us
+// typed access to every secret. It's only in the signature so Sentry's
+// generics infer the DO's `Env` type correctly.
+const sentryOptions = (_env: Env) => ({
+  dsn: server.SENTRY_DSN,
   tracesSampleRate: 0,
   enableLogs: true,
   sendDefaultPii: true,
@@ -63,6 +63,6 @@ export const McpSessionDO = Sentry.instrumentDurableObjectWithSentry(
 // Worker fetch handler
 // ---------------------------------------------------------------------------
 
-const instrumentedHandler = instrument({ fetch: handler.fetch }, resolveOtelConfig);
+const instrumentedHandler = instrument({ fetch: handler.fetch }, otelConfig);
 
 export default Sentry.withSentry(sentryOptions, instrumentedHandler);
