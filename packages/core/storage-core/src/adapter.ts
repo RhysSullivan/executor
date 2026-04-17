@@ -207,6 +207,18 @@ export interface CustomAdapter {
     select?: string[] | undefined;
   }) => Effect.Effect<T, Error>;
 
+  /**
+   * Native bulk insert. Required because over a real network (e.g.
+   * Hyperdrive), per-row `create` inflates to N round-trips and can't
+   * finish inside a request budget for specs with ~1000+ rows. SQL
+   * backends issue a single multi-row INSERT; in-memory backends just
+   * push the rows.
+   */
+  createMany: <T extends Record<string, unknown>>(data: {
+    model: string;
+    data: ReadonlyArray<T>;
+  }) => Effect.Effect<T[], Error>;
+
   update: <T>(data: {
     model: string;
     where: CleanedWhere[];

@@ -312,6 +312,30 @@ export const drizzleAdapter = (options: DrizzleAdapterOptions): DBAdapter => {
         return row as never;
       }),
 
+    // Real multi-row INSERT in fixed-size chunks. One statement per
+    // chunk, not one per row — per-row loops blow the Hyperdrive
+    // request budget on specs with thousands of operations. Chunking
+    // (vs a single giant statement) also keeps payload size bounded:
+    // JSON columns like tool schemas / operation bindings can be a
+    // few KB each, so a 2700-row insert becomes a >10MB statement
+    // otherwise, which chokes both Hyperdrive ingress and WASM
+    // Postgres (PGlite) in the test harness.
+    createMany: ({ model, data }) =>
+      Effect.gen(function* () {
+        if (data.length === 0) return [] as never;
+        const table = getTable(model);
+        const CHUNK = 500;
+        const all: Record<string, unknown>[] = [];
+        for (let i = 0; i < data.length; i += CHUNK) {
+          const slice = data.slice(i, i + CHUNK) as Record<string, unknown>[];
+          const rows = (yield* runPromise("insert many returning", () =>
+            db.insert(table).values(slice).returning(),
+          )) as Record<string, unknown>[];
+          for (const row of rows) all.push(row);
+        }
+        return all as never;
+      }),
+
     findOne: ({ model, where, join }) =>
       Effect.gen(function* () {
         const table = getTable(model);

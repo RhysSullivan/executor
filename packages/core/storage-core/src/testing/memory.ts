@@ -168,6 +168,13 @@ export const makeMemoryAdapter = (
         return data;
       }),
 
+    createMany: ({ model, data }) =>
+      Effect.sync(() => {
+        const table = tableFor(model);
+        for (const row of data) table.push(row as Row);
+        return data.slice() as never;
+      }),
+
     findOne: ({ model, where, join }) =>
       Effect.sync(() => {
         const rows = filterWhere(tableFor(model), where);
