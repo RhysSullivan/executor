@@ -95,22 +95,34 @@ export const resolveHeaders = (
   secrets: { readonly get: (id: string) => Effect.Effect<string | null, Error> },
 ): Effect.Effect<Record<string, string>, Error> =>
   Effect.gen(function* () {
-    const resolved: Record<string, string> = {};
-    for (const [name, value] of Object.entries(headers)) {
-      if (typeof value === "string") {
-        resolved[name] = value;
-      } else {
-        const secret = yield* secrets.get(value.secretId);
-        if (secret === null) {
-          return yield* Effect.fail(
-            new Error(
-              `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+    const entries = Object.entries(headers);
+    // Fan out secret lookups: on every invocation, one or two headers
+    // typically each hit the secret store. Resolving them in parallel
+    // is a free wall-clock win — preserved order is only needed for
+    // the final assembly, not the fetches.
+    const values = yield* Effect.all(
+      entries.map(([name, value]) =>
+        typeof value === "string"
+          ? Effect.succeed({ name, value })
+          : secrets.get(value.secretId).pipe(
+              Effect.flatMap((secret) =>
+                secret === null
+                  ? Effect.fail(
+                      new Error(
+                        `Failed to resolve secret "${value.secretId}" for header "${name}"`,
+                      ),
+                    )
+                  : Effect.succeed({
+                      name,
+                      value: value.prefix ? `${value.prefix}${secret}` : secret,
+                    }),
+              ),
             ),
-          );
-        }
-        resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
-      }
-    }
+      ),
+      { concurrency: "unbounded" },
+    );
+    const resolved: Record<string, string> = {};
+    for (const { name, value } of values) resolved[name] = value;
     return resolved;
   });
 

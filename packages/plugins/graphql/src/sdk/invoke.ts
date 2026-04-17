@@ -17,18 +17,35 @@ export const resolveHeaders = (
   secrets: { readonly get: (id: string) => Effect.Effect<string | null, Error> },
 ): Effect.Effect<Record<string, string>, Error> =>
   Effect.gen(function* () {
+    const entries = Object.entries(headers);
+    // Resolve secret-backed headers in parallel. Missing / failing
+    // lookups drop the header rather than fail the invocation, same
+    // as the serial version.
+    const values = yield* Effect.all(
+      entries.map(([name, value]) =>
+        typeof value === "string"
+          ? Effect.succeed<{ readonly name: string; readonly value: string | null }>({
+              name,
+              value,
+            })
+          : secrets.get(value.secretId).pipe(
+              Effect.catchAll(() => Effect.succeed<string | null>(null)),
+              Effect.map((secret) => ({
+                name,
+                value:
+                  secret === null
+                    ? null
+                    : value.prefix
+                      ? `${value.prefix}${secret}`
+                      : secret,
+              })),
+            ),
+      ),
+      { concurrency: "unbounded" },
+    );
     const resolved: Record<string, string> = {};
-    for (const [name, value] of Object.entries(headers)) {
-      if (typeof value === "string") {
-        resolved[name] = value;
-      } else {
-        const secret = yield* secrets.get(value.secretId).pipe(
-          Effect.catchAll(() => Effect.succeed<string | null>(null)),
-        );
-        if (secret !== null) {
-          resolved[name] = value.prefix ? `${value.prefix}${secret}` : secret;
-        }
-      }
+    for (const { name, value } of values) {
+      if (value !== null) resolved[name] = value;
     }
     return resolved;
   });
