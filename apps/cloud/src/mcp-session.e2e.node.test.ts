@@ -124,8 +124,6 @@ const buildScopedExecutor = (
     return yield* createExecutor({ scope, adapter, blobs, plugins });
   });
 
-type McpSession = { readonly client: Client };
-
 // Builds a scope, wires a real execution engine + MCP server, and yields
 // them connected to an in-memory MCP client. Shaped as an acquireRelease so
 // the transport teardown is guaranteed when the test scope closes.
