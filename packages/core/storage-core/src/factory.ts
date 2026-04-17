@@ -637,14 +637,36 @@ export const createAdapter = (
       forceAllowId?: boolean | undefined;
     }) =>
       Effect.gen(function* () {
-        const out: R[] = [];
+        // Delegates straight to the backend's native bulk insert — no
+        // per-row fallback, because over a real network connection
+        // (Hyperdrive, etc.) N round-trips would blow the request
+        // budget for specs with thousands of operations. Transforms
+        // still run per-row so JSON / dates / booleans serialize the
+        // same as single `create`.
+        const inputs: Record<string, unknown>[] = [];
         for (const row of data.data) {
-          const created = yield* self.create<T, R>({
-            model: data.model,
-            data: row,
-            forceAllowId: data.forceAllowId,
-          });
-          out.push(created);
+          inputs.push(
+            yield* maybeTransformInput(
+              data.model,
+              row as Record<string, unknown>,
+              "create",
+              data.forceAllowId === true,
+            ),
+          );
+        }
+        const res = yield* inner.createMany({
+          model: getModelName(data.model),
+          data: inputs,
+        });
+        const out: R[] = [];
+        for (const row of res) {
+          out.push(
+            (yield* maybeTransformOutput(
+              data.model,
+              row as Record<string, unknown>,
+              undefined,
+            )) as unknown as R,
+          );
         }
         return out as unknown as readonly R[];
       }),
