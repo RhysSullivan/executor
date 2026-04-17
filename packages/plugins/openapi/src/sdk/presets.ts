@@ -53,6 +53,7 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     name: "OpenAI",
     summary: "Models, files, responses, and fine-tuning.",
     url: "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
+    icon: "https://openai.com/favicon.ico",
     featured: true,
   },
   {
@@ -60,7 +61,7 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     name: "Sentry",
     summary: "Error tracking, performance monitoring, and releases.",
     url: "https://raw.githubusercontent.com/getsentry/sentry-api-schema/main/openapi-derefed.json",
-    icon: "https://sentry.io/favicon.ico",
+    icon: "https://sentry-brand.storage.googleapis.com/sentry-glyph-black.png",
     featured: true,
   },
   {
