@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { Data } from "effect";
 import { HttpServerResponse } from "@effect/platform";
 
@@ -20,12 +21,16 @@ export const isServerError = (error: unknown): boolean => toHttpResponseError(er
 
 export const toErrorResponse = (error: unknown): Response => {
   const mapped = toHttpResponseError(error);
+  if (mapped.status >= 500) Sentry.captureException(error);
   return Response.json({ error: mapped.message, code: mapped.code }, { status: mapped.status });
 };
 
 export const toErrorServerResponse = (error: unknown): HttpServerResponse.HttpServerResponse => {
-  console.error("[api] toErrorServerResponse error:", error instanceof Error ? error.stack : error);
   const mapped = toHttpResponseError(error);
+  if (mapped.status >= 500) {
+    console.error("[api] toErrorServerResponse error:", error instanceof Error ? error.stack : error);
+    Sentry.captureException(error);
+  }
   return HttpServerResponse.unsafeJson(
     { error: mapped.message, code: mapped.code },
     { status: mapped.status },

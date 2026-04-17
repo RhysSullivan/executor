@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
+import * as Sentry from "@sentry/cloudflare";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import { server } from "./env";
@@ -130,6 +131,7 @@ const handleMcpRequest_POST = async (request: Request, token: VerifiedToken): Pr
     return await stub.handleRequest(request);
   } catch (err) {
     console.error("[mcp] POST handler error:", err instanceof Error ? err.stack : err);
+    Sentry.captureException(err);
     return jsonRpcError(500, -32603, "Internal server error");
   }
 };
