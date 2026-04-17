@@ -111,16 +111,36 @@ const makeApiClient = (baseUrl: string) =>
 // Foreground session
 // ---------------------------------------------------------------------------
 
-const runForegroundSession = (input: { port: number; hostname: string; exposed: boolean }) =>
+const runForegroundSession = (input: {
+  port: number;
+  hostname: string;
+  allowedHosts: ReadonlyArray<string>;
+}) =>
   Effect.gen(function* () {
-    const hostname = input.exposed ? "0.0.0.0" : input.hostname;
-    const server = yield* Effect.promise(() => startServer({ port: input.port, hostname, disableHostCheck: input.exposed, embeddedWebUI }));
+    const server = yield* Effect.promise(() =>
+      startServer({
+        port: input.port,
+        hostname: input.hostname,
+        allowedHosts: input.allowedHosts,
+        embeddedWebUI,
+      }),
+    );
 
-    const baseUrl = `http://${hostname}:${server.port}`;
+    const displayHost =
+      input.hostname === "0.0.0.0" || input.hostname === "::" ? "localhost" : input.hostname;
+    const baseUrl = `http://${displayHost}:${server.port}`;
     console.log(`Executor is ready.`);
     console.log(`Web:     ${baseUrl}`);
     console.log(`MCP:     ${baseUrl}/mcp`);
     console.log(`OpenAPI: ${baseUrl}/api/docs`);
+    if (input.hostname !== "127.0.0.1" && input.hostname !== "localhost") {
+      console.log(
+        `\n⚠  Listening on ${input.hostname}. Executor runs arbitrary commands — only expose on trusted networks.`,
+      );
+      if (input.allowedHosts.length > 0) {
+        console.log(`   Extra allowed Host headers: ${input.allowedHosts.join(", ")}`);
+      }
+    }
     console.log(`\nPress Ctrl+C to stop.`);
 
     yield* waitForShutdownSignal();
@@ -263,14 +283,22 @@ const webCommand = Command.make(
   "web",
   {
     port: Options.integer("port").pipe(Options.withDefault(DEFAULT_PORT)),
-    hostname: Options.text("hostname").pipe(Options.withDefault("127.0.0.1")),
-    exposed: Options.boolean("exposed").pipe(Options.withDefault(false)),
+    hostname: Options.text("hostname")
+      .pipe(Options.withDefault("127.0.0.1"))
+      .pipe(Options.withDescription("Bind address. Use 0.0.0.0 to listen on all interfaces.")),
+    allowedHost: Options.text("allowed-host")
+      .pipe(Options.repeated)
+      .pipe(
+        Options.withDescription(
+          "Additional hostname permitted in the Host header (repeatable). localhost/127.0.0.1 are always allowed.",
+        ),
+      ),
     scope,
   },
-  ({ port, scope, hostname, exposed }) =>
+  ({ port, scope, hostname, allowedHost }) =>
     Effect.gen(function* () {
       applyScope(scope);
-      yield* runForegroundSession({ port, hostname, exposed });
+      yield* runForegroundSession({ port, hostname, allowedHosts: allowedHost });
     }),
 ).pipe(Command.withDescription("Start a foreground web session"));
 
