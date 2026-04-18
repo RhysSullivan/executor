@@ -22,7 +22,7 @@
     },
     "apps/cli": {
       "name": "executor",
-      "version": "1.4.7-beta.0",
+      "version": "1.4.7",
       "bin": {
         "executor": "./bin/executor.ts",
       },
@@ -123,7 +123,7 @@
     },
     "apps/local": {
       "name": "@executor/local",
-      "version": "1.4.3",
+      "version": "1.4.4",
       "dependencies": {
         "@effect-atom/atom-react": "^0.5.0",
         "@effect/platform": "catalog:",
@@ -170,7 +170,7 @@
     },
     "apps/marketing": {
       "name": "@executor/marketing",
-      "version": "0.0.4",
+      "version": "0.0.5",
       "dependencies": {
         "@astrojs/cloudflare": "^13.0.0",
         "@executor/plugin-google-discovery": "workspace:*",
@@ -210,7 +210,7 @@
     },
     "examples/promise-sdk": {
       "name": "@executor/example-promise-sdk",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@executor/plugin-graphql": "workspace:*",
         "@executor/plugin-mcp": "workspace:*",
@@ -358,7 +358,7 @@
     },
     "packages/core/storage-file": {
       "name": "@executor/storage-file",
-      "version": "1.4.3",
+      "version": "1.4.4",
       "dependencies": {
         "@executor/sdk": "workspace:*",
         "@executor/storage-core": "workspace:*",
@@ -378,7 +378,7 @@
     },
     "packages/core/storage-postgres": {
       "name": "@executor/storage-postgres",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "dependencies": {
         "@executor/sdk": "workspace:*",
         "@executor/storage-core": "workspace:*",
@@ -398,7 +398,7 @@
     },
     "packages/hosts/mcp": {
       "name": "@executor/host-mcp",
-      "version": "1.4.3",
+      "version": "1.4.4",
       "dependencies": {
         "@cfworker/json-schema": "^4.1.1",
         "@executor/execution": "workspace:*",
@@ -433,7 +433,7 @@
     },
     "packages/kernel/ir": {
       "name": "@executor/ir",
-      "version": "1.4.3",
+      "version": "1.4.4",
       "dependencies": {
         "effect": "catalog:",
       },
@@ -445,7 +445,7 @@
     },
     "packages/kernel/runtime-deno-subprocess": {
       "name": "@executor/runtime-deno-subprocess",
-      "version": "0.0.4",
+      "version": "0.0.5",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
         "effect": "catalog:",
@@ -459,7 +459,7 @@
     },
     "packages/kernel/runtime-dynamic-worker": {
       "name": "@executor/runtime-dynamic-worker",
-      "version": "1.4.3",
+      "version": "1.4.4",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
         "effect": "catalog:",
@@ -492,7 +492,7 @@
     },
     "packages/kernel/runtime-secure-exec": {
       "name": "@executor/runtime-secure-exec",
-      "version": "0.0.2",
+      "version": "0.0.3",
       "dependencies": {
         "@executor/codemode-core": "workspace:*",
         "effect": "catalog:",
@@ -731,7 +731,7 @@
     },
     "packages/plugins/workos-vault": {
       "name": "@executor/plugin-workos-vault",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@executor/sdk": "workspace:*",
         "@workos-inc/node": "^8.11.1",
