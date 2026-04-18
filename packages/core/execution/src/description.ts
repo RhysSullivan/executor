@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Executor, Tool, Source } from "@executor/sdk";
+import type { Executor, Source } from "@executor/sdk";
 
 /**
  * Builds a tool description dynamically.
@@ -13,17 +13,11 @@ export const buildExecuteDescription = (executor: Executor): Effect.Effect<strin
     const sources: readonly Source[] = yield* executor.sources
       .list()
       .pipe(Effect.orDie, Effect.withSpan("executor.sources.list"));
-    const tools: readonly Tool[] = yield* executor.tools
-      .list()
-      .pipe(Effect.orDie, Effect.withSpan("executor.tools.list"));
 
-    const namespaces = new Set<string>();
-    for (const tool of tools) namespaces.add(tool.sourceId);
-
-    return formatDescription([...namespaces], sources);
+    return formatDescription(sources);
   }).pipe(Effect.withSpan("buildExecuteDescription"));
 
-const formatDescription = (namespaces: readonly string[], sources: readonly Source[]): string => {
+const formatDescription = (sources: readonly Source[]): string => {
   const lines: string[] = [
     "Execute TypeScript in a sandboxed runtime with access to configured API tools.",
     "",
@@ -50,15 +44,14 @@ const formatDescription = (namespaces: readonly string[], sources: readonly Sour
     "- If execution pauses for interaction, resume it with the returned `resumePayload`.",
   ];
 
-  if (namespaces.length > 0) {
+  if (sources.length > 0) {
     lines.push("");
     lines.push("## Available namespaces");
     lines.push("");
-    const sorted = [...namespaces].sort();
-    for (const ns of sorted) {
-      const source = sources.find((s) => s.id === ns);
-      const label = source?.name ?? ns;
-      lines.push(`- \`${ns}\`${label !== ns ? ` — ${label}` : ""}`);
+    const sorted = [...sources].sort((a, b) => a.id.localeCompare(b.id));
+    for (const source of sorted) {
+      const label = source.name;
+      lines.push(`- \`${source.id}\`${label !== source.id ? ` — ${label}` : ""}`);
     }
   }
 

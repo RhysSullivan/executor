@@ -227,11 +227,11 @@ export class McpSessionDO extends DurableObject {
         sessionMeta.organizationId,
         sessionMeta.organizationName,
       );
-      // Build the description here so the two postgres queries it runs
-      // (`executor.sources.list` + `executor.tools.list`) land as
-      // children of `McpSessionDO.createRuntime`. host-mcp would
-      // otherwise call `Effect.runPromise(engine.getDescription)` at
-      // its async MCP-SDK boundary and orphan those sub-spans.
+      // Build the description here so the postgres query it runs
+      // (`executor.sources.list`) lands as a child of
+      // `McpSessionDO.createRuntime`. host-mcp would otherwise call
+      // `Effect.runPromise(engine.getDescription)` at its async
+      // MCP-SDK boundary and orphan the sub-span.
       const description = yield* buildExecuteDescription(executor);
       const mcpServer = yield* Effect.promise(() =>
         createExecutorMcpServer({ engine, description }),
