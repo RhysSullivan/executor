@@ -14,6 +14,7 @@ import { Route as SecretsRouteImport } from './routes/secrets'
 import { Route as OrgRouteImport } from './routes/org'
 import { Route as BillingRouteImport } from './routes/billing'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SourcesIndexRouteImport } from './routes/sources.index'
 import { Route as SourcesNamespaceRouteImport } from './routes/sources.$namespace'
 import { Route as BillingPlansRouteImport } from './routes/billing_.plans'
 import { Route as SourcesAddPluginKeyRouteImport } from './routes/sources.add.$pluginKey'
@@ -43,6 +44,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SourcesIndexRoute = SourcesIndexRouteImport.update({
+  id: '/sources/',
+  path: '/sources/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SourcesNamespaceRoute = SourcesNamespaceRouteImport.update({
   id: '/sources/$namespace',
   path: '/sources/$namespace',
@@ -67,6 +73,7 @@ export interface FileRoutesByFullPath {
   '/tools': typeof ToolsRoute
   '/billing/plans': typeof BillingPlansRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/sources/': typeof SourcesIndexRoute
   '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRoutesByTo {
@@ -77,6 +84,7 @@ export interface FileRoutesByTo {
   '/tools': typeof ToolsRoute
   '/billing/plans': typeof BillingPlansRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/sources': typeof SourcesIndexRoute
   '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRoutesById {
@@ -88,6 +96,7 @@ export interface FileRoutesById {
   '/tools': typeof ToolsRoute
   '/billing_/plans': typeof BillingPlansRoute
   '/sources/$namespace': typeof SourcesNamespaceRoute
+  '/sources/': typeof SourcesIndexRoute
   '/sources/add/$pluginKey': typeof SourcesAddPluginKeyRoute
 }
 export interface FileRouteTypes {
@@ -100,6 +109,7 @@ export interface FileRouteTypes {
     | '/tools'
     | '/billing/plans'
     | '/sources/$namespace'
+    | '/sources/'
     | '/sources/add/$pluginKey'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -110,6 +120,7 @@ export interface FileRouteTypes {
     | '/tools'
     | '/billing/plans'
     | '/sources/$namespace'
+    | '/sources'
     | '/sources/add/$pluginKey'
   id:
     | '__root__'
@@ -120,6 +131,7 @@ export interface FileRouteTypes {
     | '/tools'
     | '/billing_/plans'
     | '/sources/$namespace'
+    | '/sources/'
     | '/sources/add/$pluginKey'
   fileRoutesById: FileRoutesById
 }
@@ -131,6 +143,7 @@ export interface RootRouteChildren {
   ToolsRoute: typeof ToolsRoute
   BillingPlansRoute: typeof BillingPlansRoute
   SourcesNamespaceRoute: typeof SourcesNamespaceRoute
+  SourcesIndexRoute: typeof SourcesIndexRoute
   SourcesAddPluginKeyRoute: typeof SourcesAddPluginKeyRoute
 }
 
@@ -171,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/sources/': {
+      id: '/sources/'
+      path: '/sources'
+      fullPath: '/sources/'
+      preLoaderRoute: typeof SourcesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/sources/$namespace': {
       id: '/sources/$namespace'
       path: '/sources/$namespace'
@@ -203,18 +223,9 @@ const rootRouteChildren: RootRouteChildren = {
   ToolsRoute: ToolsRoute,
   BillingPlansRoute: BillingPlansRoute,
   SourcesNamespaceRoute: SourcesNamespaceRoute,
+  SourcesIndexRoute: SourcesIndexRoute,
   SourcesAddPluginKeyRoute: SourcesAddPluginKeyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

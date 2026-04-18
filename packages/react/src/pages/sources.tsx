@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Result, useAtomValue, useAtomSet } from "@effect-atom/atom-react";
 import { sourcesAtom, detectSource } from "../api/atoms";
@@ -41,7 +41,6 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
   const [error, setError] = useState<string | null>(null);
 
   const scopeId = useScope();
-  const sources = useAtomValue(sourcesAtom(scopeId));
   const doDetect = useAtomSet(detectSource, { mode: "promise" });
   const navigate = useNavigate();
 
@@ -85,63 +84,90 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
           <div className="flex items-end justify-between">
             <div>
               <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
-                Sources
+                Getting Started
               </h1>
               <p className="mt-1.5 text-[14px] text-muted-foreground">
-                Tool providers available in this workspace.
+                Connect a tool provider to this workspace.
               </p>
             </div>
           </div>
 
-          {/* URL detection input */}
-          <div className="mt-5">
-            <CardStack>
-              <CardStackContent>
-                <CardStackEntryField
-                  label="Paste URL"
-                  description="auto-detect source type"
-                  hint={error ?? undefined}
-                >
-                  <div className="flex gap-2">
-                    <Input
-                      type="url"
-                      value={url}
-                      onChange={(e) => {
-                        setUrl((e.target as HTMLInputElement).value);
-                        setError(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleDetect();
-                      }}
-                      placeholder="https://..."
-                      disabled={detecting}
-                      className="flex-1"
-                    />
-                    <Button onClick={handleDetect} disabled={detecting || !url.trim()}>
-                      {detecting ? "Detecting..." : "Detect"}
-                    </Button>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    Or add manually:{" "}
-                    {sourcePlugins.map((p) => (
-                      <Link
-                        key={p.key}
-                        to="/sources/add/$pluginKey"
-                        params={{ pluginKey: p.key }}
-                        className="rounded-md border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-                      >
-                        {p.label}
-                      </Link>
-                    ))}
-                  </div>
-                </CardStackEntryField>
-              </CardStackContent>
-            </CardStack>
-          </div>
         </div>
 
         <div className="mb-8">
           <McpInstallCard />
+        </div>
+
+        {/* URL detection input */}
+        <div className="mb-8">
+          <CardStack>
+            <CardStackContent>
+              <CardStackEntryField
+                label="Add Source"
+                description="auto-detect source type"
+                hint={error ?? undefined}
+              >
+                <div className="flex gap-2">
+                  <Input
+                    type="url"
+                    value={url}
+                    onChange={(e) => {
+                      setUrl((e.target as HTMLInputElement).value);
+                      setError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleDetect();
+                    }}
+                    placeholder="https://..."
+                    disabled={detecting}
+                    className="flex-1"
+                  />
+                  <Button onClick={handleDetect} disabled={detecting || !url.trim()}>
+                    {detecting ? "Detecting..." : "Detect"}
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  Or add manually:{" "}
+                  {sourcePlugins.map((p) => (
+                    <Link
+                      key={p.key}
+                      to="/sources/add/$pluginKey"
+                      params={{ pluginKey: p.key }}
+                      className="rounded-md border border-border px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
+                    >
+                      {p.label}
+                    </Link>
+                  ))}
+                </div>
+              </CardStackEntryField>
+            </CardStackContent>
+          </CardStack>
+        </div>
+
+        <PresetGrid plugins={sourcePlugins} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sources list page
+// ---------------------------------------------------------------------------
+
+export function SourcesListPage() {
+  const scopeId = useScope();
+  const sources = useAtomValue(sourcesAtom(scopeId));
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-4xl px-6 py-10 lg:px-10 lg:py-14">
+        <div className="mb-8">
+          <h1 className="font-display text-3xl tracking-tight text-foreground lg:text-4xl">
+            Sources
+          </h1>
+          <p className="mt-1.5 text-[14px] text-muted-foreground">
+            Tool providers available in this workspace.
+          </p>
         </div>
 
         {Result.match(sources, {
@@ -149,8 +175,7 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
           onFailure: () => <p className="text-sm text-destructive">Failed to load sources</p>,
           onSuccess: ({ value }) => {
             const connectedSources = value.filter((source) => !source.runtime);
-
-            return value.length === 0 ? (
+            return connectedSources.length === 0 ? (
               <div className="mb-8 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-20">
                 <div className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-4">
                   <svg viewBox="0 0 24 24" fill="none" className="size-5">
@@ -168,20 +193,10 @@ export function SourcesPage(props: { sourcePlugins: readonly SourcePlugin[] }) {
                 </p>
               </div>
             ) : (
-              <div className="mb-8 space-y-8">
-                {connectedSources.length > 0 && (
-                  <section className="space-y-3">
-                    <SourceGrid sources={connectedSources} />
-                  </section>
-                )}
-              </div>
+              <SourceGrid sources={connectedSources} />
             );
           },
         })}
-
-        <div className="mb-8 border-t border-border/50" />
-
-        <PresetGrid plugins={sourcePlugins} />
       </div>
     </div>
   );
@@ -275,7 +290,6 @@ function SourceGrid(props: {
 }) {
   return (
     <CardStack searchable>
-      <CardStackHeader>Connected</CardStackHeader>
       <CardStackContent>
         {props.sources.map((s) => (
           <CardStackEntry key={s.id} asChild searchText={`${s.name} ${s.id} ${s.kind}`}>

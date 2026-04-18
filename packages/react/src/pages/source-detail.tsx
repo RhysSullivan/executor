@@ -1,21 +1,72 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh, Result } from "@effect-atom/atom-react";
+import type { ScopeId, ToolId } from "@executor/sdk";
 import {
   sourceToolsAtom,
   sourcesAtom,
   sourceAtom,
   removeSource,
   refreshSource,
+  toolSchemaAtom,
 } from "../api/atoms";
-import { ToolTree } from "../components/tool-tree";
-import { ToolDetail, ToolDetailEmpty } from "../components/tool-detail";
-import type { ToolSummary } from "../components/tool-tree";
+import { SourceOperations, type OperationEntry } from "../plugins/source-operations";
+import { RunOperationPanel } from "../plugins/run-operation";
+import { OperationDetail } from "../components/operation-detail";
 import { useScope } from "../hooks/use-scope";
 import type { SourcePlugin } from "../plugins/source-plugin";
 import { Button } from "../components/button";
 import { Badge } from "../components/badge";
 import { Skeleton } from "../components/skeleton";
+import { FilterTabs } from "../components/filter-tabs";
+import { SourceHeader } from "../components/source-header";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../components/dropdown-menu";
+import { MoreHorizontal } from "lucide-react";
+
+function ToolSchemaPanel({ scopeId, toolId }: { scopeId: ScopeId; toolId: ToolId }) {
+  const contract = useAtomValue(toolSchemaAtom(scopeId, toolId));
+
+  return Result.match(contract, {
+    onInitial: () => (
+      <div className="text-sm text-muted-foreground">Loading…</div>
+    ),
+    onFailure: () => (
+      <div className="text-sm text-destructive">Failed to load schema</div>
+    ),
+    onSuccess: (v) => {
+      const definitions = Object.entries(v.value.typeScriptDefinitions ?? {}).map(
+        ([name, code]) => ({ name, code }),
+      );
+      return (
+        <OperationDetail
+          data={{
+            inputSchema: v.value.inputSchema,
+            outputSchema: v.value.outputSchema,
+            inputTypeScript: v.value.inputTypeScript
+              ? `type Input = ${v.value.inputTypeScript}`
+              : null,
+            outputTypeScript: v.value.outputTypeScript
+              ? `type Output = ${v.value.outputTypeScript}`
+              : null,
+            definitions,
+          }}
+          runPanel={
+            <RunOperationPanel
+              toolId={toolId}
+              inputSchema={v.value.inputSchema}
+            />
+          }
+        />
+      );
+    },
+  });
+}
 
 export function SourceDetailPage(props: {
   namespace: string;
@@ -44,11 +95,10 @@ export function SourceDetailPage(props: {
     };
   }, [refreshTools, refreshSources]);
 
-  const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"settings" | "operations">("operations");
 
   const sourceData = Result.isSuccess(source) ? source.value : null;
   const canRefresh = sourceData ? (sourceData.canRefresh ?? true) : false;
@@ -61,20 +111,19 @@ export function SourceDetailPage(props: {
     return sourcePlugins.find((p) => p.key === sourceData.kind) ?? null;
   }, [sourceData, sourcePlugins]);
 
-  const sourceTools: ToolSummary[] = useMemo(() => {
+  const toolCount = Result.isSuccess(tools) ? tools.value.length : 0;
+
+  const operationEntries: OperationEntry[] = useMemo(() => {
     if (!Result.isSuccess(tools)) return [];
     return tools.value.map((t) => ({
       id: t.id,
-      name: t.name,
-      pluginKey: t.pluginKey,
-      description: t.description,
+      path: t.name,
+      summary: t.description,
+      renderDetail: () => (
+        <ToolSchemaPanel scopeId={scopeId} toolId={t.id as ToolId} />
+      ),
     }));
-  }, [tools]);
-
-  const selectedTool = useMemo(
-    () => sourceTools.find((t) => t.id === selectedToolId) ?? null,
-    [sourceTools, selectedToolId],
-  );
+  }, [tools, scopeId]);
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -104,174 +153,164 @@ export function SourceDetailPage(props: {
   };
 
   const handleEditSave = () => {
-    setEditing(false);
     refreshSources();
     refreshTools();
   };
 
+  const hasSettings = canEdit && editPlugin !== null;
+
+  const hasActions = canRefresh || canRemove;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      {/* Header bar */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm">
-        <div className="flex min-w-0 items-center gap-3">
-          <h2 className="truncate text-sm font-semibold text-foreground">
-            {sourceData?.name ?? namespace}
-          </h2>
-          {sourceData?.runtime && (
-            <Badge className="bg-muted text-muted-foreground">built-in</Badge>
-          )}
-          <Badge variant="secondary">{sourceData?.kind ?? "source"}</Badge>
-          {Result.isSuccess(tools) && !editing && (
-            <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
-              {sourceTools.length} {sourceTools.length === 1 ? "tool" : "tools"}
-            </span>
-          )}
-        </div>
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full max-w-4xl flex-col gap-6 px-6 py-8 pb-24">
+          {/* Source header — favicon + name + url */}
+          <div className="flex items-center gap-3">
+            <SourceHeader
+              url={sourceData?.url}
+              title={sourceData?.name ?? namespace}
+            />
+            {sourceData?.runtime && (
+              <Badge className="bg-muted text-muted-foreground">built-in</Badge>
+            )}
+          </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {canEdit && editPlugin && !editing && (
-            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
-          )}
-
-          {editing && (
-            <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
-              Back to tools
-            </Button>
-          )}
-
-          {canRefresh && !editing && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void handleRefresh()}
-              disabled={refreshing}
-            >
-              {refreshing ? "Refreshing..." : "Refresh"}
-            </Button>
-          )}
-
-          {canRemove &&
-            !editing &&
-            (confirmDelete ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-destructive">Confirm?</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setConfirmDelete(false)}
-                  disabled={deleting}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => void handleDelete()}
-                  disabled={deleting}
-                >
-                  {deleting ? "Deleting..." : "Delete"}
-                </Button>
-              </div>
+          {/* Tabs + actions */}
+          <div className="flex items-center justify-between gap-2">
+            {hasSettings ? (
+              <FilterTabs
+                tabs={[
+                  { label: "Operations", value: "operations", count: toolCount },
+                  { label: "Settings", value: "settings" },
+                ]}
+                value={activeTab}
+                onChange={setActiveTab}
+              />
             ) : (
+              <div />
+            )}
+
+            {hasActions && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="size-8 rounded-full p-0"
+                    aria-label="Source actions"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {canRefresh && (
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        void handleRefresh();
+                      }}
+                      disabled={refreshing}
+                    >
+                      {refreshing ? "Refreshing..." : "Refresh"}
+                    </DropdownMenuItem>
+                  )}
+                  {canRefresh && canRemove && <DropdownMenuSeparator />}
+                  {canRemove && (
+                    <DropdownMenuItem
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        setConfirmDelete(true);
+                      }}
+                      disabled={deleting}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
+
+          {confirmDelete && (
+            <div className="flex items-center justify-end gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              <span className="mr-auto text-xs font-medium text-destructive">
+                Delete this source?
+              </span>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setConfirmDelete(true)}
-                className="border-destructive/30 text-destructive hover:bg-destructive/10"
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
               >
-                Delete
+                Cancel
               </Button>
-            ))}
-        </div>
-      </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => void handleDelete()}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          )}
 
-      {/* Edit view */}
-      {editing && editPlugin ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-2xl px-6 py-8">
+          {sourceData?.runtime && (
+            <div className="rounded-lg border border-border/50 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              <p className="mb-1 font-medium text-foreground">
+                Built-in Executor functions
+              </p>
+              <p>
+                These operations are provided by Executor itself rather than an
+                external source. Agents (and you) can run them to manage the
+                catalog — previewing specs, adding new sources, and performing
+                plugin actions. Select an operation below to see its schema and
+                try it out.
+              </p>
+            </div>
+          )}
+
+          {hasSettings && activeTab === "settings" && editPlugin ? (
             <Suspense fallback={<EditFormSkeleton />}>
               <editPlugin.edit sourceId={namespace} onSave={handleEditSave} />
             </Suspense>
-          </div>
+          ) : (
+            Result.match(tools, {
+              onInitial: () => <ListSkeleton />,
+              onFailure: () => (
+                <div className="text-sm text-destructive">Failed to load tools</div>
+              ),
+              onSuccess: () => <SourceOperations operations={operationEntries} />,
+            })
+          )}
         </div>
-      ) : (
-        /* Content -- split pane */
-        Result.match(tools, {
-          onInitial: () => <SourceDetailSkeleton />,
-          onFailure: () => <div className="p-6 text-sm text-destructive">Failed to load tools</div>,
-          onSuccess: () => (
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              {/* Left: tool tree */}
-              <div className="flex w-72 shrink-0 flex-col border-r border-border/60 lg:w-80 xl:w-[22rem]">
-                <ToolTree
-                  tools={sourceTools}
-                  selectedToolId={selectedToolId}
-                  onSelect={setSelectedToolId}
-                />
-              </div>
-
-              {/* Right: tool detail */}
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                {selectedTool ? (
-                  <ToolDetail
-                    toolId={selectedTool.id}
-                    toolName={selectedTool.name}
-                    toolDescription={selectedTool.description}
-                    scopeId={scopeId}
-                  />
-                ) : (
-                  <ToolDetailEmpty hasTools={sourceTools.length > 0} />
-                )}
-              </div>
-            </div>
-          ),
-        })
-      )}
+      </div>
     </div>
   );
 }
 
-function SourceDetailSkeleton() {
+function ListSkeleton() {
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
-      {/* Left: tool tree skeleton */}
-      <div className="flex w-72 shrink-0 flex-col gap-1 border-r border-border/60 p-3 lg:w-80 xl:w-[22rem]">
-        <Skeleton className="mb-2 h-8 w-full rounded-md" />
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="flex items-center gap-2 rounded-md px-2 py-1.5">
-            <Skeleton className="size-4 shrink-0 rounded" />
-            <Skeleton
-              className="h-3.5"
-              style={{ width: `${55 + ((i * 13) % 35)}%` }}
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Right: tool detail skeleton */}
-      <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-hidden p-6">
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-5 w-48" />
-          <Skeleton className="h-4 w-80" />
-          <Skeleton className="h-4 w-64" />
+    <div className="flex flex-col gap-1 rounded-lg border border-border/50 p-2">
+      <Skeleton className="mb-1 h-8 w-full rounded-md" />
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-md px-2 py-2.5">
+          <Skeleton className="size-3.5 shrink-0 rounded" />
+          <Skeleton
+            className="h-3.5"
+            style={{ width: `${40 + ((i * 13) % 40)}%` }}
+          />
         </div>
-        <div className="flex flex-col gap-3">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-20 w-full rounded-md" />
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-20 w-full rounded-md" />
-        </div>
-        <Skeleton className="h-9 w-32 rounded-md" />
-      </div>
+      ))}
     </div>
   );
 }
 
 function EditFormSkeleton() {
   return (
-    <div className="flex flex-col gap-5 p-6">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <Skeleton className="h-4 w-20" />
         <Skeleton className="h-9 w-full rounded-md" />
