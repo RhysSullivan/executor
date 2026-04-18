@@ -168,7 +168,8 @@ skipUnlessDeno("runtime-deno-subprocess", () => {
     }),
   );
 
-  it.effect("network access can be allowed via permissions", () =>
+  // Skipped in CI and on Windows — outbound HTTPS may be blocked by firewall/policy
+  it.effect.skipIf(process.env["CI"] === "true" || process.platform === "win32")("network access can be allowed via permissions", () =>
     Effect.gen(function* () {
       const executor = makeDenoSubprocessExecutor({
         permissions: {
