@@ -17,9 +17,6 @@ export const openApiSourceAtom = (scopeId: ScopeId, namespace: string) =>
 
 export const probeOpenApiSpec = OpenApiClient.mutation("openapi", "previewSpec");
 
-// TODO(PR 07c): drop this alias once AddOpenApiSource migrates to `probeOpenApiSpec`.
-export const previewOpenApiSpec = probeOpenApiSpec;
-
 export const addOpenApiSpec = OpenApiClient.mutation("openapi", "addSpec");
 
 export const updateOpenApiSource = OpenApiClient.mutation("openapi", "updateSource");
