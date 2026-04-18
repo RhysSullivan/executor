@@ -407,7 +407,6 @@ export function SecretHeaderAuthRow(props: {
         value={secretId}
         onSelect={onSelectSecret}
         secrets={existingSecrets}
-        onCreateNew={() => setCreating(true)}
       />
 
       {secretId && name.trim() && (
