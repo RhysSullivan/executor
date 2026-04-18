@@ -80,6 +80,12 @@ export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
+  /**
+   * If set (even to `null`), updates the OAuth2 auth. Pass `null` to clear
+   * (sign out); pass an OAuth2Auth value to replace with freshly-issued tokens.
+   * Omit the field to leave OAuth2 untouched.
+   */
+  readonly oauth2?: OAuth2Auth | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +405,7 @@ export const openApiPlugin = definePlugin(
               name: input.name?.trim() || undefined,
               baseUrl: input.baseUrl,
               headers: input.headers,
+              oauth2: input.oauth2,
             }),
 
           startOAuth: (input) =>

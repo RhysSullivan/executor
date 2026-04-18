@@ -8,7 +8,6 @@ import { OpenApiOAuthError } from "../sdk/errors";
 import type {
   OpenApiPluginExtension,
   HeaderValue,
-  OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
 import { OAuth2Auth } from "../sdk/types";
 import { OpenApiGroup } from "./group";
@@ -90,7 +89,8 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           name: payload.name,
           baseUrl: payload.baseUrl,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
-        } as OpenApiUpdateSourceInput);
+          oauth2: payload.oauth2,
+        });
         return { updated: true };
       })),
     )

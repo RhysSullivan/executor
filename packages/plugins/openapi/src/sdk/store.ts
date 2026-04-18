@@ -154,7 +154,11 @@ export interface OpenapiStore {
       readonly name?: string;
       readonly baseUrl?: string;
       readonly headers?: Record<string, HeaderValue>;
-      readonly oauth2?: OAuth2Auth;
+      /**
+       * `undefined` leaves OAuth2 untouched, `null` clears it (sign-out),
+       * an `OAuth2Auth` value replaces it.
+       */
+      readonly oauth2?: OAuth2Auth | null;
     },
   ) => Effect.Effect<void, StorageFailure>;
 
@@ -285,7 +289,9 @@ export const makeDefaultOpenapiStore = ({
         const nextHeaders =
           patch.headers !== undefined ? patch.headers : existing.config.headers ?? {};
         const nextOAuth2 =
-          patch.oauth2 !== undefined ? patch.oauth2 : existing.config.oauth2;
+          patch.oauth2 !== undefined
+            ? (patch.oauth2 ?? undefined)
+            : existing.config.oauth2;
 
         const nextInvocationConfig = new InvocationConfig({
           baseUrl: nextBaseUrl ?? existing.invocationConfig.baseUrl,

@@ -113,6 +113,8 @@ export class PreviewOperation extends Schema.Class<PreviewOperation>("PreviewOpe
   summary: Schema.optionalWith(Schema.String, { as: "Option" }),
   tags: Schema.Array(Schema.String),
   deprecated: Schema.Boolean,
+  inputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
+  outputSchema: Schema.optionalWith(Schema.Unknown, { as: "Option" }),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -134,7 +136,7 @@ export class SpecPreview extends Schema.Class<SpecPreview>("SpecPreview")({
   /** Pre-built header presets derived from auth strategies */
   headerPresets: Schema.Array(HeaderPreset),
   /** OAuth2 presets — one per (oauth2 scheme × supported flow) combination */
-  oauth2Presets: Schema.Array(OAuth2Preset),
+  oauth2Presets: Schema.optionalWith(Schema.Array(OAuth2Preset), { default: () => [] }),
 }) {}
 
 // ---------------------------------------------------------------------------
@@ -330,6 +332,32 @@ const buildOAuth2Presets = (schemes: readonly SecurityScheme[]): OAuth2Preset[] 
 };
 
 // ---------------------------------------------------------------------------
+// Supported auth modes from security schemes
+// ---------------------------------------------------------------------------
+
+export type SupportedAuthMode = "basic" | "apikey" | "bearer" | "oauth";
+
+/** Which UI auth modes are declared by the spec's security schemes. "none" is
+ *  always available and is not included here. */
+export const supportedAuthModesFromSchemes = (
+  schemes: readonly SecurityScheme[],
+): ReadonlySet<SupportedAuthMode> => {
+  const out = new Set<SupportedAuthMode>();
+  for (const scheme of schemes) {
+    if (scheme.type === "oauth2" || scheme.type === "openIdConnect") {
+      out.add("oauth");
+    } else if (scheme.type === "apiKey") {
+      out.add("apikey");
+    } else if (scheme.type === "http") {
+      const httpScheme = Option.getOrElse(scheme.scheme, () => "").toLowerCase();
+      if (httpScheme === "bearer") out.add("bearer");
+      else if (httpScheme === "basic") out.add("basic");
+    }
+  }
+  return out;
+};
+
+// ---------------------------------------------------------------------------
 // Collect unique tags from extraction result
 // ---------------------------------------------------------------------------
 
@@ -383,6 +411,8 @@ export const previewSpec = Effect.fn("OpenApi.previewSpec")(function* (input: st
           summary: op.summary,
           tags: op.tags,
           deprecated: op.deprecated,
+          inputSchema: op.inputSchema,
+          outputSchema: op.outputSchema,
         }),
     ),
     tags: collectTags(result),
