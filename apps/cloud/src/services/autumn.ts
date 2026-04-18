@@ -21,6 +21,13 @@ export class AutumnError extends Data.TaggedError("AutumnError")<{
 
 export type IAutumnService = Readonly<{
   use: <A>(fn: (client: Autumn) => Promise<A>) => Effect.Effect<A, AutumnError, never>;
+  /**
+   * Fire-and-forget-safe execution usage tracker. Errors are caught and
+   * logged; the returned Effect never fails. Callers typically
+   * `Effect.runFork` it at the boundary so the billing call can't stall a
+   * user-facing request.
+   */
+  trackExecution: (organizationId: string) => Effect.Effect<void, never, never>;
 }>;
 
 // ---------------------------------------------------------------------------
@@ -31,9 +38,13 @@ const make = Effect.sync(() => {
   const secretKey = server.AUTUMN_SECRET_KEY;
 
   if (!secretKey) {
+    const notConfigured = Effect.die(
+      new Error("Autumn not configured — AUTUMN_SECRET_KEY is empty"),
+    );
     return {
-      use: () => Effect.die(new Error("Autumn not configured — AUTUMN_SECRET_KEY is empty")),
-    } as IAutumnService;
+      use: () => notConfigured,
+      trackExecution: () => Effect.void,
+    } satisfies IAutumnService;
   }
 
   const client = new Autumn({ secretKey });
@@ -44,7 +55,19 @@ const make = Effect.sync(() => {
       catch: (cause) => new AutumnError({ cause }),
     }).pipe(Effect.withSpan(`autumn.${fn.name ?? "use"}`));
 
-  return { use } satisfies IAutumnService;
+  const trackExecution = (organizationId: string) =>
+    use((c) =>
+      c.track({ customerId: organizationId, featureId: "executions", value: 1 }),
+    ).pipe(
+      Effect.asVoid,
+      Effect.tapError((err) =>
+        Effect.sync(() => console.error("[billing] track failed:", err)),
+      ),
+      Effect.orElse(() => Effect.void),
+      Effect.withSpan("autumn.trackExecution"),
+    );
+
+  return { use, trackExecution } satisfies IAutumnService;
 });
 
 export class AutumnService extends Context.Tag("@executor/cloud/AutumnService")<
