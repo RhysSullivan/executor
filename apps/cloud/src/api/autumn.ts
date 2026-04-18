@@ -4,29 +4,8 @@ import { autumnHandler } from "autumn-js/backend";
 
 import { WorkOSAuth } from "../auth/workos";
 import { server } from "../env";
-import { AutumnService } from "../services/autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { SharedServices } from "./layers";
-
-export const makeTrackExecutionUsage = (autumn: AutumnService["Type"]) => {
-  return (organizationId: string): void => {
-    autumn
-      .use((client) =>
-        client.track({
-          customerId: organizationId,
-          featureId: "executions",
-          value: 1,
-        }),
-      )
-      .pipe(
-        Effect.catchAll((err) => {
-          console.error("[billing] track failed:", err);
-          return Effect.void;
-        }),
-        Effect.runFork,
-      );
-  };
-};
 
 const handleAutumnRequestEffect = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;

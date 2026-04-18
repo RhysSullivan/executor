@@ -15,12 +15,14 @@ import {
   CloudSessionAuthHandlers,
   NonProtectedApi,
 } from "../auth/handlers";
-import { WorkOSAuth } from "../auth/workos";
-import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { TelemetryLive } from "../services/telemetry";
 import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
+
+import { CoreSharedServices } from "./core-shared-services";
+
+export { CoreSharedServices };
 
 const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .add(McpGroup)
@@ -29,17 +31,6 @@ const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
 
 const DbLive = DbService.Live;
 const UserStoreLive = UserStoreService.Live.pipe(Layer.provide(DbLive));
-
-/**
- * Services that are independent of how the DB or tracer is provisioned —
- * both the stateless HTTP path (per-request DB via Hyperdrive) and the MCP
- * session DO (long-lived DB + isolate-local tracer SDK) merge this with
- * their own `DbLive` + `UserStoreLive` + telemetry layer.
- */
-export const CoreSharedServices = Layer.mergeAll(
-  WorkOSAuth.Default,
-  AutumnService.Default,
-);
 
 export const SharedServices = Layer.mergeAll(
   DbLive,

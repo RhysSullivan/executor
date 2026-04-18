@@ -1,12 +1,18 @@
+// Real-port Miniflare harness config used by mcp-miniflare.e2e.node.test.ts.
+// Same bindings as wrangler.test.jsonc but with MCP_SESSION_REQUEST_SCOPED_RUNTIME
+// left OFF so we exercise the prod long-lived-postgres DO runtime path — the
+// exact code path that ships to Cloudflare. vitest-pool-workers' strict
+// cross-request I/O check rejects that runtime; Miniflare on a real port does
+// not, which is the whole point of running this suite in the node pool.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "executor-cloud-test",
+  "name": "executor-cloud-miniflare",
   "compatibility_date": "2025-06-01",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/test-worker.ts",
   "vars": {
     "DATABASE_URL": "postgresql://postgres:postgres@127.0.0.1:5434/postgres",
-    "MCP_SESSION_REQUEST_SCOPED_RUNTIME": "true",
+    "MCP_SESSION_REQUEST_SCOPED_RUNTIME": "false",
     "WORKOS_API_KEY": "test_api_key",
     "WORKOS_CLIENT_ID": "test_client_id",
     "WORKOS_COOKIE_PASSWORD": "test_cookie_password_at_least_32_chars!",

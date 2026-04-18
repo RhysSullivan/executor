@@ -10,7 +10,6 @@ import { Effect } from "effect";
 import { createExecutionEngine } from "@executor/execution";
 import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
 
-import { makeTrackExecutionUsage } from "../api/autumn";
 import { withExecutionUsageTracking } from "../api/execution-usage";
 import { AutumnService } from "./autumn";
 import { createScopedExecutor } from "./executor";
@@ -23,7 +22,7 @@ export const makeExecutionStack = (organizationId: string, organizationName: str
     const engine = withExecutionUsageTracking(
       organizationId,
       createExecutionEngine({ executor, codeExecutor }),
-      makeTrackExecutionUsage(autumn),
+      (orgId) => Effect.runFork(autumn.trackExecution(orgId)),
     );
     return { executor, engine };
   });

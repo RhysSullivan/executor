@@ -6,6 +6,12 @@ const sharedShape = {
 
 const serverShape = {
   DATABASE_URL: Env.stringOr("DATABASE_URL", ""),
+  MCP_SESSION_REQUEST_SCOPED_RUNTIME: Env.literalOr(
+    "MCP_SESSION_REQUEST_SCOPED_RUNTIME",
+    "false",
+    "false",
+    "true",
+  ),
   WORKOS_API_KEY: Env.string("WORKOS_API_KEY"),
   WORKOS_CLIENT_ID: Env.string("WORKOS_CLIENT_ID"),
   WORKOS_COOKIE_PASSWORD: Env.string("WORKOS_COOKIE_PASSWORD"),
@@ -25,6 +31,7 @@ type SharedEnv = Readonly<{
 type ServerEnv = SharedEnv &
   Readonly<{
     DATABASE_URL: string;
+    MCP_SESSION_REQUEST_SCOPED_RUNTIME: "false" | "true";
     WORKOS_API_KEY: string;
     WORKOS_CLIENT_ID: string;
     WORKOS_COOKIE_PASSWORD: string;
