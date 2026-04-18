@@ -2,6 +2,7 @@
 // Autumn billing service — wraps the autumn-js SDK with Effect
 // ---------------------------------------------------------------------------
 
+import * as Sentry from "@sentry/cloudflare";
 import { Autumn } from "autumn-js";
 import { Context, Data, Effect, Layer } from "effect";
 
@@ -56,16 +57,21 @@ const make = Effect.sync(() => {
     }).pipe(Effect.withSpan(`autumn.${fn.name ?? "use"}`));
 
   const trackExecution = (organizationId: string) =>
-    use((c) =>
-      c.track({ customerId: organizationId, featureId: "executions", value: 1 }),
-    ).pipe(
-      Effect.asVoid,
-      Effect.tapError((err) =>
-        Effect.sync(() => console.error("[billing] track failed:", err)),
-      ),
-      Effect.orElse(() => Effect.void),
-      Effect.withSpan("autumn.trackExecution"),
-    );
+    Effect.gen(function* () {
+      yield* Effect.annotateCurrentSpan({ "autumn.customer.id": organizationId });
+      const outcome = yield* Effect.either(
+        use((c) =>
+          c.track({ customerId: organizationId, featureId: "executions", value: 1 }),
+        ),
+      );
+      if (outcome._tag === "Left") {
+        // Silent billing data loss is worth paging on — autumn.trackExecution
+        // is fire-and-forget so the caller doesn't handle it themselves.
+        console.error("[billing] track failed:", outcome.left);
+        Sentry.captureException(outcome.left);
+        yield* Effect.annotateCurrentSpan({ "autumn.track.failed": true });
+      }
+    }).pipe(Effect.withSpan("autumn.trackExecution"));
 
   return { use, trackExecution } satisfies IAutumnService;
 });

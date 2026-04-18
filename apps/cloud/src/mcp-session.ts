@@ -4,6 +4,7 @@
 
 import { DurableObject, env } from "cloudflare:workers";
 import { Data, Effect, Layer } from "effect";
+import * as Sentry from "@sentry/cloudflare";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WorkerTransport, type TransportState } from "agents/mcp";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -100,8 +101,13 @@ const makeResolveOrganizationServices = (dbHandle: DbHandle) => {
   return Layer.mergeAll(DbLive, UserStoreLive, CoreSharedServices);
 };
 
+// Session services DON'T re-provide `DoTelemetryLive` — that would install a
+// second WebSdk tracer in the nested Effect scope, disconnecting every
+// child span from the outer `McpSessionDO.init` / `McpSessionDO.handleRequest`
+// trace. Tracer comes from the outermost `Effect.provide(DoTelemetryLive)`
+// at the DO method boundary.
 const makeSessionServices = (dbHandle: DbHandle) =>
-  Layer.mergeAll(makeResolveOrganizationServices(dbHandle), DoTelemetryLive);
+  makeResolveOrganizationServices(dbHandle);
 
 const resolveSessionMeta = Effect.fn("McpSessionDO.resolveSessionMeta")(function* (
   organizationId: string,
@@ -164,89 +170,103 @@ export class McpSessionDO extends DurableObject {
     ]);
   }
 
-  private async createConnectedRuntime(
+  private createConnectedRuntimeEffect(
     sessionMeta: SessionMeta,
-    options: {
-      readonly dbHandle: DbHandle;
-      readonly enableJsonResponse?: boolean;
-    },
-  ): Promise<{ mcpServer: McpServer; transport: WorkerTransport }> {
-    const program = Effect.gen(function* () {
+    options: { readonly dbHandle: DbHandle; readonly enableJsonResponse?: boolean },
+  ) {
+    const self = this;
+    return Effect.gen(function* () {
       const { engine } = yield* makeExecutionStack(
         sessionMeta.organizationId,
         sessionMeta.organizationName,
       );
-      return yield* Effect.promise(() => createExecutorMcpServer({ engine }));
-    }).pipe(Effect.withSpan("McpSessionDO.createRuntime"), Effect.provide(makeSessionServices(options.dbHandle)));
-
-    const mcpServer = await Effect.runPromise(program);
-    const transport = new WorkerTransport({
-      sessionIdGenerator: () => this.ctx.id.toString(),
-      storage: this.makeStorage(),
-      enableJsonResponse: options.enableJsonResponse,
-    });
-
-    await mcpServer.connect(transport);
-    return { mcpServer, transport };
+      const mcpServer = yield* Effect.promise(() =>
+        createExecutorMcpServer({ engine }),
+      ).pipe(Effect.withSpan("McpSessionDO.createExecutorMcpServer"));
+      const transport = new WorkerTransport({
+        sessionIdGenerator: () => self.ctx.id.toString(),
+        storage: self.makeStorage(),
+        enableJsonResponse: options.enableJsonResponse,
+      });
+      yield* Effect.promise(() => mcpServer.connect(transport)).pipe(
+        Effect.withSpan("McpSessionDO.transport.connect"),
+      );
+      return { mcpServer, transport };
+    }).pipe(
+      Effect.withSpan("McpSessionDO.createRuntime"),
+      Effect.provide(makeSessionServices(options.dbHandle)),
+    );
   }
 
-  private async resolveAndStoreSessionMeta(token: McpSessionInit): Promise<SessionMeta> {
-    const dbHandle = makeRequestScopedDb();
-    try {
-      const sessionMeta = await Effect.runPromise(
-        resolveSessionMeta(token.organizationId).pipe(
+  private resolveAndStoreSessionMetaEffect(token: McpSessionInit) {
+    const self = this;
+    return Effect.gen(function* () {
+      const dbHandle = makeRequestScopedDb();
+      try {
+        const sessionMeta = yield* resolveSessionMeta(token.organizationId).pipe(
           Effect.provide(makeResolveOrganizationServices(dbHandle)),
-        ),
-      );
-      await this.saveSessionMeta(sessionMeta);
-      return sessionMeta;
-    } finally {
-      await dbHandle.end();
-    }
+        );
+        yield* Effect.promise(() => self.saveSessionMeta(sessionMeta));
+        return sessionMeta;
+      } finally {
+        yield* Effect.promise(() => dbHandle.end());
+      }
+    });
   }
 
   async init(token: McpSessionInit): Promise<void> {
     if (this.initialized) return;
-    // Outer `McpSessionDO.init` span wraps the full session-bootstrap cost
-    // (resolveSessionMeta + createRuntime + alarm setup) so the MCP DO
-    // dashboard's "new sessions" / "init p95" panels have one uniform span
-    // to filter on, regardless of whether the DO is running the long-lived
-    // or request-scoped variant.
-    const program = Effect.promise(() => this.doInit(token)).pipe(
-      Effect.withSpan("McpSessionDO.init", {
-        attributes: {
-          "mcp.auth.organization_id": token.organizationId,
-        },
-      }),
-      Effect.provide(DoTelemetryLive),
+    return Effect.runPromise(
+      this.doInitEffect(token).pipe(
+        Effect.withSpan("McpSessionDO.init", {
+          attributes: { "mcp.auth.organization_id": token.organizationId },
+        }),
+        Effect.provide(DoTelemetryLive),
+      ),
     );
-    return Effect.runPromise(program);
   }
 
-  private async doInit(token: McpSessionInit): Promise<void> {
-    try {
-      const sessionMeta = await this.resolveAndStoreSessionMeta(token);
+  private doInitEffect(token: McpSessionInit) {
+    const self = this;
+    // Single Effect chain so every sub-span (resolveSessionMeta,
+    // createRuntime, createScopedExecutor, createExecutorMcpServer,
+    // transport.connect, storage.setAlarm) lands as a child of
+    // `McpSessionDO.init`. The prior implementation called
+    // `Effect.runPromise` nested inside an async function, which orphaned
+    // each sub-span into its own root trace and made init opaque —
+    // dashboard saw one 2.77s span with nothing under it.
+    return Effect.gen(function* () {
+      const sessionMeta = yield* self.resolveAndStoreSessionMetaEffect(token);
 
       if (!requestScopedRuntimeEnabled) {
-        this.dbHandle = makeLongLivedDb();
-        const runtime = await this.createConnectedRuntime(sessionMeta, {
-          dbHandle: this.dbHandle,
+        self.dbHandle = makeLongLivedDb();
+        const runtime = yield* self.createConnectedRuntimeEffect(sessionMeta, {
+          dbHandle: self.dbHandle,
         });
-        this.mcpServer = runtime.mcpServer;
-        this.transport = runtime.transport;
+        self.mcpServer = runtime.mcpServer;
+        self.transport = runtime.transport;
       }
 
-      this.initialized = true;
-      this.lastActivityMs = Date.now();
+      self.initialized = true;
+      self.lastActivityMs = Date.now();
 
-      await this.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS);
-    } catch (err) {
-      // Partial init leaves dangling resources (DB socket, maybe mcpServer).
-      // Clean up before rethrowing so the DO isn't stuck in a half-built state.
-      console.error("[mcp-session] init failed:", err instanceof Error ? err.stack : err);
-      await this.cleanup();
-      throw err;
-    }
+      yield* Effect.promise(() => self.ctx.storage.setAlarm(Date.now() + HEARTBEAT_MS)).pipe(
+        Effect.withSpan("McpSessionDO.setAlarm"),
+      );
+    }).pipe(
+      Effect.tapErrorCause((cause) =>
+        Effect.sync(() => {
+          console.error("[mcp-session] init failed:", cause);
+        }),
+      ),
+      Effect.catchAllCause((cause) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() => self.cleanup());
+          return yield* Effect.failCause(cause);
+        }),
+      ),
+      Effect.orDie,
+    );
   }
 
   private async handleRequestWithRequestScopedRuntime(request: Request): Promise<Response> {
@@ -264,10 +284,12 @@ export class McpSessionDO extends DurableObject {
 
     try {
       dbHandle = makeRequestScopedDb();
-      const runtime = await this.createConnectedRuntime(sessionMeta, {
-        dbHandle,
-        enableJsonResponse: request.method !== "GET",
-      });
+      const runtime = await Effect.runPromise(
+        this.createConnectedRuntimeEffect(sessionMeta, {
+          dbHandle,
+          enableJsonResponse: request.method !== "GET",
+        }).pipe(Effect.provide(DoTelemetryLive)),
+      );
       mcpServer = runtime.mcpServer;
       transport = runtime.transport;
 
@@ -281,6 +303,7 @@ export class McpSessionDO extends DurableObject {
         "[mcp-session] request-scoped handleRequest error:",
         err instanceof Error ? err.stack : err,
       );
+      Sentry.captureException(err);
       return jsonRpcError(500, -32603, "Internal error");
     } finally {
       await transport?.close().catch(() => undefined);
@@ -331,6 +354,7 @@ export class McpSessionDO extends DurableObject {
       return response;
     } catch (err) {
       console.error("[mcp-session] handleRequest error:", err instanceof Error ? err.stack : err);
+      Sentry.captureException(err);
       return jsonRpcError(500, -32603, "Internal error");
     }
   }

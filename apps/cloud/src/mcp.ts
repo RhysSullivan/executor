@@ -180,8 +180,15 @@ const JsonRpcEnvelope = Schema.Struct({
   method: Schema.optional(Schema.String),
   id: Schema.optional(Schema.Union(Schema.String, Schema.Number, Schema.Null)),
   params: Schema.optional(UnknownRecord),
+  // Responses to server-initiated requests arrive as POST bodies too —
+  // notably elicitation replies (`result.action = "accept" | "decline" | "cancel"`).
+  result: Schema.optional(UnknownRecord),
 });
 type JsonRpcEnvelope = typeof JsonRpcEnvelope.Type;
+
+const ElicitationReplyResult = Schema.Struct({
+  action: Schema.optional(Schema.Literal("accept", "decline", "cancel")),
+});
 
 const InitializeParams = Schema.Struct({
   protocolVersion: Schema.optional(Schema.String),
@@ -247,6 +254,14 @@ const methodAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
   }
 };
 
+const replyAttrs = (envelope: JsonRpcEnvelope): Record<string, unknown> => {
+  if (!envelope.result || envelope.method) return {};
+  return Option.match(decode(ElicitationReplyResult, envelope.result), {
+    onNone: () => ({}),
+    onSome: ({ action }) => (action ? { "mcp.elicitation.action": action } : {}),
+  });
+};
+
 const rpcAttrs = (envelope: Option.Option<JsonRpcEnvelope>): Record<string, unknown> =>
   Option.match(envelope, {
     onNone: () => ({}),
@@ -254,6 +269,7 @@ const rpcAttrs = (envelope: Option.Option<JsonRpcEnvelope>): Record<string, unkn
       ...(e.method && { "mcp.rpc.method": e.method }),
       ...(e.id !== undefined && e.id !== null && { "mcp.rpc.id": String(e.id) }),
       ...methodAttrs(e),
+      ...replyAttrs(e),
     }),
   });
 
@@ -331,10 +347,18 @@ const authorizationServerMetadata = Effect.promise(async () => {
 // onto a long-lived SSE channel we don't want to consume.
 // ---------------------------------------------------------------------------
 
+type SandboxOutcome = {
+  readonly status?: string;
+  readonly error?: { readonly kind?: string; readonly message?: string };
+};
+
 type JsonRpcErrorBody = {
   readonly jsonrpc?: string;
   readonly error?: { readonly code?: number; readonly message?: string };
-  readonly result?: { readonly isError?: boolean };
+  readonly result?: {
+    readonly isError?: boolean;
+    readonly structuredContent?: SandboxOutcome;
+  };
 };
 
 const parseFirstJsonRpc = (contentType: string, body: string): JsonRpcErrorBody | null => {
@@ -373,6 +397,14 @@ const rpcResponseAttrs = (payload: JsonRpcErrorBody | null): Record<string, unkn
   if (payload.result?.isError === true) {
     attrs["mcp.tool.result.is_error"] = true;
   }
+  const sc = payload.result?.structuredContent;
+  if (sc && typeof sc.status === "string") {
+    attrs["mcp.tool.sandbox.status"] = sc.status;
+    if (sc.error?.kind) attrs["mcp.tool.sandbox.error.kind"] = sc.error.kind;
+    if (typeof sc.error?.message === "string") {
+      attrs["mcp.tool.sandbox.error.message"] = sc.error.message.slice(0, 500);
+    }
+  }
   return attrs;
 };
 
@@ -384,6 +416,16 @@ const peekAndAnnotate = (response: Response): Effect.Effect<Response> =>
     const attrs = rpcResponseAttrs(payload);
     if (Object.keys(attrs).length > 0) {
       yield* Effect.annotateCurrentSpan(attrs);
+    }
+    // Internal-error code -32603 means our server failed handling a
+    // structurally valid request. Unlike -32601 / -32602 ("the client
+    // fucked up"), this is a real bug in our code — route to Sentry so
+    // we get alerted. Protocol-level client errors stay in Axiom.
+    if (payload?.error?.code === -32603) {
+      yield* Effect.sync(() => {
+        const msg = payload.error?.message ?? "unknown";
+        Sentry.captureException(new Error(`MCP internal error (-32603): ${msg}`));
+      });
     }
     return new Response(text, {
       status: response.status,
