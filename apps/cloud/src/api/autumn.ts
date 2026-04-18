@@ -8,25 +8,11 @@ import { AutumnService } from "../services/autumn";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { SharedServices } from "./layers";
 
-export const makeTrackExecutionUsage = (autumn: AutumnService["Type"]) => {
-  return (organizationId: string): void => {
-    autumn
-      .use((client) =>
-        client.track({
-          customerId: organizationId,
-          featureId: "executions",
-          value: 1,
-        }),
-      )
-      .pipe(
-        Effect.catchAll((err) => {
-          console.error("[billing] track failed:", err);
-          return Effect.void;
-        }),
-        Effect.runFork,
-      );
-  };
-};
+// Re-export so existing callers don't have to change their import path.
+// The actual implementation moved to `services/autumn-tracker.ts` to break
+// a DO → api/* → tanstack-start import cycle that crashed module load
+// under vitest-pool-workers.
+export { makeTrackExecutionUsage } from "../services/autumn-tracker";
 
 const handleAutumnRequestEffect = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;

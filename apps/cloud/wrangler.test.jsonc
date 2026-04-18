@@ -1,22 +1,20 @@
 {
-  // Test-only wrangler config for @cloudflare/vitest-pool-workers.
-  // Strips everything not needed for DbService tests and points the
-  // Hyperdrive binding at the in-process PGlite socket server started
-  // by vitest globalSetup (scripts/test-globalsetup.ts).
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "executor-cloud-test",
   "compatibility_date": "2025-06-01",
   "compatibility_flags": ["nodejs_compat"],
   "main": "src/test-worker.ts",
   "vars": {
-    // DbService reads DATABASE_URL first and bypasses Hyperdrive when set.
-    // The test-globalsetup.ts starts a PGlite socket server on this port.
     "DATABASE_URL": "postgresql://postgres:postgres@127.0.0.1:5434/postgres",
-    // env.ts validates these as required — stub with dummies so module
-    // import doesn't throw. The DbService tests never touch WorkOS.
     "WORKOS_API_KEY": "test_api_key",
     "WORKOS_CLIENT_ID": "test_client_id",
     "WORKOS_COOKIE_PASSWORD": "test_cookie_password_at_least_32_chars!",
-    "NODE_ENV": "test",
+    "MCP_AUTHKIT_DOMAIN": "https://test-authkit.example.com",
+    "MCP_RESOURCE_ORIGIN": "https://test-resource.example.com",
+    "NODE_ENV": "test"
   },
+  "durable_objects": {
+    "bindings": [{"name": "MCP_SESSION", "class_name": "McpSessionDO"}]
+  },
+  "migrations": [{"tag": "v1", "new_classes": ["McpSessionDO"]}]
 }

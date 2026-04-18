@@ -17,7 +17,14 @@
 //   `ctx.waitUntil` to rely on for batching.
 // ---------------------------------------------------------------------------
 
-import { Resource, Tracer as OtelTracer, WebSdk } from "@effect/opentelemetry";
+// Subpath imports — the barrel `@effect/opentelemetry` re-exports `NodeSdk`,
+// which eagerly imports `@opentelemetry/sdk-trace-node` and its
+// `context-async-hooks` dep. Under vitest-pool-workers that crashes module
+// load (no `async_hooks` in workerd). Production bundles tree-shake the
+// unused NodeSdk; vitest does not.
+import * as Resource from "@effect/opentelemetry/Resource";
+import * as OtelTracer from "@effect/opentelemetry/Tracer";
+import * as WebSdk from "@effect/opentelemetry/WebSdk";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { Layer } from "effect";

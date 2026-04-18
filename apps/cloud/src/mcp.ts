@@ -334,21 +334,35 @@ const dispatchDelete = (request: Request) => {
 
 type McpRoute = "mcp" | "oauth-protected-resource" | "oauth-authorization-server" | null;
 
-const classifyPath = (pathname: string): McpRoute => {
+/**
+ * Returns the MCP route type for a pathname, or `null` if the path isn't owned
+ * by the MCP handler.
+ *
+ * Exported so the test worker can share the exact same predicate the middleware
+ * uses — we avoid duplicating the "is this an MCP path?" logic across entry
+ * points.
+ */
+export const classifyMcpPath = (pathname: string): McpRoute => {
   if (pathname === "/mcp") return "mcp";
   if (pathname === "/.well-known/oauth-protected-resource") return "oauth-protected-resource";
   if (pathname === "/.well-known/oauth-authorization-server") return "oauth-authorization-server";
   return null;
 };
 
-const mcpApp: Effect.Effect<
+/**
+ * Raw Effect-native MCP app. Exported so alternate entry points (e.g. the
+ * vitest-pool-workers test worker) can provide their own `McpAuth` layer —
+ * the only dependency we deliberately swap in tests because hitting the real
+ * WorkOS JWKS isn't practical. Every other layer stays real.
+ */
+export const mcpApp: Effect.Effect<
   HttpServerResponse.HttpServerResponse,
   never,
   HttpServerRequest.HttpServerRequest | McpAuth
 > = Effect.gen(function* () {
   const httpRequest = yield* HttpServerRequest.HttpServerRequest;
   const request = httpRequest.source as Request;
-  const route = classifyPath(new URL(request.url).pathname);
+  const route = classifyMcpPath(new URL(request.url).pathname);
 
   if (request.method === "OPTIONS") return corsPreflight;
   if (route === "oauth-protected-resource") return yield* protectedResourceMetadata;
@@ -397,6 +411,6 @@ const rawMcpFetch = HttpApp.toWebHandler(
  * path that should 404 through the regular route tree.
  */
 export const mcpFetch = async (request: Request): Promise<Response | null> => {
-  if (classifyPath(new URL(request.url).pathname) === null) return null;
+  if (classifyMcpPath(new URL(request.url).pathname) === null) return null;
   return rawMcpFetch(request);
 };

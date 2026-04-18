@@ -12,7 +12,12 @@ import postgres from "postgres";
 import { createExecutorMcpServer } from "@executor/host-mcp";
 import type { DrizzleDb, DbServiceShape } from "./services/db";
 
-import { CoreSharedServices } from "./api/layers";
+// Import directly from core-shared-services, NOT from ./api/layers.ts.
+// The full layers module pulls in `auth/handlers.ts` → `@tanstack/react-start/server`,
+// which uses a `#tanstack-start-entry` subpath specifier that breaks module
+// load under vitest-pool-workers. The DO only needs the core two services
+// (WorkOSAuth + AutumnService), so we import them from the tight module.
+import { CoreSharedServices } from "./api/core-shared-services";
 import { UserStoreService } from "./auth/context";
 import { resolveOrganization } from "./auth/resolve-organization";
 import { server } from "./env";
