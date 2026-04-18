@@ -2,6 +2,12 @@ import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { useSourcesWithPending } from "@executor/react/api/optimistic";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  MenuIcon,
+  XIcon,
+} from "lucide-react";
 import { useScope } from "@executor/react/api/scope-context";
 import { Button } from "@executor/react/components/button";
 import { Skeleton } from "@executor/react/components/skeleton";
@@ -51,9 +57,9 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
       to={props.to}
       onClick={props.onNavigate}
       className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
         props.active
-          ? "bg-sidebar-active text-foreground font-medium"
+          ? "bg-sidebar-active text-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
       ].join(" ")}
     >
@@ -80,7 +86,7 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
       </div>
     ),
     onFailure: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
+      <div className="px-2.5 py-2 text-sm text-muted-foreground">No sources yet</div>
     ),
     onSuccess: ({ value }) =>
       value.length === 0 ? (
@@ -100,15 +106,15 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                 params={{ namespace: s.id }}
                 onClick={props.onNavigate}
                 className={[
-                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm",
                   active
-                    ? "bg-sidebar-active text-foreground font-medium"
+                    ? "bg-sidebar-active text-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
                 <SourceFavicon url={s.url} />
                 <span className="flex-1 truncate">{s.name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
+                <span className="rounded bg-secondary/50 px-1 py-px text-xs text-muted-foreground">
                   {s.kind}
                 </span>
               </Link>
@@ -176,27 +182,13 @@ function OrganizationSwitcherItems(props: { activeOrganizationId: string | null 
                 className="text-xs"
               >
                 <span className="min-w-0 flex-1 truncate">{organization.name}</span>
-                {isActive && <CheckIcon />}
+                {isActive && <CheckIcon className="ml-auto size-4 text-muted-foreground" />}
               </DropdownMenuItem>
             );
           })}
         </>
       ),
   });
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className="ml-auto size-3 text-muted-foreground">
-      <path
-        d="M3.5 8.5L6.5 11.5L12.5 5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
 }
 
 function UserFooter() {
@@ -244,26 +236,14 @@ function UserFooter() {
                 email={auth.user.email}
               />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-foreground">
+                <p className="truncate text-sm font-medium text-foreground">
                   {auth.user.name ?? auth.user.email}
                 </p>
                 {auth.organization && (
                   <p className="truncate text-xs text-muted-foreground">{auth.organization.name}</p>
                 )}
               </div>
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                className="size-3.5 shrink-0 text-muted-foreground"
-              >
-                <path
-                  d="M4 6l4 4 4-4"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
+              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" side="top" className="w-64">
@@ -362,6 +342,7 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
   const isSecrets = props.pathname === "/secrets";
   const isBilling = props.pathname === "/billing" || props.pathname.startsWith("/billing/");
   const isOrg = props.pathname === "/org";
+  const isSourcesList = props.pathname === "/sources";
 
   return (
     <>
@@ -373,15 +354,22 @@ function SidebarContent(props: { pathname: string; onNavigate?: () => void; show
         </div>
       )}
 
-      <nav className="flex flex-1 flex-col overflow-y-auto p-2">
-        <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+      <nav className="flex flex-1 flex-col gap-px overflow-y-auto p-2">
+        <NavItem to="/" label="Getting Started" active={isHome} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
         <NavItem to="/org" label="Organization" active={isOrg} onNavigate={props.onNavigate} />
         <NavItem to="/billing" label="Billing" active={isBilling} onNavigate={props.onNavigate} />
 
-        <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          <span>Sources</span>
-        </div>
+        <Link
+          to="/sources"
+          onClick={props.onNavigate}
+          className={[
+            "mt-5 mb-1 flex items-center rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wide",
+            isSourcesList ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+          ].join(" ")}
+        >
+          Sources
+        </Link>
 
         <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
       </nav>
@@ -446,14 +434,7 @@ export function Shell() {
                 onClick={() => setMobileSidebarOpen(false)}
                 className="text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
               >
-                <svg viewBox="0 0 16 16" className="size-3.5">
-                  <path
-                    d="M3 3l10 10M13 3L3 13"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <XIcon className="size-4" />
               </Button>
             </div>
             <SidebarContent
@@ -477,14 +458,7 @@ export function Shell() {
             onClick={() => setMobileSidebarOpen(true)}
             className="bg-card hover:bg-accent/50"
           >
-            <svg viewBox="0 0 16 16" className="size-4">
-              <path
-                d="M2 4h12M2 8h12M2 12h12"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
+            <MenuIcon className="size-4" />
           </Button>
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>

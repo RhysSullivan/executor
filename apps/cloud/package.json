@@ -61,6 +61,7 @@
     "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "jose": "^5.6.3",
+    "lucide-react": "^1.7.0",
     "postgres": "^3.4.9",
     "react": "catalog:",
     "react-dom": "catalog:",

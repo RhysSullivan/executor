@@ -1,6 +1,14 @@
 import { Link, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtomRefresh, Result } from "@effect-atom/atom-react";
+import {
+  ArrowDownToLine,
+  CheckIcon,
+  CopyIcon,
+  FolderIcon,
+  MenuIcon,
+  XIcon,
+} from "lucide-react";
 import { sourcesAtom, toolsAtom } from "@executor/react/api/atoms";
 import { useSourcesWithPending } from "@executor/react/api/optimistic";
 import { useScope, useScopeInfo } from "@executor/react/api/scope-context";
@@ -142,21 +150,10 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
   return (
     <div className="mx-2 mb-2 rounded-xl border border-primary/25 bg-primary/[0.06] p-3">
       <div className="flex items-center gap-2">
-        <div className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15">
-          <svg viewBox="0 0 16 16" fill="none" className="size-3 text-primary">
-            <path
-              d="M8 3v7M5 7l3 3 3-3"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path d="M3 12h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        </div>
+        <ArrowDownToLine className="size-4 shrink-0 text-primary" />
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-foreground">Update available</p>
-          <p className="text-sm text-muted-foreground">v{props.latestVersion}</p>
+          <p className="text-sm font-semibold text-foreground">Update available</p>
+          <p className="text-sm text-muted-foreground tabular-nums">v{props.latestVersion}</p>
         </div>
       </div>
       <Button
@@ -166,37 +163,11 @@ function UpdateCard(props: { latestVersion: string; channel: UpdateChannel }) {
         className="mt-2.5 flex w-full items-center justify-between gap-2 rounded-lg border-border/60 bg-background/50 px-2.5 py-1.5 text-left hover:bg-background/80"
       >
         <code className="truncate font-mono text-xs text-sidebar-foreground">{command}</code>
-        <span className="shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
-          {copied ? (
-            <svg viewBox="0 0 16 16" fill="none" className="size-3 text-primary">
-              <path
-                d="M3 8.5l3.5 3.5L13 4"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 16 16" fill="none" className="size-3">
-              <rect
-                x="5"
-                y="5"
-                width="8"
-                height="8"
-                rx="1.5"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              />
-              <path
-                d="M3 11V3.5A.5.5 0 013.5 3H11"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
-          )}
-        </span>
+        {copied ? (
+          <CheckIcon className="size-4 shrink-0 text-primary" />
+        ) : (
+          <CopyIcon className="size-4 shrink-0 text-muted-foreground" />
+        )}
       </Button>
     </div>
   );
@@ -210,9 +181,9 @@ function NavItem(props: { to: string; label: string; active: boolean; onNavigate
       to={props.to}
       onClick={props.onNavigate}
       className={[
-        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+        "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm",
         props.active
-          ? "bg-sidebar-active text-foreground font-medium"
+          ? "bg-sidebar-active text-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
       ].join(" ")}
     >
@@ -229,10 +200,10 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
 
   return Result.match(sources, {
     onInitial: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">Loading…</div>
+      <div className="px-2.5 py-2 text-sm text-muted-foreground">Loading…</div>
     ),
     onFailure: () => (
-      <div className="px-2.5 py-2 text-xs text-muted-foreground">No sources yet</div>
+      <div className="px-2.5 py-2 text-sm text-muted-foreground">No sources yet</div>
     ),
     onSuccess: ({ value }) =>
       value.length === 0 ? (
@@ -252,15 +223,15 @@ function SourceList(props: { pathname: string; onNavigate?: () => void }) {
                 params={{ namespace: s.id }}
                 onClick={props.onNavigate}
                 className={[
-                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors",
+                  "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm",
                   active
-                    ? "bg-sidebar-active text-foreground font-medium"
+                    ? "bg-sidebar-active text-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-active/60 hover:text-foreground",
                 ].join(" ")}
               >
                 <SourceFavicon url={s.url} />
                 <span className="flex-1 truncate">{s.name}</span>
-                <span className="rounded bg-secondary/50 px-1 py-px text-xs font-medium text-muted-foreground">
+                <span className="rounded bg-secondary/50 px-1 py-px text-xs text-muted-foreground">
                   {s.kind}
                 </span>
               </Link>
@@ -280,15 +251,9 @@ function ScopeLabel() {
   const folder = parts[parts.length - 1] || name;
 
   return (
-    <div className="mb-1.5 flex items-center gap-1.5 rounded-md px-2.5 py-1.5" title={name}>
-      <svg viewBox="0 0 16 16" fill="none" className="size-3.5 shrink-0 text-muted-foreground">
-        <path
-          d="M2 4.5C2 3.67 2.67 3 3.5 3h3.09a1 1 0 0 1 .7.29l1.42 1.42a1 1 0 0 0 .7.29H12.5c.83 0 1.5.67 1.5 1.5v5.5c0 .83-.67 1.5-1.5 1.5h-9A1.5 1.5 0 0 1 2 12V4.5z"
-          stroke="currentColor"
-          strokeWidth="1.2"
-        />
-      </svg>
-      <span className="truncate text-xs font-medium text-foreground/80">{folder}</span>
+    <div className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5" title={name}>
+      <FolderIcon className="size-4 shrink-0 text-muted-foreground" />
+      <span className="truncate text-sm font-medium text-foreground/80">{folder}</span>
     </div>
   );
 }
@@ -305,6 +270,7 @@ function SidebarContent(props: {
 }) {
   const isHome = props.pathname === "/";
   const isSecrets = props.pathname === "/secrets";
+  const isSourcesList = props.pathname === "/sources";
 
   return (
     <>
@@ -316,15 +282,22 @@ function SidebarContent(props: {
         </div>
       )}
 
-      <nav className="flex flex-1 flex-col overflow-y-auto p-2">
+      <nav className="flex flex-1 flex-col gap-px overflow-y-auto p-2">
         <ScopeLabel />
-        <NavItem to="/" label="Sources" active={isHome} onNavigate={props.onNavigate} />
+        <NavItem to="/" label="Getting Started" active={isHome} onNavigate={props.onNavigate} />
         <NavItem to="/secrets" label="Secrets" active={isSecrets} onNavigate={props.onNavigate} />
 
         {/* Sources list */}
-        <div className="mt-5 mb-1 px-2.5 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          <span>Sources</span>
-        </div>
+        <Link
+          to="/sources"
+          onClick={props.onNavigate}
+          className={[
+            "mt-5 mb-1 flex items-center rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wide",
+            isSourcesList ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+          ].join(" ")}
+        >
+          Sources
+        </Link>
 
         <SourceList pathname={props.pathname} onNavigate={props.onNavigate} />
       </nav>
@@ -441,14 +414,7 @@ export function Shell() {
                 onClick={() => setMobileSidebarOpen(false)}
                 className="text-sidebar-foreground hover:bg-sidebar-active hover:text-foreground"
               >
-                <svg viewBox="0 0 16 16" className="size-3.5">
-                  <path
-                    d="M3 3l10 10M13 3L3 13"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                  />
-                </svg>
+                <XIcon className="size-4" />
               </Button>
             </div>
             <SidebarContent
@@ -474,14 +440,7 @@ export function Shell() {
             onClick={() => setMobileSidebarOpen(true)}
             className="bg-card hover:bg-accent/50"
           >
-            <svg viewBox="0 0 16 16" className="size-4">
-              <path
-                d="M2 4h12M2 8h12M2 12h12"
-                stroke="currentColor"
-                strokeWidth="1.2"
-                strokeLinecap="round"
-              />
-            </svg>
+            <MenuIcon className="size-4" />
           </Button>
           <Link to="/" className="flex items-center gap-1.5">
             <span className="font-display text-base tracking-tight text-foreground">executor</span>
