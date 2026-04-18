@@ -32,8 +32,8 @@ if (typeof Bun !== "undefined" && (await Bun.file(wasmOnDisk).exists())) {
 }
 
 import { Command, Options, Args } from "@effect/cli";
-import { BunRuntime } from "@effect/platform-bun";
-import { FetchHttpClient, HttpApiClient } from "@effect/platform";
+import { BunContext, BunRuntime } from "@effect/platform-bun";
+import { FetchHttpClient, FileSystem, HttpApiClient } from "@effect/platform";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Cause from "effect/Cause";
@@ -92,14 +92,11 @@ const waitForShutdownSignal = () =>
 // Background server management
 // ---------------------------------------------------------------------------
 
-const isServerReachable = async (baseUrl: string): Promise<boolean> => {
-  try {
-    const res = await fetch(`${baseUrl}/api/scope`, { signal: AbortSignal.timeout(2000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-};
+const isServerReachable = (baseUrl: string): Effect.Effect<boolean> =>
+  Effect.tryPromise(() => fetch(`${baseUrl}/api/scope`, { signal: AbortSignal.timeout(2000) })).pipe(
+    Effect.map((res) => res.ok),
+    Effect.catchAll(() => Effect.succeed(false)),
+  );
 
 const script = process.argv[1];
 const isDevMode = script?.endsWith(".ts") || script?.endsWith(".js");
@@ -107,7 +104,7 @@ const cliPrefix = isDevMode ? `bun run ${script}` : "executor";
 
 const ensureDaemon = (baseUrl: string) =>
   Effect.gen(function* () {
-    if (yield* Effect.promise(() => isServerReachable(baseUrl))) return;
+    if (yield* isServerReachable(baseUrl)) return;
 
     const parsed = yield* Effect.try({
       try: () => parseDaemonBaseUrl(baseUrl, DEFAULT_PORT),
@@ -141,19 +138,17 @@ const ensureDaemon = (baseUrl: string) =>
     });
 
     console.error(`Starting daemon on ${parsed.hostname}:${parsed.port}...`);
-    spawnDetached({
+    yield* spawnDetached({
       command: spec.command,
       args: spec.args,
       env: process.env,
     });
 
-    const ready = yield* Effect.promise(() =>
-      waitForReachable({
-        check: () => isServerReachable(baseUrl),
-        timeoutMs: DAEMON_BOOT_TIMEOUT_MS,
-        intervalMs: DAEMON_BOOT_POLL_MS,
-      }),
-    );
+    const ready = yield* waitForReachable({
+      check: isServerReachable(baseUrl),
+      timeoutMs: DAEMON_BOOT_TIMEOUT_MS,
+      intervalMs: DAEMON_BOOT_POLL_MS,
+    });
 
     if (!ready) {
       return yield* Effect.fail(
@@ -176,8 +171,8 @@ const stopDaemon = (baseUrl: string) =>
     });
 
     const host = canonicalDaemonHost(parsed.hostname);
-    const record = yield* Effect.promise(() => readDaemonRecord({ hostname: host, port: parsed.port }));
-    const reachable = yield* Effect.promise(() => isServerReachable(baseUrl));
+    const record = yield* readDaemonRecord({ hostname: host, port: parsed.port });
+    const reachable = yield* isServerReachable(baseUrl);
 
     if (!record) {
       if (reachable) {
@@ -196,7 +191,7 @@ const stopDaemon = (baseUrl: string) =>
     }
 
     if (!isPidAlive(record.pid)) {
-      yield* Effect.promise(() => removeDaemonRecord({ hostname: host, port: parsed.port }));
+      yield* removeDaemonRecord({ hostname: host, port: parsed.port });
       if (reachable) {
         return yield* Effect.fail(
           new Error(
@@ -213,21 +208,13 @@ const stopDaemon = (baseUrl: string) =>
 
     console.log(`Stopping daemon at ${baseUrl} (pid ${record.pid})...`);
 
-    yield* Effect.try({
-      try: () => terminatePid(record.pid),
-      catch: (cause) =>
-        cause instanceof Error
-          ? cause
-          : new Error(`Failed sending SIGTERM to pid ${record.pid}: ${String(cause)}`),
-    });
+    yield* terminatePid(record.pid);
 
-    const stopped = yield* Effect.promise(() =>
-      waitForUnreachable({
-        check: () => isServerReachable(baseUrl),
-        timeoutMs: DAEMON_STOP_TIMEOUT_MS,
-        intervalMs: DAEMON_BOOT_POLL_MS,
-      }),
-    );
+    const stopped = yield* waitForUnreachable({
+      check: isServerReachable(baseUrl),
+      timeoutMs: DAEMON_STOP_TIMEOUT_MS,
+      intervalMs: DAEMON_BOOT_POLL_MS,
+    });
 
     if (!stopped) {
       return yield* Effect.fail(
@@ -240,7 +227,7 @@ const stopDaemon = (baseUrl: string) =>
       );
     }
 
-    yield* Effect.promise(() => removeDaemonRecord({ hostname: host, port: parsed.port }));
+    yield* removeDaemonRecord({ hostname: host, port: parsed.port });
     console.log(`Daemon stopped at ${baseUrl}.`);
   });
 
@@ -311,14 +298,12 @@ const runDaemonSession = (input: {
     const daemonHost = canonicalDaemonHost(input.hostname);
     const daemonPort = server.port;
 
-    yield* Effect.promise(() =>
-      writeDaemonRecord({
-        hostname: daemonHost,
-        port: daemonPort,
-        pid: process.pid,
-        scopeDir: process.env.EXECUTOR_SCOPE_DIR ?? null,
-      }),
-    );
+    yield* writeDaemonRecord({
+      hostname: daemonHost,
+      port: daemonPort,
+      pid: process.pid,
+      scopeDir: process.env.EXECUTOR_SCOPE_DIR ?? null,
+    });
 
     console.log(`Daemon ready on http://${daemonHost}:${daemonPort}`);
 
@@ -326,7 +311,7 @@ const runDaemonSession = (input: {
       yield* waitForShutdownSignal();
     } finally {
       yield* Effect.promise(() => server.stop());
-      yield* Effect.promise(() => removeDaemonRecord({ hostname: daemonHost, port: daemonPort }));
+      yield* removeDaemonRecord({ hostname: daemonHost, port: daemonPort });
     }
   });
 
@@ -350,17 +335,17 @@ const readCode = (input: {
   code: Option.Option<string>;
   file: Option.Option<string>;
   stdin: boolean;
-}): Effect.Effect<string, Error> =>
+}): Effect.Effect<string, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
     const code = Option.getOrUndefined(input.code);
     if (code && code.trim().length > 0) return code;
 
     const file = Option.getOrUndefined(input.file);
     if (file && file.trim().length > 0) {
-      const contents = yield* Effect.tryPromise({
-        try: () => Bun.file(file).text(),
-        catch: (e) => new Error(`Failed to read file: ${e}`),
-      });
+      const contents = yield* fs.readFileString(file).pipe(
+        Effect.mapError((cause) => new Error(`Failed to read file: ${String(cause)}`)),
+      );
       if (contents.trim().length > 0) return contents;
     }
 
@@ -529,8 +514,8 @@ const daemonStatusCommand = Command.make(
       const host = canonicalDaemonHost(parsed.hostname);
 
       const [record, reachable] = yield* Effect.all([
-        Effect.promise(() => readDaemonRecord({ hostname: host, port: parsed.port })),
-        Effect.promise(() => isServerReachable(baseUrl)),
+        readDaemonRecord({ hostname: host, port: parsed.port }),
+        isServerReachable(baseUrl),
       ]);
 
       if (!record) {
@@ -544,7 +529,7 @@ const daemonStatusCommand = Command.make(
 
       if (!isPidAlive(record.pid)) {
         if (!reachable) {
-          yield* Effect.promise(() => removeDaemonRecord({ hostname: host, port: parsed.port }));
+          yield* removeDaemonRecord({ hostname: host, port: parsed.port });
           console.log(`Daemon not running at ${baseUrl} (removed stale record for pid ${record.pid}).`);
           return;
         }
@@ -624,6 +609,7 @@ if (process.argv.includes("-v")) {
 }
 
 const program = runCli(process.argv).pipe(
+  Effect.provide(BunContext.layer),
   Effect.catchAllCause((cause) =>
     Effect.sync(() => {
       console.error(Cause.pretty(cause));

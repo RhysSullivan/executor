@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import * as Clock from "effect/Clock";
+import * as Effect from "effect/Effect";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,37 +84,61 @@ export const spawnDetached = (input: {
   readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly env: Record<string, string | undefined>;
-}): void => {
-  const child = spawn(input.command, [...input.args], {
-    detached: true,
-    stdio: "ignore",
-    env: input.env,
+}): Effect.Effect<void, Error> =>
+  Effect.try({
+    try: () => {
+      const child = spawn(input.command, [...input.args], {
+        detached: true,
+        stdio: "ignore",
+        env: input.env,
+      });
+      child.unref();
+    },
+    catch: (cause) =>
+      cause instanceof Error
+        ? cause
+        : new Error(`Failed to spawn daemon process: ${String(cause)}`),
   });
-  child.unref();
-};
 
-export const waitForReachable = async (input: {
-  readonly check: () => Promise<boolean>;
+const waitForCondition = <E, R>(input: {
+  readonly check: Effect.Effect<boolean, E, R>;
+  readonly expected: boolean;
   readonly timeoutMs: number;
   readonly intervalMs: number;
-}): Promise<boolean> => {
-  const deadline = Date.now() + input.timeoutMs;
-  while (Date.now() < deadline) {
-    if (await input.check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, input.intervalMs));
-  }
-  return false;
-};
+}): Effect.Effect<boolean, E, R> =>
+  Effect.gen(function* () {
+    const startedAt = yield* Clock.currentTimeMillis;
+    while (true) {
+      const reachable = yield* input.check;
+      if (reachable === input.expected) return true;
 
-export const waitForUnreachable = async (input: {
-  readonly check: () => Promise<boolean>;
+      const now = yield* Clock.currentTimeMillis;
+      if (now - startedAt >= input.timeoutMs) return false;
+
+      yield* Effect.sleep(input.intervalMs);
+    }
+  });
+
+export const waitForReachable = <E, R>(input: {
+  readonly check: Effect.Effect<boolean, E, R>;
   readonly timeoutMs: number;
   readonly intervalMs: number;
-}): Promise<boolean> => {
-  const deadline = Date.now() + input.timeoutMs;
-  while (Date.now() < deadline) {
-    if (!(await input.check())) return true;
-    await new Promise((resolve) => setTimeout(resolve, input.intervalMs));
-  }
-  return false;
-};
+}): Effect.Effect<boolean, E, R> =>
+  waitForCondition({
+    check: input.check,
+    expected: true,
+    timeoutMs: input.timeoutMs,
+    intervalMs: input.intervalMs,
+  });
+
+export const waitForUnreachable = <E, R>(input: {
+  readonly check: Effect.Effect<boolean, E, R>;
+  readonly timeoutMs: number;
+  readonly intervalMs: number;
+}): Effect.Effect<boolean, E, R> =>
+  waitForCondition({
+    check: input.check,
+    expected: false,
+    timeoutMs: input.timeoutMs,
+    intervalMs: input.intervalMs,
+  });
