@@ -33,6 +33,18 @@ export interface SourceIdentity {
   readonly name: string;
   /** Namespace — the user's override if they've typed one, otherwise slugified from `name`. */
   readonly namespace: string;
+  /**
+   * `true` when the user has explicitly typed a name (i.e. the current
+   * `name` came from `setName`, not the fallback). Useful for "only prefill
+   * once" logic so the caller doesn't clobber a user-entered value when the
+   * fallback later changes.
+   */
+  readonly userProvidedName: boolean;
+  /**
+   * `true` when the user has explicitly typed a namespace (i.e. the current
+   * `namespace` came from `setNamespace`, not the slug-of-name fallback).
+   */
+  readonly userProvidedNamespace: boolean;
   readonly setName: (name: string) => void;
   readonly setNamespace: (namespace: string) => void;
   /** Clears any user overrides so both fields return to deriving from the fallback. */
@@ -56,6 +68,11 @@ export interface UseSourceIdentityOptions {
  * derived state: the user's `setName` / `setNamespace` call stores an
  * override, otherwise the hook returns the caller-supplied fallback
  * (passed fresh on every render). Call `reset()` to drop overrides.
+ *
+ * The returned `userProvidedName` / `userProvidedNamespace` booleans
+ * expose whether the user has explicitly typed into each field — callers
+ * use these flags to decide whether it's safe to auto-populate the field
+ * from a newly-available fallback without clobbering user intent.
  */
 export function useSourceIdentity(options?: UseSourceIdentityOptions): SourceIdentity {
   const [nameOverride, setNameOverride] = useState<string | null>(null);
@@ -79,7 +96,15 @@ export function useSourceIdentity(options?: UseSourceIdentityOptions): SourceIde
     setNamespaceOverride(null);
   }, []);
 
-  return { name, namespace, setName, setNamespace, reset };
+  return {
+    name,
+    namespace,
+    userProvidedName: nameOverride !== null,
+    userProvidedNamespace: namespaceOverride !== null,
+    setName,
+    setNamespace,
+    reset,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -98,46 +123,111 @@ export interface SourceIdentityFieldsProps {
    * would require a delete + recreate flow.
    */
   readonly namespaceReadOnly?: boolean;
+  /** Optional endpoint URL field rendered as the first row in the card stack. */
+  readonly endpoint?: string;
+  readonly onEndpointChange?: (endpoint: string) => void;
+  readonly endpointLabel?: string;
+  readonly endpointPlaceholder?: string;
+  /** Clickable endpoint presets shown below the label (e.g. server environments from the spec). */
+  readonly endpointHints?: readonly { label: string; url: string }[];
+  /** Extra content rendered below the endpoint input, inside the same card (e.g. error messages). */
+  readonly endpointExtra?: React.ReactNode;
+  /** Content rendered inline next to the endpoint label (e.g. loading spinner). */
+  readonly endpointLabelAction?: React.ReactNode;
+  /** Content rendered as the first row(s) in the card stack, before the endpoint field. */
+  readonly prepend?: React.ReactNode;
 }
 
 export function SourceIdentityFields({
   identity,
   namePlaceholder = "e.g. Sentry API",
   namespacePlaceholder = "sentry_api",
-  nameLabel = "Display Name",
+  nameLabel = "Name",
   namespaceHint,
   namespaceReadOnly = false,
+  endpoint,
+  onEndpointChange,
+  endpointLabel = "URL",
+  endpointPlaceholder = "https://api.example.com",
+  endpointHints,
+  endpointExtra,
+  endpointLabelAction,
+  prepend,
 }: SourceIdentityFieldsProps) {
-  const effectiveNamespaceHint =
-    namespaceHint ??
-    (namespaceReadOnly
-      ? "The namespace is part of the source's identity and cannot be changed."
-      : "Prefix for the tool names. Auto-derived from the display name.");
+  const hasEndpoint = endpoint !== undefined && onEndpointChange !== undefined;
 
   return (
     <CardStack>
       <CardStackContent className="border-t-0">
-        <CardStackEntryField label={nameLabel}>
-          <Input
-            value={identity.name}
-            onChange={(e) => identity.setName((e.target as HTMLInputElement).value)}
-            placeholder={namePlaceholder}
-            className="text-sm"
-          />
-        </CardStackEntryField>
+        {prepend}
+        {hasEndpoint && (
+          <>
+            <CardStackEntryField
+              labelAction={endpointLabelAction}
+              label={
+                <div>
+                  <span>{endpointLabel}</span>
+                  {endpointHints && endpointHints.length > 0 && (
+                    <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+                      {"Use "}
+                      {endpointHints.map((hint, i) => (
+                        <span key={hint.url}>
+                          {i > 0 && ", "}
+                          {/* oxlint-disable-next-line react/forbid-elements */}
+                          <button
+                            type="button"
+                            className="underline text-muted-foreground hover:text-foreground"
+                            onClick={() => onEndpointChange(hint.url)}
+                          >
+                            {hint.label}
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              }
+            >
+              <Input
+                value={endpoint}
+                onChange={(e) => onEndpointChange((e.target as HTMLInputElement).value)}
+                placeholder={endpointPlaceholder}
+                className="w-full font-mono text-sm"
+              />
+              {endpointExtra}
+            </CardStackEntryField>
+          </>
+        )}
         <CardStackEntryField
-          label="Namespace"
-          description={namespaceReadOnly ? undefined : "(optional)"}
-          hint={effectiveNamespaceHint}
-        >
-          <Input
-            value={identity.namespace}
-            onChange={(e) => identity.setNamespace((e.target as HTMLInputElement).value)}
-            placeholder={namespacePlaceholder}
-            className="font-mono text-sm"
-            disabled={namespaceReadOnly}
-          />
-        </CardStackEntryField>
+          label={nameLabel}
+          labelAction={
+            <Input
+              value={identity.name}
+              onChange={(e) => identity.setName((e.target as HTMLInputElement).value)}
+              placeholder={namePlaceholder}
+              className="w-56 text-sm"
+            />
+          }
+        />
+        <CardStackEntryField
+          label={
+            <div>
+              <span>Namespace</span>
+              <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+                e.g. <code className="font-mono text-foreground/70">{identity.namespace || namespacePlaceholder}.list_users</code>
+              </div>
+            </div>
+          }
+          labelAction={
+            <Input
+              value={identity.namespace}
+              onChange={(e) => identity.setNamespace((e.target as HTMLInputElement).value)}
+              placeholder={namespacePlaceholder}
+              className="w-56 font-mono text-sm"
+              disabled={namespaceReadOnly}
+            />
+          }
+        />
       </CardStackContent>
     </CardStack>
   );
