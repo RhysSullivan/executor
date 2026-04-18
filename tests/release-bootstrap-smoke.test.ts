@@ -253,9 +253,11 @@ describe("release bootstrap smoke", () => {
           new Promise((resolveClose) => setTimeout(resolveClose, 5_000)),
         ]);
         if (webProcess.exitCode === null) {
-          process.platform === "win32"
-            ? webProcess.kill()
-            : webProcess.kill("SIGKILL");
+          if (process.platform === "win32") {
+            webProcess.kill();
+          } else {
+            webProcess.kill("SIGKILL");
+          }
         }
       }
     } finally {
