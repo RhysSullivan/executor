@@ -69,6 +69,12 @@ export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
+  /**
+   * If set (even to `null`), updates the OAuth2 auth. Pass `null` to clear
+   * (sign out); pass an OAuth2Auth value to replace with freshly-issued tokens.
+   * Omit the field to leave OAuth2 untouched.
+   */
+  readonly oauth2?: OAuth2Auth | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,18 +435,26 @@ export const openApiPlugin = (options?: {
                 const existing = yield* operationStore.getSource(namespace);
                 if (!existing) return;
 
+                const oauth2Touched = input.oauth2 !== undefined;
+                const nextOauth2 = oauth2Touched
+                  ? (input.oauth2 ?? undefined)
+                  : existing.config.oauth2;
+
                 const updatedConfig = {
                   ...existing.config,
                   ...(input.baseUrl !== undefined ? { baseUrl: input.baseUrl } : {}),
                   ...(input.headers !== undefined
                     ? { headers: input.headers as Record<string, HeaderValueValue> }
                     : {}),
+                  ...(oauth2Touched ? { oauth2: nextOauth2 } : {}),
                 };
 
                 const newInvocationConfig = new InvocationConfig({
                   baseUrl: updatedConfig.baseUrl ?? existing.invocationConfig.baseUrl,
                   headers: (updatedConfig.headers ?? {}) as Record<string, HeaderValueValue>,
-                  oauth2: existing.invocationConfig.oauth2,
+                  oauth2: oauth2Touched
+                    ? Option.fromNullable(nextOauth2)
+                    : existing.invocationConfig.oauth2,
                 });
 
                 yield* operationStore.putSource({

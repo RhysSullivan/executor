@@ -39,6 +39,8 @@ const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  /** If provided, set or clear the OAuth2 auth. Pass `null` to sign out. */
+  oauth2: Schema.optional(Schema.NullOr(OAuth2Auth)),
 });
 
 const UpdateSourceResponse = Schema.Struct({
