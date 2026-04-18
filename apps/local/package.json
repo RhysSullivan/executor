@@ -36,6 +36,7 @@
     "@modelcontextprotocol/sdk": "^1.12.1",
     "@tanstack/react-router": "catalog:",
     "effect": "catalog:",
+    "lucide-react": "^1.7.0",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
