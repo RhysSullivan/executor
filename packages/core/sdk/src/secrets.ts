@@ -26,19 +26,41 @@ export interface SecretProvider {
    *  (provider unreachable, decryption failed, etc.) surface as
    *  `StorageFailure` — the executor treats a provider call the same
    *  as a DB call; `StorageError` is captured at the HTTP edge to
-   *  `InternalError`, `UniqueViolationError` dies. */
-  readonly get: (id: string) => Effect.Effect<string | null, StorageFailure>;
-  /** Set a secret value. Only called on writable providers. */
+   *  `InternalError`, `UniqueViolationError` dies.
+   *
+   *  `scopeId` is the scope the caller wants to read at — the
+   *  executor passes the winning scope from its core-table shadow
+   *  pass so scope-aware backends (WorkOS Vault) can look in the
+   *  right keyspace even when the executor's *write target* is a
+   *  different scope. Providers that aren't scope-aware (keychain,
+   *  env) ignore it. When unset, providers fall back to their
+   *  construction-time scope (the write target). */
+  readonly get: (
+    id: string,
+    scopeId?: string,
+  ) => Effect.Effect<string | null, StorageFailure>;
+  /** Set a secret value. Only called on writable providers.
+   *  `scopeId`, when set, routes the write to a specific scope in
+   *  the chain (the executor's current write target by default). */
   readonly set?: (
     id: string,
     value: string,
+    scopeId?: string,
   ) => Effect.Effect<void, StorageFailure>;
   /** Delete a secret. Only called on writable providers. Returns true
-   *  if something was deleted. */
-  readonly delete?: (id: string) => Effect.Effect<boolean, StorageFailure>;
+   *  if something was deleted. `scopeId` routes the delete to a
+   *  specific scope; defaults to the write target. */
+  readonly delete?: (
+    id: string,
+    scopeId?: string,
+  ) => Effect.Effect<boolean, StorageFailure>;
   /** Enumerate known secret entries. Optional — not all backends can
-   *  enumerate (env-backed providers, for example). */
-  readonly list?: () => Effect.Effect<
+   *  enumerate (env-backed providers, for example). `scopeId` scopes
+   *  the enumeration to one scope; when unset, the provider enumerates
+   *  everything visible to the caller (its read chain). */
+  readonly list?: (
+    scopeId?: string,
+  ) => Effect.Effect<
     readonly { readonly id: string; readonly name: string }[],
     StorageFailure
   >;

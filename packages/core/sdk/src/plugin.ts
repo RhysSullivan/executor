@@ -20,7 +20,7 @@ import type {
   ElicitationRequest,
   ElicitationResponse,
 } from "./elicitation";
-import type { Scope } from "./scope";
+import type { Scope, ScopeStack } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
 // ---------------------------------------------------------------------------
@@ -36,7 +36,12 @@ import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 // ---------------------------------------------------------------------------
 
 export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
+  /** Write-target scope (same as `ctx.scope`). Stable identity across
+   *  requests for single-scope hosts; per-request for layered hosts —
+   *  don't cache provider instances keyed by this when the host runs
+   *  per-request executors. */
   readonly scope: Scope;
+  readonly scopeStack: ScopeStack;
   /**
    * Plugin-facing typed adapter. Failures surface as raw `StorageFailure`
    * (`StorageError` | `UniqueViolationError`). Plugins can
@@ -78,7 +83,19 @@ export type Elicit = (
 // ---------------------------------------------------------------------------
 
 export interface PluginCtx<TStore = unknown> {
+  /** The write-target scope. Unchanged shape from single-scope days:
+   *  plugin code that uses `ctx.scope.id` to derive per-scope namespaces
+   *  (keychain service names, file-secrets paths, vault object
+   *  prefixes) keeps working unmodified. When a layered stack is in
+   *  use, this is `scopeStack.write`. */
   readonly scope: Scope;
+  /** Full request-time scope composition. Always present; for
+   *  single-scope callers, `{ read: [scope], write: scope }`. Plugins
+   *  typically don't need this — the executor does its own shadowing
+   *  over the chain and exposes it via the secret/source/tool facades.
+   *  Plugins that own scope-aware tables and want the same shadowing
+   *  semantics on their own data read this to build layered queries. */
+  readonly scopeStack: ScopeStack;
   readonly storage: TStore;
 
   readonly core: {
