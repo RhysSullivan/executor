@@ -48,14 +48,14 @@ Open `http://127.0.0.1:4788`, go to **Add Source**, paste a URL, and Executor wi
 ### Via the CLI
 
 ```bash
-executor call 'return await tools.executor.sources.add({
-  kind: "openapi",
-  name: "GitHub",
-  specUrl: "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
-  baseUrl: null,
-  auth: { kind: "none" }
-})'
+executor call openapi addSource '{
+  "spec": "https://petstore3.swagger.io/api/v3/openapi.json",
+  "namespace": "petstore",
+  "baseUrl": "https://petstore3.swagger.io/api/v3"
+}'
 ```
+
+Use `baseUrl` when the OpenAPI document has relative `servers` entries (for example `"/api/v3"`).
 
 ## Use tools
 
@@ -78,12 +78,20 @@ const issues = await tools.github.issues.list({
 });
 ```
 
-Run code via the CLI:
+Use tools via the CLI:
 
 ```bash
-executor call --file script.ts
-executor call 'return await tools.discover({ query: "send email" })'
+executor tools search "send email"
+executor call --help
+executor call github --help
+executor call github issues --help
+executor call cloudflare --help --match dns --limit 20
+executor call github issues create '{"owner":"octocat","repo":"Hello-World","title":"Hi"}'
+executor call gmail send '{"to":"alice@example.com","subject":"Hi"}'
 ```
+
+`executor call`, `executor resume`, and `executor tools ...` commands auto-start a local daemon if needed.
+If the default port is busy, the CLI will pick an available local port and track it automatically.
 
 If an execution pauses for auth or approval, resume it:
 
@@ -95,11 +103,18 @@ executor resume --execution-id exec_123
 
 ```bash
 executor web                        # start runtime + web UI
+executor daemon run                 # run persistent local daemon
+executor daemon status              # show daemon status
+executor daemon stop                # stop daemon
+executor daemon restart             # restart daemon
 executor mcp                        # start MCP endpoint
-executor call --file script.ts      # execute a file
-executor call '<code>'              # execute inline code
-executor call --stdin               # execute from stdin
+executor call <path...> '{"k":"v"}' # invoke a tool by path segments
+executor call <path...> --help      # browse namespaces/resources/methods
+executor call <path...> --help --match "<text>" --limit <n> # narrow huge namespaces
 executor resume --execution-id <id> # resume paused execution
+executor tools search "<query>"     # search tools by intent
+executor tools sources              # list configured sources + tool counts
+executor tools describe <path>      # show tool TypeScript/JSON schema
 ```
 
 ## Developing locally
