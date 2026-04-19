@@ -42,6 +42,10 @@ export type WorkosVaultSchema = typeof workosVaultSchema;
 
 interface MetadataRow {
   readonly id: string;
+  /** Populated on rows read from the adapter (which stamps scope_id);
+   *  absent on upsert inputs since the adapter fills it from the
+   *  executor's write target. */
+  readonly scope_id?: string;
   readonly name: string;
   readonly purpose?: string | null;
   readonly created_at: Date;
@@ -240,27 +244,37 @@ export const makeWorkOSVaultSecretProvider = (
   options: WorkOSVaultSecretProviderOptions,
 ): SecretProvider => {
   const prefix = options.objectPrefix ?? DEFAULT_OBJECT_PREFIX;
-  const { client, store, scopeId } = options;
+  const { client, store } = options;
+  // Default scope — used when the executor doesn't pass one (fallback
+  // providers, legacy single-scope hosts). The executor passes the
+  // winning scope on every layered call so `get`/`delete`/`set` hit
+  // the right vault keyspace.
+  const defaultScope = options.scopeId;
 
   return {
     key: WORKOS_VAULT_PROVIDER_KEY,
     writable: true,
 
-    get: (id) =>
+    get: (id, scopeOverride) =>
       Effect.gen(function* () {
+        const targetScope = scopeOverride ?? defaultScope;
         const meta = yield* store.get(id);
         if (!meta) return null;
-        const object = yield* loadSecretObject(client, prefix, scopeId, id).pipe(
-          Effect.mapError(formatVaultError),
-        );
+        const object = yield* loadSecretObject(
+          client,
+          prefix,
+          targetScope,
+          id,
+        ).pipe(Effect.mapError(formatVaultError));
         if (!object || !object.value) return null;
         return object.value;
       }),
 
-    set: (id, value) =>
+    set: (id, value, scopeOverride) =>
       Effect.gen(function* () {
+        const targetScope = scopeOverride ?? defaultScope;
         const existing = yield* store.get(id);
-        yield* upsertSecretValue(client, prefix, scopeId, id, value).pipe(
+        yield* upsertSecretValue(client, prefix, targetScope, id, value).pipe(
           Effect.mapError(formatVaultError),
         );
         yield* store.upsert({
@@ -271,20 +285,33 @@ export const makeWorkOSVaultSecretProvider = (
         });
       }),
 
-    delete: (id) =>
+    delete: (id, scopeOverride) =>
       Effect.gen(function* () {
+        const targetScope = scopeOverride ?? defaultScope;
         const meta = yield* store.get(id);
         if (!meta) return false;
-        yield* deleteSecretValue(client, prefix, scopeId, id).pipe(
+        yield* deleteSecretValue(client, prefix, targetScope, id).pipe(
           Effect.mapError(formatVaultError),
         );
         yield* store.remove(id);
         return true;
       }),
 
-    list: () =>
+    list: (scopeOverride) =>
+      // The metadata store is already adapter-scoped so it will
+      // enumerate whatever's visible in the executor's read chain.
+      // When `scopeOverride` is passed, filter to just that scope so
+      // the executor's per-scope walk produces scope-stamped entries.
       store
         .list()
-        .pipe(Effect.map((rows) => rows.map((r) => ({ id: r.id, name: r.name })))),
+        .pipe(
+          Effect.map((rows) =>
+            rows
+              .filter((r) =>
+                scopeOverride ? r.scope_id === scopeOverride : true,
+              )
+              .map((r) => ({ id: r.id, name: r.name })),
+          ),
+        ),
   };
 };

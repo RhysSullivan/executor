@@ -36,7 +36,7 @@ import {
   ToolInvocationError,
   ToolNotFoundError,
 } from "./errors";
-import { SecretId, ToolId } from "./ids";
+import { ScopeId, SecretId, ToolId } from "./ids";
 import type {
   AnyPlugin,
   Elicit,
@@ -46,7 +46,12 @@ import type {
   StaticToolDecl,
   StorageDeps,
 } from "./plugin";
-import type { Scope } from "./scope";
+import {
+  normalizeScopeStack,
+  type Scope,
+  type ScopeInput,
+  type ScopeStack,
+} from "./scope";
 import {
   SecretRef,
   SetSecretInput,
@@ -95,7 +100,12 @@ const resolveElicitationHandler = (
 // ---------------------------------------------------------------------------
 
 export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
+  /** The write-target scope. Matches `ctx.scope` inside plugins. */
   readonly scope: Scope;
+  /** Full request-time scope composition. Single-element for CLI/local
+   *  hosts; multi-element for cloud hosts that layer per-user over
+   *  per-org scopes. */
+  readonly scopeStack: ScopeStack;
 
   readonly tools: {
     readonly list: (
@@ -172,7 +182,11 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
 export interface ExecutorConfig<
   TPlugins extends readonly AnyPlugin[] = [],
 > {
-  readonly scope: Scope;
+  /** Either a single Scope (single-scope hosts: CLI, local) or a full
+   *  ScopeStack (layered hosts: cloud, where per-user scopes stack on
+   *  top of per-org scopes). Single-scope input is normalized to a
+   *  1-element stack internally. */
+  readonly scope: ScopeInput;
   readonly adapter: DBAdapter;
   readonly blobs: BlobStore;
   readonly plugins?: TPlugins;
@@ -471,11 +485,25 @@ export const createExecutor = <
 ): Effect.Effect<Executor<TPlugins>, Error> =>
   Effect.gen(function* () {
     const {
-      scope,
+      scope: scopeInput,
       adapter: rootAdapter,
       blobs,
       plugins = [] as unknown as TPlugins,
     } = config;
+    const scopeStack = normalizeScopeStack(scopeInput);
+    // `scope` is the write-target throughout the executor. Plugin code
+    // that uses `ctx.scope.id` for per-scope namespacing (keychain
+    // service names, file paths) continues to work unchanged.
+    const scope = scopeStack.write;
+    const readScopeIds = scopeStack.read.map((s) => s.id);
+    // Where-in-chain index: 0 = innermost, N-1 = outermost. Used by
+    // shadowing passes to pick the innermost row on id collision.
+    const scopeRank = new Map<string, number>();
+    scopeStack.read.forEach((s, idx) => {
+      if (!scopeRank.has(s.id)) scopeRank.set(s.id, idx);
+    });
+    const rankOf = (scopeId: string): number =>
+      scopeRank.get(scopeId) ?? Number.MAX_SAFE_INTEGER;
 
     // Scope-wrap the root adapter so every read on a tenant-scoped table
     // filters by the current scope stack and every write stamps the
@@ -486,7 +514,7 @@ export const createExecutor = <
     const schema = collectSchemas(plugins);
     const scopedRoot = scopeAdapter(
       rootAdapter,
-      { read: [scope.id], write: scope.id },
+      { read: readScopeIds, write: scope.id },
       schema,
     );
     const adapter = buildAdapterRouter(scopedRoot);
@@ -511,25 +539,80 @@ export const createExecutor = <
     // without a list() implementation (keychain) never hit the fallback
     // walk because their secrets must be registered through set() to
     // be known at all.
+    //
+    // Layered-scope shadowing: when the read chain has more than one
+    // scope, the scope adapter filters `WHERE scope_id IN (chain)` but
+    // can return rows from any matching scope. We pick the innermost
+    // match on id collision so per-user overrides beat org defaults.
+
+    // Generic shadowing helper: given rows from a scope-aware table,
+    // pick the innermost-scope row for each unique key. Used for
+    // secrets (key = id), sources (key = id), tools (key = id).
+    const shadowByKey = <T extends { readonly scope_id: string }>(
+      rows: readonly T[],
+      key: (row: T) => string,
+    ): T[] => {
+      const best = new Map<string, T>();
+      for (const row of rows) {
+        const k = key(row);
+        const existing = best.get(k);
+        if (!existing || rankOf(row.scope_id) < rankOf(existing.scope_id)) {
+          best.set(k, row);
+        }
+      }
+      return Array.from(best.values());
+    };
+
+    // Scope-aware "find exactly one" for a table that carries scope_id.
+    // `findOne` with a non-scope where clause would return any row in
+    // the chain; we want the innermost match so per-user rows beat
+    // per-org rows on collision. Cheaper than findOne-per-scope: one
+    // findMany + O(chain-length) scan in memory.
+    const pickInnermost = <T extends { readonly scope_id: string }>(
+      rows: readonly T[],
+    ): T | null => {
+      let best: T | null = null;
+      for (const row of rows) {
+        if (!best || rankOf(row.scope_id) < rankOf(best.scope_id)) {
+          best = row;
+        }
+      }
+      return best;
+    };
+
     const secretsGet = (
       id: string,
     ): Effect.Effect<string | null, StorageFailure> =>
       Effect.gen(function* () {
-        // Fast path: routing table
-        const row = yield* core.findOne({
+        // Fast path: routing table with shadowing. `findOne` would pick
+        // any row in the chain; we need the innermost. One findMany
+        // and an O(n) scan (n ≤ chain length) is cheaper than one
+        // findOne-per-scope.
+        const rows = yield* core.findMany({
           model: "secret",
           where: [{ field: "id", value: id }],
         });
-        if (row) {
-          const provider = secretProviders.get(row.provider);
+        const winner = shadowByKey(
+          rows as readonly { scope_id: string; id: string; provider: string }[],
+          (r) => r.id,
+        )[0];
+        if (winner) {
+          const provider = secretProviders.get(winner.provider);
           if (!provider) return null;
-          return yield* provider.get(id);
+          // Pass the winner's scope so scope-aware backends
+          // (workos-vault) read from the right keyspace even when
+          // the executor's write target is a different scope.
+          return yield* provider.get(id, winner.scope_id);
         }
 
         // Fallback: ask every enumerating provider in parallel. First
         // non-null in registration order wins. Providers that throw
         // are treated as "don't have it" so one flaky provider can't
-        // block resolution via others.
+        // block resolution via others. Enumerating providers are
+        // already scope-bound at construction time (each plugin
+        // contributes one provider per executor, ctx.scope identifies
+        // the write target) so they resolve within a single scope's
+        // view — shadowing across scopes is a core-table concern.
         const candidates = [...secretProviders.values()].filter(
           (p) => p.list,
         );
@@ -587,7 +670,9 @@ export const createExecutor = <
           );
         }
 
-        yield* target.set(input.id, input.value);
+        // Pass the write-target scope so scope-aware providers land
+        // the value in the right keyspace.
+        yield* target.set(input.id, input.value, scope.id);
 
         // Upsert metadata row in the core `secret` table.
         const now = new Date();
@@ -624,8 +709,21 @@ export const createExecutor = <
           (p): p is typeof p & { delete: NonNullable<typeof p.delete> } =>
             !!(p.writable && p.delete),
         );
+        // Find which scope currently owns this id (innermost wins) so
+        // we only delete that scope's row and value. Without this a
+        // user-first executor asked to `remove("foo")` would wipe the
+        // org's shared row too once the scoped adapter allowed it.
+        const ownerRows = yield* core.findMany({
+          model: "secret",
+          where: [{ field: "id", value: id }],
+        });
+        const ownerWinner = shadowByKey(
+          ownerRows as readonly { scope_id: string; id: string }[],
+          (r) => r.id,
+        )[0];
+        const ownerScope = ownerWinner?.scope_id ?? scope.id;
         yield* Effect.all(
-          deleters.map((p) => p.delete(id)),
+          deleters.map((p) => p.delete(id, ownerScope)),
           { concurrency: "unbounded" },
         );
         yield* core.delete({
@@ -649,18 +747,34 @@ export const createExecutor = <
     // so that routing information in the core table is authoritative.
     // Providers without a list() method (e.g. keychain) contribute
     // only via the core table path.
+    //
+    // Shadowing: when the read chain has multiple scopes, we collapse
+    // to one entry per id and pick the innermost-scope row. The
+    // returned `SecretRef.scopeId` reflects which scope the winning
+    // row actually lives at so UIs can distinguish "your override"
+    // vs "org default".
     const secretsList = (): Effect.Effect<readonly SecretRef[], StorageFailure> =>
       Effect.gen(function* () {
         const byId = new Map<string, SecretRef>();
 
-        // Core routing rows first
-        const rows = yield* core.findMany({ model: "secret" });
-        for (const row of rows) {
+        // Core routing rows first, with shadowing.
+        const rawRows = yield* core.findMany({ model: "secret" });
+        const shadowed = shadowByKey(
+          rawRows as readonly {
+            scope_id: string;
+            id: string;
+            name: string;
+            provider: string;
+            created_at: Date | string;
+          }[],
+          (r) => r.id,
+        );
+        for (const row of shadowed) {
           byId.set(
             row.id,
             new SecretRef({
               id: SecretId.make(row.id),
-              scopeId: scope.id,
+              scopeId: ScopeId.make(row.scope_id),
               name: row.name,
               provider: row.provider,
               createdAt:
@@ -676,34 +790,58 @@ export const createExecutor = <
         // swallow the failure so one flaky provider can't block the
         // whole list. Merge in registration order afterwards so the
         // "first provider wins" precedence stays deterministic.
+        //
+        // Each provider is asked once per scope in the read chain so
+        // scope-aware backends (workos-vault) surface entries that
+        // belong to outer scopes (e.g. org-level shared secrets)
+        // alongside the write target's own entries. Innermost-scope
+        // wins on id collision.
         const listers = [...secretProviders.entries()].filter(
           ([, p]) => p.list,
         );
         const lists = yield* Effect.all(
-          listers.map(([key, p]) =>
-            p
-              .list!()
-              .pipe(
-                Effect.catchAll(() => Effect.succeed([] as const)),
-                Effect.map((entries) => ({ key, entries })),
-              ),
+          listers.flatMap(([key, p]) =>
+            scopeStack.read.map((s) =>
+              p
+                .list!(s.id)
+                .pipe(
+                  Effect.catchAll(() => Effect.succeed([] as const)),
+                  Effect.map((entries) => ({ key, scopeId: s.id, entries })),
+                ),
+            ),
           ),
           { concurrency: "unbounded" },
         );
-        for (const { key, entries } of lists) {
-          for (const entry of entries) {
-            if (byId.has(entry.id)) continue; // core row wins
-            byId.set(
-              entry.id,
-              new SecretRef({
-                id: SecretId.make(entry.id),
-                scopeId: scope.id,
-                name: entry.name,
-                provider: key,
-                createdAt: new Date(),
-              }),
-            );
+        // Rank provider-enumerated rows by scope so inner scopes shadow
+        // outer ones when the same id shows up in both.
+        const providerEntries = new Map<
+          string,
+          {
+            readonly key: string;
+            readonly scopeId: string;
+            readonly name: string;
           }
+        >();
+        for (const { key, scopeId: s, entries } of lists) {
+          for (const entry of entries) {
+            const existing = providerEntries.get(entry.id);
+            if (!existing || rankOf(s) < rankOf(existing.scopeId)) {
+              providerEntries.set(entry.id, { key, scopeId: s, name: entry.name });
+            }
+          }
+        }
+        for (const [id, entry] of providerEntries) {
+          if (byId.has(id)) continue; // core row wins
+          byId.set(
+            id,
+            new SecretRef({
+              id: SecretId.make(id),
+              scopeId: ScopeId.make(entry.scopeId),
+              name: entry.name,
+              provider: entry.key,
+              createdAt: new Date(),
+            }),
+          );
         }
 
         return Array.from(byId.values());
@@ -741,6 +879,7 @@ export const createExecutor = <
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const storageDeps: StorageDeps<any> = {
         scope,
+        scopeStack,
         adapter: typedAdapter(adapter) as never,
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
         // sharing a backing BlobStore can't collide or leak on the same
@@ -751,6 +890,7 @@ export const createExecutor = <
 
       const ctx: PluginCtx<unknown> = {
         scope,
+        scopeStack,
         storage,
         core: {
           sources: {
@@ -888,7 +1028,12 @@ export const createExecutor = <
     // ------------------------------------------------------------------
     const listSources = () =>
       Effect.gen(function* () {
-        const dynamic = yield* core.findMany({ model: "source" });
+        // Dynamic rows come back across the whole read chain; shadow
+        // collisions so per-user overrides replace org defaults in the
+        // listing. Static sources live outside the scope table entirely
+        // and never participate in shadowing.
+        const raw = yield* core.findMany({ model: "source" });
+        const dynamic = shadowByKey(raw, (r) => r.id);
         const staticList: Source[] = [];
         for (const { source, pluginId } of staticSources.values()) {
           staticList.push(staticDeclToSource(source, pluginId));
@@ -941,7 +1086,12 @@ export const createExecutor = <
 
     const listTools = (filter?: ToolListFilter) =>
       Effect.gen(function* () {
-        const dynamic = yield* core.findMany({ model: "tool" });
+        // Same shadowing story as sources.list: the scope adapter hands
+        // back every tool row across the read chain; we keep the
+        // innermost per tool id so user-scope overrides replace
+        // org-scope rows.
+        const rawRows = yield* core.findMany({ model: "tool" });
+        const dynamic = shadowByKey(rawRows, (r) => r.id);
         const annotations = yield* resolveAnnotationsFor(dynamic).pipe(
           Effect.withSpan("executor.tools.list.annotations"),
         );
@@ -1048,12 +1198,13 @@ export const createExecutor = <
             rawOutput: staticEntry.tool.outputSchema,
           });
         }
-        const row = yield* core
-          .findOne({
+        const rows = yield* core
+          .findMany({
             model: "tool",
             where: [{ field: "id", value: toolId }],
           })
           .pipe(Effect.withSpan("executor.tool.resolve"));
+        const row = pickInnermost(rows);
         if (!row) return null;
         yield* Effect.annotateCurrentSpan({
           "executor.tool.dispatch_path": "dynamic",
@@ -1180,13 +1331,17 @@ export const createExecutor = <
           ).pipe(Effect.withSpan("executor.tool.handler"));
         }
 
-        // Dynamic path — DB lookup + delegate to owning plugin.
-        const row = yield* core
-          .findOne({
+        // Dynamic path — DB lookup + delegate to owning plugin. The
+        // scope adapter returns rows across the whole read chain;
+        // `pickInnermost` narrows to the user-scoped override if one
+        // exists, falling through to org otherwise.
+        const rows = yield* core
+          .findMany({
             model: "tool",
             where: [{ field: "id", value: toolId }],
           })
           .pipe(Effect.withSpan("executor.tool.resolve"));
+        const row = pickInnermost(rows);
         if (!row) {
           return yield* new ToolNotFoundError({
             toolId: ToolId.make(toolId),
@@ -1253,10 +1408,11 @@ export const createExecutor = <
         if (staticSources.has(sourceId)) {
           return yield* new SourceRemovalNotAllowedError({ sourceId });
         }
-        const sourceRow = yield* core.findOne({
+        const sourceRows = yield* core.findMany({
           model: "source",
           where: [{ field: "id", value: sourceId }],
         });
+        const sourceRow = pickInnermost(sourceRows);
         if (!sourceRow) return;
         if (!sourceRow.can_remove) {
           return yield* new SourceRemovalNotAllowedError({ sourceId });
@@ -1282,10 +1438,11 @@ export const createExecutor = <
     const refreshSource = (sourceId: string) =>
       Effect.gen(function* () {
         if (staticSources.has(sourceId)) return;
-        const sourceRow = yield* core.findOne({
+        const sourceRows = yield* core.findMany({
           model: "source",
           where: [{ field: "id", value: sourceId }],
         });
+        const sourceRow = pickInnermost(sourceRows);
         if (!sourceRow) return;
         const runtime = runtimes.get(sourceRow.plugin_id);
         if (runtime?.plugin.refreshSource) {
@@ -1359,6 +1516,7 @@ export const createExecutor = <
     // consumers (CLI, Promise SDK, tests) see the raw typed channel.
     const base = {
       scope,
+      scopeStack,
       tools: {
         list: listTools,
         schema: toolSchema,

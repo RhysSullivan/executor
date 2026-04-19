@@ -26,7 +26,12 @@ export { StorageError, UniqueViolationError } from "@executor/storage-core";
 export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
 
 // Scope
-export { Scope } from "./scope";
+export {
+  Scope,
+  ScopeStack,
+  normalizeScopeStack,
+  type ScopeInput,
+} from "./scope";
 
 // Errors (tagged)
 export {
@@ -127,8 +132,12 @@ export {
   type ExecutorDialect,
 } from "./config";
 
-// Test helper
-export { makeTestConfig } from "./testing";
+// Test helpers
+export {
+  makeTestConfig,
+  makeLayeredTestConfig,
+  makeTestScope,
+} from "./testing";
 
 // JSON schema $ref helpers (used by openapi for $defs handling)
 export {
