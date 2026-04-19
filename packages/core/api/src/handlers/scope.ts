@@ -13,6 +13,7 @@ export const ScopeHandlers = HttpApiBuilder.group(ExecutorApi, "scope", (handler
         id: executor.scope.id,
         name: executor.scope.name,
         dir: executor.scope.name,
+        chain: executor.scopeStack.read.map((s) => ({ id: s.id, name: s.name })),
       };
     })),
   ),

@@ -3,8 +3,8 @@ import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
-import { SecretId } from "@executor/sdk";
-import { useScope } from "../hooks/use-scope";
+import { SecretId, type ScopeId } from "@executor/sdk";
+import { useScope, useScopeChain } from "../hooks/use-scope";
 import {
   Dialog,
   DialogContent,
@@ -64,14 +64,16 @@ function AddSecretDialog(props: {
   storageOptions: readonly SecretStorageOption[];
 }) {
   const initialProvider = props.storageOptions[0]?.value ?? "auto";
+  const defaultScopeId = useScope();
+  const chain = useScopeChain();
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [provider, setProvider] = useState(initialProvider);
+  const [targetScopeId, setTargetScopeId] = useState<ScopeId>(defaultScopeId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const scopeId = useScope();
   const doSet = useAtomSet(setSecret, { mode: "promise" });
 
   const reset = () => {
@@ -79,6 +81,7 @@ function AddSecretDialog(props: {
     setName("");
     setValue("");
     setProvider(initialProvider);
+    setTargetScopeId(defaultScopeId);
     setError(null);
     setSaving(false);
   };
@@ -89,7 +92,7 @@ function AddSecretDialog(props: {
     setError(null);
     try {
       await doSet({
-        path: { scopeId },
+        path: { scopeId: targetScopeId },
         payload: {
           id: SecretId.make(id.trim()),
           name: name.trim(),
@@ -174,6 +177,36 @@ function AddSecretDialog(props: {
           </div>
 
           <div className="grid gap-3">
+            {chain.length > 1 && (
+              <div className="grid gap-1.5">
+                <Label
+                  htmlFor="secret-scope"
+                  className="text-sm font-medium uppercase tracking-wider text-muted-foreground"
+                >
+                  Visibility
+                </Label>
+                <Select
+                  value={targetScopeId}
+                  onValueChange={(v) => setTargetScopeId(v as ScopeId)}
+                >
+                  <SelectTrigger id="secret-scope" className="h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {chain.map((s, i) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {i === 0 ? `Personal (${s.name})` : `Shared (${s.name})`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {targetScopeId === chain[0]?.id
+                    ? "Only you can read this secret."
+                    : "Everyone in the organization can read this secret."}
+                </p>
+              </div>
+            )}
             {props.storageOptions.length > 1 && (
               <div className="grid gap-1.5">
                 <Label
@@ -230,10 +263,11 @@ function AddSecretDialog(props: {
 
 function SecretRow(props: {
   showProvider: boolean;
-  secret: { id: string; name: string; provider?: string };
+  secret: { id: string; name: string; provider?: string; scopeId: string };
+  scopeLabel: { text: string; tone: "personal" | "shared" } | null;
   onRemove: () => void;
 }) {
-  const { secret, showProvider } = props;
+  const { secret, showProvider, scopeLabel } = props;
 
   return (
     <CardStackEntry>
@@ -243,6 +277,11 @@ function SecretRow(props: {
         </CardStackEntryTitle>
       </CardStackEntryContent>
       <CardStackEntryActions>
+        {scopeLabel && (
+          <Badge variant={scopeLabel.tone === "personal" ? "secondary" : "outline"}>
+            {scopeLabel.text}
+          </Badge>
+        )}
         {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -290,8 +329,22 @@ export function SecretsPage(props: {
   const { secretProviderPlugins } = props;
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
+  const chain = useScopeChain();
   const secrets = useAtomValue(secretsAtom(scopeId));
   const doRemove = useAtomSet(removeSecret, { mode: "promise" });
+
+  // Only label rows when the caller actually has more than one scope.
+  // In a single-scope world (CLI/local) the badge would be noise.
+  const labelForScope = (
+    secretScopeId: string,
+  ): { text: string; tone: "personal" | "shared" } | null => {
+    if (chain.length <= 1) return null;
+    const idx = chain.findIndex((s) => s.id === secretScopeId);
+    if (idx === -1) return null;
+    return idx === 0
+      ? { text: "Personal", tone: "personal" }
+      : { text: "Shared", tone: "shared" };
+  };
 
   const handleRemove = async (secretId: string) => {
     try {
@@ -386,13 +439,15 @@ export function SecretsPage(props: {
                 ) : (
                   value.map((s) => (
                     <SecretRow
-                      key={s.id}
+                      key={`${s.scopeId}::${s.id}`}
                       showProvider={showProviderInfo}
                       secret={{
                         id: s.id,
                         name: s.name,
                         provider: s.provider ? String(s.provider) : undefined,
+                        scopeId: s.scopeId,
                       }}
+                      scopeLabel={labelForScope(s.scopeId)}
                       onRemove={() => handleRemove(s.id)}
                     />
                   ))
