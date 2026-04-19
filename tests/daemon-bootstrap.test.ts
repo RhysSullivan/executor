@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createServer } from "node:net";
+import * as Effect from "effect/Effect";
 
 import {
   buildDaemonSpawnSpec,
   canAutoStartLocalDaemonForHost,
+  chooseDaemonPort,
   parseDaemonBaseUrl,
 } from "../apps/cli/src/daemon";
 
@@ -82,5 +85,30 @@ describe("daemon bootstrap helpers", () => {
         executablePath: "/usr/local/bin/executor",
       }),
     ).toThrow("Cannot auto-start daemon in dev mode");
+  });
+
+  it("falls back when preferred daemon port is occupied", async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen({ port: 0, host: "127.0.0.1" }, () => resolve());
+    });
+
+    const occupied = (() => {
+      const address = blocker.address();
+      return typeof address === "object" && address !== null ? address.port : 0;
+    })();
+
+    try {
+      const picked = await Effect.runPromise(
+        chooseDaemonPort({
+          preferredPort: occupied,
+          hostname: "127.0.0.1",
+        }),
+      );
+      expect(picked).not.toBe(occupied);
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 });

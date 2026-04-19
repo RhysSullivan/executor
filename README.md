@@ -89,6 +89,7 @@ executor tools invoke gmail.send --input '{"to":"alice@example.com","subject":"H
 ```
 
 `executor call`, `executor resume`, and `executor tools ...` commands auto-start a local daemon if needed.
+If the default port is busy, the CLI will pick an available local port and track it automatically.
 
 If an execution pauses for auth or approval, resume it:
 

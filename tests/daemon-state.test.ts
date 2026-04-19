@@ -9,10 +9,16 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 
 import {
+  acquireDaemonStartLock,
   canonicalDaemonHost,
+  currentDaemonScopeId,
   isPidAlive,
+  readDaemonPointer,
   readDaemonRecord,
+  releaseDaemonStartLock,
+  removeDaemonPointer,
   removeDaemonRecord,
+  writeDaemonPointer,
   writeDaemonRecord,
 } from "../apps/cli/src/daemon-state";
 
@@ -31,9 +37,9 @@ const fileSystemLayer = FileSystem.layerNoop({
       try: () => mkdir(path, { recursive: options?.recursive, mode: options?.mode }),
       catch: (cause) => fileSystemError("makeDirectory", cause),
     }),
-  writeFileString: (path, data, _options) =>
+  writeFileString: (path, data, options) =>
     Effect.tryPromise({
-      try: () => writeFile(path, data, "utf8"),
+      try: () => writeFile(path, data, { encoding: "utf8", flag: options?.flag }),
       catch: (cause) => fileSystemError("writeFileString", cause),
     }),
   readFileString: (path, encoding = "utf8") =>
@@ -103,6 +109,86 @@ describe("daemon state", () => {
       }),
     ),
   );
+
+  it.effect("writes, reads, and removes daemon pointers", () =>
+    withDaemonDataDir(
+      Effect.gen(function* () {
+        yield* writeDaemonPointer({
+          hostname: "127.0.0.1",
+          port: 5799,
+          pid: 24680,
+          scopeId: "scope:/tmp/project",
+          scopeDir: "/tmp/project",
+          token: "tok_123",
+        });
+
+        const stored = yield* readDaemonPointer({
+          hostname: "localhost",
+          scopeId: "scope:/tmp/project",
+        });
+        expect(stored).toEqual({
+          version: 1,
+          hostname: "localhost",
+          port: 5799,
+          pid: 24680,
+          startedAt: expect.any(String),
+          scopeId: "scope:/tmp/project",
+          scopeDir: "/tmp/project",
+          token: "tok_123",
+        });
+
+        yield* removeDaemonPointer({
+          hostname: "localhost",
+          scopeId: "scope:/tmp/project",
+        });
+        const after = yield* readDaemonPointer({
+          hostname: "localhost",
+          scopeId: "scope:/tmp/project",
+        });
+        expect(after).toBeNull();
+      }),
+    ),
+  );
+
+  it.effect("serializes daemon startup with lock files", () =>
+    withDaemonDataDir(
+      Effect.gen(function* () {
+        const lock = yield* acquireDaemonStartLock({
+          hostname: "localhost",
+          scopeId: "scope:/tmp/project",
+        });
+
+        const second = yield* acquireDaemonStartLock({
+          hostname: "localhost",
+          scopeId: "scope:/tmp/project",
+        }).pipe(Effect.flip);
+
+        expect(second.message).toContain("already in progress");
+
+        yield* releaseDaemonStartLock(lock);
+
+        const third = yield* acquireDaemonStartLock({
+          hostname: "localhost",
+          scopeId: "scope:/tmp/project",
+        });
+        yield* releaseDaemonStartLock(third);
+      }),
+    ),
+  );
+
+  it("derives scope id from EXECUTOR_SCOPE_DIR or cwd", () => {
+    const prev = process.env.EXECUTOR_SCOPE_DIR;
+    process.env.EXECUTOR_SCOPE_DIR = "/tmp/explicit-scope";
+    expect(currentDaemonScopeId()).toBe("scope:/tmp/explicit-scope");
+
+    if (prev === undefined) {
+      delete process.env.EXECUTOR_SCOPE_DIR;
+    } else {
+      process.env.EXECUTOR_SCOPE_DIR = prev;
+    }
+
+    expect(currentDaemonScopeId()).toContain("cwd:");
+  });
 
   it("detects live and invalid pids", () => {
     expect(isPidAlive(process.pid)).toBe(true);
