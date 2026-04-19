@@ -77,6 +77,7 @@ import {
   extractPausedInteraction,
   extractExecutionResult,
   inspectToolPath,
+  normalizeCliErrorText,
   parseJsonObjectInput,
 } from "./tooling";
 
@@ -575,6 +576,46 @@ const parseOptionalJsonObject = (raw: string | undefined): Effect.Effect<
         Effect.mapError((error) => new Error(`Invalid --content JSON: ${error.message}`)),
       );
 
+const formatUnknownMessage = (cause: unknown): string => {
+  if (cause instanceof Error) return cause.message;
+  if (typeof cause === "string") return cause;
+  if (typeof cause === "object" && cause !== null && "message" in cause) {
+    const message = cause.message;
+    if (typeof message === "string") return message;
+  }
+  return String(cause);
+};
+
+const readCliLogLevel = (argv: ReadonlyArray<string>): string | undefined => {
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token) continue;
+    if (token === "--log-level") {
+      return argv[index + 1];
+    }
+    if (token.startsWith("--log-level=")) {
+      return token.slice("--log-level=".length);
+    }
+  }
+  return undefined;
+};
+
+const shouldPrintVerboseErrors = (argv: ReadonlyArray<string>): boolean => {
+  const level = readCliLogLevel(argv)?.trim().toLowerCase();
+  return level === "all" || level === "trace" || level === "debug";
+};
+
+const renderCliError = (cause: Cause.Cause<unknown>): string => {
+  const squashed = Cause.squash(cause);
+  const raw = formatUnknownMessage(squashed);
+  const normalized = normalizeCliErrorText(raw);
+  if (normalized.length === 0) return "Unknown error";
+  if (normalized !== raw.trim()) {
+    return `${normalized}\n(run with --log-level debug for full details)`;
+  }
+  return normalized;
+};
+
 const parsePositiveIntegerOption = (name: string, raw: string): number => {
   if (!/^\d+$/.test(raw)) {
     throw new Error(`Invalid --${name} value: ${raw}`);
@@ -630,6 +671,16 @@ const parseCallHelpArgs = (args: ReadonlyArray<string>): ParsedCallHelpArgs => {
     }
     if (token.startsWith("--scope=")) {
       scopeDir = token.slice("--scope=".length);
+      continue;
+    }
+
+    if (token === "--log-level") {
+      const value = args[index + 1];
+      if (!value) throw new Error("Missing value for --log-level");
+      index += 1;
+      continue;
+    }
+    if (token.startsWith("--log-level=")) {
       continue;
     }
 
@@ -1009,7 +1060,16 @@ const resumeCommand = Command.make(
       });
 
       if (result.isError) {
-        console.error(result.text);
+        if (shouldPrintVerboseErrors(process.argv)) {
+          console.error(result.text);
+        } else {
+          const normalized = normalizeCliErrorText(result.text);
+          console.error(
+            normalized.length > 0
+              ? normalized
+              : "Resume failed (run with --log-level debug for full details).",
+          );
+        }
         process.exit(1);
       } else {
         console.log(result.text);
@@ -1260,7 +1320,11 @@ const program = (isCallHelpInvocation
   Effect.provide(BunContext.layer),
   Effect.catchAllCause((cause) =>
     Effect.sync(() => {
-      console.error(Cause.pretty(cause));
+      if (shouldPrintVerboseErrors(process.argv)) {
+        console.error(Cause.pretty(cause));
+      } else {
+        console.error(renderCliError(cause));
+      }
       process.exitCode = 1;
     }),
   ),

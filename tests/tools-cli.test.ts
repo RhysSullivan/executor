@@ -12,6 +12,7 @@ import {
   extractExecutionId,
   extractExecutionResult,
   inspectToolPath,
+  normalizeCliErrorText,
   parseJsonObjectInput,
 } from "../apps/cli/src/tooling";
 
@@ -165,5 +166,15 @@ describe("CLI tooling helpers", () => {
     expect(filterToolPathChildren(children, "worker").map((entry) => entry.segment)).toEqual([
       "workersAi",
     ]);
+  });
+
+  it("normalizes stack-heavy CLI error text", () => {
+    const normalized = normalizeCliErrorText(`Error: Error: TypeError: bad
+      at fn1 (/tmp/a.ts:1:1)
+      at fn2 (/tmp/b.ts:2:2)
+From previous event:
+      at fn3 (/tmp/c.ts:3:3)`);
+
+    expect(normalized).toBe("TypeError: bad");
   });
 });

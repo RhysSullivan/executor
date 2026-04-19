@@ -3,6 +3,14 @@ import * as Effect from "effect/Effect";
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const stripRepeatedErrorPrefix = (input: string): string => {
+  let output = input.trim();
+  while (output.toLowerCase().startsWith("error:")) {
+    output = output.slice("error:".length).trimStart();
+  }
+  return output;
+};
+
 const TOOL_PATH_TOKEN = /^[A-Za-z0-9._-]+$/;
 
 const toToolPathSegments = (parts: ReadonlyArray<string>): ReadonlyArray<string> =>
@@ -139,6 +147,36 @@ export const extractExecutionId = (structured: unknown): string | undefined => {
     return undefined;
   }
   return structured.executionId;
+};
+
+export const normalizeCliErrorText = (raw: string): string => {
+  const lines = raw.split(/\r?\n/);
+  const compacted: Array<string> = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) {
+      if (compacted.length > 0 && compacted[compacted.length - 1] !== "") {
+        compacted.push("");
+      }
+      continue;
+    }
+    if (/^at\s+/.test(trimmed)) continue;
+    if (/^From previous event/.test(trimmed)) continue;
+    compacted.push(trimmed);
+  }
+
+  if (compacted.length === 0) {
+    return stripRepeatedErrorPrefix(raw);
+  }
+
+  compacted[0] = stripRepeatedErrorPrefix(compacted[0] ?? "");
+  while (compacted.length > 0 && compacted[0]?.length === 0) {
+    compacted.shift();
+  }
+
+  const limited = compacted.slice(0, 24);
+  return limited.join("\n").trim();
 };
 
 export interface PausedInteraction {
