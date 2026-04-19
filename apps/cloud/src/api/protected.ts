@@ -7,10 +7,25 @@ import { McpExtensionService } from "@executor/plugin-mcp/api";
 import { GraphqlExtensionService } from "@executor/plugin-graphql/api";
 
 import { authorizeOrganization } from "../auth/authorize-organization";
+import { deriveUserScopeId } from "../auth/middleware-live";
 import { WorkOSAuth } from "../auth/workos";
 import { makeExecutionStack } from "../services/execution-stack";
 import { HttpResponseError, isServerError, toErrorServerResponse } from "./error-response";
 import { ProtectedCloudApiLive, RouterConfig, SharedServices } from "./layers";
+
+// `/scopes/<scopeId>/...` — the URL's scope segment selects the write
+// target for the request. Anything outside that pattern (unscoped
+// routes) uses the default write target (innermost = user scope).
+const SCOPE_PATH_REGEX = /\/scopes\/([^/]+)/;
+const extractUrlScopeId = (url: string): string | null => {
+  try {
+    const pathname = new URL(url, "http://x").pathname;
+    const match = pathname.match(SCOPE_PATH_REGEX);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
 
 const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
   Effect.gen(function* () {
@@ -27,12 +42,28 @@ const lookupOrgForRequest = (request: HttpServerRequest.HttpServerRequest) =>
     const session = yield* workos.authenticateRequest(webRequest);
     if (!session || !session.organizationId) return null;
 
-    return yield* authorizeOrganization(session.userId, session.organizationId);
+    const org = yield* authorizeOrganization(session.userId, session.organizationId);
+    return org ? { ...org, userId: session.userId, userName: session.firstName ?? null } : null;
   });
 
-const createProtectedApp = (organizationId: string, organizationName: string) =>
+interface ProtectedAppOptions {
+  readonly organizationId: string;
+  readonly organizationName: string;
+  readonly userScopeId: string;
+  readonly userName: string;
+  readonly writeScopeId: string;
+}
+
+const createProtectedApp = (options: ProtectedAppOptions) =>
   Effect.gen(function* () {
-    const { executor, engine } = yield* makeExecutionStack(organizationId, organizationName);
+    const { executor, engine } = yield* makeExecutionStack({
+      organizationId: options.organizationId,
+      read: [
+        { id: options.userScopeId, name: options.userName },
+        { id: options.organizationId, name: options.organizationName },
+      ],
+      writeScopeId: options.writeScopeId,
+    });
 
     const requestServices = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
@@ -69,7 +100,22 @@ export const ProtectedApiApp = Effect.gen(function* () {
     );
   }
 
-  const app = yield* createProtectedApp(org.id, org.name);
+  const userScopeId = deriveUserScopeId(org.userId);
+  const urlScopeId = extractUrlScopeId(request.url);
+  // Only accept an explicit write-target when the URL names a scope
+  // the caller actually has in their read chain. Anything else would
+  // be a cross-tenant write.
+  const writeScopeId =
+    urlScopeId === org.id || urlScopeId === userScopeId
+      ? urlScopeId
+      : userScopeId;
+  const app = yield* createProtectedApp({
+    organizationId: org.id,
+    organizationName: org.name,
+    userScopeId,
+    userName: org.userName ?? org.userId,
+    writeScopeId,
+  });
   return yield* app;
 }).pipe(
   Effect.provide(SharedServices),

@@ -12,17 +12,23 @@ import { makeDynamicWorkerExecutor } from "@executor/runtime-dynamic-worker";
 
 import { withExecutionUsageTracking } from "../api/execution-usage";
 import { AutumnService } from "./autumn";
-import { createScopedExecutor } from "./executor";
+import { createScopedExecutor, type ScopedExecutorOptions } from "./executor";
 
-export const makeExecutionStack = (organizationId: string, organizationName: string) =>
+// Usage tracking is always attributed to the org (not the user). The
+// user may be the write-target, but billing + quota are per-org.
+export interface ExecutionStackOptions extends ScopedExecutorOptions {
+  readonly organizationId: string;
+}
+
+export const makeExecutionStack = (options: ExecutionStackOptions) =>
   Effect.gen(function* () {
-    const executor = yield* createScopedExecutor(organizationId, organizationName).pipe(
+    const executor = yield* createScopedExecutor(options).pipe(
       Effect.withSpan("McpSessionDO.createScopedExecutor"),
     );
     const codeExecutor = makeDynamicWorkerExecutor({ loader: env.LOADER });
     const autumn = yield* AutumnService;
     const engine = withExecutionUsageTracking(
-      organizationId,
+      options.organizationId,
       createExecutionEngine({ executor, codeExecutor }),
       (orgId) => Effect.runFork(autumn.trackExecution(orgId)),
     );

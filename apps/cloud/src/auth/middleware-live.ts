@@ -58,6 +58,7 @@ export const OrgAuthLive = Layer.effect(
 
           return {
             accountId: result.userId,
+            userScopeId: deriveUserScopeId(result.userId),
             organizationId: result.organizationId,
             email: result.email,
             name: `${result.firstName ?? ""} ${result.lastName ?? ""}`.trim() || null,
@@ -67,3 +68,9 @@ export const OrgAuthLive = Layer.effect(
     });
   }),
 );
+
+/** Stable user-scope id derivation. Prefixed so it can never collide
+ *  with a WorkOS org id (which uses `org_…`). Used as the innermost
+ *  scope in the executor's read chain for HTTP + MCP requests. */
+export const deriveUserScopeId = (accountId: string): string =>
+  `user_${accountId}`;

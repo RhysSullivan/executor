@@ -237,10 +237,19 @@ export class McpSessionDO extends DurableObject {
   ) {
     const self = this;
     return Effect.gen(function* () {
-      const { executor, engine } = yield* makeExecutionStack(
-        sessionMeta.organizationId,
-        sessionMeta.organizationName,
-      );
+      // MCP sessions are per-org, not per-user (today the MCP client
+      // init token only carries `organizationId`). Until we thread the
+      // user through MCP's OAuth-init path, org is both the only scope
+      // and the write target for this session.
+      const { executor, engine } = yield* makeExecutionStack({
+        organizationId: sessionMeta.organizationId,
+        read: [
+          {
+            id: sessionMeta.organizationId,
+            name: sessionMeta.organizationName,
+          },
+        ],
+      });
       // Build the description here so the postgres query it runs
       // (`executor.sources.list`) lands as a child of
       // `McpSessionDO.createRuntime`. host-mcp would otherwise call

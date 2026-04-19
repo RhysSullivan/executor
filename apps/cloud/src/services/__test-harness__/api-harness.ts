@@ -35,6 +35,7 @@ import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   Scope,
   ScopeId,
+  ScopeStack,
   collectSchemas,
   createExecutor,
 } from "@executor/sdk";
@@ -66,6 +67,22 @@ import { DbService } from "../db";
 
 export const TEST_BASE_URL = "http://test.local";
 export const TEST_ORG_HEADER = "x-test-org-id";
+export const TEST_USER_HEADER = "x-test-user-id";
+// `/scopes/<scopeId>/...` — the URL's scope segment selects the write
+// target for the request, mirroring the prod `protected.ts` plumbing.
+// When the URL scopeId is in the caller's read chain it becomes the
+// write target; otherwise the innermost scope (user) is used.
+const SCOPE_PATH_REGEX = /\/scopes\/([^/]+)/;
+const extractUrlScopeId = (url: string): string | null => {
+  try {
+    const pathname = new URL(url, "http://x").pathname;
+    const match = pathname.match(SCOPE_PATH_REGEX);
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+const deriveUserScopeId = (accountId: string): string => `user_${accountId}`;
 
 // ---------------------------------------------------------------------------
 // Fake WorkOS Vault client — in-memory map keyed by name.
@@ -164,7 +181,12 @@ export const makeFakeVaultClient = (): WorkOSVaultClient => {
 
 const fakeVault = makeFakeVaultClient();
 
-const createTestScopedExecutor = (scopeId: string, scopeName: string) =>
+interface TestExecutorOptions {
+  readonly read: readonly { readonly id: string; readonly name: string }[];
+  readonly writeScopeId?: string;
+}
+
+const createTestScopedExecutor = (options: TestExecutorOptions) =>
   Effect.gen(function* () {
     const { db } = yield* DbService;
     const plugins = [
@@ -176,11 +198,24 @@ const createTestScopedExecutor = (scopeId: string, scopeName: string) =>
     const schema = collectSchemas(plugins);
     const adapter = makePostgresAdapter({ db, schema });
     const blobs = makePostgresBlobStore({ db });
-    const scope = new Scope({
-      id: ScopeId.make(scopeId),
-      name: scopeName,
-      createdAt: new Date(),
-    });
+
+    const read = options.read.map(
+      (s) =>
+        new Scope({
+          id: ScopeId.make(s.id),
+          name: s.name,
+          createdAt: new Date(),
+        }),
+    );
+    const write = options.writeScopeId
+      ? read.find((s) => s.id === options.writeScopeId)
+      : read[0];
+    if (!write) {
+      return yield* Effect.die(
+        new Error(`writeScopeId ${options.writeScopeId} not in read chain`),
+      );
+    }
+    const scope = new ScopeStack({ read, write });
     return yield* createExecutor({ scope, adapter, blobs, plugins });
   });
 
@@ -198,8 +233,17 @@ const FakeOrgAuthLive = Layer.succeed(
         if (!orgId || typeof orgId !== "string") {
           return yield* Effect.die(new Error("missing x-test-org-id"));
         }
+        const userHeader = request.headers[TEST_USER_HEADER];
+        // Default account id = `acct_<orgId>` so tests that don't set
+        // `x-test-user-id` still get a stable, per-org identity (the
+        // single-user-per-org world the cloud stack used to model).
+        const accountId =
+          typeof userHeader === "string" && userHeader.length > 0
+            ? userHeader
+            : `acct_${orgId}`;
         return AuthContext.of({
-          accountId: `acct_${orgId}`,
+          accountId,
+          userScopeId: deriveUserScopeId(accountId),
           organizationId: orgId,
           email: "test@example.com",
           name: "Test User",
@@ -213,9 +257,23 @@ const TestApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   Layer.provide(Layer.merge(ProtectedCloudApiHandlers, FakeOrgAuthLive)),
 );
 
-const buildAppForScope = (scopeId: string, scopeName: string) =>
+interface BuildAppOptions {
+  readonly organizationId: string;
+  readonly organizationName: string;
+  readonly userScopeId: string;
+  readonly userName: string;
+  readonly writeScopeId: string;
+}
+
+const buildAppForScope = (options: BuildAppOptions) =>
   Effect.gen(function* () {
-    const executor = yield* createTestScopedExecutor(scopeId, scopeName);
+    const executor = yield* createTestScopedExecutor({
+      read: [
+        { id: options.userScopeId, name: options.userName },
+        { id: options.organizationId, name: options.organizationName },
+      ],
+      writeScopeId: options.writeScopeId,
+    });
     const engine = createExecutionEngine({ executor, codeExecutor: makeQuickJsExecutor() });
     const services = Layer.mergeAll(
       Layer.succeed(ExecutorService, executor),
@@ -245,7 +303,26 @@ const RouterApp = Effect.gen(function* () {
   if (!orgId || typeof orgId !== "string") {
     return yield* Effect.die(new Error("missing x-test-org-id"));
   }
-  return yield* yield* buildAppForScope(orgId, `Org ${orgId}`);
+  const userHeader = request.headers[TEST_USER_HEADER];
+  const accountId =
+    typeof userHeader === "string" && userHeader.length > 0
+      ? userHeader
+      : `acct_${orgId}`;
+  const userScopeId = deriveUserScopeId(accountId);
+  const urlScopeId = extractUrlScopeId(request.url);
+  // URL scope only becomes write target if the caller can actually
+  // reach it — otherwise fall back to the innermost (user) scope.
+  const writeScopeId =
+    urlScopeId === orgId || urlScopeId === userScopeId
+      ? urlScopeId
+      : userScopeId;
+  return yield* yield* buildAppForScope({
+    organizationId: orgId,
+    organizationName: `Org ${orgId}`,
+    userScopeId,
+    userName: accountId,
+    writeScopeId,
+  });
 });
 
 const handler = HttpApp.toWebHandler(
@@ -255,18 +332,21 @@ const handler = HttpApp.toWebHandler(
   ),
 );
 
-export const fetchForOrg = (orgId: string): typeof globalThis.fetch =>
+export const fetchForOrg = (orgId: string, userId?: string): typeof globalThis.fetch =>
   ((input: RequestInfo | URL, init?: RequestInit) => {
     const base = input instanceof Request ? input : new Request(input, init);
-    const req = new Request(base, {
-      headers: { ...Object.fromEntries(base.headers), [TEST_ORG_HEADER]: orgId },
-    });
+    const headers: Record<string, string> = {
+      ...Object.fromEntries(base.headers),
+      [TEST_ORG_HEADER]: orgId,
+    };
+    if (userId) headers[TEST_USER_HEADER] = userId;
+    const req = new Request(base, { headers });
     return handler(req);
   }) as typeof globalThis.fetch;
 
-export const clientLayerForOrg = (orgId: string) =>
+export const clientLayerForOrg = (orgId: string, userId?: string) =>
   FetchHttpClient.layer.pipe(
-    Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchForOrg(orgId))),
+    Layer.provide(Layer.succeed(FetchHttpClient.Fetch, fetchForOrg(orgId, userId))),
   );
 
 // Constructs an HttpApiClient bound to the given org, hands it to `body`,
@@ -289,6 +369,20 @@ export const asOrg = <A, E>(
     const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
     return yield* body(client);
   }).pipe(Effect.provide(clientLayerForOrg(orgId))) as Effect.Effect<A, E>;
+
+// Scope helper for per-user tests. `userId` is the synthetic account id
+// (test chooses); `userScopeId` is what it maps to in the read chain.
+export const userScopeIdFor = (userId: string): string => deriveUserScopeId(userId);
+
+export const asUser = <A, E>(
+  orgId: string,
+  userId: string,
+  body: (client: ApiShape) => Effect.Effect<A, E>,
+): Effect.Effect<A, E> =>
+  Effect.gen(function* () {
+    const client = yield* HttpApiClient.make(ProtectedCloudApi, { baseUrl: TEST_BASE_URL });
+    return yield* body(client);
+  }).pipe(Effect.provide(clientLayerForOrg(orgId, userId))) as Effect.Effect<A, E>;
 
 // Re-exports so call sites don't need a second import.
 export { ProtectedCloudApi };

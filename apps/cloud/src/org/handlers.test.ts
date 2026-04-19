@@ -40,6 +40,7 @@ const stubWorkOS = (overrides: StubOverrides = {}) =>
 
 const adminAuth = {
   accountId: "user_admin",
+  userScopeId: "user_user_admin",
   organizationId: "org_1",
   email: "admin@test.com",
   name: "Admin",
@@ -48,6 +49,7 @@ const adminAuth = {
 
 const memberAuth = {
   accountId: "user_member",
+  userScopeId: "user_user_member",
   organizationId: "org_1",
   email: "member@test.com",
   name: "Member",

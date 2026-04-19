@@ -64,6 +64,11 @@ export class AuthContext extends Context.Tag("@executor/cloud/AuthContext")<
   AuthContext,
   {
     readonly accountId: string;
+    /** Per-user scope id — stable derivation from `accountId` so user-
+     *  scoped rows (personal OAuth tokens, personal overrides) can be
+     *  written without materializing a dedicated `scopes` table. The
+     *  executor's read chain is `[userScopeId, organizationId]`. */
+    readonly userScopeId: string;
     readonly organizationId: string;
     readonly email: string;
     readonly name: string | null;
