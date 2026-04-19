@@ -51,6 +51,10 @@ export function SourceDetailPage(props: {
   const [refreshing, setRefreshing] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  useEffect(() => {
+    setConfirmDelete(false);
+  }, [namespace]);
+
   const sourceData = Result.isSuccess(source) ? source.value : null;
   const canRefresh = sourceData ? (sourceData.canRefresh ?? true) : false;
   const canRemove = sourceData ? (sourceData.canRemove ?? true) : false;
@@ -127,7 +131,7 @@ export function SourceDetailPage(props: {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {canEdit && editPlugin && !editing && (
+          {canEdit && editPlugin && !editing && !confirmDelete && (
             <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
               Edit
             </Button>
@@ -154,7 +158,6 @@ export function SourceDetailPage(props: {
             !editing &&
             (confirmDelete ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-destructive">Confirm?</span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -169,7 +172,7 @@ export function SourceDetailPage(props: {
                   onClick={() => void handleDelete()}
                   disabled={deleting}
                 >
-                  {deleting ? "Deleting..." : "Delete"}
+                  {deleting ? "Deleting..." : "Delete Source"}
                 </Button>
               </div>
             ) : (
