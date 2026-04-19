@@ -48,7 +48,7 @@ Open `http://127.0.0.1:4788`, go to **Add Source**, paste a URL, and Executor wi
 ### Via the CLI
 
 ```bash
-executor tools invoke openapi.addSource --input '{
+executor call openapi addSource '{
   "spec": "https://petstore3.swagger.io/api/v3/openapi.json",
   "namespace": "petstore",
   "baseUrl": "https://petstore3.swagger.io/api/v3"
@@ -84,8 +84,7 @@ Run code via the CLI:
 executor call --file script.ts
 executor call 'return await tools.discover({ query: "send email" })'
 executor tools search "send email"
-executor tools invoke gmail.send --input '{"to":"alice@example.com","subject":"Hi"}'
-executor tools run gmail send '{"to":"alice@example.com","subject":"Hi"}'
+executor call gmail send '{"to":"alice@example.com","subject":"Hi"}'
 executor call github issues create '{"owner":"octocat","repo":"Hello-World","title":"Hi"}'
 ```
 
@@ -114,9 +113,7 @@ executor resume --execution-id <id> # resume paused execution
 executor tools search "<query>"     # search tools by intent
 executor tools sources              # list configured sources + tool counts
 executor tools describe <path>      # show tool TypeScript/JSON schema
-executor tools invoke <path> --input '{"k":"v"}' # invoke a tool directly
-executor tools run <path...> '{"k":"v"}' # run a tool via path segments
-executor call <path...> '{"k":"v"}' # shorthand tool invocation
+executor call <path...> '{"k":"v"}' # invoke a tool by path segments
 ```
 
 ## Developing locally

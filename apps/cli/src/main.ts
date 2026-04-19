@@ -581,24 +581,18 @@ const applyScope = (s: Option.Option<string>) => {
 
 const resolveToolInvocation = (input: {
   rawPathParts: ReadonlyArray<string>;
-  rawInput: string | undefined;
 }): Effect.Effect<{ path: string; args: Record<string, unknown> }, Error> =>
   Effect.gen(function* () {
-    const explicitInput = input.rawInput?.trim();
-    if (explicitInput && explicitInput.length > 0) {
-      const args = yield* parseJsonObjectInput(explicitInput);
-      const path = yield* Effect.try({
-        try: () => buildToolPath(input.rawPathParts),
-        catch: (cause) =>
-          cause instanceof Error ? cause : new Error(`Invalid tool path: ${String(cause)}`),
-      });
-      return { path, args };
-    }
-
     const maybeJsonArg = input.rawPathParts.at(-1)?.trim();
     const hasInlineJsonArg = maybeJsonArg !== undefined && maybeJsonArg.startsWith("{");
     const pathParts = hasInlineJsonArg ? input.rawPathParts.slice(0, -1) : input.rawPathParts;
     const args = hasInlineJsonArg ? yield* parseJsonObjectInput(maybeJsonArg) : {};
+
+    if (pathParts.some((part) => part.trim().startsWith("-"))) {
+      return yield* Effect.fail(
+        new Error("Tool invocation no longer accepts flags. Use: executor call <path...> '{...json...}'"),
+      );
+    }
 
     const path = yield* Effect.try({
       try: () => buildToolPath(pathParts),
@@ -617,31 +611,25 @@ const callCommand = Command.make(
   "call",
   {
     codeOrTool: Args.text({ name: "code-or-tool" }).pipe(Args.repeated),
-    input: Options.text("input")
-      .pipe(Options.optional)
-      .pipe(Options.withDescription("JSON object arguments when invoking a tool path")),
     file: Options.text("file").pipe(Options.optional),
     stdin: Options.boolean("stdin").pipe(Options.withDefault(false)),
     baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
     scope,
   },
-  ({ codeOrTool, input, file, stdin, baseUrl, scope }) =>
+  ({ codeOrTool, file, stdin, baseUrl, scope }) =>
     Effect.gen(function* () {
       applyScope(scope);
-      const rawInput = Option.getOrUndefined(input);
-      const hasRawInput = rawInput !== undefined && rawInput.trim().length > 0;
       const singleArg = codeOrTool.length === 1 ? codeOrTool[0] : undefined;
       const singleArgLooksLikeToolPath =
         singleArg !== undefined && singleArg.includes(".") && isLikelyToolPathToken(singleArg);
       const isToolInvocation =
         !stdin &&
         Option.isNone(file) &&
-        (codeOrTool.length > 1 || hasRawInput || singleArgLooksLikeToolPath);
+        (codeOrTool.length > 1 || singleArgLooksLikeToolPath);
 
       if (isToolInvocation) {
         const { path, args } = yield* resolveToolInvocation({
           rawPathParts: codeOrTool,
-          rawInput,
         });
         const code = yield* Effect.try({
           try: () => buildInvokeToolCode(path, args),
@@ -779,74 +767,11 @@ const toolsDescribeCommand = Command.make(
     }),
 ).pipe(Command.withDescription("Describe a tool's TypeScript and JSON schema"));
 
-const toolsInvokeCommand = Command.make(
-  "invoke",
-  {
-    path: Args.text({ name: "path" }),
-    input: Options.text("input")
-      .pipe(Options.optional)
-      .pipe(Options.withDescription("JSON object arguments for the tool")),
-    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
-    scope,
-  },
-  ({ path, input, baseUrl, scope }) =>
-    Effect.gen(function* () {
-      applyScope(scope);
-      const args = yield* parseJsonObjectInput(Option.getOrUndefined(input));
-      const code = yield* Effect.try({
-        try: () => buildInvokeToolCode(path, args),
-        catch: (cause) =>
-          cause instanceof Error ? cause : new Error(`Invalid tool path: ${String(cause)}`),
-      });
-
-      const outcome = yield* executeCode({ baseUrl, code });
-      yield* printExecutionOutcome({ baseUrl, outcome });
-    }),
-).pipe(Command.withDescription("Invoke a tool by path (e.g. github.listIssues)"));
-
-const toolsRunCommand = Command.make(
-  "run",
-  {
-    pathParts: Args.text({ name: "tool-path-segment" }).pipe(Args.repeated),
-    input: Options.text("input")
-      .pipe(Options.optional)
-      .pipe(Options.withDescription("JSON object arguments for the tool")),
-    baseUrl: Options.text("base-url").pipe(Options.withDefault(DEFAULT_BASE_URL)),
-    scope,
-  },
-  ({ pathParts, input, baseUrl, scope }) =>
-    Effect.gen(function* () {
-      applyScope(scope);
-      const { path, args } = yield* resolveToolInvocation({
-        rawPathParts: pathParts,
-        rawInput: Option.getOrUndefined(input),
-      });
-      const code = yield* Effect.try({
-        try: () => buildInvokeToolCode(path, args),
-        catch: (cause) =>
-          cause instanceof Error ? cause : new Error(`Invalid tool path: ${String(cause)}`),
-      });
-
-      const outcome = yield* executeCode({ baseUrl, code });
-      yield* printExecutionOutcome({ baseUrl, outcome });
-    }),
-).pipe(
-  Command.withDescription(
-    "Run a tool by path segments (e.g. `executor tools run github issues list '{\"owner\":\"octo\"}'`)",
-  ),
-);
-
 const toolsCommand = Command.make("tools").pipe(
   Command.withSubcommands(
-    [
-      toolsSearchCommand,
-      toolsSourcesCommand,
-      toolsDescribeCommand,
-      toolsInvokeCommand,
-      toolsRunCommand,
-    ] as const,
+    [toolsSearchCommand, toolsSourcesCommand, toolsDescribeCommand] as const,
   ),
-  Command.withDescription("Discover and invoke tools without writing JavaScript"),
+  Command.withDescription("Discover available tools and sources"),
 );
 
 const webCommand = Command.make(

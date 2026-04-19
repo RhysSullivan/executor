@@ -44,12 +44,12 @@ export const parseJsonObjectInput = (
       try: () => JSON.parse(raw) as unknown,
       catch: (cause) =>
         cause instanceof Error
-          ? new Error(`Invalid --input JSON: ${cause.message}`)
-          : new Error(`Invalid --input JSON: ${String(cause)}`),
+          ? new Error(`Invalid JSON arguments: ${cause.message}`)
+          : new Error(`Invalid JSON arguments: ${String(cause)}`),
     });
 
     if (!isRecord(parsed)) {
-      return yield* Effect.fail(new Error("--input must decode to a JSON object"));
+      return yield* Effect.fail(new Error("Tool arguments must decode to a JSON object"));
     }
 
     return parsed;
