@@ -16,6 +16,7 @@ export {
   type StoredGraphqlSource,
   type StoredOperation,
 } from "./store";
+export { collectGraphqlSecretIds } from "./secret-usage";
 
 export {
   GraphqlIntrospectionError,

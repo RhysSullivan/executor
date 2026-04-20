@@ -27,6 +27,7 @@ describe("secrets api (HTTP)", () => {
         client.secrets.list({ path: { scopeId: ScopeId.make(org) } }),
       );
       expect(list.find((s) => s.id === id)?.name).toBe("My API Token");
+      expect(list.find((s) => s.id === id)).not.toHaveProperty("usedBy");
 
       const resolved = yield* asOrg(org, (client) =>
         client.secrets.resolve({
@@ -34,49 +35,6 @@ describe("secrets api (HTTP)", () => {
         }),
       );
       expect(resolved.value).toBe("sk-test-abc");
-    }),
-  );
-
-  it.effect("list includes source usage for secrets referenced by source config", () =>
-    Effect.gen(function* () {
-      const org = `org_${crypto.randomUUID()}`;
-      const secretId = `sec_${crypto.randomUUID().slice(0, 8)}`;
-      const namespace = `api_${crypto.randomUUID().slice(0, 8)}`;
-
-      yield* asOrg(org, (client) =>
-        client.secrets.set({
-          path: { scopeId: ScopeId.make(org) },
-          payload: { id: SecretId.make(secretId), name: "Shared token", value: "sk-test-usage" },
-        }),
-      );
-
-      yield* asOrg(org, (client) =>
-        client.openapi.addSpec({
-          path: { scopeId: ScopeId.make(org) },
-          payload: {
-            spec: "https://openapi.vercel.sh",
-            namespace,
-            baseUrl: "https://api.vercel.com",
-            headers: {
-              Authorization: {
-                secretId,
-                prefix: "Bearer ",
-              },
-            },
-          },
-        }),
-      );
-
-      const list = yield* asOrg(org, (client) =>
-        client.secrets.list({ path: { scopeId: ScopeId.make(org) } }),
-      );
-      expect(list.find((secret) => secret.id === secretId)?.usedBy).toEqual([
-        {
-          sourceId: namespace,
-          sourceName: "Vercel API",
-          sourceKind: "openapi",
-        },
-      ]);
     }),
   );
 

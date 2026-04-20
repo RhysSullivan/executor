@@ -25,6 +25,7 @@ export {
   type SourceConfig,
   makeDefaultOpenapiStore,
 } from "./store";
+export { collectOpenApiSecretIds } from "./secret-usage";
 export {
   previewSpec,
   SecurityScheme,

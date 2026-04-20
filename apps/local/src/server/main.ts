@@ -11,6 +11,7 @@ import { addGroup, observabilityMiddleware } from "@executor/api";
 import { CoreHandlers, ExecutorService, ExecutionEngineService } from "@executor/api/server";
 import { createExecutionEngine } from "@executor/execution";
 import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
+import { SecretsUsageApi } from "@executor/react/api/secrets-usage";
 import {
   OpenApiGroup,
   OpenApiHandlers,
@@ -35,6 +36,7 @@ import {
 import { getExecutor } from "./executor";
 import { createMcpRequestHandler, type McpRequestHandler } from "./mcp";
 import { ErrorCaptureLive } from "./observability";
+import { SecretsUsageHandlers } from "./secrets-usage";
 
 // ---------------------------------------------------------------------------
 // Local server API — core + all plugin groups
@@ -45,15 +47,16 @@ const LocalApi = addGroup(OpenApiGroup)
   .add(GoogleDiscoveryGroup)
   .add(OnePasswordGroup)
   .add(GraphqlGroup);
+const LocalApiWithSecretsUsage = LocalApi.add(SecretsUsageApi);
 
 // `ErrorCaptureLive` logs causes to the console and returns a short
 // correlation id. Provided above the handler + middleware layers so
 // both the `withCapture` typed-channel translation AND the
 // `observabilityMiddleware` defect catchall see the same
 // implementation.
-const LocalObservability = observabilityMiddleware(LocalApi);
+const LocalObservability = observabilityMiddleware(LocalApiWithSecretsUsage);
 
-const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
+const LocalApiBase = HttpApiBuilder.api(LocalApiWithSecretsUsage).pipe(
   Layer.provide(CoreHandlers),
   Layer.provide(
     Layer.mergeAll(
@@ -62,6 +65,7 @@ const LocalApiBase = HttpApiBuilder.api(LocalApi).pipe(
       GoogleDiscoveryHandlers,
       OnePasswordHandlers,
       GraphqlHandlers,
+      SecretsUsageHandlers,
     ),
   ),
   Layer.provide(LocalObservability),

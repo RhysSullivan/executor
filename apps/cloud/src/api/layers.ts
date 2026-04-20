@@ -6,6 +6,7 @@ import { CoreHandlers } from "@executor/api/server";
 import { OpenApiGroup, OpenApiHandlers } from "@executor/plugin-openapi/api";
 import { McpGroup, McpHandlers } from "@executor/plugin-mcp/api";
 import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
+import { SecretsUsageApi } from "@executor/react/api/secrets-usage";
 
 import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive, SessionAuthLive } from "../auth/middleware-live";
@@ -21,12 +22,14 @@ import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
 
 import { CoreSharedServices } from "./core-shared-services";
+import { SecretsUsageHandlers } from "./secrets-usage";
 
 export { CoreSharedServices };
 
 const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
   .add(McpGroup)
   .add(GraphqlGroup)
+  .add(SecretsUsageApi)
   .middleware(OrgAuth);
 
 const DbLive = DbService.Live;
@@ -49,6 +52,7 @@ export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
       OpenApiHandlers,
       McpHandlers,
       GraphqlHandlers,
+      SecretsUsageHandlers,
       OrgAuthLive,
     ),
   ),

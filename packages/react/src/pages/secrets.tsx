@@ -1,7 +1,7 @@
 import { useState, Suspense } from "react";
 import { Link } from "@tanstack/react-router";
-import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
-import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
+import { useAtomSet } from "@effect-atom/atom-react";
+import { setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
 import { SecretId } from "@executor/sdk";
@@ -316,8 +316,23 @@ function SecretRow(props: {
 // Page
 // ---------------------------------------------------------------------------
 
+export type SecretsPageUsage = {
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly sourceKind: string;
+};
+
+export type SecretsPageSecret = {
+  readonly id: string;
+  readonly name: string;
+  readonly provider?: string;
+  readonly usedBy: readonly SecretsPageUsage[];
+};
+
 export function SecretsPage(props: {
   addSecretDescription?: string;
+  secretsLoadState: "loading" | "error" | "ready";
+  secrets: readonly SecretsPageSecret[];
   showProviderInfo?: boolean;
   secretProviderPlugins: readonly SecretProviderPlugin[];
   storageOptions?: readonly SecretStorageOption[];
@@ -330,7 +345,6 @@ export function SecretsPage(props: {
   const { secretProviderPlugins } = props;
   const [addOpen, setAddOpen] = useState(false);
   const scopeId = useScope();
-  const secrets = useAtomValue(secretsAtom(scopeId));
   const doRemove = useAtomSet(removeSecret, { mode: "promise" });
 
   const handleRemove = async (secretId: string) => {
@@ -389,23 +403,20 @@ export function SecretsPage(props: {
         )}
 
         {/* Secrets list */}
-        {Result.match(secrets, {
-          onInitial: () => (
+        {props.secretsLoadState === "loading" ? (
             <div className="flex items-center gap-2 py-8">
               <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
               <p className="text-sm text-muted-foreground">Loading secrets…</p>
             </div>
-          ),
-          onFailure: () => (
+          ) : props.secretsLoadState === "error" ? (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
               <p className="text-sm text-destructive">Failed to load secrets</p>
             </div>
-          ),
-          onSuccess: ({ value }) => (
+          ) : (
             <CardStack>
               <CardStackHeader>Secrets</CardStackHeader>
               <CardStackContent>
-                {value.length === 0 ? (
+                {props.secrets.length === 0 ? (
                   <CardStackEntry>
                     <CardStackEntryContent>
                       <CardStackEntryDescription>
@@ -424,14 +435,14 @@ export function SecretsPage(props: {
                     </CardStackEntryActions>
                   </CardStackEntry>
                 ) : (
-                  value.map((s) => (
+                  props.secrets.map((s) => (
                     <SecretRow
                       key={s.id}
                       showProvider={showProviderInfo}
                       secret={{
                         id: s.id,
                         name: s.name,
-                        provider: s.provider ? String(s.provider) : undefined,
+                        provider: s.provider,
                         usedBy: s.usedBy,
                       }}
                       onRemove={() => handleRemove(s.id)}
@@ -440,8 +451,7 @@ export function SecretsPage(props: {
                 )}
               </CardStackContent>
             </CardStack>
-          ),
-        })}
+          )}
 
         <AddSecretDialog
           open={addOpen}

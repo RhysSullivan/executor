@@ -14,6 +14,7 @@ export {
   makeGoogleDiscoveryStore,
   GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS,
 } from "./binding-store";
+export { collectGoogleDiscoverySecretIds } from "./secret-usage";
 export type {
   GoogleDiscoveryStore,
   GoogleDiscoveryStoredSource,

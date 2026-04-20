@@ -20,3 +20,4 @@ export {
   type McpSchema,
   type McpStoredSource,
 } from "./binding-store";
+export { collectMcpSecretIds } from "./secret-usage";
