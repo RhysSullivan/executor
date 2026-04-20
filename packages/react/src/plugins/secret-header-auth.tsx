@@ -8,6 +8,7 @@ import { Button } from "../components/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "../components/field";
 import { Input } from "../components/input";
 import { Spinner } from "../components/spinner";
+import { slugifyForSecretId, useUniqueSecretIdInput } from "./secret-id";
 import { SecretPicker, type SecretPickerSecret } from "./secret-picker";
 import { SecretId } from "@executor/sdk";
 
@@ -60,22 +61,14 @@ function SecretVisibilityIcon(props: { revealed: boolean }) {
   );
 }
 
-function slugifyForSecretId(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 export function InlineCreateSecret(props: {
   suggestedId: string;
   suggestedName: string;
+  existingSecretIds: readonly string[];
   onCreated: (secretId: string) => void;
   onCancel: () => void;
 }) {
   const [nameOverride, setNameOverride] = useState<string | null>(null);
-  const [idOverride, setIdOverride] = useState<string | null>(null);
   const [secretValue, setSecretValue] = useState("");
   const [secretRevealed, setSecretRevealed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -87,10 +80,18 @@ export function InlineCreateSecret(props: {
   const secretValueInputId = useId();
 
   const secretName = nameOverride ?? props.suggestedName;
-  const secretId = idOverride ?? (slugifyForSecretId(secretName) || "custom-header");
+  const {
+    secretId,
+    duplicateError,
+    setSecretIdOverride,
+  } = useUniqueSecretIdInput({
+    baseName: secretName,
+    existingSecretIds: props.existingSecretIds,
+    fallbackId: props.suggestedId || "custom-header",
+  });
 
   const handleSave = async () => {
-    if (!secretId.trim() || !secretValue.trim()) return;
+    if (!secretId.trim() || !secretValue.trim() || duplicateError) return;
     setSaving(true);
     setError(null);
     try {
@@ -129,10 +130,11 @@ export function InlineCreateSecret(props: {
             <Input
               id={secretIdInputId}
               value={secretId}
-              onChange={(e) => setIdOverride((e.target as HTMLInputElement).value)}
+              onChange={(e) => setSecretIdOverride((e.target as HTMLInputElement).value)}
               placeholder="my-api-token"
               className="font-mono"
             />
+            {duplicateError && <FieldError>{duplicateError}</FieldError>}
           </Field>
         </div>
         <Field>
@@ -170,7 +172,7 @@ export function InlineCreateSecret(props: {
         <Button
           size="xs"
           onClick={handleSave}
-          disabled={!secretId.trim() || !secretValue.trim() || saving}
+          disabled={!secretId.trim() || !secretValue.trim() || !!duplicateError || saving}
         >
           {saving ? "Saving…" : "Create and use"}
         </Button>
@@ -341,6 +343,7 @@ export function SecretHeaderAuthRow(props: {
       <InlineCreateSecret
         suggestedId={suggestedId}
         suggestedName={suggestedName}
+        existingSecretIds={existingSecrets.map((secret) => secret.id)}
         onCreated={(id) => {
           onSelectSecret(id);
           setCreating(false);
@@ -445,6 +448,7 @@ export function CreatableSecretPicker(props: {
       <InlineCreateSecret
         suggestedId={suggestedId}
         suggestedName={suggestedName}
+        existingSecretIds={secrets.map((secret) => secret.id)}
         onCreated={(id) => {
           onSelect(id);
           setCreating(false);
