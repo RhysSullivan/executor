@@ -14,10 +14,9 @@ import type {
   SourceConfig,
   ExecutorFileConfig,
   ConfigHeaderValue,
+  McpAuthConfig,
 } from "@executor/config";
 import { SECRET_REF_PREFIX } from "@executor/config";
-
-import type { LocalExecutor } from "./executor";
 
 // ---------------------------------------------------------------------------
 // Header translation: config format → plugin format
@@ -53,6 +52,99 @@ const translateHeaders = (
   return out;
 };
 
+const translateSecretRef = (value: string): string =>
+  value.startsWith(SECRET_REF_PREFIX) ? value.slice(SECRET_REF_PREFIX.length) : value;
+
+type ConfigSyncMcpAuth =
+  | { kind: "none" }
+  | {
+      kind: "header";
+      headerName: string;
+      secretId: string;
+      prefix?: string;
+    }
+  | {
+      kind: "oauth2";
+      accessTokenSecretId: string;
+      refreshTokenSecretId: string | null;
+      tokenType: string;
+      expiresAt: number | null;
+      scope: string | null;
+    };
+
+export interface ConfigSyncExecutor {
+  readonly scopes: readonly { readonly id: string }[];
+  readonly openapi: {
+    addSpec(input: {
+      spec: string;
+      scope: string;
+      baseUrl?: string;
+      namespace?: string;
+      headers?: Record<string, string | { secretId: string; prefix?: string }>;
+    }): Effect.Effect<unknown, unknown>;
+  };
+  readonly graphql: {
+    addSource(input: {
+      endpoint: string;
+      scope: string;
+      namespace?: string;
+      headers?: Record<string, string>;
+    }): Effect.Effect<unknown, unknown>;
+  };
+  readonly mcp: {
+    addSource(input:
+      | {
+          transport: "stdio";
+          scope: string;
+          name: string;
+          command: string;
+          args?: string[];
+          env?: Record<string, string>;
+          cwd?: string;
+          namespace?: string;
+        }
+      | {
+          transport: "remote";
+          scope: string;
+          name: string;
+          endpoint: string;
+          remoteTransport?: "streamable-http" | "sse" | "auto";
+          queryParams?: Record<string, string>;
+          headers?: Record<string, string>;
+          auth?: ConfigSyncMcpAuth;
+          namespace?: string;
+        }): Effect.Effect<unknown, unknown>;
+  };
+}
+
+const translateMcpAuth = (
+  auth: McpAuthConfig | undefined,
+): ConfigSyncMcpAuth | undefined => {
+  if (!auth) return undefined;
+  switch (auth.kind) {
+    case "none":
+      return { kind: "none" };
+    case "header":
+      return {
+        kind: "header",
+        headerName: auth.headerName,
+        secretId: translateSecretRef(auth.secret),
+        prefix: auth.prefix,
+      };
+    case "oauth2":
+      return {
+        kind: "oauth2",
+        accessTokenSecretId: translateSecretRef(auth.accessTokenSecret),
+        refreshTokenSecretId: auth.refreshTokenSecret
+          ? translateSecretRef(auth.refreshTokenSecret)
+          : null,
+        tokenType: auth.tokenType ?? "Bearer",
+        expiresAt: null,
+        scope: null,
+      };
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Config path resolution
 // ---------------------------------------------------------------------------
@@ -81,7 +173,7 @@ const loadConfigSync = (path: string): ExecutorFileConfig | null => {
 // ---------------------------------------------------------------------------
 
 const addSourceFromConfig = (
-  executor: LocalExecutor,
+  executor: ConfigSyncExecutor,
   source: SourceConfig,
 ): Effect.Effect<void, unknown> => {
   // `executor.jsonc` is a single-scope artifact today — the file isn't
@@ -128,6 +220,7 @@ const addSourceFromConfig = (
         remoteTransport: source.remoteTransport,
         queryParams: source.queryParams,
         headers: source.headers,
+        auth: translateMcpAuth(source.auth),
         namespace: source.namespace,
       }).pipe(Effect.asVoid);
   }
@@ -138,7 +231,7 @@ const addSourceFromConfig = (
  * Each source is added independently — if one fails, the rest still load.
  */
 export const syncFromConfig = (
-  executor: LocalExecutor,
+  executor: ConfigSyncExecutor,
   configPath: string,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
