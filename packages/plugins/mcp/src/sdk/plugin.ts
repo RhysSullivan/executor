@@ -86,6 +86,7 @@ export type McpSourceConfig = McpRemoteSourceConfig | McpStdioSourceConfig;
 // ---------------------------------------------------------------------------
 
 export interface McpOAuthStartInput {
+  readonly name: string;
   readonly endpoint: string;
   readonly redirectUrl: string;
   readonly queryParams?: Record<string, string> | null;
@@ -211,6 +212,11 @@ const mcpOAuthError = (message: string) => new McpOAuthError({ message });
 
 const mcpDiscoveryError = (message: string) =>
   new McpToolDiscoveryError({ stage: "list_tools", message });
+
+const oauthTokenSecretName = (
+  displayName: string,
+  kind: "access" | "refresh",
+): string => `${displayName} ${kind === "access" ? "Access" : "Refresh"} Token`;
 
 // ---------------------------------------------------------------------------
 // Shared connector resolution — reads secrets, builds stdio/remote input
@@ -749,6 +755,7 @@ export const mcpPlugin = definePlugin(
 
             yield* ctx.storage
               .putOAuthSession(sessionId, ctx.scopes[0]!.id as string, {
+                name: input.name,
                 endpoint: fullEndpoint,
                 redirectUrl: input.redirectUrl,
                 codeVerifier: started.codeVerifier,
@@ -808,7 +815,7 @@ export const mcpPlugin = definePlugin(
                 new SetSecretInput({
                   id: SecretId.make(accessSecretId),
                   scope: tokenScope,
-                  name: "MCP OAuth Access Token",
+                  name: oauthTokenSecretName(session.name, "access"),
                   value: exchanged.tokens.access_token,
                 }),
               )
@@ -826,7 +833,7 @@ export const mcpPlugin = definePlugin(
                   new SetSecretInput({
                     id: SecretId.make(refreshId),
                     scope: tokenScope,
-                    name: "MCP OAuth Refresh Token",
+                    name: oauthTokenSecretName(session.name, "refresh"),
                     value: exchanged.tokens.refresh_token,
                   }),
                 )
@@ -1130,3 +1137,5 @@ export interface McpPluginExtension {
     input: McpUpdateSourceInput,
   ) => Effect.Effect<void, McpExtensionFailure>;
 }
+
+export { oauthTokenSecretName };

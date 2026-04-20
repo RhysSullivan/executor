@@ -3,7 +3,7 @@ import { Effect } from "effect";
 
 import { createExecutor, makeTestConfig, Scope, ScopeId } from "@executor/sdk";
 
-import { mcpPlugin } from "./plugin";
+import { mcpPlugin, oauthTokenSecretName } from "./plugin";
 import {
   extractManifestFromListToolsResult,
   deriveMcpNamespace,
@@ -129,6 +129,13 @@ describe("joinToolPath", () => {
 // ---------------------------------------------------------------------------
 
 describe("mcpPlugin", () => {
+  it.effect("derives OAuth secret labels from the MCP source display name", () =>
+    Effect.sync(() => {
+      expect(oauthTokenSecretName("Linear", "access")).toBe("Linear Access Token");
+      expect(oauthTokenSecretName("Linear", "refresh")).toBe("Linear Refresh Token");
+    }),
+  );
+
   it.effect("creates executor with mcp plugin", () =>
     Effect.gen(function* () {
       const executor = yield* createExecutor(

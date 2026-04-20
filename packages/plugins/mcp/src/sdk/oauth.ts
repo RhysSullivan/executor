@@ -34,6 +34,7 @@ export type McpOAuthDiscoveryState = typeof McpOAuthDiscoveryState.Type;
 /** Pending OAuth session persisted between startOAuth and completeOAuth */
 export const McpOAuthSession = Schema.Struct({
   ...McpOAuthDiscoveryState.fields,
+  name: Schema.String,
   endpoint: Schema.String,
   redirectUrl: Schema.String,
   codeVerifier: Schema.String,

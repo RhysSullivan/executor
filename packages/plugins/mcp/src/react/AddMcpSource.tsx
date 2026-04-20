@@ -418,10 +418,11 @@ export default function AddMcpSource(props: {
     oauthCleanup.current = null;
     dispatch({ type: "oauth-start" });
     try {
+      const displayName = remoteIdentity.name.trim() || probe?.serverName || probe?.name || "";
       const redirectUrl = `${window.location.origin}/api/mcp/oauth/callback`;
       const result = await doStartOAuth({
         path: { scopeId },
-        payload: { endpoint: state.url.trim(), redirectUrl },
+        payload: { name: displayName, endpoint: state.url.trim(), redirectUrl },
       });
       dispatch({ type: "oauth-waiting", sessionId: result.sessionId });
       oauthCleanup.current = openOAuthPopup(
@@ -454,7 +455,7 @@ export default function AddMcpSource(props: {
         error: e instanceof Error ? e.message : "Failed to start OAuth",
       });
     }
-  }, [state.url, scopeId, doStartOAuth]);
+  }, [probe, remoteIdentity.name, state.url, scopeId, doStartOAuth]);
 
   const handleCancelOAuth = useCallback(() => {
     oauthCleanup.current?.();

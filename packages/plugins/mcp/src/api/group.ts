@@ -105,6 +105,7 @@ const NamespacePayload = Schema.Struct({
 });
 
 const StartOAuthPayload = Schema.Struct({
+  name: Schema.String,
   endpoint: Schema.String,
   redirectUrl: Schema.String,
   queryParams: Schema.optional(Schema.NullOr(StringMap)),

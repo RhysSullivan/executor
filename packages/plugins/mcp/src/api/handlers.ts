@@ -201,6 +201,7 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
       capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.startOAuth({
+          name: payload.name,
           endpoint: payload.endpoint,
           redirectUrl: payload.redirectUrl,
           queryParams: payload.queryParams,
