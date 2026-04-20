@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useReducer, useCallback, useEffect, useRef, useState } from "react";
 import { useAtomSet } from "@effect-atom/atom-react";
 
 import { useScope } from "@executor/react/api/scope-context";
@@ -18,12 +18,15 @@ import { FieldError, FieldLabel } from "@executor/react/components/field";
 import { FilterTabs } from "@executor/react/components/filter-tabs";
 import { FloatActions } from "@executor/react/components/float-actions";
 import { Input } from "@executor/react/components/input";
-import { Label } from "@executor/react/components/label";
 import { Badge } from "@executor/react/components/badge";
 import { Skeleton } from "@executor/react/components/skeleton";
 import { SourceFavicon } from "@executor/react/components/source-favicon";
 import { IOSSpinner, Spinner } from "@executor/react/components/spinner";
 import { Textarea } from "@executor/react/components/textarea";
+import {
+  AdditionalHeadersSection,
+  type PlainHeader,
+} from "@executor/react/plugins/additional-headers";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
@@ -90,11 +93,6 @@ type ProbeResult = {
   namespace: string;
   toolCount: number | null;
   serverName: string | null;
-};
-
-type PlainHeader = {
-  name: string;
-  value: string;
 };
 
 type State =
@@ -855,104 +853,7 @@ export default function AddMcpSource(props: {
 
           {/* Additional headers */}
           {probe && (
-            <section className="space-y-2.5">
-              <div>
-                <Label>Additional headers</Label>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  Plaintext headers sent with every request. Use authentication for secret-backed
-                  auth headers.
-                </p>
-              </div>
-
-              <CardStack>
-                <CardStackContent>
-                  {remoteHeaders.length === 0 ? (
-                    <AddPlainHeaderRow
-                      leading={<span>No headers</span>}
-                      onClick={() =>
-                        setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
-                      }
-                    />
-                  ) : (
-                    <>
-                      {remoteHeaders.map((header, index) => (
-                        <CardStackEntry key={index} className="flex-col items-stretch gap-2">
-                          <div className="flex items-center justify-between">
-                            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                              Header
-                            </Label>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="xs"
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() =>
-                                setRemoteHeaders((headers) =>
-                                  headers.filter((_, headerIndex) => headerIndex !== index),
-                                )
-                              }
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Name
-                              </Label>
-                              <Input
-                                value={header.name}
-                                onChange={(event) =>
-                                  setRemoteHeaders((headers) =>
-                                    headers.map((current, headerIndex) =>
-                                      headerIndex === index
-                                        ? {
-                                            ...current,
-                                            name: (event.target as HTMLInputElement).value,
-                                          }
-                                        : current,
-                                    ),
-                                  )
-                                }
-                                placeholder="X-Organization-Id"
-                                className="h-8 text-xs font-mono"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                Value
-                              </Label>
-                              <Input
-                                value={header.value}
-                                onChange={(event) =>
-                                  setRemoteHeaders((headers) =>
-                                    headers.map((current, headerIndex) =>
-                                      headerIndex === index
-                                        ? {
-                                            ...current,
-                                            value: (event.target as HTMLInputElement).value,
-                                          }
-                                        : current,
-                                    ),
-                                  )
-                                }
-                                placeholder="workspace-id"
-                                className="h-8 text-xs font-mono"
-                              />
-                            </div>
-                          </div>
-                        </CardStackEntry>
-                      ))}
-                      <AddPlainHeaderRow
-                        onClick={() =>
-                          setRemoteHeaders((headers) => [...headers, { name: "", value: "" }])
-                        }
-                      />
-                    </>
-                  )}
-                </CardStackContent>
-              </CardStack>
-            </section>
+            <AdditionalHeadersSection headers={remoteHeaders} onHeadersChange={setRemoteHeaders} />
           )}
 
           {/* Error (OAuth / add source). Probe errors show inline on the field. */}
@@ -1063,31 +964,5 @@ export default function AddMcpSource(props: {
         </>
       )}
     </div>
-  );
-}
-
-function AddPlainHeaderRow({
-  onClick,
-  leading,
-}: {
-  readonly onClick: () => void;
-  readonly leading?: ReactNode;
-}) {
-  return (
-    // oxlint-disable-next-line react/forbid-elements
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      aria-label="Add header"
-      className="flex w-full items-center justify-between gap-4 px-4 py-3 text-sm text-muted-foreground outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.23,1,0.32,1)] hover:bg-accent/40 focus-visible:bg-accent/40"
-    >
-      <span className="min-w-0 flex-1 text-left">{leading}</span>
-      <svg aria-hidden viewBox="0 0 16 16" fill="none" className="size-4 shrink-0">
-        <path d="M8 3.5v9M3.5 8h9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    </button>
   );
 }

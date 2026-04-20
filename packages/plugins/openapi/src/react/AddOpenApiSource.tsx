@@ -7,6 +7,12 @@ import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/r
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
+import {
+  AdditionalHeadersSection,
+  mergeHeaders,
+  validateHeaderConfiguration,
+  type PlainHeader,
+} from "@executor/react/plugins/additional-headers";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
   CreatableSecretPicker,
@@ -175,7 +181,8 @@ export default function AddOpenApiSource(props: {
 
   // Auth
   const [strategy, setStrategy] = useState<StrategySelection>({ kind: "none" });
-  const [customHeaders, setCustomHeaders] = useState<HeaderState[]>([]);
+  const [authHeaders, setAuthHeaders] = useState<HeaderState[]>([]);
+  const [additionalHeaders, setAdditionalHeaders] = useState<PlainHeader[]>([]);
 
   // OAuth2 state (only populated while an oauth2 preset is selected)
   const [oauth2ClientIdSecretId, setOauth2ClientIdSecretId] = useState<string | null>(null);
@@ -247,18 +254,15 @@ export default function AddOpenApiSource(props: {
     return out;
   };
 
-  const allHeaders: Record<string, HeaderValue> = {};
-  for (const ch of customHeaders) {
-    if (ch.name.trim() && ch.secretId) {
-      allHeaders[ch.name.trim()] = {
-        secretId: ch.secretId,
-        ...(ch.prefix ? { prefix: ch.prefix } : {}),
-      };
-    }
-  }
+  const allHeaders = mergeHeaders(authHeaders, additionalHeaders) as Record<string, HeaderValue>;
   const hasHeaders = Object.keys(allHeaders).length > 0;
 
-  const customHeadersValid = customHeaders.every((ch) => ch.name.trim() && ch.secretId);
+  const customHeadersValid = authHeaders.every((ch) => ch.name.trim() && ch.secretId);
+  const headerError = validateHeaderConfiguration({
+    authHeaders,
+    additionalHeaders,
+    reserveAuthorization: strategy.kind === "oauth2",
+  });
 
   const oauth2Presets: readonly OAuth2Preset[] = preview?.oauth2Presets ?? [];
   const oauth2RedirectUrl =
@@ -274,8 +278,9 @@ export default function AddOpenApiSource(props: {
   const canAdd =
     preview !== null &&
     resolvedBaseUrl.length > 0 &&
-    (customHeaders.length === 0 || customHeadersValid) &&
-    oauth2Ready;
+    (authHeaders.length === 0 || customHeadersValid) &&
+    oauth2Ready &&
+    headerError === null;
 
   // ---- Handlers ----
 
@@ -304,10 +309,10 @@ export default function AddOpenApiSource(props: {
       const firstPreset = result.headerPresets[0];
       if (firstPreset) {
         setStrategy({ kind: "header", presetIndex: 0 });
-        setCustomHeaders(entriesFromSpecPreset(firstPreset));
+        setAuthHeaders(entriesFromSpecPreset(firstPreset));
       } else {
         setStrategy({ kind: "none" });
-        setCustomHeaders([]);
+        setAuthHeaders([]);
       }
     } catch (e) {
       setAnalyzeError(e instanceof Error ? e.message : "Failed to parse spec");
@@ -327,22 +332,22 @@ export default function AddOpenApiSource(props: {
     }
     switch (next.kind) {
       case "none":
-        setCustomHeaders([]);
+        setAuthHeaders([]);
         return;
       case "custom": {
-        const userHeaders = customHeaders.filter((h) => !h.fromPreset);
-        setCustomHeaders(userHeaders.length > 0 ? userHeaders : []);
+        const userHeaders = authHeaders.filter((h) => !h.fromPreset);
+        setAuthHeaders(userHeaders.length > 0 ? userHeaders : []);
         return;
       }
       case "header": {
         const preset = preview?.headerPresets[next.presetIndex];
         if (!preset) return;
-        const userHeaders = customHeaders.filter((h) => !h.fromPreset);
-        setCustomHeaders([...entriesFromSpecPreset(preset), ...userHeaders]);
+        const userHeaders = authHeaders.filter((h) => !h.fromPreset);
+        setAuthHeaders([...entriesFromSpecPreset(preset), ...userHeaders]);
         return;
       }
       case "oauth2": {
-        setCustomHeaders([]);
+        setAuthHeaders([]);
         const preset = preview?.oauth2Presets[next.presetIndex];
         if (preset) {
           setOauth2SelectedScopes(new Set(Object.keys(preset.scopes)));
@@ -353,7 +358,7 @@ export default function AddOpenApiSource(props: {
   };
 
   const handleHeadersChange = (next: HeaderState[]) => {
-    setCustomHeaders(next);
+    setAuthHeaders(next);
     if (strategy.kind === "header" && next.every((h) => !h.fromPreset)) {
       setStrategy(next.length === 0 ? { kind: "none" } : { kind: "custom" });
     }
@@ -574,7 +579,8 @@ export default function AddOpenApiSource(props: {
                     setSelectedServerIndex(-1);
                     setCustomBaseUrl("");
                     setVariableSelections({});
-                    setCustomHeaders([]);
+                    setAuthHeaders([]);
+                    setAdditionalHeaders([]);
                     setStrategy({ kind: "none" });
                     setOauth2Auth(null);
                     setOauth2Error(null);
@@ -854,7 +860,7 @@ export default function AddOpenApiSource(props: {
             {/* Header-based auth input */}
             {strategy.kind !== "none" && strategy.kind !== "oauth2" && (
               <HeadersList
-                headers={customHeaders}
+                headers={authHeaders}
                 onHeadersChange={handleHeadersChange}
                 existingSecrets={secretList}
                 sourceName={identity.name}
@@ -984,6 +990,12 @@ export default function AddOpenApiSource(props: {
               </div>
             )}
           </section>
+
+          <AdditionalHeadersSection
+            headers={additionalHeaders}
+            onHeadersChange={setAdditionalHeaders}
+            error={headerError}
+          />
 
           {/* Add error */}
           {addError && (

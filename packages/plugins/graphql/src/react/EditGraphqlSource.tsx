@@ -3,10 +3,15 @@ import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import {
+  AdditionalHeadersSection,
+  mergeHeaders,
+  partitionHeaders,
+  validateHeaderConfiguration,
+  type PlainHeader,
+} from "@executor/react/plugins/additional-headers";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  headerValueToState,
-  headersFromState,
   type HeaderState,
 } from "@executor/react/plugins/secret-header-auth";
 import { HeadersList } from "@executor/react/plugins/headers-list";
@@ -47,19 +52,28 @@ function EditForm(props: {
     fallbackNamespace: props.initial.namespace,
   });
   const [endpoint, setEndpoint] = useState(props.initial.endpoint);
-  const [headers, setHeaders] = useState<HeaderState[]>(() =>
-    Object.entries(props.initial.headers ?? {}).map(([name, value]) =>
-      headerValueToState(name, value),
-    ),
+  const initialHeaders = partitionHeaders(props.initial.headers);
+  const [headers, setHeaders] = useState<HeaderState[]>(() => initialHeaders.authHeaders);
+  const [additionalHeaders, setAdditionalHeaders] = useState<PlainHeader[]>(
+    () => initialHeaders.additionalHeaders,
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
   const identityDirty = identity.name.trim() !== props.initial.name.trim();
+  const headerError = validateHeaderConfiguration({
+    authHeaders: headers,
+    additionalHeaders,
+  });
 
   const handleHeadersChange = (next: HeaderState[]) => {
     setHeaders(next);
+    setDirty(true);
+  };
+
+  const handleAdditionalHeadersChange = (next: PlainHeader[]) => {
+    setAdditionalHeaders(next);
     setDirty(true);
   };
 
@@ -72,7 +86,7 @@ function EditForm(props: {
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
-          headers: headersFromState(headers),
+          headers: mergeHeaders(headers, additionalHeaders),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -90,7 +104,7 @@ function EditForm(props: {
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit GraphQL Source</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Update the endpoint and authentication headers for this source.
+          Update the endpoint, authentication, and additional headers for this source.
         </p>
       </div>
 
@@ -122,7 +136,7 @@ function EditForm(props: {
       </CardStack>
 
       <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
+        <FieldLabel>Authentication</FieldLabel>
         <HeadersList
           headers={headers}
           onHeadersChange={handleHeadersChange}
@@ -130,6 +144,12 @@ function EditForm(props: {
           sourceName={identity.name}
         />
       </section>
+
+      <AdditionalHeadersSection
+        headers={additionalHeaders}
+        onHeadersChange={handleAdditionalHeadersChange}
+        error={headerError}
+      />
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
@@ -141,7 +161,10 @@ function EditForm(props: {
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
+        <Button
+          onClick={handleSave}
+          disabled={(!dirty && !identityDirty) || saving || headerError !== null}
+        >
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

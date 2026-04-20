@@ -4,6 +4,12 @@ import { useAtomSet } from "@effect-atom/atom-react";
 import { useScope } from "@executor/react/api/scope-context";
 import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
 import { usePendingSources } from "@executor/react/api/optimistic";
+import {
+  AdditionalHeadersSection,
+  mergeHeaders,
+  validateHeaderConfiguration,
+  type PlainHeader,
+} from "@executor/react/plugins/additional-headers";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import { type HeaderState } from "@executor/react/plugins/secret-header-auth";
 import {
@@ -43,6 +49,7 @@ export default function AddGraphqlSource(props: {
     fallbackName: displayNameFromUrl(endpoint) ?? "",
   });
   const [headers, setHeaders] = useState<HeaderState[]>([initialHeader()]);
+  const [additionalHeaders, setAdditionalHeaders] = useState<PlainHeader[]>([]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -52,21 +59,19 @@ export default function AddGraphqlSource(props: {
   const secretList = useSecretPickerSecrets();
 
   const headersValid = headers.every((header) => header.name.trim() && header.secretId);
-  const canAdd = endpoint.trim().length > 0 && (headers.length === 0 || headersValid);
+  const headerError = validateHeaderConfiguration({
+    authHeaders: headers,
+    additionalHeaders,
+  });
+  const canAdd =
+    endpoint.trim().length > 0 &&
+    (headers.length === 0 || headersValid) &&
+    headerError === null;
 
   const handleAdd = async () => {
     setAdding(true);
     setAddError(null);
-    const headerMap: Record<string, HeaderValue> = {};
-    for (const header of headers) {
-      const name = header.name.trim();
-      if (name && header.secretId) {
-        headerMap[name] = {
-          secretId: header.secretId,
-          ...(header.prefix ? { prefix: header.prefix } : {}),
-        };
-      }
-    }
+    const headerMap = mergeHeaders(headers, additionalHeaders) as Record<string, HeaderValue>;
 
     const trimmedEndpoint = endpoint.trim();
     const namespace =
@@ -127,7 +132,7 @@ export default function AddGraphqlSource(props: {
       />
 
       <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
+        <FieldLabel>Authentication</FieldLabel>
         <HeadersList
           headers={headers}
           onHeadersChange={setHeaders}
@@ -135,6 +140,12 @@ export default function AddGraphqlSource(props: {
           sourceName={identity.name}
         />
       </section>
+
+      <AdditionalHeadersSection
+        headers={additionalHeaders}
+        onHeadersChange={setAdditionalHeaders}
+        error={headerError}
+      />
 
       {/* Error */}
       {addError && (

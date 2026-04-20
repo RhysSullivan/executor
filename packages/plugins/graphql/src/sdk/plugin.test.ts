@@ -222,12 +222,18 @@ describe("graphqlPlugin", () => {
 
       yield* executor.graphql.updateSource("patched", TEST_SCOPE, {
         endpoint: "http://localhost:5000/graphql",
-        headers: { "x-custom": "abc" },
+        headers: {
+          Authorization: { secretId: "graphql-token", prefix: "Bearer " },
+          "x-custom": "abc",
+        },
       });
 
       const source = yield* executor.graphql.getSource("patched", TEST_SCOPE);
       expect(source?.endpoint).toBe("http://localhost:5000/graphql");
-      expect(source?.headers).toEqual({ "x-custom": "abc" });
+      expect(source?.headers).toEqual({
+        Authorization: { secretId: "graphql-token", prefix: "Bearer " },
+        "x-custom": "abc",
+      });
 
       // Tools still present (no re-register happened, but they were
       // already there from addSource and haven't been removed).

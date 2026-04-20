@@ -25,10 +25,15 @@ import {
   secretWriteKeys,
   sourceWriteKeys,
 } from "@executor/react/api/reactivity-keys";
+import {
+  AdditionalHeadersSection,
+  mergeHeaders,
+  partitionHeaders,
+  validateHeaderConfiguration,
+  type PlainHeader,
+} from "@executor/react/plugins/additional-headers";
 import { useSecretPickerSecrets } from "@executor/react/plugins/use-secret-picker-secrets";
 import {
-  headerValueToState,
-  headersFromState,
   type HeaderState,
 } from "@executor/react/plugins/secret-header-auth";
 import { HeadersList } from "@executor/react/plugins/headers-list";
@@ -400,10 +405,10 @@ function EditForm(props: {
     fallbackNamespace: props.initial.namespace,
   });
   const [baseUrl, setBaseUrl] = useState(props.initial.config.baseUrl ?? "");
-  const [headers, setHeaders] = useState<HeaderState[]>(() =>
-    Object.entries(props.initial.config.headers ?? {}).map(([name, value]) =>
-      headerValueToState(name, value),
-    ),
+  const initialHeaders = partitionHeaders(props.initial.config.headers);
+  const [headers, setHeaders] = useState<HeaderState[]>(() => initialHeaders.authHeaders);
+  const [additionalHeaders, setAdditionalHeaders] = useState<PlainHeader[]>(
+    () => initialHeaders.additionalHeaders,
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -417,9 +422,19 @@ function EditForm(props: {
   const oauth2Entries: readonly OAuth2Auth[] = props.initial.config.oauth2
     ? [props.initial.config.oauth2]
     : [];
+  const headerError = validateHeaderConfiguration({
+    authHeaders: headers,
+    additionalHeaders,
+    reserveAuthorization: oauth2Entries.length > 0,
+  });
 
   const handleHeadersChange = (next: HeaderState[]) => {
     setHeaders(next);
+    setDirty(true);
+  };
+
+  const handleAdditionalHeadersChange = (next: PlainHeader[]) => {
+    setAdditionalHeaders(next);
     setDirty(true);
   };
 
@@ -432,7 +447,7 @@ function EditForm(props: {
         payload: {
           name: identity.name.trim() || undefined,
           baseUrl: baseUrl.trim() || undefined,
-          headers: headersFromState(headers),
+          headers: mergeHeaders(headers, additionalHeaders),
         },
         reactivityKeys: sourceWriteKeys,
       });
@@ -450,7 +465,7 @@ function EditForm(props: {
       <div>
         <h1 className="text-xl font-semibold text-foreground">Edit OpenAPI Source</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Update the base URL and authentication headers for this source.
+          Update the base URL, authentication, and additional headers for this source.
         </p>
       </div>
 
@@ -482,7 +497,7 @@ function EditForm(props: {
       </CardStack>
 
       <section className="space-y-2.5">
-        <FieldLabel>Headers</FieldLabel>
+        <FieldLabel>Authentication</FieldLabel>
         <HeadersList
           headers={headers}
           onHeadersChange={handleHeadersChange}
@@ -490,6 +505,12 @@ function EditForm(props: {
           sourceName={identity.name}
         />
       </section>
+
+      <AdditionalHeadersSection
+        headers={additionalHeaders}
+        onHeadersChange={handleAdditionalHeadersChange}
+        error={headerError}
+      />
 
       {oauth2Entries.length > 0 && (
         <ConnectionsSection
@@ -509,7 +530,10 @@ function EditForm(props: {
         <Button variant="ghost" onClick={props.onSave}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={(!dirty && !identityDirty) || saving}>
+        <Button
+          onClick={handleSave}
+          disabled={(!dirty && !identityDirty) || saving || headerError !== null}
+        >
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>

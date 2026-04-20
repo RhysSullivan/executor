@@ -300,6 +300,48 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
     }),
   );
 
+  it.effect("stores mixed plaintext and secret-backed headers on the source", () =>
+    Effect.gen(function* () {
+      const httpClient = yield* HttpClient.HttpClient;
+      const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            openApiPlugin({ httpClientLayer: clientLayer }),
+            memorySecretsPlugin(),
+          ] as const,
+        }),
+      );
+
+      yield* executor.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("test-api-token"),
+          scope: ScopeId.make(TEST_SCOPE),
+          name: "Test API Token",
+          value: "secret-value-123",
+        }),
+      );
+
+      yield* executor.openapi.addSpec({
+        spec: specJson,
+        scope: TEST_SCOPE,
+        namespace: "mixed",
+        baseUrl: "",
+        headers: {
+          Authorization: { secretId: "test-api-token", prefix: "Bearer " },
+          "X-Static": "hello",
+        },
+      });
+
+      const source = yield* executor.openapi.getSource("mixed", TEST_SCOPE);
+      expect(source?.config.headers).toEqual({
+        Authorization: { secretId: "test-api-token", prefix: "Bearer " },
+        "X-Static": "hello",
+      });
+    }),
+  );
+
   it.effect("fails clearly when a secret is missing", () =>
     Effect.gen(function* () {
       const httpClient = yield* HttpClient.HttpClient;
