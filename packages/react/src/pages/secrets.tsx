@@ -4,6 +4,7 @@ import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
 import type { SecretProviderPlugin } from "../plugins/secret-provider-plugin";
 import { SecretId } from "@executor/sdk";
+import { ChevronDownIcon } from "lucide-react";
 import { useScope } from "../hooks/use-scope";
 import {
   Dialog,
@@ -230,10 +231,21 @@ function AddSecretDialog(props: {
 
 function SecretRow(props: {
   showProvider: boolean;
-  secret: { id: string; name: string; provider?: string };
+  secret: {
+    id: string;
+    name: string;
+    provider?: string;
+    usedBy: readonly {
+      sourceId: string;
+      sourceName: string;
+      sourceKind: string;
+    }[];
+  };
   onRemove: () => void;
 }) {
   const { secret, showProvider } = props;
+  const usageLabel =
+    secret.usedBy.length === 1 ? "Used by 1 source" : `Used by ${secret.usedBy.length} sources`;
 
   return (
     <CardStackEntry>
@@ -244,6 +256,27 @@ function SecretRow(props: {
       </CardStackEntryContent>
       <CardStackEntryActions>
         {showProvider && secret.provider && <Badge variant="outline">{secret.provider}</Badge>}
+        {secret.usedBy.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="xs" className="gap-1.5">
+                In use
+                <ChevronDownIcon className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">{usageLabel}</div>
+              {secret.usedBy.map((usage) => (
+                <DropdownMenuItem key={usage.sourceId} className="flex items-center justify-between">
+                  <span className="truncate">{usage.sourceName}</span>
+                  <Badge variant="outline" className="ml-2 capitalize">
+                    {usage.sourceKind}
+                  </Badge>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -392,6 +425,7 @@ export function SecretsPage(props: {
                         id: s.id,
                         name: s.name,
                         provider: s.provider ? String(s.provider) : undefined,
+                        usedBy: s.usedBy,
                       }}
                       onRemove={() => handleRemove(s.id)}
                     />

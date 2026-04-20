@@ -21,6 +21,13 @@ const SecretRefResponse = Schema.Struct({
   name: Schema.String,
   provider: Schema.String,
   createdAt: Schema.Number,
+  usedBy: Schema.Array(
+    Schema.Struct({
+      sourceId: Schema.String,
+      sourceName: Schema.String,
+      sourceKind: Schema.String,
+    }),
+  ),
 });
 
 const SecretStatusResponse = Schema.Struct({
