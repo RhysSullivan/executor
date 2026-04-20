@@ -1,5 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
+
+import { StorageError } from "@executor/storage-core";
 
 import { makeInMemoryBlobStore, pluginBlobStore } from "./blob";
 
@@ -66,6 +68,35 @@ describe("pluginBlobStore", () => {
       const pluginB = pluginBlobStore(store, ["inner"], "plugin-b");
       expect(yield* pluginA.get("k")).toBe("a-value");
       expect(yield* pluginB.get("k")).toBe("b-value");
+    }),
+  );
+
+  it.effect("put rejects scope outside the stack", () =>
+    Effect.gen(function* () {
+      const store = makeInMemoryBlobStore();
+      const plugin = pluginBlobStore(store, ["inner", "outer"], "my-plugin");
+      const result = yield* Effect.exit(
+        plugin.put("k", "v", { scope: "not-in-stack" }),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
+      if (Exit.isFailure(result)) {
+        const err = result.cause._tag === "Fail" ? result.cause.error : null;
+        expect(err).toBeInstanceOf(StorageError);
+        expect((err as StorageError).message).toContain("not in the");
+      }
+      // Write must not have reached the store.
+      expect(yield* store.get("not-in-stack/my-plugin", "k")).toBeNull();
+    }),
+  );
+
+  it.effect("delete rejects scope outside the stack", () =>
+    Effect.gen(function* () {
+      const store = makeInMemoryBlobStore();
+      const plugin = pluginBlobStore(store, ["inner"], "my-plugin");
+      const result = yield* Effect.exit(
+        plugin.delete("k", { scope: "not-in-stack" }),
+      );
+      expect(Exit.isFailure(result)).toBe(true);
     }),
   );
 });

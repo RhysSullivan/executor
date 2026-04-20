@@ -934,6 +934,23 @@ describe("tenant isolation (SDK)", () => {
     }),
   );
 
+  it.effect("secrets.set rejects scope outside the executor's stack", () =>
+    Effect.gen(function* () {
+      const { execA } = yield* makeSharedTenantExecutors();
+      const result = yield* Effect.exit(
+        execA.secrets.set(
+          new SetSecretInput({
+            id: SecretId.make("x"),
+            scope: ScopeId.make("not-in-stack"),
+            name: "x",
+            value: "v",
+          }),
+        ),
+      );
+      expect(result._tag).toBe("Failure");
+    }),
+  );
+
   it.effect("secrets.get — innermost scope shadows outer on same id", () =>
     Effect.gen(function* () {
       const plugins = [tenantPlugin()] as const;
