@@ -361,6 +361,67 @@ export function SecretsPage(props: {
     }
   };
 
+  const renderSecretsList = () => {
+    switch (props.secretsLoadState) {
+      case "loading":
+        return (
+          <div className="flex items-center gap-2 py-8">
+            <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
+            <p className="text-sm text-muted-foreground">Loading secrets…</p>
+          </div>
+        );
+
+      case "error":
+        return (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+            <p className="text-sm text-destructive">Failed to load secrets</p>
+          </div>
+        );
+
+      case "ready":
+        return (
+          <CardStack>
+            <CardStackHeader>Secrets</CardStackHeader>
+            <CardStackContent>
+              {props.secrets.length === 0 ? (
+                <CardStackEntry>
+                  <CardStackEntryContent>
+                    <CardStackEntryDescription>
+                      Add API keys and credentials to authenticate your sources.
+                    </CardStackEntryDescription>
+                  </CardStackEntryContent>
+                  <CardStackEntryActions>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-7 px-0 text-xs"
+                      onClick={() => setAddOpen(true)}
+                    >
+                      Add your first secret
+                    </Button>
+                  </CardStackEntryActions>
+                </CardStackEntry>
+              ) : (
+                props.secrets.map((s) => (
+                  <SecretRow
+                    key={s.id}
+                    showProvider={showProviderInfo}
+                    secret={{
+                      id: s.id,
+                      name: s.name,
+                      provider: s.provider,
+                      usedBy: s.usedBy,
+                    }}
+                    onRemove={() => handleRemove(s.id)}
+                  />
+                ))
+              )}
+            </CardStackContent>
+          </CardStack>
+        );
+    }
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl px-6 py-10 lg:px-8 lg:py-14">
@@ -403,55 +464,7 @@ export function SecretsPage(props: {
         )}
 
         {/* Secrets list */}
-        {props.secretsLoadState === "loading" ? (
-            <div className="flex items-center gap-2 py-8">
-              <div className="size-1.5 rounded-full bg-muted-foreground/30 animate-pulse" />
-              <p className="text-sm text-muted-foreground">Loading secrets…</p>
-            </div>
-          ) : props.secretsLoadState === "error" ? (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-              <p className="text-sm text-destructive">Failed to load secrets</p>
-            </div>
-          ) : (
-            <CardStack>
-              <CardStackHeader>Secrets</CardStackHeader>
-              <CardStackContent>
-                {props.secrets.length === 0 ? (
-                  <CardStackEntry>
-                    <CardStackEntryContent>
-                      <CardStackEntryDescription>
-                        Add API keys and credentials to authenticate your sources.
-                      </CardStackEntryDescription>
-                    </CardStackEntryContent>
-                    <CardStackEntryActions>
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-7 px-0 text-xs"
-                        onClick={() => setAddOpen(true)}
-                      >
-                        Add your first secret
-                      </Button>
-                    </CardStackEntryActions>
-                  </CardStackEntry>
-                ) : (
-                  props.secrets.map((s) => (
-                    <SecretRow
-                      key={s.id}
-                      showProvider={showProviderInfo}
-                      secret={{
-                        id: s.id,
-                        name: s.name,
-                        provider: s.provider,
-                        usedBy: s.usedBy,
-                      }}
-                      onRemove={() => handleRemove(s.id)}
-                    />
-                  ))
-                )}
-              </CardStackContent>
-            </CardStack>
-          )}
+        {renderSecretsList()}
 
         <AddSecretDialog
           open={addOpen}
