@@ -29,6 +29,11 @@ export const openapiSchema = defineSchema({
       scope_id: { type: "string", required: true, index: true },
       name: { type: "string", required: true },
       spec: { type: "string", required: true },
+      // Origin URL the spec was fetched from. Set when `addSpec` was
+      // invoked with an http(s) URL; null when the caller passed raw
+      // spec text. Drives `canRefresh` on the core source row and
+      // is the address re-fetched on `refreshSource`.
+      source_url: { type: "string", required: false },
       base_url: { type: "string", required: false },
       headers: { type: "json", required: false },
       oauth2: { type: "json", required: false },
@@ -62,6 +67,9 @@ export type OpenapiSchema = typeof openapiSchema;
 
 export interface SourceConfig {
   readonly spec: string;
+  /** Origin URL when the spec was fetched from http(s). Absent for
+   *  raw-text adds. Persisted so `refreshSource` can re-fetch. */
+  readonly sourceUrl?: string;
   readonly baseUrl?: string;
   readonly namespace?: string;
   readonly headers?: Record<string, HeaderValue>;
@@ -92,6 +100,7 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
   name: Schema.String,
   config: Schema.Struct({
     spec: Schema.String,
+    sourceUrl: Schema.optional(Schema.String),
     baseUrl: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
     headers: Schema.optional(
@@ -239,6 +248,7 @@ export const makeDefaultOpenapiStore = ({
       name: row.name as string,
       config: {
         spec: row.spec as string,
+        sourceUrl: (row.source_url as string | null | undefined) ?? undefined,
         baseUrl: (row.base_url as string | null | undefined) ?? undefined,
         headers,
         oauth2,
@@ -284,6 +294,7 @@ export const makeDefaultOpenapiStore = ({
             scope_id: input.scope,
             name: input.name,
             spec: input.config.spec,
+            source_url: input.config.sourceUrl ?? undefined,
             base_url: input.config.baseUrl ?? undefined,
             headers: (input.config.headers ?? {}) as unknown as Record<string, unknown>,
             oauth2: input.config.oauth2

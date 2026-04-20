@@ -1,0 +1,1 @@
+ALTER TABLE "openapi_source" ADD COLUMN "source_url" text;

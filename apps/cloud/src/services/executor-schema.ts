@@ -68,6 +68,7 @@ export const openapi_source = pgTable("openapi_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   spec: text('spec').notNull(),
+  source_url: text('source_url'),
   base_url: text('base_url'),
   headers: jsonb('headers'),
   oauth2: jsonb('oauth2'),
@@ -175,4 +176,5 @@ export const blob = pgTable("blob", {
 }, (table) => [
   primaryKey({ columns: [table.namespace, table.key] }),
 ]);
+
 

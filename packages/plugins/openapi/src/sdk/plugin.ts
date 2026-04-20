@@ -18,6 +18,7 @@ import {
   SetSecretInput,
   SourceDetectionResult,
   definePlugin,
+  type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
@@ -270,9 +271,153 @@ const toOpenApiSourceConfig = (
   headers: headersToConfigValues(config.headers),
 });
 
+const isHttpUrl = (s: string): boolean =>
+  s.startsWith("http://") || s.startsWith("https://");
+
 export const openApiPlugin = definePlugin(
   (options?: OpenApiPluginOptions) => {
     const httpClientLayer = options?.httpClientLayer ?? FetchHttpClient.layer;
+
+    type RebuildInput = {
+      readonly specText: string;
+      readonly scope: string;
+      readonly sourceUrl?: string;
+      readonly name?: string;
+      readonly baseUrl?: string;
+      readonly namespace?: string;
+      readonly headers?: Record<string, HeaderValue>;
+      readonly oauth2?: OAuth2Auth;
+    };
+
+    // ctx comes from the plugin runtime — the same instance is passed to
+    // `extension(ctx)` and to every lifecycle hook (`refreshSource`, etc.),
+    // so helpers parameterised on ctx can be called from either surface.
+    const rebuildSource = (
+      ctx: PluginCtx<OpenapiStore>,
+      input: RebuildInput,
+    ) =>
+      Effect.gen(function* () {
+        const doc = yield* parse(input.specText);
+        const result = yield* extract(doc);
+
+        const namespace =
+          input.namespace ??
+          Option.getOrElse(result.title, () => "api")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_");
+
+        const hoistedDefs: Record<string, unknown> = {};
+        if (doc.components?.schemas) {
+          for (const [k, v] of Object.entries(doc.components.schemas)) {
+            hoistedDefs[k] = normalizeOpenApiRefs(v);
+          }
+        }
+
+        const baseUrl = input.baseUrl ?? resolveBaseUrl(result.servers);
+        const oauth2 = input.oauth2 ?? undefined;
+        const invocationConfig = new InvocationConfig({
+          baseUrl,
+          headers: input.headers ?? {},
+          oauth2: oauth2 ? Option.some(oauth2) : Option.none(),
+        });
+
+        const definitions = compileToolDefinitions(result.operations);
+        const sourceName =
+          input.name ?? Option.getOrElse(result.title, () => namespace);
+
+        const sourceConfig: SourceConfig = {
+          spec: input.specText,
+          sourceUrl: input.sourceUrl,
+          baseUrl: input.baseUrl,
+          namespace: input.namespace,
+          headers: input.headers,
+          oauth2,
+        };
+
+        const storedSource: StoredSource = {
+          namespace,
+          scope: input.scope,
+          name: sourceName,
+          config: sourceConfig,
+          invocationConfig,
+        };
+
+        const storedOps: StoredOperation[] = definitions.map((def) => ({
+          toolId: `${namespace}.${def.toolPath}`,
+          sourceId: namespace,
+          binding: toBinding(def),
+        }));
+
+        yield* ctx.transaction(
+          Effect.gen(function* () {
+            yield* ctx.storage.upsertSource(storedSource, storedOps);
+
+            yield* ctx.core.sources.register({
+              id: namespace,
+              scope: input.scope,
+              kind: "openapi",
+              name: sourceName,
+              url: baseUrl || undefined,
+              canRemove: true,
+              // `canRefresh` reflects whether we still know the
+              // origin URL — sources added from raw spec text have
+              // nothing to re-fetch, so refresh stays disabled.
+              canRefresh: input.sourceUrl != null,
+              canEdit: true,
+              tools: definitions.map((def) => ({
+                name: def.toolPath,
+                description: descriptionFor(def),
+                inputSchema: normalizeOpenApiRefs(
+                  Option.getOrUndefined(def.operation.inputSchema),
+                ),
+                outputSchema: normalizeOpenApiRefs(
+                  Option.getOrUndefined(def.operation.outputSchema),
+                ),
+              })),
+            });
+
+            if (Object.keys(hoistedDefs).length > 0) {
+              yield* ctx.core.definitions.register({
+                sourceId: namespace,
+                scope: input.scope,
+                definitions: hoistedDefs,
+              });
+            }
+          }),
+        );
+
+        return { sourceId: namespace, toolCount: definitions.length };
+      });
+
+    // No-op for missing sources and for sources added from raw spec
+    // text (no URL to re-fetch from). UIs gate the action via
+    // `canRefresh` on the source row; reaching here without a URL
+    // means the caller bypassed that gate, so we stay quiet rather
+    // than surface a 500 through the unwhitelisted error channel.
+    const refreshSourceInternal = (
+      ctx: PluginCtx<OpenapiStore>,
+      sourceId: string,
+      scope: string,
+    ) =>
+      Effect.gen(function* () {
+        const existing = yield* ctx.storage.getSource(sourceId, scope);
+        if (!existing) return;
+        const sourceUrl = existing.config.sourceUrl;
+        if (!sourceUrl) return;
+        const specText = yield* resolveSpecText(sourceUrl).pipe(
+          Effect.provide(httpClientLayer),
+        );
+        yield* rebuildSource(ctx, {
+          specText,
+          scope,
+          sourceUrl,
+          name: existing.name,
+          baseUrl: existing.config.baseUrl,
+          namespace: existing.namespace,
+          headers: existing.config.headers,
+          oauth2: existing.config.oauth2,
+        });
+      });
 
     return {
       id: "openapi" as const,
@@ -310,92 +455,16 @@ export const openApiPlugin = definePlugin(
             const specText = yield* resolveSpecText(config.spec).pipe(
               Effect.provide(httpClientLayer),
             );
-            const doc = yield* parse(specText);
-            const result = yield* extract(doc);
-
-            const namespace =
-              config.namespace ??
-              Option.getOrElse(result.title, () => "api")
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, "_");
-
-            const hoistedDefs: Record<string, unknown> = {};
-            if (doc.components?.schemas) {
-              for (const [k, v] of Object.entries(doc.components.schemas)) {
-                hoistedDefs[k] = normalizeOpenApiRefs(v);
-              }
-            }
-
-            const baseUrl = config.baseUrl ?? resolveBaseUrl(result.servers);
-            const oauth2 = config.oauth2 ?? undefined;
-            const invocationConfig = new InvocationConfig({
-              baseUrl,
-              headers: config.headers ?? {},
-              oauth2: oauth2 ? Option.some(oauth2) : Option.none(),
-            });
-
-            const definitions = compileToolDefinitions(result.operations);
-            const sourceName =
-              config.name ?? Option.getOrElse(result.title, () => namespace);
-
-            const sourceConfig: SourceConfig = {
-              spec: config.spec,
+            return yield* rebuildSource(ctx, {
+              specText,
+              scope: config.scope,
+              sourceUrl: isHttpUrl(config.spec) ? config.spec : undefined,
+              name: config.name,
               baseUrl: config.baseUrl,
               namespace: config.namespace,
               headers: config.headers,
-              oauth2,
-            };
-
-            const storedSource: StoredSource = {
-              namespace,
-              scope: config.scope,
-              name: sourceName,
-              config: sourceConfig,
-              invocationConfig,
-            };
-
-            const storedOps: StoredOperation[] = definitions.map((def) => ({
-              toolId: `${namespace}.${def.toolPath}`,
-              sourceId: namespace,
-              binding: toBinding(def),
-            }));
-
-            yield* ctx.transaction(
-              Effect.gen(function* () {
-                yield* ctx.storage.upsertSource(storedSource, storedOps);
-
-                yield* ctx.core.sources.register({
-                  id: namespace,
-                  scope: config.scope,
-                  kind: "openapi",
-                  name: sourceName,
-                  url: baseUrl || undefined,
-                  canRemove: true,
-                  canRefresh: false,
-                  canEdit: true,
-                  tools: definitions.map((def) => ({
-                    name: def.toolPath,
-                    description: descriptionFor(def),
-                    inputSchema: normalizeOpenApiRefs(
-                      Option.getOrUndefined(def.operation.inputSchema),
-                    ),
-                    outputSchema: normalizeOpenApiRefs(
-                      Option.getOrUndefined(def.operation.outputSchema),
-                    ),
-                  })),
-                });
-
-                if (Object.keys(hoistedDefs).length > 0) {
-                  yield* ctx.core.definitions.register({
-                    sourceId: namespace,
-                    scope: config.scope,
-                    definitions: hoistedDefs,
-                  });
-                }
-              }),
-            );
-
-            return { sourceId: namespace, toolCount: definitions.length };
+              oauth2: config.oauth2,
+            });
           });
 
         const configFile = options?.configFile;
@@ -801,6 +870,15 @@ export const openApiPlugin = definePlugin(
 
       removeSource: ({ ctx, sourceId, scope }) =>
         ctx.storage.removeSource(sourceId, scope),
+
+      // Re-fetch the spec from its origin URL (captured at addSpec time)
+      // and replay the same parse → extract → upsertSource → register
+      // path used by addSpec. Sources without a stored URL surface a
+      // typed `OpenApiParseError` — the executor only dispatches refresh
+      // when `canRefresh: true`, so a raw-text source reaching here
+      // means stale UI state, which is worth surfacing to the caller.
+      refreshSource: ({ ctx, sourceId, scope }) =>
+        refreshSourceInternal(ctx, sourceId, scope),
 
       detect: ({ url }) =>
         Effect.gen(function* () {

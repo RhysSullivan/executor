@@ -68,6 +68,7 @@ export const openapi_source = sqliteTable("openapi_source", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   spec: text('spec').notNull(),
+  source_url: text('source_url'),
   base_url: text('base_url'),
   headers: text('headers', { mode: "json" }),
   oauth2: text('oauth2', { mode: "json" }),
@@ -188,9 +189,6 @@ export const graphql_operation = sqliteTable("graphql_operation", {
   index("graphql_operation_source_id_idx").on(table.source_id),
 ]);
 
-// Blob store table — hand-appended. BlobStore is a separate storage
-// abstraction from DBSchema, so the CLI doesn't generate it. Keep in
-// sync with @executor/storage-file's BlobStore implementation.
 export const blob = sqliteTable("blob", {
   namespace: text('namespace').notNull(),
   key: text('key').notNull(),
