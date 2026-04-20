@@ -59,31 +59,54 @@ const AddSpecResponse = Schema.Struct({
 // OAuth payloads / responses
 // ---------------------------------------------------------------------------
 
-const StartOAuthPayload = Schema.Struct({
+// Shared identity fields for both OAuth2 flows. `tokenScope` names which
+// executor scope will own the minted tokens (typically the per-user scope).
+// The token secret ids are pre-decided so the source's stored `OAuth2Auth`
+// can reference the same ids across every user — per-user values shadow
+// org-level fallbacks via secret fall-through on read.
+const StartOAuthIdentityFields = {
   displayName: Schema.String,
   securitySchemeName: Schema.String,
-  flow: Schema.Literal("authorizationCode"),
-  authorizationUrl: Schema.String,
   tokenUrl: Schema.String,
-  redirectUrl: Schema.String,
   clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   scopes: Schema.Array(Schema.String),
-  // Caller-owned token identity. `tokenScope` names which executor scope
-  // will own the minted tokens (typically the per-user scope). The two
-  // token secret ids are pre-decided so the source's stored `OAuth2Auth`
-  // can reference the same ids across every user — per-user values
-  // shadow org-level fallbacks via secret fall-through on read.
   tokenScope: Schema.optional(ScopeId),
   accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.optional(Schema.NullOr(Schema.String)),
-});
+} as const;
 
-const StartOAuthResponse = Schema.Struct({
-  sessionId: Schema.String,
-  authorizationUrl: Schema.String,
-  scopes: Schema.Array(Schema.String),
-});
+const StartOAuthPayload = Schema.Union(
+  Schema.Struct({
+    ...StartOAuthIdentityFields,
+    flow: Schema.Literal("authorizationCode"),
+    authorizationUrl: Schema.String,
+    redirectUrl: Schema.String,
+    clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
+    refreshTokenSecretId: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+  // RFC 6749 §4.4 — no user-interactive step, no session, no popup. The
+  // plugin exchanges tokens inline and returns a completed auth. The
+  // client_secret is required (the grant is client authentication + token
+  // request) and no refresh token is issued (§4.4.3).
+  Schema.Struct({
+    ...StartOAuthIdentityFields,
+    flow: Schema.Literal("clientCredentials"),
+    clientSecretSecretId: Schema.String,
+  }),
+);
+
+const StartOAuthResponse = Schema.Union(
+  Schema.Struct({
+    flow: Schema.Literal("authorizationCode"),
+    sessionId: Schema.String,
+    authorizationUrl: Schema.String,
+    scopes: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
+    flow: Schema.Literal("clientCredentials"),
+    auth: OAuth2Auth,
+    scopes: Schema.Array(Schema.String),
+  }),
+);
 
 const CompleteOAuthPayload = Schema.Struct({
   state: Schema.String,

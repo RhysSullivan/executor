@@ -389,6 +389,38 @@ export default function AddOpenApiSource(props: {
         selectedOAuth2Preset.securitySchemeName,
       );
 
+      if (selectedOAuth2Preset.flow === "clientCredentials") {
+        // RFC 6749 §4.4: no user-interactive consent step. The client_secret
+        // is mandatory; the backend exchanges tokens inline and returns a
+        // completed OAuth2Auth we can attach to the source directly.
+        if (!oauth2ClientSecretSecretId) {
+          setStartingOAuth(false);
+          setOauth2Error("client_credentials requires a client secret");
+          return;
+        }
+        const response = await doStartOAuth({
+          path: { scopeId },
+          payload: {
+            displayName,
+            securitySchemeName: selectedOAuth2Preset.securitySchemeName,
+            flow: "clientCredentials",
+            tokenUrl: selectedOAuth2Preset.tokenUrl,
+            clientIdSecretId: oauth2ClientIdSecretId,
+            clientSecretSecretId: oauth2ClientSecretSecretId,
+            scopes: [...oauth2SelectedScopes],
+            accessTokenSecretId: tokenIds.accessTokenSecretId,
+          },
+        });
+        setStartingOAuth(false);
+        if (response.flow !== "clientCredentials") {
+          setOauth2Error("Unexpected response flow from server");
+          return;
+        }
+        setOauth2Auth(response.auth);
+        setOauth2Error(null);
+        return;
+      }
+
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
@@ -405,6 +437,12 @@ export default function AddOpenApiSource(props: {
           refreshTokenSecretId: tokenIds.refreshTokenSecretId,
         },
       });
+
+      if (response.flow !== "authorizationCode") {
+        setStartingOAuth(false);
+        setOauth2Error("Unexpected response flow from server");
+        return;
+      }
 
       oauthCleanup.current = openOAuthPopup<OAuth2Auth>({
         url: response.authorizationUrl,

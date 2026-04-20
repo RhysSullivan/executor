@@ -104,6 +104,36 @@ function ConnectionRow(props: {
     setBusy(true);
     setError(null);
     try {
+      if (auth.flow === "clientCredentials") {
+        // No popup, no session — the backend exchanges tokens inline.
+        if (!auth.clientSecretSecretId) {
+          setBusy(false);
+          setError("client_credentials requires a client secret");
+          return;
+        }
+        const response = await doStartOAuth({
+          path: { scopeId },
+          payload: {
+            displayName: props.sourceName || auth.securitySchemeName,
+            securitySchemeName: auth.securitySchemeName,
+            flow: "clientCredentials",
+            tokenUrl: auth.tokenUrl,
+            clientIdSecretId: auth.clientIdSecretId,
+            clientSecretSecretId: auth.clientSecretSecretId,
+            scopes: [...auth.scopes],
+            accessTokenSecretId: auth.accessTokenSecretId,
+          },
+        });
+        setBusy(false);
+        if (response.flow !== "clientCredentials") {
+          setError("Unexpected response flow from server");
+          return;
+        }
+        setError(null);
+        refreshStatus();
+        return;
+      }
+
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
@@ -126,6 +156,12 @@ function ConnectionRow(props: {
           refreshTokenSecretId: auth.refreshTokenSecretId,
         },
       });
+
+      if (response.flow !== "authorizationCode") {
+        setBusy(false);
+        setError("Unexpected response flow from server");
+        return;
+      }
 
       cleanupRef.current = openOAuthPopup<OAuth2Auth>({
         url: response.authorizationUrl,
@@ -162,6 +198,7 @@ function ConnectionRow(props: {
     }
   }, [
     preset,
+    auth.flow,
     auth.securitySchemeName,
     auth.tokenUrl,
     auth.clientIdSecretId,

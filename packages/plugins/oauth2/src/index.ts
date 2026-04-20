@@ -312,6 +312,38 @@ export const exchangeAuthorizationCode = (
 };
 
 // ---------------------------------------------------------------------------
+// Exchange client credentials → tokens (RFC 6749 §4.4)
+// ---------------------------------------------------------------------------
+
+export type ExchangeClientCredentialsInput = {
+  readonly tokenUrl: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly scopes?: readonly string[];
+  readonly scopeSeparator?: string;
+  /** "body" (default) sends client creds in the form body; "basic" uses HTTP Basic. */
+  readonly clientAuth?: ClientAuthMethod;
+  readonly timeoutMs?: number;
+};
+
+export const exchangeClientCredentials = (
+  input: ExchangeClientCredentialsInput,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> => {
+  const clientAuth = input.clientAuth ?? "body";
+  const body = new URLSearchParams({ grant_type: "client_credentials" });
+  if (input.scopes && input.scopes.length > 0) {
+    body.set("scope", input.scopes.join(input.scopeSeparator ?? " "));
+  }
+  applyClientAuthBody(body, input.clientId, input.clientSecret, clientAuth);
+  return postToTokenEndpoint({
+    tokenUrl: input.tokenUrl,
+    body,
+    extraHeaders: buildClientAuthHeaders(input.clientId, input.clientSecret, clientAuth),
+    timeoutMs: input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS,
+  });
+};
+
+// ---------------------------------------------------------------------------
 // Refresh access token
 // ---------------------------------------------------------------------------
 

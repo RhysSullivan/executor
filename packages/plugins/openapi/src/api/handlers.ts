@@ -98,20 +98,34 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
     .handle("startOAuth", ({ payload }) =>
       capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
+        // No tokenScope → plugin defaults to ctx.scopes[0].id (innermost).
+        // Single-scope executors: only scope in stack.
+        // Stacked executors: per-user scope, so tokens shadow by id.
+        const tokenScope = payload.tokenScope as string | undefined;
+        if (payload.flow === "clientCredentials") {
+          return yield* ext.startOAuth({
+            flow: "clientCredentials",
+            displayName: payload.displayName,
+            securitySchemeName: payload.securitySchemeName,
+            tokenUrl: payload.tokenUrl,
+            clientIdSecretId: payload.clientIdSecretId,
+            clientSecretSecretId: payload.clientSecretSecretId,
+            scopes: [...payload.scopes],
+            tokenScope,
+            accessTokenSecretId: payload.accessTokenSecretId,
+          });
+        }
         return yield* ext.startOAuth({
+          flow: "authorizationCode",
           displayName: payload.displayName,
           securitySchemeName: payload.securitySchemeName,
-          flow: payload.flow,
           authorizationUrl: payload.authorizationUrl,
           tokenUrl: payload.tokenUrl,
           redirectUrl: payload.redirectUrl,
           clientIdSecretId: payload.clientIdSecretId,
           clientSecretSecretId: payload.clientSecretSecretId ?? null,
           scopes: [...payload.scopes],
-          // No tokenScope → plugin defaults to ctx.scopes[0].id (innermost).
-          // Single-scope executors: only scope in stack.
-          // Stacked executors: per-user scope, so tokens shadow by id.
-          tokenScope: payload.tokenScope as string | undefined,
+          tokenScope,
           accessTokenSecretId: payload.accessTokenSecretId,
           refreshTokenSecretId: payload.refreshTokenSecretId ?? null,
         });

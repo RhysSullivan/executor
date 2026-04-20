@@ -122,9 +122,13 @@ export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
   kind: Schema.Literal("oauth2"),
   /** Key into `components.securitySchemes` this auth came from. */
   securitySchemeName: Schema.String,
-  /** Which flow produced this auth. Only authorizationCode is supported end-to-end today. */
-  flow: Schema.Literal("authorizationCode"),
-  /** Token endpoint (from the flow) — used for refresh. */
+  /**
+   * Which flow produced this auth. `clientCredentials` sources have no
+   * refresh token — the invoker re-exchanges via client_credentials when
+   * the access token is near expiry.
+   */
+  flow: Schema.Literal("authorizationCode", "clientCredentials"),
+  /** Token endpoint (from the flow) — used for refresh / re-exchange. */
   tokenUrl: Schema.String,
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),

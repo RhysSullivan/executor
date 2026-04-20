@@ -312,6 +312,12 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         const bobStart = yield* bobExec.openapi.startOAuth(
           startInputFor("bob", bobScope.id),
         );
+        if (aliceStart.flow !== "authorizationCode") {
+          throw new Error("expected authorizationCode flow for alice");
+        }
+        if (bobStart.flow !== "authorizationCode") {
+          throw new Error("expected authorizationCode flow for bob");
+        }
 
         yield* aliceExec.openapi.completeOAuth({
           state: aliceStart.sessionId,

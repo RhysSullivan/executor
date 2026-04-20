@@ -8,6 +8,8 @@ import {
   buildAuthorizationUrl,
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
+  exchangeClientCredentials,
+  shouldRefreshToken,
   withRefreshedAccessToken,
   type OAuth2TokenResponse,
 } from "@executor/plugin-oauth2";
@@ -94,40 +96,68 @@ export interface OpenApiUpdateSourceInput {
 // OAuth2 onboarding inputs / outputs
 // ---------------------------------------------------------------------------
 
-export interface OpenApiStartOAuthInput {
+/**
+ * Shared caller-owned token-identity knobs. `tokenScope` names which
+ * executor scope will own the minted tokens (typically the per-user
+ * scope, defaulting to `ctx.scopes[0].id`). The token secret ids are
+ * pre-decided so the source's stored `OAuth2Auth` can reference the
+ * same ids across every user — per-user values shadow org-level
+ * fallbacks via secret fall-through on read.
+ */
+interface StartOAuthIdentity {
   readonly displayName: string;
   readonly securitySchemeName: string;
+  readonly clientIdSecretId: string;
+  readonly scopes: readonly string[];
+  readonly tokenScope?: string;
+  readonly accessTokenSecretId: string;
+}
+
+export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
   readonly flow: "authorizationCode";
   readonly authorizationUrl: string;
   readonly tokenUrl: string;
   readonly redirectUrl: string;
-  readonly clientIdSecretId: string;
   readonly clientSecretSecretId?: string | null;
-  readonly scopes: readonly string[];
-  /**
-   * Executor scope id where the minted access/refresh tokens will land
-   * on completeOAuth. Defaults to `ctx.scopes[0].id` (the innermost
-   * scope) — which for a single-scope executor is the only scope, and
-   * for a stacked executor pins tokens to the per-user scope so
-   * org-level shadowing works by id.
-   */
-  readonly tokenScope?: string;
-  /**
-   * Pre-decided secret ids for the minted access + refresh tokens. Use
-   * deterministic ids (e.g. `${namespace}_access_token`) so the source's
-   * stored `OAuth2Auth` can reference them and `ctx.secrets.get` resolves
-   * via scope fall-through — per-user tokens shadow org-level fallbacks
-   * on the same source.
-   */
-  readonly accessTokenSecretId: string;
   readonly refreshTokenSecretId?: string | null;
 }
 
-export interface OpenApiStartOAuthResponse {
+/**
+ * RFC 6749 §4.4 has no user-interactive step. `startOAuth` exchanges
+ * tokens inline and writes the access token at
+ * `accessTokenSecretId` + `tokenScope`, returning a completed
+ * `OAuth2Auth`. No `authorizationUrl`, no session row, no
+ * `completeOAuth`. Re-exchange happens at invoke time when the token
+ * is near expiry.
+ */
+export interface StartClientCredentialsOAuthInput extends StartOAuthIdentity {
+  readonly flow: "clientCredentials";
+  readonly tokenUrl: string;
+  /** RFC 6749 §2.3.1 — client_credentials is unusable without the secret. */
+  readonly clientSecretSecretId: string;
+}
+
+export type OpenApiStartOAuthInput =
+  | StartAuthorizationCodeOAuthInput
+  | StartClientCredentialsOAuthInput;
+
+export interface StartAuthorizationCodeOAuthResponse {
+  readonly flow: "authorizationCode";
   readonly sessionId: string;
   readonly authorizationUrl: string;
   readonly scopes: readonly string[];
 }
+
+export interface StartClientCredentialsOAuthResponse {
+  readonly flow: "clientCredentials";
+  /** Completed auth ready to attach to the source's `OAuth2Auth`. */
+  readonly auth: OAuth2Auth;
+  readonly scopes: readonly string[];
+}
+
+export type OpenApiStartOAuthResponse =
+  | StartAuthorizationCodeOAuthResponse
+  | StartClientCredentialsOAuthResponse;
 
 export interface OpenApiCompleteOAuthInput {
   readonly state: string;
@@ -248,6 +278,91 @@ const descriptionFor = (def: ToolDefinition): string => {
     Option.getOrElse(op.summary, () => `${op.method.toUpperCase()} ${op.pathTemplate}`),
   );
 };
+
+// ---------------------------------------------------------------------------
+// clientCredentials access-token resolver.
+//
+// RFC 6749 §4.4.3 forbids refresh tokens for this grant, so the only way to
+// recover from an expired access token is a fresh client_credentials
+// exchange. We re-exchange proactively (when `shouldRefreshToken` fires
+// within skew) and persist the new token at the same id+scope the source's
+// OAuth2Auth already references, keeping per-user shadowing intact.
+// ---------------------------------------------------------------------------
+
+type ResolveClientCredentialsArgs = {
+  readonly auth: OAuth2Auth;
+  readonly source: StoredSource;
+  readonly scopeId: string;
+  readonly secretsGet: (id: string) => Effect.Effect<string | null, Error>;
+  readonly secretsSet: (args: {
+    readonly id: string;
+    readonly scope: string;
+    readonly name: string;
+    readonly value: string;
+  }) => Effect.Effect<void, Error>;
+  readonly updateSourceMeta: (oauth2: OAuth2Auth) => Effect.Effect<void, Error>;
+};
+
+const resolveClientCredentialsAccessToken = (args: ResolveClientCredentialsArgs) =>
+  Effect.gen(function* () {
+    const { auth } = args;
+    const needsRefresh = shouldRefreshToken({ expiresAt: auth.expiresAt });
+
+    if (!needsRefresh) {
+      const current = yield* args.secretsGet(auth.accessTokenSecretId);
+      if (current !== null) return current;
+      // Secret was deleted out from under us — fall through to re-exchange.
+    }
+
+    if (auth.clientSecretSecretId === null) {
+      return yield* Effect.fail(
+        new Error("client_credentials flow requires clientSecretSecretId"),
+      );
+    }
+
+    const clientId = yield* args.secretsGet(auth.clientIdSecretId);
+    if (clientId === null) {
+      return yield* Effect.fail(
+        new Error(`Missing client ID secret: ${auth.clientIdSecretId}`),
+      );
+    }
+    const clientSecret = yield* args.secretsGet(auth.clientSecretSecretId);
+    if (clientSecret === null) {
+      return yield* Effect.fail(
+        new Error(`Missing client secret: ${auth.clientSecretSecretId}`),
+      );
+    }
+
+    const tokenResponse = yield* exchangeClientCredentials({
+      tokenUrl: auth.tokenUrl,
+      clientId,
+      clientSecret,
+      scopes: auth.scopes,
+    }).pipe(Effect.mapError((err) => new Error(err.message)));
+
+    yield* args.secretsSet({
+      id: auth.accessTokenSecretId,
+      scope: args.scopeId,
+      name: `${args.source.name} Access Token`,
+      value: tokenResponse.access_token,
+    });
+
+    const expiresAt =
+      typeof tokenResponse.expires_in === "number"
+        ? Date.now() + tokenResponse.expires_in * 1000
+        : null;
+
+    yield* args.updateSourceMeta(
+      new OAuth2Auth({
+        ...auth,
+        tokenType: tokenResponse.token_type ?? auth.tokenType,
+        expiresAt,
+        scope: tokenResponse.scope ?? auth.scope,
+      }),
+    );
+
+    return tokenResponse.access_token;
+  });
 
 // ---------------------------------------------------------------------------
 // Plugin factory
@@ -508,10 +623,88 @@ export const openApiPlugin = definePlugin(
 
           startOAuth: (input) =>
             Effect.gen(function* () {
-              const sessionId = randomUUID();
-              const codeVerifier = createPkceCodeVerifier();
               const scopesArray = [...input.scopes];
               const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
+
+              const clientId = yield* ctx.secrets.get(input.clientIdSecretId).pipe(
+                Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
+              );
+              if (clientId === null) {
+                return yield* new OpenApiOAuthError({
+                  message: `Missing client ID secret: ${input.clientIdSecretId}`,
+                });
+              }
+
+              if (input.flow === "clientCredentials") {
+                // RFC 6749 §4.4: no user consent, no session, no PKCE. The
+                // client_secret is mandatory — the spec defines the grant
+                // as client authentication + a token request.
+                const clientSecret = yield* ctx.secrets
+                  .get(input.clientSecretSecretId)
+                  .pipe(
+                    Effect.mapError(
+                      (err) => new OpenApiOAuthError({ message: err.message }),
+                    ),
+                  );
+                if (clientSecret === null) {
+                  return yield* new OpenApiOAuthError({
+                    message: `Missing client secret: ${input.clientSecretSecretId}`,
+                  });
+                }
+
+                const tokenResponse = yield* exchangeClientCredentials({
+                  tokenUrl: input.tokenUrl,
+                  clientId,
+                  clientSecret,
+                  scopes: scopesArray,
+                }).pipe(
+                  Effect.mapError(
+                    (err) => new OpenApiOAuthError({ message: err.message }),
+                  ),
+                );
+
+                const accessRef = yield* writeOAuthSecret({
+                  id: input.accessTokenSecretId,
+                  scope: tokenScope,
+                  name: `${input.displayName} Access Token`,
+                  value: tokenResponse.access_token,
+                }).pipe(
+                  Effect.mapError(
+                    (err) => new OpenApiOAuthError({ message: err.message }),
+                  ),
+                );
+
+                const expiresAt =
+                  typeof tokenResponse.expires_in === "number"
+                    ? Date.now() + tokenResponse.expires_in * 1000
+                    : null;
+
+                const auth = new OAuth2Auth({
+                  kind: "oauth2",
+                  securitySchemeName: input.securitySchemeName,
+                  flow: "clientCredentials",
+                  tokenUrl: input.tokenUrl,
+                  clientIdSecretId: input.clientIdSecretId,
+                  clientSecretSecretId: input.clientSecretSecretId,
+                  accessTokenSecretId: accessRef.id,
+                  // RFC 6749 §4.4.3: refresh tokens SHOULD NOT be issued.
+                  refreshTokenSecretId: null,
+                  tokenType: tokenResponse.token_type ?? "Bearer",
+                  expiresAt,
+                  scope: tokenResponse.scope ?? null,
+                  scopes: scopesArray,
+                });
+
+                return {
+                  flow: "clientCredentials" as const,
+                  auth,
+                  scopes: scopesArray,
+                };
+              }
+
+              // authorizationCode path.
+              const sessionId = randomUUID();
+              const codeVerifier = createPkceCodeVerifier();
 
               yield* ctx.storage
                 .putOAuthSession(
@@ -535,15 +728,6 @@ export const openApiPlugin = definePlugin(
                   Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
                 );
 
-              const clientId = yield* ctx.secrets.get(input.clientIdSecretId).pipe(
-                Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
-              );
-              if (clientId === null) {
-                return yield* new OpenApiOAuthError({
-                  message: `Missing client ID secret: ${input.clientIdSecretId}`,
-                });
-              }
-
               const authorizationUrl = buildAuthorizationUrl({
                 authorizationUrl: input.authorizationUrl,
                 clientId,
@@ -554,6 +738,7 @@ export const openApiPlugin = definePlugin(
               });
 
               return {
+                flow: "authorizationCode" as const,
                 sessionId,
                 authorizationUrl,
                 scopes: scopesArray,
@@ -765,7 +950,38 @@ export const openApiPlugin = definePlugin(
           // inject Authorization header (wins over a manually-set one).
           if (Option.isSome(config.oauth2)) {
             const auth = config.oauth2.value;
-            const accessToken = yield* withRefreshedAccessToken({
+            const accessToken =
+              auth.flow === "clientCredentials"
+                ? yield* resolveClientCredentialsAccessToken({
+                    auth,
+                    source,
+                    scopeId: ctx.scopes[0]!.id as string,
+                    secretsGet: (id) =>
+                      ctx.secrets
+                        .get(id)
+                        .pipe(Effect.mapError((err) => new Error(err.message))),
+                    secretsSet: (args) =>
+                      ctx.secrets
+                        .set(
+                          new SetSecretInput({
+                            id: SecretId.make(args.id),
+                            scope: ScopeId.make(args.scope),
+                            name: args.name,
+                            value: args.value,
+                          }),
+                        )
+                        .pipe(
+                          Effect.asVoid,
+                          Effect.mapError((err) => new Error(err.message)),
+                        ),
+                    updateSourceMeta: (oauth2) =>
+                      ctx.storage
+                        .updateSourceMeta(source.namespace, source.scope, {
+                          oauth2,
+                        })
+                        .pipe(Effect.mapError((err) => new Error(err.message))),
+                  })
+                : yield* withRefreshedAccessToken({
               auth: {
                 clientIdSecretId: auth.clientIdSecretId,
                 clientSecretSecretId: auth.clientSecretSecretId,
