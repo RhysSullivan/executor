@@ -8,12 +8,12 @@ import {
   buildAuthorizationUrl,
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
-  storeOAuthTokens,
   withRefreshedAccessToken,
   type OAuth2TokenResponse,
 } from "@executor/plugin-oauth2";
 
 import {
+  ScopeId,
   SecretId,
   SetSecretInput,
   SourceDetectionResult,
@@ -69,6 +69,13 @@ export type HeaderValue = HeaderValueValue;
 
 export interface OpenApiSpecConfig {
   readonly spec: string;
+  /**
+   * Executor scope id that owns this source row. Must be one of the
+   * executor's configured scopes. Typical shape: an admin adds the
+   * source at the outermost (organization) scope so it's visible to
+   * every inner (per-user) scope via fall-through reads.
+   */
+  readonly scope: string;
   readonly name?: string;
   readonly baseUrl?: string;
   readonly namespace?: string;
@@ -96,6 +103,23 @@ export interface OpenApiStartOAuthInput {
   readonly clientIdSecretId: string;
   readonly clientSecretSecretId?: string | null;
   readonly scopes: readonly string[];
+  /**
+   * Executor scope id where the minted access/refresh tokens will land
+   * on completeOAuth. Defaults to `ctx.scopes[0].id` (the innermost
+   * scope) — which for a single-scope executor is the only scope, and
+   * for a stacked executor pins tokens to the per-user scope so
+   * org-level shadowing works by id.
+   */
+  readonly tokenScope?: string;
+  /**
+   * Pre-decided secret ids for the minted access + refresh tokens. Use
+   * deterministic ids (e.g. `${namespace}_access_token`) so the source's
+   * stored `OAuth2Auth` can reference them and `ctx.secrets.get` resolves
+   * via scope fall-through — per-user tokens shadow org-level fallbacks
+   * on the same source.
+   */
+  readonly accessTokenSecretId: string;
+  readonly refreshTokenSecretId?: string | null;
 }
 
 export interface OpenApiStartOAuthResponse {
@@ -251,18 +275,22 @@ export const openApiPlugin = definePlugin(
       storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
       extension: (ctx) => {
-        // Wraps ctx.secrets.set for the oauth2 helper so createSecret
-        // returns the freshly-minted id.
-        const createOAuthSecret = (args: {
-          readonly idPrefix: string;
+        // Write a token secret at a caller-pinned id and scope. The
+        // session persisted by `startOAuth` names both, so the plugin
+        // never picks them itself — that keeps shadowing by id
+        // deterministic (user scope overrides org scope for the same
+        // secret id) instead of minting random suffixes per completion.
+        const writeOAuthSecret = (args: {
+          readonly id: string;
+          readonly scope: string;
           readonly name: string;
           readonly value: string;
-          readonly purpose: string;
         }) =>
           ctx.secrets
             .set(
               new SetSecretInput({
-                id: SecretId.make(`${args.idPrefix}_${randomUUID().slice(0, 8)}`),
+                id: SecretId.make(args.id),
+                scope: ScopeId.make(args.scope),
                 name: args.name,
                 value: args.value,
               }),
@@ -315,6 +343,7 @@ export const openApiPlugin = definePlugin(
 
             const storedSource: StoredSource = {
               namespace,
+              scope: config.scope,
               name: sourceName,
               config: sourceConfig,
               invocationConfig,
@@ -332,6 +361,7 @@ export const openApiPlugin = definePlugin(
 
                 yield* ctx.core.sources.register({
                   id: namespace,
+                  scope: config.scope,
                   kind: "openapi",
                   name: sourceName,
                   url: baseUrl || undefined,
@@ -353,6 +383,7 @@ export const openApiPlugin = definePlugin(
                 if (Object.keys(hoistedDefs).length > 0) {
                   yield* ctx.core.definitions.register({
                     sourceId: namespace,
+                    scope: config.scope,
                     definitions: hoistedDefs,
                   });
                 }
@@ -406,6 +437,7 @@ export const openApiPlugin = definePlugin(
               const sessionId = randomUUID();
               const codeVerifier = createPkceCodeVerifier();
               const scopesArray = [...input.scopes];
+              const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
 
               yield* ctx.storage
                 .putOAuthSession(
@@ -418,6 +450,9 @@ export const openApiPlugin = definePlugin(
                     redirectUrl: input.redirectUrl,
                     clientIdSecretId: input.clientIdSecretId,
                     clientSecretSecretId: input.clientSecretSecretId ?? null,
+                    tokenScope,
+                    accessTokenSecretId: input.accessTokenSecretId,
+                    refreshTokenSecretId: input.refreshTokenSecretId ?? null,
                     scopes: scopesArray,
                     codeVerifier,
                   }),
@@ -506,28 +541,44 @@ export const openApiPlugin = definePlugin(
                     ),
                   );
 
-                const slug = session.displayName
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, "_");
-
-                const stored = yield* storeOAuthTokens({
-                  tokens: tokenResponse,
-                  slug: `${slug}_openapi`,
-                  displayName: session.displayName,
-                  accessTokenPurpose: "openapi_oauth_access_token",
-                  refreshTokenPurpose: "openapi_oauth_refresh_token",
-                  createSecret: (args) =>
-                    createOAuthSecret(args).pipe(
-                      Effect.mapError(
-                        (err) =>
-                          new OpenApiOAuthError({ message: err.message }),
-                      ),
-                    ),
+                // Write tokens at the exact id + scope named by the
+                // session. Shadowing by id (per-user scope wins over
+                // org fall-through) is what makes a single stored
+                // `OAuth2Auth` on the source resolve to per-user
+                // values at invoke time.
+                const accessRef = yield* writeOAuthSecret({
+                  id: session.accessTokenSecretId,
+                  scope: session.tokenScope,
+                  name: `${session.displayName} Access Token`,
+                  value: tokenResponse.access_token,
                 }).pipe(
                   Effect.mapError(
                     (err) => new OpenApiOAuthError({ message: err.message }),
                   ),
                 );
+
+                let refreshSecretId: string | null = null;
+                if (
+                  tokenResponse.refresh_token &&
+                  session.refreshTokenSecretId
+                ) {
+                  const refreshRef = yield* writeOAuthSecret({
+                    id: session.refreshTokenSecretId,
+                    scope: session.tokenScope,
+                    name: `${session.displayName} Refresh Token`,
+                    value: tokenResponse.refresh_token,
+                  }).pipe(
+                    Effect.mapError(
+                      (err) => new OpenApiOAuthError({ message: err.message }),
+                    ),
+                  );
+                  refreshSecretId = refreshRef.id;
+                }
+
+                const expiresAt =
+                  typeof tokenResponse.expires_in === "number"
+                    ? Date.now() + tokenResponse.expires_in * 1000
+                    : null;
 
                 return new OAuth2Auth({
                   kind: "oauth2",
@@ -536,11 +587,11 @@ export const openApiPlugin = definePlugin(
                   tokenUrl: session.tokenUrl,
                   clientIdSecretId: session.clientIdSecretId,
                   clientSecretSecretId: session.clientSecretSecretId,
-                  accessTokenSecretId: stored.accessTokenSecretId,
-                  refreshTokenSecretId: stored.refreshTokenSecretId,
-                  tokenType: stored.tokenType,
-                  expiresAt: stored.expiresAt,
-                  scope: stored.scope,
+                  accessTokenSecretId: accessRef.id,
+                  refreshTokenSecretId: refreshSecretId,
+                  tokenType: tokenResponse.token_type ?? "Bearer",
+                  expiresAt,
+                  scope: tokenResponse.scope ?? null,
                   scopes: [...session.scopes],
                 });
               }),
@@ -594,8 +645,16 @@ export const openApiPlugin = definePlugin(
                 },
                 required: ["sourceId", "toolCount"],
               },
-              handler: ({ args }) =>
-                self.addSpec(args as AddSourceInput),
+              // Static-tool callers don't name a scope. Default to the
+              // outermost scope in the executor's stack — for a single-
+              // scope executor that's the only scope; for a per-user
+              // stack `[user, org]` it writes at `org` so the source is
+              // visible across every user.
+              handler: ({ ctx, args }) =>
+                self.addSpec({
+                  ...(args as AddSourceInput),
+                  scope: ctx.scopes.at(-1)!.id as string,
+                }),
             },
           ],
         },
@@ -647,10 +706,15 @@ export const openApiPlugin = definePlugin(
                     ),
                   ),
                 setValue: ({ secretId, value, name }) =>
+                  // Refresh writes land at the innermost scope of the
+                  // executor that invoked the tool. When a per-user
+                  // stack calls, that's the user scope — their token
+                  // shadows the org fall-through on the same id.
                   ctx.secrets
                     .set(
                       new SetSecretInput({
                         id: SecretId.make(secretId),
+                        scope: ctx.scopes[0]!.id,
                         name,
                         value,
                       }),

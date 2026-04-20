@@ -50,6 +50,13 @@ export type HeaderValue = HeaderValueValue;
 export interface GraphqlSourceConfig {
   /** The GraphQL endpoint URL */
   readonly endpoint: string;
+  /**
+   * Executor scope id that owns this source row. Must be one of the
+   * executor's configured scopes. Typical shape: an admin adds the
+   * source at the outermost (organization) scope so it's visible to
+   * every inner (per-user) scope via fall-through reads.
+   */
+  readonly scope: string;
   /** Display name for the source. Falls back to namespace if not provided. */
   readonly name?: string;
   /** Optional: introspection JSON text (if endpoint doesn't support introspection) */
@@ -341,6 +348,7 @@ export const graphqlPlugin = definePlugin(
               // subsequent core-source register collision rolls back both.
               const storedSource: StoredGraphqlSource = {
                 namespace,
+                scope: config.scope,
                 name: displayName,
                 endpoint: config.endpoint,
                 headers: config.headers ?? {},
@@ -356,6 +364,7 @@ export const graphqlPlugin = definePlugin(
 
               yield* ctx.core.sources.register({
                 id: namespace,
+                scope: config.scope,
                 kind: "graphql",
                 name: displayName,
                 url: config.endpoint,
@@ -372,6 +381,7 @@ export const graphqlPlugin = definePlugin(
               if (Object.keys(definitions).length > 0) {
                 yield* ctx.core.definitions.register({
                   sourceId: namespace,
+                  scope: config.scope,
                   definitions,
                 });
               }
@@ -447,8 +457,16 @@ export const graphqlPlugin = definePlugin(
                 },
                 required: ["toolCount"],
               },
-              handler: ({ args }) =>
-                self.addSource(args as GraphqlSourceConfig),
+              // Static-tool callers don't name a scope. Default to the
+              // outermost scope in the executor's stack — for a single-
+              // scope executor that's the only scope; for a per-user
+              // stack `[user, org]` it writes at `org` so the source is
+              // visible across every user.
+              handler: ({ ctx, args }) =>
+                self.addSource({
+                  ...(args as Omit<GraphqlSourceConfig, "scope">),
+                  scope: ctx.scopes.at(-1)!.id as string,
+                }),
             },
           ],
         },

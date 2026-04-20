@@ -95,6 +95,7 @@ const toPopupErrorMessage = (cause: Cause.Cause<unknown>): string => {
 
 const toSourceConfig = (
   payload: { transport: "remote" | "stdio" } & Record<string, unknown>,
+  scope: string,
 ): McpSourceConfig => {
   if (payload.transport === "stdio") {
     const p = payload as {
@@ -108,6 +109,7 @@ const toSourceConfig = (
     };
     return {
       transport: "stdio",
+      scope,
       name: p.name,
       command: p.command,
       args: p.args ? [...p.args] : undefined,
@@ -139,6 +141,7 @@ const toSourceConfig = (
 
   return {
     transport: "remote",
+    scope,
     name: p.name,
     endpoint: p.endpoint,
     remoteTransport: p.remoteTransport,
@@ -170,11 +173,14 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
         return yield* ext.probeEndpoint(payload.endpoint);
       })),
     )
-    .handle("addSource", ({ payload }) =>
+    .handle("addSource", ({ path, payload }) =>
       capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
         return yield* ext.addSource(
-          toSourceConfig(payload as Parameters<typeof toSourceConfig>[0]),
+          toSourceConfig(
+            payload as Parameters<typeof toSourceConfig>[0],
+            path.scopeId,
+          ),
         );
       })),
     )

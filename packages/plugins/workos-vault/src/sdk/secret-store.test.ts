@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import {
   createExecutor,
   makeTestConfig,
+  ScopeId,
   SecretId,
   SetSecretInput,
 } from "@executor/sdk";
@@ -175,6 +176,7 @@ describe("WorkOS Vault secret provider", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("github-token"),
+          scope: ScopeId.make("test-scope"),
           name: "GitHub Token",
           value: "ghp_secret",
         }),
@@ -197,6 +199,7 @@ describe("WorkOS Vault secret provider", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("api-key"),
+          scope: ScopeId.make("test-scope"),
           name: "Initial",
           value: "v1",
         }),
@@ -205,6 +208,7 @@ describe("WorkOS Vault secret provider", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("api-key"),
+          scope: ScopeId.make("test-scope"),
           name: "Updated",
           value: "v2",
         }),
@@ -225,6 +229,7 @@ describe("WorkOS Vault secret provider", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("remove-me"),
+          scope: ScopeId.make("test-scope"),
           name: "Remove Me",
           value: "gone soon",
         }),
@@ -252,6 +257,7 @@ describe("WorkOS Vault secret provider", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("conflict"),
+          scope: ScopeId.make("test-scope"),
           name: "Conflict",
           value: "initial",
         }),
@@ -260,6 +266,7 @@ describe("WorkOS Vault secret provider", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("conflict"),
+          scope: ScopeId.make("test-scope"),
           name: "Conflict",
           value: "retry-me",
         }),

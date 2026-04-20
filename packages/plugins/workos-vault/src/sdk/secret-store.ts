@@ -19,6 +19,13 @@ export const WORKOS_VAULT_PROVIDER_KEY = "workos-vault";
 
 const DEFAULT_OBJECT_PREFIX = "executor";
 const MAX_WRITE_ATTEMPTS = 3;
+// WorkOS creates a per-context KEK just-in-time on first write; a create
+// call immediately after that provisioning step can race with the KEK
+// becoming usable and return a transient error whose message ends in
+// "KEK was created but is not yet ready. This request can be retried."
+// We back off and retry the whole attempt (read + create) a few times.
+const MAX_KEK_NOT_READY_ATTEMPTS = 20;
+const KEK_NOT_READY_BACKOFF_MS = 1000;
 
 // ---------------------------------------------------------------------------
 // Metadata schema — the plugin owns its own table for secret metadata
@@ -42,6 +49,7 @@ export type WorkosVaultSchema = typeof workosVaultSchema;
 
 interface MetadataRow {
   readonly id: string;
+  readonly scope_id: string;
   readonly name: string;
   readonly purpose?: string | null;
   readonly created_at: Date;
@@ -92,6 +100,7 @@ export const makeWorkosVaultStore = (
           model: "workos_vault_metadata",
           data: {
             id: row.id,
+            scope_id: row.scope_id,
             name: row.name,
             purpose: row.purpose ?? null,
             created_at: row.created_at,
@@ -141,11 +150,37 @@ const isStatusError = (error: unknown, status: number): boolean => {
   );
 };
 
-const objectContext = (scopeId: string): Record<string, string> => ({
-  app: "executor",
-  organization_id: scopeId,
-  scope_id: scopeId,
-});
+const isKekNotReadyError = (error: unknown): boolean => {
+  const cause = unwrapVaultError(error);
+  const message =
+    cause instanceof Error
+      ? cause.message
+      : typeof cause === "string"
+        ? cause
+        : typeof cause === "object" && cause !== null && "message" in cause
+          ? String((cause as { message: unknown }).message)
+          : "";
+  return message.includes("KEK was created but is not yet ready");
+};
+
+// WorkOS's KEK provisioning hangs indefinitely when a context value
+// contains `:` (reproduced against the live vault API: colon-free
+// values provision in ~1s, any value with a colon stalls on the
+// "KEK was created but is not yet ready" response forever).
+// Our compound per-user scope ids look like
+// `user-org:<userId>:<orgId>`, so we substitute `:` with `__` when
+// stuffing scope values into vault context keys. Object names still
+// carry the original scope id verbatim (those aren't partition keys).
+const sanitizeCtxValue = (value: string): string => value.replace(/:/g, "__");
+
+const objectContext = (scopeId: string): Record<string, string> => {
+  const safe = sanitizeCtxValue(scopeId);
+  return {
+    app: "executor",
+    organization_id: safe,
+    scope_id: safe,
+  };
+};
 
 const secretObjectName = (
   prefix: string,
@@ -173,7 +208,8 @@ const upsertSecretValue = (
   value: string,
 ): Effect.Effect<void, WorkOSVaultClientError, never> => {
   const attemptWrite = (
-    remainingAttempts: number,
+    remainingConflictAttempts: number,
+    remainingKekAttempts: number,
   ): Effect.Effect<void, WorkOSVaultClientError, never> =>
     Effect.gen(function* () {
       const existing = yield* loadSecretObject(client, prefix, scopeId, secretId);
@@ -194,14 +230,32 @@ const upsertSecretValue = (
       });
     }).pipe(
       Effect.catchAll((error) => {
-        if (remainingAttempts > 1 && isStatusError(error, 409)) {
-          return attemptWrite(remainingAttempts - 1);
+        if (remainingConflictAttempts > 1 && isStatusError(error, 409)) {
+          return attemptWrite(remainingConflictAttempts - 1, remainingKekAttempts);
+        }
+        if (remainingKekAttempts > 1 && isKekNotReadyError(error)) {
+          console.warn(
+            `[workos-vault] KEK not ready for scope=${scopeId} secret=${secretId} — ` +
+              `retrying in ${KEK_NOT_READY_BACKOFF_MS}ms ` +
+              `(${MAX_KEK_NOT_READY_ATTEMPTS - remainingKekAttempts + 1}/${MAX_KEK_NOT_READY_ATTEMPTS})`,
+          );
+          return Effect.sleep(KEK_NOT_READY_BACKOFF_MS).pipe(
+            Effect.flatMap(() =>
+              attemptWrite(remainingConflictAttempts, remainingKekAttempts - 1),
+            ),
+          );
+        }
+        if (isKekNotReadyError(error)) {
+          console.error(
+            `[workos-vault] KEK still not ready after ${MAX_KEK_NOT_READY_ATTEMPTS} attempts ` +
+              `for scope=${scopeId} secret=${secretId}; giving up.`,
+          );
         }
         return Effect.fail(error);
       }),
     );
 
-  return attemptWrite(MAX_WRITE_ATTEMPTS);
+  return attemptWrite(MAX_WRITE_ATTEMPTS, MAX_KEK_NOT_READY_ATTEMPTS);
 };
 
 const deleteSecretValue = (
@@ -232,7 +286,6 @@ const formatVaultError = (error: unknown): StorageError => {
 export interface WorkOSVaultSecretProviderOptions {
   readonly client: WorkOSVaultClient;
   readonly store: WorkosVaultStore;
-  readonly scopeId: string;
   readonly objectPrefix?: string;
 }
 
@@ -240,42 +293,43 @@ export const makeWorkOSVaultSecretProvider = (
   options: WorkOSVaultSecretProviderOptions,
 ): SecretProvider => {
   const prefix = options.objectPrefix ?? DEFAULT_OBJECT_PREFIX;
-  const { client, store, scopeId } = options;
+  const { client, store } = options;
 
   return {
     key: WORKOS_VAULT_PROVIDER_KEY,
     writable: true,
 
-    get: (id) =>
+    get: (id, scope) =>
       Effect.gen(function* () {
         const meta = yield* store.get(id);
         if (!meta) return null;
-        const object = yield* loadSecretObject(client, prefix, scopeId, id).pipe(
+        const object = yield* loadSecretObject(client, prefix, scope, id).pipe(
           Effect.mapError(formatVaultError),
         );
         if (!object || !object.value) return null;
         return object.value;
       }),
 
-    set: (id, value) =>
+    set: (id, value, scope) =>
       Effect.gen(function* () {
         const existing = yield* store.get(id);
-        yield* upsertSecretValue(client, prefix, scopeId, id, value).pipe(
+        yield* upsertSecretValue(client, prefix, scope, id, value).pipe(
           Effect.mapError(formatVaultError),
         );
         yield* store.upsert({
           id,
+          scope_id: existing?.scope_id ?? scope,
           name: existing?.name ?? id,
           purpose: existing?.purpose ?? null,
           created_at: existing?.created_at ?? new Date(),
         });
       }),
 
-    delete: (id) =>
+    delete: (id, scope) =>
       Effect.gen(function* () {
         const meta = yield* store.get(id);
         if (!meta) return false;
-        yield* deleteSecretValue(client, prefix, scopeId, id).pipe(
+        yield* deleteSecretValue(client, prefix, scope, id).pipe(
           Effect.mapError(formatVaultError),
         );
         yield* store.remove(id);

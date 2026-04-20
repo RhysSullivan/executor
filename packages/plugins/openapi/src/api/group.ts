@@ -69,6 +69,14 @@ const StartOAuthPayload = Schema.Struct({
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   scopes: Schema.Array(Schema.String),
+  // Caller-owned token identity. `tokenScope` names which executor scope
+  // will own the minted tokens (typically the per-user scope). The two
+  // token secret ids are pre-decided so the source's stored `OAuth2Auth`
+  // can reference the same ids across every user — per-user values
+  // shadow org-level fallbacks via secret fall-through on read.
+  tokenScope: Schema.optional(ScopeId),
+  accessTokenSecretId: Schema.String,
+  refreshTokenSecretId: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 const StartOAuthResponse = Schema.Struct({

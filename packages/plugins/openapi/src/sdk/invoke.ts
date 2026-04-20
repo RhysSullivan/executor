@@ -95,14 +95,9 @@ const resolvePath = Effect.fn("OpenApi.resolvePath")(function* (
 export const resolveHeaders = (
   headers: Record<string, HeaderValue>,
   secrets: {
-    readonly get: (
-      id: string,
-    ) => Effect.Effect<string | null, StorageFailure>;
+    readonly get: (id: string) => Effect.Effect<string | null, StorageFailure>;
   },
-): Effect.Effect<
-  Record<string, string>,
-  OpenApiInvocationError | StorageFailure
-> => {
+): Effect.Effect<Record<string, string>, OpenApiInvocationError | StorageFailure> => {
   const entries = Object.entries(headers);
   const secretCount = entries.reduce(
     (acc, [, value]) => (typeof value === "string" ? acc : acc + 1),

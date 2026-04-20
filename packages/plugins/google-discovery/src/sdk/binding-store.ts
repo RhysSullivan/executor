@@ -74,6 +74,10 @@ export type GoogleDiscoverySchema = typeof googleDiscoverySchema;
 
 export interface GoogleDiscoveryStoredSource {
   readonly namespace: string;
+  /** Executor scope id this source row lives in. Writes stamp this on
+   *  `scope_id`; reads return whichever scope's row the adapter's
+   *  fall-through walk surfaced first. */
+  readonly scope: string;
   readonly name: string;
   readonly config: GoogleDiscoveryStoredSourceData;
 }
@@ -117,6 +121,7 @@ export interface GoogleDiscoveryStore {
   readonly putBinding: (
     toolId: string,
     sourceId: string,
+    scope: string,
     binding: GoogleDiscoveryMethodBinding,
   ) => Effect.Effect<void, StorageFailure>;
   readonly removeBindingsBySource: (
@@ -142,6 +147,7 @@ export interface GoogleDiscoveryStore {
 
   readonly putOAuthSession: (
     sessionId: string,
+    scope: string,
     session: GoogleDiscoveryOAuthSession,
   ) => Effect.Effect<void, StorageFailure>;
   readonly getOAuthSession: (
@@ -171,7 +177,7 @@ export const makeGoogleDiscoveryStore = (
         return { namespace: row.source_id as string, binding: decoded };
       }),
 
-    putBinding: (toolId, sourceId, binding) =>
+    putBinding: (toolId, sourceId, scope, binding) =>
       Effect.gen(function* () {
         // Upsert: delete + insert. The in-memory adapter accepts
         // overwriting via create; real SQL backends would fail without
@@ -184,6 +190,7 @@ export const makeGoogleDiscoveryStore = (
           model: "google_discovery_binding",
           data: {
             id: toolId,
+            scope_id: scope,
             source_id: sourceId,
             binding: encodeBinding(binding) as unknown as Record<string, unknown>,
             created_at: new Date(),
@@ -230,6 +237,7 @@ export const makeGoogleDiscoveryStore = (
           model: "google_discovery_source",
           data: {
             id: source.namespace,
+            scope_id: source.scope,
             name: source.name,
             config: encodeStoredSourceData(source.config) as unknown as Record<string, unknown>,
             created_at: now,
@@ -256,6 +264,7 @@ export const makeGoogleDiscoveryStore = (
         if (!row) return null;
         return {
           namespace: row.id as string,
+          scope: row.scope_id as string,
           name: row.name as string,
           config: decodeStoredSourceData(decodeJson(row.config)),
         };
@@ -271,7 +280,7 @@ export const makeGoogleDiscoveryStore = (
         return decodeStoredSourceData(decodeJson(row.config));
       }),
 
-    putOAuthSession: (sessionId, session) =>
+    putOAuthSession: (sessionId, scope, session) =>
       Effect.gen(function* () {
         yield* db.delete({
           model: "google_discovery_oauth_session",
@@ -281,6 +290,7 @@ export const makeGoogleDiscoveryStore = (
           model: "google_discovery_oauth_session",
           data: {
             id: sessionId,
+            scope_id: scope,
             session: encodeSession(session) as unknown as Record<string, unknown>,
             expires_at: new Date(Date.now() + GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS),
           },

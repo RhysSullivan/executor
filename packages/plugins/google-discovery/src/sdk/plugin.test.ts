@@ -114,14 +114,21 @@ const makeMemorySecretsPlugin = () => {
   const provider: SecretProvider = {
     key: "memory",
     writable: true,
-    get: (id) => Effect.sync(() => store.get(id) ?? null),
-    set: (id, value) =>
+    get: (id, scope) =>
+      Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
+    set: (id, value, scope) =>
       Effect.sync(() => {
-        store.set(id, value);
+        store.set(`${scope}\u0000${id}`, value);
       }),
-    delete: (id) => Effect.sync(() => store.delete(id)),
+    delete: (id, scope) =>
+      Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
     list: () =>
-      Effect.sync(() => Array.from(store.keys()).map((id) => ({ id, name: id }))),
+      Effect.sync(() =>
+        Array.from(store.keys()).map((k) => {
+          const name = k.split("\u0000", 2)[1] ?? k;
+          return { id: name, name };
+        }),
+      ),
   };
   return definePlugin(() => ({
     id: "memory-secrets" as const,
@@ -194,6 +201,7 @@ describe("Google Discovery plugin", () => {
         yield* executor.secrets.set(
           new SetSecretInput({
             id: SecretId.make("google-client-id"),
+            scope: "test-scope" as SetSecretInput["scope"],
             name: "Google Client ID",
             value: "client-123",
           }),
@@ -232,6 +240,7 @@ describe("Google Discovery plugin", () => {
         yield* executor.secrets.set(
           new SetSecretInput({
             id: SecretId.make("google-client-id"),
+            scope: "test-scope" as SetSecretInput["scope"],
             name: "Google Client ID",
             value: "client-123",
           }),
@@ -239,6 +248,7 @@ describe("Google Discovery plugin", () => {
         yield* executor.secrets.set(
           new SetSecretInput({
             id: SecretId.make("google-client-secret"),
+            scope: "test-scope" as SetSecretInput["scope"],
             name: "Google Client Secret",
             value: "client-secret-value",
           }),
@@ -319,6 +329,7 @@ describe("Google Discovery plugin", () => {
           yield* executor.secrets.set(
             new SetSecretInput({
               id: SecretId.make("drive-access-token"),
+              scope: "test-scope" as SetSecretInput["scope"],
               name: "Drive Access Token",
               value: "secret-token",
             }),
@@ -326,6 +337,7 @@ describe("Google Discovery plugin", () => {
           yield* executor.secrets.set(
             new SetSecretInput({
               id: SecretId.make("drive-client-id"),
+              scope: "test-scope" as SetSecretInput["scope"],
               name: "Drive Client ID",
               value: "client-123",
             }),
@@ -333,6 +345,7 @@ describe("Google Discovery plugin", () => {
 
           const result = yield* executor.googleDiscovery.addSource({
             name: "Google Drive",
+            scope: "test-scope",
             discoveryUrl: handle.discoveryUrl,
             namespace: "drive",
             auth: {

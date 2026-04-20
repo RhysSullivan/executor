@@ -55,6 +55,9 @@ const makeSecretsIO = (ctx: PluginCtx<GoogleDiscoveryStore>): OAuth2SecretsIO =>
       .set(
         new SetSecretInput({
           id: secretId as SetSecretInput["id"],
+          // Refresh writes land at the innermost (user) scope — same
+          // partition as the original mint.
+          scope: ctx.scopes[0]!.id,
           name,
           value,
         }),
@@ -117,6 +120,7 @@ const isJsonContentType = (contentType: string | null | undefined): boolean => {
 const resolveOAuthAccessToken = (input: {
   ctx: PluginCtx<GoogleDiscoveryStore>;
   sourceId: string;
+  sourceScope: string;
   source: GoogleDiscoveryStoredSourceData;
 }): Effect.Effect<string, GoogleDiscoveryOAuthError> =>
   Effect.gen(function* () {
@@ -156,6 +160,7 @@ const resolveOAuthAccessToken = (input: {
           });
           yield* input.ctx.storage.putSource({
             namespace: input.sourceId,
+            scope: input.sourceScope,
             name: input.source.name,
             config: updated,
           });
@@ -293,8 +298,8 @@ export const invokeGoogleDiscoveryTool = (input: {
         }),
       );
     }
-    const source = yield* input.ctx.storage.getSourceConfig(entry.namespace);
-    if (!source) {
+    const stored = yield* input.ctx.storage.getSource(entry.namespace);
+    if (!stored) {
       return yield* Effect.fail(
         new GoogleDiscoveryInvocationError({
           message: `No Google Discovery source found for "${entry.namespace}"`,
@@ -302,12 +307,14 @@ export const invokeGoogleDiscoveryTool = (input: {
         }),
       );
     }
+    const source = stored.config;
 
     const accessToken =
       source.auth.kind === "oauth2"
         ? yield* resolveOAuthAccessToken({
             ctx: input.ctx,
             sourceId: entry.namespace,
+            sourceScope: stored.scope,
             source,
           })
         : "";

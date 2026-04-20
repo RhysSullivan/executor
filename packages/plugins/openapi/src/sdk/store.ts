@@ -68,6 +68,10 @@ export interface SourceConfig {
 
 export interface StoredSource {
   readonly namespace: string;
+  /** Executor scope id this source row lives in. Writes stamp this on
+   *  `scope_id`; reads return whichever scope's row the adapter's
+   *  fall-through filter sees first. */
+  readonly scope: string;
   readonly name: string;
   readonly config: SourceConfig;
   readonly invocationConfig: InvocationConfig;
@@ -90,6 +94,10 @@ export class StoredSourceSchema extends Schema.Class<StoredSourceSchema>(
     headers: Schema.optional(
       Schema.Record({ key: Schema.String, value: HeaderValue }),
     ),
+    // Exposed so the UI can render a per-user "Connections" pane for
+    // sources onboarded with an OAuth2 preset — one OAuth2Auth per
+    // securitySchemeName, with the secret ids that back its tokens.
+    oauth2: Schema.optional(OAuth2Auth),
   }),
   // TODO(migration): make required once all rows have been migrated to
   // carry invocationConfig. Left optional for decode compat with rows
@@ -205,6 +213,7 @@ export const makeDefaultOpenapiStore = ({
     );
     return {
       namespace: row.id as string,
+      scope: row.scope_id as string,
       name: row.name as string,
       config: {
         spec: row.spec as string,
@@ -244,6 +253,7 @@ export const makeDefaultOpenapiStore = ({
           model: "openapi_source",
           data: {
             id: input.namespace,
+            scope_id: input.scope,
             name: input.name,
             spec: input.config.spec,
             base_url: input.config.baseUrl ?? undefined,
@@ -262,6 +272,7 @@ export const makeDefaultOpenapiStore = ({
             model: "openapi_operation",
             data: operations.map((op) => ({
               id: op.toolId,
+              scope_id: input.scope,
               source_id: op.sourceId,
               binding: encodeBinding(op.binding) as unknown as Record<string, unknown>,
             })),
@@ -351,6 +362,11 @@ export const makeDefaultOpenapiStore = ({
           model: "openapi_oauth_session",
           data: {
             id: sessionId,
+            // Session row lives at the same scope the completed tokens
+            // will land in — keeps in-flight sessions visible only to
+            // the executor that started them (user stacks can see
+            // their own sessions but not another user's).
+            scope_id: session.tokenScope,
             session: encodeOAuthSession(session) as unknown as Record<string, unknown>,
             created_at: new Date(),
           },

@@ -169,6 +169,23 @@ export class OpenApiOAuthSession extends Schema.Class<OpenApiOAuthSession>(
   redirectUrl: Schema.String,
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
+  /**
+   * Executor scope id where the minted access/refresh token secrets will
+   * land when `completeOAuth` runs. Typically the innermost (per-user)
+   * scope. Persisted in the session so the callback that completes the
+   * flow writes tokens to the same tenancy the caller intended at
+   * `startOAuth` time.
+   */
+  tokenScope: Schema.String,
+  /**
+   * Pre-decided secret ids for the minted access + refresh tokens. The
+   * caller names these so the source's `OAuth2Auth` can reference the
+   * same ids regardless of which scope actually owns the value —
+   * `ctx.secrets.get` resolves them via fallthrough (innermost first),
+   * so per-user tokens shadow org-level fallbacks on the same source.
+   */
+  accessTokenSecretId: Schema.String,
+  refreshTokenSecretId: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
   codeVerifier: Schema.String,
 }) {}

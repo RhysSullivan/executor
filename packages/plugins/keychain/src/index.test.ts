@@ -1,6 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect } from "effect";
 import {
+  ScopeId,
   SecretId,
   SetSecretInput,
   createExecutor,
@@ -42,6 +43,7 @@ describe("keychain plugin", () => {
         yield* executor.secrets.set(
           new SetSecretInput({
             id: testId,
+            scope: ScopeId.make("test-scope"),
             name: "Test Secret",
             value: "keychain-test-value",
             provider: "keychain",

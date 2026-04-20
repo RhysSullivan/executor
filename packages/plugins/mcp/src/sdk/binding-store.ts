@@ -87,6 +87,10 @@ const coerceJson = (value: unknown): unknown => {
 
 export interface McpStoredSource {
   readonly namespace: string;
+  /** Executor scope id this source row lives in. Writes stamp this on
+   *  `scope_id`; reads return whichever scope's row the adapter's
+   *  fall-through walk surfaced first. */
+  readonly scope: string;
   readonly name: string;
   readonly config: McpStoredSourceData;
 }
@@ -109,6 +113,7 @@ export interface McpBindingStore {
 
   readonly putBindings: (
     namespace: string,
+    scope: string,
     entries: ReadonlyArray<{ readonly toolId: string; readonly binding: McpToolBinding }>,
   ) => Effect.Effect<void, StorageFailure>;
 
@@ -128,6 +133,7 @@ export interface McpBindingStore {
 
   readonly putOAuthSession: (
     sessionId: string,
+    scope: string,
     session: McpOAuthSession,
   ) => Effect.Effect<void, StorageFailure>;
   readonly getOAuthSession: (
@@ -155,7 +161,7 @@ export const makeMcpStore = ({
         return { binding, namespace: row.source_id };
       }),
 
-    putBindings: (namespace, entries) =>
+    putBindings: (namespace, scope, entries) =>
       Effect.gen(function* () {
         if (entries.length === 0) return;
         const now = new Date();
@@ -163,6 +169,7 @@ export const makeMcpStore = ({
           model: "mcp_binding",
           data: entries.map((e) => ({
             id: e.toolId,
+            scope_id: scope,
             source_id: namespace,
             binding: encodeBinding(e.binding),
             created_at: now,
@@ -184,6 +191,7 @@ export const makeMcpStore = ({
         const rows = yield* db.findMany({ model: "mcp_source" });
         return rows.map((row) => ({
           namespace: row.id,
+          scope: row.scope_id,
           name: row.name,
           config: decodeSourceData(coerceJson(row.config)),
         }));
@@ -198,6 +206,7 @@ export const makeMcpStore = ({
         if (!row) return null;
         return {
           namespace: row.id,
+          scope: row.scope_id,
           name: row.name,
           config: decodeSourceData(coerceJson(row.config)),
         };
@@ -224,6 +233,7 @@ export const makeMcpStore = ({
           model: "mcp_source",
           data: {
             id: source.namespace,
+            scope_id: source.scope,
             name: source.name,
             config: encodeSourceData(source.config),
             created_at: now,
@@ -244,7 +254,7 @@ export const makeMcpStore = ({
         });
       }),
 
-    putOAuthSession: (sessionId, session) =>
+    putOAuthSession: (sessionId, scope, session) =>
       Effect.gen(function* () {
         const now = new Date();
         yield* db.delete({
@@ -255,6 +265,7 @@ export const makeMcpStore = ({
           model: "mcp_oauth_session",
           data: {
             id: sessionId,
+            scope_id: scope,
             session: encodeSession(session),
             expires_at: Date.now() + MCP_OAUTH_SESSION_TTL_MS,
             created_at: now,

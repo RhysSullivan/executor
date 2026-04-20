@@ -129,4 +129,11 @@ export const openApiPresets: readonly OpenApiPreset[] = [
     url: "https://raw.githubusercontent.com/resend/resend-openapi/main/resend.yaml",
     icon: "https://resend.com/static/favicons/favicon.ico",
   },
+  {
+    id: "spotify",
+    name: "Spotify",
+    summary: "Tracks, albums, playlists, library, and playback.",
+    url: "https://raw.githubusercontent.com/sonallux/spotify-web-api/refs/heads/main/official-spotify-open-api.yml",
+    icon: "https://spotify.com/favicon.ico",
+  },
 ];

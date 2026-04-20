@@ -123,36 +123,49 @@ const toStorageError = (cause: unknown) =>
     cause,
   });
 
-const makeScopedProvider = (filePath: string, scopeId: string): SecretProvider => ({
+// Scope arg is honored at every call: the auth.json is partitioned by
+// scope id, so read/write/delete route to `file[scope][secretId]`. The
+// provider is a singleton per executor; scope routing happens via the
+// arg passed from the executor's secrets facade.
+//
+// `list` enumerates the innermost scope the provider was configured
+// for — the executor's fallback/list path passes scope separately but
+// the SecretProvider.list signature is scope-agnostic. That's fine for
+// the current use: `list` feeds `secrets.list()` which already walks
+// the stack at the caller layer. Innermost-first is the display default.
+const makeScopedProvider = (
+  filePath: string,
+  listScope: string,
+): SecretProvider => ({
   key: "file",
   writable: true,
 
-  get: (secretId) =>
+  get: (secretId, scope) =>
     Effect.try({
       try: () => {
-        const data = readScopeSecrets(filePath, scopeId);
+        const data = readScopeSecrets(filePath, scope);
         return data[secretId] ?? null;
       },
       catch: toStorageError,
     }),
 
-  set: (secretId, value) =>
+  set: (secretId, value, scope) =>
     Effect.try({
       try: () => {
-        const data = readScopeSecrets(filePath, scopeId);
+        const data = readScopeSecrets(filePath, scope);
         data[secretId] = value;
-        writeScopeSecrets(filePath, scopeId, data);
+        writeScopeSecrets(filePath, scope, data);
       },
       catch: toStorageError,
     }),
 
-  delete: (secretId) =>
+  delete: (secretId, scope) =>
     Effect.try({
       try: () => {
-        const data = readScopeSecrets(filePath, scopeId);
+        const data = readScopeSecrets(filePath, scope);
         const had = secretId in data;
         delete data[secretId];
-        if (had) writeScopeSecrets(filePath, scopeId, data);
+        if (had) writeScopeSecrets(filePath, scope, data);
         return had;
       },
       catch: toStorageError,
@@ -161,7 +174,7 @@ const makeScopedProvider = (filePath: string, scopeId: string): SecretProvider =
   list: () =>
     Effect.try({
       try: () => {
-        const data = readScopeSecrets(filePath, scopeId);
+        const data = readScopeSecrets(filePath, listScope);
         return Object.keys(data).map((k) => ({ id: k, name: k }));
       },
       catch: toStorageError,
@@ -189,7 +202,9 @@ export const fileSecretsPlugin = definePlugin(
     }),
 
     secretProviders: (ctx: PluginCtx<unknown>) => [
-      makeScopedProvider(resolveFilePath(options), ctx.scope.id),
+      // list() falls back to the innermost scope for display; per-call
+      // get/set/delete honor the scope arg threaded from the secrets facade.
+      makeScopedProvider(resolveFilePath(options), ctx.scopes[0]!.id as string),
     ],
   }),
 );

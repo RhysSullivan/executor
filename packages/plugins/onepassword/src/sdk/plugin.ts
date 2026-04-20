@@ -4,7 +4,7 @@ import {
   definePlugin,
   StorageError,
   type PluginCtx,
-  type ScopedBlobStore,
+  type PluginBlobStore,
   type SecretProvider,
   type StorageFailure,
 } from "@executor/sdk";
@@ -106,7 +106,11 @@ const blobStorageError = (operation: string) =>
     });
 
 export const makeOnePasswordStore = (
-  blobs: ScopedBlobStore,
+  blobs: PluginBlobStore,
+  /** Scope id that owns the single 1Password config blob. Default is the
+   *  outermost scope (org/workspace) so the config is visible across
+   *  every per-user scope via the blob store's fall-through read. */
+  writeScope: string,
 ): OnePasswordStore => ({
   getConfig: () =>
     blobs.get(CONFIG_KEY).pipe(
@@ -133,11 +137,14 @@ export const makeOnePasswordStore = (
           vaultId: config.vaultId,
           name: config.name,
         }),
+        { scope: writeScope },
       )
       .pipe(Effect.mapError(blobStorageError("write"))),
 
   deleteConfig: () =>
-    blobs.delete(CONFIG_KEY).pipe(Effect.mapError(blobStorageError("delete"))),
+    blobs
+      .delete(CONFIG_KEY, { scope: writeScope })
+      .pipe(Effect.mapError(blobStorageError("delete"))),
 });
 
 // ---------------------------------------------------------------------------
@@ -196,7 +203,10 @@ const makeProvider = (
   key: "onepassword",
   writable: false,
 
-  get: (secretId) =>
+  // 1Password vaults are named in the stored config; the executor-scope
+  // arg isn't used for routing here. A future refactor could let the
+  // plugin store per-scope vault bindings and pick based on `scope`.
+  get: (secretId, _scope) =>
     ctx.storage.getConfig().pipe(
       Effect.flatMap((config) => {
         if (!config) return Effect.succeed(null as string | null);
@@ -253,7 +263,8 @@ export const onepasswordPlugin = definePlugin(
 
     return {
       id: "onepassword" as const,
-      storage: ({ blobs }) => makeOnePasswordStore(blobs),
+      storage: ({ blobs, scopes }) =>
+        makeOnePasswordStore(blobs, scopes.at(-1)!.id as string),
 
       extension: (ctx) => {
         return {

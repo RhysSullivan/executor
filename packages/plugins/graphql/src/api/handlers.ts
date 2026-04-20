@@ -43,11 +43,12 @@ const ExecutorApiWithGraphql = addGroup(GraphqlGroup);
 
 export const GraphqlHandlers = HttpApiBuilder.group(ExecutorApiWithGraphql, "graphql", (handlers) =>
   handlers
-    .handle("addSource", ({ payload }) =>
+    .handle("addSource", ({ path, payload }) =>
       capture(Effect.gen(function* () {
         const ext = yield* GraphqlExtensionService;
         const result = yield* ext.addSource({
           endpoint: payload.endpoint,
+          scope: path.scopeId,
           name: payload.name,
           introspectionJson: payload.introspectionJson,
           namespace: payload.namespace,

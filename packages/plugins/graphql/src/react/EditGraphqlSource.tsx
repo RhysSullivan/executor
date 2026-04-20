@@ -25,13 +25,17 @@ import { Input } from "@executor/react/components/input";
 import { Badge } from "@executor/react/components/badge";
 import type { StoredGraphqlSource } from "../sdk/store";
 
+// UI only needs the fields the API exposes; `scope` on the SDK interface
+// isn't part of the HTTP response.
+type EditableSource = Omit<StoredGraphqlSource, "scope">;
+
 // ---------------------------------------------------------------------------
 // Edit form
 // ---------------------------------------------------------------------------
 
 function EditForm(props: {
   sourceId: string;
-  initial: StoredGraphqlSource;
+  initial: EditableSource;
   onSave: () => void;
 }) {
   const scopeId = useScope();

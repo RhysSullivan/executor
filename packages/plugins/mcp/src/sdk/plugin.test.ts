@@ -180,6 +180,7 @@ describe("mcpPlugin", () => {
       const result = yield* executor.mcp
         .addSource({
           transport: "remote",
+          scope: "test-scope",
           name: "broken",
           // Port 1 is reserved — will connection-refused immediately,
           // giving us a deterministic discovery failure without any

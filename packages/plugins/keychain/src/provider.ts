@@ -21,14 +21,18 @@ import { getPassword, setPassword, deletePassword } from "./keyring";
 const toStorageError = (cause: { readonly message: string; readonly cause?: unknown }) =>
   new StorageError({ message: cause.message, cause: cause.cause ?? cause });
 
+// Scope arg is ignored — keychain partitions by `serviceName`, which the
+// host fixes per executor at construction time. A future refactor could
+// fold `scope` into the service name, but today a keychain provider
+// instance is already one-scope.
 export const makeKeychainProvider = (serviceName: string): SecretProvider => ({
   key: "keychain",
   writable: true,
-  get: (secretId) =>
+  get: (secretId, _scope) =>
     getPassword(serviceName, secretId).pipe(Effect.mapError(toStorageError)),
-  set: (secretId, value) =>
+  set: (secretId, value, _scope) =>
     setPassword(serviceName, secretId, value).pipe(Effect.mapError(toStorageError)),
-  delete: (secretId) =>
+  delete: (secretId, _scope) =>
     deletePassword(serviceName, secretId).pipe(Effect.mapError(toStorageError)),
   // Keychain doesn't support enumerating — you need to know the account name
   list: undefined,

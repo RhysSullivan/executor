@@ -15,11 +15,14 @@ import {
   createExecutor,
   definePlugin,
   makeTestConfig,
+  ScopeId,
   SecretId,
   SetSecretInput,
   type InvokeOptions,
   type SecretProvider,
 } from "@executor/sdk";
+
+const TEST_SCOPE = "test-scope";
 import { openApiPlugin } from "./plugin";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
@@ -34,15 +37,20 @@ const memoryProvider: SecretProvider = (() => {
   return {
     key: "memory",
     writable: true,
-    get: (id) => Effect.sync(() => store.get(id) ?? null),
-    set: (id, value) =>
+    get: (id, scope) =>
+      Effect.sync(() => store.get(`${scope}\u0000${id}`) ?? null),
+    set: (id, value, scope) =>
       Effect.sync(() => {
-        store.set(id, value);
+        store.set(`${scope}\u0000${id}`, value);
       }),
-    delete: (id) => Effect.sync(() => store.delete(id)),
+    delete: (id, scope) =>
+      Effect.sync(() => store.delete(`${scope}\u0000${id}`)),
     list: () =>
       Effect.sync(() =>
-        Array.from(store.keys()).map((id) => ({ id, name: id })),
+        Array.from(store.keys()).map((k) => {
+          const name = k.split("\u0000", 2)[1] ?? k;
+          return { id: name, name };
+        }),
       ),
   };
 })();
@@ -261,6 +269,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("test-api-token"),
+          scope: ScopeId.make(TEST_SCOPE),
           name: "Test API Token",
           value: "secret-value-123",
         }),
@@ -268,6 +277,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
+        scope: TEST_SCOPE,
         namespace: "authed",
         baseUrl: "",
         headers: {
@@ -305,6 +315,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
+        scope: TEST_SCOPE,
         namespace: "noauth",
         baseUrl: "",
         headers: {
@@ -337,6 +348,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       const result = yield* executor.openapi.addSpec({
         spec: specJson,
+        scope: TEST_SCOPE,
         namespace: "test",
         baseUrl: "",
       });
@@ -366,6 +378,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
+        scope: TEST_SCOPE,
         namespace: "test",
         baseUrl: "",
       });
@@ -396,6 +409,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
+        scope: TEST_SCOPE,
         namespace: "test",
         baseUrl: "",
       });
@@ -426,6 +440,7 @@ layer(TestLayer)("OpenAPI Plugin", (it) => {
 
       yield* executor.openapi.addSpec({
         spec: specJson,
+        scope: TEST_SCOPE,
         namespace: "removable",
         baseUrl: "",
       });

@@ -38,6 +38,10 @@ export type GraphqlSchema = typeof graphqlSchema;
 
 export interface StoredGraphqlSource {
   readonly namespace: string;
+  /** Executor scope id this source row lives in. Writes stamp this on
+   *  `scope_id`; reads return whichever scope's row the adapter's
+   *  fall-through walk surfaced first. */
+  readonly scope: string;
   readonly name: string;
   readonly endpoint: string;
   readonly headers: Record<string, HeaderValue>;
@@ -122,6 +126,7 @@ export const makeDefaultGraphqlStore = ({
 }: StorageDeps<GraphqlSchema>): GraphqlStore => {
   const rowToSource = (row: Record<string, unknown>): StoredGraphqlSource => ({
     namespace: row.id as string,
+    scope: row.scope_id as string,
     name: row.name as string,
     endpoint: row.endpoint as string,
     headers: decodeHeaders(row.headers),
@@ -153,6 +158,7 @@ export const makeDefaultGraphqlStore = ({
           model: "graphql_source",
           data: {
             id: input.namespace,
+            scope_id: input.scope,
             name: input.name,
             endpoint: input.endpoint,
             headers: input.headers as unknown as Record<string, unknown>,
@@ -164,6 +170,7 @@ export const makeDefaultGraphqlStore = ({
             model: "graphql_operation",
             data: operations.map((op) => ({
               id: op.toolId,
+              scope_id: input.scope,
               source_id: op.sourceId,
               binding: encodeBinding(op.binding) as unknown as Record<string, unknown>,
             })),

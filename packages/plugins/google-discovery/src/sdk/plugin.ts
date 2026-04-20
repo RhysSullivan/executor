@@ -62,6 +62,7 @@ export interface GoogleDiscoveryProbeResult {
 
 export interface GoogleDiscoveryAddSourceInput {
   readonly name: string;
+  readonly scope: string;
   readonly discoveryUrl: string;
   readonly namespace?: string;
   readonly auth: GoogleDiscoveryAuth;
@@ -224,6 +225,7 @@ const deriveNamespace = (input: { name: string; service: string; version: string
 const registerManifest = (
   ctx: PluginCtx<GoogleDiscoveryStore>,
   namespace: string,
+  scope: string,
   manifest: GoogleDiscoveryManifest,
   sourceData: GoogleDiscoveryStoredSourceData,
 ) =>
@@ -235,6 +237,7 @@ const registerManifest = (
     // 2. Register the source + tool rows in core.
     yield* ctx.core.sources.register({
       id: namespace,
+      scope,
       kind: "googleDiscovery",
       name: sourceData.name,
       url: sourceData.rootUrl,
@@ -253,6 +256,7 @@ const registerManifest = (
     if (Object.keys(manifest.schemaDefinitions).length > 0) {
       yield* ctx.core.definitions.register({
         sourceId: namespace,
+        scope,
         definitions: manifest.schemaDefinitions,
       });
     }
@@ -265,6 +269,7 @@ const registerManifest = (
         ctx.storage.putBinding(
           `${namespace}.${method.toolPath}`,
           namespace,
+          scope,
           method.binding,
         ),
       { discard: true },
@@ -273,6 +278,7 @@ const registerManifest = (
     // 5. Write the source config blob.
     yield* ctx.storage.putSource({
       namespace,
+      scope,
       name: sourceData.name,
       config: sourceData,
     });
@@ -297,6 +303,9 @@ const createSecretForOAuth = (
     .set(
       new SetSecretInput({
         id: `${input.idPrefix}_${randomUUID().slice(0, 8)}` as SetSecretInput["id"],
+        // OAuth tokens are per-user: pin to the innermost scope so Alice
+        // and Bob don't overwrite each other's tokens.
+        scope: ctx.scopes[0]!.id,
         name: input.name,
         value: input.value,
       }),
@@ -361,7 +370,13 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
             servicePath: manifest.servicePath,
             auth: input.auth,
           });
-          const toolCount = yield* registerManifest(ctx, namespace, manifest, sourceData);
+          const toolCount = yield* registerManifest(
+            ctx,
+            namespace,
+            input.scope,
+            manifest,
+            sourceData,
+          );
           return { toolCount, namespace };
         }),
       ),
@@ -398,7 +413,7 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
         }
         const sessionId = randomUUID();
         const codeVerifier = createPkceCodeVerifier();
-        yield* ctx.storage.putOAuthSession(sessionId, {
+        yield* ctx.storage.putOAuthSession(sessionId, ctx.scopes[0]!.id as string, {
           discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
           name: input.name,
           clientIdSecretId: input.clientIdSecretId,
@@ -567,17 +582,18 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
   refreshSource: ({ ctx, sourceId }) =>
     Effect.gen(function* () {
       const typedCtx = ctx as PluginCtx<GoogleDiscoveryStore>;
-      const source = yield* typedCtx.storage.getSourceConfig(sourceId);
-      if (!source) return;
-      const text = yield* fetchDiscoveryDocument(source.discoveryUrl);
+      const existing = yield* typedCtx.storage.getSource(sourceId);
+      if (!existing) return;
+      const refreshScope = existing.scope ?? (typedCtx.scopes.at(-1)!.id as string);
+      const text = yield* fetchDiscoveryDocument(existing.config.discoveryUrl);
       const manifest = yield* extractGoogleDiscoveryManifest(text);
       const next = new GoogleDiscoveryStoredSourceDataSchema({
-        ...source,
+        ...existing.config,
         service: manifest.service,
         version: manifest.version,
         rootUrl: manifest.rootUrl,
         servicePath: manifest.servicePath,
       });
-      yield* registerManifest(typedCtx, sourceId, manifest, next);
+      yield* registerManifest(typedCtx, sourceId, refreshScope, manifest, next);
     }).pipe(Effect.mapError((err) => (err instanceof Error ? err : new Error(String(err))))),
 }));

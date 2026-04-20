@@ -65,10 +65,13 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
           return yield* ext.probeDiscovery(payload.discoveryUrl);
         })),
       )
-      .handle("addSource", ({ payload }) =>
+      .handle("addSource", ({ path, payload }) =>
         capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
-          return yield* ext.addSource(payload as GoogleDiscoveryAddSourceInput);
+          return yield* ext.addSource({
+            ...(payload as Omit<GoogleDiscoveryAddSourceInput, "scope">),
+            scope: path.scopeId,
+          });
         })),
       )
       .handle("startOAuth", ({ payload }) =>

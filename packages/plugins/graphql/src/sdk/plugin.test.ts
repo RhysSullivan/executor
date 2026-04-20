@@ -86,6 +86,7 @@ describe("graphqlPlugin", () => {
 
       const result = yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
+        scope: "test-scope",
         introspectionJson,
         namespace: "test_api",
       });
@@ -116,6 +117,7 @@ describe("graphqlPlugin", () => {
 
       yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
+        scope: "test-scope",
         introspectionJson,
         namespace: "removable",
       });
@@ -145,6 +147,7 @@ describe("graphqlPlugin", () => {
 
       yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
+        scope: "test-scope",
         introspectionJson,
         namespace: "my_gql",
       });
@@ -171,6 +174,7 @@ describe("graphqlPlugin", () => {
 
       yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
+        scope: "test-scope",
         introspectionJson,
         namespace: "approval_test",
       });
@@ -201,6 +205,7 @@ describe("graphqlPlugin", () => {
 
       yield* executor.graphql.addSource({
         endpoint: "http://localhost:4000/graphql",
+        scope: "test-scope",
         introspectionJson,
         namespace: "patched",
       });

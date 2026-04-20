@@ -60,11 +60,12 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
         return yield* ext.previewSpec(payload.spec);
       })),
     )
-    .handle("addSpec", ({ payload }) =>
+    .handle("addSpec", ({ path, payload }) =>
       capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
         const result = yield* ext.addSpec({
           spec: payload.spec,
+          scope: path.scopeId,
           name: payload.name,
           baseUrl: payload.baseUrl,
           namespace: payload.namespace,
@@ -107,6 +108,12 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           clientIdSecretId: payload.clientIdSecretId,
           clientSecretSecretId: payload.clientSecretSecretId ?? null,
           scopes: [...payload.scopes],
+          // No tokenScope → plugin defaults to ctx.scopes[0].id (innermost).
+          // Single-scope executors: only scope in stack.
+          // Stacked executors: per-user scope, so tokens shadow by id.
+          tokenScope: payload.tokenScope as string | undefined,
+          accessTokenSecretId: payload.accessTokenSecretId,
+          refreshTokenSecretId: payload.refreshTokenSecretId ?? null,
         });
       })),
     )

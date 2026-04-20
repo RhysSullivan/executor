@@ -33,7 +33,8 @@ export interface WorkOSVaultExtension {
 
 // The plugin's typed store is just its metadata-store wrapper. The
 // secret provider closes over this store plus the resolved WorkOS
-// client + scope id at `secretProviders` time.
+// client; the scope id is threaded in per-call by the executor's
+// secrets facade.
 type WorkosVaultPluginStore = WorkosVaultStore;
 
 const buildClient = (
@@ -70,7 +71,6 @@ export const workosVaultPlugin = definePlugin(
         makeWorkOSVaultSecretProvider({
           client,
           store: ctx.storage,
-          scopeId: ctx.scope.id,
           objectPrefix: options?.objectPrefix,
         }),
       ];

@@ -50,7 +50,15 @@ import {
 // Plugin config — discriminated union on transport
 // ---------------------------------------------------------------------------
 
-export interface McpRemoteSourceConfig {
+/**
+ * Executor scope id that owns a newly-added MCP source row. Must be one
+ * of the executor's configured scopes. Admins adding a shared server at
+ * org scope pin here; per-user stdio sources can pin at the inner
+ * scope.
+ */
+type McpSourceScopeField = { readonly scope: string };
+
+export interface McpRemoteSourceConfig extends McpSourceScopeField {
   readonly transport: "remote";
   readonly name: string;
   readonly endpoint: string;
@@ -61,7 +69,7 @@ export interface McpRemoteSourceConfig {
   readonly auth?: McpConnectionAuth;
 }
 
-export interface McpStdioSourceConfig {
+export interface McpStdioSourceConfig extends McpSourceScopeField {
   readonly transport: "stdio";
   readonly name: string;
   readonly command: string;
@@ -538,12 +546,14 @@ export const mcpPlugin = definePlugin(
 
                   yield* ctx.storage.putSource({
                     namespace,
+                    scope: config.scope,
                     name: sourceName,
                     config: sd,
                   });
 
                   yield* ctx.storage.putBindings(
                     namespace,
+                    config.scope,
                     manifest.tools.map((e) => ({
                       toolId: `${namespace}.${e.toolId}`,
                       binding: toBinding(e),
@@ -552,6 +562,7 @@ export const mcpPlugin = definePlugin(
 
                   yield* ctx.core.sources.register({
                     id: namespace,
+                    scope: config.scope,
                     kind: "mcp",
                     name: sourceName,
                     url: sd.transport === "remote" ? sd.endpoint : undefined,
@@ -652,6 +663,12 @@ export const mcpPlugin = definePlugin(
             const existing = yield* ctx.storage.getSource(namespace);
             const sourceName =
               manifest.server?.name ?? existing?.name ?? namespace;
+            // Refresh preserves the scope the source was originally
+            // added at. If the source row was lost (manual delete?)
+            // fall back to the outermost (org) scope so the catalog
+            // entry still lands somewhere visible.
+            const refreshScope =
+              existing?.scope ?? (ctx.scopes.at(-1)!.id as string);
 
             yield* ctx
               .transaction(
@@ -661,6 +678,7 @@ export const mcpPlugin = definePlugin(
 
                   yield* ctx.storage.putBindings(
                     namespace,
+                    refreshScope,
                     manifest.tools.map((e) => ({
                       toolId: `${namespace}.${e.toolId}`,
                       binding: toBinding(e),
@@ -668,6 +686,7 @@ export const mcpPlugin = definePlugin(
                   );
                   yield* ctx.core.sources.register({
                     id: namespace,
+                    scope: refreshScope,
                     kind: "mcp",
                     name: sourceName,
                     url: sd.transport === "remote" ? sd.endpoint : undefined,
@@ -730,7 +749,7 @@ export const mcpPlugin = definePlugin(
             );
 
             yield* ctx.storage
-              .putOAuthSession(sessionId, {
+              .putOAuthSession(sessionId, ctx.scopes[0]!.id as string, {
                 endpoint: fullEndpoint,
                 redirectUrl: input.redirectUrl,
                 codeVerifier: started.codeVerifier,
@@ -778,11 +797,18 @@ export const mcpPlugin = definePlugin(
               Effect.withSpan("mcp.plugin.oauth.exchange_code"),
             );
 
+            // MCP OAuth tokens are user-specific, so they land at the
+            // innermost scope. On a single-scope executor that's the
+            // only scope; on a per-user stack `[user, org]` it's the
+            // user scope — so tokens shadow org-level fallbacks for
+            // the caller's own invocations.
+            const tokenScope = ctx.scopes[0]!.id;
             const accessSecretId = `mcp-oauth-access-${input.state}`;
             yield* ctx.secrets
               .set(
                 new SetSecretInput({
                   id: SecretId.make(accessSecretId),
+                  scope: tokenScope,
                   name: "MCP OAuth Access Token",
                   value: exchanged.tokens.access_token,
                 }),
@@ -800,6 +826,7 @@ export const mcpPlugin = definePlugin(
                 .set(
                   new SetSecretInput({
                     id: SecretId.make(refreshId),
+                    scope: tokenScope,
                     name: "MCP OAuth Refresh Token",
                     value: exchanged.tokens.refresh_token,
                   }),
@@ -851,6 +878,7 @@ export const mcpPlugin = definePlugin(
 
             yield* ctx.storage.putSource({
               namespace,
+              scope: existing.scope,
               name: input.name?.trim() || existing.name,
               config: updatedConfig,
             });
