@@ -1,4 +1,5 @@
 import { useState, Suspense } from "react";
+import { Link } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { secretsAtom, setSecret, removeSecret } from "../api/atoms";
 import { secretWriteKeys } from "../api/reactivity-keys";
@@ -267,11 +268,17 @@ function SecretRow(props: {
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-1.5 text-xs text-muted-foreground">{usageLabel}</div>
               {secret.usedBy.map((usage) => (
-                <DropdownMenuItem key={usage.sourceId} className="flex items-center justify-between">
-                  <span className="truncate">{usage.sourceName}</span>
-                  <Badge variant="outline" className="ml-2 capitalize">
-                    {usage.sourceKind}
-                  </Badge>
+                <DropdownMenuItem
+                  key={usage.sourceId}
+                  asChild
+                  className="flex items-center justify-between"
+                >
+                  <Link to="/sources/$namespace" params={{ namespace: usage.sourceId }}>
+                    <span className="truncate">{usage.sourceName}</span>
+                    <Badge variant="outline" className="ml-2 capitalize">
+                      {usage.sourceKind}
+                    </Badge>
+                  </Link>
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
