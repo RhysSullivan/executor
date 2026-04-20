@@ -158,13 +158,22 @@ const applyHeaders = (
 // Response helpers
 // ---------------------------------------------------------------------------
 
+const normalizeContentType = (ct: string | null | undefined): string =>
+  ct?.split(";")[0]?.trim().toLowerCase() ?? "";
+
 const isJsonContentType = (ct: string | null | undefined): boolean => {
-  if (!ct) return false;
-  const normalized = ct.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = normalizeContentType(ct);
+  if (!normalized) return false;
   return (
     normalized === "application/json" || normalized.includes("+json") || normalized.includes("json")
   );
 };
+
+const isFormUrlEncoded = (ct: string | null | undefined): boolean =>
+  normalizeContentType(ct) === "application/x-www-form-urlencoded";
+
+const isMultipartFormData = (ct: string | null | undefined): boolean =>
+  normalizeContentType(ct).startsWith("multipart/form-data");
 
 // ---------------------------------------------------------------------------
 // Public API — invoke a single operation
@@ -211,8 +220,20 @@ export const invoke = Effect.fn("OpenApi.invoke")(function* (
     if (bodyValue !== undefined) {
       if (isJsonContentType(rb.contentType)) {
         request = HttpClientRequest.bodyUnsafeJson(request, bodyValue);
+      } else if (typeof bodyValue === "string") {
+        request = HttpClientRequest.bodyText(request, bodyValue, rb.contentType);
+      } else if (isFormUrlEncoded(rb.contentType)) {
+        request = HttpClientRequest.bodyUrlParams(
+          request,
+          bodyValue as Parameters<typeof HttpClientRequest.bodyUrlParams>[1],
+        );
+      } else if (isMultipartFormData(rb.contentType)) {
+        request = HttpClientRequest.bodyFormDataRecord(
+          request,
+          bodyValue as Parameters<typeof HttpClientRequest.bodyFormDataRecord>[1],
+        );
       } else {
-        request = HttpClientRequest.bodyText(request, String(bodyValue), rb.contentType);
+        request = HttpClientRequest.bodyText(request, JSON.stringify(bodyValue), rb.contentType);
       }
     }
   }
