@@ -1,0 +1,62 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Cookie Auth Sample",
+    "version": "1.0.0",
+    "description": "Hand-authored fixture exercising `apiKey`-in-cookie security. Real-world OpenAPI specs almost never declare cookie auth, so this small synthetic fixture pins the extraction path for that scheme."
+  },
+  "servers": [
+    {
+      "url": "https://example.com/api"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "SESSIONID",
+        "description": "Server-issued session cookie."
+      }
+    }
+  },
+  "security": [
+    { "session": [] }
+  ],
+  "paths": {
+    "/me": {
+      "get": {
+        "operationId": "getCurrentUser",
+        "summary": "Get the authenticated user",
+        "responses": {
+          "200": {
+            "description": "Authenticated user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "integer" },
+                    "name": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "operationId": "logout",
+        "summary": "Destroy the current session",
+        "responses": {
+          "204": { "description": "Logged out" }
+        }
+      }
+    }
+  }
+}
