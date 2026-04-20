@@ -1,6 +1,6 @@
 import { HttpApiBuilder } from "@effect/platform";
 import { Effect } from "effect";
-import { SecretNotFoundError, type SecretRef } from "@executor/sdk";
+import { SecretNotFoundError, SetSecretInput, type SecretRef } from "@executor/sdk";
 
 import { ExecutorApi } from "../api";
 import { ExecutorService } from "../services";
@@ -30,15 +30,18 @@ export const SecretsHandlers = HttpApiBuilder.group(ExecutorApi, "secrets", (han
         return { secretId: path.secretId, status };
       })),
     )
-    .handle("set", ({ payload }) =>
+    .handle("set", ({ path, payload }) =>
       capture(Effect.gen(function* () {
         const executor = yield* ExecutorService;
-        const ref = yield* executor.secrets.set({
-          id: payload.id,
-          name: payload.name,
-          value: payload.value,
-          provider: payload.provider,
-        });
+        const ref = yield* executor.secrets.set(
+          new SetSecretInput({
+            id: payload.id,
+            scope: path.scopeId,
+            name: payload.name,
+            value: payload.value,
+            provider: payload.provider,
+          }),
+        );
         return refToResponse(ref);
       })),
     )

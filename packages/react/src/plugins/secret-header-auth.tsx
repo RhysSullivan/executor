@@ -68,7 +68,7 @@ function slugifyForSecretId(input: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-function InlineCreateSecret(props: {
+export function InlineCreateSecret(props: {
   suggestedId: string;
   suggestedName: string;
   onCreated: (secretId: string) => void;
@@ -414,5 +414,53 @@ export function SecretHeaderAuthRow(props: {
         <HeaderValuePreview headerName={name.trim()} secretId={secretId} prefix={prefix} />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CreatableSecretPicker — SecretPicker + inline "+ New secret" create flow
+// ---------------------------------------------------------------------------
+
+export function CreatableSecretPicker(props: {
+  readonly value: string | null;
+  readonly onSelect: (secretId: string) => void;
+  readonly secrets: readonly SecretPickerSecret[];
+  readonly placeholder?: string;
+  /**
+   * Display name of the source the secret belongs to (e.g. "Stripe").
+   * Combined with `secretLabel` to produce a suggested name/ID.
+   */
+  readonly sourceName?: string;
+  /** Role of this secret (e.g. "Client ID", "API Token"). */
+  readonly secretLabel: string;
+}) {
+  const { value, onSelect, secrets, placeholder, sourceName, secretLabel } = props;
+  const [creating, setCreating] = useState(false);
+
+  const suggestedName = [sourceName?.trim(), secretLabel].filter(Boolean).join(" ");
+  const suggestedId = slugifyForSecretId(suggestedName) || "secret";
+
+  if (creating) {
+    return (
+      <InlineCreateSecret
+        suggestedId={suggestedId}
+        suggestedName={suggestedName}
+        onCreated={(id) => {
+          onSelect(id);
+          setCreating(false);
+        }}
+        onCancel={() => setCreating(false)}
+      />
+    );
+  }
+
+  return (
+    <SecretPicker
+      value={value}
+      onSelect={onSelect}
+      secrets={secrets}
+      placeholder={placeholder}
+      onCreateNew={() => setCreating(true)}
+    />
   );
 }
