@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./api/secrets-usage": "./src/api/secrets-usage.ts",
     "./api/*": "./src/api/*.tsx",
     "./plugins/*": "./src/plugins/*.tsx",
     "./pages/*": "./src/pages/*.tsx",
