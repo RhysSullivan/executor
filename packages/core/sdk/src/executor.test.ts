@@ -68,6 +68,7 @@ const testPlugin = definePlugin(() => ({
           yield* ctx.storage.writeThing(id, value);
           yield* ctx.core.sources.register({
             id,
+            scope: ctx.scopes[0]!.id,
             kind: "test",
             name: id,
             canRemove: true,
@@ -135,17 +136,23 @@ const testPlugin = definePlugin(() => ({
 
 const memoryProvider: SecretProvider = (() => {
   const store = new Map<string, string>();
+  const key = (scope: string, id: string) => `${scope}\u0000${id}`;
   return {
     key: "memory",
     writable: true,
-    get: (id) => Effect.sync(() => store.get(id) ?? null),
-    set: (id, value) =>
+    get: (id, scope) => Effect.sync(() => store.get(key(scope, id)) ?? null),
+    set: (id, value, scope) =>
       Effect.sync(() => {
-        store.set(id, value);
+        store.set(key(scope, id), value);
       }),
-    delete: (id) => Effect.sync(() => store.delete(id)),
+    delete: (id, scope) => Effect.sync(() => store.delete(key(scope, id))),
     list: () =>
-      Effect.sync(() => Array.from(store.keys()).map((id) => ({ id, name: id }))),
+      Effect.sync(() =>
+        Array.from(store.keys()).map((k) => {
+          const name = k.split("\u0000", 2)[1] ?? k;
+          return { id: name, name };
+        }),
+      ),
   };
 })();
 
@@ -286,6 +293,7 @@ describe("createExecutor", () => {
           register: () =>
             ctx.core.sources.register({
               id: "cloudflare",
+              scope: ctx.scopes[0]!.id,
               kind: "nested",
               name: "cloudflare",
               canRemove: true,
@@ -341,6 +349,7 @@ describe("createExecutor", () => {
           tryRegister: () =>
             ctx.core.sources.register({
               id: "test.control", // collides with testPlugin's static source
+              scope: ctx.scopes[0]!.id,
               kind: "x",
               name: "x",
               tools: [],
@@ -409,6 +418,7 @@ describe("createExecutor", () => {
                 yield* ctx.storage.writeThing("x1", "v1");
                 yield* ctx.core.sources.register({
                   id: "rb-source",
+                  scope: ctx.scopes[0]!.id,
                   kind: "rb",
                   name: "rb",
                   canRemove: true,
@@ -451,6 +461,7 @@ describe("createExecutor", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("api-token"),
+          scope: ScopeId.make("test-scope"),
           name: "API Token",
           value: "sk-abc",
         }),
@@ -715,6 +726,7 @@ describe("createExecutor", () => {
               yield* ctx.secrets.set(
                 new SetSecretInput({
                   id: SecretId.make(id),
+                  scope: ctx.scopes[0]!.id,
                   name: id,
                   value: newValue,
                 }),
@@ -733,6 +745,7 @@ describe("createExecutor", () => {
       yield* executor.secrets.set(
         new SetSecretInput({
           id: SecretId.make("DB_PASSWORD"),
+          scope: ScopeId.make("test-scope"),
           name: "DB_PASSWORD",
           value: "hunter2",
         }),
@@ -767,17 +780,23 @@ describe("createExecutor", () => {
 // independent of the core.secret routing table isolation we're testing.
 const makeScopedMemoryProvider = (): SecretProvider => {
   const store = new Map<string, string>();
+  const key = (scope: string, id: string) => `${scope}\u0000${id}`;
   return {
     key: "scoped-memory",
     writable: true,
-    get: (id) => Effect.sync(() => store.get(id) ?? null),
-    set: (id, value) =>
+    get: (id, scope) => Effect.sync(() => store.get(key(scope, id)) ?? null),
+    set: (id, value, scope) =>
       Effect.sync(() => {
-        store.set(id, value);
+        store.set(key(scope, id), value);
       }),
-    delete: (id) => Effect.sync(() => store.delete(id)),
+    delete: (id, scope) => Effect.sync(() => store.delete(key(scope, id))),
     list: () =>
-      Effect.sync(() => Array.from(store.keys()).map((id) => ({ id, name: id }))),
+      Effect.sync(() =>
+        Array.from(store.keys()).map((k) => {
+          const name = k.split("\u0000", 2)[1] ?? k;
+          return { id: name, name };
+        }),
+      ),
   };
 };
 
@@ -806,6 +825,7 @@ const tenantPlugin = definePlugin(() => ({
         Effect.gen(function* () {
           yield* ctx.core.sources.register({
             id,
+            scope: ctx.scopes[0]!.id,
             kind: "tenant",
             name: id,
             canRemove: true,
@@ -825,11 +845,13 @@ const makeSharedTenantExecutors = () =>
 
     const makeOne = (id: string) =>
       createExecutor({
-        scope: new Scope({
-          id: ScopeId.make(id),
-          name: id,
-          createdAt: new Date(),
-        }),
+        scopes: [
+          new Scope({
+            id: ScopeId.make(id),
+            name: id,
+            createdAt: new Date(),
+          }),
+        ],
         adapter,
         blobs,
         plugins,
@@ -867,6 +889,7 @@ describe("tenant isolation (SDK)", () => {
       yield* execA.secrets.set(
         new SetSecretInput({
           id: SecretId.make("shared-id"),
+          scope: ScopeId.make("scope-a"),
           name: "A only",
           value: "a-value",
         }),
@@ -883,6 +906,7 @@ describe("tenant isolation (SDK)", () => {
       yield* execA.secrets.set(
         new SetSecretInput({
           id: SecretId.make("shared-id"),
+          scope: ScopeId.make("scope-a"),
           name: "A only",
           value: "a-value",
         }),
@@ -899,6 +923,7 @@ describe("tenant isolation (SDK)", () => {
       yield* execA.secrets.set(
         new SetSecretInput({
           id: SecretId.make("shared-id"),
+          scope: ScopeId.make("scope-a"),
           name: "A only",
           value: "a-value",
         }),
@@ -906,6 +931,65 @@ describe("tenant isolation (SDK)", () => {
 
       const value = yield* execB.secrets.get("shared-id");
       expect(value).toBeNull();
+    }),
+  );
+
+  it.effect("secrets.set rejects scope outside the executor's stack", () =>
+    Effect.gen(function* () {
+      const { execA } = yield* makeSharedTenantExecutors();
+      const result = yield* Effect.exit(
+        execA.secrets.set(
+          new SetSecretInput({
+            id: SecretId.make("x"),
+            scope: ScopeId.make("not-in-stack"),
+            name: "x",
+            value: "v",
+          }),
+        ),
+      );
+      expect(result._tag).toBe("Failure");
+    }),
+  );
+
+  it.effect("secrets.get — innermost scope shadows outer on same id", () =>
+    Effect.gen(function* () {
+      const plugins = [tenantPlugin()] as const;
+      const schema = collectSchemas(plugins);
+      const adapter = makeMemoryAdapter({ schema });
+      const blobs = makeInMemoryBlobStore();
+
+      const innerScope = ScopeId.make("user-org:u1:o1");
+      const outerScope = ScopeId.make("o1");
+
+      const exec = yield* createExecutor({
+        scopes: [
+          new Scope({ id: innerScope, name: "inner", createdAt: new Date() }),
+          new Scope({ id: outerScope, name: "outer", createdAt: new Date() }),
+        ],
+        adapter,
+        blobs,
+        plugins,
+      });
+
+      yield* exec.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("token"),
+          scope: outerScope,
+          name: "org token",
+          value: "org-value",
+        }),
+      );
+      yield* exec.secrets.set(
+        new SetSecretInput({
+          id: SecretId.make("token"),
+          scope: innerScope,
+          name: "user token",
+          value: "user-value",
+        }),
+      );
+
+      const value = yield* exec.secrets.get("token");
+      expect(value).toBe("user-value");
     }),
   );
 });

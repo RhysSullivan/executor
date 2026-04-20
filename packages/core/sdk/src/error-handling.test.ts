@@ -70,7 +70,7 @@ const testScope = new Scope({
 });
 
 const baseConfig = (adapter: DBAdapter) => ({
-  scope: testScope,
+  scopes: [testScope],
   adapter,
   blobs: makeInMemoryBlobStore(),
 });

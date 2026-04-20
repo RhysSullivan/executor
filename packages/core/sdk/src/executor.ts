@@ -10,7 +10,7 @@ import {
 } from "@executor/storage-core";
 
 import {
-  scopeBlobStore,
+  pluginBlobStore,
   type BlobStore,
 } from "./blob";
 import {
@@ -36,7 +36,7 @@ import {
   ToolInvocationError,
   ToolNotFoundError,
 } from "./errors";
-import { SecretId, ToolId } from "./ids";
+import { ScopeId, SecretId, ToolId } from "./ids";
 import type {
   AnyPlugin,
   Elicit,
@@ -95,7 +95,14 @@ const resolveElicitationHandler = (
 // ---------------------------------------------------------------------------
 
 export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
-  readonly scope: Scope;
+  /**
+   * Precedence-ordered scope stack this executor was configured with.
+   * Innermost first. Consumers that need "the display scope" typically
+   * pick `scopes.at(-1)` (outermost, e.g. the organization) or
+   * `scopes[0]` (innermost, e.g. the current user-in-org) depending on
+   * what they're rendering.
+   */
+  readonly scopes: readonly Scope[];
 
   readonly tools: {
     readonly list: (
@@ -172,7 +179,14 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
 export interface ExecutorConfig<
   TPlugins extends readonly AnyPlugin[] = [],
 > {
-  readonly scope: Scope;
+  /**
+   * Precedence-ordered scope stack. Innermost first; typical shape is
+   * `[userInOrgScope, orgScope]`. Reads on scoped tables walk the
+   * stack (first hit wins for shadow-by-id consumers like secrets and
+   * blobs); writes require callers to name an explicit target scope.
+   * Must be non-empty.
+   */
+  readonly scopes: readonly Scope[];
   readonly adapter: DBAdapter;
   readonly blobs: BlobStore;
   readonly plugins?: TPlugins;
@@ -296,6 +310,7 @@ const writeSourceInput = (
       model: "source",
       data: {
         id: input.id,
+        scope_id: input.scope,
         plugin_id: pluginId,
         kind: input.kind,
         name: input.name,
@@ -314,6 +329,7 @@ const writeSourceInput = (
         model: "tool",
         data: input.tools.map((tool) => ({
           id: `${input.id}.${tool.name}`,
+          scope_id: input.scope,
           source_id: input.id,
           plugin_id: pluginId,
           name: tool.name,
@@ -364,6 +380,7 @@ const writeDefinitions = (
       model: "definition",
       data: entries.map(([name, schema]) => ({
         id: `${input.sourceId}.${name}`,
+        scope_id: input.scope,
         source_id: input.sourceId,
         plugin_id: pluginId,
         name,
@@ -471,22 +488,30 @@ export const createExecutor = <
 ): Effect.Effect<Executor<TPlugins>, Error> =>
   Effect.gen(function* () {
     const {
-      scope,
+      scopes,
       adapter: rootAdapter,
       blobs,
       plugins = [] as unknown as TPlugins,
     } = config;
 
-    // Scope-wrap the root adapter so every read on a tenant-scoped table
-    // filters by the current scope stack and every write stamps the
-    // write target. Today the stack has one element; the adapter's
-    // `ScopeContext` shape already accepts an ordered list so layering
-    // (org → workspace → user) can land later without changing plugin
-    // code. Only tables whose schema declares `scope_id` are scoped.
+    if (scopes.length === 0) {
+      return yield* Effect.fail(
+        new Error("createExecutor requires a non-empty scopes array"),
+      );
+    }
+
+    // Scope-wrap the root adapter so every read on a tenant-scoped
+    // table filters by `scope_id IN (scopes)` and every write's
+    // `scope_id` payload is validated to be in the stack. Reads walk
+    // the scope array in order at the consumer layer (secrets,
+    // blobs) — the adapter itself just bounds the set of rows
+    // visible. Only tables whose schema declares `scope_id` are
+    // scoped.
     const schema = collectSchemas(plugins);
+    const scopeIds = scopes.map((s) => s.id as string);
     const scopedRoot = scopeAdapter(
       rootAdapter,
-      { read: [scope.id], write: scope.id },
+      { scopes: scopeIds },
       schema,
     );
     const adapter = buildAdapterRouter(scopedRoot);
@@ -511,31 +536,59 @@ export const createExecutor = <
     // without a list() implementation (keychain) never hit the fallback
     // walk because their secrets must be registered through set() to
     // be known at all.
+    //
+    // Multi-scope behavior: the routing-table lookup pulls every row
+    // for this id across the scope stack in a single `IN (...)` query,
+    // then sorts innermost-first so a secret registered in a deeper
+    // scope shadows one with the same id at a shallower scope (e.g. a
+    // user's personal OAuth token wins over an org-wide one). Provider
+    // calls stay sequential — scope-partitioning providers (workos-vault,
+    // 1password-per-vault) have to be asked per scope because the object
+    // name includes the scope — but they're bounded by the number of
+    // registered rows for this id, not by scope-stack depth. The
+    // provider-enumeration fallback is scope-agnostic: providers like
+    // env or 1password don't partition their inventory by executor scope.
+    const scopePrecedence = new Map<string, number>();
+    scopeIds.forEach((s, i) => scopePrecedence.set(s, i));
+
     const secretsGet = (
       id: string,
     ): Effect.Effect<string | null, StorageFailure> =>
       Effect.gen(function* () {
-        // Fast path: routing table
-        const row = yield* core.findOne({
+        // The scope-wrapped adapter injects `scope_id IN (scopeIds)`
+        // automatically, so we only filter by id here.
+        const rows = yield* core.findMany({
           model: "secret",
           where: [{ field: "id", value: id }],
         });
-        if (row) {
-          const provider = secretProviders.get(row.provider);
-          if (!provider) return null;
-          return yield* provider.get(id);
+        const ordered = [...rows].sort(
+          (a, b) =>
+            (scopePrecedence.get(a.scope_id as string) ?? Infinity) -
+            (scopePrecedence.get(b.scope_id as string) ?? Infinity),
+        );
+        for (const row of ordered) {
+          const provider = secretProviders.get(row.provider as string);
+          if (!provider) continue;
+          const value = yield* provider.get(id, row.scope_id as string);
+          if (value !== null) return value;
         }
 
         // Fallback: ask every enumerating provider in parallel. First
         // non-null in registration order wins. Providers that throw
         // are treated as "don't have it" so one flaky provider can't
-        // block resolution via others.
+        // block resolution via others. Scope-partitioning providers
+        // get asked at the innermost scope as a display default — the
+        // enumeration fallback doesn't know which scope the value
+        // lives in; flat providers ignore the arg.
+        const fallbackScope = scopeIds[0]!;
         const candidates = [...secretProviders.values()].filter(
           (p) => p.list,
         );
         const values = yield* Effect.all(
           candidates.map((p) =>
-            p.get(id).pipe(Effect.catchAll(() => Effect.succeed(null))),
+            p
+              .get(id, fallbackScope)
+              .pipe(Effect.catchAll(() => Effect.succeed(null))),
           ),
           { concurrency: "unbounded" },
         );
@@ -547,6 +600,20 @@ export const createExecutor = <
       input: SetSecretInput,
     ): Effect.Effect<SecretRef, StorageFailure> =>
       Effect.gen(function* () {
+        // Validate the write target up front. The adapter would reject
+        // an out-of-stack scope too, but catching it here gives a
+        // clearer error before we touch the provider.
+        if (!scopeIds.includes(input.scope as string)) {
+          return yield* Effect.fail(
+            new StorageError({
+              message:
+                `secrets.set targets scope "${input.scope}" which is not ` +
+                `in the executor's scope stack [${scopeIds.join(", ")}].`,
+              cause: undefined,
+            }),
+          );
+        }
+
         // Pick provider: explicit or first-writable. Misconfiguration
         // (unknown provider, no writable provider, read-only provider)
         // is a host setup bug — surface as `StorageError` so it lands
@@ -587,9 +654,14 @@ export const createExecutor = <
           );
         }
 
-        yield* target.set(input.id, input.value);
+        yield* target.set(input.id, input.value, input.scope as string);
 
-        // Upsert metadata row in the core `secret` table.
+        // Upsert metadata row in the core `secret` table at the
+        // caller-named scope. Delete is scoped via the adapter's
+        // IN-clause filter to the full stack, which removes any
+        // previously-registered row for this id anywhere in the stack
+        // (avoids leftover shadow rows from a different scope); then
+        // we create fresh at the target scope.
         const now = new Date();
         yield* core.delete({
           model: "secret",
@@ -599,6 +671,7 @@ export const createExecutor = <
           model: "secret",
           data: {
             id: input.id,
+            scope_id: input.scope,
             name: input.name,
             provider: target.key,
             created_at: now,
@@ -608,7 +681,7 @@ export const createExecutor = <
 
         return new SecretRef({
           id: input.id,
-          scopeId: scope.id,
+          scopeId: input.scope,
           name: input.name,
           provider: target.key,
           createdAt: now,
@@ -618,16 +691,19 @@ export const createExecutor = <
     const secretsRemove = (id: string): Effect.Effect<void, StorageFailure> =>
       Effect.gen(function* () {
         // Providers don't coordinate on which of them own the id — they
-        // each get asked. Most calls are no-ops; fan them out so one
-        // slow provider doesn't serialize the rest.
+        // each get asked, across every scope in the stack. Flat
+        // providers see the same delete call repeated and no-op on
+        // the second hit; scope-partitioned providers use the scope
+        // arg to pick the right partition. Fan out so one slow
+        // provider doesn't serialize the rest.
         const deleters = [...secretProviders.values()].filter(
           (p): p is typeof p & { delete: NonNullable<typeof p.delete> } =>
             !!(p.writable && p.delete),
         );
-        yield* Effect.all(
-          deleters.map((p) => p.delete(id)),
-          { concurrency: "unbounded" },
+        const tasks = deleters.flatMap((p) =>
+          scopeIds.map((scopeId) => p.delete(id, scopeId)),
         );
+        yield* Effect.all(tasks, { concurrency: "unbounded" });
         yield* core.delete({
           model: "secret",
           where: [{ field: "id", value: id }],
@@ -649,18 +725,36 @@ export const createExecutor = <
     // so that routing information in the core table is authoritative.
     // Providers without a list() method (e.g. keychain) contribute
     // only via the core table path.
+    //
+    // Multi-scope: core rows from any scope in the stack show up
+    // (adapter filters by `scope_id IN`), each tagged with its own
+    // `scope_id`. When the same id appears in multiple scopes, the
+    // innermost wins — same rule as `secretsGet`. Provider-enumerated
+    // entries don't know what scope they belong to and are attributed
+    // to the innermost scope as a display default.
     const secretsList = (): Effect.Effect<readonly SecretRef[], StorageFailure> =>
       Effect.gen(function* () {
         const byId = new Map<string, SecretRef>();
 
-        // Core routing rows first
+        // Core routing rows first. Adapter returns rows from every
+        // scope in the stack; resolve collisions using the caller's
+        // precedence order (innermost first).
         const rows = yield* core.findMany({ model: "secret" });
-        for (const row of rows) {
+        const precedence = new Map<string, number>();
+        scopeIds.forEach((id, index) => precedence.set(id, index));
+        const pick = (row: typeof rows[number]) => {
+          const existing = byId.get(row.id);
+          const incomingScope = row.scope_id as string;
+          const incomingRank = precedence.get(incomingScope) ?? Number.MAX_SAFE_INTEGER;
+          if (existing) {
+            const existingRank = precedence.get(existing.scopeId as string) ?? Number.MAX_SAFE_INTEGER;
+            if (existingRank <= incomingRank) return;
+          }
           byId.set(
             row.id,
             new SecretRef({
               id: SecretId.make(row.id),
-              scopeId: scope.id,
+              scopeId: ScopeId.make(incomingScope),
               name: row.name,
               provider: row.provider,
               createdAt:
@@ -669,13 +763,15 @@ export const createExecutor = <
                   : new Date(row.created_at as string),
             }),
           );
-        }
+        };
+        for (const row of rows) pick(row);
 
         // Then every provider that can enumerate itself, in parallel.
         // If a provider fails to list (unlocked vault, network error),
         // swallow the failure so one flaky provider can't block the
         // whole list. Merge in registration order afterwards so the
         // "first provider wins" precedence stays deterministic.
+        const attribution = scopes[0]!.id;
         const listers = [...secretProviders.entries()].filter(
           ([, p]) => p.list,
         );
@@ -697,7 +793,7 @@ export const createExecutor = <
               entry.id,
               new SecretRef({
                 id: SecretId.make(entry.id),
-                scopeId: scope.id,
+                scopeId: attribution,
                 name: entry.name,
                 provider: key,
                 createdAt: new Date(),
@@ -740,17 +836,19 @@ export const createExecutor = <
       // `StorageError` that still escapes into the opaque InternalError.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const storageDeps: StorageDeps<any> = {
-        scope,
+        scopes,
         adapter: typedAdapter(adapter) as never,
         // Blob keys are namespaced by `<scope>/<plugin>` so two tenants
-        // sharing a backing BlobStore can't collide or leak on the same
-        // `(plugin, key)` pair. Mirrors the adapter's scope-stamping.
-        blobs: scopeBlobStore(blobs, `${scope.id}/${plugin.id}`),
+        // sharing a backing BlobStore can't collide or leak on the
+        // same `(plugin, key)` pair. The store's `get`/`has` walk the
+        // scope stack (innermost first); `put`/`delete` require the
+        // plugin to name a target scope explicitly.
+        blobs: pluginBlobStore(blobs, scopeIds, plugin.id),
       };
       const storage = plugin.storage(storageDeps);
 
       const ctx: PluginCtx<unknown> = {
-        scope,
+        scopes,
         storage,
         core: {
           sources: {
@@ -1358,7 +1456,7 @@ export const createExecutor = <
     // translate `StorageError` → `InternalError({ traceId })`; non-HTTP
     // consumers (CLI, Promise SDK, tests) see the raw typed channel.
     const base = {
-      scope,
+      scopes,
       tools: {
         list: listTools,
         schema: toolSchema,

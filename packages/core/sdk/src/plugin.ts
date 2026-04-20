@@ -6,7 +6,7 @@ import type {
   TypedAdapter,
 } from "@executor/storage-core";
 
-import type { ScopedBlobStore } from "./blob";
+import type { PluginBlobStore } from "./blob";
 import type {
   DefinitionsInput,
   SourceInput,
@@ -36,7 +36,13 @@ import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 // ---------------------------------------------------------------------------
 
 export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
-  readonly scope: Scope;
+  /**
+   * Precedence-ordered scope stack visible to this executor. Innermost
+   * first. Reads on scoped tables walk every scope; writes require the
+   * plugin to name a target scope explicitly (via `scope_id` on the
+   * adapter payload, via `options.scope` on the blob store).
+   */
+  readonly scopes: readonly Scope[];
   /**
    * Plugin-facing typed adapter. Failures surface as raw `StorageFailure`
    * (`StorageError` | `UniqueViolationError`). Plugins can
@@ -48,7 +54,7 @@ export interface StorageDeps<TSchema extends DBSchema | undefined = undefined> {
   readonly adapter: TSchema extends DBSchema
     ? TypedAdapter<TSchema, StorageFailure>
     : DBAdapter;
-  readonly blobs: ScopedBlobStore;
+  readonly blobs: PluginBlobStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +84,13 @@ export type Elicit = (
 // ---------------------------------------------------------------------------
 
 export interface PluginCtx<TStore = unknown> {
-  readonly scope: Scope;
+  /**
+   * Precedence-ordered scope stack visible to this executor. Innermost
+   * first. Plugins that write scoped rows must pick an element of
+   * `scopes` as the `scope`/`scope_id` they stamp; reads through the
+   * adapter or `ctx.secrets` automatically fall through the stack.
+   */
+  readonly scopes: readonly Scope[];
   readonly storage: TStore;
 
   readonly core: {

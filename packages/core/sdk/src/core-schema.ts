@@ -161,6 +161,10 @@ export interface SourceInputTool {
 
 export interface SourceInput {
   readonly id: string;
+  /** Scope id this source belongs to. Must be one of the executor's
+   *  configured scopes. Callers (plugins) pick the target scope
+   *  explicitly — typically the scope the source was authored against. */
+  readonly scope: string;
   readonly kind: string;
   readonly name: string;
   readonly url?: string;
@@ -179,5 +183,8 @@ export interface SourceInput {
 
 export interface DefinitionsInput {
   readonly sourceId: string;
+  /** Scope id these definitions belong to — should match the scope of
+   *  the source they're registered under. */
+  readonly scope: string;
   readonly definitions: Record<string, unknown>;
 }

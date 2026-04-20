@@ -86,8 +86,8 @@ export {
 // Blob store
 export {
   type BlobStore,
-  type ScopedBlobStore,
-  scopeBlobStore,
+  type PluginBlobStore,
+  pluginBlobStore,
   makeInMemoryBlobStore,
 } from "./blob";
 
