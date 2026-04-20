@@ -1,6 +1,34 @@
+// ---------------------------------------------------------------------------
+// Spec parsing + dereferencing
+//
+// Library choice: @readme/openapi-parser (6.x).
+//   - Dual ESM/CJS package with a proper `exports` map (swagger-parser ships
+//     CJS-only with no exports map, which causes friction in our bundler).
+//   - Thin wrapper over @apidevtools/json-schema-ref-parser, same core that
+//     swagger-parser uses — so the actual $ref / pointer logic is battle-
+//     tested and shared.
+//   - Circular-ref handling is object-ref-equality based (no hang, no
+//     infinite recursion when walking the tree — callers just need to be
+//     aware that cycles exist when traversing blindly).
+//   - Pointer escape decoding (`~0` / `~1`) is handled correctly by the
+//     underlying RFC 6901 pointer library, which is one of the bugs our
+//     previous hand-rolled walker had.
+//
+// We explicitly disable:
+//   - External resolvers (file + http) so the parser never reaches out —
+//     essential for Cloudflare Workers where the bundled Node http polyfill
+//     hangs, and for predictable Effect-based I/O (we do our own fetching
+//     via HttpClient above).
+//   - Schema / spec validation — we already gate on `openapi: 3.x`, and
+//     the real-world specs we ingest (Cloudflare, etc.) routinely fail
+//     strict validation despite being usable. Failing here would regress
+//     real customer specs.
+// ---------------------------------------------------------------------------
+
 import type { OpenAPI, OpenAPIV3, OpenAPIV3_1 } from "openapi-types";
 import { Duration, Effect } from "effect";
 import { HttpClient, HttpClientRequest } from "@effect/platform";
+import { dereference } from "@readme/openapi-parser";
 import YAML from "yaml";
 
 import { OpenApiExtractionError, OpenApiParseError } from "./errors";
@@ -59,12 +87,21 @@ export const resolveSpecText = (input: string) =>
     : Effect.succeed(input);
 
 /**
- * Parse an OpenAPI document from spec text and validate it's OpenAPI 3.x.
+ * Parse an OpenAPI document from spec text and fully dereference it.
  *
- * NOTE: does NOT resolve `$ref`s. `DocResolver` + `normalizeOpenApiRefs`
- * downstream work on refs lazily, so inlining them here would just waste
- * memory — and for big specs (e.g. Cloudflare's API) that blows through
- * the 128MB Cloudflare Workers memory cap.
+ * Steps:
+ *  1. JSON.parse → YAML.parse fallback → validate we got an object.
+ *  2. Assert OpenAPI 3.x (error otherwise — Swagger 2.x must be converted
+ *     upstream).
+ *  3. Dereference all internal `$ref`s in place via @readme/openapi-parser.
+ *     Circular refs are preserved via object-identity (no hang, no infinite
+ *     recursion at walk time). External refs are ignored — we don't reach
+ *     out to the network from here.
+ *
+ * The returned document has ref-free shape for every internal pointer, so
+ * downstream consumers can access `components` / `paths` without a separate
+ * resolver walk. Broken pointers surface as `OpenApiParseError` — no more
+ * silent partial extraction.
  */
 export const parse = Effect.fn("OpenApi.parse")(function* (text: string) {
   const api = yield* Effect.try({
@@ -82,7 +119,19 @@ export const parse = Effect.fn("OpenApi.parse")(function* (text: string) {
     });
   }
 
-  return api as ParsedDocument;
+  const dereferenced = yield* Effect.tryPromise({
+    try: () =>
+      dereference(api as unknown as OpenAPIV3.Document, {
+        resolve: { external: false },
+        dereference: { circular: true },
+      }) as Promise<ParsedDocument>,
+    catch: (error) =>
+      new OpenApiParseError({
+        message: `Failed to dereference OpenAPI document: ${error instanceof Error ? error.message : String(error)}`,
+      }),
+  });
+
+  return dereferenced;
 });
 
 // ---------------------------------------------------------------------------

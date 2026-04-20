@@ -52,6 +52,7 @@
     "@executor/config": "workspace:*",
     "@executor/plugin-oauth2": "workspace:*",
     "@executor/sdk": "workspace:*",
+    "@readme/openapi-parser": "^6.0.1",
     "effect": "catalog:",
     "openapi-types": "^12.1.3",
     "yaml": "^2.7.1"

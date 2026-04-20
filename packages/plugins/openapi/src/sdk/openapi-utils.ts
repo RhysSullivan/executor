@@ -1,7 +1,14 @@
 // ---------------------------------------------------------------------------
 // OpenAPI type aliases and $ref resolution
 //
-// Wraps the openapi-types V3/V3_1 union mess and provides clean ref resolution.
+// With parse.ts now dereferencing via @readme/openapi-parser, internal
+// `$ref`s are replaced in-place with the resolved object (circular refs
+// preserved via object identity). Callers rarely need to resolve manually,
+// but we keep DocResolver as a thin identity layer so:
+//   1. the public API surface (re-exported from sdk/index.ts) doesn't shift,
+//   2. anything that still reaches `.resolve()` handles the unusual case of
+//      an unresolvable external `$ref` (e.g. `http://...`) gracefully instead
+//      of crashing.
 // ---------------------------------------------------------------------------
 
 import { Option } from "effect";
@@ -20,30 +27,20 @@ export type ResponseObject = OpenAPIV3.ResponseObject | OpenAPIV3_1.ResponseObje
 export type MediaTypeObject = OpenAPIV3.MediaTypeObject | OpenAPIV3_1.MediaTypeObject;
 
 // ---------------------------------------------------------------------------
-// DocResolver — wraps a parsed document for clean $ref resolution
+// DocResolver — thin adapter over an already-dereferenced document
 // ---------------------------------------------------------------------------
 
 export class DocResolver {
   constructor(readonly doc: ParsedDocument) {}
 
-  /** Resolve a value that might be a $ref, returning the resolved object */
+  /**
+   * Return `value` directly. Post-dereference, `$ref` objects only survive
+   * for external references (which we deliberately don't follow); treat
+   * those as unresolvable.
+   */
   resolve<T>(value: T | OpenAPIV3.ReferenceObject | OpenAPIV3_1.ReferenceObject): T | null {
-    if (isRef(value)) {
-      const resolved = this.resolvePointer(value.$ref);
-      return resolved as T | null;
-    }
+    if (isRef(value)) return null;
     return value as T;
-  }
-
-  private resolvePointer(ref: string): unknown {
-    if (!ref.startsWith("#/")) return null;
-    const segments = ref.slice(2).split("/");
-    let current: unknown = this.doc;
-    for (const segment of segments) {
-      if (typeof current !== "object" || current === null) return null;
-      current = (current as Record<string, unknown>)[segment];
-    }
-    return current;
   }
 }
 
