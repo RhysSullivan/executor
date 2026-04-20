@@ -1,4 +1,5 @@
 import { useAtomValue, Result } from "@effect-atom/atom-react";
+import type { ScopeId } from "@executor/sdk";
 import { useScope } from "@executor/react/api/scope-context";
 import { Badge } from "@executor/react/components/badge";
 import { Button } from "@executor/react/components/button";
@@ -7,13 +8,17 @@ import { googleDiscoverySourceAtom } from "./atoms";
 
 export default function EditGoogleDiscoverySource({
   sourceId,
+  sourceScopeId,
   onSave,
 }: {
   readonly sourceId: string;
+  readonly sourceScopeId?: ScopeId;
   readonly onSave: () => void;
 }) {
-  const scopeId = useScope();
-  const sourceResult = useAtomValue(googleDiscoverySourceAtom(scopeId, sourceId));
+  const currentScopeId = useScope();
+  const sourceResult = useAtomValue(
+    googleDiscoverySourceAtom(sourceScopeId ?? currentScopeId, sourceId),
+  );
 
   const source = Result.isSuccess(sourceResult) ? sourceResult.value : null;
   const config = source?.config;

@@ -1,6 +1,6 @@
 import { Result, useAtomValue } from "@effect-atom/atom-react";
 
-import { SecretId } from "@executor/sdk";
+import { SecretId, type ScopeId } from "@executor/sdk";
 import { useScope } from "@executor/react/api/scope-context";
 import { secretStatusAtom } from "@executor/react/api/atoms";
 import { Badge } from "@executor/react/components/badge";
@@ -41,9 +41,13 @@ function ConnectedBadge(props: { accessTokenSecretId: string }) {
 // component only contributes extras — specifically, an OAuth status
 // badge when the source has OAuth2 configured. Non-OAuth sources
 // render nothing.
-export default function OpenApiSourceSummary(props: { sourceId: string }) {
-  const scopeId = useScope();
-  const sourceResult = useAtomValue(openApiSourceAtom(scopeId, props.sourceId));
+export default function OpenApiSourceSummary(props: {
+  sourceId: string;
+  sourceScopeId?: ScopeId;
+}) {
+  const currentScopeId = useScope();
+  const sourceScopeId = props.sourceScopeId ?? currentScopeId;
+  const sourceResult = useAtomValue(openApiSourceAtom(sourceScopeId, props.sourceId));
 
   const oauth2 =
     Result.isSuccess(sourceResult) && sourceResult.value

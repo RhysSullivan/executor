@@ -1,3 +1,4 @@
+import type { ScopeId } from "@executor/sdk";
 import { useState } from "react";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { mcpSourceAtom, updateMcpSource } from "./atoms";
@@ -33,10 +34,10 @@ type HeaderEntry = {
 
 function RemoteEditForm(props: {
   sourceId: string;
+  sourceScopeId: ScopeId;
   initial: McpStoredSourceSchemaType & { config: { transport: "remote" } };
   onSave: () => void;
 }) {
-  const scopeId = useScope();
   const doUpdate = useAtomSet(updateMcpSource, { mode: "promise" });
 
   const identity = useSourceIdentity({
@@ -84,7 +85,7 @@ function RemoteEditForm(props: {
       }
 
       await doUpdate({
-        path: { scopeId, namespace: props.sourceId },
+        path: { scopeId: props.sourceScopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
@@ -233,13 +234,15 @@ function StdioReadOnly(props: {
 
 export default function EditMcpSource({
   sourceId,
+  sourceScopeId,
   onSave,
 }: {
   readonly sourceId: string;
+  readonly sourceScopeId?: ScopeId;
   readonly onSave: () => void;
 }) {
-  const scopeId = useScope();
-  const sourceResult = useAtomValue(mcpSourceAtom(scopeId, sourceId));
+  const currentScopeId = useScope();
+  const sourceResult = useAtomValue(mcpSourceAtom(sourceScopeId ?? currentScopeId, sourceId));
 
   if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
     return (
@@ -267,6 +270,7 @@ export default function EditMcpSource({
   return (
     <RemoteEditForm
       sourceId={sourceId}
+      sourceScopeId={sourceScopeId ?? currentScopeId}
       initial={source as McpStoredSourceSchemaType & { config: { transport: "remote" } }}
       onSave={onSave}
     />

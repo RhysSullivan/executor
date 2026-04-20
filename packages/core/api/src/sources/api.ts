@@ -19,6 +19,7 @@ const SourceResponse = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   kind: Schema.String,
+  scopeId: Schema.optional(ScopeId),
   url: Schema.optional(Schema.String),
   runtime: Schema.optional(Schema.Boolean),
   canRemove: Schema.optional(Schema.Boolean),

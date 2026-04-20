@@ -10,7 +10,7 @@ import { resolve } from "node:path";
 
 import { ScopeId } from "@executor/sdk";
 
-import { asOrg } from "./__test-harness__/api-harness";
+import { asOrg, asUser } from "./__test-harness__/api-harness";
 
 const MINIMAL_OPENAPI_SPEC = JSON.stringify({
   openapi: "3.0.0",
@@ -59,6 +59,32 @@ describe("sources api (HTTP)", () => {
         client.sources.list({ path: { scopeId: ScopeId.make(org) } }),
       );
       expect(sources.map((s) => s.id)).toContain(namespace);
+      expect(sources.find((s) => s.id === namespace)?.scopeId).toBe(org);
+      expect(sources.find((s) => s.id === "openapi")?.scopeId).toBeUndefined();
+    }),
+  );
+
+  it.effect("sources.list carries owner scope for inherited sources", () =>
+    Effect.gen(function* () {
+      const org = `org_${crypto.randomUUID()}`;
+      const userId = `user_${crypto.randomUUID().slice(0, 8)}`;
+      const namespace = `ns_${crypto.randomUUID().replace(/-/g, "_")}`;
+
+      yield* asOrg(org, (client) =>
+        client.openapi.addSpec({
+          path: { scopeId: ScopeId.make(org) },
+          payload: { spec: MINIMAL_OPENAPI_SPEC, namespace },
+        }),
+      );
+
+      const sources = yield* asUser(userId, org, (client) =>
+        client.sources.list({
+          path: { scopeId: ScopeId.make(`user-org:${userId}:${org}`) },
+        }),
+      );
+
+      expect(sources.find((s) => s.id === namespace)?.scopeId).toBe(org);
+      expect(sources.find((s) => s.id === "openapi")?.scopeId).toBeUndefined();
     }),
   );
 

@@ -226,6 +226,7 @@ const rowToSource = (row: SourceRow): Source => ({
   id: row.id,
   kind: row.kind,
   name: row.name,
+  scopeId: ScopeId.make(row.scope_id as string),
   url: row.url ?? undefined,
   pluginId: row.plugin_id,
   canRemove: Boolean(row.can_remove),

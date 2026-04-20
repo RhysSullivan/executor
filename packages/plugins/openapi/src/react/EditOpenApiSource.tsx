@@ -7,7 +7,7 @@ import {
 } from "@effect-atom/atom-react";
 import { Option } from "effect";
 
-import { SecretId } from "@executor/sdk";
+import { SecretId, type ScopeId } from "@executor/sdk";
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 
 import {
@@ -351,10 +351,10 @@ function ConnectionsSection(props: {
 
 function EditForm(props: {
   sourceId: string;
+  sourceScopeId: ScopeId;
   initial: StoredSourceSchemaType;
   onSave: () => void;
 }) {
-  const scopeId = useScope();
   const doUpdate = useAtomSet(updateOpenApiSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
@@ -391,7 +391,7 @@ function EditForm(props: {
     setError(null);
     try {
       await doUpdate({
-        path: { scopeId, namespace: props.sourceId },
+        path: { scopeId: props.sourceScopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           baseUrl: baseUrl.trim() || undefined,
@@ -484,9 +484,14 @@ function EditForm(props: {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function EditOpenApiSource(props: { sourceId: string; onSave: () => void }) {
-  const scopeId = useScope();
-  const sourceResult = useAtomValue(openApiSourceAtom(scopeId, props.sourceId));
+export default function EditOpenApiSource(props: {
+  sourceId: string;
+  sourceScopeId?: ScopeId;
+  onSave: () => void;
+}) {
+  const currentScopeId = useScope();
+  const sourceScopeId = props.sourceScopeId ?? currentScopeId;
+  const sourceResult = useAtomValue(openApiSourceAtom(sourceScopeId, props.sourceId));
 
   if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
     return (
@@ -499,5 +504,12 @@ export default function EditOpenApiSource(props: { sourceId: string; onSave: () 
     );
   }
 
-  return <EditForm sourceId={props.sourceId} initial={sourceResult.value} onSave={props.onSave} />;
+  return (
+    <EditForm
+      sourceId={props.sourceId}
+      sourceScopeId={sourceScopeId}
+      initial={sourceResult.value}
+      onSave={props.onSave}
+    />
+  );
 }

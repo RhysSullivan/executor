@@ -7,12 +7,14 @@
 import { Schema } from "effect";
 
 import type { ToolAnnotations } from "./core-schema";
-import { ToolId } from "./ids";
+import { ToolId, type ScopeId } from "./ids";
 
 export interface Source {
   readonly id: string;
   readonly kind: string;
   readonly name: string;
+  /** Owning scope for persisted sources. Omitted for static sources. */
+  readonly scopeId?: ScopeId;
   readonly url?: string;
   /** Which plugin owns this source. */
   readonly pluginId: string;

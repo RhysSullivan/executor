@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { ScopeId } from "@executor/sdk";
 
 /**
  * A curated preset — a well-known API/service that can be added with one click.
@@ -63,6 +64,7 @@ export interface SourcePlugin {
    */
   readonly edit: ComponentType<{
     readonly sourceId: string;
+    readonly sourceScopeId?: ScopeId;
     readonly onSave: () => void;
   }>;
 
@@ -72,6 +74,7 @@ export interface SourcePlugin {
    */
   readonly summary?: ComponentType<{
     readonly sourceId: string;
+    readonly sourceScopeId?: ScopeId;
   }>;
 
   /** Curated presets shown on the sources page for quick-add */

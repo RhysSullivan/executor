@@ -1,6 +1,7 @@
 import { Suspense, useState, useCallback, useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Result, useAtomSet } from "@effect-atom/atom-react";
+import type { ScopeId } from "@executor/sdk";
 import { detectSource } from "../api/atoms";
 import { useSourcesWithPending } from "../api/optimistic";
 import { useScope } from "../hooks/use-scope";
@@ -273,6 +274,7 @@ function SourceGrid(props: {
     id: string;
     name: string;
     kind: string;
+    scopeId?: ScopeId;
     url?: string;
     runtime?: boolean;
   }[];
@@ -305,7 +307,7 @@ function SourceGrid(props: {
                 <CardStackEntryActions>
                   {SummaryComponent && (
                     <Suspense fallback={null}>
-                      <SummaryComponent sourceId={s.id} />
+                      <SummaryComponent sourceId={s.id} sourceScopeId={s.scopeId} />
                     </Suspense>
                   )}
                   {s.runtime && <Badge className="bg-muted text-muted-foreground">built-in</Badge>}

@@ -1,3 +1,4 @@
+import type { ScopeId } from "@executor/sdk";
 import { useState } from "react";
 import { useAtomValue, useAtomSet, Result } from "@effect-atom/atom-react";
 import { graphqlSourceAtom, updateGraphqlSource } from "./atoms";
@@ -35,10 +36,10 @@ type EditableSource = Omit<StoredGraphqlSource, "scope">;
 
 function EditForm(props: {
   sourceId: string;
+  sourceScopeId: ScopeId;
   initial: EditableSource;
   onSave: () => void;
 }) {
-  const scopeId = useScope();
   const doUpdate = useAtomSet(updateGraphqlSource, { mode: "promise" });
   const secretList = useSecretPickerSecrets();
 
@@ -68,7 +69,7 @@ function EditForm(props: {
     setError(null);
     try {
       await doUpdate({
-        path: { scopeId, namespace: props.sourceId },
+        path: { scopeId: props.sourceScopeId, namespace: props.sourceId },
         payload: {
           name: identity.name.trim() || undefined,
           endpoint: endpoint.trim() || undefined,
@@ -153,9 +154,14 @@ function EditForm(props: {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function EditGraphqlSource(props: { sourceId: string; onSave: () => void }) {
-  const scopeId = useScope();
-  const sourceResult = useAtomValue(graphqlSourceAtom(scopeId, props.sourceId));
+export default function EditGraphqlSource(props: {
+  sourceId: string;
+  sourceScopeId?: ScopeId;
+  onSave: () => void;
+}) {
+  const currentScopeId = useScope();
+  const sourceScopeId = props.sourceScopeId ?? currentScopeId;
+  const sourceResult = useAtomValue(graphqlSourceAtom(sourceScopeId, props.sourceId));
 
   if (!Result.isSuccess(sourceResult) || !sourceResult.value) {
     return (
@@ -168,5 +174,12 @@ export default function EditGraphqlSource(props: { sourceId: string; onSave: () 
     );
   }
 
-  return <EditForm sourceId={props.sourceId} initial={sourceResult.value} onSave={props.onSave} />;
+  return (
+    <EditForm
+      sourceId={props.sourceId}
+      sourceScopeId={sourceScopeId}
+      initial={sourceResult.value}
+      onSave={props.onSave}
+    />
+  );
 }

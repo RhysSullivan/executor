@@ -23,11 +23,11 @@ export function SourceDetailPage(props: {
   sourcePlugins?: readonly SourcePlugin[];
 }) {
   const { namespace, sourcePlugins } = props;
-  const scopeId = useScope();
-  const source = useAtomValue(sourceAtom(namespace, scopeId));
-  const tools = useAtomValue(sourceToolsAtom(namespace, scopeId));
-  const refreshSources = useAtomRefresh(sourcesAtom(scopeId));
-  const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, scopeId));
+  const currentScopeId = useScope();
+  const source = useAtomValue(sourceAtom(namespace, currentScopeId));
+  const tools = useAtomValue(sourceToolsAtom(namespace, currentScopeId));
+  const refreshSources = useAtomRefresh(sourcesAtom(currentScopeId));
+  const refreshTools = useAtomRefresh(sourceToolsAtom(namespace, currentScopeId));
   const doRemove = useAtomSet(removeSource, { mode: "promise" });
   const doRefresh = useAtomSet(refreshSource, { mode: "promise" });
   const navigate = useNavigate();
@@ -52,6 +52,7 @@ export function SourceDetailPage(props: {
   const [editing, setEditing] = useState(false);
 
   const sourceData = Result.isSuccess(source) ? source.value : null;
+  const sourceScopeId = sourceData?.scopeId ?? currentScopeId;
   const canRefresh = sourceData ? (sourceData.canRefresh ?? true) : false;
   const canRemove = sourceData ? (sourceData.canRemove ?? true) : false;
   const canEdit = sourceData ? (sourceData.canEdit ?? false) : false;
@@ -81,7 +82,7 @@ export function SourceDetailPage(props: {
     setDeleting(true);
     try {
       await doRemove({
-        path: { scopeId, sourceId: namespace },
+        path: { scopeId: sourceScopeId, sourceId: namespace },
         reactivityKeys: sourceWriteKeys,
       });
       void navigate({ to: "/" });
@@ -95,7 +96,7 @@ export function SourceDetailPage(props: {
     setRefreshing(true);
     try {
       await doRefresh({
-        path: { scopeId, sourceId: namespace },
+        path: { scopeId: sourceScopeId, sourceId: namespace },
         reactivityKeys: sourceWriteKeys,
       });
     } finally {
@@ -190,7 +191,11 @@ export function SourceDetailPage(props: {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-2xl px-6 py-8">
             <Suspense fallback={<EditFormSkeleton />}>
-              <editPlugin.edit sourceId={namespace} onSave={handleEditSave} />
+              <editPlugin.edit
+                sourceId={namespace}
+                sourceScopeId={sourceData?.scopeId}
+                onSave={handleEditSave}
+              />
             </Suspense>
           </div>
         </div>
@@ -217,7 +222,7 @@ export function SourceDetailPage(props: {
                     toolId={selectedTool.id}
                     toolName={selectedTool.name}
                     toolDescription={selectedTool.description}
-                    scopeId={scopeId}
+                    scopeId={currentScopeId}
                   />
                 ) : (
                   <ToolDetailEmpty hasTools={sourceTools.length > 0} />
