@@ -50,6 +50,7 @@ export interface StoredGraphqlSource {
 export interface StoredOperation {
   readonly toolId: string;
   readonly sourceId: string;
+  readonly scopeId: string;
   readonly binding: OperationBinding;
 }
 
@@ -126,7 +127,6 @@ export interface GraphqlStore {
 
   readonly listOperationsBySource: (
     sourceId: string,
-    scope: string,
   ) => Effect.Effect<readonly StoredOperation[], StorageFailure>;
 
   readonly removeSource: (
@@ -153,6 +153,7 @@ export const makeDefaultGraphqlStore = ({
   const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
     toolId: row.id as string,
     sourceId: row.source_id as string,
+    scopeId: row.scope_id as string,
     binding: decodeBinding(row.binding),
   });
 
@@ -257,14 +258,11 @@ export const makeDefaultGraphqlStore = ({
         })
         .pipe(Effect.map((row) => (row ? rowToOperation(row) : null))),
 
-    listOperationsBySource: (sourceId, scope) =>
+    listOperationsBySource: (sourceId) =>
       db
         .findMany({
           model: "graphql_operation",
-          where: [
-            { field: "source_id", value: sourceId },
-            { field: "scope_id", value: scope },
-          ],
+          where: [{ field: "source_id", value: sourceId }],
         })
         .pipe(Effect.map((rows) => rows.map(rowToOperation))),
 
