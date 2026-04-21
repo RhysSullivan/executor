@@ -38,18 +38,18 @@ export const McpOAuthSession = Schema.Struct({
   redirectUrl: Schema.String,
   codeVerifier: Schema.String,
   /**
-   * Executor scope id where the minted access/refresh tokens will land.
-   * Pinned at `startOAuth` time so token writes target the same scope
-   * regardless of who's currently invoking. For per-user OAuth this is
-   * the innermost (`ctx.scopes[0]`) scope; for org-shared installs it
-   * can be the org scope.
+   * Executor scope id where the minted Connection (and its owned
+   * access/refresh secrets) will land. Pinned at `startOAuth` time so
+   * token writes target the same scope regardless of who's currently
+   * invoking. For per-user OAuth this is the innermost
+   * (`ctx.scopes[0]`) scope; for org-shared installs it can be the org
+   * scope.
    */
   tokenScope: Schema.String,
-  /** Stable secret ids the minted tokens are written to. Stored once on
-   *  the source's auth config so per-user scope shadowing resolves to
-   *  the calling user's tokens at invoke time. */
-  accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.NullOr(Schema.String),
+  /** Stable id of the SDK Connection the exchange will mint. Stored
+   *  once on the source's auth config so per-user scope shadowing
+   *  resolves to the calling user's connection at invoke time. */
+  connectionId: Schema.String,
 });
 export type McpOAuthSession = typeof McpOAuthSession.Type;
 

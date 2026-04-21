@@ -21,13 +21,9 @@ const AuthPayload = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
+    connectionId: Schema.String,
     clientIdSecretId: Schema.String,
     clientSecretSecretId: Schema.NullOr(Schema.String),
-    accessTokenSecretId: Schema.String,
-    refreshTokenSecretId: Schema.NullOr(Schema.String),
-    tokenType: Schema.optional(Schema.String),
-    expiresAt: Schema.NullOr(Schema.Number),
-    scope: Schema.NullOr(Schema.String),
     scopes: Schema.Array(Schema.String),
   }),
 );
@@ -65,6 +61,15 @@ const AddSourceResponse = Schema.Struct({
   namespace: Schema.String,
 });
 
+const UpdateSourcePayload = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  auth: Schema.optional(AuthPayload),
+});
+
+const UpdateSourceResponse = Schema.Struct({
+  updated: Schema.Boolean,
+});
+
 const StartOAuthPayload = Schema.Struct({
   name: Schema.String,
   discoveryUrl: Schema.String,
@@ -72,6 +77,8 @@ const StartOAuthPayload = Schema.Struct({
   clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   redirectUrl: Schema.String,
   scopes: Schema.optional(Schema.Array(Schema.String)),
+  /** Optional executor scope that will own the resulting Connection. */
+  tokenScope: Schema.optional(Schema.String),
 });
 
 const StartOAuthResponse = Schema.Struct({
@@ -88,13 +95,11 @@ const CompleteOAuthPayload = Schema.Struct({
 
 const CompleteOAuthResponse = Schema.Struct({
   kind: Schema.Literal("oauth2"),
+  /** Id of the Connection the SDK minted. The caller stores it on the
+   *  source's `oauth2` field and resolves tokens via `ctx.connections`. */
+  connectionId: Schema.String,
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
-  accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.NullOr(Schema.String),
-  tokenType: Schema.String,
-  expiresAt: Schema.NullOr(Schema.Number),
-  scope: Schema.NullOr(Schema.String),
   scopes: Schema.Array(Schema.String),
 });
 
@@ -137,6 +142,13 @@ export class GoogleDiscoveryGroup extends HttpApiGroup.make("googleDiscovery")
     HttpApiEndpoint.post("addSource")`/scopes/${scopeIdParam}/google-discovery/sources`
       .setPayload(AddSourcePayload)
       .addSuccess(AddSourceResponse),
+  )
+  .add(
+    HttpApiEndpoint.patch(
+      "updateSource",
+    )`/scopes/${scopeIdParam}/google-discovery/sources/${namespaceParam}`
+      .setPayload(UpdateSourcePayload)
+      .addSuccess(UpdateSourceResponse),
   )
   .add(
     HttpApiEndpoint.post("startOAuth")`/scopes/${scopeIdParam}/google-discovery/oauth/start`

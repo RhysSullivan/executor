@@ -17,6 +17,10 @@ export const addGoogleDiscoverySource = GoogleDiscoveryClient.mutation(
   "googleDiscovery",
   "addSource",
 );
+export const updateGoogleDiscoverySource = GoogleDiscoveryClient.mutation(
+  "googleDiscovery",
+  "updateSource",
+);
 export const startGoogleDiscoveryOAuth = GoogleDiscoveryClient.mutation(
   "googleDiscovery",
   "startOAuth",

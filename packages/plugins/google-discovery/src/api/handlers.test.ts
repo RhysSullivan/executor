@@ -26,6 +26,7 @@ const failingExtension: GoogleDiscoveryPluginExtension = {
   startOAuth: () => unused,
   completeOAuth: () => Effect.die(new Error("Not implemented")),
   getSource: (_namespace: string, _scope: string) => Effect.succeed(null),
+  updateSource: () => unused,
 };
 
 const Api = addGroup(GoogleDiscoveryGroup);

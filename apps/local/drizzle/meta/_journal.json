@@ -15,6 +15,13 @@
       "when": 1776680432025,
       "tag": "0001_sour_catseye",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1776732062873,
+      "tag": "0002_lively_sue_storm",
+      "breakpoints": true
     }
   ]
 }

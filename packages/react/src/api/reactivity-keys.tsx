@@ -21,6 +21,7 @@ export const ReactivityKey = {
   sources: "sources",
   tools: "tools",
   secrets: "secrets",
+  connections: "connections",
   scope: "scope",
   // cloud-only resources
   orgMembers: "org:members",
@@ -34,6 +35,15 @@ export const sourceWriteKeys = [ReactivityKey.sources, ReactivityKey.tools] as c
 
 /** Mutations that mint or revoke secrets. */
 export const secretWriteKeys = [ReactivityKey.secrets] as const;
+
+/** Mutations that create or remove connections. Touches `secrets` too
+ *  because connection-owned secret rows are filtered out of the secrets
+ *  list — signing out should unhide them (in the future) or remove
+ *  them, and either way the secrets page needs to re-query. */
+export const connectionWriteKeys = [
+  ReactivityKey.connections,
+  ReactivityKey.secrets,
+] as const;
 
 /** Mutations that change scope membership/info. */
 export const scopeWriteKeys = [ReactivityKey.scope] as const;

@@ -91,6 +91,7 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           name: payload.name,
           baseUrl: payload.baseUrl,
           headers: payload.headers as Record<string, HeaderValue> | undefined,
+          oauth2: payload.oauth2,
         } as OpenApiUpdateSourceInput);
         return { updated: true };
       })),
@@ -112,7 +113,6 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
             clientSecretSecretId: payload.clientSecretSecretId,
             scopes: [...payload.scopes],
             tokenScope,
-            accessTokenSecretId: payload.accessTokenSecretId,
           });
         }
         return yield* ext.startOAuth({
@@ -126,8 +126,6 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
           clientSecretSecretId: payload.clientSecretSecretId ?? null,
           scopes: [...payload.scopes],
           tokenScope,
-          accessTokenSecretId: payload.accessTokenSecretId,
-          refreshTokenSecretId: payload.refreshTokenSecretId ?? null,
         });
       })),
     )

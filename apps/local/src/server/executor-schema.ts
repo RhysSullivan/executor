@@ -56,11 +56,32 @@ export const secret = sqliteTable("secret", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   provider: text('provider').notNull(),
+  owned_by_connection_id: text('owned_by_connection_id'),
   created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("secret_scope_id_idx").on(table.scope_id),
   index("secret_provider_idx").on(table.provider),
+  index("secret_owned_by_connection_id_idx").on(table.owned_by_connection_id),
+]);
+
+export const connection = sqliteTable("connection", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  provider: text('provider').notNull(),
+  kind: text('kind').notNull(),
+  identity_label: text('identity_label'),
+  access_token_secret_id: text('access_token_secret_id').notNull(),
+  refresh_token_secret_id: text('refresh_token_secret_id'),
+  expires_at: integer('expires_at'),
+  scope: text('scope'),
+  provider_state: text('provider_state', { mode: "json" }),
+  created_at: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updated_at: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("connection_scope_id_idx").on(table.scope_id),
+  index("connection_provider_idx").on(table.provider),
 ]);
 
 export const openapi_source = sqliteTable("openapi_source", {

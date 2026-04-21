@@ -36,14 +36,10 @@ const AuthPayload = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    accessTokenSecretId: Schema.String,
-    refreshTokenSecretId: Schema.NullOr(Schema.String),
-    tokenType: Schema.optional(Schema.String),
-    expiresAt: Schema.NullOr(Schema.Number),
-    scope: Schema.NullOr(Schema.String),
-    clientInformation: Schema.optional(Schema.NullOr(JsonObject)),
-    authorizationServerUrl: Schema.optional(Schema.NullOr(Schema.String)),
-    resourceMetadataUrl: Schema.optional(Schema.NullOr(Schema.String)),
+    /** Stable id of the SDK Connection minted by `completeOAuth`. The
+     *  backing access/refresh secrets live on the connection row; the
+     *  source only needs this pointer. */
+    connectionId: Schema.String,
   }),
 );
 
@@ -113,8 +109,12 @@ const StartOAuthPayload = Schema.Struct({
   endpoint: Schema.String,
   redirectUrl: Schema.String,
   queryParams: Schema.optional(Schema.NullOr(StringMap)),
-  accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.optional(Schema.NullOr(Schema.String)),
+  /** Pre-decided SDK connection id the exchange will mint. Caller
+   *  passes a stable value (`mcp-oauth2-${namespace}`) so every user
+   *  signing in against the same source writes to the same id at their
+   *  own scope — the source's stored `{kind: "oauth2", connectionId}`
+   *  then resolves per-user via shadowing. */
+  connectionId: Schema.String,
   /** Source-level OAuth state captured by a previous user's flow. When
    *  passed, DCR is skipped — the same client_id is re-used so the
    *  source's auth config stays stable across users. */
@@ -161,11 +161,15 @@ const StartOAuthResponse = Schema.Struct({
 });
 
 const CompleteOAuthResponse = Schema.Struct({
-  accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.NullOr(Schema.String),
+  /** Id of the SDK Connection minted by the exchange. The UI stores it
+   *  on the source's auth config as `{kind: "oauth2", connectionId}`. */
+  connectionId: Schema.String,
   tokenType: Schema.String,
   expiresAt: Schema.NullOr(Schema.Number),
   scope: Schema.NullOr(Schema.String),
+  /** DCR client + discovery URLs captured during the flow. Persisted
+   *  on the source's auth config so subsequent users skip DCR + re-
+   *  discovery. */
   clientInformation: Schema.NullOr(JsonObject),
   authorizationServerUrl: Schema.NullOr(Schema.String),
   resourceMetadataUrl: Schema.NullOr(Schema.String),

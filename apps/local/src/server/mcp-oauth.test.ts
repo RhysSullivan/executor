@@ -55,7 +55,6 @@ import { makeQuickJsExecutor } from "@executor/runtime-quickjs";
 import {
   Scope,
   ScopeId,
-  SecretId,
   collectSchemas,
   createExecutor,
 } from "@executor/sdk";
@@ -382,14 +381,13 @@ const followAuthorize = async (
 // ---------------------------------------------------------------------------
 
 describe("local mcp oauth (real OAuth + MCP server)", () => {
-  it("startOAuth → authorize → completeOAuth writes tokens at the scope", async () => {
+  it("startOAuth → authorize → completeOAuth mints a Connection at the scope", async () => {
     const clientLayer = FetchHttpClient.layer.pipe(
       Layer.provide(Layer.succeed(FetchHttpClient.Fetch, harness.fetch)),
     );
 
     const namespace = `ns_${randomBytes(4).toString("hex")}`;
-    const accessTokenSecretId = `mcp_${namespace}_access_token`;
-    const refreshTokenSecretId = `mcp_${namespace}_refresh_token`;
+    const connectionId = `mcp-oauth2-${namespace}`;
     const redirectUrl = "http://local.test/api/mcp/oauth/callback";
     const scopeId = ScopeId.make(harness.scopeId);
 
@@ -410,8 +408,7 @@ describe("local mcp oauth (real OAuth + MCP server)", () => {
           payload: {
             endpoint: `${fake.url}/mcp`,
             redirectUrl,
-            accessTokenSecretId,
-            refreshTokenSecretId,
+            connectionId,
           },
         }),
       ),
@@ -429,30 +426,9 @@ describe("local mcp oauth (real OAuth + MCP server)", () => {
         }),
       ),
     );
-    expect(completed.accessTokenSecretId).toBe(accessTokenSecretId);
-    expect(completed.refreshTokenSecretId).toBe(refreshTokenSecretId);
+    expect(completed.connectionId).toBe(connectionId);
     expect(completed.tokenType).toBe("Bearer");
     expect(completed.clientInformation).not.toBeNull();
     expect(completed.authorizationServerUrl).not.toBeNull();
-
-    // Tokens landed at the (single) local scope and resolve back through
-    // the same provider that the plugin wrote them to.
-    const access = await Effect.runPromise(
-      run((client) =>
-        client.secrets.resolve({
-          path: { scopeId, secretId: SecretId.make(accessTokenSecretId) },
-        }),
-      ),
-    );
-    expect(access.value).toMatch(/^at_/);
-
-    const refresh = await Effect.runPromise(
-      run((client) =>
-        client.secrets.resolve({
-          path: { scopeId, secretId: SecretId.make(refreshTokenSecretId) },
-        }),
-      ),
-    );
-    expect(refresh.value).toMatch(/^rt_/);
   }, 30_000);
 });

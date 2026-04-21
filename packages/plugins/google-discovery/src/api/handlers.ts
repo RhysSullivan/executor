@@ -84,6 +84,7 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
             clientSecretSecretId: payload.clientSecretSecretId,
             redirectUrl: payload.redirectUrl,
             scopes: payload.scopes,
+            tokenScope: payload.tokenScope,
           });
         })),
       )
@@ -101,6 +102,16 @@ export const GoogleDiscoveryHandlers = HttpApiBuilder.group(
         capture(Effect.gen(function* () {
           const ext = yield* GoogleDiscoveryExtensionService;
           return yield* ext.getSource(path.namespace, path.scopeId);
+        })),
+      )
+      .handle("updateSource", ({ path, payload }) =>
+        capture(Effect.gen(function* () {
+          const ext = yield* GoogleDiscoveryExtensionService;
+          yield* ext.updateSource(path.namespace, path.scopeId, {
+            name: payload.name,
+            auth: payload.auth,
+          });
+          return { updated: true };
         })),
       )
       .handle("oauthCallback", ({ urlParams }) =>

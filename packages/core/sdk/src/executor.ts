@@ -14,7 +14,16 @@ import {
   type BlobStore,
 } from "./blob";
 import {
+  ConnectionProviderState,
+  ConnectionRef,
+  ConnectionRefreshError,
+  type ConnectionProvider,
+  type CreateConnectionInput,
+  type UpdateConnectionTokensInput,
+} from "./connections";
+import {
   coreSchema,
+  type ConnectionRow,
   type CoreSchema,
   type DefinitionsInput,
   type SourceInput,
@@ -30,13 +39,17 @@ import {
   type ElicitationRequest,
 } from "./elicitation";
 import {
+  ConnectionNotFoundError,
+  ConnectionProviderNotRegisteredError,
+  ConnectionRefreshNotSupportedError,
   NoHandlerError,
   PluginNotLoadedError,
+  SecretOwnedByConnectionError,
   SourceRemovalNotAllowedError,
   ToolInvocationError,
   ToolNotFoundError,
 } from "./errors";
-import { ScopeId, SecretId, ToolId } from "./ids";
+import { ConnectionId, ScopeId, SecretId, ToolId } from "./ids";
 import type {
   AnyPlugin,
   Elicit,
@@ -168,8 +181,48 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = []> = {
     readonly set: (
       input: SetSecretInput,
     ) => Effect.Effect<SecretRef, StorageFailure>;
-    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
+    /** Delete a bare (non-connection-owned) secret. Connection-owned
+     *  secrets are rejected with `SecretOwnedByConnectionError` — use
+     *  `connections.remove` instead. */
+    readonly remove: (
+      id: string,
+    ) => Effect.Effect<void, SecretOwnedByConnectionError | StorageFailure>;
     readonly list: () => Effect.Effect<readonly SecretRef[], StorageFailure>;
+    readonly providers: () => Effect.Effect<readonly string[]>;
+  };
+
+  readonly connections: {
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<ConnectionRef | null, StorageFailure>;
+    readonly list: () => Effect.Effect<readonly ConnectionRef[], StorageFailure>;
+    readonly create: (
+      input: CreateConnectionInput,
+    ) => Effect.Effect<
+      ConnectionRef,
+      ConnectionProviderNotRegisteredError | StorageFailure
+    >;
+    readonly updateTokens: (
+      input: UpdateConnectionTokensInput,
+    ) => Effect.Effect<
+      ConnectionRef,
+      ConnectionNotFoundError | StorageFailure
+    >;
+    readonly setIdentityLabel: (
+      id: string,
+      label: string | null,
+    ) => Effect.Effect<void, ConnectionNotFoundError | StorageFailure>;
+    readonly accessToken: (
+      id: string,
+    ) => Effect.Effect<
+      string,
+      | ConnectionNotFoundError
+      | ConnectionProviderNotRegisteredError
+      | ConnectionRefreshNotSupportedError
+      | ConnectionRefreshError
+      | StorageFailure
+    >;
+    readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
     readonly providers: () => Effect.Effect<readonly string[]>;
   };
 
@@ -547,6 +600,9 @@ export const createExecutor = <
     const runtimes = new Map<string, PluginRuntime>();
     // Secret providers keyed by `provider.key`.
     const secretProviders = new Map<string, SecretProvider>();
+    // Connection providers keyed by `provider.key` — drive the refresh
+    // lifecycle for connection-owned tokens.
+    const connectionProviders = new Map<string, ConnectionProvider>();
     const extensions: Record<string, object> = {};
 
     // ------------------------------------------------------------------
@@ -743,7 +799,9 @@ export const createExecutor = <
         });
       });
 
-    const secretsRemove = (id: string): Effect.Effect<void, StorageFailure> =>
+    const secretsRemove = (
+      id: string,
+    ): Effect.Effect<void, SecretOwnedByConnectionError | StorageFailure> =>
       Effect.gen(function* () {
         // Remove is shadowing-aware: drop only the innermost-scope row.
         // Removing a user-scope override on a secret that also has an
@@ -757,6 +815,18 @@ export const createExecutor = <
           where: [{ field: "id", value: id }],
         });
         const target = findInnermost(rows);
+        // Refuse to delete connection-owned secrets. The connection owns
+        // the lifecycle — callers must go through connections.remove.
+        if (target && target.owned_by_connection_id) {
+          return yield* Effect.fail(
+            new SecretOwnedByConnectionError({
+              secretId: SecretId.make(id),
+              connectionId: ConnectionId.make(
+                target.owned_by_connection_id as string,
+              ),
+            }),
+          );
+        }
         const targetScope = (target?.scope_id as string | undefined) ??
           scopeIds[0]!;
 
@@ -808,8 +878,18 @@ export const createExecutor = <
 
         // Core routing rows first. Adapter returns rows from every
         // scope in the stack; resolve collisions using the caller's
-        // precedence order (innermost first).
-        const rows = yield* core.findMany({ model: "secret" });
+        // precedence order (innermost first). Rows owned by a
+        // connection are filtered out — the user sees the Connection
+        // entry, not its backing token secrets. Their ids go in a
+        // deny-set so provider `list()` results for the same id can't
+        // leak them back in below.
+        const allRows = yield* core.findMany({ model: "secret" });
+        const connectionOwnedIds = new Set(
+          allRows
+            .filter((r) => r.owned_by_connection_id)
+            .map((r) => r.id as string),
+        );
+        const rows = allRows.filter((r) => !r.owned_by_connection_id);
         const precedence = new Map<string, number>();
         scopeIds.forEach((id, index) => precedence.set(id, index));
         const pick = (row: typeof rows[number]) => {
@@ -859,6 +939,7 @@ export const createExecutor = <
         for (const { key, entries } of lists) {
           for (const entry of entries) {
             if (byId.has(entry.id)) continue; // core row wins
+            if (connectionOwnedIds.has(entry.id)) continue; // hidden by connection
             byId.set(
               entry.id,
               new SecretRef({
@@ -886,6 +967,525 @@ export const createExecutor = <
           provider: ref.provider,
         }));
       });
+
+    // ------------------------------------------------------------------
+    // Connections facade — sign-in state as a first-class primitive.
+    // Connection rows own one or more backing `secret` rows via
+    // `secret.owned_by_connection_id`; the SDK orchestrates refresh via
+    // the registered provider keyed by `connection.provider`.
+    // ------------------------------------------------------------------
+
+    // Refresh skew: treat the access token as "about to expire" when
+    // we're within this many ms of the expiry the AS declared.
+    // Matches the value the old per-plugin refresh code used, so
+    // behavior under the new SDK orchestration stays identical.
+    const CONNECTION_REFRESH_SKEW_MS = 60_000;
+
+    const toJsonObject = (
+      value: unknown,
+    ): ConnectionProviderState | null => {
+      if (value === null || value === undefined) return null;
+      if (typeof value === "string") {
+        try {
+          const parsed = JSON.parse(value);
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as ConnectionProviderState)
+            : null;
+        } catch {
+          return null;
+        }
+      }
+      if (typeof value !== "object" || Array.isArray(value)) return null;
+      return value as ConnectionProviderState;
+    };
+
+    const rowToConnection = (row: ConnectionRow): ConnectionRef =>
+      new ConnectionRef({
+        id: ConnectionId.make(row.id as string),
+        scopeId: ScopeId.make(row.scope_id as string),
+        provider: row.provider as string,
+        kind: (row.kind as "user" | "app") ?? "user",
+        identityLabel: (row.identity_label as string | null | undefined) ?? null,
+        accessTokenSecretId: SecretId.make(row.access_token_secret_id as string),
+        refreshTokenSecretId:
+          row.refresh_token_secret_id != null
+            ? SecretId.make(row.refresh_token_secret_id as string)
+            : null,
+        expiresAt:
+          row.expires_at != null ? Number(row.expires_at as number) : null,
+        oauthScope: (row.scope as string | null | undefined) ?? null,
+        providerState: toJsonObject(row.provider_state),
+        createdAt:
+          row.created_at instanceof Date
+            ? row.created_at
+            : new Date(row.created_at as string),
+        updatedAt:
+          row.updated_at instanceof Date
+            ? row.updated_at
+            : new Date(row.updated_at as string),
+      });
+
+    const findInnermostConnectionRow = (
+      id: string,
+    ): Effect.Effect<ConnectionRow | null, StorageFailure> =>
+      Effect.gen(function* () {
+        const rows = yield* core.findMany({
+          model: "connection",
+          where: [{ field: "id", value: id }],
+        });
+        return findInnermost(rows as readonly ConnectionRow[]);
+      });
+
+    const connectionsGet = (
+      id: string,
+    ): Effect.Effect<ConnectionRef | null, StorageFailure> =>
+      Effect.gen(function* () {
+        const row = yield* findInnermostConnectionRow(id);
+        return row ? rowToConnection(row) : null;
+      });
+
+    const connectionsList = (): Effect.Effect<
+      readonly ConnectionRef[],
+      StorageFailure
+    > =>
+      Effect.gen(function* () {
+        const rows = yield* core.findMany({ model: "connection" });
+        // Dedup by id, innermost scope wins — same rule as sources/tools.
+        const byId = new Map<string, ConnectionRow>();
+        const byIdRank = new Map<string, number>();
+        for (const row of rows as readonly ConnectionRow[]) {
+          const rank = scopeRank(row as { scope_id: unknown });
+          const existing = byIdRank.get(row.id as string);
+          if (existing === undefined || rank < existing) {
+            byId.set(row.id as string, row);
+            byIdRank.set(row.id as string, rank);
+          }
+        }
+        return [...byId.values()].map(rowToConnection);
+      });
+
+    // Write a secret value through a specific provider, bypassing the
+    // bare-secrets ownership check so the SDK can stamp
+    // `owned_by_connection_id` atomically alongside a connection row.
+    const writeOwnedSecret = (
+      params: {
+        id: string;
+        scope: string;
+        name: string;
+        value: string;
+        provider: string;
+        ownedByConnectionId: string;
+      },
+    ): Effect.Effect<void, StorageFailure> =>
+      Effect.gen(function* () {
+        const target = secretProviders.get(params.provider);
+        if (!target) {
+          return yield* Effect.fail(
+            new StorageError({
+              message: `Unknown secret provider: ${params.provider}`,
+              cause: undefined,
+            }),
+          );
+        }
+        if (!target.writable || !target.set) {
+          return yield* Effect.fail(
+            new StorageError({
+              message: `Secret provider "${target.key}" is read-only`,
+              cause: undefined,
+            }),
+          );
+        }
+        yield* target.set(params.id, params.value, params.scope);
+
+        const now = new Date();
+        yield* core.delete({
+          model: "secret",
+          where: [
+            { field: "id", value: params.id },
+            { field: "scope_id", value: params.scope },
+          ],
+        });
+        yield* core.create({
+          model: "secret",
+          data: {
+            id: params.id,
+            scope_id: params.scope,
+            name: params.name,
+            provider: target.key,
+            owned_by_connection_id: params.ownedByConnectionId,
+            created_at: now,
+          },
+          forceAllowId: true,
+        });
+      });
+
+    const pickWritableProvider = (
+      requested?: string,
+    ): Effect.Effect<SecretProvider, StorageFailure> =>
+      Effect.gen(function* () {
+        if (requested) {
+          const p = secretProviders.get(requested);
+          if (!p) {
+            return yield* Effect.fail(
+              new StorageError({
+                message: `Unknown secret provider: ${requested}`,
+                cause: undefined,
+              }),
+            );
+          }
+          return p;
+        }
+        for (const p of secretProviders.values()) {
+          if (p.writable && p.set) return p;
+        }
+        return yield* Effect.fail(
+          new StorageError({
+            message: "No writable secret providers registered",
+            cause: undefined,
+          }),
+        );
+      });
+
+    const connectionsCreate = (
+      input: CreateConnectionInput,
+    ): Effect.Effect<
+      ConnectionRef,
+      ConnectionProviderNotRegisteredError | StorageFailure
+    > =>
+      Effect.gen(function* () {
+        if (!scopeIds.includes(input.scope as string)) {
+          return yield* Effect.fail(
+            new StorageError({
+              message:
+                `connections.create targets scope "${input.scope}" which is not ` +
+                `in the executor's scope stack [${scopeIds.join(", ")}].`,
+              cause: undefined,
+            }),
+          );
+        }
+        if (!connectionProviders.has(input.provider)) {
+          return yield* Effect.fail(
+            new ConnectionProviderNotRegisteredError({
+              provider: input.provider,
+              connectionId: input.id,
+            }),
+          );
+        }
+
+        const writable = yield* pickWritableProvider();
+        const now = new Date();
+
+        return yield* adapter.transaction(() =>
+          Effect.gen(function* () {
+            // Drop any existing connection row at this scope first so a
+            // re-auth replaces cleanly. Owned-secret rows for the old
+            // connection are removed by the cascade below (we delete
+            // both old + new token secret ids explicitly).
+            yield* core.delete({
+              model: "connection",
+              where: [
+                { field: "id", value: input.id as string },
+                { field: "scope_id", value: input.scope as string },
+              ],
+            });
+
+            yield* writeOwnedSecret({
+              id: input.accessToken.secretId as string,
+              scope: input.scope as string,
+              name: input.accessToken.name,
+              value: input.accessToken.value,
+              provider: writable.key,
+              ownedByConnectionId: input.id as string,
+            });
+            if (input.refreshToken) {
+              yield* writeOwnedSecret({
+                id: input.refreshToken.secretId as string,
+                scope: input.scope as string,
+                name: input.refreshToken.name,
+                value: input.refreshToken.value,
+                provider: writable.key,
+                ownedByConnectionId: input.id as string,
+              });
+            }
+
+            yield* core.create({
+              model: "connection",
+              data: {
+                id: input.id as string,
+                scope_id: input.scope as string,
+                provider: input.provider,
+                kind: input.kind,
+                identity_label: input.identityLabel ?? undefined,
+                access_token_secret_id: input.accessToken.secretId as string,
+                refresh_token_secret_id:
+                  input.refreshToken?.secretId ?? undefined,
+                expires_at: input.expiresAt ?? undefined,
+                scope: input.oauthScope ?? undefined,
+                provider_state: input.providerState ?? undefined,
+                created_at: now,
+                updated_at: now,
+              },
+              forceAllowId: true,
+            });
+
+            return new ConnectionRef({
+              id: input.id,
+              scopeId: input.scope,
+              provider: input.provider,
+              kind: input.kind,
+              identityLabel: input.identityLabel,
+              accessTokenSecretId: input.accessToken.secretId,
+              refreshTokenSecretId:
+                input.refreshToken?.secretId ?? null,
+              expiresAt: input.expiresAt,
+              oauthScope: input.oauthScope,
+              providerState: input.providerState,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }),
+        );
+      });
+
+    // Write new token material into the existing secret rows and bump
+    // the connection row's expiry / scope / providerState. Never
+    // mutates `access_token_secret_id` or `refresh_token_secret_id` —
+    // those stay pinned so consumers that stashed them in source
+    // configs still resolve.
+    const connectionsUpdateTokens = (
+      input: UpdateConnectionTokensInput,
+    ): Effect.Effect<
+      ConnectionRef,
+      ConnectionNotFoundError | StorageFailure
+    > =>
+      Effect.gen(function* () {
+        const row = yield* findInnermostConnectionRow(input.id as string);
+        if (!row) {
+          return yield* Effect.fail(
+            new ConnectionNotFoundError({ connectionId: input.id }),
+          );
+        }
+        const writable = yield* pickWritableProvider();
+        const accessName =
+          `Connection ${input.id as string} access token`;
+        const refreshName =
+          `Connection ${input.id as string} refresh token`;
+
+        return yield* adapter.transaction(() =>
+          Effect.gen(function* () {
+            yield* writeOwnedSecret({
+              id: row.access_token_secret_id as string,
+              scope: row.scope_id as string,
+              name: accessName,
+              value: input.accessToken,
+              provider: writable.key,
+              ownedByConnectionId: row.id as string,
+            });
+            const rotatedRefresh = input.refreshToken ?? undefined;
+            if (
+              rotatedRefresh &&
+              row.refresh_token_secret_id
+            ) {
+              yield* writeOwnedSecret({
+                id: row.refresh_token_secret_id as string,
+                scope: row.scope_id as string,
+                name: refreshName,
+                value: rotatedRefresh,
+                provider: writable.key,
+                ownedByConnectionId: row.id as string,
+              });
+            }
+            const now = new Date();
+            const patch: Record<string, unknown> = { updated_at: now };
+            if (input.expiresAt !== undefined)
+              patch.expires_at = input.expiresAt ?? undefined;
+            if (input.oauthScope !== undefined)
+              patch.scope = input.oauthScope ?? undefined;
+            if (input.providerState !== undefined)
+              patch.provider_state = input.providerState ?? undefined;
+            if (input.identityLabel !== undefined)
+              patch.identity_label = input.identityLabel ?? undefined;
+            yield* core.update({
+              model: "connection",
+              where: [
+                { field: "id", value: row.id as string },
+                { field: "scope_id", value: row.scope_id as string },
+              ],
+              update: patch,
+            });
+            const updated = yield* findInnermostConnectionRow(
+              row.id as string,
+            );
+            if (!updated) {
+              return yield* Effect.fail(
+                new ConnectionNotFoundError({ connectionId: input.id }),
+              );
+            }
+            return rowToConnection(updated);
+          }),
+        );
+      });
+
+    const connectionsSetIdentityLabel = (
+      id: string,
+      label: string | null,
+    ): Effect.Effect<void, ConnectionNotFoundError | StorageFailure> =>
+      Effect.gen(function* () {
+        const row = yield* findInnermostConnectionRow(id);
+        if (!row) {
+          return yield* Effect.fail(
+            new ConnectionNotFoundError({
+              connectionId: ConnectionId.make(id),
+            }),
+          );
+        }
+        yield* core.update({
+          model: "connection",
+          where: [
+            { field: "id", value: id },
+            { field: "scope_id", value: row.scope_id as string },
+          ],
+          update: {
+            identity_label: label ?? undefined,
+            updated_at: new Date(),
+          },
+        });
+      });
+
+    const connectionsRemove = (
+      id: string,
+    ): Effect.Effect<void, StorageFailure> =>
+      Effect.gen(function* () {
+        const row = yield* findInnermostConnectionRow(id);
+        if (!row) return;
+        const scope = row.scope_id as string;
+        yield* adapter.transaction(() =>
+          Effect.gen(function* () {
+            // Find every owned secret at this scope and drop through
+            // its provider + the core row. We look up by
+            // `owned_by_connection_id` rather than just the two ids on
+            // the connection row so any accidentally-orphaned siblings
+            // get cleaned up too.
+            const owned = yield* core.findMany({
+              model: "secret",
+              where: [
+                { field: "owned_by_connection_id", value: id },
+                { field: "scope_id", value: scope },
+              ],
+            });
+            const deleters = [...secretProviders.values()].filter(
+              (p): p is typeof p & { delete: NonNullable<typeof p.delete> } =>
+                !!(p.writable && p.delete),
+            );
+            for (const secret of owned) {
+              yield* Effect.all(
+                deleters.map((p) => p.delete(secret.id as string, scope)),
+                { concurrency: "unbounded" },
+              );
+            }
+            yield* core.deleteMany({
+              model: "secret",
+              where: [
+                { field: "owned_by_connection_id", value: id },
+                { field: "scope_id", value: scope },
+              ],
+            });
+            yield* core.delete({
+              model: "connection",
+              where: [
+                { field: "id", value: id },
+                { field: "scope_id", value: scope },
+              ],
+            });
+          }),
+        );
+      });
+
+    // accessToken(id) — the single surface plugins use at invoke time.
+    // Resolves the backing secret, checks expiry, calls the provider's
+    // refresh handler if we're inside the skew window. New tokens are
+    // written back through the same provider and the connection row is
+    // patched with the new expiry.
+    const connectionsAccessToken = (
+      id: string,
+    ): Effect.Effect<
+      string,
+      | ConnectionNotFoundError
+      | ConnectionProviderNotRegisteredError
+      | ConnectionRefreshNotSupportedError
+      | ConnectionRefreshError
+      | StorageFailure
+    > =>
+      Effect.gen(function* () {
+        const row = yield* findInnermostConnectionRow(id);
+        if (!row) {
+          return yield* Effect.fail(
+            new ConnectionNotFoundError({
+              connectionId: ConnectionId.make(id),
+            }),
+          );
+        }
+        const ref = rowToConnection(row);
+        const now = Date.now();
+        const needsRefresh =
+          ref.expiresAt !== null &&
+          ref.expiresAt - CONNECTION_REFRESH_SKEW_MS <= now;
+
+        if (!needsRefresh) {
+          const current = yield* secretsGet(
+            ref.accessTokenSecretId as unknown as string,
+          );
+          if (current !== null) return current;
+          // Fall through to refresh if the stored token vanished — a
+          // genuinely-missing secret with no way to refresh is a
+          // hard-failure, same behavior as if `expires_at` had passed.
+        }
+
+        const provider = connectionProviders.get(ref.provider);
+        if (!provider) {
+          return yield* Effect.fail(
+            new ConnectionProviderNotRegisteredError({
+              provider: ref.provider,
+              connectionId: ref.id,
+            }),
+          );
+        }
+        if (!provider.refresh) {
+          return yield* Effect.fail(
+            new ConnectionRefreshNotSupportedError({
+              connectionId: ref.id,
+              provider: ref.provider,
+            }),
+          );
+        }
+
+        const refreshTokenValue = ref.refreshTokenSecretId
+          ? yield* secretsGet(ref.refreshTokenSecretId as unknown as string)
+          : null;
+
+        const result = yield* provider.refresh({
+          connectionId: ref.id,
+          scopeId: ref.scopeId,
+          kind: ref.kind,
+          identityLabel: ref.identityLabel,
+          refreshToken: refreshTokenValue,
+          providerState: ref.providerState,
+          oauthScope: ref.oauthScope,
+        });
+
+        yield* connectionsUpdateTokens({
+          id: ref.id,
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+          expiresAt: result.expiresAt,
+          oauthScope: result.oauthScope,
+          providerState: result.providerState,
+        } as UpdateConnectionTokensInput);
+
+        return result.accessToken;
+      });
+
+    const connectionsListForCtx = () => connectionsList();
 
     // ------------------------------------------------------------------
     // Plugin wiring — build ctx, run extension, populate static pools,
@@ -996,6 +1596,16 @@ export const createExecutor = <
           set: (input) => secretsSet(input),
           remove: (id) => secretsRemove(id),
         },
+        connections: {
+          get: (id) => connectionsGet(id),
+          list: () => connectionsListForCtx(),
+          create: (input) => connectionsCreate(input),
+          updateTokens: (input) => connectionsUpdateTokens(input),
+          setIdentityLabel: (id, label) =>
+            connectionsSetIdentityLabel(id, label),
+          accessToken: (id) => connectionsAccessToken(id),
+          remove: (id) => connectionsRemove(id),
+        },
         // Open one real tx boundary and route every nested write inside
         // `effect` through that same handle via the activeAdapterRef —
         // see buildAdapterRouter above. Caller-typed errors (`E`)
@@ -1068,6 +1678,24 @@ export const createExecutor = <
             );
           }
           secretProviders.set(provider.key, provider);
+        }
+      }
+
+      if (plugin.connectionProviders) {
+        const raw =
+          typeof plugin.connectionProviders === "function"
+            ? plugin.connectionProviders(ctx)
+            : plugin.connectionProviders;
+        const providers = Effect.isEffect(raw) ? yield* raw : raw;
+        for (const provider of providers) {
+          if (connectionProviders.has(provider.key)) {
+            return yield* Effect.fail(
+              new Error(
+                `Duplicate connection provider key: ${provider.key} (from plugin ${plugin.id})`,
+              ),
+            );
+          }
+          connectionProviders.set(provider.key, provider);
         }
       }
     }
@@ -1645,6 +2273,20 @@ export const createExecutor = <
         providers: () =>
           Effect.sync(
             () => Array.from(secretProviders.keys()) as readonly string[],
+          ),
+      },
+      connections: {
+        get: connectionsGet,
+        list: connectionsList,
+        create: connectionsCreate,
+        updateTokens: connectionsUpdateTokens,
+        setIdentityLabel: connectionsSetIdentityLabel,
+        accessToken: connectionsAccessToken,
+        remove: connectionsRemove,
+        providers: () =>
+          Effect.sync(
+            () =>
+              Array.from(connectionProviders.keys()) as readonly string[],
           ),
       },
       close,

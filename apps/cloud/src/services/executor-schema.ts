@@ -56,11 +56,32 @@ export const secret = pgTable("secret", {
   scope_id: text('scope_id').notNull(),
   name: text('name').notNull(),
   provider: text('provider').notNull(),
+  owned_by_connection_id: text('owned_by_connection_id'),
   created_at: timestamp('created_at').notNull()
 }, (table) => [
   primaryKey({ columns: [table.scope_id, table.id] }),
   index("secret_scope_id_idx").on(table.scope_id),
   index("secret_provider_idx").on(table.provider),
+  index("secret_owned_by_connection_id_idx").on(table.owned_by_connection_id),
+]);
+
+export const connection = pgTable("connection", {
+  id: text('id').notNull(),
+  scope_id: text('scope_id').notNull(),
+  provider: text('provider').notNull(),
+  kind: text('kind').notNull(),
+  identity_label: text('identity_label'),
+  access_token_secret_id: text('access_token_secret_id').notNull(),
+  refresh_token_secret_id: text('refresh_token_secret_id'),
+  expires_at: bigint('expires_at', { mode: 'number' }),
+  scope: text('scope'),
+  provider_state: jsonb('provider_state'),
+  created_at: timestamp('created_at').notNull(),
+  updated_at: timestamp('updated_at').notNull()
+}, (table) => [
+  primaryKey({ columns: [table.scope_id, table.id] }),
+  index("connection_scope_id_idx").on(table.scope_id),
+  index("connection_provider_idx").on(table.provider),
 ]);
 
 export const openapi_source = pgTable("openapi_source", {

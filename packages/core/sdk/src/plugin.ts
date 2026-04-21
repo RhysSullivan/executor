@@ -8,6 +8,13 @@ import type {
 
 import type { PluginBlobStore } from "./blob";
 import type {
+  ConnectionProvider,
+  ConnectionRef,
+  ConnectionRefreshError,
+  CreateConnectionInput,
+  UpdateConnectionTokensInput,
+} from "./connections";
+import type {
   DefinitionsInput,
   SourceInput,
   ToolAnnotations,
@@ -20,6 +27,12 @@ import type {
   ElicitationRequest,
   ElicitationResponse,
 } from "./elicitation";
+import type {
+  ConnectionNotFoundError,
+  ConnectionProviderNotRegisteredError,
+  ConnectionRefreshNotSupportedError,
+  SecretOwnedByConnectionError,
+} from "./errors";
 import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
 
@@ -119,6 +132,9 @@ export interface PluginCtx<TStore = unknown> {
     readonly get: (
       id: string,
     ) => Effect.Effect<string | null, StorageFailure>;
+    /** List user-visible secrets. Connection-owned secrets (rows with
+     *  `owned_by_connection_id` set) are filtered out so they don't
+     *  clutter the UI — users see the Connection instead. */
     readonly list: () => Effect.Effect<
       readonly { readonly id: string; readonly name: string; readonly provider: string }[],
       StorageFailure
@@ -132,7 +148,54 @@ export interface PluginCtx<TStore = unknown> {
     readonly set: (
       input: SetSecretInput,
     ) => Effect.Effect<SecretRef, StorageFailure>;
-    /** Delete a secret from its pinned provider and the core table. */
+    /** Delete a secret from its pinned provider and the core table.
+     *  Rejects with `SecretOwnedByConnectionError` if the row is owned
+     *  by a connection — callers must go through `connections.remove`
+     *  to drop the whole sign-in. */
+    readonly remove: (
+      id: string,
+    ) => Effect.Effect<void, SecretOwnedByConnectionError | StorageFailure>;
+  };
+
+  /** Connections — product-level sign-in state. Owns backing secret
+   *  rows via `secret.owned_by_connection_id`. Plugins call
+   *  `connections.accessToken(id)` at invoke time to get a guaranteed-
+   *  fresh token (the SDK handles refresh via the registered provider
+   *  keyed by `connection.provider`). */
+  readonly connections: {
+    readonly get: (
+      id: string,
+    ) => Effect.Effect<ConnectionRef | null, StorageFailure>;
+    readonly list: () => Effect.Effect<readonly ConnectionRef[], StorageFailure>;
+    readonly create: (
+      input: CreateConnectionInput,
+    ) => Effect.Effect<
+      ConnectionRef,
+      ConnectionProviderNotRegisteredError | StorageFailure
+    >;
+    readonly updateTokens: (
+      input: UpdateConnectionTokensInput,
+    ) => Effect.Effect<
+      ConnectionRef,
+      ConnectionNotFoundError | StorageFailure
+    >;
+    readonly setIdentityLabel: (
+      id: string,
+      label: string | null,
+    ) => Effect.Effect<void, ConnectionNotFoundError | StorageFailure>;
+    /** Get a guaranteed-fresh access token. Calls the provider's
+     *  `refresh` handler if `expires_at` is in the past / within the
+     *  refresh skew window. */
+    readonly accessToken: (
+      id: string,
+    ) => Effect.Effect<
+      string,
+      | ConnectionNotFoundError
+      | ConnectionProviderNotRegisteredError
+      | ConnectionRefreshNotSupportedError
+      | ConnectionRefreshError
+      | StorageFailure
+    >;
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
   };
 
@@ -330,6 +393,18 @@ export interface PluginSpec<
     | ((
         ctx: PluginCtx<TStore>,
       ) => Effect.Effect<readonly SecretProvider[]>);
+
+  /** Connection providers contributed by this plugin. Same registration
+   *  shape as `secretProviders`. Each provider's `key` is what
+   *  `connection.provider` references in the core table; the `refresh`
+   *  handler is the SDK's single entry point for token lifecycle —
+   *  plugins don't run their own refresh loops anymore. */
+  readonly connectionProviders?:
+    | readonly ConnectionProvider[]
+    | ((ctx: PluginCtx<TStore>) => readonly ConnectionProvider[])
+    | ((
+        ctx: PluginCtx<TStore>,
+      ) => Effect.Effect<readonly ConnectionProvider[]>);
 
   readonly close?: () => Effect.Effect<void, unknown>;
 }

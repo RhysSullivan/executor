@@ -5,21 +5,27 @@ import { FetchHttpClient, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import {
+  OAuth2Error,
   buildAuthorizationUrl,
   createPkceCodeVerifier,
   exchangeAuthorizationCode,
   exchangeClientCredentials,
-  shouldRefreshToken,
-  withRefreshedAccessToken,
+  refreshAccessToken,
   type OAuth2TokenResponse,
 } from "@executor/plugin-oauth2";
 
 import {
+  ConnectionId,
+  ConnectionRefreshError,
+  CreateConnectionInput,
   ScopeId,
   SecretId,
-  SetSecretInput,
   SourceDetectionResult,
+  TokenMaterial,
   definePlugin,
+  type ConnectionProvider,
+  type ConnectionRefreshInput,
+  type ConnectionRefreshResult,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -90,27 +96,26 @@ export interface OpenApiUpdateSourceInput {
   readonly name?: string;
   readonly baseUrl?: string;
   readonly headers?: Record<string, HeaderValue>;
+  /** Rewrite the source's OAuth2Auth — typically after a successful
+   *  re-authenticate, to point at a freshly minted connection. */
+  readonly oauth2?: OAuth2Auth;
 }
 
 // ---------------------------------------------------------------------------
-// OAuth2 onboarding inputs / outputs
+// OAuth2 onboarding inputs / outputs — callers pre-decide identity knobs
+// (display name, scheme name, scopes, target scope) and the SDK mints a
+// Connection when the flow completes. The caller receives an OAuth2Auth
+// carrying just the resulting connection id.
 // ---------------------------------------------------------------------------
 
-/**
- * Shared caller-owned token-identity knobs. `tokenScope` names which
- * executor scope will own the minted tokens (typically the per-user
- * scope, defaulting to `ctx.scopes[0].id`). The token secret ids are
- * pre-decided so the source's stored `OAuth2Auth` can reference the
- * same ids across every user — per-user values shadow org-level
- * fallbacks via secret fall-through on read.
- */
 interface StartOAuthIdentity {
   readonly displayName: string;
   readonly securitySchemeName: string;
   readonly clientIdSecretId: string;
   readonly scopes: readonly string[];
+  /** Executor scope that will own the resulting Connection (and its
+   *  backing token secrets). Defaults to `ctx.scopes[0].id`. */
   readonly tokenScope?: string;
-  readonly accessTokenSecretId: string;
 }
 
 export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
@@ -119,16 +124,13 @@ export interface StartAuthorizationCodeOAuthInput extends StartOAuthIdentity {
   readonly tokenUrl: string;
   readonly redirectUrl: string;
   readonly clientSecretSecretId?: string | null;
-  readonly refreshTokenSecretId?: string | null;
 }
 
 /**
  * RFC 6749 §4.4 has no user-interactive step. `startOAuth` exchanges
- * tokens inline and writes the access token at
- * `accessTokenSecretId` + `tokenScope`, returning a completed
- * `OAuth2Auth`. No `authorizationUrl`, no session row, no
- * `completeOAuth`. Re-exchange happens at invoke time when the token
- * is near expiry.
+ * tokens inline, creates the Connection, and returns a completed
+ * `OAuth2Auth` pointing at it. No `authorizationUrl`, no session row,
+ * no `completeOAuth`.
  */
 export interface StartClientCredentialsOAuthInput extends StartOAuthIdentity {
   readonly flow: "clientCredentials";
@@ -280,89 +282,35 @@ const descriptionFor = (def: ToolDefinition): string => {
 };
 
 // ---------------------------------------------------------------------------
-// clientCredentials access-token resolver.
+// Connection `provider_state` shape for openapi-oauth2.
 //
-// RFC 6749 §4.4.3 forbids refresh tokens for this grant, so the only way to
-// recover from an expired access token is a fresh client_credentials
-// exchange. We re-exchange proactively (when `shouldRefreshToken` fires
-// within skew) and persist the new token at the same id+scope the source's
-// OAuth2Auth already references, keeping per-user shadowing intact.
+// Every field needed to re-hit the token endpoint on refresh lives here,
+// so the SDK's `ctx.connections.accessToken(id)` can drive both grant
+// types without the plugin keeping its own refresh state. The flow
+// literal chooses between `refresh_token` (authorizationCode) and
+// re-`exchange client_credentials` at refresh time. NONE of this is
+// sensitive — client credentials themselves still live in secrets and
+// are resolved via `ctx.secrets.get` inside the refresh handler.
 // ---------------------------------------------------------------------------
 
-type ResolveClientCredentialsArgs = {
-  readonly auth: OAuth2Auth;
-  readonly source: StoredSource;
-  readonly scopeId: string;
-  readonly secretsGet: (id: string) => Effect.Effect<string | null, Error>;
-  readonly secretsSet: (args: {
-    readonly id: string;
-    readonly scope: string;
-    readonly name: string;
-    readonly value: string;
-  }) => Effect.Effect<void, Error>;
-  readonly updateSourceMeta: (oauth2: OAuth2Auth) => Effect.Effect<void, Error>;
-};
+const OPENAPI_OAUTH2_PROVIDER_KEY = "openapi:oauth2" as const;
 
-const resolveClientCredentialsAccessToken = (args: ResolveClientCredentialsArgs) =>
-  Effect.gen(function* () {
-    const { auth } = args;
-    const needsRefresh = shouldRefreshToken({ expiresAt: auth.expiresAt });
+const OAuth2ProviderState = Schema.Struct({
+  flow: Schema.Literal("authorizationCode", "clientCredentials"),
+  tokenUrl: Schema.String,
+  clientIdSecretId: Schema.String,
+  clientSecretSecretId: Schema.NullOr(Schema.String),
+  scopes: Schema.Array(Schema.String),
+});
+type OAuth2ProviderState = typeof OAuth2ProviderState.Type;
 
-    if (!needsRefresh) {
-      const current = yield* args.secretsGet(auth.accessTokenSecretId);
-      if (current !== null) return current;
-      // Secret was deleted out from under us — fall through to re-exchange.
-    }
+const encodeProviderState = Schema.encodeSync(OAuth2ProviderState);
+const decodeProviderState = Schema.decodeUnknownSync(OAuth2ProviderState);
 
-    if (auth.clientSecretSecretId === null) {
-      return yield* Effect.fail(
-        new Error("client_credentials flow requires clientSecretSecretId"),
-      );
-    }
-
-    const clientId = yield* args.secretsGet(auth.clientIdSecretId);
-    if (clientId === null) {
-      return yield* Effect.fail(
-        new Error(`Missing client ID secret: ${auth.clientIdSecretId}`),
-      );
-    }
-    const clientSecret = yield* args.secretsGet(auth.clientSecretSecretId);
-    if (clientSecret === null) {
-      return yield* Effect.fail(
-        new Error(`Missing client secret: ${auth.clientSecretSecretId}`),
-      );
-    }
-
-    const tokenResponse = yield* exchangeClientCredentials({
-      tokenUrl: auth.tokenUrl,
-      clientId,
-      clientSecret,
-      scopes: auth.scopes,
-    }).pipe(Effect.mapError((err) => new Error(err.message)));
-
-    yield* args.secretsSet({
-      id: auth.accessTokenSecretId,
-      scope: args.scopeId,
-      name: `${args.source.name} Access Token`,
-      value: tokenResponse.access_token,
-    });
-
-    const expiresAt =
-      typeof tokenResponse.expires_in === "number"
-        ? Date.now() + tokenResponse.expires_in * 1000
-        : null;
-
-    yield* args.updateSourceMeta(
-      new OAuth2Auth({
-        ...auth,
-        tokenType: tokenResponse.token_type ?? auth.tokenType,
-        expiresAt,
-        scope: tokenResponse.scope ?? auth.scope,
-      }),
-    );
-
-    return tokenResponse.access_token;
-  });
+const toProviderStateRecord = (
+  state: OAuth2ProviderState,
+): Record<string, unknown> =>
+  encodeProviderState(state) as unknown as Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
 // Plugin factory
@@ -540,28 +488,6 @@ export const openApiPlugin = definePlugin(
       storage: (deps): OpenapiStore => makeDefaultOpenapiStore(deps),
 
       extension: (ctx) => {
-        // Write a token secret at a caller-pinned id and scope. The
-        // session persisted by `startOAuth` names both, so the plugin
-        // never picks them itself — that keeps shadowing by id
-        // deterministic (user scope overrides org scope for the same
-        // secret id) instead of minting random suffixes per completion.
-        const writeOAuthSecret = (args: {
-          readonly id: string;
-          readonly scope: string;
-          readonly name: string;
-          readonly value: string;
-        }) =>
-          ctx.secrets
-            .set(
-              new SetSecretInput({
-                id: SecretId.make(args.id),
-                scope: ScopeId.make(args.scope),
-                name: args.name,
-                value: args.value,
-              }),
-            )
-            .pipe(Effect.map((ref) => ({ id: ref.id as string })));
-
         const addSpecInternal = (config: OpenApiSpecConfig) =>
           Effect.gen(function* () {
             // Resolve URL → text and parse BEFORE opening a transaction.
@@ -619,6 +545,7 @@ export const openApiPlugin = definePlugin(
               name: input.name?.trim() || undefined,
               baseUrl: input.baseUrl,
               headers: input.headers,
+              oauth2: input.oauth2,
             }),
 
           startOAuth: (input) =>
@@ -663,35 +590,61 @@ export const openApiPlugin = definePlugin(
                   ),
                 );
 
-                const accessRef = yield* writeOAuthSecret({
-                  id: input.accessTokenSecretId,
-                  scope: tokenScope,
-                  name: `${input.displayName} Access Token`,
-                  value: tokenResponse.access_token,
-                }).pipe(
-                  Effect.mapError(
-                    (err) => new OpenApiOAuthError({ message: err.message }),
-                  ),
-                );
-
+                const connectionId = `openapi-oauth2-${randomUUID()}`;
                 const expiresAt =
                   typeof tokenResponse.expires_in === "number"
                     ? Date.now() + tokenResponse.expires_in * 1000
                     : null;
 
-                const auth = new OAuth2Auth({
-                  kind: "oauth2",
-                  securitySchemeName: input.securitySchemeName,
+                const providerState: OAuth2ProviderState = {
                   flow: "clientCredentials",
                   tokenUrl: input.tokenUrl,
                   clientIdSecretId: input.clientIdSecretId,
                   clientSecretSecretId: input.clientSecretSecretId,
-                  accessTokenSecretId: accessRef.id,
-                  // RFC 6749 §4.4.3: refresh tokens SHOULD NOT be issued.
-                  refreshTokenSecretId: null,
-                  tokenType: tokenResponse.token_type ?? "Bearer",
-                  expiresAt,
-                  scope: tokenResponse.scope ?? null,
+                  scopes: scopesArray,
+                };
+
+                yield* ctx.connections
+                  .create(
+                    new CreateConnectionInput({
+                      id: ConnectionId.make(connectionId),
+                      scope: ScopeId.make(tokenScope),
+                      provider: OPENAPI_OAUTH2_PROVIDER_KEY,
+                      kind: "app",
+                      identityLabel: input.displayName,
+                      accessToken: new TokenMaterial({
+                        secretId: SecretId.make(`${connectionId}.access_token`),
+                        name: `${input.displayName} Access Token`,
+                        value: tokenResponse.access_token,
+                      }),
+                      // RFC 6749 §4.4.3: no refresh tokens for this grant.
+                      refreshToken: null,
+                      expiresAt,
+                      oauthScope: tokenResponse.scope ?? null,
+                      providerState: toProviderStateRecord(providerState),
+                    }),
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      (err) =>
+                        new OpenApiOAuthError({
+                          message:
+                            "message" in err
+                              ? (err as { message: string }).message
+                              : String(err),
+                        }),
+                    ),
+                  );
+
+                const auth = new OAuth2Auth({
+                  kind: "oauth2",
+                  connectionId,
+                  securitySchemeName: input.securitySchemeName,
+                  flow: "clientCredentials",
+                  tokenUrl: input.tokenUrl,
+                  authorizationUrl: null,
+                  clientIdSecretId: input.clientIdSecretId,
+                  clientSecretSecretId: input.clientSecretSecretId ?? null,
                   scopes: scopesArray,
                 });
 
@@ -705,6 +658,7 @@ export const openApiPlugin = definePlugin(
               // authorizationCode path.
               const sessionId = randomUUID();
               const codeVerifier = createPkceCodeVerifier();
+              const connectionId = `openapi-oauth2-${randomUUID()}`;
 
               yield* ctx.storage
                 .putOAuthSession(
@@ -714,12 +668,14 @@ export const openApiPlugin = definePlugin(
                     securitySchemeName: input.securitySchemeName,
                     flow: input.flow,
                     tokenUrl: input.tokenUrl,
+                    authorizationUrl: input.authorizationUrl,
                     redirectUrl: input.redirectUrl,
                     clientIdSecretId: input.clientIdSecretId,
                     clientSecretSecretId: input.clientSecretSecretId ?? null,
                     tokenScope,
-                    accessTokenSecretId: input.accessTokenSecretId,
-                    refreshTokenSecretId: input.refreshTokenSecretId ?? null,
+                    connectionId,
+                    accessTokenSecretId: `${connectionId}.access_token`,
+                    refreshTokenSecretId: `${connectionId}.refresh_token`,
                     scopes: scopesArray,
                     codeVerifier,
                   }),
@@ -800,57 +756,65 @@ export const openApiPlugin = definePlugin(
                     ),
                   );
 
-                // Write tokens at the exact id + scope named by the
-                // session. Shadowing by id (per-user scope wins over
-                // org fall-through) is what makes a single stored
-                // `OAuth2Auth` on the source resolve to per-user
-                // values at invoke time.
-                const accessRef = yield* writeOAuthSecret({
-                  id: session.accessTokenSecretId,
-                  scope: session.tokenScope,
-                  name: `${session.displayName} Access Token`,
-                  value: tokenResponse.access_token,
-                }).pipe(
-                  Effect.mapError(
-                    (err) => new OpenApiOAuthError({ message: err.message }),
-                  ),
-                );
-
-                let refreshSecretId: string | null = null;
-                if (
-                  tokenResponse.refresh_token &&
-                  session.refreshTokenSecretId
-                ) {
-                  const refreshRef = yield* writeOAuthSecret({
-                    id: session.refreshTokenSecretId,
-                    scope: session.tokenScope,
-                    name: `${session.displayName} Refresh Token`,
-                    value: tokenResponse.refresh_token,
-                  }).pipe(
-                    Effect.mapError(
-                      (err) => new OpenApiOAuthError({ message: err.message }),
-                    ),
-                  );
-                  refreshSecretId = refreshRef.id;
-                }
-
                 const expiresAt =
                   typeof tokenResponse.expires_in === "number"
                     ? Date.now() + tokenResponse.expires_in * 1000
                     : null;
 
-                return new OAuth2Auth({
-                  kind: "oauth2",
-                  securitySchemeName: session.securitySchemeName,
-                  flow: session.flow,
+                const providerState: OAuth2ProviderState = {
+                  flow: "authorizationCode",
                   tokenUrl: session.tokenUrl,
                   clientIdSecretId: session.clientIdSecretId,
                   clientSecretSecretId: session.clientSecretSecretId,
-                  accessTokenSecretId: accessRef.id,
-                  refreshTokenSecretId: refreshSecretId,
-                  tokenType: tokenResponse.token_type ?? "Bearer",
-                  expiresAt,
-                  scope: tokenResponse.scope ?? null,
+                  scopes: [...session.scopes],
+                };
+
+                yield* ctx.connections
+                  .create(
+                    new CreateConnectionInput({
+                      id: ConnectionId.make(session.connectionId),
+                      scope: ScopeId.make(session.tokenScope),
+                      provider: OPENAPI_OAUTH2_PROVIDER_KEY,
+                      kind: "user",
+                      identityLabel: session.displayName,
+                      accessToken: new TokenMaterial({
+                        secretId: SecretId.make(session.accessTokenSecretId),
+                        name: `${session.displayName} Access Token`,
+                        value: tokenResponse.access_token,
+                      }),
+                      refreshToken: tokenResponse.refresh_token
+                        ? new TokenMaterial({
+                            secretId: SecretId.make(session.refreshTokenSecretId),
+                            name: `${session.displayName} Refresh Token`,
+                            value: tokenResponse.refresh_token,
+                          })
+                        : null,
+                      expiresAt,
+                      oauthScope: tokenResponse.scope ?? null,
+                      providerState: toProviderStateRecord(providerState),
+                    }),
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      (err) =>
+                        new OpenApiOAuthError({
+                          message:
+                            "message" in err
+                              ? (err as { message: string }).message
+                              : String(err),
+                        }),
+                    ),
+                  );
+
+                return new OAuth2Auth({
+                  kind: "oauth2",
+                  connectionId: session.connectionId,
+                  securitySchemeName: session.securitySchemeName,
+                  flow: "authorizationCode",
+                  tokenUrl: session.tokenUrl,
+                  authorizationUrl: session.authorizationUrl,
+                  clientIdSecretId: session.clientIdSecretId,
+                  clientSecretSecretId: session.clientSecretSecretId,
                   scopes: [...session.scopes],
                 });
               }),
@@ -946,101 +910,27 @@ export const openApiPlugin = definePlugin(
             { get: ctx.secrets.get },
           );
 
-          // If the source has OAuth2 auth, resolve/refresh access token and
-          // inject Authorization header (wins over a manually-set one).
+          // If the source has OAuth2 auth, resolve a guaranteed-fresh
+          // access token from the backing Connection and inject the
+          // Authorization header (wins over a manually-set one). All the
+          // refresh complexity lives in the SDK — the plugin just asks.
           if (Option.isSome(config.oauth2)) {
             const auth = config.oauth2.value;
-            const accessToken =
-              auth.flow === "clientCredentials"
-                ? yield* resolveClientCredentialsAccessToken({
-                    auth,
-                    source,
-                    scopeId: ctx.scopes[0]!.id as string,
-                    secretsGet: (id) =>
-                      ctx.secrets
-                        .get(id)
-                        .pipe(Effect.mapError((err) => new Error(err.message))),
-                    secretsSet: (args) =>
-                      ctx.secrets
-                        .set(
-                          new SetSecretInput({
-                            id: SecretId.make(args.id),
-                            scope: ScopeId.make(args.scope),
-                            name: args.name,
-                            value: args.value,
-                          }),
-                        )
-                        .pipe(
-                          Effect.asVoid,
-                          Effect.mapError((err) => new Error(err.message)),
-                        ),
-                    updateSourceMeta: (oauth2) =>
-                      ctx.storage
-                        .updateSourceMeta(source.namespace, source.scope, {
-                          oauth2,
-                        })
-                        .pipe(Effect.mapError((err) => new Error(err.message))),
-                  })
-                : yield* withRefreshedAccessToken({
-              auth: {
-                clientIdSecretId: auth.clientIdSecretId,
-                clientSecretSecretId: auth.clientSecretSecretId,
-                accessTokenSecretId: auth.accessTokenSecretId,
-                refreshTokenSecretId: auth.refreshTokenSecretId,
-                tokenType: auth.tokenType,
-                expiresAt: auth.expiresAt,
-                scopes: auth.scopes,
-              },
-              tokenUrl: auth.tokenUrl,
-              secrets: {
-                resolve: (id) =>
-                  ctx.secrets.get(id).pipe(
-                    Effect.flatMap((v) =>
-                      v === null
-                        ? Effect.fail(new Error(`Missing secret: ${id}`))
-                        : Effect.succeed(v),
+            const accessToken = yield* ctx.connections
+              .accessToken(auth.connectionId)
+              .pipe(
+                Effect.mapError(
+                  (err) =>
+                    new Error(
+                      `OAuth connection resolution failed: ${
+                        "message" in err
+                          ? (err as { message: string }).message
+                          : String(err)
+                      }`,
                     ),
-                  ),
-                setValue: ({ secretId, value, name }) =>
-                  // Refresh writes land at the innermost scope of the
-                  // executor that invoked the tool. When a per-user
-                  // stack calls, that's the user scope — their token
-                  // shadows the org fall-through on the same id.
-                  ctx.secrets
-                    .set(
-                      new SetSecretInput({
-                        id: SecretId.make(secretId),
-                        scope: ctx.scopes[0]!.id,
-                        name,
-                        value,
-                      }),
-                    )
-                    .pipe(Effect.asVoid),
-              },
-              displayName: source.name,
-              accessTokenPurpose: "openapi_oauth_access_token",
-              refreshTokenPurpose: "openapi_oauth_refresh_token",
-              persistAuth: (snapshot) =>
-                Effect.gen(function* () {
-                  const updatedOAuth = new OAuth2Auth({
-                    ...auth,
-                    tokenType: snapshot.tokenType,
-                    expiresAt: snapshot.expiresAt,
-                    scope: snapshot.scope ?? auth.scope,
-                  });
-                  // Pin the meta update to the source's own scope so a
-                  // refreshed token snapshot can't accidentally land on
-                  // a shadowed source row at another scope in the stack.
-                  yield* ctx.storage.updateSourceMeta(source.namespace, source.scope, {
-                    oauth2: updatedOAuth,
-                  });
-                }),
-            }).pipe(
-              Effect.mapError(
-                (err) => new Error(`OAuth token refresh failed: ${err.message}`),
-              ),
-            );
-            resolvedHeaders["Authorization"] = `${auth.tokenType || "Bearer"} ${accessToken}`;
+                ),
+              );
+            resolvedHeaders["Authorization"] = `Bearer ${accessToken}`;
           }
 
           const result = yield* invokeWithLayer(
@@ -1129,6 +1019,115 @@ export const openApiPlugin = definePlugin(
             namespace,
           });
         }),
+
+      // The SDK's `ctx.connections.accessToken(id)` dispatches here when a
+      // token is near expiry. Both flows share one provider key — the
+      // concrete refresh strategy is selected from `providerState.flow`
+      // because the caller already persisted all the knobs we need.
+      connectionProviders: (ctx): readonly ConnectionProvider[] => [
+        {
+          key: OPENAPI_OAUTH2_PROVIDER_KEY,
+          refresh: (input: ConnectionRefreshInput) =>
+            Effect.gen(function* () {
+              if (!input.providerState) {
+                return yield* new ConnectionRefreshError({
+                  connectionId: input.connectionId,
+                  message:
+                    "openapi:oauth2 connection is missing providerState",
+                });
+              }
+              const state = yield* Effect.try({
+                try: () => decodeProviderState(input.providerState),
+                catch: (cause) =>
+                  new ConnectionRefreshError({
+                    connectionId: input.connectionId,
+                    message: `openapi:oauth2 providerState is malformed: ${
+                      cause instanceof Error ? cause.message : String(cause)
+                    }`,
+                    cause,
+                  }),
+              });
+
+              const clientId = yield* ctx.secrets.get(state.clientIdSecretId).pipe(
+                Effect.mapError(
+                  (err) =>
+                    new ConnectionRefreshError({
+                      connectionId: input.connectionId,
+                      message: `Failed to resolve client id secret: ${err.message}`,
+                      cause: err,
+                    }),
+                ),
+              );
+              if (clientId === null) {
+                return yield* new ConnectionRefreshError({
+                  connectionId: input.connectionId,
+                  message: `Missing client id secret: ${state.clientIdSecretId}`,
+                });
+              }
+
+              const clientSecret = state.clientSecretSecretId
+                ? yield* ctx.secrets.get(state.clientSecretSecretId).pipe(
+                    Effect.mapError(
+                      (err) =>
+                        new ConnectionRefreshError({
+                          connectionId: input.connectionId,
+                          message: `Failed to resolve client secret: ${err.message}`,
+                          cause: err,
+                        }),
+                    ),
+                  )
+                : null;
+
+              const toRefreshError = (err: OAuth2Error) =>
+                new ConnectionRefreshError({
+                  connectionId: input.connectionId,
+                  message: err.message,
+                  cause: err,
+                });
+
+              const tokenResponse = yield* (state.flow === "clientCredentials"
+                ? exchangeClientCredentials({
+                    tokenUrl: state.tokenUrl,
+                    clientId,
+                    clientSecret: clientSecret ?? "",
+                    scopes: state.scopes,
+                  })
+                : (() => {
+                    if (input.refreshToken === null) {
+                      return Effect.fail(
+                        new OAuth2Error({
+                          message:
+                            "authorizationCode connection has no refresh token",
+                        }),
+                      );
+                    }
+                    return refreshAccessToken({
+                      tokenUrl: state.tokenUrl,
+                      clientId,
+                      clientSecret,
+                      refreshToken: input.refreshToken,
+                      scopes: state.scopes,
+                    });
+                  })()
+              ).pipe(Effect.mapError(toRefreshError));
+
+              const expiresAt =
+                typeof tokenResponse.expires_in === "number"
+                  ? Date.now() + tokenResponse.expires_in * 1000
+                  : null;
+
+              const result: ConnectionRefreshResult = {
+                accessToken: tokenResponse.access_token,
+                // Rotated refresh token (RFC 6749 §6) — undefined means
+                // "keep the stored one"; null means "AS didn't issue one".
+                refreshToken: tokenResponse.refresh_token ?? undefined,
+                expiresAt,
+                oauthScope: tokenResponse.scope ?? input.oauthScope,
+              };
+              return result;
+            }),
+        },
+      ],
     };
   },
 );

@@ -368,13 +368,9 @@ type ProbeResult = {
 
 type OAuthAuth = {
   kind: "oauth2";
+  connectionId: string;
   clientIdSecretId: string;
   clientSecretSecretId: string | null;
-  accessTokenSecretId: string;
-  refreshTokenSecretId: string | null;
-  tokenType: string;
-  expiresAt: number | null;
-  scope: string | null;
   scopes: string[];
 };
 
@@ -522,13 +518,9 @@ export default function AddGoogleDiscoverySource(props: {
           if (result.ok) {
             setOauthAuth({
               kind: "oauth2",
+              connectionId: result.connectionId,
               clientIdSecretId: result.clientIdSecretId,
               clientSecretSecretId: result.clientSecretSecretId,
-              accessTokenSecretId: result.accessTokenSecretId,
-              refreshTokenSecretId: result.refreshTokenSecretId,
-              tokenType: result.tokenType,
-              expiresAt: result.expiresAt,
-              scope: result.scope,
               scopes: [...result.scopes],
             });
             setError(null);
@@ -573,8 +565,14 @@ export default function AddGoogleDiscoverySource(props: {
           discoveryUrl: discoveryUrl.trim(),
           namespace: slugifyNamespace(identity.namespace) || undefined,
           auth:
-            authKind === "oauth2"
-              ? (oauthAuth ?? { kind: "none" as const })
+            authKind === "oauth2" && oauthAuth
+              ? {
+                  kind: "oauth2" as const,
+                  connectionId: oauthAuth.connectionId,
+                  clientIdSecretId: oauthAuth.clientIdSecretId,
+                  clientSecretSecretId: oauthAuth.clientSecretSecretId,
+                  scopes: oauthAuth.scopes,
+                }
               : { kind: "none" as const },
         },
         reactivityKeys: [...sourceWriteKeys],
@@ -790,7 +788,7 @@ export default function AddGoogleDiscoverySource(props: {
             </Collapsible>
             {oauthAuth && (
               <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-                Connected. Access token stored as secret `{oauthAuth.accessTokenSecretId}`.
+                Connected. Manage this connection from the Connections page.
               </div>
             )}
           </div>

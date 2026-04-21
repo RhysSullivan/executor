@@ -154,6 +154,14 @@ export interface GoogleDiscoveryStore {
   readonly putSource: (
     source: GoogleDiscoveryStoredSource,
   ) => Effect.Effect<void, StorageFailure>;
+  readonly updateSourceMeta: (
+    sourceId: string,
+    scope: string,
+    update: {
+      readonly name?: string;
+      readonly auth?: import("./types").GoogleDiscoveryAuth;
+    },
+  ) => Effect.Effect<void, StorageFailure>;
   readonly removeSource: (
     sourceId: string,
     scope: string,
@@ -285,6 +293,36 @@ export const makeGoogleDiscoveryStore = (
             updated_at: now,
           },
           forceAllowId: true,
+        });
+      }),
+
+    updateSourceMeta: (sourceId, scope, update) =>
+      Effect.gen(function* () {
+        const row = yield* db.findOne({
+          model: "google_discovery_source",
+          where: [
+            { field: "id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
+        });
+        if (!row) return;
+        const config = decodeStoredSourceData(decodeJson(row.config));
+        const nextConfig = new GoogleDiscoveryStoredSourceData({
+          ...config,
+          name: update.name ?? config.name,
+          auth: update.auth ?? config.auth,
+        });
+        yield* db.update({
+          model: "google_discovery_source",
+          where: [
+            { field: "id", value: sourceId },
+            { field: "scope_id", value: scope },
+          ],
+          update: {
+            name: update.name ?? (row.name as string),
+            config: encodeStoredSourceData(nextConfig) as unknown as Record<string, unknown>,
+            updated_at: new Date(),
+          },
         });
       }),
 

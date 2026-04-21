@@ -1,15 +1,7 @@
 import { Effect, Layer, Option } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "@effect/platform";
 
-import {
-  withRefreshedAccessToken,
-  type OAuth2SecretsIO,
-} from "@executor/plugin-oauth2";
-
 import type { PluginCtx, StorageFailure } from "@executor/sdk";
-import { SetSecretInput } from "@executor/sdk";
-
-import { GOOGLE_TOKEN_URL } from "./oauth";
 
 import {
   GoogleDiscoveryInvocationError,
@@ -18,8 +10,8 @@ import {
 import type { GoogleDiscoveryStore } from "./binding-store";
 import {
   GoogleDiscoveryInvocationResult,
-  GoogleDiscoveryStoredSourceData,
   type GoogleDiscoveryParameter,
+  type GoogleDiscoveryStoredSourceData,
 } from "./types";
 
 const SAFE_METHODS = new Set(["get", "head", "options"]);
@@ -34,36 +26,6 @@ export const annotationsForOperation = (
     approvalDescription: `${method.toUpperCase()} ${pathTemplate}`,
   };
 };
-
-// ---------------------------------------------------------------------------
-// OAuth2 secrets adapter — wraps ctx.secrets.get / ctx.secrets.set so
-// the shared `@executor/plugin-oauth2` helpers can read/write token
-// secrets without knowing about PluginCtx.
-// ---------------------------------------------------------------------------
-
-const makeSecretsIO = (ctx: PluginCtx<GoogleDiscoveryStore>): OAuth2SecretsIO => ({
-  resolve: (id) =>
-    ctx.secrets.get(id).pipe(
-      Effect.flatMap((value) =>
-        value === null
-          ? Effect.fail(new Error(`Secret not found: ${id}`))
-          : Effect.succeed(value),
-      ),
-    ),
-  setValue: ({ secretId, value, name }) =>
-    ctx.secrets
-      .set(
-        new SetSecretInput({
-          id: secretId as SetSecretInput["id"],
-          // Refresh writes land at the innermost (user) scope — same
-          // partition as the original mint.
-          scope: ctx.scopes[0]!.id,
-          name,
-          value,
-        }),
-      )
-      .pipe(Effect.asVoid),
-});
 
 // ---------------------------------------------------------------------------
 // Path / query parameter helpers (unchanged from the old invoker)
@@ -112,65 +74,6 @@ const isJsonContentType = (contentType: string | null | undefined): boolean => {
     normalized === "application/json" || normalized.includes("+json") || normalized.includes("json")
   );
 };
-
-// ---------------------------------------------------------------------------
-// Resolve (and lazily refresh) an OAuth2 access token for a stored source.
-// ---------------------------------------------------------------------------
-
-const resolveOAuthAccessToken = (input: {
-  ctx: PluginCtx<GoogleDiscoveryStore>;
-  sourceId: string;
-  sourceScope: string;
-  source: GoogleDiscoveryStoredSourceData;
-}): Effect.Effect<string, GoogleDiscoveryOAuthError> =>
-  Effect.gen(function* () {
-    if (input.source.auth.kind !== "oauth2") return "";
-    const auth = input.source.auth;
-
-    return yield* withRefreshedAccessToken({
-      auth: {
-        clientIdSecretId: auth.clientIdSecretId,
-        clientSecretSecretId: auth.clientSecretSecretId,
-        accessTokenSecretId: auth.accessTokenSecretId,
-        refreshTokenSecretId: auth.refreshTokenSecretId,
-        tokenType: auth.tokenType,
-        expiresAt: auth.expiresAt,
-        scopes: auth.scopes,
-      },
-      tokenUrl: GOOGLE_TOKEN_URL,
-      secrets: makeSecretsIO(input.ctx),
-      displayName: input.source.name,
-      accessTokenPurpose: "google_oauth_access_token",
-      refreshTokenPurpose: "google_oauth_refresh_token",
-      persistAuth: (snapshot) =>
-        Effect.gen(function* () {
-          const updated = new GoogleDiscoveryStoredSourceData({
-            ...input.source,
-            auth: {
-              kind: "oauth2",
-              clientIdSecretId: auth.clientIdSecretId,
-              clientSecretSecretId: auth.clientSecretSecretId,
-              accessTokenSecretId: auth.accessTokenSecretId,
-              refreshTokenSecretId: auth.refreshTokenSecretId,
-              tokenType: snapshot.tokenType,
-              expiresAt: snapshot.expiresAt,
-              scope: snapshot.scope ?? auth.scope,
-              scopes: auth.scopes,
-            },
-          });
-          yield* input.ctx.storage.putSource({
-            namespace: input.sourceId,
-            scope: input.sourceScope,
-            name: input.source.name,
-            config: updated,
-          });
-        }),
-    }).pipe(
-      Effect.mapError(
-        (error) => new GoogleDiscoveryOAuthError({ message: error.message }),
-      ),
-    );
-  });
 
 // ---------------------------------------------------------------------------
 // HTTP request builder / executor
@@ -280,10 +183,7 @@ const performRequest = Effect.fn("GoogleDiscovery.invoke")(function* (input: {
 export const invokeGoogleDiscoveryTool = (input: {
   ctx: PluginCtx<GoogleDiscoveryStore>;
   toolId: string;
-  /** Resolved owning scope of the tool row (innermost-wins from the
-   *  executor's stack). The matching binding + source rows live at the
-   *  same scope, so pin every store lookup to this instead of relying
-   *  on the scoped adapter's stack-wide fall-through. */
+  /** Resolved owning scope of the tool row. */
   toolScope: string;
   args: unknown;
   httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
@@ -314,18 +214,22 @@ export const invokeGoogleDiscoveryTool = (input: {
     }
     const source = stored.config;
 
-    const accessToken =
-      source.auth.kind === "oauth2"
-        ? yield* resolveOAuthAccessToken({
-            ctx: input.ctx,
-            sourceId: entry.namespace,
-            sourceScope: stored.scope,
-            source,
-          })
-        : "";
-
     const authHeader =
-      source.auth.kind === "oauth2" ? `${source.auth.tokenType} ${accessToken}` : undefined;
+      source.auth.kind === "oauth2"
+        ? `Bearer ${yield* input.ctx.connections
+            .accessToken(source.auth.connectionId)
+            .pipe(
+              Effect.mapError(
+                (err) =>
+                  new GoogleDiscoveryOAuthError({
+                    message:
+                      "message" in err
+                        ? (err as { message: string }).message
+                        : String(err),
+                  }),
+              ),
+            )}`
+        : undefined;
 
     const layer = input.httpClientLayer ?? FetchHttpClient.layer;
 

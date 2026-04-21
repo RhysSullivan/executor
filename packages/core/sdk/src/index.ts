@@ -23,7 +23,7 @@ export { typedAdapter } from "@executor/storage-core";
 export { StorageError, UniqueViolationError } from "@executor/storage-core";
 
 // IDs (branded)
-export { ScopeId, ToolId, SecretId, PolicyId } from "./ids";
+export { ScopeId, ToolId, SecretId, PolicyId, ConnectionId } from "./ids";
 
 // Scope
 export { Scope } from "./scope";
@@ -38,6 +38,10 @@ export {
   PluginNotLoadedError,
   SecretNotFoundError,
   SecretResolutionError,
+  SecretOwnedByConnectionError,
+  ConnectionNotFoundError,
+  ConnectionProviderNotRegisteredError,
+  ConnectionRefreshNotSupportedError,
   type ExecutorError,
 } from "./errors";
 
@@ -60,6 +64,7 @@ export {
   type ToolRow,
   type DefinitionRow,
   type SecretRow,
+  type ConnectionRow,
   type DefinitionsInput,
   type ToolAnnotations,
 } from "./core-schema";
@@ -70,6 +75,20 @@ export {
   SetSecretInput,
   type SecretProvider,
 } from "./secrets";
+
+// Connections
+export {
+  ConnectionRef,
+  ConnectionKind,
+  ConnectionProviderState,
+  CreateConnectionInput,
+  UpdateConnectionTokensInput,
+  TokenMaterial,
+  ConnectionRefreshError,
+  type ConnectionProvider,
+  type ConnectionRefreshInput,
+  type ConnectionRefreshResult,
+} from "./connections";
 
 // Elicitation
 export {

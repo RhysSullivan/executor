@@ -34,11 +34,13 @@ type OAuthPopupResult =
       type: "executor:oauth-result";
       ok: true;
       sessionId: string;
-      accessTokenSecretId: string;
-      refreshTokenSecretId: string | null;
+      connectionId: string;
       tokenType: string;
       expiresAt: number | null;
       scope: string | null;
+      clientInformation: Record<string, unknown> | null;
+      authorizationServerUrl: string | null;
+      resourceMetadataUrl: string | null;
     }
   | {
       type: "executor:oauth-result";
@@ -130,15 +132,6 @@ const toSourceConfig = (
     auth?: { kind: string } & Record<string, unknown>;
   };
 
-  const auth = p.auth
-    ? p.auth.kind === "oauth2"
-      ? {
-          ...p.auth,
-          tokenType: (p.auth as { tokenType?: string }).tokenType ?? "Bearer",
-        }
-      : p.auth
-    : undefined;
-
   return {
     transport: "remote",
     scope,
@@ -148,7 +141,7 @@ const toSourceConfig = (
     queryParams: p.queryParams,
     headers: p.headers,
     namespace: p.namespace,
-    auth: auth as McpSourceConfig extends { auth?: infer A } ? A : never,
+    auth: p.auth as McpSourceConfig extends { auth?: infer A } ? A : never,
   };
 };
 
@@ -204,8 +197,7 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
           endpoint: payload.endpoint,
           redirectUrl: payload.redirectUrl,
           queryParams: payload.queryParams,
-          accessTokenSecretId: payload.accessTokenSecretId,
-          refreshTokenSecretId: payload.refreshTokenSecretId,
+          connectionId: payload.connectionId,
           clientInformation: payload.clientInformation,
           authorizationServerUrl: payload.authorizationServerUrl,
           resourceMetadataUrl: payload.resourceMetadataUrl,
@@ -259,11 +251,13 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
                 type: "executor:oauth-result",
                 ok: true,
                 sessionId: urlParams.state,
-                accessTokenSecretId: c.accessTokenSecretId,
-                refreshTokenSecretId: c.refreshTokenSecretId,
+                connectionId: c.connectionId,
                 tokenType: c.tokenType,
                 expiresAt: c.expiresAt,
                 scope: c.scope,
+                clientInformation: c.clientInformation,
+                authorizationServerUrl: c.authorizationServerUrl,
+                resourceMetadataUrl: c.resourceMetadataUrl,
               }),
             onFailure: (cause) =>
               Effect.succeed<OAuthPopupResult>({

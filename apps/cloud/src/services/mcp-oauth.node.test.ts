@@ -15,16 +15,16 @@
 // Two scenarios:
 //
 //   1. Single user: startOAuth → follow redirect → completeOAuth. Asserts
-//      tokens landed in the invoker's secret store under the stable
-//      `mcp_<ns>_*` ids and that source-level OAuth state (clientInfo,
-//      AS URL) is echoed back on the response.
+//      the response carries the Connection id the exchange minted and
+//      that source-level OAuth state (clientInfo, AS URL) is echoed back
+//      so subsequent users can skip DCR.
 //
 //   2. Two users, same source: second user's startOAuth passes the
 //      clientInformation the first user's completeOAuth returned. The
 //      DCR endpoint counter on the fake server must NOT tick — proof
-//      the DCR-hoist code path re-uses the existing client. Then both
-//      users' tokens must resolve independently at their own scope
-//      despite sharing the same secret id.
+//      the DCR-hoist code path re-uses the existing client. Both users
+//      end up with their own Connection (same id, different scope) via
+//      the SDK's innermost-wins shadowing.
 // ---------------------------------------------------------------------------
 
 import { afterAll, beforeAll, describe, expect, it } from "@effect/vitest";
@@ -33,7 +33,7 @@ import type { AddressInfo } from "node:net";
 import { createHash, randomBytes } from "node:crypto";
 
 import { Effect } from "effect";
-import { ScopeId, SecretId } from "@executor/sdk";
+import { ScopeId } from "@executor/sdk";
 
 import { asUser, testUserOrgScopeId } from "./__test-harness__/api-harness";
 
@@ -282,8 +282,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         const userId = `user_${crypto.randomUUID()}`;
         const userScope = ScopeId.make(testUserOrgScopeId(userId, orgId));
         const namespace = `ns_${crypto.randomUUID().slice(0, 8)}`;
-        const accessTokenSecretId = `mcp_${namespace}_access_token`;
-        const refreshTokenSecretId = `mcp_${namespace}_refresh_token`;
+        const connectionId = `mcp-oauth2-${namespace}`;
         const redirectUrl = "http://test.local/api/mcp/oauth/callback";
 
         const started = yield* asUser(userId, orgId, (client) =>
@@ -292,8 +291,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
             payload: {
               endpoint: `${fake.url}/mcp`,
               redirectUrl,
-              accessTokenSecretId,
-              refreshTokenSecretId,
+              connectionId,
             },
           }),
         );
@@ -310,34 +308,12 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
             payload: { state, code },
           }),
         );
-        expect(completed.accessTokenSecretId).toBe(accessTokenSecretId);
-        expect(completed.refreshTokenSecretId).toBe(refreshTokenSecretId);
+        expect(completed.connectionId).toBe(connectionId);
         expect(completed.tokenType).toBe("Bearer");
         // DCR hoist: the source-level state the UI will persist on the
         // source's auth config, so the next user skips DCR entirely.
         expect(completed.clientInformation).not.toBeNull();
         expect(completed.authorizationServerUrl).not.toBeNull();
-
-        // Tokens landed at the user scope via the stable ids.
-        const access = yield* asUser(userId, orgId, (client) =>
-          client.secrets.resolve({
-            path: {
-              scopeId: userScope,
-              secretId: SecretId.make(accessTokenSecretId),
-            },
-          }),
-        );
-        expect(access.value).toMatch(/^at_/);
-
-        const refresh = yield* asUser(userId, orgId, (client) =>
-          client.secrets.resolve({
-            path: {
-              scopeId: userScope,
-              secretId: SecretId.make(refreshTokenSecretId),
-            },
-          }),
-        );
-        expect(refresh.value).toMatch(/^rt_/);
       }),
     30_000,
   );
@@ -352,8 +328,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         const scopeA = ScopeId.make(testUserOrgScopeId(userA, orgId));
         const scopeB = ScopeId.make(testUserOrgScopeId(userB, orgId));
         const namespace = `ns_${crypto.randomUUID().slice(0, 8)}`;
-        const accessTokenSecretId = `mcp_${namespace}_access_token`;
-        const refreshTokenSecretId = `mcp_${namespace}_refresh_token`;
+        const connectionId = `mcp-oauth2-${namespace}`;
         const endpoint = `${fake.url}/mcp`;
         const redirectUrl = "http://test.local/api/mcp/oauth/callback";
 
@@ -366,8 +341,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
             payload: {
               endpoint,
               redirectUrl,
-              accessTokenSecretId,
-              refreshTokenSecretId,
+              connectionId,
             },
           }),
         );
@@ -380,6 +354,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
             payload: { state: redirA.state, code: redirA.code },
           }),
         );
+        expect(completedA.connectionId).toBe(connectionId);
         expect(completedA.clientInformation).not.toBeNull();
         expect(fake.registrations()).toBe(regsBefore + 1);
 
@@ -390,8 +365,7 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
             payload: {
               endpoint,
               redirectUrl,
-              accessTokenSecretId,
-              refreshTokenSecretId,
+              connectionId,
               clientInformation: completedA.clientInformation,
               authorizationServerUrl: completedA.authorizationServerUrl,
               resourceMetadataUrl: completedA.resourceMetadataUrl,
@@ -401,28 +375,14 @@ describe("mcp oauth end-to-end (node pool, real OAuth + MCP server)", () => {
         const redirB = yield* Effect.promise(() =>
           followAuthorize(startedB.authorizationUrl),
         );
-        yield* asUser(userB, orgId, (client) =>
+        const completedB = yield* asUser(userB, orgId, (client) =>
           client.mcp.completeOAuth({
             path: { scopeId: scopeB },
             payload: { state: redirB.state, code: redirB.code },
           }),
         );
+        expect(completedB.connectionId).toBe(connectionId);
         expect(fake.registrations()).toBe(regsBefore + 1);
-
-        // --- Per-user tokens despite the shared secret id. ---
-        const tokenA = yield* asUser(userA, orgId, (client) =>
-          client.secrets.resolve({
-            path: { scopeId: scopeA, secretId: SecretId.make(accessTokenSecretId) },
-          }),
-        );
-        const tokenB = yield* asUser(userB, orgId, (client) =>
-          client.secrets.resolve({
-            path: { scopeId: scopeB, secretId: SecretId.make(accessTokenSecretId) },
-          }),
-        );
-        expect(tokenA.value).not.toBe(tokenB.value);
-        expect(tokenA.value).toMatch(/^at_/);
-        expect(tokenB.value).toMatch(/^at_/);
       }),
     30_000,
   );

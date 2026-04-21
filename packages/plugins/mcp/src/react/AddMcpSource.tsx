@@ -49,29 +49,23 @@ function findPreset(id: string | undefined): McpPreset | undefined {
   return mcpPresets.find((p) => p.id === id);
 }
 
-// Stable secret ids for an MCP source's OAuth access/refresh tokens.
-// The same ids are passed into `startOAuth` AND stored on the source's
-// auth config, so at invoke time the per-user scope (which actually
-// holds the value) resolves via shadowing over the source-level id.
-// Keyed by namespace so reconnecting overwrites the previous token
-// rather than leaking orphaned secret rows.
-const mcpOAuthTokenSecretIds = (
-  namespaceSlug: string,
-): { readonly accessTokenSecretId: string; readonly refreshTokenSecretId: string } => {
-  const prefix = `mcp_${namespaceSlug}`;
-  return {
-    accessTokenSecretId: `${prefix}_access_token`,
-    refreshTokenSecretId: `${prefix}_refresh_token`,
-  };
-};
+// Stable SDK connection id for an MCP source's OAuth sign-in. The same
+// id is passed into `startOAuth` AND stored on the source's auth
+// config, so at invoke time the per-user scope (which owns the user's
+// own secrets) resolves via shadowing over the source-level pointer.
+// Keyed by namespace so reconnecting mints a new connection that
+// shadows the previous one at the same scope.
+const mcpOAuthConnectionId = (namespaceSlug: string): string =>
+  `mcp-oauth2-${namespaceSlug || "default"}`;
 
 // ---------------------------------------------------------------------------
 // State machine (remote flow)
 // ---------------------------------------------------------------------------
 
 type OAuthTokens = {
-  accessTokenSecretId: string;
-  refreshTokenSecretId: string | null;
+  /** Id of the SDK Connection minted by the exchange. The UI stores it
+   *  on the source's auth config as `{kind: "oauth2", connectionId}`. */
+  connectionId: string;
   tokenType: string;
   expiresAt: number | null;
   scope: string | null;
@@ -445,14 +439,13 @@ export default function AddMcpSource(props: {
         slugifyNamespace(remoteIdentity.namespace) ||
         slugifyNamespace(probe?.namespace ?? "") ||
         "mcp";
-      const tokenIds = mcpOAuthTokenSecretIds(namespaceSlug);
+      const connectionId = mcpOAuthConnectionId(namespaceSlug);
       const result = await doStartOAuth({
         path: { scopeId },
         payload: {
           endpoint: state.url.trim(),
           redirectUrl,
-          accessTokenSecretId: tokenIds.accessTokenSecretId,
-          refreshTokenSecretId: tokenIds.refreshTokenSecretId,
+          connectionId,
         },
       });
       dispatch({ type: "oauth-waiting", sessionId: result.sessionId });
@@ -464,8 +457,7 @@ export default function AddMcpSource(props: {
             dispatch({
               type: "oauth-ok",
               tokens: {
-                accessTokenSecretId: data.accessTokenSecretId,
-                refreshTokenSecretId: data.refreshTokenSecretId,
+                connectionId: data.connectionId,
                 tokenType: data.tokenType,
                 expiresAt: data.expiresAt,
                 scope: data.scope,
@@ -512,14 +504,7 @@ export default function AddMcpSource(props: {
         : remoteAuthMode === "oauth2" && tokens
           ? {
               kind: "oauth2" as const,
-              accessTokenSecretId: tokens.accessTokenSecretId,
-              refreshTokenSecretId: tokens.refreshTokenSecretId,
-              tokenType: tokens.tokenType,
-              expiresAt: tokens.expiresAt,
-              scope: tokens.scope,
-              clientInformation: tokens.clientInformation,
-              authorizationServerUrl: tokens.authorizationServerUrl,
-              resourceMetadataUrl: tokens.resourceMetadataUrl,
+              connectionId: tokens.connectionId,
             }
           : { kind: "none" as const };
     const headers = Object.fromEntries(

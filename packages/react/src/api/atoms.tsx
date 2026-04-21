@@ -64,6 +64,13 @@ export const secretStatusAtom = (scopeId: ScopeId, secretId: SecretId) =>
     reactivityKeys: [ReactivityKey.secrets],
   });
 
+export const connectionsAtom = (scopeId: ScopeId) =>
+  ExecutorApiClient.query("connections", "list", {
+    path: { scopeId },
+    timeToLive: "30 seconds",
+    reactivityKeys: [ReactivityKey.connections],
+  });
+
 // ---------------------------------------------------------------------------
 // Mutation atoms — reactivityKeys must be passed at call site (effect-atom
 // does not accept them at definition time). See `reactivity-keys.tsx` for the
@@ -75,6 +82,11 @@ export const setSecret = ExecutorApiClient.mutation("secrets", "set");
 export const resolveSecret = ExecutorApiClient.mutation("secrets", "resolve");
 
 export const removeSecret = ExecutorApiClient.mutation("secrets", "remove");
+
+export const removeConnection = ExecutorApiClient.mutation(
+  "connections",
+  "remove",
+);
 
 export const removeSource = ExecutorApiClient.mutation("sources", "remove");
 

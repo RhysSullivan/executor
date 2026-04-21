@@ -59,9 +59,10 @@ export const McpAuthConfig = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    accessTokenSecret: Schema.String,
-    refreshTokenSecret: Schema.optional(Schema.NullOr(Schema.String)),
-    tokenType: Schema.optional(Schema.String),
+    /** Stable id of the SDK Connection holding access + refresh token
+     *  material. Scope shadowing means the same id resolves per-user
+     *  via the executor's innermost-wins lookup. */
+    connectionId: Schema.String,
   }),
 );
 export type McpAuthConfig = typeof McpAuthConfig.Type;

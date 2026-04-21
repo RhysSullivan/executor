@@ -260,19 +260,40 @@ const isUniqueViolation = (cause: unknown): boolean => {
   return false;
 };
 
+// drizzle-orm wraps driver errors as `DrizzleQueryError` with a synthetic
+// `"Failed query: <SQL>\nparams: <values>"` message and the real driver
+// error on `.cause`. Walk down so classification + logging see the
+// server-side code/message (`23505`, `value too long`, etc.) instead of
+// the SQL+bound-values blob, which for OpenAPI specs is 1MB+ of spec text.
+const unwrapDriverCause = (cause: unknown): unknown => {
+  let cur = cause;
+  for (let i = 0; i < 5; i++) {
+    if (!cur || typeof cur !== "object") return cur;
+    const c = cur as { cause?: unknown; code?: unknown; message?: unknown };
+    if (typeof c.code === "string" && c.code.length > 0) return cur;
+    if (c.cause && c.cause !== cur) {
+      cur = c.cause;
+      continue;
+    }
+    return cur;
+  }
+  return cur;
+};
+
 const classifyError = (
   op: string,
   model: string | undefined,
   cause: unknown,
 ): StorageFailure => {
-  if (isUniqueViolation(cause)) {
+  const driverCause = unwrapDriverCause(cause);
+  if (isUniqueViolation(driverCause)) {
     return model !== undefined
       ? new UniqueViolationError({ model })
       : new UniqueViolationError({});
   }
   return new StorageError({
-    message: `[storage-drizzle] ${op} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-    cause,
+    message: `[storage-drizzle] ${op} failed: ${driverCause instanceof Error ? driverCause.message : String(driverCause)}`,
+    cause: driverCause,
   });
 };
 

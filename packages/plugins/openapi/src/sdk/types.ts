@@ -113,33 +113,58 @@ export const HeaderValue = Schema.Union(
 export type HeaderValue = typeof HeaderValue.Type;
 
 // ---------------------------------------------------------------------------
-// OAuth2 auth — applied as Authorization: Bearer <token> at invocation time.
-// Tokens are stored as secrets; the bearer value is resolved (and refreshed)
-// on every request via withRefreshedAccessToken.
+// OAuth2 auth — points at the Connection that owns live tokens, and also
+// carries enough API-level config to kick off a fresh sign-in from the
+// source detail UI without needing the connection to still exist.
+//
+// Split of responsibilities:
+//   - The Source owns: the OAuth config (tokenUrl, authorizationUrl,
+//     client credential secret ids, scopes, flow, securitySchemeName).
+//     Values are a property of the target API, identical for every user
+//     signing into this source. Source-owned = reconnect works even if
+//     the connection row has been removed.
+//   - The Connection owns: live access/refresh tokens, token expiry,
+//     provider state the refresh path reads from. The connection's
+//     `providerState` caches the refresh-relevant bits of the config
+//     so the refresh loop never reaches back into source storage.
+//
+// This is a deliberate small duplication (scopes + tokenUrl +
+// clientIdSecretId + clientSecretSecretId appear on both). The values
+// are static per source so the two copies can't drift.
 // ---------------------------------------------------------------------------
+
+export const OAuth2Flow = Schema.Literal("authorizationCode", "clientCredentials");
+export type OAuth2Flow = typeof OAuth2Flow.Type;
 
 export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
   kind: Schema.Literal("oauth2"),
-  /** Key into `components.securitySchemes` this auth came from. */
+  /** Id of the Connection that owns this sign-in. Points at the core
+   *  `connection` table; resolve via `ctx.connections.get(id)` or
+   *  `ctx.connections.accessToken(id)`. Updated when the user signs in
+   *  again from the source detail UI (a fresh connection is minted and
+   *  this pointer is rewritten). */
+  connectionId: Schema.String,
+  /** Key into `components.securitySchemes` this auth came from. Kept here
+   *  so a spec with multiple OAuth2 schemes can wire each one to its own
+   *  connection. */
   securitySchemeName: Schema.String,
-  /**
-   * Which flow produced this auth. `clientCredentials` sources have no
-   * refresh token — the invoker re-exchanges via client_credentials when
-   * the access token is near expiry.
-   */
-  flow: Schema.Literal("authorizationCode", "clientCredentials"),
-  /** Token endpoint (from the flow) — used for refresh / re-exchange. */
+  /** OAuth2 grant type used for this source. Determines which flow the
+   *  sign-in button runs (authorizationCode opens a browser popup;
+   *  clientCredentials is server-to-server). */
+  flow: OAuth2Flow,
+  /** Absolute token endpoint URL. */
   tokenUrl: Schema.String,
+  /** Absolute authorization endpoint URL. Only used for authorizationCode
+   *  flows; clientCredentials has no user consent step. */
+  authorizationUrl: Schema.NullOr(Schema.String),
+  /** Secret id holding the OAuth client_id. */
   clientIdSecretId: Schema.String,
+  /** Secret id holding the OAuth client_secret. Optional for public
+   *  clients (PKCE-only authorizationCode). */
   clientSecretSecretId: Schema.NullOr(Schema.String),
-  accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.NullOr(Schema.String),
-  tokenType: Schema.String,
-  /** Epoch ms when the access token expires; null if the server did not declare an expiry. */
-  expiresAt: Schema.NullOr(Schema.Number),
-  /** Scope string as returned by the token endpoint. */
-  scope: Schema.NullOr(Schema.String),
-  /** Scopes this auth was granted (for display + refresh). */
+  /** OAuth scopes requested on sign-in. Stored as a static list so the
+   *  sign-in button can re-request the same capabilities without having
+   *  to re-derive them from the OpenAPI spec. */
   scopes: Schema.Array(Schema.String),
 }) {}
 
@@ -171,38 +196,39 @@ export class InvocationConfig extends Schema.Class<InvocationConfig>("Invocation
 }) {}
 
 // ---------------------------------------------------------------------------
-// Pending OAuth session — persisted between startOAuth and completeOAuth
+// Pending OAuth session — persisted between startOAuth and completeOAuth.
+// All the fields the exchange needs (token endpoint, client credential
+// secret ids, redirect URL, PKCE verifier) plus the pre-decided Connection
+// / secret ids the SDK stamps when the user returns.
 // ---------------------------------------------------------------------------
 
 export class OpenApiOAuthSession extends Schema.Class<OpenApiOAuthSession>(
   "OpenApiOAuthSession",
 )({
-  /** Display name used for the stored token secret labels. */
+  /** Display name used for the resulting Connection's identity label. */
   displayName: Schema.String,
   securitySchemeName: Schema.String,
-  /** For now only authorizationCode is supported end-to-end; clientCredentials is follow-up work. */
+  /** Only authorizationCode reaches this session type. client_credentials
+   *  has no user-interactive step so it creates the Connection inline in
+   *  `startOAuth` without persisting a session. */
   flow: Schema.Literal("authorizationCode"),
   tokenUrl: Schema.String,
+  /** Absolute authorization endpoint — persisted so completeOAuth can
+   *  stamp it onto the resulting `OAuth2Auth` for future sign-ins. */
+  authorizationUrl: Schema.String,
   redirectUrl: Schema.String,
   clientIdSecretId: Schema.String,
   clientSecretSecretId: Schema.NullOr(Schema.String),
-  /**
-   * Executor scope id where the minted access/refresh token secrets will
-   * land when `completeOAuth` runs. Typically the innermost (per-user)
-   * scope. Persisted in the session so the callback that completes the
-   * flow writes tokens to the same tenancy the caller intended at
-   * `startOAuth` time.
-   */
+  /** Executor scope that will own the resulting Connection (and its
+   *  backing secret rows). Typically the innermost (per-user) scope. */
   tokenScope: Schema.String,
-  /**
-   * Pre-decided secret ids for the minted access + refresh tokens. The
-   * caller names these so the source's `OAuth2Auth` can reference the
-   * same ids regardless of which scope actually owns the value —
-   * `ctx.secrets.get` resolves them via fallthrough (innermost first),
-   * so per-user tokens shadow org-level fallbacks on the same source.
-   */
+  /** Pre-decided Connection id stamped at `completeOAuth` time. */
+  connectionId: Schema.String,
+  /** Pre-decided secret ids for the Connection's access + refresh
+   *  tokens. Fixed at session creation so a retried callback lands
+   *  on the same ids. */
   accessTokenSecretId: Schema.String,
-  refreshTokenSecretId: Schema.NullOr(Schema.String),
+  refreshTokenSecretId: Schema.String,
   scopes: Schema.Array(Schema.String),
   codeVerifier: Schema.String,
 }) {}

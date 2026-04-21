@@ -13,10 +13,17 @@ export type McpTransport = typeof McpTransport.Type;
 
 // ---------------------------------------------------------------------------
 // Connection auth (only applies to remote sources)
+//
+// `oauth2` is a thin pointer to an SDK Connection (`ctx.connections`) —
+// the access/refresh secrets, expiry, DCR client info, and authorization-
+// server discovery URLs all live on the connection row. Scope shadowing
+// means the same `connectionId` resolves per-user via the executor's
+// innermost-wins lookup.
 // ---------------------------------------------------------------------------
 
 /** JSON object loosely typed — used for opaque OAuth state we just round-trip. */
 const JsonObject = Schema.Record({ key: Schema.String, value: Schema.Unknown });
+export { JsonObject as McpJsonObject };
 
 export const McpConnectionAuth = Schema.Union(
   Schema.Struct({ kind: Schema.Literal("none") }),
@@ -28,32 +35,7 @@ export const McpConnectionAuth = Schema.Union(
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
-    accessTokenSecretId: Schema.String,
-    refreshTokenSecretId: Schema.NullOr(Schema.String),
-    tokenType: Schema.optionalWith(Schema.String, { default: () => "Bearer" }),
-    expiresAt: Schema.NullOr(Schema.Number),
-    scope: Schema.NullOr(Schema.String),
-    /**
-     * Source-level OAuth state shared by every user. Lives on the
-     * source row (org scope) so DCR runs once per source instead of
-     * once per user, and so refresh can use the same client_id the
-     * upstream auth server originally registered.
-     *
-     * - `clientInformation`: DCR-issued client credentials (client_id,
-     *   optional client_secret). When present, no DCR happens on
-     *   subsequent OAuth flows or refreshes.
-     * - `authorizationServerUrl` / `resourceMetadataUrl`: discovery
-     *   URLs captured at first OAuth so refreshes don't re-discover.
-     */
-    clientInformation: Schema.optionalWith(Schema.NullOr(JsonObject), {
-      default: () => null,
-    }),
-    authorizationServerUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
-      default: () => null,
-    }),
-    resourceMetadataUrl: Schema.optionalWith(Schema.NullOr(Schema.String), {
-      default: () => null,
-    }),
+    connectionId: Schema.String,
   }),
 );
 export type McpConnectionAuth = typeof McpConnectionAuth.Type;

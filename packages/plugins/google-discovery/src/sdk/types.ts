@@ -60,19 +60,31 @@ export class GoogleDiscoveryManifest extends Schema.Class<GoogleDiscoveryManifes
   methods: Schema.Array(GoogleDiscoveryManifestMethod),
 }) {}
 
+// ---------------------------------------------------------------------------
+// Auth — a source either runs unauthenticated or is backed by a Connection.
+//
+// The source owns the API-level OAuth config (client credential secret
+// ids + scopes) so a stale sign-in can always be re-run from the source
+// detail page without needing the prior Connection to still exist. The
+// Connection owns live tokens + refresh state (and caches the same
+// config on `providerState` for the refresh path). This small
+// duplication keeps reconnect fully source-driven.
+// ---------------------------------------------------------------------------
+
 export const GoogleDiscoveryAuth = Schema.Union(
   Schema.Struct({
     kind: Schema.Literal("none"),
   }),
   Schema.Struct({
     kind: Schema.Literal("oauth2"),
+    /** Connection id; resolve via `ctx.connections.accessToken(id)`.
+     *  Rewritten on sign-in to point at the freshly minted connection. */
+    connectionId: Schema.String,
+    /** Secret id holding the OAuth client_id. */
     clientIdSecretId: Schema.String,
+    /** Secret id holding the OAuth client_secret. Null for public clients. */
     clientSecretSecretId: Schema.NullOr(Schema.String),
-    accessTokenSecretId: Schema.String,
-    refreshTokenSecretId: Schema.NullOr(Schema.String),
-    tokenType: Schema.optionalWith(Schema.String, { default: () => "Bearer" }),
-    expiresAt: Schema.NullOr(Schema.Number),
-    scope: Schema.NullOr(Schema.String),
+    /** Scopes requested on sign-in. */
     scopes: Schema.Array(Schema.String),
   }),
 );
@@ -113,5 +125,11 @@ export const GoogleDiscoveryOAuthSession = Schema.Struct({
   redirectUrl: Schema.String,
   scopes: Schema.Array(Schema.String),
   codeVerifier: Schema.String,
+  /** Executor scope that will own the resulting Connection + its backing
+   *  secrets. Typically the innermost (per-user) scope. */
+  tokenScope: Schema.String,
+  /** Pre-decided Connection id stamped at completeOAuth time so a retried
+   *  callback lands on the same id. */
+  connectionId: Schema.String,
 });
 export type GoogleDiscoveryOAuthSession = typeof GoogleDiscoveryOAuthSession.Type;

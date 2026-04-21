@@ -8,5 +8,6 @@ export const openApiSourcePlugin: SourcePlugin = {
   add: lazy(() => import("./AddOpenApiSource")),
   edit: lazy(() => import("./EditOpenApiSource")),
   summary: lazy(() => import("./OpenApiSourceSummary")),
+  signIn: lazy(() => import("./OpenApiSignInButton")),
   presets: openApiPresets,
 };

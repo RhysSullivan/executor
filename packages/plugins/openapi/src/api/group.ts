@@ -40,6 +40,9 @@ const UpdateSourcePayload = Schema.Struct({
   name: Schema.optional(Schema.String),
   baseUrl: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  // Set after a successful re-authenticate to rewrite the source's
+  // OAuth2Auth pointer to the freshly minted connection.
+  oauth2: Schema.optional(OAuth2Auth),
 });
 
 const UpdateSourceResponse = Schema.Struct({
@@ -60,10 +63,9 @@ const AddSpecResponse = Schema.Struct({
 // ---------------------------------------------------------------------------
 
 // Shared identity fields for both OAuth2 flows. `tokenScope` names which
-// executor scope will own the minted tokens (typically the per-user scope).
-// The token secret ids are pre-decided so the source's stored `OAuth2Auth`
-// can reference the same ids across every user — per-user values shadow
-// org-level fallbacks via secret fall-through on read.
+// executor scope will own the resulting Connection (typically the per-user
+// scope). Token secret ids are minted by the SDK from the Connection id —
+// callers never pick them.
 const StartOAuthIdentityFields = {
   displayName: Schema.String,
   securitySchemeName: Schema.String,
@@ -71,7 +73,6 @@ const StartOAuthIdentityFields = {
   clientIdSecretId: Schema.String,
   scopes: Schema.Array(Schema.String),
   tokenScope: Schema.optional(ScopeId),
-  accessTokenSecretId: Schema.String,
 } as const;
 
 const StartOAuthPayload = Schema.Union(
@@ -81,7 +82,6 @@ const StartOAuthPayload = Schema.Union(
     authorizationUrl: Schema.String,
     redirectUrl: Schema.String,
     clientSecretSecretId: Schema.optional(Schema.NullOr(Schema.String)),
-    refreshTokenSecretId: Schema.optional(Schema.NullOr(Schema.String)),
   }),
   // RFC 6749 §4.4 — no user-interactive step, no session, no popup. The
   // plugin exchanges tokens inline and returns a completed auth. The
