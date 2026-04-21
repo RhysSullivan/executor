@@ -10,48 +10,19 @@ import { join } from "node:path";
 import * as fs from "node:fs";
 import * as jsonc from "jsonc-parser";
 
-import type {
-  SourceConfig,
-  ExecutorFileConfig,
-  ConfigHeaderValue,
+import type { SourceConfig, ExecutorFileConfig } from "@executor/config";
+import {
+  headersFromConfigValues,
+  mcpAuthFromConfig,
 } from "@executor/config";
-import { SECRET_REF_PREFIX } from "@executor/config";
 
 import type { LocalExecutor } from "./executor";
 
-// ---------------------------------------------------------------------------
-// Header translation: config format → plugin format
-// ---------------------------------------------------------------------------
-
-const translateHeader = (
-  value: ConfigHeaderValue,
-): string | { secretId: string; prefix?: string } => {
-  if (typeof value === "string") {
-    if (value.startsWith(SECRET_REF_PREFIX)) {
-      return { secretId: value.slice(SECRET_REF_PREFIX.length) };
-    }
-    return value;
-  }
-  // Object form: { value, prefix? }
-  if (typeof value.value === "string" && value.value.startsWith(SECRET_REF_PREFIX)) {
-    return {
-      secretId: value.value.slice(SECRET_REF_PREFIX.length),
-      prefix: value.prefix,
-    };
-  }
-  return value.value;
-};
-
-const translateHeaders = (
-  headers: Record<string, ConfigHeaderValue> | undefined,
-): Record<string, string | { secretId: string; prefix?: string }> | undefined => {
-  if (!headers) return undefined;
-  const out: Record<string, string | { secretId: string; prefix?: string }> = {};
-  for (const [k, v] of Object.entries(headers)) {
-    out[k] = translateHeader(v);
-  }
-  return out;
-};
+// Narrow, non-exported view of the executor — tests can provide a
+// minimal `createExecutor({ plugins: [mcpPlugin(), …] })` without
+// loading the full LocalExecutor plugin set (keychain/1password/etc.).
+// Derived via `Pick` so there's no signature restatement.
+type ConfigSyncTarget = Pick<LocalExecutor, "scopes" | "openapi" | "graphql" | "mcp">;
 
 // ---------------------------------------------------------------------------
 // Config path resolution
@@ -81,7 +52,7 @@ const loadConfigSync = (path: string): ExecutorFileConfig | null => {
 // ---------------------------------------------------------------------------
 
 const addSourceFromConfig = (
-  executor: LocalExecutor,
+  executor: ConfigSyncTarget,
   source: SourceConfig,
 ): Effect.Effect<void, unknown> => {
   // `executor.jsonc` is a single-scope artifact today — the file isn't
@@ -96,7 +67,7 @@ const addSourceFromConfig = (
         scope,
         baseUrl: source.baseUrl,
         namespace: source.namespace,
-        headers: translateHeaders(source.headers),
+        headers: headersFromConfigValues(source.headers),
       }).pipe(Effect.asVoid);
 
     case "graphql":
@@ -104,7 +75,7 @@ const addSourceFromConfig = (
         endpoint: source.endpoint,
         scope,
         namespace: source.namespace,
-        headers: translateHeaders(source.headers) as Record<string, string> | undefined,
+        headers: headersFromConfigValues(source.headers) as Record<string, string> | undefined,
       }).pipe(Effect.asVoid);
 
     case "mcp":
@@ -128,6 +99,7 @@ const addSourceFromConfig = (
         remoteTransport: source.remoteTransport,
         queryParams: source.queryParams,
         headers: source.headers,
+        auth: mcpAuthFromConfig(source.auth),
         namespace: source.namespace,
       }).pipe(Effect.asVoid);
   }
@@ -138,7 +110,7 @@ const addSourceFromConfig = (
  * Each source is added independently — if one fails, the rest still load.
  */
 export const syncFromConfig = (
-  executor: LocalExecutor,
+  executor: ConfigSyncTarget,
   configPath: string,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
