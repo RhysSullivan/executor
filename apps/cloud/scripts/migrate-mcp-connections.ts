@@ -97,14 +97,6 @@ const classifyRow = (row: Row): Bucket => {
         reason: "config.endpoint missing",
       };
     }
-    if (legacy.clientInformation === null) {
-      return {
-        kind: "legacy-blocked",
-        row,
-        legacy,
-        reason: "clientInformation missing — DCR never completed",
-      };
-    }
     return { kind: "legacy-migratable", row, legacy, endpoint };
   }
 
@@ -230,7 +222,7 @@ const main = async () => {
       const providerState = {
         endpoint: b.endpoint,
         tokenType: l.tokenType,
-        clientInformation: l.clientInformation!,
+        clientInformation: l.clientInformation,
         authorizationServerUrl: l.authorizationServerUrl,
         authorizationServerMetadata: null,
         resourceMetadataUrl: l.resourceMetadataUrl,

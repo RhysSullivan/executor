@@ -304,7 +304,11 @@ const MCP_OAUTH2_PROVIDER_KEY = "mcp:oauth2" as const;
 const OAuth2ProviderState = Schema.Struct({
   endpoint: Schema.String,
   tokenType: Schema.String,
-  clientInformation: McpJsonObject,
+  // Nullable to accommodate early-onboarded sources where DCR client
+  // registration was never persisted back onto the source. Refresh fails
+  // fast on null and surfaces a "re-sign-in required" error, which the UI
+  // turns into a Reconnect prompt.
+  clientInformation: Schema.NullOr(McpJsonObject),
   authorizationServerUrl: Schema.NullOr(Schema.String),
   authorizationServerMetadata: Schema.NullOr(McpJsonObject),
   resourceMetadataUrl: Schema.NullOr(Schema.String),
@@ -1289,6 +1293,14 @@ export const mcpPlugin = definePlugin(
                     cause,
                   }),
               });
+
+              if (state.clientInformation === null) {
+                return yield* new ConnectionRefreshError({
+                  connectionId: input.connectionId,
+                  message:
+                    "mcp:oauth2 connection has no clientInformation — re-sign-in required (legacy row; DCR was never persisted)",
+                });
+              }
 
               const authServerUrl =
                 state.authorizationServerUrl ??

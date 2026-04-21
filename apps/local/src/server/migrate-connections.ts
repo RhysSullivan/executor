@@ -405,13 +405,6 @@ const migrateMcp = (sqlite: Database): void => {
       );
       continue;
     }
-    if (legacy.clientInformation === null) {
-      console.warn(
-        `[migrate-connections] skip mcp ${row.scope_id}/${row.id}: clientInformation missing (DCR never completed)`,
-      );
-      continue;
-    }
-
     const connectionId = `mcp-oauth2-${row.id}`;
     const providerState = {
       endpoint,
