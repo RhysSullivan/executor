@@ -1,4 +1,4 @@
-import { Effect, FiberRef } from "effect";
+import { Effect, FiberRef, Option, Schema } from "effect";
 import {
   StorageError,
   typedAdapter,
@@ -981,23 +981,9 @@ export const createExecutor = <
     // behavior under the new SDK orchestration stays identical.
     const CONNECTION_REFRESH_SKEW_MS = 60_000;
 
-    const toJsonObject = (
-      value: unknown,
-    ): ConnectionProviderState | null => {
-      if (value === null || value === undefined) return null;
-      if (typeof value === "string") {
-        try {
-          const parsed = JSON.parse(value);
-          return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? (parsed as ConnectionProviderState)
-            : null;
-        } catch {
-          return null;
-        }
-      }
-      if (typeof value !== "object" || Array.isArray(value)) return null;
-      return value as ConnectionProviderState;
-    };
+    const decodeProviderState = Schema.decodeUnknownOption(
+      ConnectionProviderState,
+    );
 
     const rowToConnection = (row: ConnectionRow): ConnectionRef =>
       new ConnectionRef({
@@ -1014,7 +1000,9 @@ export const createExecutor = <
         expiresAt:
           row.expires_at != null ? Number(row.expires_at as number) : null,
         oauthScope: (row.scope as string | null | undefined) ?? null,
-        providerState: toJsonObject(row.provider_state),
+        providerState: Option.getOrNull(
+          decodeProviderState(decodeJsonColumn(row.provider_state)),
+        ),
         createdAt:
           row.created_at instanceof Date
             ? row.created_at
