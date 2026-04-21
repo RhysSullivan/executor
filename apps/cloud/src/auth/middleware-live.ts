@@ -5,7 +5,12 @@
 
 import { Effect, Layer, Redacted } from "effect";
 
-import { NoOrganization, OrgAuth, SessionAuth, Unauthorized } from "./middleware";
+import {
+  NoOrganization,
+  OrgAuth,
+  SessionAuth,
+  Unauthorized,
+} from "./middleware";
 import { WorkOSAuth } from "./workos";
 
 export const SessionAuthLive = Layer.effect(

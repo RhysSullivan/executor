@@ -1,13 +1,11 @@
 import { HttpApiBuilder, HttpMiddleware, HttpRouter, HttpServer } from "@effect/platform";
 import { Effect, Layer } from "effect";
 
-import { CoreExecutorApi, InternalError, observabilityMiddleware } from "@executor/api";
-import { CoreHandlers } from "@executor/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor/plugin-mcp/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
+import { observabilityMiddleware } from "@executor/api";
+import { OpenApiHandlers } from "@executor/plugin-openapi/api";
+import { McpHandlers } from "@executor/plugin-mcp/api";
+import { GraphqlHandlers } from "@executor/plugin-graphql/api";
 
-import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive, SessionAuthLive } from "../auth/middleware-live";
 import { UserStoreService } from "../auth/context";
 import {
@@ -21,15 +19,11 @@ import { OrgHttpApi } from "../org/compose";
 import { OrgHandlers } from "../org/handlers";
 import { ErrorCaptureLive } from "../observability";
 
+import { ProtectedCloudApi } from "./api";
 import { CoreSharedServices } from "./core-shared-services";
+import { CloudCoreHandlers } from "./handlers";
 
 export { CoreSharedServices };
-
-const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
-  .add(McpGroup)
-  .add(GraphqlGroup)
-  .addError(InternalError)
-  .middleware(OrgAuth);
 
 const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
@@ -49,7 +43,7 @@ export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 })
 export const ProtectedCloudApiLive = HttpApiBuilder.api(ProtectedCloudApi).pipe(
   Layer.provide(
     Layer.mergeAll(
-      CoreHandlers,
+      CloudCoreHandlers,
       OpenApiHandlers,
       McpHandlers,
       GraphqlHandlers,
