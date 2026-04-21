@@ -57,8 +57,8 @@ const StringMap = Schema.Record({ key: Schema.String, value: Schema.String });
 // stable across machines.
 //
 // `McpConnectionAuth` is the runtime shape handed to the plugin: header
-// `secretId` is the bare id. Translators between the two shapes live in
-// `./translate` — plugins never touch the file prefix directly.
+// `secretId` is the bare id. Transforms between the two shapes live in
+// `./transform` — plugins never touch the file prefix directly.
 //
 // `oauth2` is identical in both shapes today: a stable pointer to an SDK
 // Connection (`ctx.connections`) holding the token material.

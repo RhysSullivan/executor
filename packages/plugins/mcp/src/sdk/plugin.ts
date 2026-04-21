@@ -58,9 +58,8 @@ import {
 } from "./types";
 
 import {
-  SECRET_REF_PREFIX,
+  mcpAuthToConfig,
   type ConfigFileSink,
-  type McpAuthConfig,
   type McpRemoteSourceConfig as McpRemoteConfigEntry,
   type McpStdioSourceConfig as McpStdioConfigEntry,
   type SourceConfig,
@@ -497,25 +496,6 @@ export interface McpPluginOptions {
   readonly configFile?: ConfigFileSink;
 }
 
-const secretRef = (id: string): string => `${SECRET_REF_PREFIX}${id}`;
-
-const authToConfig = (auth: McpConnectionAuth | undefined): McpAuthConfig | undefined => {
-  if (!auth) return undefined;
-  if (auth.kind === "none") return { kind: "none" };
-  if (auth.kind === "header") {
-    return {
-      kind: "header",
-      headerName: auth.headerName,
-      secret: secretRef(auth.secretId),
-      prefix: auth.prefix,
-    };
-  }
-  return {
-    kind: "oauth2",
-    connectionId: auth.connectionId,
-  };
-};
-
 const toMcpConfigEntry = (
   namespace: string,
   sourceName: string,
@@ -543,7 +523,7 @@ const toMcpConfigEntry = (
     queryParams: config.queryParams,
     headers: config.headers,
     namespace,
-    auth: authToConfig(config.auth),
+    auth: mcpAuthToConfig(config.auth),
   };
   return entry;
 };

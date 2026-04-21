@@ -15,29 +15,14 @@ import { Effect } from "effect";
 import type { Layer } from "effect";
 import type { FileSystem } from "@effect/platform";
 
-import { SECRET_REF_PREFIX, type ConfigHeaderValue, type SourceConfig } from "./schema";
+import type { SourceConfig } from "./schema";
 import { addSourceToConfig, removeSourceFromConfig } from "./write";
 
-// Translate a plugin-side header value (`{ secretId, prefix? }` for secret
-// refs) into the config file's `secret-public-ref:<id>` string form.
-type PluginHeaderValue = string | { secretId: string; prefix?: string };
-
-export const headerToConfigValue = (
-  value: PluginHeaderValue,
-): ConfigHeaderValue => {
-  if (typeof value === "string") return value;
-  const ref = `${SECRET_REF_PREFIX}${value.secretId}`;
-  return value.prefix ? { value: ref, prefix: value.prefix } : ref;
-};
-
-export const headersToConfigValues = (
-  headers: Record<string, PluginHeaderValue> | undefined,
-): Record<string, ConfigHeaderValue> | undefined => {
-  if (!headers) return undefined;
-  const out: Record<string, ConfigHeaderValue> = {};
-  for (const [k, v] of Object.entries(headers)) out[k] = headerToConfigValue(v);
-  return out;
-};
+export {
+  headerToConfigValue,
+  headersToConfigValues,
+  type PluginHeaderValue,
+} from "./transform";
 
 export interface ConfigFileSink {
   readonly upsertSource: (source: SourceConfig) => Effect.Effect<void>;
