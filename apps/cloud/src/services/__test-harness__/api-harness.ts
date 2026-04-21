@@ -332,7 +332,7 @@ export const clientLayerForUser = (userId: string, orgId: string) =>
 // Constructs an HttpApiClient bound to the given org, hands it to `body`,
 // and provides the org-scoped fetch layer in one step. Keeps per-test
 // Effect blocks focused on the actual assertions.
-type ApiShape = typeof ProtectedCloudApi extends HttpApi.HttpApi<
+export type ApiShape = typeof ProtectedCloudApi extends HttpApi.HttpApi<
   infer _Id,
   infer Groups,
   infer ApiError,

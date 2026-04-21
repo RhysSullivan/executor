@@ -6,29 +6,21 @@
 import { HttpApiBuilder, HttpRouter, HttpServer } from "@effect/platform";
 import { Layer } from "effect";
 
-import {
-  CoreExecutorApi,
-  InternalError,
-  observabilityMiddleware,
-} from "@executor/api";
-import { CoreHandlers } from "@executor/api/server";
-import { OpenApiGroup, OpenApiHandlers } from "@executor/plugin-openapi/api";
-import { McpGroup, McpHandlers } from "@executor/plugin-mcp/api";
-import { GraphqlGroup, GraphqlHandlers } from "@executor/plugin-graphql/api";
+import { observabilityMiddleware } from "@executor/api";
+import { OpenApiHandlers } from "@executor/plugin-openapi/api";
+import { McpHandlers } from "@executor/plugin-mcp/api";
+import { GraphqlHandlers } from "@executor/plugin-graphql/api";
 
-import { OrgAuth } from "../auth/middleware";
 import { OrgAuthLive } from "../auth/middleware-live";
 import { UserStoreService } from "../auth/context";
 import { WorkOSAuth } from "../auth/workos";
 import { AutumnService } from "../services/autumn";
 import { DbService } from "../services/db";
 import { ErrorCaptureLive } from "../observability";
+import { ProtectedCloudApi } from "./api";
+import { CloudCoreHandlers } from "./handlers";
 
-export const ProtectedCloudApi = CoreExecutorApi.add(OpenApiGroup)
-  .add(McpGroup)
-  .add(GraphqlGroup)
-  .addError(InternalError)
-  .middleware(OrgAuth);
+export { ProtectedCloudApi };
 
 const ObservabilityLive = observabilityMiddleware(ProtectedCloudApi);
 
@@ -49,7 +41,7 @@ export const RouterConfig = HttpRouter.setRouterConfig({ maxParamLength: 1000 })
 // harness builds its own api-live by merging this with a fake OrgAuth
 // layer; prod merges it with OrgAuthLive below.
 export const ProtectedCloudApiHandlers = Layer.mergeAll(
-  CoreHandlers,
+  CloudCoreHandlers,
   OpenApiHandlers,
   McpHandlers,
   GraphqlHandlers,

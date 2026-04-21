@@ -44,6 +44,18 @@ export class NoOrganization extends Schema.TaggedError<NoOrganization>()(
   HttpApiSchema.annotations({ status: 403 }),
 ) {}
 
+/** The `/scopes/:scopeId/...` path param does not belong to the
+ *  caller. Raised by `OrgAuth` when an authenticated request targets a
+ *  scope the caller's session can't act on (a different org's scope,
+ *  or another user's `user-org:…` scope within the same org). Cloud-
+ *  specific: `scopeId === organizationId` (or the `user-org:…` variant)
+ *  is the invariant this check enforces. */
+export class ScopeForbidden extends Schema.TaggedError<ScopeForbidden>()(
+  "ScopeForbidden",
+  {},
+  HttpApiSchema.annotations({ status: 403 }),
+) {}
+
 // ---------------------------------------------------------------------------
 // SessionAuth — resolves the WorkOS session cookie, provides SessionContext
 // ---------------------------------------------------------------------------
