@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import { env } from "cloudflare:workers";
-import { Context, Effect, Layer } from "effect";
+import { Cache, Context, Duration, Effect, Layer } from "effect";
 import { WorkOS } from "@workos-inc/node/worker";
 import { WorkOSError, tryPromiseService, withServiceLogging } from "./errors";
 
@@ -31,7 +31,7 @@ const make = Effect.gen(function* () {
       tryPromiseService(() => fn(workos)),
     );
 
-  const authenticateSealedSession = (sessionData: string) =>
+  const authenticateSealedSessionUncached = (sessionData: string) =>
     Effect.gen(function* () {
       if (!sessionData) return null;
 
@@ -76,6 +76,23 @@ const make = Effect.gen(function* () {
         refreshedSession: refreshed.sealedSession,
       };
     });
+
+  // `authenticateSealedSession` is called multiple times per request
+  // (once in `lookupOrgForRequest` to pick the org, once in the
+  // `OrgAuth` middleware to populate AuthContext). Each uncached call
+  // re-runs the WorkOS refresh POST when the access token is expired —
+  // two round-trips for identical input. A short-TTL keyed cache
+  // collapses those into one lookup per (sessionData, ~10s window).
+  // The cache is concurrent-safe: simultaneous `get`s for the same key
+  // share a single in-flight effect.
+  const sessionCache = yield* Cache.make({
+    capacity: 512,
+    timeToLive: Duration.seconds(10),
+    lookup: authenticateSealedSessionUncached,
+  });
+
+  const authenticateSealedSession = (sessionData: string) =>
+    sessionCache.get(sessionData);
 
   return {
     getAuthorizationUrl: (redirectUri: string) =>
