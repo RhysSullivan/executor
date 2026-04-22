@@ -50,6 +50,7 @@ import {
   type McpToolManifestEntry,
 } from "./manifest";
 import { exchangeMcpOAuthCode, startMcpOAuthAuthorization } from "./oauth";
+import { probeMcpEndpointShape } from "./probe-shape";
 import {
   McpToolBinding,
   McpJsonObject,
@@ -609,6 +610,21 @@ export const mcpPlugin = definePlugin(
                 toolCount: result.manifest.tools.length,
                 serverName: result.manifest.server?.name ?? null,
               } satisfies McpProbeResult;
+            }
+
+            // Gate OAuth metadata discovery on an MCP-shaped 401. Without
+            // this check any OAuth-protected non-MCP service (e.g. a
+            // GraphQL API whose host publishes RFC 9728 + 8414 metadata)
+            // would pass the OAuth probe and be misclassified as MCP.
+            const shape = yield* probeMcpEndpointShape(trimmed);
+            if (shape.kind !== "mcp") {
+              return yield* Effect.fail(
+                remoteConnectionError(
+                  shape.kind === "not-mcp"
+                    ? `Endpoint does not look like an MCP server: ${shape.reason}`
+                    : `Could not reach endpoint: ${shape.reason}`,
+                ),
+              );
             }
 
             const hasOAuth = yield* startMcpOAuthAuthorization({
@@ -1223,6 +1239,14 @@ export const mcpPlugin = definePlugin(
               namespace,
             });
           }
+
+          // Gate OAuth discovery on an MCP-shaped 401. Without this check
+          // any OAuth-protected non-MCP service (e.g. a GraphQL API whose
+          // host publishes RFC 9728 + 8414 metadata) would pass the OAuth
+          // probe and be classified as MCP whenever the cross-plugin
+          // detector fans out to us.
+          const shape = yield* probeMcpEndpointShape(trimmed);
+          if (shape.kind !== "mcp") return null;
 
           // Probe for OAuth — still means it's an MCP server
           const hasOAuth = yield* startMcpOAuthAuthorization({
