@@ -11,6 +11,7 @@ declare global {
       AXIOM_TRACES_URL?: string;
       AXIOM_TRACES_SAMPLE_RATIO?: string;
       SENTRY_DSN?: string;
+      VITE_PUBLIC_SENTRY_DSN?: string;
 
       // Datastore (dev only — prod uses HYPERDRIVE binding)
       DATABASE_URL?: string;
