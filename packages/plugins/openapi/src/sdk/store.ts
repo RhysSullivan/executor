@@ -7,7 +7,6 @@ import {
 } from "@executor/sdk";
 
 import {
-  AnnotationPolicy,
   HeaderValue,
   InvocationConfig,
   OAuth2Auth,
@@ -37,7 +36,6 @@ export const openapiSchema = defineSchema({
       base_url: { type: "string", required: false },
       headers: { type: "json", required: false },
       oauth2: { type: "json", required: false },
-      annotation_policy: { type: "json", required: false },
       invocation_config: { type: "json", required: true },
     },
   },
@@ -74,7 +72,6 @@ export interface SourceConfig {
   readonly namespace?: string;
   readonly headers?: Record<string, HeaderValue>;
   readonly oauth2?: OAuth2Auth;
-  readonly annotationPolicy?: AnnotationPolicy;
 }
 
 export interface StoredSource {

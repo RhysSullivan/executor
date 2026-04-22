@@ -201,19 +201,6 @@ export class OAuth2Auth extends Schema.Class<OAuth2Auth>("OpenApiOAuth2Auth")({
   scopes: Schema.Array(Schema.String),
 }) {}
 
-// ---------------------------------------------------------------------------
-// Annotation policy — per-source override of the HTTP-method-based default
-// for `requiresApproval`. If `requireApprovalFor` is set, it replaces the
-// default set ({POST, PUT, PATCH, DELETE}) wholesale: any method present
-// requires approval, any method absent does not.
-// ---------------------------------------------------------------------------
-
-export class AnnotationPolicy extends Schema.Class<AnnotationPolicy>(
-  "OpenApiAnnotationPolicy",
-)({
-  requireApprovalFor: Schema.optional(Schema.Array(HttpMethod)),
-}) {}
-
 export class InvocationConfig extends Schema.Class<InvocationConfig>("InvocationConfig")({
   baseUrl: Schema.String,
   /** Headers applied to every request. Values can reference secrets. */
