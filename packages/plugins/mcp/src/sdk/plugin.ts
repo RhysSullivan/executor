@@ -1,28 +1,16 @@
-import { Duration, Effect, Exit, Schema, Scope, ScopedCache } from "effect";
+import { Duration, Effect, Exit, Scope, ScopedCache } from "effect";
+
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 
 import {
-  refreshAuthorization,
-  type OAuthClientProvider,
-  type OAuthDiscoveryState,
-} from "@modelcontextprotocol/sdk/client/auth.js";
-import type {
-  OAuthClientInformationMixed,
-  OAuthMetadata,
-  OAuthTokens,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
-
-import {
-  ConnectionId,
-  ConnectionRefreshError,
-  CreateConnectionInput,
-  ScopeId,
-  SecretId,
   SourceDetectionResult,
-  TokenMaterial,
   definePlugin,
-  type ConnectionProvider,
-  type ConnectionRefreshInput,
-  type ConnectionRefreshResult,
+  type OAuthCompleteError,
+  type OAuthCompleteResult,
+  type OAuthProbeError,
+  type OAuthSessionNotFoundError,
+  type OAuthStartError,
+  type OAuthStartResult,
   type PluginCtx,
   type StorageFailure,
 } from "@executor/sdk";
@@ -41,7 +29,6 @@ import {
 import { discoverTools } from "./discover";
 import {
   McpConnectionError,
-  McpOAuthError,
   McpToolDiscoveryError,
 } from "./errors";
 import { invokeMcpTool } from "./invoke";
@@ -49,11 +36,9 @@ import {
   deriveMcpNamespace,
   type McpToolManifestEntry,
 } from "./manifest";
-import { exchangeMcpOAuthCode, startMcpOAuthAuthorization } from "./oauth";
 import { probeMcpEndpointShape } from "./probe-shape";
 import {
   McpToolBinding,
-  McpJsonObject,
   type McpConnectionAuth,
   type McpStoredSourceData,
 } from "./types";
@@ -221,114 +206,48 @@ const toBinding = (entry: McpToolManifestEntry): McpToolBinding =>
     outputSchema: entry.outputSchema,
   });
 
-interface OAuthProviderInputs {
-  readonly accessToken: string;
-  readonly tokenType: string;
-  /** Source-level state — same for every user. Surfaced to the MCP
-   *  transport so internal DCR/discovery lookups find a populated
-   *  provider, but never used to mint tokens: refresh is owned by the
-   *  SDK via `ctx.connections.accessToken`. */
-  readonly clientInformation?: OAuthClientInformationMixed | null;
-  readonly authorizationServerUrl?: string | null;
-  readonly resourceMetadataUrl?: string | null;
-  readonly endpoint: string;
-}
-
-const makeOAuthProvider = (inputs: OAuthProviderInputs): OAuthClientProvider => {
-  const currentTokens: OAuthTokens = {
-    access_token: inputs.accessToken,
-    token_type: inputs.tokenType,
-  };
-  let clientInformation: OAuthClientInformationMixed | undefined =
-    inputs.clientInformation ?? undefined;
-  let discoveryState: OAuthDiscoveryState | undefined =
-    inputs.authorizationServerUrl || inputs.resourceMetadataUrl
-      ? {
-          authorizationServerUrl:
-            inputs.authorizationServerUrl ?? new URL("/", inputs.endpoint).toString(),
-          resourceMetadataUrl: inputs.resourceMetadataUrl ?? undefined,
-        }
-      : undefined;
-
-  return {
-    get redirectUrl() {
-      return "http://localhost/oauth/callback";
-    },
-    get clientMetadata() {
-      return {
-        redirect_uris: ["http://localhost/oauth/callback"],
-        grant_types: ["authorization_code", "refresh_token"] as string[],
-        response_types: ["code"] as string[],
-        token_endpoint_auth_method: "none" as const,
-        client_name: "Executor",
-      };
-    },
-    clientInformation: () => clientInformation,
-    saveClientInformation: (ci) => {
-      clientInformation = ci;
-    },
-    tokens: () => currentTokens,
-    // No-op: token refresh is driven by the SDK through
-    // `ctx.connections.accessToken`, and the access token resolved at
-    // `resolveConnectorInput` time is the only one this provider ever
-    // hands to the transport. A 401 from the server flips the
-    // invokeMcpTool retry path, which invalidates the cached connection
-    // and re-resolves — picking up a freshly refreshed token.
-    saveTokens: () => undefined,
-    redirectToAuthorization: async () => {
-      throw new Error("MCP OAuth re-authorization required");
-    },
-    saveCodeVerifier: () => {},
-    codeVerifier: () => {
-      throw new Error("No active PKCE verifier");
-    },
-    saveDiscoveryState: (s) => {
-      discoveryState = s;
-    },
-    discoveryState: () => discoveryState,
-  };
-};
-
 // ---------------------------------------------------------------------------
-// Connection `provider_state` shape for mcp-oauth2.
+// MCP-SDK OAuth provider adapter — builds the `OAuthClientProvider` the
+// MCP SDK's StreamableHTTP/SSE transports want, wrapping a pre-resolved
+// access token.
 //
-// Carries everything the SDK hands to the refresh handler so it can
-// re-hit the token endpoint without re-reading plugin storage. The DCR
-// client info is NOT sensitive on its own — the MCP SDK's DCR flow uses
-// `token_endpoint_auth_method: "none"` (PKCE), so there's no
-// client_secret to protect. Having it here lets the refresh handler
-// skip discovery entirely.
+// Refresh is NOT driven through this provider — `ctx.connections.access
+// Token` owns that lifecycle at the core level via the canonical
+// "oauth2" ConnectionProvider. This adapter only injects the current
+// token into the transport's Authorization header and fails loudly if
+// the SDK ever tries to initiate a new OAuth flow (which would bypass
+// our refresh machinery).
 // ---------------------------------------------------------------------------
-
-const MCP_OAUTH2_PROVIDER_KEY = "mcp:oauth2" as const;
-
-const OAuth2ProviderState = Schema.Struct({
-  endpoint: Schema.String,
-  tokenType: Schema.String,
-  // Nullable to accommodate early-onboarded sources where DCR client
-  // registration was never persisted back onto the source. Refresh fails
-  // fast on null and surfaces a "re-sign-in required" error, which the UI
-  // turns into a Reconnect prompt.
-  clientInformation: Schema.NullOr(McpJsonObject),
-  authorizationServerUrl: Schema.NullOr(Schema.String),
-  authorizationServerMetadata: Schema.NullOr(McpJsonObject),
-  resourceMetadataUrl: Schema.NullOr(Schema.String),
-  resourceMetadata: Schema.NullOr(McpJsonObject),
+const makeOAuthProvider = (accessToken: string): OAuthClientProvider => ({
+  get redirectUrl() {
+    return "http://localhost/oauth/callback";
+  },
+  get clientMetadata() {
+    return {
+      redirect_uris: ["http://localhost/oauth/callback"],
+      grant_types: ["authorization_code", "refresh_token"] as string[],
+      response_types: ["code"] as string[],
+      token_endpoint_auth_method: "none" as const,
+      client_name: "Executor",
+    };
+  },
+  clientInformation: () => undefined,
+  saveClientInformation: () => undefined,
+  tokens: () => ({ access_token: accessToken, token_type: "Bearer" }),
+  saveTokens: () => undefined,
+  redirectToAuthorization: async () => {
+    throw new Error("MCP OAuth re-authorization required");
+  },
+  saveCodeVerifier: () => undefined,
+  codeVerifier: () => {
+    throw new Error("No active PKCE verifier");
+  },
+  saveDiscoveryState: () => undefined,
+  discoveryState: () => undefined,
 });
-type OAuth2ProviderState = typeof OAuth2ProviderState.Type;
-
-const encodeProviderState = Schema.encodeSync(OAuth2ProviderState);
-const decodeProviderState = Schema.decodeUnknownSync(OAuth2ProviderState);
-
-const toProviderStateRecord = (
-  state: OAuth2ProviderState,
-): Record<string, unknown> =>
-  encodeProviderState(state) as unknown as Record<string, unknown>;
 
 const remoteConnectionError = (message: string) =>
   new McpConnectionError({ transport: "remote", message });
-
-const mcpOAuthError = (message: string) => new McpOAuthError({ message });
 
 const mcpDiscoveryError = (message: string) =>
   new McpToolDiscoveryError({ stage: "list_tools", message });
@@ -376,11 +295,10 @@ const resolveConnectorInput = (
       headers[auth.headerName] = auth.prefix ? `${auth.prefix}${val}` : val;
     } else if (auth.kind === "oauth2") {
       // `accessToken(id)` handles refresh internally — by the time we
-      // hand the value to the MCP transport it's guaranteed fresh. The
-      // connection row carries the DCR client + discovery metadata in
-      // `providerState`, but we read it off the connection here only
-      // for the `OAuthClientProvider` surface; the actual token
-      // material is what matters at the wire.
+      // hand the value to the MCP transport it's guaranteed fresh.
+      // The canonical `"oauth2"` ConnectionProvider registered by
+      // core owns the refresh lifecycle; we just wrap the current
+      // token for the SDK's transport.
       const accessToken = yield* ctx.connections
         .accessToken(auth.connectionId)
         .pipe(
@@ -394,29 +312,7 @@ const resolveConnectorInput = (
             ),
           ),
         );
-
-      const connection = yield* ctx.connections.get(auth.connectionId);
-      const providerState: OAuth2ProviderState | null =
-        connection?.providerState
-          ? yield* Effect.sync(() => {
-              try {
-                return decodeProviderState(connection.providerState);
-              } catch {
-                return null;
-              }
-            })
-          : null;
-
-      authProvider = makeOAuthProvider({
-        accessToken,
-        tokenType: providerState?.tokenType ?? "Bearer",
-        clientInformation:
-          (providerState?.clientInformation as OAuthClientInformationMixed | undefined) ??
-          null,
-        authorizationServerUrl: providerState?.authorizationServerUrl ?? null,
-        resourceMetadataUrl: providerState?.resourceMetadataUrl ?? null,
-        endpoint: sd.endpoint,
-      });
+      authProvider = makeOAuthProvider(accessToken);
     }
 
     return {
@@ -612,10 +508,12 @@ export const mcpPlugin = definePlugin(
               } satisfies McpProbeResult;
             }
 
-            // Gate OAuth metadata discovery on an MCP-shaped 401. Without
-            // this check any OAuth-protected non-MCP service (e.g. a
-            // GraphQL API whose host publishes RFC 9728 + 8414 metadata)
-            // would pass the OAuth probe and be misclassified as MCP.
+            // Before asking the core OAuth service to look for metadata,
+            // confirm the endpoint actually speaks MCP. An OAuth-protected
+            // non-MCP service (e.g. a GraphQL API whose host publishes
+            // RFC 9728 + 8414 metadata) would otherwise pass the OAuth
+            // probe and be misclassified as MCP. The shape probe rejects
+            // anything whose initialize response isn't 2xx or 401+Bearer.
             const shape = yield* probeMcpEndpointShape(trimmed);
             if (shape.kind !== "mcp") {
               return yield* Effect.fail(
@@ -627,17 +525,24 @@ export const mcpPlugin = definePlugin(
               );
             }
 
-            const hasOAuth = yield* startMcpOAuthAuthorization({
-              endpoint: trimmed,
-              redirectUrl: "http://127.0.0.1/executor/discovery/oauth/probe",
-              state: "probe",
-            }).pipe(
-              Effect.map(() => true),
-              Effect.catchAll(() => Effect.succeed(false)),
-              Effect.withSpan("mcp.plugin.probe_oauth"),
-            );
+            const oauthService = ctx.oauth;
+            if (!oauthService) {
+              return yield* Effect.fail(
+                remoteConnectionError(
+                  "MCP server requires authentication but ctx.oauth is unavailable",
+                ),
+              );
+            }
 
-            if (hasOAuth) {
+            const probeResult = yield* oauthService
+              .probe({ endpoint: trimmed })
+              .pipe(
+                Effect.map(() => true),
+                Effect.catchAll(() => Effect.succeed(false)),
+                Effect.withSpan("mcp.plugin.probe_oauth"),
+              );
+
+            if (probeResult) {
               return {
                 connected: false,
                 requiresOAuth: true,
@@ -650,7 +555,7 @@ export const mcpPlugin = definePlugin(
 
             return yield* Effect.fail(
               remoteConnectionError(
-                "Could not connect to MCP endpoint and no OAuth was detected",
+                "MCP server requires authentication but OAuth discovery failed",
               ),
             );
           }).pipe(
@@ -890,15 +795,32 @@ export const mcpPlugin = definePlugin(
             }),
           );
 
+        // Thin forwarders around `ctx.oauth`. The core service owns the
+        // state machine (session storage, DCR, exchange, connection
+        // minting, refresh). The plugin only:
+        //   - appends MCP-specific `queryParams` to the endpoint URL
+        //     before handing it off, and
+        //   - sets `pluginId: "mcp"` so completion routes back to us.
+        const requireOAuth = () => {
+          const svc = ctx.oauth;
+          if (!svc) {
+            throw new Error(
+              "MCP plugin called ctx.oauth but the executor was built without one. " +
+                "`makeOAuth2Service` is always constructed by `createExecutor`; " +
+                "this should be impossible.",
+            );
+          }
+          return svc;
+        };
+
         const startOAuth = (input: McpOAuthStartInput) =>
           Effect.gen(function* () {
             const endpoint = input.endpoint.trim();
             if (!endpoint) {
               return yield* Effect.fail(
-                mcpOAuthError("MCP OAuth requires an endpoint"),
+                remoteConnectionError("MCP OAuth requires an endpoint"),
               );
             }
-
             let fullEndpoint = endpoint;
             if (input.queryParams && Object.keys(input.queryParams).length > 0) {
               const u = new URL(endpoint);
@@ -907,180 +829,24 @@ export const mcpPlugin = definePlugin(
               }
               fullEndpoint = u.toString();
             }
-
-            const sessionId = `mcp_oauth_${crypto.randomUUID()}`;
             const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
-            const started = yield* startMcpOAuthAuthorization({
+            return yield* requireOAuth().start({
               endpoint: fullEndpoint,
               redirectUrl: input.redirectUrl,
-              state: sessionId,
-              clientInformation: input.clientInformation as
-                | OAuthClientInformationMixed
-                | null
-                | undefined,
-              authorizationServerUrl: input.authorizationServerUrl,
-              resourceMetadataUrl: input.resourceMetadataUrl,
-            }).pipe(
-              Effect.mapError((e) =>
-                mcpOAuthError(`OAuth start failed: ${e.message}`),
-              ),
-              Effect.withSpan("mcp.plugin.oauth.start_authorization"),
-            );
-
-            yield* ctx.storage
-              .putOAuthSession(sessionId, tokenScope, {
-                endpoint: fullEndpoint,
-                redirectUrl: input.redirectUrl,
-                codeVerifier: started.codeVerifier,
-                resourceMetadataUrl: started.resourceMetadataUrl,
-                authorizationServerUrl: started.authorizationServerUrl,
-                resourceMetadata: started.resourceMetadata,
-                authorizationServerMetadata: started.authorizationServerMetadata,
-                clientInformation: started.clientInformation,
-                tokenScope,
-                connectionId: input.connectionId,
-              })
-              .pipe(Effect.withSpan("mcp.plugin.oauth.persist_session"));
-
-            return {
-              sessionId,
-              authorizationUrl: started.authorizationUrl,
-            };
+              connectionId: input.connectionId,
+              tokenScope,
+              strategy: { kind: "dynamic-dcr" },
+              pluginId: "mcp",
+            });
           }).pipe(Effect.withSpan("mcp.plugin.start_oauth"));
 
         const completeOAuth = (input: McpOAuthCompleteInput) =>
-          ctx
-            .transaction(
-              Effect.gen(function* () {
-                if (input.error) {
-                  return yield* Effect.fail(
-                    mcpOAuthError(`OAuth error: ${input.error}`),
-                  );
-                }
-                if (!input.code) {
-                  return yield* Effect.fail(
-                    mcpOAuthError("Missing OAuth authorization code"),
-                  );
-                }
-
-                const session = yield* ctx.storage.getOAuthSession(input.state);
-                if (!session) {
-                  return yield* Effect.fail(
-                    mcpOAuthError(`OAuth session not found: ${input.state}`),
-                  );
-                }
-
-                const exchanged = yield* exchangeMcpOAuthCode({
-                  session,
-                  code: input.code,
-                }).pipe(
-                  Effect.mapError((e) =>
-                    mcpOAuthError(`OAuth exchange failed: ${e.message}`),
-                  ),
-                  Effect.withSpan("mcp.plugin.oauth.exchange_code"),
-                );
-
-                yield* ctx.storage.deleteOAuthSession(input.state);
-
-                const tokenType = exchanged.tokens.token_type ?? "Bearer";
-                const expiresAt =
-                  typeof exchanged.tokens.expires_in === "number"
-                    ? Date.now() + exchanged.tokens.expires_in * 1000
-                    : null;
-
-                // Derive a friendly label for the Connections page. MCP
-                // OAuth tokens don't include identity claims, so fall back
-                // to the endpoint host (e.g., "mcp.axiom.co"), which is
-                // what the user recognises from the source they added.
-                let derivedLabel: string | null = null;
-                try {
-                  derivedLabel = new URL(session.endpoint).host;
-                } catch {
-                  derivedLabel = null;
-                }
-
-                const providerState: OAuth2ProviderState = {
-                  endpoint: session.endpoint,
-                  tokenType,
-                  clientInformation:
-                    (exchanged.clientInformation as Record<string, unknown> | null) ??
-                    (session.clientInformation ?? {}),
-                  authorizationServerUrl:
-                    exchanged.authorizationServerUrl ??
-                    session.authorizationServerUrl,
-                  authorizationServerMetadata:
-                    exchanged.authorizationServerMetadata ??
-                    session.authorizationServerMetadata,
-                  resourceMetadataUrl:
-                    exchanged.resourceMetadataUrl ?? session.resourceMetadataUrl,
-                  resourceMetadata:
-                    exchanged.resourceMetadata ?? session.resourceMetadata,
-                };
-
-                // Mint the connection + its owned access/refresh secret
-                // rows in one transactional write. The session-pinned
-                // `connectionId` stays stable across re-auths by the same
-                // source, which means the UI's stored `{kind: "oauth2",
-                // connectionId}` on the source auth config resolves
-                // per-user via scope shadowing once each user completes
-                // their own OAuth.
-                yield* ctx.connections
-                  .create(
-                    new CreateConnectionInput({
-                      id: ConnectionId.make(session.connectionId),
-                      scope: ScopeId.make(session.tokenScope),
-                      provider: MCP_OAUTH2_PROVIDER_KEY,
-                      kind: "user",
-                      identityLabel: derivedLabel,
-                      accessToken: new TokenMaterial({
-                        secretId: SecretId.make(
-                          `${session.connectionId}.access_token`,
-                        ),
-                        name: "MCP OAuth Access Token",
-                        value: exchanged.tokens.access_token,
-                      }),
-                      refreshToken: exchanged.tokens.refresh_token
-                        ? new TokenMaterial({
-                            secretId: SecretId.make(
-                              `${session.connectionId}.refresh_token`,
-                            ),
-                            name: "MCP OAuth Refresh Token",
-                            value: exchanged.tokens.refresh_token,
-                          })
-                        : null,
-                      expiresAt,
-                      oauthScope: exchanged.tokens.scope ?? null,
-                      providerState: toProviderStateRecord(providerState),
-                    }),
-                  )
-                  .pipe(
-                    Effect.mapError((err) =>
-                      mcpOAuthError(
-                        `Failed to create OAuth connection: ${
-                          "message" in err
-                            ? (err as { message: string }).message
-                            : String(err)
-                        }`,
-                      ),
-                    ),
-                  );
-
-                return {
-                  connectionId: session.connectionId,
-                  tokenType,
-                  expiresAt,
-                  scope: exchanged.tokens.scope ?? null,
-                  // Echo the source-level OAuth state captured during this
-                  // flow. The UI persists it on the source's auth config
-                  // so subsequent users can skip DCR + re-discovery.
-                  clientInformation: exchanged.clientInformation as
-                    | Record<string, unknown>
-                    | null,
-                  authorizationServerUrl: exchanged.authorizationServerUrl,
-                  resourceMetadataUrl: exchanged.resourceMetadataUrl,
-                };
-              }),
-            )
+          requireOAuth()
+            .complete({
+              state: input.state,
+              code: input.code,
+              error: input.error,
+            })
             .pipe(Effect.withSpan("mcp.plugin.complete_oauth"));
 
         const updateSource = (
@@ -1206,7 +972,7 @@ export const mcpPlugin = definePlugin(
           }),
         ),
 
-      detect: ({ url }) =>
+      detect: ({ ctx, url }) =>
         Effect.gen(function* () {
           const trimmed = url.trim();
           if (!trimmed) return null;
@@ -1240,36 +1006,34 @@ export const mcpPlugin = definePlugin(
             });
           }
 
-          // Gate OAuth discovery on an MCP-shaped 401. Without this check
-          // any OAuth-protected non-MCP service (e.g. a GraphQL API whose
-          // host publishes RFC 9728 + 8414 metadata) would pass the OAuth
-          // probe and be classified as MCP whenever the cross-plugin
-          // detector fans out to us.
+          // host publishes RFC 9728 + 8414 metadata) would be classified
+          // as MCP whenever the cross-plugin detector fans out to us.
           const shape = yield* probeMcpEndpointShape(trimmed);
           if (shape.kind !== "mcp") return null;
 
-          // Probe for OAuth — still means it's an MCP server
-          const hasOAuth = yield* startMcpOAuthAuthorization({
+          // Confirm OAuth metadata is actually reachable. The shape
+          // probe already found a Bearer challenge; the core OAuth
+          // service's probe verifies the AS metadata resolves so we
+          // don't classify endpoints that challenge but have no
+          // discovery.
+          const oauthService = ctx.oauth;
+          if (!oauthService) return null;
+          const probeOk = yield* oauthService
+            .probe({ endpoint: trimmed })
+            .pipe(
+              Effect.map(() => true),
+              Effect.catchAll(() => Effect.succeed(false)),
+              Effect.withSpan("mcp.plugin.probe_oauth"),
+            );
+          if (!probeOk) return null;
+
+          return new SourceDetectionResult({
+            kind: "mcp",
+            confidence: "high",
             endpoint: trimmed,
-            redirectUrl: "http://127.0.0.1/executor/discovery/oauth/probe",
-            state: "probe",
-          }).pipe(
-            Effect.map(() => true),
-            Effect.catchAll(() => Effect.succeed(false)),
-            Effect.withSpan("mcp.plugin.probe_oauth"),
-          );
-
-          if (hasOAuth) {
-            return new SourceDetectionResult({
-              kind: "mcp",
-              confidence: "high",
-              endpoint: trimmed,
-              name,
-              namespace,
-            });
-          }
-
-          return null;
+            name,
+            namespace,
+          });
         }).pipe(
           Effect.catchAll(() => Effect.succeed(null)),
           Effect.withSpan("mcp.plugin.detect", {
@@ -1296,94 +1060,9 @@ export const mcpPlugin = definePlugin(
 
       refreshSource: () => Effect.void,
 
-      // The SDK's `ctx.connections.accessToken(id)` dispatches here when
-      // a connection with `provider: "mcp:oauth2"` is near expiry. The
-      // providerState blob — captured in completeOAuth — carries
-      // everything the MCP SDK needs to skip discovery + DCR and go
-      // straight to the refresh token endpoint.
-      connectionProviders: (_ctx): readonly ConnectionProvider[] => [
-        {
-          key: MCP_OAUTH2_PROVIDER_KEY,
-          refresh: (input: ConnectionRefreshInput) =>
-            Effect.gen(function* () {
-              if (!input.providerState) {
-                return yield* new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: "mcp:oauth2 connection is missing providerState",
-                });
-              }
-              const refreshToken = input.refreshToken;
-              if (!refreshToken) {
-                return yield* new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: "mcp:oauth2 connection has no refresh token",
-                });
-              }
-              const state = yield* Effect.try({
-                try: () => decodeProviderState(input.providerState),
-                catch: (cause) =>
-                  new ConnectionRefreshError({
-                    connectionId: input.connectionId,
-                    message: `mcp:oauth2 providerState is malformed: ${
-                      cause instanceof Error ? cause.message : String(cause)
-                    }`,
-                    cause,
-                  }),
-              });
-
-              if (state.clientInformation === null) {
-                return yield* new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message:
-                    "mcp:oauth2 connection has no clientInformation — re-sign-in required (legacy row; DCR was never persisted)",
-                });
-              }
-
-              const authServerUrl =
-                state.authorizationServerUrl ??
-                new URL("/", state.endpoint).toString();
-
-              const tokens = yield* Effect.tryPromise({
-                try: () =>
-                  refreshAuthorization(authServerUrl, {
-                    metadata:
-                      (state.authorizationServerMetadata as
-                        | OAuthMetadata
-                        | null) ?? undefined,
-                    clientInformation:
-                      state.clientInformation as OAuthClientInformationMixed,
-                    refreshToken,
-                  }),
-                catch: (cause) =>
-                  new ConnectionRefreshError({
-                    connectionId: input.connectionId,
-                    message: `MCP OAuth refresh failed: ${
-                      cause instanceof Error ? cause.message : String(cause)
-                    }`,
-                    cause,
-                  }),
-              });
-
-              const expiresAt =
-                typeof tokens.expires_in === "number"
-                  ? Date.now() + tokens.expires_in * 1000
-                  : null;
-
-              // The MCP SDK preserves the original refresh_token if the
-              // AS doesn't rotate (see refreshAuthorization doc-comment),
-              // so we forward whatever it returned. Undefined here would
-              // mean "keep the stored one", but we always pass the
-              // current value through for consistency.
-              const result: ConnectionRefreshResult = {
-                accessToken: tokens.access_token,
-                refreshToken: tokens.refresh_token ?? undefined,
-                expiresAt,
-                oauthScope: tokens.scope ?? input.oauthScope,
-              };
-              return result;
-            }),
-        },
-      ],
+      // Connection refresh for oauth2-minted sources is owned by the
+      // canonical `"oauth2"` ConnectionProvider that core registers via
+      // `makeOAuth2Service`. No MCP-specific provider needed.
 
       close: () =>
         Effect.gen(function* () {
@@ -1416,9 +1095,12 @@ export const mcpPlugin = definePlugin(
  * `Effect.catchTag` it if they want a friendlier user-facing error.
  */
 export type McpExtensionFailure =
-  | McpOAuthError
   | McpConnectionError
   | McpToolDiscoveryError
+  | OAuthStartError
+  | OAuthCompleteError
+  | OAuthProbeError
+  | OAuthSessionNotFoundError
   | StorageFailure;
 
 export interface McpPluginExtension {
@@ -1441,10 +1123,10 @@ export interface McpPluginExtension {
   ) => Effect.Effect<{ readonly toolCount: number }, McpExtensionFailure>;
   readonly startOAuth: (
     input: McpOAuthStartInput,
-  ) => Effect.Effect<McpOAuthStartResponse, McpExtensionFailure>;
+  ) => Effect.Effect<OAuthStartResult, McpExtensionFailure>;
   readonly completeOAuth: (
     input: McpOAuthCompleteInput,
-  ) => Effect.Effect<McpOAuthCompleteResponse, McpExtensionFailure>;
+  ) => Effect.Effect<OAuthCompleteResult, McpExtensionFailure>;
   readonly getSource: (
     namespace: string,
     scope: string,

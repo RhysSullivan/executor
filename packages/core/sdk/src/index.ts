@@ -111,6 +111,91 @@ export {
   makeInMemoryBlobStore,
 } from "./blob";
 
+// OAuth 2.1 — a single `ctx.oauth` service owns every OAuth flow across
+// every plugin. Strategy-parameterized so MCP (dynamic DCR), GraphQL
+// (dynamic or static), OpenAPI (spec-configured), and Google (static)
+// all hit the same surface. One canonical `"oauth2"` ConnectionProvider
+// handles refresh. The helpers + discovery + service implementation all
+// live here in core; plugins import from `@executor/sdk`.
+export {
+  type OAuthService,
+  type OAuthStrategy,
+  type OAuthDynamicDcrStrategy,
+  type OAuthAuthorizationCodeStrategy,
+  type OAuthClientCredentialsStrategy,
+  type OAuthProviderState,
+  type OAuthProbeInput,
+  type OAuthProbeResult,
+  type OAuthStartInput,
+  type OAuthStartResult,
+  type OAuthCompleteInput,
+  type OAuthCompleteResult,
+  OAuthProbeError,
+  OAuthStartError,
+  OAuthCompleteError,
+  OAuthSessionNotFoundError,
+  OAUTH2_PROVIDER_KEY,
+  OAUTH2_SESSION_TTL_MS,
+  OAuthStrategy as OAuthStrategySchema,
+  OAuthProviderState as OAuthProviderStateSchema,
+  OAuthDynamicDcrStrategy as OAuthDynamicDcrStrategySchema,
+  OAuthAuthorizationCodeStrategy as OAuthAuthorizationCodeStrategySchema,
+  OAuthClientCredentialsStrategy as OAuthClientCredentialsStrategySchema,
+} from "./oauth";
+
+// OAuth helpers — PKCE, authorization URL builder, token endpoint
+// exchanges (authorization code + client credentials), refresh, and
+// response decoding. Previously lived at `@executor/plugin-oauth2`.
+export {
+  OAuth2Error,
+  OAUTH2_DEFAULT_TIMEOUT_MS,
+  OAUTH2_REFRESH_SKEW_MS,
+  buildAuthorizationUrl,
+  createPkceCodeChallenge,
+  createPkceCodeVerifier,
+  decodeTokenResponse,
+  exchangeAuthorizationCode,
+  exchangeClientCredentials,
+  refreshAccessToken,
+  shouldRefreshToken,
+  type OAuth2TokenResponse,
+  type BuildAuthorizationUrlInput,
+  type ClientAuthMethod,
+  type ExchangeAuthorizationCodeInput,
+  type ExchangeClientCredentialsInput,
+  type RefreshAccessTokenInput,
+} from "./oauth-helpers";
+
+// OAuth service factory — exposed for tests / non-default hosts that
+// want to construct the service against a custom adapter. `createExecutor`
+// uses this internally to build the `ctx.oauth` service and the
+// canonical `"oauth2"` ConnectionProvider; hosts don't usually need
+// to touch it directly.
+export { makeOAuth2Service, type OAuthServiceDeps } from "./oauth-service";
+
+// OAuth discovery — RFC 9728 resource metadata, RFC 8414 + OIDC
+// authorization server metadata, RFC 7591 Dynamic Client Registration,
+// plus `beginDynamicAuthorization` which chains them with PKCE.
+export {
+  OAuthDiscoveryError,
+  OAuthAuthorizationServerMetadataSchema,
+  OAuthClientInformationSchema,
+  OAuthProtectedResourceMetadataSchema,
+  beginDynamicAuthorization,
+  discoverAuthorizationServerMetadata,
+  discoverProtectedResourceMetadata,
+  registerDynamicClient,
+  type BeginDynamicAuthorizationInput,
+  type DiscoveryRequestOptions,
+  type DynamicAuthorizationState,
+  type DynamicAuthorizationStartResult,
+  type DynamicClientMetadata,
+  type OAuthAuthorizationServerMetadata,
+  type OAuthClientInformation,
+  type OAuthProtectedResourceMetadata,
+  type RegisterDynamicClientInput,
+} from "./oauth-discovery";
+
 // Plugin definition
 export {
   type Plugin,

@@ -1,8 +1,12 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import { defineSchema, type StorageDeps, type StorageFailure } from "@executor/sdk";
 
-import { OperationBinding, type HeaderValue } from "./types";
+import {
+  GraphqlConnectionAuth,
+  OperationBinding,
+  type HeaderValue,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Schema — two tables:
@@ -18,6 +22,9 @@ export const graphqlSchema = defineSchema({
       name: { type: "string", required: true },
       endpoint: { type: "string", required: true },
       headers: { type: "json", required: false },
+      /** GraphqlConnectionAuth JSON. Absent rows (older shape) default
+       *  to `{kind: "none"}` at decode — every new row writes this. */
+      auth: { type: "json", required: false },
     },
   },
   graphql_operation: {
@@ -45,6 +52,10 @@ export interface StoredGraphqlSource {
   readonly name: string;
   readonly endpoint: string;
   readonly headers: Record<string, HeaderValue>;
+  /** Default `{kind:"none"}` keeps rows created before the auth column
+   *  existed behaving as unauth endpoints. `header` mirrors what already
+   *  flows through `headers`; `oauth2` is the new dynamic flow. */
+  readonly auth: GraphqlConnectionAuth;
 }
 
 export interface StoredOperation {
@@ -85,6 +96,15 @@ const decodeHeaders = (value: unknown): Record<string, HeaderValue> => {
   return value as Record<string, HeaderValue>;
 };
 
+const decodeAuth = Schema.decodeUnknownSync(GraphqlConnectionAuth);
+const encodeAuth = Schema.encodeSync(GraphqlConnectionAuth);
+
+const coerceAuth = (value: unknown): GraphqlConnectionAuth => {
+  if (value == null) return { kind: "none" };
+  const input = typeof value === "string" ? JSON.parse(value) : value;
+  return decodeAuth(input);
+};
+
 // ---------------------------------------------------------------------------
 // Store interface
 // ---------------------------------------------------------------------------
@@ -109,7 +129,12 @@ export interface GraphqlStore {
   readonly updateSourceMeta: (
     namespace: string,
     scope: string,
-    patch: { readonly name?: string; readonly endpoint?: string; readonly headers?: Record<string, HeaderValue> },
+    patch: {
+      readonly name?: string;
+      readonly endpoint?: string;
+      readonly headers?: Record<string, HeaderValue>;
+      readonly auth?: GraphqlConnectionAuth;
+    },
   ) => Effect.Effect<void, StorageFailure>;
 
   readonly getSource: (
@@ -148,6 +173,7 @@ export const makeDefaultGraphqlStore = ({
     name: row.name as string,
     endpoint: row.endpoint as string,
     headers: decodeHeaders(row.headers),
+    auth: coerceAuth(row.auth),
   });
 
   const rowToOperation = (row: Record<string, unknown>): StoredOperation => ({
@@ -186,6 +212,7 @@ export const makeDefaultGraphqlStore = ({
             name: input.name,
             endpoint: input.endpoint,
             headers: input.headers as unknown as Record<string, unknown>,
+            auth: encodeAuth(input.auth) as unknown as Record<string, unknown>,
           },
           forceAllowId: true,
         });
@@ -218,6 +245,9 @@ export const makeDefaultGraphqlStore = ({
         if (patch.endpoint !== undefined) update.endpoint = patch.endpoint;
         if (patch.headers !== undefined) {
           update.headers = patch.headers as unknown as Record<string, unknown>;
+        }
+        if (patch.auth !== undefined) {
+          update.auth = encodeAuth(patch.auth) as unknown as Record<string, unknown>;
         }
         if (Object.keys(update).length === 0) return;
         yield* db.update({

@@ -21,11 +21,6 @@ export type {
 } from "./binding-store";
 export { invokeGoogleDiscoveryTool, annotationsForOperation } from "./invoke";
 export {
-  buildGoogleAuthorizationUrl,
-  createPkceCodeVerifier,
-  exchangeAuthorizationCode,
-} from "./oauth";
-export {
   GoogleDiscoveryAuth,
   GoogleDiscoveryHttpMethod,
   GoogleDiscoveryInvocationResult,

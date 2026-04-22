@@ -60,6 +60,7 @@ import type {
   StaticToolDecl,
   StorageDeps,
 } from "./plugin";
+import { makeOAuth2Service } from "./oauth-service";
 import type { Scope } from "./scope";
 import {
   SecretRef,
@@ -1579,6 +1580,25 @@ export const createExecutor = <
     const connectionsListForCtx = () => connectionsList();
 
     // ------------------------------------------------------------------
+    // OAuth service — always on. Constructed here so it can close over
+    // `core`, `secretsGet`, and `connectionsCreate`; the canonical
+    // `"oauth2"` ConnectionProvider is registered before any plugin
+    // runs so `ctx.oauth.start({strategy:"client-credentials",...})`
+    // can mint a connection immediately without the plugin needing to
+    // contribute a refresh handler itself.
+    // ------------------------------------------------------------------
+    const oauthBundle = makeOAuth2Service({
+      adapter: core,
+      rawAdapter: adapter,
+      secretsGet: (id) => secretsGet(id),
+      connectionsCreate: (input) => connectionsCreate(input),
+    });
+    connectionProviders.set(
+      oauthBundle.connectionProvider.key,
+      oauthBundle.connectionProvider,
+    );
+
+    // ------------------------------------------------------------------
     // Plugin wiring — build ctx, run extension, populate static pools,
     // register secret providers. No adapter reads here.
     // ------------------------------------------------------------------
@@ -1697,6 +1717,7 @@ export const createExecutor = <
           accessToken: (id) => connectionsAccessToken(id),
           remove: (id) => connectionsRemove(id),
         },
+        oauth: oauthBundle.service,
         // Open one real tx boundary and route every nested write inside
         // `effect` through that same handle via the activeAdapterRef —
         // see buildAdapterRouter above. Caller-typed errors (`E`)

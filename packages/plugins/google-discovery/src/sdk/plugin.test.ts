@@ -349,7 +349,7 @@ describe("Google Discovery plugin", () => {
             new CreateConnectionInput({
               id: connectionId,
               scope: ScopeId.make("test-scope"),
-              provider: "google-discovery:oauth2",
+              provider: "oauth2",
               kind: "user",
               identityLabel: "Drive Test",
               accessToken: new TokenMaterial({

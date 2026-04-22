@@ -26,8 +26,11 @@ import { Badge } from "@executor/react/components/badge";
 import type { StoredGraphqlSource } from "../sdk/store";
 
 // UI only needs the fields the API exposes; `scope` on the SDK interface
-// isn't part of the HTTP response.
-type EditableSource = Omit<StoredGraphqlSource, "scope">;
+// isn't part of the HTTP response. `auth` is currently also omitted from
+// the GET response — the edit form only surfaces name / endpoint /
+// headers, and OAuth-authed sources are managed via the dedicated
+// sign-in button flow, not the edit form.
+type EditableSource = Omit<StoredGraphqlSource, "scope" | "auth">;
 
 // ---------------------------------------------------------------------------
 // Edit form

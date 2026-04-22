@@ -10,7 +10,6 @@ import type {
   HeaderValue,
   OpenApiUpdateSourceInput,
 } from "../sdk/plugin";
-import { OAuth2Auth } from "../sdk/types";
 import { OpenApiGroup } from "./group";
 
 const OPENAPI_OAUTH_CHANNEL = "executor:openapi-oauth-result";
@@ -148,7 +147,11 @@ export const OpenApiHandlers = HttpApiBuilder.group(ExecutorApiWithOpenApi, "ope
       // structured result.
       capture(Effect.gen(function* () {
         const ext = yield* OpenApiExtensionService;
-        const html = yield* runOAuthCallback<OAuth2Auth, OpenApiOAuthError | InternalError, never>({
+        const html = yield* runOAuthCallback<
+          { connectionId: string; expiresAt: number | null; scope: string | null },
+          OpenApiOAuthError | InternalError,
+          never
+        >({
           complete: ({ state, code, error }) =>
             ext.completeOAuth({
               state,

@@ -16,19 +16,12 @@
   ],
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./http": "./src/http.ts",
     "./react": "./src/react.ts"
   },
   "publishConfig": {
     "access": "public",
     "exports": {
-      ".": {
-        "import": {
-          "types": "./dist/index.d.ts",
-          "default": "./dist/index.js"
-        }
-      },
       "./http": {
         "import": {
           "types": "./dist/http.d.ts",

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/plugin-oauth2/http — server-side HTTP helpers for OAuth popups.
+// OAuth popup HTTP helpers — server-side.
 //
 // `popupDocument` renders the HTML page returned by the OAuth redirect
 // handler. The page immediately `postMessage`s the result back to the

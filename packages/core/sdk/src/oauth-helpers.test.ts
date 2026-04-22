@@ -19,7 +19,7 @@ import {
   exchangeAuthorizationCode,
   refreshAccessToken,
   shouldRefreshToken,
-} from "./index";
+} from "./oauth-helpers";
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), {
@@ -44,11 +44,11 @@ describe("PKCE", () => {
     }
   });
 
-  it("createPkceCodeChallenge matches the RFC 7636 Appendix A test vector", () => {
+  it("createPkceCodeChallenge matches the RFC 7636 Appendix A test vector", async () => {
     // RFC 7636 §4.2 test vector
     const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
     const expected = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
-    expect(createPkceCodeChallenge(verifier)).toBe(expected);
+    expect(await createPkceCodeChallenge(verifier)).toBe(expected);
   });
 
   it("createPkceCodeVerifier produces unique values", () => {
@@ -63,13 +63,15 @@ describe("PKCE", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildAuthorizationUrl", () => {
+  // RFC 7636 §4.2 test-vector pair — verifier+challenge precomputed so
+  // the URL builder stays a pure sync function.
   const baseInput = {
     authorizationUrl: "https://example.com/authorize",
     clientId: "client-123",
     redirectUrl: "https://app.example.com/callback",
     scopes: ["read", "write"] as const,
     state: "state-abc",
-    codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+    codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
   };
 
   it("emits all RFC 6749 + PKCE params", () => {

@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
-// MCP plugin storage — three tables (mcp_source, mcp_binding,
-// mcp_oauth_session) using the new declared-schema pattern.
+// MCP plugin storage — two tables (mcp_source, mcp_binding). OAuth
+// session storage lives at the core level in `oauth2_session` and is
+// owned by `ctx.oauth`.
 // ---------------------------------------------------------------------------
 
 import { Effect, Schema } from "effect";
@@ -12,7 +13,6 @@ import {
 } from "@executor/sdk";
 
 import { McpToolBinding, McpStoredSourceData } from "./types";
-import { McpOAuthSession } from "./oauth";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -37,30 +37,13 @@ export const mcpSchema = defineSchema({
       created_at: { type: "date", required: true },
     },
   },
-  mcp_oauth_session: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      session: { type: "json", required: true },
-      expires_at: { type: "number", required: true, bigint: true },
-      created_at: { type: "date", required: true },
-    },
-  },
 });
 
 export type McpSchema = typeof mcpSchema;
 
 // ---------------------------------------------------------------------------
-// OAuth session TTL
-// ---------------------------------------------------------------------------
-
-export const MCP_OAUTH_SESSION_TTL_MS = 15 * 60 * 1000;
-
-// ---------------------------------------------------------------------------
 // Serialization helpers — JSON columns round-trip through the adapter as
 // either plain objects or serialized strings depending on the backend.
-// Use Schema.parseJson so the memory adapter's string round-trip and the
-// SQL adapter's JSONB both decode correctly.
 // ---------------------------------------------------------------------------
 
 const decodeSourceData = Schema.decodeUnknownSync(McpStoredSourceData);
@@ -68,9 +51,6 @@ const encodeSourceData = Schema.encodeSync(McpStoredSourceData);
 
 const decodeBinding = Schema.decodeUnknownSync(McpToolBinding);
 const encodeBinding = Schema.encodeSync(McpToolBinding);
-
-const decodeSession = Schema.decodeUnknownSync(McpOAuthSession);
-const encodeSession = Schema.encodeSync(McpOAuthSession);
 
 const coerceJson = (value: unknown): unknown => {
   if (typeof value !== "string") return value;
@@ -148,16 +128,6 @@ export interface McpBindingStore {
     namespace: string,
     scope: string,
   ) => Effect.Effect<void, StorageFailure>;
-
-  readonly putOAuthSession: (
-    sessionId: string,
-    scope: string,
-    session: McpOAuthSession,
-  ) => Effect.Effect<void, StorageFailure>;
-  readonly getOAuthSession: (
-    sessionId: string,
-  ) => Effect.Effect<McpOAuthSession | null, StorageFailure>;
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,63 +251,5 @@ export const makeMcpStore = ({
           ],
         });
       }),
-
-    putOAuthSession: (sessionId, scope, session) =>
-      Effect.gen(function* () {
-        const now = new Date();
-        // Defensive overwrite — sessionIds are UUIDs so collisions are
-        // negligible, but pin to the target scope so a hypothetical
-        // collision with a session in another scope of this stack
-        // can't wipe the wrong row.
-        yield* db.delete({
-          model: "mcp_oauth_session",
-          where: [
-            { field: "id", value: sessionId },
-            { field: "scope_id", value: scope },
-          ],
-        });
-        yield* db.create({
-          model: "mcp_oauth_session",
-          data: {
-            id: sessionId,
-            scope_id: scope,
-            session: encodeSession(session),
-            expires_at: Date.now() + MCP_OAUTH_SESSION_TTL_MS,
-            created_at: now,
-          },
-          forceAllowId: true,
-        });
-      }),
-
-    getOAuthSession: (sessionId) =>
-      Effect.gen(function* () {
-        // sessionIds are random UUIDs — unique across the stack — so a
-        // bare id lookup plus the scoped adapter's fall-through filter
-        // returns exactly the session row the caller owns.
-        const row = yield* db.findOne({
-          model: "mcp_oauth_session",
-          where: [{ field: "id", value: sessionId }],
-        });
-        if (!row) return null;
-        if (row.expires_at < Date.now()) {
-          yield* db.delete({
-            model: "mcp_oauth_session",
-            where: [
-              { field: "id", value: sessionId },
-              { field: "scope_id", value: row.scope_id },
-            ],
-          });
-          return null;
-        }
-        return decodeSession(coerceJson(row.session));
-      }),
-
-    deleteOAuthSession: (sessionId) =>
-      db
-        .delete({
-          model: "mcp_oauth_session",
-          where: [{ field: "id", value: sessionId }],
-        })
-        .pipe(Effect.asVoid),
   };
 };

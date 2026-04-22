@@ -8,6 +8,31 @@ export const GraphqlOperationKind = Schema.Literal("query", "mutation");
 export type GraphqlOperationKind = typeof GraphqlOperationKind.Type;
 
 // ---------------------------------------------------------------------------
+// Auth — how the endpoint authenticates. Three mutually exclusive shapes,
+// mirroring the MCP plugin so scope shadowing of a stored `connectionId`
+// lets each user carry their own token against a shared source row.
+// ---------------------------------------------------------------------------
+
+export const GraphqlConnectionAuth = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("none") }),
+  Schema.Struct({
+    kind: Schema.Literal("header"),
+    headerName: Schema.String,
+    secretId: Schema.String,
+    prefix: Schema.optional(Schema.String),
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("oauth2"),
+    /** Stable per-source id. Callers mint this once (typically
+     *  `graphql-oauth2-<namespace>`) and persist it on the source's auth
+     *  config; `ctx.connections.accessToken(id)` resolves to the caller's
+     *  scoped connection row at invoke time. */
+    connectionId: Schema.String,
+  }),
+);
+export type GraphqlConnectionAuth = typeof GraphqlConnectionAuth.Type;
+
+// ---------------------------------------------------------------------------
 // Extracted field (becomes a tool)
 // ---------------------------------------------------------------------------
 

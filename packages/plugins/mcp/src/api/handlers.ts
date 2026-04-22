@@ -2,8 +2,13 @@ import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Cause, Context, Effect } from "effect";
 
 import { addGroup, capture } from "@executor/api";
+import {
+  OAuthCompleteError,
+  OAuthProbeError,
+  OAuthSessionNotFoundError,
+  OAuthStartError,
+} from "@executor/sdk";
 import type { McpPluginExtension, McpSourceConfig, McpUpdateSourceInput } from "../sdk/plugin";
-import { McpOAuthError } from "../sdk/errors";
 import { McpGroup } from "./group";
 
 // ---------------------------------------------------------------------------
@@ -35,12 +40,8 @@ type OAuthPopupResult =
       ok: true;
       sessionId: string;
       connectionId: string;
-      tokenType: string;
       expiresAt: number | null;
       scope: string | null;
-      clientInformation: Record<string, unknown> | null;
-      authorizationServerUrl: string | null;
-      resourceMetadataUrl: string | null;
     }
   | {
       type: "executor:oauth-result";
@@ -88,7 +89,17 @@ const popupDocument = (payload: OAuthPopupResult): string => {
 
 const toPopupErrorMessage = (cause: Cause.Cause<unknown>): string => {
   const err = Cause.squash(cause);
-  return err instanceof McpOAuthError ? err.message : "Authentication failed";
+  if (
+    err instanceof OAuthCompleteError ||
+    err instanceof OAuthStartError ||
+    err instanceof OAuthProbeError
+  ) {
+    return err.message;
+  }
+  if (err instanceof OAuthSessionNotFoundError) {
+    return `OAuth session not found: ${err.sessionId}`;
+  }
+  return "Authentication failed";
 };
 
 // ---------------------------------------------------------------------------
@@ -193,15 +204,25 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
     .handle("startOAuth", ({ payload }) =>
       capture(Effect.gen(function* () {
         const ext = yield* McpExtensionService;
-        return yield* ext.startOAuth({
+        const result = yield* ext.startOAuth({
           endpoint: payload.endpoint,
           redirectUrl: payload.redirectUrl,
           queryParams: payload.queryParams,
           connectionId: payload.connectionId,
-          clientInformation: payload.clientInformation,
-          authorizationServerUrl: payload.authorizationServerUrl,
-          resourceMetadataUrl: payload.resourceMetadataUrl,
         });
+        // startOAuth for MCP always runs the dynamic-dcr strategy which
+        // emits an authorization URL; null here is unreachable.
+        if (result.authorizationUrl === null) {
+          return yield* Effect.fail(
+            new OAuthStartError({
+              message: "OAuth start did not produce an authorization URL",
+            }),
+          );
+        }
+        return {
+          sessionId: result.sessionId,
+          authorizationUrl: result.authorizationUrl,
+        };
       })),
     )
     .handle("completeOAuth", ({ payload }) =>
@@ -252,12 +273,8 @@ export const McpHandlers = HttpApiBuilder.group(ExecutorApiWithMcp, "mcp", (hand
                 ok: true,
                 sessionId: urlParams.state,
                 connectionId: c.connectionId,
-                tokenType: c.tokenType,
                 expiresAt: c.expiresAt,
                 scope: c.scope,
-                clientInformation: c.clientInformation,
-                authorizationServerUrl: c.authorizationServerUrl,
-                resourceMetadataUrl: c.resourceMetadataUrl,
               }),
             onFailure: (cause) =>
               Effect.succeed<OAuthPopupResult>({

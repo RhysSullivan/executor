@@ -98,9 +98,6 @@ const CompleteOAuthResponse = Schema.Struct({
   /** Id of the Connection the SDK minted. The caller stores it on the
    *  source's `oauth2` field and resolves tokens via `ctx.connections`. */
   connectionId: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.NullOr(Schema.String),
-  scopes: Schema.Array(Schema.String),
 });
 
 const OAuthCallbackParams = Schema.Struct({

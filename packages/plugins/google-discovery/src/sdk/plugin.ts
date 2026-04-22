@@ -1,25 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option } from "effect";
 
 import {
-  OAuth2Error,
-  refreshAccessToken,
-  type OAuth2TokenResponse,
-} from "@executor/plugin-oauth2";
-
-import {
-  ConnectionId,
-  ConnectionRefreshError,
-  CreateConnectionInput,
-  ScopeId,
-  SecretId,
   SourceDetectionResult,
-  TokenMaterial,
   definePlugin,
-  type ConnectionProvider,
-  type ConnectionRefreshInput,
-  type ConnectionRefreshResult,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -38,12 +23,19 @@ import {
   GoogleDiscoveryParseError,
   GoogleDiscoverySourceError,
 } from "./errors";
-import {
-  buildGoogleAuthorizationUrl,
-  createPkceCodeVerifier,
-  exchangeAuthorizationCode,
-  GOOGLE_TOKEN_URL,
-} from "./oauth";
+// Google-specific OAuth constants — copied here so the plugin is
+// self-contained (no more per-plugin `oauth.ts` helper file). Token
+// endpoint + authorize endpoint live on the connection's providerState
+// after sign-in, so refresh routes through the core handler unchanged.
+const GOOGLE_AUTHORIZATION_URL =
+  "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+const GOOGLE_EXTRA_AUTHORIZATION_PARAMS = {
+  access_type: "offline",
+  include_granted_scopes: "true",
+  prompt: "consent",
+} as const;
 import type {
   GoogleDiscoveryAuth,
   GoogleDiscoveryManifest,
@@ -123,9 +115,6 @@ export interface GoogleDiscoveryOAuthCompleteInput {
 export interface GoogleDiscoveryOAuthAuthResult {
   readonly kind: "oauth2";
   readonly connectionId: string;
-  readonly clientIdSecretId: string;
-  readonly clientSecretSecretId: string | null;
-  readonly scopes: readonly string[];
 }
 
 /**
@@ -243,28 +232,10 @@ const deriveNamespace = (input: { name: string; service: string; version: string
     input.name || `google_${input.service}_${input.version.replace(/[^a-zA-Z0-9]+/g, "_")}`,
   ) || `google_${input.service}`;
 
-// ---------------------------------------------------------------------------
-// Connection provider_state — every knob needed to drive a refresh. NOT
-// sensitive — client credentials live in secrets and are resolved by the
-// refresh handler at runtime.
-// ---------------------------------------------------------------------------
-
-const GOOGLE_DISCOVERY_OAUTH2_PROVIDER_KEY = "google-discovery:oauth2" as const;
-
-const OAuth2ProviderState = Schema.Struct({
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.NullOr(Schema.String),
-  scopes: Schema.Array(Schema.String),
-});
-type OAuth2ProviderState = typeof OAuth2ProviderState.Type;
-
-const encodeProviderState = Schema.encodeSync(OAuth2ProviderState);
-const decodeProviderState = Schema.decodeUnknownSync(OAuth2ProviderState);
-
-const toProviderStateRecord = (
-  state: OAuth2ProviderState,
-): Record<string, unknown> =>
-  encodeProviderState(state) as unknown as Record<string, unknown>;
+// Connection refresh state is owned by the canonical `"oauth2"`
+// ConnectionProvider registered by core. `ctx.oauth.start` stamps the
+// Google-specific token endpoint + scopes onto the connection's
+// providerState at mint time — no plugin-owned schema needed.
 
 // ---------------------------------------------------------------------------
 // Register a parsed manifest against the executor core + plugin storage.
@@ -407,8 +378,19 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
         }),
       ),
 
+    // Thin forwarders over `ctx.oauth.*`. Core owns the session table,
+    // the PKCE machinery, and the refresh handler. The plugin only
+    // carries Google-specific knobs — scope discovery from the
+    // discovery document and the `access_type=offline`/`prompt=consent`
+    // extras — into the core OAuth strategy config.
     startOAuth: (input) =>
       Effect.gen(function* () {
+        const oauthService = ctx.oauth;
+        if (!oauthService) {
+          return yield* new GoogleDiscoveryOAuthError({
+            message: "ctx.oauth not wired",
+          });
+        }
         const text = yield* fetchDiscoveryDocument(input.discoveryUrl);
         const manifest = yield* extractGoogleDiscoveryManifest(text);
         const scopes =
@@ -422,153 +404,81 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
             message: "This Google Discovery document does not declare any OAuth scopes",
           });
         }
-        const clientIdValue = yield* ctx.secrets.get(input.clientIdSecretId);
-        if (clientIdValue === null) {
-          return yield* new GoogleDiscoveryOAuthError({
-            message: `OAuth client ID secret not found: ${input.clientIdSecretId}`,
-          });
-        }
-        const sessionId = randomUUID();
-        const codeVerifier = createPkceCodeVerifier();
         const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
         const connectionId = `google-discovery-oauth2-${randomUUID()}`;
-        yield* ctx.storage.putOAuthSession(sessionId, ctx.scopes[0]!.id as string, {
-          discoveryUrl: normalizeDiscoveryUrl(input.discoveryUrl),
-          name: input.name,
-          clientIdSecretId: input.clientIdSecretId,
-          clientSecretSecretId: input.clientSecretSecretId ?? null,
-          redirectUrl: input.redirectUrl,
-          scopes,
-          codeVerifier,
-          tokenScope,
-          connectionId,
-        });
-        return {
-          sessionId,
-          authorizationUrl: buildGoogleAuthorizationUrl({
-            clientId: clientIdValue,
+        const result = yield* oauthService
+          .start({
+            endpoint: normalizeDiscoveryUrl(input.discoveryUrl),
             redirectUrl: input.redirectUrl,
-            scopes,
-            state: sessionId,
-            codeVerifier,
-          }),
+            connectionId,
+            tokenScope,
+            strategy: {
+              kind: "authorization-code" as const,
+              authorizationEndpoint: GOOGLE_AUTHORIZATION_URL,
+              tokenEndpoint: GOOGLE_TOKEN_URL,
+              clientIdSecretId: input.clientIdSecretId,
+              clientSecretSecretId: input.clientSecretSecretId ?? null,
+              scopes,
+              extraAuthorizationParams: GOOGLE_EXTRA_AUTHORIZATION_PARAMS,
+            },
+            pluginId: "google-discovery",
+          })
+          .pipe(
+            Effect.mapError(
+              (err) =>
+                new GoogleDiscoveryOAuthError({
+                  message:
+                    "message" in err
+                      ? (err as { message: string }).message
+                      : String(err),
+                }),
+            ),
+          );
+        if (result.authorizationUrl === null) {
+          return yield* new GoogleDiscoveryOAuthError({
+            message:
+              "OAuth service did not emit an authorization URL — authorizationCode flow requires one",
+          });
+        }
+        return {
+          sessionId: result.sessionId,
+          authorizationUrl: result.authorizationUrl,
           scopes,
         };
       }),
 
     completeOAuth: (input) =>
-      ctx.transaction(
-        Effect.gen(function* () {
-          const session = yield* ctx.storage.getOAuthSession(input.state);
-          if (!session) {
-            return yield* new GoogleDiscoveryOAuthError({
-              message: "OAuth session not found or has expired",
-            });
-          }
-          yield* ctx.storage.deleteOAuthSession(input.state);
-
-          if (input.error) {
-            return yield* new GoogleDiscoveryOAuthError({ message: input.error });
-          }
-          if (!input.code) {
-            return yield* new GoogleDiscoveryOAuthError({
-              message: "OAuth callback did not include an authorization code",
-            });
-          }
-
-          const clientIdValue = yield* ctx.secrets.get(session.clientIdSecretId);
-          if (clientIdValue === null) {
-            return yield* new GoogleDiscoveryOAuthError({
-              message: `OAuth client ID secret not found: ${session.clientIdSecretId}`,
-            });
-          }
-
-          const clientSecretValue =
-            session.clientSecretSecretId === null
-              ? null
-              : yield* ctx.secrets.get(session.clientSecretSecretId).pipe(
-                  Effect.flatMap((v) =>
-                    v === null
-                      ? Effect.fail(
-                          new GoogleDiscoveryOAuthError({
-                            message: `OAuth client secret not found: ${session.clientSecretSecretId}`,
-                          }),
-                        )
-                      : Effect.succeed(v),
-                  ),
-                );
-
-          const tokenResponse = yield* exchangeAuthorizationCode({
-            clientId: clientIdValue,
-            clientSecret: clientSecretValue,
-            redirectUrl: session.redirectUrl,
-            codeVerifier: session.codeVerifier,
-            code: input.code,
+      Effect.gen(function* () {
+        const oauthService = ctx.oauth;
+        if (!oauthService) {
+          return yield* new GoogleDiscoveryOAuthError({
+            message: "ctx.oauth not wired",
           });
-
-          const expiresAt =
-            typeof tokenResponse.expires_in === "number"
-              ? Date.now() + tokenResponse.expires_in * 1000
-              : null;
-
-          const providerState: OAuth2ProviderState = {
-            clientIdSecretId: session.clientIdSecretId,
-            clientSecretSecretId: session.clientSecretSecretId,
-            scopes: [...session.scopes],
-          };
-
-          yield* ctx.connections
-            .create(
-              new CreateConnectionInput({
-                id: ConnectionId.make(session.connectionId),
-                scope: ScopeId.make(session.tokenScope),
-                provider: GOOGLE_DISCOVERY_OAUTH2_PROVIDER_KEY,
-                kind: "user",
-                identityLabel: session.name,
-                accessToken: new TokenMaterial({
-                  secretId: SecretId.make(`${session.connectionId}.access_token`),
-                  name: `${session.name} Access Token`,
-                  value: tokenResponse.access_token,
+        }
+        const completed = yield* oauthService
+          .complete({
+            state: input.state,
+            code: input.code,
+            error: input.error,
+          })
+          .pipe(
+            Effect.mapError(
+              (err) =>
+                new GoogleDiscoveryOAuthError({
+                  message:
+                    err._tag === "OAuthSessionNotFoundError"
+                      ? "OAuth session not found or has expired"
+                      : "message" in err
+                      ? (err as { message: string }).message
+                      : String(err),
                 }),
-                refreshToken: tokenResponse.refresh_token
-                  ? new TokenMaterial({
-                      secretId: SecretId.make(`${session.connectionId}.refresh_token`),
-                      name: `${session.name} Refresh Token`,
-                      value: tokenResponse.refresh_token,
-                    })
-                  : null,
-                expiresAt,
-                oauthScope: tokenResponse.scope ?? null,
-                providerState: toProviderStateRecord(providerState),
-              }),
-            )
-            .pipe(
-              Effect.mapError(
-                (err) =>
-                  new GoogleDiscoveryOAuthError({
-                    message:
-                      "message" in err
-                        ? (err as { message: string }).message
-                        : String(err),
-                  }),
-              ),
-            );
-
-          return {
-            kind: "oauth2" as const,
-            connectionId: session.connectionId,
-            clientIdSecretId: session.clientIdSecretId,
-            clientSecretSecretId: session.clientSecretSecretId,
-            scopes: [...session.scopes],
-          };
-        }),
-      ).pipe(
-        Effect.mapError((err) =>
-          err instanceof GoogleDiscoveryOAuthError
-            ? err
-            : new GoogleDiscoveryOAuthError({ message: err.message }),
-        ),
-      ),
+            ),
+          );
+        return {
+          kind: "oauth2" as const,
+          connectionId: completed.connectionId,
+        };
+      }),
 
     getSource: (namespace, scope) => ctx.storage.getSource(namespace, scope),
 
@@ -671,101 +581,10 @@ export const googleDiscoveryPlugin = definePlugin(() => ({
       yield* registerManifest(typedCtx, sourceId, scope, manifest, next);
     }).pipe(Effect.mapError((err) => (err instanceof Error ? err : new Error(String(err))))),
 
-  // SDK's `ctx.connections.accessToken(id)` dispatches here when a token
-  // is near expiry. All knobs (client secret id, scopes) come from
-  // providerState; the refresh_token value is pre-resolved by the SDK.
-  connectionProviders: (ctx): readonly ConnectionProvider[] => [
-    {
-      key: GOOGLE_DISCOVERY_OAUTH2_PROVIDER_KEY,
-      refresh: (input: ConnectionRefreshInput) =>
-        Effect.gen(function* () {
-          if (!input.providerState) {
-            return yield* new ConnectionRefreshError({
-              connectionId: input.connectionId,
-              message:
-                "google-discovery:oauth2 connection is missing providerState",
-            });
-          }
-          const state = yield* Effect.try({
-            try: () => decodeProviderState(input.providerState),
-            catch: (cause) =>
-              new ConnectionRefreshError({
-                connectionId: input.connectionId,
-                message: `google-discovery:oauth2 providerState is malformed: ${
-                  cause instanceof Error ? cause.message : String(cause)
-                }`,
-                cause,
-              }),
-          });
-
-          if (input.refreshToken === null) {
-            return yield* new ConnectionRefreshError({
-              connectionId: input.connectionId,
-              message:
-                "google-discovery:oauth2 connection has no refresh token",
-            });
-          }
-
-          const clientId = yield* ctx.secrets.get(state.clientIdSecretId).pipe(
-            Effect.mapError(
-              (err) =>
-                new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: `Failed to resolve client id secret: ${err.message}`,
-                  cause: err,
-                }),
-            ),
-          );
-          if (clientId === null) {
-            return yield* new ConnectionRefreshError({
-              connectionId: input.connectionId,
-              message: `Missing client id secret: ${state.clientIdSecretId}`,
-            });
-          }
-
-          const clientSecret = state.clientSecretSecretId
-            ? yield* ctx.secrets.get(state.clientSecretSecretId).pipe(
-                Effect.mapError(
-                  (err) =>
-                    new ConnectionRefreshError({
-                      connectionId: input.connectionId,
-                      message: `Failed to resolve client secret: ${err.message}`,
-                      cause: err,
-                    }),
-                ),
-              )
-            : null;
-
-          const tokenResponse: OAuth2TokenResponse = yield* refreshAccessToken({
-            tokenUrl: GOOGLE_TOKEN_URL,
-            clientId,
-            clientSecret,
-            refreshToken: input.refreshToken,
-            scopes: state.scopes,
-          }).pipe(
-            Effect.mapError(
-              (err: OAuth2Error) =>
-                new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: err.message,
-                  cause: err,
-                }),
-            ),
-          );
-
-          const expiresAt =
-            typeof tokenResponse.expires_in === "number"
-              ? Date.now() + tokenResponse.expires_in * 1000
-              : null;
-
-          const result: ConnectionRefreshResult = {
-            accessToken: tokenResponse.access_token,
-            refreshToken: tokenResponse.refresh_token ?? undefined,
-            expiresAt,
-            oauthScope: tokenResponse.scope ?? input.oauthScope,
-          };
-          return result;
-        }),
-    },
-  ],
+  // Connection refresh is owned by the canonical `"oauth2"`
+  // ConnectionProvider registered by core — no plugin-specific handler
+  // needed. The Google-specific `GOOGLE_TOKEN_URL` lives on the
+  // connection's providerState (stamped at `ctx.oauth.start` time with
+  // the `authorization-code` strategy's tokenEndpoint), so refresh
+  // reaches Google through the unified code path.
 }));

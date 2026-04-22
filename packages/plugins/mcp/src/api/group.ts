@@ -1,11 +1,16 @@
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { ScopeId } from "@executor/sdk";
+import {
+  OAuthCompleteError,
+  OAuthProbeError,
+  OAuthSessionNotFoundError,
+  OAuthStartError,
+  ScopeId,
+} from "@executor/sdk";
 import { InternalError } from "@executor/api";
 
 import {
   McpConnectionError,
-  McpOAuthError,
   McpToolDiscoveryError,
 } from "../sdk/errors";
 import { McpStoredSourceSchema } from "../sdk/stored-source";
@@ -164,15 +169,8 @@ const CompleteOAuthResponse = Schema.Struct({
   /** Id of the SDK Connection minted by the exchange. The UI stores it
    *  on the source's auth config as `{kind: "oauth2", connectionId}`. */
   connectionId: Schema.String,
-  tokenType: Schema.String,
   expiresAt: Schema.NullOr(Schema.Number),
   scope: Schema.NullOr(Schema.String),
-  /** DCR client + discovery URLs captured during the flow. Persisted
-   *  on the source's auth config so subsequent users skip DCR + re-
-   *  discovery. */
-  clientInformation: Schema.NullOr(JsonObject),
-  authorizationServerUrl: Schema.NullOr(Schema.String),
-  resourceMetadataUrl: Schema.NullOr(Schema.String),
 });
 
 // ---------------------------------------------------------------------------
@@ -244,6 +242,9 @@ export class McpGroup extends HttpApiGroup.make("mcp")
   // `invokeTool` which is reached via the core `tools.invoke`
   // endpoint, not any MCP-group endpoint, so it doesn't belong here.
   .addError(InternalError)
-  .addError(McpOAuthError)
+  .addError(OAuthStartError)
+  .addError(OAuthCompleteError)
+  .addError(OAuthProbeError)
+  .addError(OAuthSessionNotFoundError)
   .addError(McpConnectionError)
   .addError(McpToolDiscoveryError) {}

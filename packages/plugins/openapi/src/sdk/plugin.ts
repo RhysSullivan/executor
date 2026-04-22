@@ -1,31 +1,10 @@
-import { randomUUID } from "node:crypto";
-
 import { Effect, Option, Schema } from "effect";
 import { FetchHttpClient, HttpClient } from "@effect/platform";
 import type { Layer } from "effect";
 
 import {
-  OAuth2Error,
-  buildAuthorizationUrl,
-  createPkceCodeVerifier,
-  exchangeAuthorizationCode,
-  exchangeClientCredentials,
-  refreshAccessToken,
-  type OAuth2TokenResponse,
-} from "@executor/plugin-oauth2";
-
-import {
-  ConnectionId,
-  ConnectionRefreshError,
-  CreateConnectionInput,
-  ScopeId,
-  SecretId,
   SourceDetectionResult,
-  TokenMaterial,
   definePlugin,
-  type ConnectionProvider,
-  type ConnectionRefreshInput,
-  type ConnectionRefreshResult,
   type PluginCtx,
   type StorageFailure,
   type ToolAnnotations,
@@ -65,7 +44,6 @@ import {
   HeaderValue as HeaderValueSchema,
   InvocationConfig,
   OAuth2Auth,
-  OpenApiOAuthSession,
   OperationBinding,
   type HeaderValue as HeaderValueValue,
 } from "./types";
@@ -200,6 +178,16 @@ export interface OpenApiCompleteOAuthInput {
   readonly error?: string;
 }
 
+/** Shape returned by `completeOAuth`. The minted Connection's id is
+ *  all the caller needs to stitch together an `OAuth2Auth` value — the
+ *  UI already has the securityScheme metadata from the matching
+ *  `startOAuth` call. */
+export interface OpenApiCompleteOAuthResponse {
+  readonly connectionId: string;
+  readonly expiresAt: number | null;
+  readonly scope: string | null;
+}
+
 /**
  * Errors any OpenAPI extension method may surface. The first three are
  * plugin-domain tagged errors that flow directly to clients (4xx, each
@@ -244,7 +232,7 @@ export interface OpenApiPluginExtension {
   ) => Effect.Effect<OpenApiStartOAuthResponse, OpenApiOAuthError>;
   readonly completeOAuth: (
     input: OpenApiCompleteOAuthInput,
-  ) => Effect.Effect<OAuth2Auth, OpenApiOAuthError>;
+  ) => Effect.Effect<OpenApiCompleteOAuthResponse, OpenApiOAuthError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -314,36 +302,10 @@ const descriptionFor = (def: ToolDefinition): string => {
   );
 };
 
-// ---------------------------------------------------------------------------
-// Connection `provider_state` shape for openapi-oauth2.
-//
-// Every field needed to re-hit the token endpoint on refresh lives here,
-// so the SDK's `ctx.connections.accessToken(id)` can drive both grant
-// types without the plugin keeping its own refresh state. The flow
-// literal chooses between `refresh_token` (authorizationCode) and
-// re-`exchange client_credentials` at refresh time. NONE of this is
-// sensitive — client credentials themselves still live in secrets and
-// are resolved via `ctx.secrets.get` inside the refresh handler.
-// ---------------------------------------------------------------------------
-
-const OPENAPI_OAUTH2_PROVIDER_KEY = "openapi:oauth2" as const;
-
-const OAuth2ProviderState = Schema.Struct({
-  flow: Schema.Literal("authorizationCode", "clientCredentials"),
-  tokenUrl: Schema.String,
-  clientIdSecretId: Schema.String,
-  clientSecretSecretId: Schema.NullOr(Schema.String),
-  scopes: Schema.Array(Schema.String),
-});
-type OAuth2ProviderState = typeof OAuth2ProviderState.Type;
-
-const encodeProviderState = Schema.encodeSync(OAuth2ProviderState);
-const decodeProviderState = Schema.decodeUnknownSync(OAuth2ProviderState);
-
-const toProviderStateRecord = (
-  state: OAuth2ProviderState,
-): Record<string, unknown> =>
-  encodeProviderState(state) as unknown as Record<string, unknown>;
+// Connection refresh for oauth2-minted sources is owned by the
+// canonical `"oauth2"` ConnectionProvider registered by the core
+// `makeOAuth2Service`. The plugin no longer needs its own provider-
+// state schema, refresh handler, or session storage.
 
 // ---------------------------------------------------------------------------
 // Plugin factory
@@ -581,6 +543,11 @@ export const openApiPlugin = definePlugin(
               oauth2: input.oauth2,
             }),
 
+          // Thin forwarders over `ctx.oauth.*`. The core service owns
+          // session storage, the code exchange, the Connection mint,
+          // and refresh via the canonical `"oauth2"` ConnectionProvider.
+          // The plugin maps OpenAPI's `flow` string + secret refs onto
+          // the strategy discriminated union the service accepts.
           startOAuth: (input) =>
             Effect.gen(function* () {
               const scopesArray = [...input.scopes];
@@ -592,104 +559,69 @@ export const openApiPlugin = definePlugin(
               // `findInnermostConnectionRow` walks each caller's stack
               // to resolve the right physical row.
               const innermostScope = ctx.scopes[0]!.id as string;
-
-              const clientId = yield* ctx.secrets.get(input.clientIdSecretId).pipe(
-                Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
-              );
-              if (clientId === null) {
+              const tokenScope = input.tokenScope ?? innermostScope;
+              const connectionId =
+                input.connectionId ??
+                defaultOAuthConnectionId(input.flow, input.sourceId);
+              const oauthService = ctx.oauth;
+              if (!oauthService) {
                 return yield* new OpenApiOAuthError({
-                  message: `Missing client ID secret: ${input.clientIdSecretId}`,
+                  message: "ctx.oauth not wired",
                 });
               }
 
-              if (input.flow === "clientCredentials") {
-                // RFC 6749 §4.4: no user consent, no session, no PKCE. The
-                // client_secret is mandatory — the spec defines the grant
-                // as client authentication + a token request.
-                const clientSecret = yield* ctx.secrets
-                  .get(input.clientSecretSecretId)
-                  .pipe(
-                    Effect.mapError(
-                      (err) => new OpenApiOAuthError({ message: err.message }),
-                    ),
-                  );
-                if (clientSecret === null) {
-                  return yield* new OpenApiOAuthError({
-                    message: `Missing client secret: ${input.clientSecretSecretId}`,
-                  });
-                }
+              const strategy =
+                input.flow === "clientCredentials"
+                  ? ({
+                      kind: "client-credentials" as const,
+                      tokenEndpoint: input.tokenUrl,
+                      clientIdSecretId: input.clientIdSecretId,
+                      clientSecretSecretId: input.clientSecretSecretId,
+                      scopes: scopesArray,
+                    })
+                  : ({
+                      kind: "authorization-code" as const,
+                      authorizationEndpoint: input.authorizationUrl,
+                      tokenEndpoint: input.tokenUrl,
+                      clientIdSecretId: input.clientIdSecretId,
+                      clientSecretSecretId: input.clientSecretSecretId ?? null,
+                      scopes: scopesArray,
+                    });
 
-                const tokenResponse = yield* exchangeClientCredentials({
-                  tokenUrl: input.tokenUrl,
-                  clientId,
-                  clientSecret,
-                  scopes: scopesArray,
-                }).pipe(
-                  Effect.mapError(
-                    (err) => new OpenApiOAuthError({ message: err.message }),
-                  ),
-                );
-
-                // Stable id, per-user scope. The id is a *name* — the
-                // same string across every user — and each user's stack
-                // resolves it to their own physical row via
-                // `findInnermostConnectionRow`. That's what lets the
-                // shared org-scoped source carry a single
-                // `oauth2.connectionId` string while still supporting
-                // per-user credentials (via scope-stacked secret
-                // shadowing) and per-user tokens. `connections.create`
-                // is delete-then-insert on `(id, scope_id)`, so each
-                // user's repeat sign-ins refresh a single row rather
-                // than accumulate UUIDs.
-                const connectionId =
-                  input.connectionId ??
-                  defaultOAuthConnectionId("clientCredentials", input.sourceId);
-                const connectionScope = input.tokenScope ?? innermostScope;
-                const expiresAt =
-                  typeof tokenResponse.expires_in === "number"
-                    ? Date.now() + tokenResponse.expires_in * 1000
-                    : null;
-
-                const providerState: OAuth2ProviderState = {
-                  flow: "clientCredentials",
-                  tokenUrl: input.tokenUrl,
-                  clientIdSecretId: input.clientIdSecretId,
-                  clientSecretSecretId: input.clientSecretSecretId,
-                  scopes: scopesArray,
-                };
-
-                yield* ctx.connections
-                  .create(
-                    new CreateConnectionInput({
-                      id: ConnectionId.make(connectionId),
-                      scope: ScopeId.make(connectionScope),
-                      provider: OPENAPI_OAUTH2_PROVIDER_KEY,
-                      kind: "app",
-                      identityLabel: input.displayName,
-                      accessToken: new TokenMaterial({
-                        secretId: SecretId.make(`${connectionId}.access_token`),
-                        name: `${input.displayName} Access Token`,
-                        value: tokenResponse.access_token,
-                      }),
-                      // RFC 6749 §4.4.3: no refresh tokens for this grant.
-                      refreshToken: null,
-                      expiresAt,
-                      oauthScope: tokenResponse.scope ?? null,
-                      providerState: toProviderStateRecord(providerState),
-                    }),
-                  )
-                  .pipe(
-                    Effect.mapError(
-                      (err) =>
-                        new OpenApiOAuthError({
+              const result = yield* oauthService
+                .start({
+                  endpoint: input.tokenUrl,
+                  // client-credentials doesn't redirect — pass the
+                  // plugin's own placeholder URL so the service can
+                  // still persist + surface it. For authorizationCode
+                  // we use the caller-supplied value.
+                  redirectUrl:
+                    input.flow === "authorizationCode"
+                      ? input.redirectUrl
+                      : input.tokenUrl,
+                  connectionId,
+                  tokenScope,
+                  strategy,
+                  pluginId: "openapi",
+                })
+                .pipe(
+                  Effect.mapError((err) =>
+                    err._tag === "OAuthStartError"
+                      ? new OpenApiOAuthError({ message: err.message })
+                      : new OpenApiOAuthError({
                           message:
                             "message" in err
                               ? (err as { message: string }).message
                               : String(err),
                         }),
-                    ),
-                  );
+                  ),
+                );
 
+              if (input.flow === "clientCredentials") {
+                // `client-credentials` mints the Connection inline — no
+                // session row, no browser step. Return the same
+                // `OAuth2Auth` shape the UI expects so it can stamp the
+                // source atomically.
                 const auth = new OAuth2Auth({
                   kind: "oauth2",
                   connectionId,
@@ -701,7 +633,6 @@ export const openApiPlugin = definePlugin(
                   clientSecretSecretId: input.clientSecretSecretId ?? null,
                   scopes: scopesArray,
                 });
-
                 return {
                   flow: "clientCredentials" as const,
                   auth,
@@ -709,183 +640,52 @@ export const openApiPlugin = definePlugin(
                 };
               }
 
-              // authorizationCode path. The source's logical connection
-              // id is stable, so repeated "Sign in" clicks refresh one
-              // row per target scope instead of creating UUID churn. By
-              // default this grant writes per-user because it carries user
-              // identity.
-              const tokenScope = input.tokenScope ?? innermostScope;
-              const sessionId = randomUUID();
-              const codeVerifier = createPkceCodeVerifier();
-              const connectionId =
-                input.connectionId ??
-                defaultOAuthConnectionId("authorizationCode", input.sourceId);
-
-              yield* ctx.storage
-                .putOAuthSession(
-                  sessionId,
-                  new OpenApiOAuthSession({
-                    displayName: input.displayName,
-                    securitySchemeName: input.securitySchemeName,
-                    flow: input.flow,
-                    tokenUrl: input.tokenUrl,
-                    authorizationUrl: input.authorizationUrl,
-                    redirectUrl: input.redirectUrl,
-                    clientIdSecretId: input.clientIdSecretId,
-                    clientSecretSecretId: input.clientSecretSecretId ?? null,
-                    tokenScope,
-                    connectionId,
-                    accessTokenSecretId: `${connectionId}.access_token`,
-                    refreshTokenSecretId: `${connectionId}.refresh_token`,
-                    scopes: scopesArray,
-                    codeVerifier,
-                  }),
-                )
-                .pipe(
-                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
-                );
-
-              const authorizationUrl = buildAuthorizationUrl({
-                authorizationUrl: input.authorizationUrl,
-                clientId,
-                redirectUrl: input.redirectUrl,
-                scopes: scopesArray,
-                state: sessionId,
-                codeVerifier,
-              });
-
+              if (result.authorizationUrl === null) {
+                return yield* new OpenApiOAuthError({
+                  message:
+                    "OAuth service did not emit an authorization URL for the authorizationCode flow",
+                });
+              }
               return {
                 flow: "authorizationCode" as const,
-                sessionId,
-                authorizationUrl,
+                sessionId: result.sessionId,
+                authorizationUrl: result.authorizationUrl,
                 scopes: scopesArray,
               };
             }),
 
           completeOAuth: (input) =>
-            ctx.transaction(
-              Effect.gen(function* () {
-                const session = yield* ctx.storage.getOAuthSession(input.state).pipe(
-                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
-                );
-                if (!session) {
-                  return yield* new OpenApiOAuthError({
-                    message: "OAuth session not found or has expired",
-                  });
-                }
-                yield* ctx.storage.deleteOAuthSession(input.state).pipe(
-                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
-                );
-
-                if (input.error) {
-                  return yield* new OpenApiOAuthError({ message: input.error });
-                }
-                if (!input.code) {
-                  return yield* new OpenApiOAuthError({
-                    message: "OAuth callback did not include an authorization code",
-                  });
-                }
-
-                const clientId = yield* ctx.secrets.get(session.clientIdSecretId).pipe(
-                  Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
-                );
-                if (clientId === null) {
-                  return yield* new OpenApiOAuthError({
-                    message: `Missing client ID secret: ${session.clientIdSecretId}`,
-                  });
-                }
-
-                const clientSecret = session.clientSecretSecretId
-                  ? yield* ctx.secrets.get(session.clientSecretSecretId).pipe(
-                      Effect.mapError(
-                        (err) => new OpenApiOAuthError({ message: err.message }),
-                      ),
-                    )
-                  : null;
-
-                const tokenResponse: OAuth2TokenResponse =
-                  yield* exchangeAuthorizationCode({
-                    tokenUrl: session.tokenUrl,
-                    clientId,
-                    clientSecret,
-                    redirectUrl: session.redirectUrl,
-                    codeVerifier: session.codeVerifier,
-                    code: input.code,
-                  }).pipe(
-                    Effect.mapError(
-                      (err) => new OpenApiOAuthError({ message: err.message }),
-                    ),
-                  );
-
-                const expiresAt =
-                  typeof tokenResponse.expires_in === "number"
-                    ? Date.now() + tokenResponse.expires_in * 1000
-                    : null;
-
-                const providerState: OAuth2ProviderState = {
-                  flow: "authorizationCode",
-                  tokenUrl: session.tokenUrl,
-                  clientIdSecretId: session.clientIdSecretId,
-                  clientSecretSecretId: session.clientSecretSecretId,
-                  scopes: [...session.scopes],
-                };
-
-                yield* ctx.connections
-                  .create(
-                    new CreateConnectionInput({
-                      id: ConnectionId.make(session.connectionId),
-                      scope: ScopeId.make(session.tokenScope),
-                      provider: OPENAPI_OAUTH2_PROVIDER_KEY,
-                      kind: "user",
-                      identityLabel: session.displayName,
-                      accessToken: new TokenMaterial({
-                        secretId: SecretId.make(session.accessTokenSecretId),
-                        name: `${session.displayName} Access Token`,
-                        value: tokenResponse.access_token,
-                      }),
-                      refreshToken: tokenResponse.refresh_token
-                        ? new TokenMaterial({
-                            secretId: SecretId.make(session.refreshTokenSecretId),
-                            name: `${session.displayName} Refresh Token`,
-                            value: tokenResponse.refresh_token,
-                          })
-                        : null,
-                      expiresAt,
-                      oauthScope: tokenResponse.scope ?? null,
-                      providerState: toProviderStateRecord(providerState),
-                    }),
-                  )
-                  .pipe(
-                    Effect.mapError(
-                      (err) =>
-                        new OpenApiOAuthError({
-                          message:
-                            "message" in err
-                              ? (err as { message: string }).message
-                              : String(err),
-                        }),
-                    ),
-                  );
-
-                return new OAuth2Auth({
-                  kind: "oauth2",
-                  connectionId: session.connectionId,
-                  securitySchemeName: session.securitySchemeName,
-                  flow: "authorizationCode",
-                  tokenUrl: session.tokenUrl,
-                  authorizationUrl: session.authorizationUrl,
-                  clientIdSecretId: session.clientIdSecretId,
-                  clientSecretSecretId: session.clientSecretSecretId,
-                  scopes: [...session.scopes],
+            Effect.gen(function* () {
+              const oauthService = ctx.oauth;
+              if (!oauthService) {
+                return yield* new OpenApiOAuthError({
+                  message: "ctx.oauth not wired",
                 });
-              }),
-            ).pipe(
-              Effect.mapError((err) =>
-                err instanceof OpenApiOAuthError
-                  ? err
-                  : new OpenApiOAuthError({ message: err.message }),
-              ),
-            ),
+              }
+              const completed = yield* oauthService
+                .complete({
+                  state: input.state,
+                  code: input.code,
+                  error: input.error,
+                })
+                .pipe(
+                  Effect.mapError((err) =>
+                    new OpenApiOAuthError({
+                      message:
+                        err._tag === "OAuthSessionNotFoundError"
+                          ? "OAuth session not found or has expired"
+                          : "message" in err
+                          ? (err as { message: string }).message
+                          : String(err),
+                    }),
+                  ),
+                );
+              return {
+                connectionId: completed.connectionId,
+                expiresAt: completed.expiresAt,
+                scope: completed.scope,
+              } satisfies OpenApiCompleteOAuthResponse;
+            }),
         } satisfies OpenApiPluginExtension;
       },
 
@@ -1081,134 +881,8 @@ export const openApiPlugin = definePlugin(
           });
         }),
 
-      // The SDK's `ctx.connections.accessToken(id)` dispatches here when a
-      // token is near expiry. Both flows share one provider key — the
-      // concrete refresh strategy is selected from `providerState.flow`
-      // because the caller already persisted all the knobs we need.
-      connectionProviders: (ctx): readonly ConnectionProvider[] => [
-        {
-          key: OPENAPI_OAUTH2_PROVIDER_KEY,
-          refresh: (input: ConnectionRefreshInput) =>
-            Effect.gen(function* () {
-              if (!input.providerState) {
-                return yield* new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message:
-                    "openapi:oauth2 connection is missing providerState",
-                });
-              }
-              const state = yield* Effect.try({
-                try: () => decodeProviderState(input.providerState),
-                catch: (cause) =>
-                  new ConnectionRefreshError({
-                    connectionId: input.connectionId,
-                    message: `openapi:oauth2 providerState is malformed: ${
-                      cause instanceof Error ? cause.message : String(cause)
-                    }`,
-                    cause,
-                  }),
-              });
-
-              const clientId = yield* ctx.secrets.get(state.clientIdSecretId).pipe(
-                Effect.mapError(
-                  (err) =>
-                    new ConnectionRefreshError({
-                      connectionId: input.connectionId,
-                      message: `Failed to resolve client id secret: ${err.message}`,
-                      cause: err,
-                    }),
-                ),
-              );
-              if (clientId === null) {
-                return yield* new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: `Missing client id secret: ${state.clientIdSecretId}`,
-                });
-              }
-
-              const clientSecret = state.clientSecretSecretId
-                ? yield* ctx.secrets.get(state.clientSecretSecretId).pipe(
-                    Effect.mapError(
-                      (err) =>
-                        new ConnectionRefreshError({
-                          connectionId: input.connectionId,
-                          message: `Failed to resolve client secret: ${err.message}`,
-                          cause: err,
-                        }),
-                    ),
-                  )
-                : null;
-
-              // RFC 6749 §5.2 terminal error codes — the AS has told us
-              // the stored grant is unusable, so no amount of retries
-              // will recover. Surface these as `reauthRequired: true`
-              // so the SDK translates to `ConnectionReauthRequiredError`
-              // at the caller and the UI prompts sign-in.
-              const REAUTH_REQUIRED_ERRORS = new Set([
-                "invalid_grant",
-                "invalid_client",
-                "unauthorized_client",
-              ]);
-
-              const toRefreshError = (err: OAuth2Error) =>
-                new ConnectionRefreshError({
-                  connectionId: input.connectionId,
-                  message: err.message,
-                  reauthRequired: err.error
-                    ? REAUTH_REQUIRED_ERRORS.has(err.error)
-                    : false,
-                  cause: err,
-                });
-
-              const tokenResponse = yield* (state.flow === "clientCredentials"
-                ? exchangeClientCredentials({
-                    tokenUrl: state.tokenUrl,
-                    clientId,
-                    clientSecret: clientSecret ?? "",
-                    scopes: state.scopes,
-                  })
-                : (() => {
-                    if (input.refreshToken === null) {
-                      // No refresh token stored — we cannot call the
-                      // token endpoint at all. This is the RFC 6749
-                      // §4.1 "must re-consent" case, modelled as a
-                      // reauth-required refresh failure so callers
-                      // hit the same UI path as an `invalid_grant`.
-                      return Effect.fail(
-                        new OAuth2Error({
-                          message:
-                            "authorizationCode connection has no refresh token",
-                          error: "invalid_grant",
-                        }),
-                      );
-                    }
-                    return refreshAccessToken({
-                      tokenUrl: state.tokenUrl,
-                      clientId,
-                      clientSecret,
-                      refreshToken: input.refreshToken,
-                      scopes: state.scopes,
-                    });
-                  })()
-              ).pipe(Effect.mapError(toRefreshError));
-
-              const expiresAt =
-                typeof tokenResponse.expires_in === "number"
-                  ? Date.now() + tokenResponse.expires_in * 1000
-                  : null;
-
-              const result: ConnectionRefreshResult = {
-                accessToken: tokenResponse.access_token,
-                // Rotated refresh token (RFC 6749 §6) — undefined means
-                // "keep the stored one"; null means "AS didn't issue one".
-                refreshToken: tokenResponse.refresh_token ?? undefined,
-                expiresAt,
-                oauthScope: tokenResponse.scope ?? input.oauthScope,
-              };
-              return result;
-            }),
-        },
-      ],
+      // Connection refresh for oauth2-minted sources is owned by the
+      // canonical `"oauth2"` ConnectionProvider registered by core.
     };
   },
 );

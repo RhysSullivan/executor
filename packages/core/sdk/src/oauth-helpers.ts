@@ -1,18 +1,20 @@
 // ---------------------------------------------------------------------------
-// @executor/plugin-oauth2 — generic OAuth 2.0 helpers
+// OAuth 2.0 helpers — generic, isomorphic building blocks.
 //
 // Pure helpers for building authorization URLs, exchanging codes, and
 // refreshing tokens against a standards-compliant OAuth 2.0 token endpoint.
-// Plugins (google-discovery, openapi, ...) wrap these with their own
-// session storage, secret management, and onboarding UI.
+// Every function runs unchanged in Node, CF Workers, and browsers:
+// we reach for `globalThis.crypto` (Web Crypto — available in all three
+// since Node 20 / wrangler / modern browsers) and for string-mode base64
+// via `btoa` rather than `Buffer`. Keeps the core SDK portable so
+// browser-facing packages can depend on it without dragging in node
+// types.
 //
 // Every public helper is intentionally provider-agnostic. Provider-specific
 // query parameters (Google's `access_type=offline`, `prompt=consent`, etc.)
 // are passed via the `extraParams` escape hatch so callers don't lose
 // fidelity when switching from a hand-rolled implementation.
 // ---------------------------------------------------------------------------
-
-import { createHash, randomBytes } from "node:crypto";
 
 import { Data, Effect, ParseResult, Schema } from "effect";
 
@@ -58,15 +60,36 @@ export const OAUTH2_DEFAULT_TIMEOUT_MS = 20_000;
 // PKCE (RFC 7636)
 // ---------------------------------------------------------------------------
 
-const encodeBase64Url = (input: Buffer): string =>
-  input.toString("base64").replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+/** Encode a raw byte array as RFC 4648 §5 base64url (no padding). Works
+ *  isomorphically — uses `btoa` which is globally available in Node 16+,
+ *  workers, and every browser. The `String.fromCharCode(...)` + `btoa`
+ *  dance avoids the `Buffer` global (Node-only) so this file stays
+ *  browser-safe. */
+const encodeBase64Url = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replaceAll("=", "");
+};
 
-/** Generate a 48-byte (64-char base64url) PKCE code verifier. */
-export const createPkceCodeVerifier = (): string => encodeBase64Url(randomBytes(48));
+/** Generate a 48-byte (64-char base64url) PKCE code verifier. Uses Web
+ *  Crypto `getRandomValues`, available in every OAuth-relevant runtime. */
+export const createPkceCodeVerifier = (): string => {
+  const bytes = new Uint8Array(48);
+  globalThis.crypto.getRandomValues(bytes);
+  return encodeBase64Url(bytes);
+};
 
-/** Compute the S256 code challenge for a given verifier. */
-export const createPkceCodeChallenge = (verifier: string): string =>
-  encodeBase64Url(createHash("sha256").update(verifier).digest());
+/** Compute the S256 code challenge for a given verifier. Returns a
+ *  Promise because Web Crypto's `subtle.digest` is async; browsers, CF
+ *  workers, and Node 20+ all expose it on `globalThis.crypto.subtle`. */
+export const createPkceCodeChallenge = async (verifier: string): Promise<string> => {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", data);
+  return encodeBase64Url(new Uint8Array(digest));
+};
 
 // ---------------------------------------------------------------------------
 // Authorization URL builder
@@ -78,7 +101,11 @@ export type BuildAuthorizationUrlInput = {
   readonly redirectUrl: string;
   readonly scopes: readonly string[];
   readonly state: string;
-  readonly codeVerifier: string;
+  /** Pre-computed base64url S256 challenge. Callers derive this via
+   *  `await createPkceCodeChallenge(verifier)`. Taking the challenge as
+   *  input — rather than the verifier — keeps `buildAuthorizationUrl`
+   *  sync (the only async part is the SHA-256 digest). */
+  readonly codeChallenge: string;
   /** Separator between scopes. RFC 6749 says space; some providers use comma. */
   readonly scopeSeparator?: string;
   /**
@@ -98,7 +125,7 @@ export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string
   url.searchParams.set("scope", input.scopes.join(separator));
   url.searchParams.set("state", input.state);
   url.searchParams.set("code_challenge_method", "S256");
-  url.searchParams.set("code_challenge", createPkceCodeChallenge(input.codeVerifier));
+  url.searchParams.set("code_challenge", input.codeChallenge);
   if (input.extraParams) {
     for (const [k, v] of Object.entries(input.extraParams)) {
       url.searchParams.set(k, v);
@@ -256,7 +283,13 @@ const buildClientAuthHeaders = (
   method: ClientAuthMethod,
 ): Record<string, string> => {
   if (method !== "basic" || !clientSecret) return {};
-  const encoded = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  // `btoa` over UTF-8 bytes — `btoa` itself is Latin-1 only, so we
+  // round-trip through `TextEncoder` to tolerate non-ASCII credentials
+  // (RFC 7617 §2 mandates UTF-8 for HTTP Basic). Still browser-safe.
+  const bytes = new TextEncoder().encode(`${clientId}:${clientSecret}`);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+  const encoded = btoa(binary);
   return { authorization: `Basic ${encoded}` };
 };
 

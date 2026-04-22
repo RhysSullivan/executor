@@ -212,7 +212,7 @@ const seedExpiredConnection = (
       new CreateConnectionInput({
         id: ConnectionId.make(connectionId),
         scope: scopeId,
-        provider: "openapi:oauth2",
+        provider: "oauth2",
         kind: "user",
         identityLabel: "Alice",
         accessToken: new TokenMaterial({
@@ -228,11 +228,12 @@ const seedExpiredConnection = (
         expiresAt: Date.now() - 10_000,
         oauthScope: "read",
         providerState: {
-          flow: "authorizationCode",
-          tokenUrl: "https://token.example.com/token",
+          kind: "authorization-code",
+          tokenEndpoint: "https://token.example.com/token",
           clientIdSecretId: "client_id",
           clientSecretSecretId: "client_secret",
-          scopes: ["read"],
+          clientAuth: "body",
+          scope: "read",
         },
       }),
     );
@@ -412,7 +413,7 @@ layer(TestLayer)("OpenAPI oauth refresh", (it) => {
           .pipe(Effect.flip);
         expect(flipped._tag).toBe("ConnectionReauthRequiredError");
         expect((flipped as ConnectionReauthRequiredError).provider).toBe(
-          "openapi:oauth2",
+          "oauth2",
         );
         expect(
           (flipped as ConnectionReauthRequiredError).message,

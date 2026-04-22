@@ -124,9 +124,13 @@ export const coreSchema = {
     fields: {
       id: { type: "string", required: true },
       scope_id: { type: "string", required: true, index: true },
-      /** Routing key into `plugin.connectionProviders`. Typical shape
-       *  is `${pluginId}:${kind}` (e.g. `openapi:oauth2`, `mcp:oauth2`,
-       *  `google-discovery:google`). Mirrors `secret.provider`. */
+      /** Routing key into `plugin.connectionProviders`. For OAuth 2.1
+       *  flows this is always `"oauth2"` — one canonical provider keyed
+       *  handler lives in core and switches on `provider_state.strategy`
+       *  (dynamic-dcr | authorization-code | client-credentials). Legacy
+       *  rows may still carry `${pluginId}:${kind}` values; the SDK
+       *  routes either shape to the same handler during migration.
+       *  Mirrors `secret.provider`. */
       provider: { type: "string", required: true, index: true },
       /** "user" = per-person sign-in; "app" = app-level client-credentials
        *  style install. Affects UI copy only; the SDK treats both the
@@ -146,10 +150,45 @@ export const coreSchema = {
       /** Scope string as returned by the token endpoint. */
       scope: { type: "string", required: false },
       /** Opaque plugin-owned JSON — token endpoint URL, scopes list,
-       *  discovery hints, etc. Never sensitive. */
+       *  discovery hints, etc. Never sensitive. For `provider = "oauth2"`
+       *  rows this encodes an `OAuthProviderState` tagged with the
+       *  originating strategy so the unified refresh handler can route
+       *  without a second discovery round trip. */
       provider_state: { type: "json", required: false },
       created_at: { type: "date", required: true },
       updated_at: { type: "date", required: true },
+    },
+  },
+  // Pending OAuth authorization — scratchpad between `ctx.oauth.start`
+  // and `ctx.oauth.complete`. Rows are short-lived (TTL ~15 min) and
+  // deleted on successful exchange; the `connection` row is what
+  // persists afterwards. One table for every OAuth-capable plugin —
+  // `plugin_id` + `strategy` select the right exchange path at
+  // completion time. The payload JSON is strategy-specific (DCR client
+  // info + discovery metadata for dynamic-dcr; pre-configured endpoint
+  // + client secret ids for authorization-code; etc.).
+  oauth2_session: {
+    fields: {
+      id: { type: "string", required: true },
+      scope_id: { type: "string", required: true, index: true },
+      plugin_id: { type: "string", required: true, index: true },
+      strategy: { type: "string", required: true },
+      /** Pre-decided Connection id the exchange will mint. Captured up
+       *  front so a retried callback lands on the same id (and so any
+       *  source row's `{kind:"oauth2", connectionId}` pointer can be
+       *  written before the user has even signed in). */
+      connection_id: { type: "string", required: true, index: true },
+      /** Scope id where the minted Connection will land. Usually the
+       *  innermost (per-user) scope for user sign-ins, or an org scope
+       *  for shared installs. */
+      token_scope: { type: "string", required: true },
+      redirect_url: { type: "string", required: true },
+      /** Strategy-specific session state — `OAuthSessionPayload` under
+       *  the strategy discriminator. Not sensitive: all secrets go via
+       *  `secret` rows referenced by id. */
+      payload: { type: "json", required: true },
+      expires_at: { type: "number", required: true, bigint: true },
+      created_at: { type: "date", required: true },
     },
   },
 } as const satisfies DBSchema;

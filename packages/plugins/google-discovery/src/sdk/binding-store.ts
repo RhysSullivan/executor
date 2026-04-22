@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
 // Google Discovery plugin store — typed adapter over the plugin's own
-// schema. Replaces the old ScopedKv-backed binding store. Operates on
-// three tables:
+// schema. Operates on two tables:
 //
 //   google_discovery_source         — per-namespace source config blob
 //   google_discovery_binding        — per-tool-id method binding
-//   google_discovery_oauth_session  — short-lived OAuth PKCE sessions
+//
+// OAuth session storage lives at the core level in `oauth2_session` and
+// is owned by `ctx.oauth`.
 //
 // All JSON columns are round-tripped via Schema.encode/decode so `Option`
 // shapes inside GoogleDiscoveryStoredSourceData / GoogleDiscoveryMethodBinding
@@ -22,7 +23,6 @@ import {
 
 import {
   GoogleDiscoveryMethodBinding,
-  GoogleDiscoveryOAuthSession,
   GoogleDiscoveryStoredSourceData,
 } from "./types";
 
@@ -56,14 +56,6 @@ export const googleDiscoverySchema = defineSchema({
       created_at: { type: "date", required: true },
     },
   },
-  google_discovery_oauth_session: {
-    fields: {
-      id: { type: "string", required: true },
-      scope_id: { type: "string", required: true, index: true },
-      session: { type: "json", required: true },
-      expires_at: { type: "date", required: true },
-    },
-  },
 });
 
 export type GoogleDiscoverySchema = typeof googleDiscoverySchema;
@@ -91,9 +83,6 @@ const decodeStoredSourceData = Schema.decodeUnknownSync(GoogleDiscoveryStoredSou
 
 const encodeBinding = Schema.encodeSync(GoogleDiscoveryMethodBinding);
 const decodeBinding = Schema.decodeUnknownSync(GoogleDiscoveryMethodBinding);
-
-const encodeSession = Schema.encodeSync(GoogleDiscoveryOAuthSession);
-const decodeSession = Schema.decodeUnknownSync(GoogleDiscoveryOAuthSession);
 
 const decodeJson = (value: unknown): unknown => {
   if (value === null || value === undefined) return value;
@@ -174,16 +163,6 @@ export interface GoogleDiscoveryStore {
     sourceId: string,
     scope: string,
   ) => Effect.Effect<GoogleDiscoveryStoredSourceData | null, StorageFailure>;
-
-  readonly putOAuthSession: (
-    sessionId: string,
-    scope: string,
-    session: GoogleDiscoveryOAuthSession,
-  ) => Effect.Effect<void, StorageFailure>;
-  readonly getOAuthSession: (
-    sessionId: string,
-  ) => Effect.Effect<GoogleDiscoveryOAuthSession | null, StorageFailure>;
-  readonly deleteOAuthSession: (sessionId: string) => Effect.Effect<void, StorageFailure>;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,59 +347,5 @@ export const makeGoogleDiscoveryStore = (
         return decodeStoredSourceData(decodeJson(row.config));
       }),
 
-    putOAuthSession: (sessionId, scope, session) =>
-      Effect.gen(function* () {
-        // Pin the defensive overwrite to the target scope — sessionIds
-        // are UUIDs so collisions are negligible, but a hypothetical
-        // collision with a session in another scope of this stack
-        // shouldn't wipe the wrong row.
-        yield* db.delete({
-          model: "google_discovery_oauth_session",
-          where: [
-            { field: "id", value: sessionId },
-            { field: "scope_id", value: scope },
-          ],
-        });
-        yield* db.create({
-          model: "google_discovery_oauth_session",
-          data: {
-            id: sessionId,
-            scope_id: scope,
-            session: encodeSession(session) as unknown as Record<string, unknown>,
-            expires_at: new Date(Date.now() + GOOGLE_DISCOVERY_OAUTH_SESSION_TTL_MS),
-          },
-          forceAllowId: true,
-        });
-      }),
-
-    getOAuthSession: (sessionId) =>
-      Effect.gen(function* () {
-        const row = yield* db.findOne({
-          model: "google_discovery_oauth_session",
-          where: [{ field: "id", value: sessionId }],
-        });
-        if (!row) return null;
-        const expiresAt =
-          row.expires_at instanceof Date ? row.expires_at : new Date(row.expires_at as string);
-        if (expiresAt.getTime() < Date.now()) {
-          yield* db.delete({
-            model: "google_discovery_oauth_session",
-            where: [
-              { field: "id", value: sessionId },
-              { field: "scope_id", value: row.scope_id as string },
-            ],
-          });
-          return null;
-        }
-        return decodeSession(decodeJson(row.session));
-      }),
-
-    deleteOAuthSession: (sessionId) =>
-      db
-        .delete({
-          model: "google_discovery_oauth_session",
-          where: [{ field: "id", value: sessionId }],
-        })
-        .pipe(Effect.asVoid),
   };
 };

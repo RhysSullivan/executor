@@ -36,6 +36,7 @@ import type {
 } from "./errors";
 import type { Scope } from "./scope";
 import type { SecretProvider, SecretRef, SetSecretInput } from "./secrets";
+import type { OAuthService } from "./oauth";
 
 // ---------------------------------------------------------------------------
 // StorageDeps — backing passed to a plugin's `storage` factory. The only
@@ -200,6 +201,20 @@ export interface PluginCtx<TStore = unknown> {
     >;
     readonly remove: (id: string) => Effect.Effect<void, StorageFailure>;
   };
+
+  /** OAuth 2.1 authorization service — starts, completes, and probes
+   *  every OAuth flow across all plugins. Injected at executor
+   *  construction via `ExecutorConfig.oauth`; `undefined` when the host
+   *  didn't wire it in. Plugins that need OAuth fail loudly on access
+   *  rather than silently bypassing — that surfaces missing wiring at
+   *  sign-in time instead of at first token refresh.
+   *
+   *  At invoke time plugins never call `oauth.*` — they call
+   *  `connections.accessToken(connectionId)` where the connectionId was
+   *  stamped onto the source row during `oauth.start` → `oauth.complete`.
+   *  The canonical `"oauth2"` ConnectionProvider (registered by the
+   *  same service) runs refresh automatically. */
+  readonly oauth: OAuthService | undefined;
 
   /** Run `effect` inside a database transaction. Wraps the underlying
    *  adapter's transaction method. Use this in extension methods that

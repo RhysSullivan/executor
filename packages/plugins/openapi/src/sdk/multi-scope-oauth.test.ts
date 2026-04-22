@@ -37,6 +37,7 @@ import {
 import { makeMemoryAdapter } from "@executor/storage-core/testing/memory";
 
 import { openApiPlugin } from "./plugin";
+import { OAuth2Auth } from "./types";
 
 const autoApprove: InvokeOptions = { onElicitation: "accept-all" };
 
@@ -246,11 +247,11 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
           throw new Error("expected authorizationCode flow for bob");
         }
 
-        const aliceAuth = yield* aliceExec.openapi.completeOAuth({
+        const aliceCompleted = yield* aliceExec.openapi.completeOAuth({
           state: aliceStart.sessionId,
           code: "code-alice",
         });
-        const bobAuth = yield* bobExec.openapi.completeOAuth({
+        const bobCompleted = yield* bobExec.openapi.completeOAuth({
           state: bobStart.sessionId,
           code: "code-bob",
         });
@@ -260,11 +261,35 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         // scopes (ids are only unique within a scope). The assertion
         // below that `adminConnectionIds` doesn't include either one
         // proves admin's stack can't reach either user's row.
-        expect(aliceAuth.connectionId).toBe(bobAuth.connectionId);
+        expect(aliceCompleted.connectionId).toBe(bobCompleted.connectionId);
 
         // -------------------------------------------------------------
-        // 3. Each user adds the spec with the auth they just minted.
+        // 3. Each user stitches an OAuth2Auth from the metadata they
+        //    already had at `startOAuth` time plus the new connection
+        //    id, then adds the spec.
         // -------------------------------------------------------------
+        const aliceAuth = new OAuth2Auth({
+          kind: "oauth2" as const,
+          connectionId: aliceCompleted.connectionId,
+          securitySchemeName: "oauth2",
+          flow: "authorizationCode" as const,
+          tokenUrl: "https://token.example.com/token",
+          authorizationUrl: "https://auth.example.com/authorize",
+          clientIdSecretId: "petstore_client_id",
+          clientSecretSecretId: "petstore_client_secret",
+          scopes: ["read"],
+        });
+        const bobAuth = new OAuth2Auth({
+          kind: "oauth2" as const,
+          connectionId: bobCompleted.connectionId,
+          securitySchemeName: "oauth2",
+          flow: "authorizationCode" as const,
+          tokenUrl: "https://token.example.com/token",
+          authorizationUrl: "https://auth.example.com/authorize",
+          clientIdSecretId: "petstore_client_id",
+          clientSecretSecretId: "petstore_client_secret",
+          scopes: ["read"],
+        });
         yield* aliceExec.openapi.addSpec({
           spec: specJson,
           scope: aliceScope.id as string,

@@ -4,7 +4,15 @@ import type { Layer } from "effect";
 
 import {
   definePlugin,
+  OAuthCompleteError,
+  OAuthProbeError,
+  OAuthSessionNotFoundError,
+  OAuthStartError,
   SourceDetectionResult,
+  type OAuthCompleteResult,
+  type OAuthProbeResult,
+  type OAuthStartResult,
+  type OAuthStrategy,
   type StorageFailure,
   type ToolAnnotations,
   type ToolRow,
@@ -37,6 +45,7 @@ import {
 import {
   ExtractedField,
   OperationBinding,
+  type GraphqlConnectionAuth,
   type HeaderValue as HeaderValueValue,
   type GraphqlOperationKind,
 } from "./types";
@@ -65,6 +74,12 @@ export interface GraphqlSourceConfig {
   readonly namespace?: string;
   /** Headers applied to every request. Values can reference secrets. */
   readonly headers?: Record<string, HeaderValue>;
+  /** Auth method. Defaults to `{kind:"none"}` when omitted so the old
+   *  caller shape (headers only) still works. `oauth2` callers mint the
+   *  connection id up front (via `startOAuth` + `completeOAuth`) and
+   *  pass it here so introspect + invoke can resolve the access token
+   *  from `ctx.connections.accessToken(connectionId)`. */
+  readonly auth?: GraphqlConnectionAuth;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +90,26 @@ export interface GraphqlUpdateSourceInput {
   readonly name?: string;
   readonly endpoint?: string;
   readonly headers?: Record<string, HeaderValue>;
+  readonly auth?: GraphqlConnectionAuth;
+}
+
+/** Caller input to start an OAuth flow for a GraphQL endpoint. */
+export interface GraphqlOAuthStartInput {
+  readonly endpoint: string;
+  readonly redirectUrl: string;
+  /** Stable per-source connection id (e.g. `graphql-oauth2-${namespace}`).
+   *  The caller derives this before calling so the source row can be
+   *  stamped with `{kind:"oauth2", connectionId}` atomically with the
+   *  authorization flow. */
+  readonly connectionId: string;
+  readonly tokenScope: string;
+  readonly strategy: OAuthStrategy;
+}
+
+export interface GraphqlOAuthCompleteInput {
+  readonly state: string;
+  readonly code?: string;
+  readonly error?: string;
 }
 
 /**
@@ -92,6 +127,29 @@ export type GraphqlExtensionFailure =
   | StorageFailure;
 
 export interface GraphqlPluginExtension {
+  /** Probe a GraphQL endpoint for its OAuth shape. Thin wrapper around
+   *  `ctx.oauth.probe` that callers use to decide whether the onboarding
+   *  UI should run dynamic-DCR or collect static client credentials. */
+  readonly probeEndpoint: (
+    endpoint: string,
+  ) => Effect.Effect<OAuthProbeResult, OAuthProbeError>;
+
+  /** Kick off the OAuth flow for a GraphQL endpoint. Returns the URL
+   *  the browser should redirect to and the session id to pass back on
+   *  callback. Thin wrapper around `ctx.oauth.start`. */
+  readonly startOAuth: (
+    input: GraphqlOAuthStartInput,
+  ) => Effect.Effect<OAuthStartResult, OAuthStartError | StorageFailure>;
+
+  /** Complete the OAuth flow — exchange the authorization code, mint
+   *  the Connection. Thin wrapper around `ctx.oauth.complete`. */
+  readonly completeOAuth: (
+    input: GraphqlOAuthCompleteInput,
+  ) => Effect.Effect<
+    OAuthCompleteResult,
+    OAuthCompleteError | OAuthSessionNotFoundError | StorageFailure
+  >;
+
   /** Add a GraphQL endpoint and register its operations as tools */
   readonly addSource: (
     config: GraphqlSourceConfig,
@@ -325,6 +383,26 @@ export const graphqlPlugin = definePlugin(
             return Object.keys(resolved).length > 0 ? resolved : undefined;
           });
 
+        /** Resolve the request headers that should accompany a GraphQL
+         *  HTTP request for a stored source — user-configured headers
+         *  plus `Authorization: Bearer <token>` when auth is OAuth.
+         *  The access token is fetched fresh via `ctx.connections` so
+         *  refresh happens transparently on every request. */
+        const resolveRequestHeaders = (source: {
+          readonly headers: Record<string, HeaderValue>;
+          readonly auth: GraphqlConnectionAuth;
+        }) =>
+          Effect.gen(function* () {
+            const resolved = yield* resolveHeaders(source.headers, ctx.secrets);
+            if (source.auth.kind === "oauth2") {
+              const token = yield* ctx.connections.accessToken(
+                source.auth.connectionId,
+              );
+              resolved.authorization = `Bearer ${token}`;
+            }
+            return resolved;
+          });
+
         const addSourceInternal = (config: GraphqlSourceConfig) =>
           ctx.transaction(
             Effect.gen(function* () {
@@ -334,7 +412,26 @@ export const graphqlPlugin = definePlugin(
                   config.introspectionJson,
                 );
               } else {
-                const resolved = yield* resolveConfigHeaders(config.headers);
+                // For OAuth-authed sources we pull a fresh token from
+                // the already-minted Connection; for header-authed we
+                // resolve the secret refs. Either way the introspection
+                // request carries whatever the endpoint needs.
+                const resolved =
+                  config.auth?.kind === "oauth2"
+                    ? yield* resolveRequestHeaders({
+                        headers: config.headers ?? {},
+                        auth: config.auth,
+                      }).pipe(
+                        Effect.mapError(
+                          (err) =>
+                            new GraphqlIntrospectionError({
+                              message: `Failed to resolve OAuth token: ${
+                                err instanceof Error ? err.message : String(err)
+                              }`,
+                            }),
+                        ),
+                      )
+                    : yield* resolveConfigHeaders(config.headers);
                 introspectionResult = yield* introspect(
                   config.endpoint,
                   resolved,
@@ -361,6 +458,7 @@ export const graphqlPlugin = definePlugin(
                 name: displayName,
                 endpoint: config.endpoint,
                 headers: config.headers ?? {},
+                auth: config.auth ?? { kind: "none" },
               };
 
               const storedOps: StoredOperation[] = prepared.map((p) => ({
@@ -401,7 +499,37 @@ export const graphqlPlugin = definePlugin(
 
         const configFile = options?.configFile;
 
+        // Guard: surface a concrete error at sign-in time when the host
+        // didn't wire OAuth — better than a NullPointer at token refresh.
+        const requireOAuth = () =>
+          ctx.oauth ??
+          (() => {
+            throw new Error(
+              "Graphql plugin called ctx.oauth.* but the executor was built without OAuth wiring. " +
+                "This should be impossible — `makeOAuth2Service` is always constructed by `createExecutor`.",
+            );
+          })();
+
         return {
+          probeEndpoint: (endpoint) => requireOAuth().probe({ endpoint }),
+
+          startOAuth: (input) =>
+            requireOAuth().start({
+              endpoint: input.endpoint,
+              redirectUrl: input.redirectUrl,
+              connectionId: input.connectionId,
+              tokenScope: input.tokenScope,
+              strategy: input.strategy,
+              pluginId: "graphql",
+            }),
+
+          completeOAuth: (input) =>
+            requireOAuth().complete({
+              state: input.state,
+              code: input.code,
+              error: input.error,
+            }),
+
           addSource: (config) =>
             addSourceInternal(config).pipe(
               Effect.tap((result) =>
@@ -435,6 +563,7 @@ export const graphqlPlugin = definePlugin(
               name: input.name?.trim() || undefined,
               endpoint: input.endpoint,
               headers: input.headers,
+              auth: input.auth,
             }),
         } satisfies GraphqlPluginExtension;
       },
@@ -510,6 +639,14 @@ export const graphqlPlugin = definePlugin(
             source.headers,
             ctx.secrets,
           );
+          // OAuth-authed sources get a fresh Bearer on every invoke;
+          // `ctx.connections.accessToken` handles refresh transparently.
+          if (source.auth.kind === "oauth2") {
+            const token = yield* ctx.connections.accessToken(
+              source.auth.connectionId,
+            );
+            resolvedHeaders.authorization = `Bearer ${token}`;
+          }
 
           const result = yield* invokeWithLayer(
             op.binding,
