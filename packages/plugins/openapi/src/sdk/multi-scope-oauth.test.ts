@@ -220,6 +220,7 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         });
 
         const startInputFor = (user: string, scope: ScopeId) => ({
+          sourceId: "petstore",
           displayName: `Petstore (${user})`,
           securitySchemeName: "oauth2",
           flow: "authorizationCode" as const,
@@ -254,7 +255,12 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
           code: "code-bob",
         });
 
-        expect(aliceAuth.connectionId).not.toBe(bobAuth.connectionId);
+        // With the stable-id fix both users derive the same row id
+        // string from `sourceId`, but the rows live at different user
+        // scopes (ids are only unique within a scope). The assertion
+        // below that `adminConnectionIds` doesn't include either one
+        // proves admin's stack can't reach either user's row.
+        expect(aliceAuth.connectionId).toBe(bobAuth.connectionId);
 
         // -------------------------------------------------------------
         // 3. Each user adds the spec with the auth they just minted.
@@ -338,6 +344,220 @@ layer(TestLayer)("OpenAPI multi-scope OAuth", (it) => {
         expect(aliceSecretIds).not.toContain(
           `${aliceAuth.connectionId}.refresh_token`,
         );
+      }),
+  );
+
+  // -------------------------------------------------------------------------
+  // Regression: `clientCredentials` is an app-level grant (RFC 6749 §4.4)
+  // with no user identity, so the Connection must live at the outermost
+  // executor scope (org) with a stable id — every user resolves the same
+  // row. Previously `startOAuth` minted a fresh UUID per call and wrote
+  // the row at the innermost (user) scope, so repeated sign-ins spawned
+  // orphans and the org source's oauth2 pointer flipped to whichever
+  // user clicked last, breaking everyone else's invocations.
+  // -------------------------------------------------------------------------
+  it.effect(
+    "clientCredentials sign-in reuses one org-scoped connection across users",
+    () =>
+      Effect.gen(function* () {
+        const secretStore = new Map<string, string>();
+        const key = (scope: string, id: string) => `${scope} ${id}`;
+        const memoryProvider: SecretProvider = {
+          key: "memory",
+          writable: true,
+          get: (id, scope) =>
+            Effect.sync(() => secretStore.get(key(scope, id)) ?? null),
+          set: (id, value, scope) =>
+            Effect.sync(() => {
+              secretStore.set(key(scope, id), value);
+            }),
+          delete: (id, scope) =>
+            Effect.sync(() => secretStore.delete(key(scope, id))),
+        };
+        const memorySecretsPlugin = definePlugin(() => ({
+          id: "memory-secrets" as const,
+          storage: () => ({}),
+          secretProviders: [memoryProvider],
+        }));
+
+        const httpClient = yield* HttpClient.HttpClient;
+        const clientLayer = Layer.succeed(HttpClient.HttpClient, httpClient);
+        const plugins = [
+          openApiPlugin({ httpClientLayer: clientLayer }),
+          memorySecretsPlugin(),
+        ] as const;
+
+        const schema = collectSchemas(plugins);
+        const adapter = makeMemoryAdapter({ schema });
+        const blobs = makeInMemoryBlobStore();
+
+        const now = new Date();
+        const orgScope = new Scope({
+          id: ScopeId.make("org"),
+          name: "acme-org",
+          createdAt: now,
+        });
+        const aliceScope = new Scope({
+          id: ScopeId.make("user-alice"),
+          name: "alice",
+          createdAt: now,
+        });
+        const bobScope = new Scope({
+          id: ScopeId.make("user-bob"),
+          name: "bob",
+          createdAt: now,
+        });
+
+        const adminExec = yield* createExecutor({
+          scopes: [orgScope],
+          adapter,
+          blobs,
+          plugins,
+        });
+        const aliceExec = yield* createExecutor({
+          scopes: [aliceScope, orgScope],
+          adapter,
+          blobs,
+          plugins,
+        });
+        const bobExec = yield* createExecutor({
+          scopes: [bobScope, orgScope],
+          adapter,
+          blobs,
+          plugins,
+        });
+
+        // Shared client credentials at org scope.
+        yield* adminExec.secrets.set(
+          new SetSecretInput({
+            id: SecretId.make("client_id"),
+            scope: orgScope.id,
+            name: "Client ID",
+            value: "client-abc",
+          }),
+        );
+        yield* adminExec.secrets.set(
+          new SetSecretInput({
+            id: SecretId.make("client_secret"),
+            scope: orgScope.id,
+            name: "Client Secret",
+            value: "secret-xyz",
+          }),
+        );
+
+        // client_credentials token endpoint stub. Each call returns a
+        // unique access token so we can assert which sign-in wrote what.
+        let nextToken = 0;
+        globalThis.fetch = (async () =>
+          new Response(
+            JSON.stringify({
+              access_token: `cc-token-${++nextToken}`,
+              token_type: "Bearer",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )) as unknown as typeof fetch;
+
+        const startInput = {
+          sourceId: "petstore",
+          displayName: "Petstore",
+          securitySchemeName: "oauth2",
+          flow: "clientCredentials" as const,
+          tokenUrl: "https://token.example.com/token",
+          clientIdSecretId: "client_id",
+          clientSecretSecretId: "client_secret",
+          scopes: ["read"],
+        };
+
+        // Admin adds the org-scoped source with an initial oauth2
+        // pointer — same shape the onboarding UI writes via `addSpec`.
+        const initialAuth = yield* aliceExec.openapi.startOAuth(startInput);
+        if (initialAuth.flow !== "clientCredentials") {
+          throw new Error("expected clientCredentials flow");
+        }
+        yield* adminExec.openapi.addSpec({
+          spec: specJson,
+          scope: orgScope.id as string,
+          namespace: "petstore",
+          baseUrl: "",
+          oauth2: initialAuth.auth,
+        });
+
+        // Alice signs in → refreshes the shared org-level connection.
+        const aliceStart = yield* aliceExec.openapi.startOAuth(startInput);
+        if (aliceStart.flow !== "clientCredentials") {
+          throw new Error("expected clientCredentials flow for alice");
+        }
+        yield* aliceExec.openapi.updateSource(
+          "petstore",
+          orgScope.id as string,
+          { oauth2: aliceStart.auth },
+        );
+
+        // Sanity: Alice can invoke.
+        const aliceBefore = (yield* aliceExec.tools.invoke(
+          "petstore.items.echoHeaders",
+          {},
+          autoApprove,
+        )) as { data: { authorization?: string } | null; error: unknown };
+        expect(aliceBefore.error).toBeNull();
+        expect(aliceBefore.data?.authorization).toMatch(/^Bearer cc-token-/);
+
+        // Bob clicks "Sign in" on the same org-scoped source. With the
+        // stable-id fix this refreshes the single shared connection
+        // rather than minting a new row; the source pointer doesn't
+        // change id.
+        const bobStart = yield* bobExec.openapi.startOAuth(startInput);
+        if (bobStart.flow !== "clientCredentials") {
+          throw new Error("expected clientCredentials flow for bob");
+        }
+        yield* bobExec.openapi.updateSource(
+          "petstore",
+          orgScope.id as string,
+          { oauth2: bobStart.auth },
+        );
+
+        // ---- Regression assertions for the multi-user bug ----
+
+        // (1) All three startOAuth calls return the SAME connection id —
+        // it's derived from `sourceId`, not a fresh UUID per click.
+        const stableId = `openapi-oauth2-app-${startInput.sourceId}`;
+        expect(initialAuth.auth.connectionId).toBe(stableId);
+        expect(aliceStart.auth.connectionId).toBe(stableId);
+        expect(bobStart.auth.connectionId).toBe(stableId);
+
+        // (2) The connection lives at the OUTERMOST (org) scope so
+        // every user in the org resolves the same row — not in any
+        // single user's scope.
+        const adminConns = yield* adminExec.connections.list();
+        const adminConn = adminConns.find((c) => c.id === stableId);
+        expect(adminConn).toBeDefined();
+        expect(adminConn?.scopeId as unknown as string).toBe("org");
+        expect(adminConn?.kind).toBe("app");
+
+        // (3) Only ONE connection row exists for this source across
+        // the whole executor — sign-ins are idempotent, no orphans.
+        const allConnsForSource = adminConns.filter((c) => c.id === stableId);
+        expect(allConnsForSource.length).toBe(1);
+
+        // (4) Alice can still invoke after Bob signs in — the pointer
+        // is stable and both users reach the same org-scoped row.
+        const aliceAfter = (yield* aliceExec.tools.invoke(
+          "petstore.items.echoHeaders",
+          {},
+          autoApprove,
+        )) as { data: { authorization?: string } | null; error: unknown };
+        expect(aliceAfter.error).toBeNull();
+        expect(aliceAfter.data?.authorization).toMatch(/^Bearer cc-token-/);
+
+        // (5) Bob reaches the shared connection from his own scope
+        // too — same row, same token.
+        const bobResult = (yield* bobExec.tools.invoke(
+          "petstore.items.echoHeaders",
+          {},
+          autoApprove,
+        )) as { data: { authorization?: string } | null; error: unknown };
+        expect(bobResult.error).toBeNull();
+        expect(bobResult.data?.authorization).toMatch(/^Bearer cc-token-/);
       }),
   );
 });

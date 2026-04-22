@@ -62,10 +62,21 @@ const AddSpecResponse = Schema.Struct({
 // OAuth payloads / responses
 // ---------------------------------------------------------------------------
 
-// Shared identity fields for both OAuth2 flows. `tokenScope` names which
-// executor scope will own the resulting Connection (typically the per-user
-// scope). Token secret ids are minted by the SDK from the Connection id —
-// callers never pick them.
+// Shared identity fields for both OAuth2 flows.
+//
+// `sourceId` (namespace) pins the resulting Connection id to a stable
+// per-source value so repeated sign-ins refresh an existing row instead
+// of minting a fresh UUID every click. For `clientCredentials`, one
+// connection per source is shared org-wide (the grant is app-level —
+// RFC 6749 §4.4 — and has no user identity). For `authorizationCode`,
+// the SDK prefixes with the innermost scope so the row still lives in
+// the per-user scope but is stable across repeat sign-ins by the same
+// user on the same source.
+//
+// `tokenScope` is ignored for `clientCredentials`; the SDK uses the
+// outermost executor scope so every user in the org resolves the same
+// row. For `authorizationCode` it still defaults to the innermost
+// scope in the executor's stack.
 const StartOAuthIdentityFields = {
   displayName: Schema.String,
   securitySchemeName: Schema.String,
@@ -73,6 +84,7 @@ const StartOAuthIdentityFields = {
   clientIdSecretId: Schema.String,
   scopes: Schema.Array(Schema.String),
   tokenScope: Schema.optional(ScopeId),
+  sourceId: Schema.String,
 } as const;
 
 const StartOAuthPayload = Schema.Union(
@@ -121,15 +133,8 @@ const OAuthCallbackUrlParams = Schema.Struct({
   error_description: Schema.optional(Schema.String),
 });
 
-// ---------------------------------------------------------------------------
-// Errors with HTTP status
-// ---------------------------------------------------------------------------
-
-const ParseError = OpenApiParseError.annotations(HttpApiSchema.annotations({ status: 400 }));
-const ExtractionError = OpenApiExtractionError.annotations(
-  HttpApiSchema.annotations({ status: 400 }),
-);
-const OAuthError = OpenApiOAuthError.annotations(HttpApiSchema.annotations({ status: 400 }));
+// HTTP status on the three domain errors lives on their class
+// declarations in `../sdk/errors.ts` — see the comment there.
 
 // ---------------------------------------------------------------------------
 // Group
@@ -192,6 +197,6 @@ export class OpenApiGroup extends HttpApiGroup.make("openapi")
   // `InternalError` is the shared opaque 500 translated at the HTTP
   // edge by `withCapture`.
   .addError(InternalError)
-  .addError(ParseError)
-  .addError(ExtractionError)
-  .addError(OAuthError) {}
+  .addError(OpenApiParseError)
+  .addError(OpenApiExtractionError)
+  .addError(OpenApiOAuthError) {}

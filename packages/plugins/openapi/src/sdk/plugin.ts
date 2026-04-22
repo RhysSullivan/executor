@@ -113,8 +113,22 @@ interface StartOAuthIdentity {
   readonly securitySchemeName: string;
   readonly clientIdSecretId: string;
   readonly scopes: readonly string[];
-  /** Executor scope that will own the resulting Connection (and its
-   *  backing token secrets). Defaults to `ctx.scopes[0].id`. */
+  /**
+   * Source (namespace) the resulting Connection will back. Used to
+   * mint a stable Connection id so repeat sign-ins refresh a single
+   * row instead of spawning a fresh UUID every click:
+   *
+   *   clientCredentials → `openapi-oauth2-app-${sourceId}` at the
+   *     outermost executor scope (the grant is app-level — RFC 6749
+   *     §4.4 — so every user in the org shares one row).
+   *   authorizationCode → `openapi-oauth2-user-${sourceId}` at the
+   *     innermost scope (per-user consent → per-user row, still
+   *     stable across repeat sign-ins).
+   */
+  readonly sourceId: string;
+  /** Executor scope that will own an `authorizationCode` Connection
+   *  (and its backing token secrets). Defaults to `ctx.scopes[0].id`.
+   *  Ignored for `clientCredentials`. */
   readonly tokenScope?: string;
 }
 
@@ -551,7 +565,13 @@ export const openApiPlugin = definePlugin(
           startOAuth: (input) =>
             Effect.gen(function* () {
               const scopesArray = [...input.scopes];
-              const tokenScope = input.tokenScope ?? (ctx.scopes[0]!.id as string);
+              // Innermost = user scope in a stacked [user, org] executor.
+              // Outermost = org. clientCredentials is app-level so every
+              // user in the org must resolve the *same* connection row,
+              // which means writing it at the outermost scope and using
+              // a stable, source-derived id (see StartOAuthIdentity).
+              const innermostScope = ctx.scopes[0]!.id as string;
+              const outermostScope = ctx.scopes.at(-1)!.id as string;
 
               const clientId = yield* ctx.secrets.get(input.clientIdSecretId).pipe(
                 Effect.mapError((err) => new OpenApiOAuthError({ message: err.message })),
@@ -590,7 +610,13 @@ export const openApiPlugin = definePlugin(
                   ),
                 );
 
-                const connectionId = `openapi-oauth2-${randomUUID()}`;
+                // Stable id + outermost scope. `connections.create` is
+                // delete-then-insert on `(id, scope_id)`, so repeat
+                // sign-ins refresh a single row rather than leak UUIDs.
+                // tokenScope is intentionally ignored here: an app-level
+                // grant landing in a per-user scope is a multi-user bug.
+                const connectionId = `openapi-oauth2-app-${input.sourceId}`;
+                const connectionScope = outermostScope;
                 const expiresAt =
                   typeof tokenResponse.expires_in === "number"
                     ? Date.now() + tokenResponse.expires_in * 1000
@@ -608,7 +634,7 @@ export const openApiPlugin = definePlugin(
                   .create(
                     new CreateConnectionInput({
                       id: ConnectionId.make(connectionId),
-                      scope: ScopeId.make(tokenScope),
+                      scope: ScopeId.make(connectionScope),
                       provider: OPENAPI_OAUTH2_PROVIDER_KEY,
                       kind: "app",
                       identityLabel: input.displayName,
@@ -655,10 +681,14 @@ export const openApiPlugin = definePlugin(
                 };
               }
 
-              // authorizationCode path.
+              // authorizationCode path. Stable id per (user, source) so
+              // repeated "Sign in" clicks refresh one row instead of
+              // creating a new UUID each time. Still per-user scope —
+              // this grant carries user identity.
+              const tokenScope = input.tokenScope ?? innermostScope;
               const sessionId = randomUUID();
               const codeVerifier = createPkceCodeVerifier();
-              const connectionId = `openapi-oauth2-${randomUUID()}`;
+              const connectionId = `openapi-oauth2-user-${input.sourceId}`;
 
               yield* ctx.storage
                 .putOAuthSession(

@@ -5,7 +5,20 @@ import { Option } from "effect";
 import { openOAuthPopup, type OAuthPopupResult } from "@executor/plugin-oauth2/react";
 
 import { useScope } from "@executor/react/api/scope-context";
-import { sourceWriteKeys } from "@executor/react/api/reactivity-keys";
+import {
+  connectionWriteKeys,
+  sourceWriteKeys,
+} from "@executor/react/api/reactivity-keys";
+
+// `addSpec` with an oauth2 payload persists a source row AND (for
+// clientCredentials) a freshly-minted Connection + owned secrets,
+// because the inline token exchange happens during `startOAuth`.
+// Invalidate both so the source-detail page opens into its connected
+// state without a refresh.
+const addSpecWriteKeys = [
+  ...sourceWriteKeys,
+  ...connectionWriteKeys,
+] as const;
 import { usePendingSources } from "@executor/react/api/optimistic";
 import { HeadersList } from "@executor/react/plugins/headers-list";
 import {
@@ -299,6 +312,13 @@ export default function AddOpenApiSource(props: {
     (customHeaders.length === 0 || customHeadersValid) &&
     oauth2Ready;
 
+  // Stable source id derivation. Matches the value `handleAdd` sends
+  // as `namespace`, so startOAuth's source-derived connection id lines
+  // up with the source row that will be created (or updated) on submit.
+  const resolvedSourceId =
+    slugifyNamespace(identity.namespace) ||
+    (preview ? Option.getOrElse(preview.title, () => "openapi") : "openapi");
+
   // ---- Handlers ----
 
   const handleAnalyze = async () => {
@@ -419,6 +439,7 @@ export default function AddOpenApiSource(props: {
         const response = await doStartOAuth({
           path: { scopeId },
           payload: {
+            sourceId: resolvedSourceId,
             displayName,
             securitySchemeName: selectedOAuth2Preset.securitySchemeName,
             flow: "clientCredentials",
@@ -446,6 +467,7 @@ export default function AddOpenApiSource(props: {
       const response = await doStartOAuth({
         path: { scopeId },
         payload: {
+          sourceId: resolvedSourceId,
           displayName,
           securitySchemeName: selectedOAuth2Preset.securitySchemeName,
           flow: "authorizationCode",
@@ -517,6 +539,7 @@ export default function AddOpenApiSource(props: {
     doStartOAuth,
     scopeId,
     identity.name,
+    resolvedSourceId,
   ]);
 
   const handleCancelOAuth2 = useCallback(() => {
@@ -588,7 +611,7 @@ export default function AddOpenApiSource(props: {
           ...(hasHeaders ? { headers: allHeaders } : {}),
           ...(oauth2ToSave ? { oauth2: oauth2ToSave } : {}),
         },
-        reactivityKeys: sourceWriteKeys,
+        reactivityKeys: addSpecWriteKeys,
       });
       props.onComplete();
     } catch (e) {
