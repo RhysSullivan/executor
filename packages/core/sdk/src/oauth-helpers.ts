@@ -1,22 +1,23 @@
 // ---------------------------------------------------------------------------
 // OAuth 2.0 helpers — generic, isomorphic building blocks.
 //
-// Pure helpers for building authorization URLs, exchanging codes, and
-// refreshing tokens against a standards-compliant OAuth 2.0 token endpoint.
-// Every function runs unchanged in Node, CF Workers, and browsers:
-// we reach for `globalThis.crypto` (Web Crypto — available in all three
-// since Node 20 / wrangler / modern browsers) and for string-mode base64
-// via `btoa` rather than `Buffer`. Keeps the core SDK portable so
-// browser-facing packages can depend on it without dragging in node
-// types.
+// Thin wrappers around `oauth4webapi` (stateless; pure Web Crypto +
+// `fetch`, no deps; runs unchanged in Node, CF Workers, and browsers).
+// Each public helper is a single `Effect.tryPromise` call that delegates
+// the RFC work to the library and normalises the failure surface into
+// `OAuth2Error`.
 //
-// Every public helper is intentionally provider-agnostic. Provider-specific
-// query parameters (Google's `access_type=offline`, `prompt=consent`, etc.)
-// are passed via the `extraParams` escape hatch so callers don't lose
-// fidelity when switching from a hand-rolled implementation.
+// What stays hand-rolled:
+//   - `OAuth2Error` — our tagged error; we want a stable shape across
+//     every token-endpoint call
+//   - `shouldRefreshToken` — skew check, trivial
+//   - `buildAuthorizationUrl` — the library doesn't expose a raw
+//     authorization-URL builder (it prefers PAR); a 30-line manual
+//     construction keeps the call sync and lets callers opt out of PAR
 // ---------------------------------------------------------------------------
 
-import { Data, Effect, ParseResult, Schema } from "effect";
+import { Data, Effect } from "effect";
+import * as oauth from "oauth4webapi";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -57,39 +58,14 @@ export const OAUTH2_REFRESH_SKEW_MS = 60_000;
 export const OAUTH2_DEFAULT_TIMEOUT_MS = 20_000;
 
 // ---------------------------------------------------------------------------
-// PKCE (RFC 7636)
+// PKCE (RFC 7636) — straight delegation to `oauth4webapi`
 // ---------------------------------------------------------------------------
 
-/** Encode a raw byte array as RFC 4648 §5 base64url (no padding). Works
- *  isomorphically — uses `btoa` which is globally available in Node 16+,
- *  workers, and every browser. The `String.fromCharCode(...)` + `btoa`
- *  dance avoids the `Buffer` global (Node-only) so this file stays
- *  browser-safe. */
-const encodeBase64Url = (bytes: Uint8Array): string => {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
-};
+export const createPkceCodeVerifier = (): string =>
+  oauth.generateRandomCodeVerifier();
 
-/** Generate a 48-byte (64-char base64url) PKCE code verifier. Uses Web
- *  Crypto `getRandomValues`, available in every OAuth-relevant runtime. */
-export const createPkceCodeVerifier = (): string => {
-  const bytes = new Uint8Array(48);
-  globalThis.crypto.getRandomValues(bytes);
-  return encodeBase64Url(bytes);
-};
-
-/** Compute the S256 code challenge for a given verifier. Returns a
- *  Promise because Web Crypto's `subtle.digest` is async; browsers, CF
- *  workers, and Node 20+ all expose it on `globalThis.crypto.subtle`. */
-export const createPkceCodeChallenge = async (verifier: string): Promise<string> => {
-  const data = new TextEncoder().encode(verifier);
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", data);
-  return encodeBase64Url(new Uint8Array(digest));
-};
+export const createPkceCodeChallenge = (verifier: string): Promise<string> =>
+  oauth.calculatePKCECodeChallenge(verifier);
 
 // ---------------------------------------------------------------------------
 // Authorization URL builder
@@ -101,21 +77,16 @@ export type BuildAuthorizationUrlInput = {
   readonly redirectUrl: string;
   readonly scopes: readonly string[];
   readonly state: string;
-  /** Pre-computed base64url S256 challenge. Callers derive this via
-   *  `await createPkceCodeChallenge(verifier)`. Taking the challenge as
-   *  input — rather than the verifier — keeps `buildAuthorizationUrl`
-   *  sync (the only async part is the SHA-256 digest). */
+  /** Pre-computed base64url S256 challenge (from `createPkceCodeChallenge`). */
   readonly codeChallenge: string;
   /** Separator between scopes. RFC 6749 says space; some providers use comma. */
   readonly scopeSeparator?: string;
-  /**
-   * Provider-specific extra params (e.g. Google's `access_type=offline`,
-   * `prompt=consent`, `include_granted_scopes=true`). Merged AFTER the
-   * standard params so callers can override if absolutely necessary.
-   */
+  /** Provider-specific extras (e.g. Google's `access_type=offline`). */
   readonly extraParams?: Readonly<Record<string, string>>;
 };
 
+/** Build an RFC 6749 §4.1.1 authorization URL. Sync; pre-computed
+ *  challenge lets this stay out of the Promise world. */
 export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string => {
   const url = new URL(input.authorizationUrl);
   const separator = input.scopeSeparator ?? " ";
@@ -135,195 +106,72 @@ export const buildAuthorizationUrl = (input: BuildAuthorizationUrlInput): string
 };
 
 // ---------------------------------------------------------------------------
-// Token endpoint response parsing
+// Error mapping — `oauth4webapi`'s `process*Response` failure shapes are
+// either a WWW-Authenticate challenge or an RFC 6749 §5.2 error body,
+// both exposed via `.error` / `.error_description`. Probing the envelope
+// preserves RFC 6749 error-code semantics (e.g., mapping `invalid_grant`
+// to reauth-required) across wrappers.
 // ---------------------------------------------------------------------------
 
-const oauth2Error = (
-  message: string,
-  cause?: unknown,
-  error?: string,
-): OAuth2Error => new OAuth2Error({ message, cause, error });
-
-// ---------------------------------------------------------------------------
-// Schemas
-// ---------------------------------------------------------------------------
-
-/**
- * `expires_in` per RFC 6749 is a number of seconds, but some providers
- * (Azure, older OAuth servers) return it as a string. Accept either and
- * coerce to number.
- */
-const TokenExpirySeconds = Schema.transformOrFail(
-  Schema.Union(Schema.Number, Schema.String),
-  Schema.Number,
-  {
-    strict: true,
-    decode: (input, _options, ast) => {
-      if (typeof input === "number") return ParseResult.succeed(input);
-      const parsed = Number(input);
-      return Number.isFinite(parsed)
-        ? ParseResult.succeed(parsed)
-        : ParseResult.fail(
-            new ParseResult.Type(ast, input, `expires_in "${input}" is not a number`),
-          );
-    },
-    encode: (value) => ParseResult.succeed(value),
-  },
-);
-
-const OAuth2TokenSuccessSchema = Schema.Struct({
-  /** RFC 6749 §5.1 requires a non-empty access_token on success. */
-  access_token: Schema.String.pipe(Schema.minLength(1)),
-  token_type: Schema.optional(Schema.String),
-  refresh_token: Schema.optional(Schema.String),
-  expires_in: Schema.optional(TokenExpirySeconds),
-  scope: Schema.optional(Schema.String),
-});
-
-/** RFC 6749 §5.2 error response envelope — all fields optional; we probe them. */
-const OAuth2ErrorEnvelopeSchema = Schema.Struct({
-  error: Schema.optional(Schema.String),
-  error_description: Schema.optional(Schema.String),
-});
-
-const decodeSuccessBody = Schema.decodeUnknown(OAuth2TokenSuccessSchema);
-const decodeErrorBody = Schema.decodeUnknown(OAuth2ErrorEnvelopeSchema);
-
-/**
- * Parse the body of a token endpoint Response as JSON and ensure it's a
- * plain object. Fails with `OAuth2Error` whose message matches the
- * historical wording (`non-JSON response (${status})` /
- * `invalid JSON payload (${status})`) so callers keep their fidelity
- * guarantees.
- */
-const parseJsonObject = (
-  rawText: string,
-  status: number,
-): Effect.Effect<Record<string, unknown>, OAuth2Error> =>
-  Effect.try({
-    try: () => JSON.parse(rawText) as unknown,
-    catch: () => oauth2Error(`OAuth token endpoint returned non-JSON response (${status})`),
-  }).pipe(
-    Effect.flatMap((parsed) =>
-      parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-        ? Effect.succeed(parsed as Record<string, unknown>)
-        : Effect.fail(
-            oauth2Error(`OAuth token endpoint returned invalid JSON payload (${status})`),
-          ),
-    ),
-  );
-
-/**
- * Parse a `Response` from an OAuth 2.0 token endpoint into an
- * `OAuth2TokenResponse`. Failures surface through the Effect failure
- * channel as `OAuth2Error`.
- *
- * Handles, in order, the failure modes we have seen in the wild:
- *   1. Non-JSON bodies (HTML error pages from misconfigured proxies / 5xx)
- *   2. JSON arrays / primitives instead of an object
- *   3. RFC 6749 error responses (`error_description` → `error` → `status N`)
- *   4. 200 responses with empty / missing `access_token`
- *   5. `expires_in` returned as a string instead of a number (Azure et al.)
- */
-export const decodeTokenResponse = (
-  response: Response,
-): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
-  Effect.gen(function* () {
-    const rawText = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: (cause) =>
-        oauth2Error(
-          `Failed to read OAuth token endpoint body: ${cause instanceof Error ? cause.message : String(cause)}`,
-          cause,
-        ),
+const toOAuth2Error = (cause: unknown): OAuth2Error => {
+  if (typeof cause === "object" && cause !== null) {
+    const c = cause as {
+      error?: unknown;
+      error_description?: unknown;
+      message?: unknown;
+    };
+    const code = typeof c.error === "string" ? c.error : undefined;
+    const description =
+      typeof c.error_description === "string"
+        ? c.error_description
+        : typeof c.message === "string"
+          ? c.message
+          : undefined;
+    return new OAuth2Error({
+      message: `OAuth token exchange failed: ${description ?? code ?? "unknown error"}`,
+      error: code,
+      cause,
     });
-
-    const record = yield* parseJsonObject(rawText, response.status);
-
-    if (!response.ok) {
-      // Probe the error envelope. A body that doesn't match the envelope
-      // (e.g. completely empty) is not itself a failure — we just fall
-      // back to `status N`. This mirrors the tolerant behavior of the
-      // prior hand-rolled parser.
-      const envelope = yield* decodeErrorBody(record).pipe(
-        Effect.catchAll(() => Effect.succeed({} as { error?: string; error_description?: string })),
-      );
-      const description =
-        envelope.error_description ?? envelope.error ?? `status ${response.status}`;
-      return yield* Effect.fail(
-        oauth2Error(
-          `OAuth token exchange failed: ${description}`,
-          undefined,
-          envelope.error,
-        ),
-      );
-    }
-
-    return yield* decodeSuccessBody(record).pipe(
-      Effect.mapError(() =>
-        // The only schema constraint that can fail on a 2xx is "access_token
-        // is a non-empty string". Any other shape mismatch (wrong type on an
-        // optional field, malformed expires_in) also surfaces as the same
-        // message — we deliberately fold them together: the user needs an
-        // access token, and they didn't get one.
-        oauth2Error("OAuth token endpoint did not return an access_token"),
-      ),
-    );
+  }
+  return new OAuth2Error({
+    message: `OAuth token exchange failed: ${String(cause)}`,
+    cause,
   });
+};
 
 // ---------------------------------------------------------------------------
-// Token endpoint POST
+// oauth4webapi adapter helpers
 // ---------------------------------------------------------------------------
 
 export type ClientAuthMethod = "body" | "basic";
 
-const buildClientAuthHeaders = (
-  clientId: string,
-  clientSecret: string | null | undefined,
-  method: ClientAuthMethod,
-): Record<string, string> => {
-  if (method !== "basic" || !clientSecret) return {};
-  // `btoa` over UTF-8 bytes — `btoa` itself is Latin-1 only, so we
-  // round-trip through `TextEncoder` to tolerate non-ASCII credentials
-  // (RFC 7617 §2 mandates UTF-8 for HTTP Basic). Still browser-safe.
-  const bytes = new TextEncoder().encode(`${clientId}:${clientSecret}`);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-  const encoded = btoa(binary);
-  return { authorization: `Basic ${encoded}` };
+const asFromTokenUrl = (tokenUrl: string): oauth.AuthorizationServer => {
+  const url = new URL(tokenUrl);
+  return {
+    issuer: `${url.protocol}//${url.host}`,
+    token_endpoint: tokenUrl,
+  };
 };
 
-const applyClientAuthBody = (
-  body: URLSearchParams,
-  clientId: string,
+const pickClientAuth = (
   clientSecret: string | null | undefined,
   method: ClientAuthMethod,
-): void => {
-  if (method === "basic") return;
-  body.set("client_id", clientId);
-  if (clientSecret) body.set("client_secret", clientSecret);
+): oauth.ClientAuth => {
+  if (!clientSecret) return oauth.None();
+  return method === "basic"
+    ? oauth.ClientSecretBasic(clientSecret)
+    : oauth.ClientSecretPost(clientSecret);
 };
 
-const postToTokenEndpoint = (input: {
-  readonly tokenUrl: string;
-  readonly body: URLSearchParams;
-  readonly extraHeaders: Record<string, string>;
-  readonly timeoutMs: number;
-}): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
-  Effect.tryPromise({
-    try: () =>
-      fetch(input.tokenUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          accept: "application/json",
-          ...input.extraHeaders,
-        },
-        body: input.body,
-        signal: AbortSignal.timeout(input.timeoutMs),
-      }),
-    catch: (cause) => oauth2Error(cause instanceof Error ? cause.message : String(cause), cause),
-  }).pipe(Effect.flatMap(decodeTokenResponse));
+const tokenResponseFrom = (
+  r: oauth.TokenEndpointResponse,
+): OAuth2TokenResponse => ({
+  access_token: r.access_token,
+  token_type: r.token_type,
+  refresh_token: r.refresh_token,
+  expires_in: typeof r.expires_in === "number" ? r.expires_in : undefined,
+  scope: r.scope,
+});
 
 // ---------------------------------------------------------------------------
 // Exchange authorization code → tokens
@@ -336,29 +184,48 @@ export type ExchangeAuthorizationCodeInput = {
   readonly redirectUrl: string;
   readonly codeVerifier: string;
   readonly code: string;
-  /** "body" (default) sends client creds in the form body; "basic" uses HTTP Basic. */
   readonly clientAuth?: ClientAuthMethod;
   readonly timeoutMs?: number;
 };
 
 export const exchangeAuthorizationCode = (
   input: ExchangeAuthorizationCodeInput,
-): Effect.Effect<OAuth2TokenResponse, OAuth2Error> => {
-  const clientAuth = input.clientAuth ?? "body";
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    redirect_uri: input.redirectUrl,
-    code_verifier: input.codeVerifier,
-    code: input.code,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const as = asFromTokenUrl(input.tokenUrl);
+      const client: oauth.Client = { client_id: input.clientId };
+      const clientAuth = pickClientAuth(
+        input.clientSecret,
+        input.clientAuth ?? "body",
+      );
+      // `authorizationCodeGrantRequest` requires its `callbackParameters`
+      // to have been returned from `validateAuthResponse`. Our public API
+      // takes the `code` directly (the UI already validated `state` by
+      // looking up the session), so skip the library's state-validation
+      // rail and go through the generic grant request instead.
+      const params = new URLSearchParams({
+        code: input.code,
+        redirect_uri: input.redirectUrl,
+        code_verifier: input.codeVerifier,
+      });
+      const response = await oauth.genericTokenEndpointRequest(
+        as,
+        client,
+        clientAuth,
+        "authorization_code",
+        params,
+        { signal: AbortSignal.timeout(input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS) },
+      );
+      const result = await oauth.processGenericTokenEndpointResponse(
+        as,
+        client,
+        response,
+      );
+      return tokenResponseFrom(result);
+    },
+    catch: toOAuth2Error,
   });
-  applyClientAuthBody(body, input.clientId, input.clientSecret, clientAuth);
-  return postToTokenEndpoint({
-    tokenUrl: input.tokenUrl,
-    body,
-    extraHeaders: buildClientAuthHeaders(input.clientId, input.clientSecret, clientAuth),
-    timeoutMs: input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS,
-  });
-};
 
 // ---------------------------------------------------------------------------
 // Exchange client credentials → tokens (RFC 6749 §4.4)
@@ -370,27 +237,41 @@ export type ExchangeClientCredentialsInput = {
   readonly clientSecret: string;
   readonly scopes?: readonly string[];
   readonly scopeSeparator?: string;
-  /** "body" (default) sends client creds in the form body; "basic" uses HTTP Basic. */
   readonly clientAuth?: ClientAuthMethod;
   readonly timeoutMs?: number;
 };
 
 export const exchangeClientCredentials = (
   input: ExchangeClientCredentialsInput,
-): Effect.Effect<OAuth2TokenResponse, OAuth2Error> => {
-  const clientAuth = input.clientAuth ?? "body";
-  const body = new URLSearchParams({ grant_type: "client_credentials" });
-  if (input.scopes && input.scopes.length > 0) {
-    body.set("scope", input.scopes.join(input.scopeSeparator ?? " "));
-  }
-  applyClientAuthBody(body, input.clientId, input.clientSecret, clientAuth);
-  return postToTokenEndpoint({
-    tokenUrl: input.tokenUrl,
-    body,
-    extraHeaders: buildClientAuthHeaders(input.clientId, input.clientSecret, clientAuth),
-    timeoutMs: input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const as = asFromTokenUrl(input.tokenUrl);
+      const client: oauth.Client = { client_id: input.clientId };
+      const clientAuth = pickClientAuth(
+        input.clientSecret,
+        input.clientAuth ?? "body",
+      );
+      const params = new URLSearchParams();
+      if (input.scopes && input.scopes.length > 0) {
+        params.set("scope", input.scopes.join(input.scopeSeparator ?? " "));
+      }
+      const response = await oauth.clientCredentialsGrantRequest(
+        as,
+        client,
+        clientAuth,
+        params,
+        { signal: AbortSignal.timeout(input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS) },
+      );
+      const result = await oauth.processClientCredentialsResponse(
+        as,
+        client,
+        response,
+      );
+      return tokenResponseFrom(result);
+    },
+    catch: toOAuth2Error,
   });
-};
 
 // ---------------------------------------------------------------------------
 // Refresh access token
@@ -409,34 +290,45 @@ export type RefreshAccessTokenInput = {
 
 export const refreshAccessToken = (
   input: RefreshAccessTokenInput,
-): Effect.Effect<OAuth2TokenResponse, OAuth2Error> => {
-  const clientAuth = input.clientAuth ?? "body";
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: input.refreshToken,
+): Effect.Effect<OAuth2TokenResponse, OAuth2Error> =>
+  Effect.tryPromise({
+    try: async () => {
+      const as = asFromTokenUrl(input.tokenUrl);
+      const client: oauth.Client = { client_id: input.clientId };
+      const clientAuth = pickClientAuth(
+        input.clientSecret,
+        input.clientAuth ?? "body",
+      );
+      const additionalParameters =
+        input.scopes && input.scopes.length > 0
+          ? new URLSearchParams({
+              scope: input.scopes.join(input.scopeSeparator ?? " "),
+            })
+          : undefined;
+      const response = await oauth.refreshTokenGrantRequest(
+        as,
+        client,
+        clientAuth,
+        input.refreshToken,
+        {
+          signal: AbortSignal.timeout(input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS),
+          additionalParameters,
+        },
+      );
+      const result = await oauth.processRefreshTokenResponse(
+        as,
+        client,
+        response,
+      );
+      return tokenResponseFrom(result);
+    },
+    catch: toOAuth2Error,
   });
-  applyClientAuthBody(body, input.clientId, input.clientSecret, clientAuth);
-  if (input.scopes && input.scopes.length > 0) {
-    body.set("scope", input.scopes.join(input.scopeSeparator ?? " "));
-  }
-  return postToTokenEndpoint({
-    tokenUrl: input.tokenUrl,
-    body,
-    extraHeaders: buildClientAuthHeaders(input.clientId, input.clientSecret, clientAuth),
-    timeoutMs: input.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS,
-  });
-};
 
 // ---------------------------------------------------------------------------
 // Refresh-needed predicate
 // ---------------------------------------------------------------------------
 
-/**
- * Returns true iff the current time is within `OAUTH2_REFRESH_SKEW_MS` of
- * `expiresAt`. A null `expiresAt` (server didn't return `expires_in`) means
- * we cannot proactively refresh — callers should fall back to reactive
- * refresh on 401 responses.
- */
 export const shouldRefreshToken = (input: {
   readonly expiresAt: number | null;
   readonly now?: number;
@@ -447,4 +339,3 @@ export const shouldRefreshToken = (input: {
   const skew = input.skewMs ?? OAUTH2_REFRESH_SKEW_MS;
   return input.expiresAt <= now + skew;
 };
-

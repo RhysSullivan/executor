@@ -1,35 +1,25 @@
 // ---------------------------------------------------------------------------
-// @executor/plugin-oauth2/discovery — OAuth 2.0 metadata discovery + DCR.
+// OAuth 2.0 metadata discovery + DCR.
 //
-// The helpers in `./index.ts` assume the caller already knows the
-// authorization endpoint, token endpoint, and client_id — that's fine for
-// static integrations (Google, a specific OpenAPI server). The zero-config
-// case — user pastes an arbitrary endpoint URL and we figure out its
-// OAuth configuration — needs three more building blocks from the OAuth
-// 2.1 / MCP authorization spec:
+// The token-endpoint helpers in `./oauth-helpers.ts` assume the caller
+// already knows the authorization/token URLs and client_id — that's
+// fine for static integrations (Google, a specific OpenAPI server).
+// The zero-config case — user pastes an arbitrary endpoint URL and we
+// figure out its OAuth configuration — needs three more building blocks:
 //
-//   - RFC 9728 Protected Resource Metadata  (`.well-known/oauth-protected-resource`)
-//     Tells us which authorization servers guard a given resource URL.
-//
-//   - RFC 8414 Authorization Server Metadata (`.well-known/oauth-authorization-server`)
-//     Exposes the AS's endpoints (authorize, token, registration), supported
-//     grant types, PKCE methods, scopes, etc. OIDC discovery
-//     (`.well-known/openid-configuration`) is probed as a fallback for
-//     servers that only publish the OIDC variant.
-//
+//   - RFC 9728 Protected Resource Metadata (/.well-known/oauth-protected-resource)
+//   - RFC 8414 Authorization Server Metadata (/.well-known/oauth-authorization-server,
+//     with OIDC /.well-known/openid-configuration as fallback)
 //   - RFC 7591 Dynamic Client Registration (POST `registration_endpoint`)
-//     Mints a `client_id` (+ optional `client_secret`) for a public or
-//     confidential client — lets a zero-config client go from "just a URL"
-//     to "has credentials ready for an authorization code request."
 //
-// Those three plus the existing PKCE + token-endpoint helpers are enough
-// to run the full dynamic flow that the MCP spec requires and that
-// OAuth-protected APIs like Railway's backboard advertise. A convenience
-// `beginDynamicAuthorization` chains them into the single call callers
-// actually need.
+// `oauth4webapi` covers (2) and (3); (1) is MCP-spec-only and not yet in
+// the library, so we keep a 30-line hand-rolled probe. A convenience
+// `beginDynamicAuthorization` chains all three into the single call
+// callers actually need.
 // ---------------------------------------------------------------------------
 
 import { Data, Effect, ParseResult, Schema } from "effect";
+import * as oauth from "oauth4webapi";
 
 import {
   OAUTH2_DEFAULT_TIMEOUT_MS,
@@ -42,13 +32,11 @@ import {
 // Errors
 // ---------------------------------------------------------------------------
 
-/**
- * Separate tag from `OAuth2Error` so callers can distinguish discovery /
- * DCR failures (happen once, before any token round-trips) from
- * token-endpoint failures. Keeping them split means a plugin's refresh
- * path doesn't have to inspect error messages to tell "metadata drifted,
- * re-discover" apart from "refresh token is no longer honoured".
- */
+/** Separate tag from `OAuth2Error` so callers can distinguish discovery
+ *  / DCR failures (happen once, before any token round-trips) from
+ *  token-endpoint failures. A plugin's refresh path should never have
+ *  to inspect error messages to tell "metadata drifted, re-discover"
+ *  apart from "refresh token is no longer honoured". */
 export class OAuthDiscoveryError extends Data.TaggedError(
   "OAuthDiscoveryError",
 )<{
@@ -68,17 +56,12 @@ const discoveryError = (
   });
 
 // ---------------------------------------------------------------------------
-// Schemas (narrow structural parsing — the standards leave many fields
-// optional and we only validate the subset the plugins read)
+// Schemas (narrow structural parsing — the RFCs leave many fields
+// optional; we validate only the subset consumers read)
 // ---------------------------------------------------------------------------
 
 const StringArray = Schema.Array(Schema.String);
 
-/**
- * RFC 9728 §3.3 Protected Resource Metadata. `authorization_servers` is
- * the only field callers need to continue discovery; the rest surface
- * for logging / future use.
- */
 export const OAuthProtectedResourceMetadataSchema = Schema.Struct({
   resource: Schema.optional(Schema.String),
   authorization_servers: Schema.optional(StringArray),
@@ -89,11 +72,6 @@ export const OAuthProtectedResourceMetadataSchema = Schema.Struct({
 export type OAuthProtectedResourceMetadata =
   typeof OAuthProtectedResourceMetadataSchema.Type;
 
-/**
- * RFC 8414 §2 Authorization Server Metadata. `issuer`, `authorization_endpoint`,
- * and `token_endpoint` are the only fields strictly required to run the
- * authorization code flow; DCR adds `registration_endpoint`.
- */
 export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
   issuer: Schema.String,
   authorization_endpoint: Schema.String,
@@ -111,7 +89,6 @@ export const OAuthAuthorizationServerMetadataSchema = Schema.Struct({
 export type OAuthAuthorizationServerMetadata =
   typeof OAuthAuthorizationServerMetadataSchema.Type;
 
-/** RFC 7591 client metadata request body (subset we send). */
 export type DynamicClientMetadata = {
   readonly client_name?: string;
   readonly redirect_uris: readonly string[];
@@ -129,20 +106,10 @@ export type DynamicClientMetadata = {
   readonly contacts?: readonly string[];
   readonly software_id?: string;
   readonly software_version?: string;
-  /**
-   * Escape hatch for provider-specific extensions. Values are merged
-   * into the request body last, so callers can override any standard
-   * field if needed.
-   */
+  /** Escape hatch for provider-specific extensions; merged last. */
   readonly extra?: Readonly<Record<string, unknown>>;
 };
 
-/**
- * RFC 7591 §3.2.1 client information response. `client_id` is the only
- * field we require at the schema level; the rest are echoed back for
- * persistence so the provider's refresh path can reuse them without a
- * second discovery round trip.
- */
 export const OAuthClientInformationSchema = Schema.Struct({
   client_id: Schema.String,
   client_secret: Schema.optional(Schema.String),
@@ -169,92 +136,44 @@ const decodeClientInformation = Schema.decodeUnknown(
   OAuthClientInformationSchema,
 );
 
-// ---------------------------------------------------------------------------
-// HTTP plumbing
-// ---------------------------------------------------------------------------
-
-const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
-
 export interface DiscoveryRequestOptions {
   /** Injected for tests. Defaults to the global `fetch`. */
   readonly fetch?: typeof fetch;
   /** Abort the request after this many ms. Default 20000. */
   readonly timeoutMs?: number;
-  /**
-   * Send `MCP-Protocol-Version: <value>` on every request. Harmless for
-   * non-MCP servers; required by the MCP authorization spec. Defaults to
-   * undefined (header omitted).
-   */
+  /** Send `MCP-Protocol-Version: <value>` on every request. Harmless
+   *  for non-MCP servers; required by the MCP authorization spec. */
   readonly mcpProtocolVersion?: string;
 }
 
-const normaliseFetch = (options: DiscoveryRequestOptions): typeof fetch =>
-  options.fetch ?? globalThis.fetch;
+const MCP_PROTOCOL_VERSION_HEADER = "mcp-protocol-version";
 
-const fetchJson = (
-  url: string,
+const oauth4webapiOptions = (
   options: DiscoveryRequestOptions,
-): Effect.Effect<
-  { status: number; body: unknown | null },
-  OAuthDiscoveryError
-> =>
-  Effect.tryPromise({
-    try: async () => {
-      const fetchImpl = normaliseFetch(options);
-      const timeoutMs = options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS;
-      const headers: Record<string, string> = { accept: "application/json" };
-      if (options.mcpProtocolVersion) {
-        headers[MCP_PROTOCOL_VERSION_HEADER] = options.mcpProtocolVersion;
-      }
-      const response = await fetchImpl(url, {
-        method: "GET",
-        headers,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      // The well-known paths can 404 on servers that don't publish them —
-      // callers downgrade to a fallback or return `null`, so we surface
-      // status + body rather than throwing for non-2xx. A truly
-      // unreadable body (wire-level JSON parse fail) still fails the
-      // Effect, so callers don't silently treat garbage as "no metadata".
-      if (response.status === 404 || response.status === 405) {
-        return { status: response.status, body: null };
-      }
-      const text = await response.text();
-      if (text.length === 0) {
-        return { status: response.status, body: null };
-      }
-      try {
-        return { status: response.status, body: JSON.parse(text) };
-      } catch (cause) {
-        throw new OAuthDiscoveryError({
-          message: `Non-JSON response from ${url} (status ${response.status})`,
-          status: response.status,
-          cause,
-        });
-      }
-    },
-    catch: (cause) =>
-      cause instanceof OAuthDiscoveryError
-        ? cause
-        : discoveryError(
-            `Failed to fetch ${url}: ${
-              cause instanceof Error ? cause.message : String(cause)
-            }`,
-            { cause },
-          ),
-  });
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  if (options.fetch) (out as { [customFetch]?: typeof fetch })[customFetch] = options.fetch;
+  const signal = AbortSignal.timeout(options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS);
+  out.signal = signal;
+  if (options.mcpProtocolVersion) {
+    out.headers = new Headers({
+      [MCP_PROTOCOL_VERSION_HEADER]: options.mcpProtocolVersion,
+    });
+  }
+  return out;
+};
+
+// oauth4webapi's custom-fetch symbol — imported lazily so dropping the
+// library (unlikely but fine) doesn't leave a dangling symbol reference.
+const customFetch = Symbol.for("oauth4webapi.customFetch");
 
 // ---------------------------------------------------------------------------
 // RFC 9728 — Protected Resource Metadata
+//
+// Not covered by `oauth4webapi`. Hand-rolled probe: try the path-scoped
+// well-known first, then the origin-scoped fallback.
 // ---------------------------------------------------------------------------
 
-/**
- * Build the well-known metadata URL for a protected resource. Per RFC
- * 9728 §3.1 the document lives at `/.well-known/oauth-protected-resource`
- * on the resource's origin. Path-scoped resources (e.g.
- * `https://api.example.com/v2/graphql`) get the path appended after the
- * well-known segment so they can publish per-resource metadata.
- */
 const buildResourceMetadataUrls = (resourceUrl: string): string[] => {
   const url = new URL(resourceUrl);
   const origin = `${url.protocol}//${url.host}`;
@@ -267,11 +186,6 @@ const buildResourceMetadataUrls = (resourceUrl: string): string[] => {
   return urls;
 };
 
-/**
- * Fetch RFC 9728 Protected Resource Metadata for the given resource URL.
- * Returns `null` when no metadata is published (every probed well-known
- * URL 404s). Fails only on transport / JSON / schema errors.
- */
 export const discoverProtectedResourceMetadata = (
   resourceUrl: string,
   options: DiscoveryRequestOptions = {},
@@ -281,19 +195,44 @@ export const discoverProtectedResourceMetadata = (
   OAuthDiscoveryError
 > =>
   Effect.gen(function* () {
-    const urls = buildResourceMetadataUrls(resourceUrl);
-    for (const url of urls) {
-      const response = yield* fetchJson(url, options);
-      if (response.status === 404 || response.body === null) continue;
-      if (response.status < 200 || response.status >= 300) {
+    const fetchImpl = options.fetch ?? globalThis.fetch;
+    const timeoutMs = options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS;
+    for (const url of buildResourceMetadataUrls(resourceUrl)) {
+      const result = yield* Effect.tryPromise({
+        try: async () => {
+          const headers: Record<string, string> = { accept: "application/json" };
+          if (options.mcpProtocolVersion) {
+            headers[MCP_PROTOCOL_VERSION_HEADER] = options.mcpProtocolVersion;
+          }
+          const response = await fetchImpl(url, {
+            method: "GET",
+            headers,
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (response.status === 404 || response.status === 405) return "skip" as const;
+          if (response.status < 200 || response.status >= 300) {
+            return { status: response.status } as const;
+          }
+          const text = await response.text();
+          if (text.length === 0) return "skip" as const;
+          return { status: response.status, body: JSON.parse(text) } as const;
+        },
+        catch: (cause) =>
+          discoveryError(
+            `Failed to fetch ${url}: ${cause instanceof Error ? cause.message : String(cause)}`,
+            { cause },
+          ),
+      });
+      if (result === "skip") continue;
+      if (!("body" in result)) {
         return yield* Effect.fail(
           discoveryError(
-            `Protected resource metadata returned status ${response.status}`,
-            { status: response.status },
+            `Protected resource metadata returned status ${result.status}`,
+            { status: result.status },
           ),
         );
       }
-      const metadata = yield* decodeResourceMetadata(response.body).pipe(
+      const metadata = yield* decodeResourceMetadata(result.body).pipe(
         Effect.mapError(
           (err) =>
             new OAuthDiscoveryError({
@@ -310,36 +249,28 @@ export const discoverProtectedResourceMetadata = (
   });
 
 // ---------------------------------------------------------------------------
-// RFC 8414 — Authorization Server Metadata
+// RFC 8414 + OIDC Discovery — Authorization Server Metadata
+//
+// Delegates to `oauth4webapi.discoveryRequest` + `processDiscoveryResponse`.
+// The library only probes one `.well-known` variant per call; we try
+// RFC 8414 (`oauth2`) first and fall back to OIDC Discovery.
 // ---------------------------------------------------------------------------
 
-/**
- * Build the candidate metadata URLs for an authorization server. RFC
- * 8414 §3.1 mandates `/.well-known/oauth-authorization-server`; OIDC
- * Discovery publishes `/.well-known/openid-configuration` — some servers
- * publish only the latter, so we probe both.
- */
-const buildAuthServerMetadataUrls = (issuer: string): string[] => {
-  const url = new URL(issuer);
-  const origin = `${url.protocol}//${url.host}`;
-  const path = url.pathname.replace(/\/+$/, "");
-  const urls = new Set<string>();
-  if (path && path !== "/") {
-    urls.add(`${origin}/.well-known/oauth-authorization-server${path}`);
-    urls.add(`${origin}${path}/.well-known/oauth-authorization-server`);
-    urls.add(`${origin}/.well-known/openid-configuration${path}`);
-    urls.add(`${origin}${path}/.well-known/openid-configuration`);
-  }
-  urls.add(`${origin}/.well-known/oauth-authorization-server`);
-  urls.add(`${origin}/.well-known/openid-configuration`);
-  return [...urls];
+const wellKnownUrlFor = (
+  issuerOrigin: string,
+  algorithm: "oauth2" | "oidc",
+  issuerPath: string,
+): string => {
+  // Mirrors the library's own well-known composition so the URL we
+  // surface matches what was actually fetched.
+  const suffix = algorithm === "oauth2"
+    ? "oauth-authorization-server"
+    : "openid-configuration";
+  return issuerPath && issuerPath !== "/"
+    ? `${issuerOrigin}/.well-known/${suffix}${issuerPath}`
+    : `${issuerOrigin}/.well-known/${suffix}`;
 };
 
-/**
- * Fetch RFC 8414 Authorization Server Metadata for the given issuer URL.
- * Falls back to OIDC Discovery if the RFC 8414 well-known 404s. Returns
- * `null` when neither document is published.
- */
 export const discoverAuthorizationServerMetadata = (
   issuer: string,
   options: DiscoveryRequestOptions = {},
@@ -352,19 +283,45 @@ export const discoverAuthorizationServerMetadata = (
   OAuthDiscoveryError
 > =>
   Effect.gen(function* () {
-    const urls = buildAuthServerMetadataUrls(issuer);
-    for (const url of urls) {
-      const response = yield* fetchJson(url, options);
-      if (response.status === 404 || response.body === null) continue;
-      if (response.status < 200 || response.status >= 300) {
-        return yield* Effect.fail(
-          discoveryError(
-            `Authorization server metadata returned status ${response.status}`,
-            { status: response.status },
-          ),
-        );
-      }
-      const metadata = yield* decodeAuthServerMetadata(response.body).pipe(
+    const issuerUrl = new URL(issuer);
+    const issuerOrigin = `${issuerUrl.protocol}//${issuerUrl.host}`;
+    const issuerPath = issuerUrl.pathname.replace(/\/+$/, "");
+
+    for (const algorithm of ["oauth2", "oidc"] as const) {
+      const result = yield* Effect.tryPromise({
+        try: async () => {
+          const response = await oauth.discoveryRequest(issuerUrl, {
+            algorithm,
+            ...oauth4webapiOptions(options),
+          });
+          if (response.status === 404 || response.status === 405) {
+            return null;
+          }
+          const as = await oauth.processDiscoveryResponse(issuerUrl, response);
+          return {
+            metadataUrl: wellKnownUrlFor(issuerOrigin, algorithm, issuerPath),
+            raw: as,
+          };
+        },
+        catch: (cause) => {
+          if (cause instanceof OAuthDiscoveryError) return cause;
+          return discoveryError(
+            `Discovery (${algorithm}) failed for ${issuer}: ${
+              cause instanceof Error ? cause.message : String(cause)
+            }`,
+            { cause },
+          );
+        },
+      }).pipe(
+        // If one algorithm fails mid-roundtrip (network, parse, issuer
+        // mismatch) we still want to try the other before giving up.
+        Effect.either,
+      );
+
+      if (result._tag === "Left") continue;
+      if (result.right === null) continue;
+
+      const metadata = yield* decodeAuthServerMetadata(result.right.raw).pipe(
         Effect.mapError(
           (err) =>
             new OAuthDiscoveryError({
@@ -375,13 +332,16 @@ export const discoverAuthorizationServerMetadata = (
             }),
         ),
       );
-      return { metadataUrl: url, metadata };
+      return { metadataUrl: result.right.metadataUrl, metadata };
     }
     return null;
   });
 
 // ---------------------------------------------------------------------------
 // RFC 7591 — Dynamic Client Registration
+//
+// Delegates to `oauth4webapi.dynamicClientRegistrationRequest` +
+// `processDynamicClientRegistrationResponse`.
 // ---------------------------------------------------------------------------
 
 export interface RegisterDynamicClientInput {
@@ -390,108 +350,91 @@ export interface RegisterDynamicClientInput {
   readonly initialAccessToken?: string | null;
 }
 
-/**
- * POST to the authorization server's `registration_endpoint` with RFC
- * 7591 client metadata, returning the freshly issued client information.
- * Plugins should persist the full response so the refresh path can reuse
- * `client_id` (and `client_secret`, if the AS issued one) without
- * re-registering.
- */
+const asForDcr = (
+  registrationEndpoint: string,
+): oauth.AuthorizationServer => {
+  const url = new URL(registrationEndpoint);
+  return {
+    issuer: `${url.protocol}//${url.host}`,
+    registration_endpoint: registrationEndpoint,
+  };
+};
+
 export const registerDynamicClient = (
   input: RegisterDynamicClientInput,
   options: DiscoveryRequestOptions = {},
 ): Effect.Effect<OAuthClientInformation, OAuthDiscoveryError> =>
-  Effect.gen(function* () {
-    const response = yield* Effect.tryPromise({
-      try: async () => {
-        const fetchImpl = normaliseFetch(options);
-        const timeoutMs = options.timeoutMs ?? OAUTH2_DEFAULT_TIMEOUT_MS;
-        const body: Record<string, unknown> = {
-          redirect_uris: input.metadata.redirect_uris,
-        };
-        const m = input.metadata;
-        if (m.client_name !== undefined) body.client_name = m.client_name;
-        if (m.grant_types !== undefined) body.grant_types = m.grant_types;
-        if (m.response_types !== undefined) body.response_types = m.response_types;
-        if (m.token_endpoint_auth_method !== undefined) {
-          body.token_endpoint_auth_method = m.token_endpoint_auth_method;
-        }
-        if (m.scope !== undefined) body.scope = m.scope;
-        if (m.application_type !== undefined) body.application_type = m.application_type;
-        if (m.client_uri !== undefined) body.client_uri = m.client_uri;
-        if (m.logo_uri !== undefined) body.logo_uri = m.logo_uri;
-        if (m.contacts !== undefined) body.contacts = m.contacts;
-        if (m.software_id !== undefined) body.software_id = m.software_id;
-        if (m.software_version !== undefined) body.software_version = m.software_version;
-        if (m.extra) {
-          for (const [k, v] of Object.entries(m.extra)) body[k] = v;
-        }
-        const headers: Record<string, string> = {
-          "content-type": "application/json",
-          accept: "application/json",
-        };
-        if (input.initialAccessToken) {
-          headers.authorization = `Bearer ${input.initialAccessToken}`;
-        }
-        if (options.mcpProtocolVersion) {
-          headers[MCP_PROTOCOL_VERSION_HEADER] = options.mcpProtocolVersion;
-        }
-        return fetchImpl(input.registrationEndpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-      },
-      catch: (cause) =>
-        discoveryError(
-          `Failed to POST registration: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
-          { cause },
-        ),
-    });
+  Effect.tryPromise({
+    try: async () => {
+      const as = asForDcr(input.registrationEndpoint);
+      const m = input.metadata;
+      const clientMetadata: Record<string, unknown> = {
+        redirect_uris: [...m.redirect_uris],
+      };
+      if (m.client_name !== undefined) clientMetadata.client_name = m.client_name;
+      if (m.grant_types !== undefined) clientMetadata.grant_types = [...m.grant_types];
+      if (m.response_types !== undefined) clientMetadata.response_types = [...m.response_types];
+      if (m.token_endpoint_auth_method !== undefined) {
+        clientMetadata.token_endpoint_auth_method = m.token_endpoint_auth_method;
+      }
+      if (m.scope !== undefined) clientMetadata.scope = m.scope;
+      if (m.application_type !== undefined) clientMetadata.application_type = m.application_type;
+      if (m.client_uri !== undefined) clientMetadata.client_uri = m.client_uri;
+      if (m.logo_uri !== undefined) clientMetadata.logo_uri = m.logo_uri;
+      if (m.contacts !== undefined) clientMetadata.contacts = [...m.contacts];
+      if (m.software_id !== undefined) clientMetadata.software_id = m.software_id;
+      if (m.software_version !== undefined) clientMetadata.software_version = m.software_version;
+      if (m.extra) for (const [k, v] of Object.entries(m.extra)) clientMetadata[k] = v;
 
-    const text = yield* Effect.tryPromise({
-      try: () => response.text(),
-      catch: (cause) =>
-        discoveryError(
-          `Failed to read registration response: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
-          { cause },
-        ),
-    });
+      const reqOptions: Record<string, unknown> = oauth4webapiOptions(options);
+      if (input.initialAccessToken) {
+        reqOptions.initialAccessToken = input.initialAccessToken;
+      }
 
-    if (!response.ok) {
-      return yield* Effect.fail(
-        discoveryError(
-          `Dynamic Client Registration failed (status ${response.status}): ${text || "<empty body>"}`,
-          { status: response.status },
-        ),
+      const response = await oauth.dynamicClientRegistrationRequest(
+        as,
+        clientMetadata as Partial<oauth.Client>,
+        reqOptions,
       );
-    }
-
-    const parsed = yield* Effect.try({
-      try: () => JSON.parse(text) as unknown,
-      catch: (cause) =>
-        discoveryError("Dynamic Client Registration response is not JSON", {
-          cause,
-        }),
-    });
-
-    return yield* decodeClientInformation(parsed).pipe(
-      Effect.mapError(
-        (err) =>
-          new OAuthDiscoveryError({
-            message: `Dynamic Client Registration response is malformed: ${
-              err instanceof ParseResult.ParseError ? err.message : String(err)
-            }`,
-            cause: err,
-          }),
+      const client = await oauth.processDynamicClientRegistrationResponse(
+        response,
+      );
+      return client as OAuthClientInformation;
+    },
+    catch: (cause) => {
+      // `oauth4webapi` throws `ResponseBodyError` for RFC 6749 error
+      // envelopes (carrying `.status`, `.error`, `.error_description`).
+      // Preserve the HTTP status + error code so the plugin layer can
+      // surface specific failures (`invalid_client_metadata` →
+      // `client_metadata is wrong`) without regex-ing the message.
+      if (cause instanceof oauth.ResponseBodyError) {
+        return discoveryError(
+          `Dynamic Client Registration failed: ${cause.error}${
+            cause.error_description ? ` — ${cause.error_description}` : ""
+          }`,
+          { status: cause.status, cause },
+        );
+      }
+      return discoveryError(
+        `Dynamic Client Registration failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
+      );
+    },
+  }).pipe(
+    Effect.flatMap((raw) =>
+      decodeClientInformation(raw).pipe(
+        Effect.mapError(
+          (err) =>
+            new OAuthDiscoveryError({
+              message: `Dynamic Client Registration response is malformed: ${
+                err instanceof ParseResult.ParseError ? err.message : String(err)
+              }`,
+              cause: err,
+            }),
+        ),
       ),
-    );
-  });
+    ),
+  );
 
 // ---------------------------------------------------------------------------
 // Convenience: begin the full dynamic flow in one call
@@ -513,28 +456,19 @@ export interface DynamicAuthorizationStartResult {
 }
 
 export interface BeginDynamicAuthorizationInput {
-  /** The resource URL the caller wants to access (the one the user
-   *  pasted into the onboarding UI). */
   readonly endpoint: string;
-  /** OAuth redirect URL the authorization code will return to. */
   readonly redirectUrl: string;
-  /** Value of the RFC 6749 `state` parameter. Callers typically pass a
-   *  per-session random id. */
+  /** RFC 6749 `state` — callers typically pass a per-session random id. */
   readonly state: string;
-  /** Client metadata to pass to DCR. `redirect_uris` defaults to
-   *  `[redirectUrl]`; `token_endpoint_auth_method` defaults to `"none"`
+  /** Defaults: `redirect_uris=[redirectUrl]`, `token_endpoint_auth_method="none"`
    *  (public client + PKCE). */
   readonly clientMetadata?: Partial<DynamicClientMetadata>;
-  /** Scopes to request. Defaults to whatever the AS advertises in
-   *  `scopes_supported`; if that's also empty we omit the scope param. */
+  /** Scopes to request. Defaults to `scopes_supported`; omitted if
+   *  neither is set. */
   readonly scopes?: readonly string[];
-  /**
-   * Pre-existing discovery + DCR state from a previous flow. When
-   * provided, we skip both steps and reuse the stored endpoints + client
-   * information. Plugins use this for multi-user flows: the first user
-   * to sign in pays the discovery + DCR cost, subsequent users reuse the
-   * persisted state.
-   */
+  /** Pre-existing state from a previous flow. When provided, the
+   *  matching discovery / DCR step is skipped so multi-user sign-ins
+   *  against the same source don't re-pay those costs. */
   readonly previousState?: {
     readonly authorizationServerUrl?: string | null;
     readonly authorizationServerMetadata?: OAuthAuthorizationServerMetadata | null;
@@ -545,19 +479,6 @@ export interface BeginDynamicAuthorizationInput {
   };
 }
 
-/**
- * Walk the full RFC 9728 → RFC 8414 → RFC 7591 → PKCE chain for a
- * resource URL and produce an authorization URL ready to send to the
- * user's browser. Each step is skipped when the caller already has its
- * output (`previousState`), which keeps the second user's first sign-in
- * from redoing DCR or metadata fetches.
- *
- * Failures surface as `OAuthDiscoveryError`. The only shape-level guard
- * this helper enforces (beyond individual fetches succeeding) is "the
- * AS must support `response_types=code` and `code_challenge_methods=S256`" —
- * if the metadata advertises anything else we surface it loudly rather
- * than silently producing a URL the AS will reject.
- */
 export const beginDynamicAuthorization = (
   input: BeginDynamicAuthorizationInput,
   options: DiscoveryRequestOptions = {},
@@ -565,17 +486,14 @@ export const beginDynamicAuthorization = (
   Effect.gen(function* () {
     const prior = input.previousState ?? {};
 
-    // The only output of Step 1 we actually consume downstream is the
-    // authorization server URL. When the caller already has that (either
-    // stored explicitly, or implicit via `authorizationServerMetadata`),
-    // skip the well-known probe entirely — it's two round-trips per
-    // sign-in that the second-and-later user would otherwise pay.
+    // Skip the resource-metadata probe when we already know (or can
+    // derive) the authorization server URL. Saves two round-trips for
+    // every second-and-later user signing into the same source.
     const canSkipResourceDiscovery =
       prior.resourceMetadata !== undefined ||
       !!prior.authorizationServerUrl ||
       !!prior.authorizationServerMetadata;
 
-    // Step 1 — protected resource metadata
     const resource = canSkipResourceDiscovery
       ? prior.resourceMetadata
         ? {
@@ -585,22 +503,17 @@ export const beginDynamicAuthorization = (
         : null
       : yield* discoverProtectedResourceMetadata(input.endpoint, options);
 
-    // Step 2 — authorization server metadata
     const authorizationServerUrl = (() => {
       if (prior.authorizationServerUrl) return prior.authorizationServerUrl;
       const fromResource =
         resource && resource.metadata.authorization_servers?.[0];
       if (fromResource) return fromResource;
-      // Fallback: treat the resource URL's origin as the issuer. This
-      // is the "self-issuing" deployment pattern — the resource host
-      // also publishes the AS metadata document at its own root.
       const u = new URL(input.endpoint);
       return `${u.protocol}//${u.host}`;
     })();
 
     const authServer =
-      prior.authorizationServerMetadata &&
-      prior.authorizationServerMetadataUrl
+      prior.authorizationServerMetadata && prior.authorizationServerMetadataUrl
         ? {
             metadata: prior.authorizationServerMetadata,
             metadataUrl: prior.authorizationServerMetadataUrl,
@@ -618,8 +531,7 @@ export const beginDynamicAuthorization = (
       );
     }
 
-    const pkceMethods =
-      authServer.metadata.code_challenge_methods_supported ?? [];
+    const pkceMethods = authServer.metadata.code_challenge_methods_supported ?? [];
     if (pkceMethods.length > 0 && !pkceMethods.includes("S256")) {
       return yield* Effect.fail(
         discoveryError(
@@ -637,7 +549,6 @@ export const beginDynamicAuthorization = (
       );
     }
 
-    // Step 3 — Dynamic Client Registration (if needed)
     const baseClientMetadata: DynamicClientMetadata = {
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
@@ -647,28 +558,28 @@ export const beginDynamicAuthorization = (
       redirect_uris: input.clientMetadata?.redirect_uris ?? [input.redirectUrl],
     };
 
-    const clientInformation = prior.clientInformation ?? (yield* (() => {
-      const reg = authServer.metadata.registration_endpoint;
-      if (!reg) {
-        return Effect.fail(
-          discoveryError(
-            "Authorization server does not advertise registration_endpoint — cannot auto-register a client",
-          ),
+    const clientInformation =
+      prior.clientInformation ??
+      (yield* (() => {
+        const reg = authServer.metadata.registration_endpoint;
+        if (!reg) {
+          return Effect.fail(
+            discoveryError(
+              "Authorization server does not advertise registration_endpoint — cannot auto-register a client",
+            ),
+          );
+        }
+        return registerDynamicClient(
+          { registrationEndpoint: reg, metadata: baseClientMetadata },
+          options,
         );
-      }
-      return registerDynamicClient(
-        { registrationEndpoint: reg, metadata: baseClientMetadata },
-        options,
-      );
-    })());
+      })());
 
-    // Step 4 — PKCE + authorization URL
     const codeVerifier = createPkceCodeVerifier();
     const codeChallenge = yield* Effect.promise(() =>
       createPkceCodeChallenge(codeVerifier),
     );
-    const scopes =
-      input.scopes ?? authServer.metadata.scopes_supported ?? [];
+    const scopes = input.scopes ?? authServer.metadata.scopes_supported ?? [];
 
     const authorizationUrl = buildAuthorizationUrl({
       authorizationUrl: authServer.metadata.authorization_endpoint,
@@ -693,6 +604,4 @@ export const beginDynamicAuthorization = (
     };
   });
 
-// Re-export PKCE challenge so callers don't need to reach into ./index
-// just to derive the challenge from the verifier this helper returned.
 export { createPkceCodeChallenge };

@@ -153,7 +153,6 @@ export {
   buildAuthorizationUrl,
   createPkceCodeChallenge,
   createPkceCodeVerifier,
-  decodeTokenResponse,
   exchangeAuthorizationCode,
   exchangeClientCredentials,
   refreshAccessToken,

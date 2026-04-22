@@ -46,7 +46,8 @@
   "dependencies": {
     "@effect/platform": "catalog:",
     "@executor/storage-core": "workspace:*",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "oauth4webapi": "^3.8.5"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
