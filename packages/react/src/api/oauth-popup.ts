@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// @executor/plugin-oauth2/react — browser popup opener for OAuth flows.
+// openOAuthPopup — browser popup opener for OAuth flows.
 //
 // Opens a centered popup window pointed at an authorization URL, listens
 // for the result via `postMessage` and `BroadcastChannel` (Safari fallback),

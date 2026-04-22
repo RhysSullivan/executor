@@ -283,10 +283,10 @@ export class OAuthSessionNotFoundError extends Schema.TaggedError<OAuthSessionNo
 ) {}
 
 // ---------------------------------------------------------------------------
-// Contract — what `ctx.oauth` exposes. Implementation lives in
-// `@executor/plugin-oauth2` under `makeOAuth2Service`; the SDK here
-// just owns the shape so plugins can depend on the contract without
-// pulling in the OAuth machinery.
+// Contract — what `ctx.oauth` exposes. Implementation is
+// `makeOAuth2Service` in `./oauth-service.ts`; this file just owns the
+// shape so plugins can depend on the contract without importing the
+// OAuth machinery itself.
 // ---------------------------------------------------------------------------
 
 export interface OAuthService {

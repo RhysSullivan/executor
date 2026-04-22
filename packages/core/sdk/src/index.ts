@@ -145,7 +145,7 @@ export {
 
 // OAuth helpers — PKCE, authorization URL builder, token endpoint
 // exchanges (authorization code + client credentials), refresh, and
-// response decoding. Previously lived at `@executor/plugin-oauth2`.
+// response decoding.
 export {
   OAuth2Error,
   OAUTH2_DEFAULT_TIMEOUT_MS,
